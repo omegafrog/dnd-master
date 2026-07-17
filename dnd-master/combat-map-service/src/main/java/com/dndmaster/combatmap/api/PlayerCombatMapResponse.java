@@ -1,0 +1,3 @@
+package com.dndmaster.combatmap.api;
+import com.dndmaster.combatmap.application.view.PlayerCombatMapView; import java.util.*;
+public record PlayerCombatMapResponse(UUID mapId,List<TokenResponse> tokens,List<LayerResponse> layers){public static PlayerCombatMapResponse from(PlayerCombatMapView v){return new PlayerCombatMapResponse(v.mapId().value(),v.tokens().stream().map(t->new TokenResponse(t.id().value(),t.type().name(),t.position().x(),t.position().y())).toList(),v.layers().stream().map(l->new LayerResponse(l.type(),l.value())).toList());}public record TokenResponse(UUID id,String type,int x,int y){}public record LayerResponse(String type,String value){} }
