@@ -1,0 +1,11 @@
+id	status	situation	expected	locator	candidates
+Q01	SUFFICIENT	Does advantage stack?	Advantage does not stack.	PHB p.173	-
+Q02	SUFFICIENT	How is a stealth check resolved?	Use a Dexterity check against the observer.	PHB p.177	-
+Q03	SUFFICIENT	What die is used for an attack roll?	Roll a d20 and add the attack modifier.	PHB p.194	-
+Q04	SUFFICIENT	When can a reaction occur?	A reaction occurs when its trigger is met.	PHB p.190	-
+Q05	SUFFICIENT	How does concentration end?	Concentration ends on failure, incapacitation, or another concentration spell.	PHB p.203	-
+Q06	SUFFICIENT	How is cover applied?	Cover grants the listed AC and Dexterity save bonus.	PHB p.196	-
+Q07	SUFFICIENT	How is falling damage calculated?	Take 1d6 bludgeoning damage per 10 feet, to the stated maximum.	PHB p.183	-
+Q08	SUFFICIENT	Can movement be split around an action?	Movement may be split before and after an action.	PHB p.190	-
+Q09	INSUFFICIENT	Does this improvised chandelier stunt auto-succeed?		DMG p.237	Use an ability check;;Apply a situational ruling
+Q10	CONFLICTING	Which optional flanking rule applies here?		DMG p.251	Use the selected variant;;Do not apply an unselected variant

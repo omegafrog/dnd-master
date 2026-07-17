@@ -8,24 +8,35 @@
             <groupId>com.dndmaster</groupId>
             <artifactId>identity-access-service</artifactId>
             <version>${project.version}</version>
+            <classifier>plain</classifier>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>com.dndmaster</groupId>
             <artifactId>adventure-service</artifactId>
             <version>${project.version}</version>
+            <classifier>plain</classifier>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>com.dndmaster</groupId>
             <artifactId>rule-knowledge-service</artifactId>
             <version>${project.version}</version>
+            <classifier>plain</classifier>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>com.dndmaster</groupId>
             <artifactId>combat-map-service</artifactId>
             <version>${project.version}</version>
+            <classifier>plain</classifier>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.dndmaster</groupId>
+            <artifactId>ai-game-master-service</artifactId>
+            <version>${project.version}</version>
+            <classifier>plain</classifier>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -50,7 +61,11 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <excludes><exclude>**/*E2ETest.java</exclude></excludes>
+                    <excludes>
+                        <exclude>**/*E2ETest.java</exclude>
+                        <exclude>**/*EvaluationTest.java</exclude>
+                        <exclude>**/*PerformanceTest.java</exclude>
+                    </excludes>
                 </configuration>
             </plugin>
             <plugin>
@@ -58,13 +73,21 @@
                 <artifactId>maven-failsafe-plugin</artifactId>
                 <version>${maven-surefire-plugin.version}</version>
                 <configuration>
-                    <includes><include>**/*E2ETest.java</include></includes>
+                    <includes>
+                        <include>**/*E2ETest.java</include>
+                        <include>**/*EvaluationTest.java</include>
+                        <include>**/*PerformanceTest.java</include>
+                    </includes>
                     <additionalClasspathElements>
                         <additionalClasspathElement>${project.parent.basedir}/identity-access-service/target/classes</additionalClasspathElement>
                         <additionalClasspathElement>${project.parent.basedir}/adventure-service/target/classes</additionalClasspathElement>
                         <additionalClasspathElement>${project.parent.basedir}/rule-knowledge-service/target/classes</additionalClasspathElement>
                         <additionalClasspathElement>${project.parent.basedir}/combat-map-service/target/classes</additionalClasspathElement>
+                        <additionalClasspathElement>${project.parent.basedir}/ai-game-master-service/target/classes</additionalClasspathElement>
                     </additionalClasspathElements>
+                    <systemPropertyVariables>
+                        <dnd.observability.policy>${project.parent.basedir}/infra/observability/telemetry-policy.properties</dnd.observability.policy>
+                    </systemPropertyVariables>
                 </configuration>
                 <executions>
                     <execution>
