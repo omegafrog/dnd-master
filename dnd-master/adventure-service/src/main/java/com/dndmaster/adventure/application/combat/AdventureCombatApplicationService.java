@@ -21,8 +21,11 @@ public final class AdventureCombatApplicationService {
 
     public CombatResult resolveCombatAction(CombatActionCommand command) {
         Objects.requireNonNull(command, "command must not be null");
-        CombatOperation operation = repository.findById(command.operationId())
-                .orElseGet(() -> new CombatOperation(command.operationId(), command.fingerprint()));
+        CombatOperation operation = repository.findById(command.operationId()).orElse(null);
+        if (operation == null) {
+            operation = new CombatOperation(command.operationId(), command.fingerprint());
+            repository.save(operation);
+        }
         operation.requireSame(command.fingerprint());
         if (operation.judgment().isPresent()) return result(command, operation);
 
