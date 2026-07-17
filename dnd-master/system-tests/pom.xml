@@ -54,6 +54,16 @@
             <artifactId>postgresql</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-database-postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
     <build>
         <plugins>
@@ -66,6 +76,9 @@
                         <exclude>**/*EvaluationTest.java</exclude>
                         <exclude>**/*PerformanceTest.java</exclude>
                     </excludes>
+                    <systemPropertyVariables>
+                        <dnd.migration.location>${project.parent.basedir}/infra/migrations/compatibility</dnd.migration.location>
+                    </systemPropertyVariables>
                 </configuration>
             </plugin>
             <plugin>
