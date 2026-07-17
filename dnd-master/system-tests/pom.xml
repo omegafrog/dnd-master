@@ -80,6 +80,8 @@
                         <exclude>**/*E2ETest.java</exclude>
                         <exclude>**/*EvaluationTest.java</exclude>
                         <exclude>**/*PerformanceTest.java</exclude>
+                        <exclude>**/*IntegrationTest.java</exclude>
+                        <exclude>**/PersistenceCompatibilityTest.java</exclude>
                     </excludes>
                     <systemPropertyVariables>
                         <dnd.migration.location>${project.parent.basedir}/infra/migrations/compatibility</dnd.migration.location>
@@ -95,6 +97,7 @@
                         <include>**/*E2ETest.java</include>
                         <include>**/*EvaluationTest.java</include>
                         <include>**/*PerformanceTest.java</include>
+                        <include>**/*IntegrationTest.java</include>
                     </includes>
                     <additionalClasspathElements>
                         <additionalClasspathElement>${project.parent.basedir}/identity-access-service/target/classes</additionalClasspathElement>
@@ -105,6 +108,7 @@
                     </additionalClasspathElements>
                     <systemPropertyVariables>
                         <dnd.observability.policy>${project.parent.basedir}/infra/observability/telemetry-policy.properties</dnd.observability.policy>
+                        <dnd.reactor.root>${maven.multiModuleProjectDirectory}</dnd.reactor.root>
                     </systemPropertyVariables>
                 </configuration>
                 <executions>

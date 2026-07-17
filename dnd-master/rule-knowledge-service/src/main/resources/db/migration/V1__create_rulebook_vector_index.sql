@@ -1,4 +1,4 @@
-CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
 
 CREATE TABLE rulebook_vector_index (
     index_id UUID PRIMARY KEY,
@@ -19,7 +19,7 @@ CREATE TABLE rulebook_vector_chunk (
     sequence INTEGER NOT NULL CHECK (sequence >= 0),
     locator TEXT NOT NULL,
     content TEXT NOT NULL,
-    embedding vector NOT NULL,
+    embedding public.vector NOT NULL,
     UNIQUE (index_id, sequence)
 );
 
