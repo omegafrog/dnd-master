@@ -1,0 +1,9 @@
+openapi: 3.1.0
+info: { title: Identity Access API, version: 1.0.0 }
+paths:
+  /api/v1/identity/sessions:
+    post: { operationId: login, responses: { '200': { description: authenticated } } }
+  /api/v1/identity/sessions/current:
+    delete: { operationId: logout, responses: { '204': { description: logged out } } }
+  /internal/v1/auth/introspections:
+    post: { operationId: introspect, responses: { '200': { description: authenticated principal } } }

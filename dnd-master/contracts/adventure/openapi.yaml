@@ -1,0 +1,29 @@
+openapi: 3.1.0
+info: { title: Adventure API, version: 1.0.0 }
+paths:
+  /api/v1/adventures/scenarios:
+    post: { operationId: uploadScenario, requestBody: { required: true, content: { multipart/form-data: { schema: { $ref: '../rule-knowledge/schemas/multipart-upload.json' } } } }, responses: { '202': { description: accepted } } }
+  /api/v1/adventures/{adventureId}/messages:
+    post: { operationId: streamAdventure, responses: { '200': { description: event stream, content: { text/event-stream: { schema: { $ref: './schemas/stream-event.json' } } } } } }
+  /api/v1/adventures/{adventureId}/rule-inquiries:
+    post: { operationId: answerRuleInquiry, responses: { '200': { description: grounded answer or candidates } } }
+  /api/v1/adventures/{adventureId}/combat-map:
+    get: { operationId: playerMap, responses: { '200': { description: player view, content: { application/json: { schema: { $ref: '../combat-map/schemas/player-map-view.json' } } } } } }
+  /api/v1/adventures/{adventureId}/dice-rolls:
+    post: { operationId: rollDice, responses: { '200': { description: role roll } } }
+  /api/v1/adventures/{adventureId}/save:
+    put: { operationId: saveAdventure, responses: { '200': { description: saved } } }
+  /api/v1/adventures/{adventureId}/resume:
+    post: { operationId: resumeAdventure, responses: { '204': { description: resumed } } }
+  /api/v1/adventures/{adventureId}:
+    delete: { operationId: deleteAdventure, responses: { '204': { description: deleted } } }
+  /internal/v1/adventures:
+    get: { operationId: ownedAdventures, responses: { '200': { description: owned resources } } }
+  /internal/v1/adventures/{adventureId}/edition:
+    get: { operationId: appliedEdition, responses: { '200': { description: edition } } }
+  /internal/v1/adventures/{adventureId}/roll-conditions:
+    get: { operationId: rollConditions, responses: { '200': { description: conditions } } }
+  /internal/v1/adventures/{adventureId}/movement-validations:
+    post: { operationId: validateMovement, responses: { '200': { description: validation } } }
+  /internal/v1/adventures/{adventureId}/gm-context:
+    get: { operationId: gmContext, responses: { '200': { description: bounded context } } }
