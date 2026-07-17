@@ -5,6 +5,7 @@
     <artifactId>architecture-tests</artifactId>
     <dependencies>
         <dependency><groupId>org.junit.jupiter</groupId><artifactId>junit-jupiter</artifactId><scope>test</scope></dependency>
+        <dependency><groupId>com.tngtech.archunit</groupId><artifactId>archunit</artifactId><version>1.4.2</version><scope>test</scope></dependency>
     </dependencies>
     <build>
         <plugins>
