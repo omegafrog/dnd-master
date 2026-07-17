@@ -1,0 +1,14 @@
+# Repository-local Harness installation
+/.codex/
+/harness
+/harness_codex/
+/completions/
+
+# Harness runtime state
+/.harness/
+/venv/
+
+# Python-generated files
+__pycache__/
+*.py[cod]
+
