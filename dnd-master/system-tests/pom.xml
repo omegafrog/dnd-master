@@ -3,4 +3,21 @@
     <modelVersion>4.0.0</modelVersion>
     <parent><groupId>com.dndmaster</groupId><artifactId>dnd-master</artifactId><version>0.1.0-SNAPSHOT</version></parent>
     <artifactId>system-tests</artifactId>
+    <dependencies>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.testcontainers</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.postgresql</groupId>
+            <artifactId>postgresql</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
 </project>
