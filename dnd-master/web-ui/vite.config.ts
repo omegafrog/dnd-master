@@ -7,5 +7,7 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     restoreMocks: true,
+    include: ['src/**/*.test.tsx'],
+    exclude: ['e2e/**'],
   },
 })
