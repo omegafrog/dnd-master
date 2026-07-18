@@ -18,7 +18,9 @@
         <springdoc.version>2.8.14</springdoc.version>
         <junit.version>5.12.2</junit.version>
         <maven-enforcer-plugin.version>3.6.2</maven-enforcer-plugin.version>
+        <maven-compiler-plugin.version>3.14.1</maven-compiler-plugin.version>
         <maven-surefire-plugin.version>3.5.3</maven-surefire-plugin.version>
+        <maven-failsafe-plugin.version>3.5.3</maven-failsafe-plugin.version>
     </properties>
 
     <modules>
@@ -63,9 +65,30 @@
                 </plugin>
                 <plugin>
                     <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>${maven-compiler-plugin.version}</version>
+                    <configuration>
+                        <release>${java.version}</release>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
                     <artifactId>maven-surefire-plugin</artifactId>
                     <version>${maven-surefire-plugin.version}</version>
-                    <configuration><failIfNoSpecifiedTests>false</failIfNoSpecifiedTests></configuration>
+                    <configuration>
+                        <failIfNoSpecifiedTests>false</failIfNoSpecifiedTests>
+                        <excludes>
+                            <exclude>**/*IntegrationTest.java</exclude>
+                            <exclude>**/DatabaseIsolationFixtureTest.java</exclude>
+                            <exclude>**/MigrationCompatibilityTest.java</exclude>
+                            <exclude>**/PersistenceCompatibilityTest.java</exclude>
+                        </excludes>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-failsafe-plugin</artifactId>
+                    <version>${maven-failsafe-plugin.version}</version>
                 </plugin>
             </plugins>
         </pluginManagement>
@@ -104,6 +127,27 @@
                                 <dependencyConvergence/>
                             </rules>
                         </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-failsafe-plugin</artifactId>
+                <configuration>
+                    <includes>
+                        <include>**/*IntegrationTest.java</include>
+                        <include>**/DatabaseIsolationFixtureTest.java</include>
+                        <include>**/MigrationCompatibilityTest.java</include>
+                        <include>**/PersistenceCompatibilityTest.java</include>
+                    </includes>
+                </configuration>
+                <executions>
+                    <execution>
+                        <id>default</id>
+                        <goals>
+                            <goal>integration-test</goal>
+                            <goal>verify</goal>
+                        </goals>
                     </execution>
                 </executions>
             </plugin>

@@ -6,6 +6,25 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
 $workflowPath = Join-Path $repoRoot '.github\workflows\dnd-master-ci.yml'
 $workflow = Get-Content -Raw -LiteralPath $workflowPath
+$javaCommand = if ($env:JAVA_HOME) {
+    Join-Path $env:JAVA_HOME 'bin\java.exe'
+} else {
+    'java'
+}
+if ($env:JAVA_HOME -and -not (Test-Path -LiteralPath $javaCommand)) {
+    throw 'DND Master CI requires JAVA_HOME to reference a Java 21 JDK.'
+}
+$previousErrorActionPreference = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+try {
+    $javaVersionOutput = & $javaCommand -version 2>&1
+    $javaVersionExitCode = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+}
+if ($javaVersionExitCode -ne 0 -or -not (($javaVersionOutput -join "`n") -match 'version "21\.')) {
+    throw 'DND Master CI requires Java 21 LTS. Configure JAVA_HOME and PATH with a Java 21 JDK.'
+}
 
 $requiredTokens = @(
     'actions/setup-java@v4',

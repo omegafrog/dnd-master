@@ -6,4 +6,16 @@ if [ -n "$JAVA_HOME" ]; then
 else
   JAVACMD=java
 fi
+
+if [ ! -x "$JAVACMD" ]; then
+  echo "DND Master requires a Java 21 executable. Set JAVA_HOME to a Java 21 JDK." >&2
+  exit 1
+fi
+
+if ! "$JAVACMD" -version 2>&1 | grep -Eq 'version "21([.]|\")'; then
+  echo "DND Master requires Java 21 LTS. JAVA_HOME or PATH selected a different JDK." >&2
+  "$JAVACMD" -version >&2 || true
+  exit 1
+fi
+
 exec "$JAVACMD" "-Dmaven.multiModuleProjectDirectory=$BASE_DIR" -classpath "$BASE_DIR/.mvn/wrapper/maven-wrapper.jar" org.apache.maven.wrapper.MavenWrapperMain "$@"
