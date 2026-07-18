@@ -1,0 +1,37 @@
+spring:
+  ai:
+    ollama:
+      base-url: http://127.0.0.1:11434
+      init:
+        pull-model-strategy: never
+      chat:
+        options:
+          model: qwen3:4b-instruct-2507-q4_K_M
+      embedding:
+        options:
+          model: qwen3-embedding:0.6b
+
+local-ai:
+  ollama:
+    base-url: http://127.0.0.1:11434
+    chat-model: qwen3:4b-instruct-2507-q4_K_M
+    embedding-model: qwen3-embedding:0.6b
+    allowed-models:
+      - qwen3:4b-instruct-2507-q4_K_M
+      - qwen3:8b-q4_K_M
+      - qwen3-embedding:0.6b
+    request-timeout: 5s
+    circuit-failure-threshold: 3
+---
+spring:
+  config:
+    activate:
+      on-profile: quality
+  ai:
+    ollama:
+      chat:
+        options:
+          model: qwen3:8b-q4_K_M
+local-ai:
+  ollama:
+    chat-model: qwen3:8b-q4_K_M
