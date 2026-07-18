@@ -91,6 +91,7 @@
                 <artifactId>maven-failsafe-plugin</artifactId>
                 <version>${maven-surefire-plugin.version}</version>
                 <configuration>
+                    <failIfNoSpecifiedTests>true</failIfNoSpecifiedTests>
                     <includes combine.children="append">
                         <include>**/*E2ETest.java</include>
                         <include>**/*EvaluationTest.java</include>
