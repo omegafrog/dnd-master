@@ -30,7 +30,7 @@ function Stop-ProcessTree([int]$ProcessId) {
     }
 }
 
-function Assert-Endpoint([string]$Name, [string]$Url, [string]$ExpectedText) {
+function Test-Endpoint([string]$Name, [string]$Url, [string]$ExpectedText) {
     $deadline = [DateTime]::UtcNow.AddSeconds($StartupTimeoutSeconds)
     do {
         try {
@@ -42,13 +42,14 @@ function Assert-Endpoint([string]$Name, [string]$Url, [string]$ExpectedText) {
             }
             if ($response.StatusCode -eq 200 -and $content -match $ExpectedText) {
                 Write-Host "PASS $Name $Url"
-                return
+                return $true
             }
         } catch {
             Start-Sleep -Milliseconds 400
         }
     } while ([DateTime]::UtcNow -lt $deadline)
-    throw "endpoint 검증 실패: $Name $Url"
+    Write-Host "FAIL $Name $Url"
+    return $false
 }
 
 try {
@@ -65,14 +66,27 @@ try {
     }
 
     $manifest = & (Join-Path $PSScriptRoot 'start-local.ps1') -RootPath $root -SkipBuild
+    $failedEndpoints = [System.Collections.Generic.List[string]]::new()
     foreach ($entry in $manifest.Processes | Where-Object Name -Ne 'web-ui') {
         $base = "http://127.0.0.1:$($entry.Port)"
-        Assert-Endpoint "$($entry.Name) health" "$base/actuator/health" '"status":"UP"'
-        Assert-Endpoint "$($entry.Name) OpenAPI" "$base/v3/api-docs" '"openapi"'
-        Assert-Endpoint "$($entry.Name) Swagger UI" "$base/swagger-ui/index.html" 'Swagger UI'
+        if (-not (Test-Endpoint "$($entry.Name) health" "$base/actuator/health" '"status":"UP"')) {
+            $failedEndpoints.Add("$($entry.Name) $base/actuator/health")
+        }
+        if (-not (Test-Endpoint "$($entry.Name) OpenAPI" "$base/v3/api-docs" '"openapi"')) {
+            $failedEndpoints.Add("$($entry.Name) $base/v3/api-docs")
+        }
+        if (-not (Test-Endpoint "$($entry.Name) Swagger UI" "$base/swagger-ui/index.html" 'Swagger UI')) {
+            $failedEndpoints.Add("$($entry.Name) $base/swagger-ui/index.html")
+        }
     }
-    Assert-Endpoint 'web-ui root' 'http://127.0.0.1:15173/' 'D&amp;D Master|id="root"'
+    if (-not (Test-Endpoint 'web-ui root' 'http://127.0.0.1:15173/' 'D&amp;D Master|id="root"')) {
+        $failedEndpoints.Add('web-ui http://127.0.0.1:15173/')
+    }
+    if ($failedEndpoints.Count -gt 0) {
+        throw "Runtime endpoint verification failed: $($failedEndpoints -join '; ')"
+    }
     Write-Host 'Runtime verification passed.'
+    exit 0
 } catch {
     if ($manifest -and $manifest.LogDirectory) {
         Write-Host "Runtime logs: $($manifest.LogDirectory)"
@@ -81,7 +95,8 @@ try {
             Get-Content $_.FullName -Tail 30
         }
     }
-    throw
+    Write-Error $_
+    exit 1
 } finally {
     if ($manifest) {
         $entries = @($manifest.Processes)

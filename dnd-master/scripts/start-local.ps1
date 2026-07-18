@@ -39,7 +39,7 @@ $started = [System.Collections.Generic.List[object]]::new()
 try {
     foreach ($service in $services) {
         $jar = Get-ChildItem (Join-Path $RootPath "$($service.Name)/target") -Filter '*.jar' |
-            Where-Object Name -NotLike '*.original' |
+            Where-Object { $_.Name -notlike '*-plain.jar' -and $_.Name -notlike '*.original' } |
             Select-Object -First 1
         if (-not $jar) { throw "실행 JAR 없음: $($service.Name)" }
 
