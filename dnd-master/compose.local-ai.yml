@@ -4,9 +4,13 @@ services:
   ollama:
     image: ollama/ollama:0.11.4
     ports:
-      - "127.0.0.1:11434:11434"
+      - "127.0.0.1:${LOCAL_AI_HOST_PORT:-11434}:11434"
     volumes:
       - "${OLLAMA_MODEL_ROOT:?Set OLLAMA_MODEL_ROOT to a canonical E: or F: directory}:/root/.ollama"
+      - ".:/workspace:ro"
+    environment:
+      SPRING_AI_OLLAMA_BASE_URL: http://localhost:11434
+      LOCAL_AI_OLLAMA_BASE_URL: http://localhost:11434
     healthcheck:
       test: ["CMD", "ollama", "list"]
       interval: 5s
