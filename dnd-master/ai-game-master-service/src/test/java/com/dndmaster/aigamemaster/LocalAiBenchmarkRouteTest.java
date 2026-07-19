@@ -25,8 +25,8 @@ class LocalAiBenchmarkRouteTest {
     private static final int WARMUP_RUNS = 2;
     private static final int MEASURED_RUNS = 5;
     private static final long COMPLETION_TARGET_MS = 30_000;
-    private static final String PROMPT_TEMPLATE = "Output only an uninterrupted numbered sequence with one item per line. "
-            + "Continue for at least %d items and do not summarize, conclude, or stop voluntarily.";
+    private static final String PROMPT_TEMPLATE = "Repeat only the word DND separated by one space exactly %d times. "
+            + "Output no punctuation, numbering, explanation, conclusion, or other word. Do not stop before the count.";
     private static final String EMBEDDING_INPUT = "DND local AI candidate benchmark probe";
 
     @Autowired ChatModel chatModel;
@@ -64,13 +64,14 @@ class LocalAiBenchmarkRouteTest {
                 .getStatusCode().is2xxSuccessful()).isTrue();
 
         long completionP95 = p95(completion);
+        boolean capSaturated = Arrays.stream(generatedTokens).allMatch(tokens -> tokens == numPredict);
         System.out.printf(
-                "LOCAL_AI_BENCHMARK {\"num_ctx\":4096,\"num_predict\":%d,\"prompt_sha256\":\"%s\",\"warmup_runs\":%d,\"measured_runs\":%d,\"ttft_samples_ms\":%s,\"ttft_p95_ms\":%d,\"completion_samples_ms\":%s,\"completion_p95_ms\":%d,\"embedding_samples_ms\":%s,\"embedding_p95_ms\":%d,\"generated_token_samples\":%s,\"tokens_per_second_samples\":%s,\"tokens_per_second_p50\":%.3f,\"completion_threshold_ms\":%d,\"pass\":%s}%n",
+                "LOCAL_AI_BENCHMARK {\"num_ctx\":4096,\"num_predict\":%d,\"prompt_sha256\":\"%s\",\"warmup_runs\":%d,\"measured_runs\":%d,\"ttft_samples_ms\":%s,\"ttft_p95_ms\":%d,\"completion_samples_ms\":%s,\"completion_p95_ms\":%d,\"embedding_samples_ms\":%s,\"embedding_p95_ms\":%d,\"generated_token_samples\":%s,\"cap_saturated\":%s,\"tokens_per_second_samples\":%s,\"tokens_per_second_p50\":%.3f,\"completion_threshold_ms\":%d,\"pass\":%s}%n",
                 numPredict, sha256(prompt.getContents()), WARMUP_RUNS, MEASURED_RUNS,
                 Arrays.toString(ttft), p95(ttft), Arrays.toString(completion), completionP95,
                 Arrays.toString(embedding), p95(embedding), Arrays.toString(generatedTokens),
-                decimalArray(tokensPerSecond), percentile(tokensPerSecond, 0.50), COMPLETION_TARGET_MS,
-                completionP95 <= COMPLETION_TARGET_MS);
+                capSaturated, decimalArray(tokensPerSecond), percentile(tokensPerSecond, 0.50), COMPLETION_TARGET_MS,
+                completionP95 <= COMPLETION_TARGET_MS && capSaturated);
     }
 
     private Prompt candidatePrompt() {
