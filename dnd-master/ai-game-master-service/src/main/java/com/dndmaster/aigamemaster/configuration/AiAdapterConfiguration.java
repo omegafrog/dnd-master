@@ -14,6 +14,6 @@ public class AiAdapterConfiguration {
         properties.validate();
         SafeAiAuditLogger auditLogger = new SafeAiAuditLogger(
                 message -> LoggerFactory.getLogger(SpringAiChatAdapter.class).info(message));
-        return new SpringAiChatAdapter(chatModel, properties.circuitFailureThreshold(), auditLogger);
+        return new SpringAiChatAdapter(chatModel, properties.retryMaxAttempts(), auditLogger);
     }
 }

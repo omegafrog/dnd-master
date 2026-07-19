@@ -18,7 +18,9 @@ class AiAdapterConfigurationTest {
                 LocalOllamaProperties.DEFAULT_EMBEDDING_MODEL,
                 Set.of(LocalOllamaProperties.DEFAULT_CHAT_MODEL, LocalOllamaProperties.DEFAULT_EMBEDDING_MODEL),
                 Duration.ofSeconds(5),
-                3);
+                3,
+                Duration.ofSeconds(30),
+                2);
 
         assertNotNull(new AiAdapterConfiguration().springAiChatAdapter(mock(ChatModel.class), properties));
     }

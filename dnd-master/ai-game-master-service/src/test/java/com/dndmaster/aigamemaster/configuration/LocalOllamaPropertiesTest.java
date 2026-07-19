@@ -24,6 +24,7 @@ class LocalOllamaPropertiesTest {
     private static LocalOllamaProperties properties(URI baseUrl, String chatModel) {
         return new LocalOllamaProperties(baseUrl, chatModel, LocalOllamaProperties.DEFAULT_EMBEDDING_MODEL,
                 Set.of(LocalOllamaProperties.DEFAULT_CHAT_MODEL, LocalOllamaProperties.QUALITY_CHAT_MODEL,
-                        LocalOllamaProperties.DEFAULT_EMBEDDING_MODEL), Duration.ofSeconds(5), 3);
+                        LocalOllamaProperties.DEFAULT_EMBEDDING_MODEL), Duration.ofSeconds(5), 3,
+                Duration.ofSeconds(30), 2);
     }
 }

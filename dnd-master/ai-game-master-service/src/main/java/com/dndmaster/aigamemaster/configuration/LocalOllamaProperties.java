@@ -12,7 +12,9 @@ public record LocalOllamaProperties(
         String embeddingModel,
         Set<String> allowedModels,
         Duration requestTimeout,
-        int circuitFailureThreshold) {
+        int circuitFailureThreshold,
+        Duration circuitResetTimeout,
+        int retryMaxAttempts) {
 
     public static final String DEFAULT_CHAT_MODEL = "qwen3:4b-instruct-2507-q4_K_M";
     public static final String DEFAULT_EMBEDDING_MODEL = "qwen3-embedding:0.6b";
@@ -30,8 +32,9 @@ public record LocalOllamaProperties(
             throw new IllegalStateException("Configured Ollama model is not allowlisted");
         }
         if (requestTimeout == null || requestTimeout.isNegative() || requestTimeout.isZero()
-                || circuitFailureThreshold < 1) {
-            throw new IllegalStateException("Ollama timeout and circuit threshold must be positive");
+                || circuitFailureThreshold < 1 || circuitResetTimeout == null
+                || circuitResetTimeout.isNegative() || circuitResetTimeout.isZero() || retryMaxAttempts < 1) {
+            throw new IllegalStateException("Ollama timeout, circuit and retry policy must be positive");
         }
     }
 
