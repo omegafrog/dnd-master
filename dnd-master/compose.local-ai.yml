@@ -2,7 +2,7 @@ name: dnd-master-local-ai
 
 services:
   ollama:
-    image: ollama/ollama:0.11.4
+    image: ollama/ollama:0.12.4
     ports:
       - "127.0.0.1:${LOCAL_AI_HOST_PORT:-11434}:11434"
     volumes:
