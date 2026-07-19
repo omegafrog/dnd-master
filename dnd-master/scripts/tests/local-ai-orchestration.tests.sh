@@ -39,6 +39,7 @@ if LOCAL_AI_MODEL_MOUNT=$fixture_root LOCAL_AI_REQUIRE_MOUNT=0 LOCAL_AI_MIN_FREE
   echo 'Insufficient-space fixture was accepted.' >&2
   exit 1
 fi
+rm -f /tmp/local-ai-model-link
 ln -s "$fixture_root" /tmp/local-ai-model-link
 if LOCAL_AI_MODEL_MOUNT=/tmp/local-ai-model-link LOCAL_AI_REQUIRE_MOUNT=0 LOCAL_AI_MIN_FREE_KB=1 require_model_mount >/dev/null 2>&1; then
   echo 'Symbolic-link fixture was accepted.' >&2
