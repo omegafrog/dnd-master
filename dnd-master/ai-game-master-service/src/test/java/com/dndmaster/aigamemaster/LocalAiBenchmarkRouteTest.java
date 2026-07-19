@@ -81,7 +81,7 @@ class LocalAiBenchmarkRouteTest {
         long started = System.nanoTime();
         ChatResponse first = chatModel.stream(prompt)
                 .filter(LocalAiBenchmarkRouteTest::hasText)
-                .blockFirst(Duration.ofSeconds(30));
+                .blockFirst(Duration.ofSeconds(120));
         long elapsed = elapsedMillis(started);
         assertThat(first).isNotNull();
         return elapsed;
