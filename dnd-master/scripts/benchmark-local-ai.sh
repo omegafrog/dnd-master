@@ -1,7 +1,6 @@
 #!/bin/sh
 set -eu
 . /workspace/scripts/local-ai-common.sh
-require_model_mount
 require_loopback_topology
 iteration=1
 samples=''
