@@ -8,6 +8,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Set;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
@@ -17,6 +18,7 @@ public final class OllamaStartupPreflight implements ApplicationRunner {
     private final LocalOllamaProperties properties;
     private final OllamaModelInventory inventory;
 
+    @Autowired
     public OllamaStartupPreflight(LocalOllamaProperties properties) {
         this(properties, new HttpOllamaModelInventory());
     }
