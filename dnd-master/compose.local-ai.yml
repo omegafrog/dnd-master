@@ -25,7 +25,7 @@ services:
       SPRING_AI_OLLAMA_BASE_URL: http://localhost:11434
       LOCAL_AI_OLLAMA_BASE_URL: http://localhost:11434
     volumes:
-      - ".:/workspace:ro"
+      - ".:/workspace"
       - "local-ai-m2:/root/.m2"
     entrypoint: ["mvn"]
 
