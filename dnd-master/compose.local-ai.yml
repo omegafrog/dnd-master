@@ -1,0 +1,29 @@
+name: dnd-master-local-ai
+
+services:
+  ollama:
+    image: ollama/ollama:0.11.4
+    ports:
+      - "127.0.0.1:11434:11434"
+    volumes:
+      - "${OLLAMA_MODEL_ROOT:?Set OLLAMA_MODEL_ROOT to a canonical E: or F: directory}:/root/.ollama"
+    healthcheck:
+      test: ["CMD", "ollama", "list"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  runner:
+    image: maven:3.9-eclipse-temurin-21
+    network_mode: service:ollama
+    working_dir: /workspace
+    environment:
+      SPRING_AI_OLLAMA_BASE_URL: http://localhost:11434
+      LOCAL_AI_OLLAMA_BASE_URL: http://localhost:11434
+    volumes:
+      - ".:/workspace:ro"
+      - "local-ai-m2:/root/.m2"
+    entrypoint: ["mvn"]
+
+volumes:
+  local-ai-m2:
