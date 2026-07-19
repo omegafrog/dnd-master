@@ -55,5 +55,5 @@ benchmark_output=$(LOCAL_AI_MODEL_MOUNT=$fixture_root LOCAL_AI_REQUIRE_MOUNT=0 L
   SPRING_AI_OLLAMA_BASE_URL=http://localhost:11434 LOCAL_AI_OLLAMA_BASE_URL=http://localhost:11434 \
   PATH="$fake_bin:$PATH" sh "$root/scripts/benchmark-local-ai.sh")
 test "$(cat /tmp/local-ai-mvn-count)" = 7
-test "$benchmark_output" = '{"warmup_runs":2,"measured_runs":5,"p95_ms":100}'
+test "$benchmark_output" = '{"warmup_runs":2,"measured_runs":5,"samples_ms":[100,100,100,100,100],"p95_ms":100}'
 echo 'PASS local AI Linux orchestration contracts'
