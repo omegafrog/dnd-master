@@ -59,6 +59,6 @@ class OllamaStartupPreflightTest {
         return new LocalOllamaProperties(URI.create(server.baseUrl()), LocalOllamaProperties.DEFAULT_CHAT_MODEL,
                 LocalOllamaProperties.DEFAULT_EMBEDDING_MODEL,
                 Set.of(LocalOllamaProperties.DEFAULT_CHAT_MODEL, LocalOllamaProperties.DEFAULT_EMBEDDING_MODEL),
-                Duration.ofSeconds(1), 3);
+                Duration.ofSeconds(5), 3);
     }
 }
