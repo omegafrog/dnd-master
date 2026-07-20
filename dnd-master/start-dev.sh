@@ -20,15 +20,21 @@ echo "==> Starting infra (PostgreSQL)…"
 docker compose -f "$INFRA/compose.yaml" up -d --wait
 echo "    Infra ready."
 
-# 2. Backend (app-all)
+# 2. Backend (app-all) — runs in background via subshell with exec
 echo "==> Starting backend (app-all)…"
-(cd "$ROOT" && ./gradlew :app-all:bootRun &)
+(cd "$ROOT" && exec ./gradlew :app-all:bootRun) &
 BACKEND_PID=$!
+echo "    Backend PID: $BACKEND_PID"
 
 # 3. Frontend (web-ui)
 echo "==> Starting frontend (web-ui)…"
-(cd "$UI" && npm run dev &)
+if [ ! -d "$UI/node_modules" ]; then
+    echo "    Installing frontend dependencies…"
+    (cd "$UI" && npm install)
+fi
+(cd "$UI" && exec npm run dev) &
 FRONTEND_PID=$!
+echo "    Frontend PID: $FRONTEND_PID"
 
 echo ""
 echo "  Backend:  http://localhost:8080"
