@@ -1,55 +1,58 @@
-export type RulebookStatus = 'EXTRACTING' | 'PARTIAL' | 'INDEXING' | 'READY' | 'FAILED'
+export type RulebookStatus = 'PENDING' | 'INDEXED' | 'FAILED'
 
 export type RulebookView = {
-  id: string
-  name: string
+  rulebookId: string
   status: RulebookStatus
-  warnings: string[]
-  owned: boolean
 }
 
 export interface SetupApi {
-  uploadRulebook(file: File): Promise<RulebookView>
-  refreshRulebook(id: string): Promise<RulebookView>
-  confirmPartialExtraction(id: string): Promise<RulebookView>
+  uploadRulebook(file: File, ownerId: string): Promise<RulebookView>
+  getRulebookStatus(rulebookId: string): Promise<RulebookView>
   uploadScenario(file: File): Promise<{ id: string; name: string }>
-  saveRuleSet(edition: '2014' | '2024', rulebookIds: string[]): Promise<void>
 }
 
-async function publicRequest<T>(path: string, init: RequestInit): Promise<T> {
+async function request<T>(path: string, init: RequestInit): Promise<T> {
   const response = await fetch(path, init)
   if (response.status === 400) throw new Error('지원하지 않거나 손상된 파일입니다.')
-  if (response.status === 403) throw new Error('다른 플레이어의 자료는 사용할 수 없습니다.')
-  if (!response.ok) throw new Error('자료 설정 요청을 처리하지 못했습니다.')
+  if (!response.ok) throw new Error('요청을 처리하지 못했습니다.')
+  if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
 }
 
 export class HttpSetupApi implements SetupApi {
-  uploadRulebook(file: File) {
+  private readonly getToken: () => string
+
+  constructor(getToken: () => string) {
+    this.getToken = getToken
+  }
+
+  private authHeaders(): Record<string, string> {
+    return { Authorization: `Bearer ${this.getToken()}` }
+  }
+
+  uploadRulebook(file: File, ownerId: string) {
     const body = new FormData()
     body.append('file', file)
-    return publicRequest<RulebookView>('/api/public/rulebooks', { method: 'POST', body })
+    return request<RulebookView>(`/api/v1/rulebooks?ownerPlayerId=${ownerId}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${this.getToken()}` },
+      body,
+    })
   }
 
-  refreshRulebook(id: string) {
-    return publicRequest<RulebookView>(`/api/public/rulebooks/${id}`, { method: 'GET' })
-  }
-
-  confirmPartialExtraction(id: string) {
-    return publicRequest<RulebookView>(`/api/public/rulebooks/${id}/partial-extraction-confirmations`, { method: 'POST' })
+  getRulebookStatus(rulebookId: string) {
+    return request<RulebookView>(`/api/v1/rulebooks/${rulebookId}`, {
+      headers: this.authHeaders(),
+    })
   }
 
   uploadScenario(file: File) {
     const body = new FormData()
     body.append('file', file)
-    return publicRequest<{ id: string; name: string }>('/api/public/adventures/scenarios', { method: 'POST', body })
-  }
-
-  async saveRuleSet(edition: '2014' | '2024', rulebookIds: string[]) {
-    await publicRequest<unknown>('/api/public/adventures/rule-sets', {
+    return request<{ id: string; name: string }>('/api/v1/adventures/scenarios', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ edition, rulebookIds }),
+      headers: { Authorization: `Bearer ${this.getToken()}` },
+      body,
     })
   }
 }

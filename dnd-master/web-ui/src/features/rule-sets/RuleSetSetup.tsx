@@ -1,51 +1,36 @@
 import { type FormEvent, useState } from 'react'
-import type { RulebookView, SetupApi } from '../rulebooks/SetupApi'
+import type { SetupApi } from '../rulebooks/SetupApi'
 
-export function RuleSetSetup({ api, rulebooks, onError }: {
-  api: SetupApi
-  rulebooks: RulebookView[]
-  onError(message: string): void
-}) {
-  const [saved, setSaved] = useState(false)
+export function RuleSetSetup({ api }: { api: SetupApi }) {
+  const [message, setMessage] = useState('')
+  const [rulebookId, setRulebookId] = useState('')
+  const [status, setStatus] = useState('')
 
-  async function save(event: FormEvent<HTMLFormElement>) {
+  async function checkStatus(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    const edition = String(form.get('edition')) as '2014' | '2024'
-    const ids = form.getAll('rulebooks').map(String)
-    if (ids.length === 0) {
-      onError('적용할 룰북을 하나 이상 선택하세요.')
+    if (!rulebookId.trim()) {
+      setMessage('룰북 ID를 입력하세요.')
       return
     }
     try {
-      await api.saveRuleSet(edition, ids)
-      setSaved(true)
+      const result = await api.getRulebookStatus(rulebookId.trim())
+      setStatus(result.status)
+      setMessage('')
     } catch (error) {
-      onError(error instanceof Error ? error.message : '룰 세트를 저장하지 못했습니다.')
+      setMessage(error instanceof Error ? error.message : '상태를 확인하지 못했습니다.')
     }
   }
 
   return (
     <section aria-labelledby="rules-heading">
-      <h2 id="rules-heading">적용 룰 세트</h2>
-      <form onSubmit={save}>
-        <label>판본
-          <select name="edition" defaultValue="2024">
-            <option value="2014">2014</option>
-            <option value="2024">2024</option>
-          </select>
-        </label>
-        <fieldset>
-          <legend>내 룰북 선택</legend>
-          {rulebooks.filter(book => book.owned && book.status === 'READY').map(book => (
-            <label key={book.id}>
-              <input type="checkbox" name="rulebooks" value={book.id} />{book.name}
-            </label>
-          ))}
-        </fieldset>
-        <button type="submit">룰 세트 저장</button>
+      <h2 id="rules-heading">룰북 상태 확인</h2>
+      <form onSubmit={checkStatus}>
+        <label>룰북 ID<input name="rulebookId" value={rulebookId}
+          onChange={event => setRulebookId(event.currentTarget.value)} required /></label>
+        <button type="submit">상태 조회</button>
       </form>
-      {saved && <p>룰 세트가 저장되었습니다.</p>}
+      <p role="status">{message}</p>
+      {status && <p>상태: {status}</p>}
     </section>
   )
 }
