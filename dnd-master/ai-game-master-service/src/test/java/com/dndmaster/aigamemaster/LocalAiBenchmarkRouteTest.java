@@ -9,6 +9,7 @@ import java.time.Duration;
 import java.util.Arrays;
 import java.util.HexFormat;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.condition.EnabledIf;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
@@ -21,6 +22,7 @@ import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@EnabledIf("isOllamaAvailable")
 class LocalAiBenchmarkRouteTest {
     private static final int WARMUP_RUNS = 2;
     private static final int MEASURED_RUNS = 5;
@@ -149,4 +151,19 @@ class LocalAiBenchmarkRouteTest {
     }
 
     private record CompletionSample(long elapsedMillis, int generatedTokens, double tokensPerSecond) { }
+
+    static boolean isOllamaAvailable() {
+        try {
+            var client = java.net.http.HttpClient.newHttpClient();
+            var request = java.net.http.HttpRequest.newBuilder()
+                    .uri(java.net.URI.create("http://localhost:11434/api/tags"))
+                    .timeout(java.time.Duration.ofSeconds(2))
+                    .GET()
+                    .build();
+            var response = client.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+            return response.statusCode() == 200;
+        } catch (Exception e) {
+            return false;
+        }
+    }
 }

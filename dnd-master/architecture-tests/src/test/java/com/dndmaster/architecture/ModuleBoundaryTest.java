@@ -9,25 +9,29 @@ import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import javax.xml.parsers.DocumentBuilderFactory;
 import org.junit.jupiter.api.Test;
 
 class ModuleBoundaryTest {
     private static final Map<String, String> SERVICE_PACKAGES = servicePackages();
 
     @Test
-    void servicePomsDoNotCreateInterServiceJavaDependencies() throws Exception {
+    void serviceBuildsDoNotCreateInterServiceJavaDependencies() throws Exception {
         Path root = reactorRoot();
+        List<String> allServiceNames = List.copyOf(SERVICE_PACKAGES.keySet());
         for (String module : SERVICE_PACKAGES.keySet()) {
-            var document = DocumentBuilderFactory.newInstance()
-                    .newDocumentBuilder()
-                    .parse(root.resolve(module).resolve("pom.xml").toFile());
-            var artifactIds = document.getElementsByTagName("artifactId");
-            for (int index = 0; index < artifactIds.getLength(); index++) {
-                String artifactId = artifactIds.item(index).getTextContent().trim();
+            Path buildFile = root.resolve(module).resolve("build.gradle.kts");
+            if (!Files.isRegularFile(buildFile)) {
+                continue;
+            }
+            String buildContent = Files.readString(buildFile);
+            for (String otherService : allServiceNames) {
+                if (otherService.equals(module)) {
+                    continue;
+                }
+                String projectDep = "project(\":" + otherService + "\")";
                 assertTrue(
-                        artifactId.equals(module) || !SERVICE_PACKAGES.containsKey(artifactId),
-                        () -> module + " must communicate with " + artifactId + " through a contract, not a Java dependency");
+                        !buildContent.contains(projectDep),
+                        () -> module + " must communicate with " + otherService + " through a contract, not a Java dependency");
             }
         }
     }
@@ -35,7 +39,7 @@ class ModuleBoundaryTest {
     @Test
     void compiledClassesRespectDomainAndBoundedContextBoundaries() throws Exception {
         List<Path> classDirectories = SERVICE_PACKAGES.keySet().stream()
-                .map(module -> reactorRoot().resolve(module).resolve("target/classes"))
+                .map(module -> reactorRoot().resolve(module).resolve("build/classes/java/main"))
                 .filter(Files::isDirectory)
                 .filter(ModuleBoundaryTest::containsClassFile)
                 .toList();

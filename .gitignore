@@ -12,3 +12,19 @@
 __pycache__/
 *.py[cod]
 
+
+# Dependencies
+node_modules/
+
+# Build output
+**/target/
+**/build/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
