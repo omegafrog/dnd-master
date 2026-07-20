@@ -89,6 +89,6 @@ jobs:
       - name: Backend system E2E tests
         run: |
           chmod +x ./dnd-master/gradlew
-          ./dnd-master/gradlew -p dnd-master :system-tests:verify
+          ./dnd-master/gradlew -p dnd-master :system-tests:integrationTest
       - name: Browser E2E tests
         run: npm --prefix dnd-master/web-ui run test:e2e

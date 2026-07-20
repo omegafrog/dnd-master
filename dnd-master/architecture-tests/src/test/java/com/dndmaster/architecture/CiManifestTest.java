@@ -34,7 +34,7 @@ class CiManifestTest {
                 "docker compose -f dnd-master/infra/compose.yaml config",
                 ":architecture-tests:test",
                 ":contract-tests:test",
-                ":system-tests:verify",
+                ":system-tests:integrationTest",
                 "npm --prefix dnd-master/web-ui run lint",
                 "npm --prefix dnd-master/web-ui test -- --run",
                 "npm --prefix dnd-master/web-ui run build",
