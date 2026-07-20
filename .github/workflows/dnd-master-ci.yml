@@ -28,9 +28,9 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-          cache: maven
+          cache: gradle
       - name: Build and run focused service tests
-        run: ./dnd-master/mvnw -f dnd-master/pom.xml -pl "${{ matrix.service }}" -am test
+        run: ./dnd-master/gradlew -p dnd-master :${{ matrix.service }}:test
 
   architecture-and-contracts:
     runs-on: ubuntu-latest
@@ -40,11 +40,11 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-          cache: maven
+          cache: gradle
       - name: Architecture tests
-        run: ./dnd-master/mvnw -f dnd-master/pom.xml -pl architecture-tests -am test
+        run: ./dnd-master/gradlew -p dnd-master :architecture-tests:test
       - name: Contract tests
-        run: ./dnd-master/mvnw -f dnd-master/pom.xml -pl contract-tests -am test
+        run: ./dnd-master/gradlew -p dnd-master :contract-tests:test
 
   web-ui:
     runs-on: ubuntu-latest
@@ -69,7 +69,7 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
-          cache: maven
+          cache: gradle
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -81,6 +81,6 @@ jobs:
           docker compose -f dnd-master/infra/compose.yaml config
       - run: npm --prefix dnd-master/web-ui ci
       - name: Backend system E2E tests
-        run: ./dnd-master/mvnw -f dnd-master/pom.xml -pl system-tests -am verify
+        run: ./dnd-master/gradlew -p dnd-master :system-tests:verify
       - name: Browser E2E tests
         run: npm --prefix dnd-master/web-ui run test:e2e
