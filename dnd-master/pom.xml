@@ -31,6 +31,7 @@
         <module>dice-roll-service</module>
         <module>combat-map-service</module>
         <module>ai-game-master-service</module>
+        <module>app-all</module>
         <module>architecture-tests</module>
         <module>contract-tests</module>
         <module>system-tests</module>

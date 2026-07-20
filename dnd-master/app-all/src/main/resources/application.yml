@@ -1,0 +1,58 @@
+server:
+  port: 8080
+
+spring:
+  datasource:
+    url: jdbc:postgresql://127.0.0.1:5432/postgres
+    username: postgres
+    password: dnd-master-local
+    hikari:
+      maximum-pool-size: 20
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  ai:
+    retry:
+      max-attempts: 1
+    ollama:
+      init:
+        pull-model-strategy: never
+      chat:
+        options:
+          model: qwen3:4b-instruct-2507-q4_K_M
+          keep-alive: 30m
+          num-ctx: 4096
+          num-predict: 1024
+      embedding:
+        options:
+          model: qwen3-embedding:0.6b
+          keep-alive: 30m
+          dimensions: 1024
+
+local-ai:
+  ollama:
+    base-url: http://127.0.0.1:11434
+    chat-model: qwen3:4b-instruct-2507-q4_K_M
+    embedding-model: qwen3-embedding:0.6b
+    allowed-models:
+      - qwen3:4b-instruct-2507-q4_K_M
+      - qwen3:8b-q4_K_M
+      - qwen3-embedding:0.6b
+    request-timeout: 5s
+    circuit-failure-threshold: 3
+    circuit-reset-timeout: 30s
+    retry-max-attempts: 2
+
+---
+spring:
+  config:
+    activate:
+      on-profile: quality
+  ai:
+    ollama:
+      chat:
+        options:
+          model: qwen3:8b-q4_K_M
+local-ai:
+  ollama:
+    chat-model: qwen3:8b-q4_K_M
