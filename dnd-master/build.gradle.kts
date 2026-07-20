@@ -56,6 +56,7 @@ subprojects {
 
     dependencies {
         "testImplementation"("org.junit.jupiter:junit-jupiter")
+        "testImplementation"("org.junit.platform:junit-platform-launcher")
         "testImplementation"("org.springframework.boot:spring-boot-starter-test")
     }
 }
