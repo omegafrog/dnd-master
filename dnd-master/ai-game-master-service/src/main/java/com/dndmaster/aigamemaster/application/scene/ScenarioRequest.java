@@ -1,0 +1,3 @@
+package com.dndmaster.aigamemaster.application.scene;
+import com.dndmaster.aigamemaster.application.rule.SourceEvidence; import java.util.*;
+public record ScenarioRequest(UUID scenarioId,String selectedScenario,String currentContext,UUID ruleSetId,List<SourceEvidence> evidence){public ScenarioRequest{Objects.requireNonNull(scenarioId);selectedScenario=required(selectedScenario,"scenario");currentContext=required(currentContext,"context");Objects.requireNonNull(ruleSetId);evidence=List.copyOf(Objects.requireNonNull(evidence));}private static String required(String v,String n){if(v==null||v.isBlank())throw new IllegalArgumentException(n+" required");return v.trim();}}

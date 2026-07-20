@@ -1,0 +1,94 @@
+name: DND Master CI
+
+on:
+  pull_request:
+  push:
+    branches: [main, "changes/**"]
+
+permissions:
+  contents: read
+
+jobs:
+  backend-services:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service:
+          - identity-access-service
+          - adventure-service
+          - rule-knowledge-service
+          - character-management-service
+          - dice-roll-service
+          - combat-map-service
+          - ai-game-master-service
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - name: Build and run focused service tests
+        run: |
+          chmod +x ./dnd-master/gradlew
+          ./dnd-master/gradlew -p dnd-master :${{ matrix.service }}:test
+
+  architecture-and-contracts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - name: Architecture tests
+        run: |
+          chmod +x ./dnd-master/gradlew
+          ./dnd-master/gradlew -p dnd-master :architecture-tests:test
+      - name: Contract tests
+        run: |
+          chmod +x ./dnd-master/gradlew
+          ./dnd-master/gradlew -p dnd-master :contract-tests:test
+
+  web-ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dnd-master/web-ui/package-lock.json
+      - run: npm --prefix dnd-master/web-ui ci
+      - run: npm --prefix dnd-master/web-ui run lint
+      - run: npm --prefix dnd-master/web-ui test -- --run
+      - run: npm --prefix dnd-master/web-ui run build
+
+  end-to-end:
+    runs-on: ubuntu-latest
+    needs: [backend-services, architecture-and-contracts, web-ui]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: dnd-master/web-ui/package-lock.json
+      - name: Verify Docker runtime
+        run: |
+          docker version
+          docker compose -f dnd-master/infra/compose.yaml config
+      - run: npm --prefix dnd-master/web-ui ci
+      - name: Backend system E2E tests
+        run: |
+          chmod +x ./dnd-master/gradlew
+          ./dnd-master/gradlew -p dnd-master :system-tests:integrationTest
+      - name: Browser E2E tests
+        run: npm --prefix dnd-master/web-ui run test:e2e

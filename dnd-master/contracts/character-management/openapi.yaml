@@ -1,0 +1,6 @@
+openapi: 3.1.0
+info: { title: Character Management API, version: 1.0.0 }
+paths:
+  /internal/v1/character-sheets/{sheetId}:
+    get: { operationId: getCharacterSheet, responses: { '200': { description: edition sheet } } }
+    put: { operationId: preserveCharacterSheet, responses: { '200': { description: preserved } } }

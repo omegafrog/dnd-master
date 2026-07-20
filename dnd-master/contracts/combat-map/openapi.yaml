@@ -1,0 +1,9 @@
+openapi: 3.1.0
+info: { title: Combat Map API, version: 1.0.0 }
+paths:
+  /internal/v1/combat-maps/{mapId}/player-view:
+    get: { operationId: playerView, responses: { '200': { description: filtered view, content: { application/json: { schema: { $ref: './schemas/player-map-view.json' } } } } } }
+  /internal/v1/combat-maps/{mapId}/moves:
+    post: { operationId: movePlayer, responses: { '200': { description: moved }, '422': { description: movement denied } } }
+  /internal/v1/combat-maps/{mapId}/ai-state:
+    post: { operationId: controlAiState, responses: { '200': { description: controlled } } }
