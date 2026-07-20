@@ -1,0 +1,1 @@
+VALID: Core movement rules.

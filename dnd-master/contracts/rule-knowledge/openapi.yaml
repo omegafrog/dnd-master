@@ -1,0 +1,15 @@
+openapi: 3.1.0
+info: { title: Rule Knowledge API, version: 1.0.0 }
+paths:
+  /api/v1/rulebooks:
+    post: { operationId: uploadRulebook, requestBody: { required: true, content: { multipart/form-data: { schema: { $ref: './schemas/multipart-upload.json' } } } }, responses: { '202': { description: accepted, content: { application/json: { schema: { $ref: './schemas/async-status.json' } } } } } }
+  /api/v1/rulebooks/{rulebookId}:
+    get: { operationId: rulebookStatus, responses: { '200': { description: processing status } } }
+  /internal/v1/rulebooks:
+    get: { operationId: ownedRulebooks, responses: { '200': { description: owned rulebooks } } }
+  /internal/v1/rulebook-indexes:
+    get: { operationId: ownedIndexes, responses: { '200': { description: owned indexes } } }
+  /internal/v1/rulebooks/{rulebookId}/ownership:
+    get: { operationId: rulebookOwnership, responses: { '200': { description: ownership } } }
+  /internal/v1/rule-evidence/search:
+    post: { operationId: searchEvidence, responses: { '200': { description: scoped evidence } } }

@@ -1,0 +1,3 @@
+package com.dndmaster.aigamemaster.infrastructure.ai;
+import java.util.Objects; import java.util.function.Consumer;
+public final class SafeAiAuditLogger{private final Consumer<String> sink;public SafeAiAuditLogger(Consumer<String> sink){this.sink=Objects.requireNonNull(sink);}public void success(String operationId){sink.accept("ai.operation="+safe(operationId)+" status=success payload=[REDACTED]");}public void failure(String operationId,Throwable error){sink.accept("ai.operation="+safe(operationId)+" status=failure error="+error.getClass().getSimpleName()+" payload=[REDACTED]");}private static String safe(String value){return value.replaceAll("[^A-Za-z0-9._-]","_");}}

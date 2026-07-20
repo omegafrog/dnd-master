@@ -1,0 +1,7 @@
+openapi: 3.1.0
+info: { title: Dice Roll API, version: 1.0.0 }
+paths:
+  /internal/v1/dice-rolls/player:
+    post: { operationId: playerRoll, responses: { '200': { description: player result } } }
+  /internal/v1/dice-rolls/ai:
+    post: { operationId: aiRoll, responses: { '200': { description: AI role result } } }
