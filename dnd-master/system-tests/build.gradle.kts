@@ -6,6 +6,7 @@ dependencies {
     testImplementation(project(":rule-knowledge-service"))
     testImplementation(project(":combat-map-service"))
     testImplementation(project(":ai-game-master-service"))
+    testImplementation("org.springframework.ai:spring-ai-starter-model-ollama")
     testImplementation("org.testcontainers:postgresql")
     testImplementation("org.testcontainers:junit-jupiter")
     testImplementation("org.postgresql:postgresql")
