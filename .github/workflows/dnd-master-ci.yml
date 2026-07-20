@@ -30,7 +30,9 @@ jobs:
           java-version: "21"
           cache: gradle
       - name: Build and run focused service tests
-        run: ./dnd-master/gradlew -p dnd-master :${{ matrix.service }}:test
+        run: |
+          chmod +x ./dnd-master/gradlew
+          ./dnd-master/gradlew -p dnd-master :${{ matrix.service }}:test
 
   architecture-and-contracts:
     runs-on: ubuntu-latest
@@ -42,9 +44,13 @@ jobs:
           java-version: "21"
           cache: gradle
       - name: Architecture tests
-        run: ./dnd-master/gradlew -p dnd-master :architecture-tests:test
+        run: |
+          chmod +x ./dnd-master/gradlew
+          ./dnd-master/gradlew -p dnd-master :architecture-tests:test
       - name: Contract tests
-        run: ./dnd-master/gradlew -p dnd-master :contract-tests:test
+        run: |
+          chmod +x ./dnd-master/gradlew
+          ./dnd-master/gradlew -p dnd-master :contract-tests:test
 
   web-ui:
     runs-on: ubuntu-latest
@@ -81,6 +87,8 @@ jobs:
           docker compose -f dnd-master/infra/compose.yaml config
       - run: npm --prefix dnd-master/web-ui ci
       - name: Backend system E2E tests
-        run: ./dnd-master/gradlew -p dnd-master :system-tests:verify
+        run: |
+          chmod +x ./dnd-master/gradlew
+          ./dnd-master/gradlew -p dnd-master :system-tests:verify
       - name: Browser E2E tests
         run: npm --prefix dnd-master/web-ui run test:e2e
