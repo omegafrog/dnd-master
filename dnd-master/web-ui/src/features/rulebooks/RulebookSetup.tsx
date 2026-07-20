@@ -1,34 +1,39 @@
 import { type FormEvent, useState } from 'react'
-import { RuleSetSetup } from '../rule-sets/RuleSetSetup'
-import { ScenarioSetup } from '../scenarios/ScenarioSetup'
 import type { RulebookView, SetupApi } from './SetupApi'
+import { ScenarioSetup } from '../scenarios/ScenarioSetup'
 
 const statusText: Record<RulebookView['status'], string> = {
-  EXTRACTING: '텍스트 추출 중', PARTIAL: '부분 추출 확인 필요', INDEXING: '색인 생성 중',
-  READY: '사용 준비 완료', FAILED: '처리 실패',
+  PENDING: '처리 중', INDEXED: '사용 준비 완료', FAILED: '처리 실패',
 }
 
-export function RulebookSetup({ api }: { api: SetupApi }) {
+export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: string }) {
   const [rulebooks, setRulebooks] = useState<RulebookView[]>([])
   const [message, setMessage] = useState('')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [uploading, setUploading] = useState(false)
 
   function replace(book: RulebookView) {
-    setRulebooks(current => [...current.filter(item => item.id !== book.id), book])
+    setRulebooks(current => [...current.filter(item => item.rulebookId !== book.rulebookId), book])
   }
 
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!selectedFile) return
     setMessage('')
-    try { replace(await api.uploadRulebook(selectedFile)) }
-    catch (error) { setMessage(error instanceof Error ? error.message : '룰북을 업로드하지 못했습니다.') }
+    setUploading(true)
+    try {
+      replace(await api.uploadRulebook(selectedFile, playerId))
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '룰북을 업로드하지 못했습니다.')
+    } finally {
+      setUploading(false)
+    }
   }
 
-  async function update(book: RulebookView, confirm: boolean) {
+  async function refresh(book: RulebookView) {
     setMessage('')
     try {
-      replace(confirm ? await api.confirmPartialExtraction(book.id) : await api.refreshRulebook(book.id))
+      replace(await api.getRulebookStatus(book.rulebookId))
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '룰북 상태를 확인하지 못했습니다.')
     }
@@ -43,22 +48,19 @@ export function RulebookSetup({ api }: { api: SetupApi }) {
         <form onSubmit={upload}>
           <label>룰북 파일<input name="rulebook" type="file" accept=".pdf,.docx,.txt"
             onChange={event => setSelectedFile(event.currentTarget.files?.[0] ?? null)} /></label>
-          <button type="submit">룰북 업로드</button>
+          <button type="submit" disabled={uploading}>{uploading ? '업로드 중…' : '룰북 업로드'}</button>
         </form>
         <ul aria-label="룰북 처리 상태">
           {rulebooks.map(book => (
-            <li key={book.id}>
-              <strong>{book.name}</strong>: {statusText[book.status]}
-              {book.warnings.length > 0 && <ul>{book.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul>}
-              {book.status === 'PARTIAL' && <button onClick={() => void update(book, true)}>부분 추출 사용</button>}
-              {(book.status === 'EXTRACTING' || book.status === 'INDEXING') &&
-                <button onClick={() => void update(book, false)}>상태 새로고침</button>}
+            <li key={book.rulebookId}>
+              <strong>{book.rulebookId}</strong>: {statusText[book.status]}
+              {(book.status === 'PENDING') &&
+                <button onClick={() => void refresh(book)}>상태 새로고침</button>}
             </li>
           ))}
         </ul>
       </section>
       <ScenarioSetup api={api} onError={setMessage} />
-      <RuleSetSetup api={api} rulebooks={rulebooks} onError={setMessage} />
     </main>
   )
 }
