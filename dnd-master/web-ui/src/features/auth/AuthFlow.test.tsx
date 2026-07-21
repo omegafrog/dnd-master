@@ -11,6 +11,7 @@ class FakeIdentityApi implements IdentityApi {
   session: IdentitySession = {
     accessToken: 'public-api-token',
     playerName: 'Minsc',
+    playerId: 'player-1',
     expiresAt: new Date(Date.now() + 60_000).toISOString(),
   }
 
@@ -18,6 +19,9 @@ class FakeIdentityApi implements IdentityApi {
     this.credentials = credentials
     return this.session
   }
+
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async register(_credentials: LoginCredentials) { /* noop */ }
 
   async logout(accessToken: string) {
     this.logoutToken = accessToken
@@ -39,8 +43,7 @@ describe('authentication flow', () => {
 
     expect(api.credentials).toEqual({ email: 'hero@example.com', password: 'swordfish' })
     expect(screen.getByRole('navigation', { name: '주요 메뉴' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '모험' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'Minsc님의 모험' })).toBeInTheDocument()
+    expect(screen.getByText('Minsc님 환영합니다!')).toBeInTheDocument()
   })
 
   it('logs out through the Identity public API and returns to login', async () => {

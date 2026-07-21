@@ -1,16 +1,8 @@
-export type SourceLocation = { rulebook: string; locator: string }
-export type CandidateRule = { id: string; text: string; sources: SourceLocation[] }
-export type RuleGuidance = {
-  inquiryId: string
-  status: 'SUFFICIENT' | 'INSUFFICIENT' | 'CONFLICTING'
-  answer?: string
-  sources: SourceLocation[]
-  candidates: CandidateRule[]
-}
+export type SourceEvidence = { rulebookId: string; locator: string; excerpt: string }
+export type RuleInquiryResponse = { inquiryId: string; status: string }
 
 export interface RuleGuidanceApi {
-  ask(adventureId: string, situation: string): Promise<RuleGuidance>
-  selectFinalRule(inquiryId: string, candidateId: string): Promise<void>
+  ask(adventureId: string, situation: string): Promise<RuleInquiryResponse>
 }
 
 async function request<T>(path: string, init: RequestInit): Promise<T> {
@@ -20,14 +12,27 @@ async function request<T>(path: string, init: RequestInit): Promise<T> {
 }
 
 export class HttpRuleGuidanceApi implements RuleGuidanceApi {
-  ask(adventureId: string, situation: string) {
-    return request<RuleGuidance>(`/api/public/adventures/${adventureId}/rule-inquiries`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ situation }),
-    })
+  private readonly getToken: () => string
+  private readonly getPlayerId: () => string
+
+  constructor(getToken: () => string, getPlayerId: () => string) {
+    this.getToken = getToken
+    this.getPlayerId = getPlayerId
   }
-  async selectFinalRule(inquiryId: string, candidateId: string) {
-    await request(`/api/public/rule-inquiries/${inquiryId}/selected-rule`, {
-      method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ candidateId }),
+
+  ask(adventureId: string, situation: string) {
+    return request<RuleInquiryResponse>(`/api/v1/adventures/${adventureId}/rule-inquiries`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.getToken()}`,
+      },
+      body: JSON.stringify({
+        inquiryId: crypto.randomUUID(),
+        ruleSetId: null,
+        playerId: this.getPlayerId(),
+        situation,
+      }),
     })
   }
 }

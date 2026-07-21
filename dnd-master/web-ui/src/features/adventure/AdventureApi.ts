@@ -1,21 +1,25 @@
 export interface AdventureApi {
-  streamMessage(adventureId: string, message: string): AsyncIterable<string>
+  sendMessage(adventureId: string, message: string): Promise<void>
 }
 
 export class HttpAdventureApi implements AdventureApi {
-  async *streamMessage(adventureId: string, message: string): AsyncIterable<string> {
-    const response = await fetch(`/api/public/adventures/${adventureId}/messages`, {
+  private readonly getToken: () => string
+  private readonly getPlayerId: () => string
+
+  constructor(getToken: () => string, getPlayerId: () => string) {
+    this.getToken = getToken
+    this.getPlayerId = getPlayerId
+  }
+
+  async sendMessage(adventureId: string, message: string): Promise<void> {
+    const response = await fetch(`/api/v1/adventures/${adventureId}/messages`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-      body: JSON.stringify({ message }),
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.getToken()}`,
+      },
+      body: JSON.stringify({ playerId: this.getPlayerId(), action: message }),
     })
-    if (!response.ok || !response.body) throw new Error('모험 응답 스트림을 시작하지 못했습니다.')
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder()
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) return
-      yield decoder.decode(value, { stream: true })
-    }
+    if (!response.ok) throw new Error('모험 메시지를 전송하지 못했습니다.')
   }
 }

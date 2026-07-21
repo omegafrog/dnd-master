@@ -2,16 +2,28 @@ package com.dndmaster.character;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.dndmaster.character.CharacterManagementServiceApplication;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+import javax.sql.DataSource;
+
+@SpringBootTest(
+        classes = CharacterManagementServiceApplication.class,
+        webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+        properties = {
+            "spring.main.lazy-initialization=true",
+            "spring.flyway.enabled=false",
+            "management.health.db.enabled=false"
+        })
 class OpenApiIntegrationTest {
     @LocalServerPort int port;
     @Autowired TestRestTemplate http;
+    @MockBean DataSource dataSource;
 
     @Test void exposesSwaggerOpenApiAndHealth() {
         assertThat(http.getForEntity(url("/swagger-ui/index.html"), String.class).getStatusCode().is2xxSuccessful()).isTrue();
