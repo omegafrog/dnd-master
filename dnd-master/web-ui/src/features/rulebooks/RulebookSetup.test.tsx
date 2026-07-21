@@ -13,6 +13,7 @@ class FakeSetupApi implements SetupApi {
     if (this.uploadError) throw new Error(this.uploadError)
     return this.book
   }
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async getRulebookStatus(_rulebookId: string) {
     return { ...this.book, status: 'INDEXED' as const }
   }
