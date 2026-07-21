@@ -49,7 +49,7 @@ local-ai:
       - qwen3.5:2b
       - qwen3.5:9b
       - qwen3-embedding:0.6b
-    request-timeout: 5s
+    request-timeout: 120s
     circuit-failure-threshold: 3
     circuit-reset-timeout: 30s
     retry-max-attempts: 2
