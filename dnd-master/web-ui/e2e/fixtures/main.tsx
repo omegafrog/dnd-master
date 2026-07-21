@@ -28,6 +28,7 @@ const setupApi: SetupApi = {
   async uploadRulebook(file) { return { rulebookId: file.name, status: 'INDEXED' } },
   async getRulebookStatus(rulebookId) { return { rulebookId, status: 'INDEXED' } },
   async uploadScenario(file) { return { id: 'scenario-e2e', name: file.name } },
+  async saveRuleSet() {},
 }
 
 const adventureApi: AdventureApi = {

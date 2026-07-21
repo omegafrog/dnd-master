@@ -9,6 +9,7 @@ export interface SetupApi {
   uploadRulebook(file: File, ownerId: string): Promise<RulebookView>
   getRulebookStatus(rulebookId: string): Promise<RulebookView>
   uploadScenario(file: File): Promise<{ id: string; name: string }>
+  saveRuleSet(rulebookIds: string[]): Promise<void>
 }
 
 async function request<T>(path: string, init: RequestInit): Promise<T> {
@@ -53,6 +54,14 @@ export class HttpSetupApi implements SetupApi {
       method: 'POST',
       headers: { Authorization: `Bearer ${this.getToken()}` },
       body,
+    })
+  }
+
+  saveRuleSet(rulebookIds: string[]) {
+    return request<void>('/api/v1/rulebooks/rule-set', {
+      method: 'POST',
+      headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ rulebookIds }),
     })
   }
 }

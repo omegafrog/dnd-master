@@ -11,6 +11,8 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
   const [message, setMessage] = useState('')
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [ruleSetMessage, setRuleSetMessage] = useState('')
 
   function replace(book: RulebookView) {
     setRulebooks(current => [...current.filter(item => item.rulebookId !== book.rulebookId), book])
@@ -39,6 +41,25 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
     }
   }
 
+  function toggleSelected(rulebookId: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(rulebookId)) next.delete(rulebookId)
+      else next.add(rulebookId)
+      return next
+    })
+  }
+
+  async function saveRuleSet() {
+    setRuleSetMessage('')
+    try {
+      await api.saveRuleSet([...selectedIds])
+      setRuleSetMessage('룰 세트가 저장되었습니다.')
+    } catch (error) {
+      setRuleSetMessage(error instanceof Error ? error.message : '룰 세트를 저장하지 못했습니다.')
+    }
+  }
+
   return (
     <main>
       <h1>자료와 모험 설정</h1>
@@ -53,12 +74,22 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
         <ul aria-label="룰북 처리 상태">
           {rulebooks.map(book => (
             <li key={book.rulebookId}>
-              <strong>{book.rulebookId}</strong>: {statusText[book.status]}
+              <label>
+                <input type="checkbox"
+                  checked={selectedIds.has(book.rulebookId)}
+                  onChange={() => toggleSelected(book.rulebookId)}
+                  disabled={book.status !== 'INDEXED'} />
+                {book.rulebookId}
+              </label>: {statusText[book.status]}
               {(book.status === 'PENDING') &&
                 <button onClick={() => void refresh(book)}>상태 새로고침</button>}
             </li>
           ))}
         </ul>
+        {rulebooks.some(b => b.status === 'INDEXED') && (
+          <button onClick={() => void saveRuleSet()}>룰 세트 저장</button>
+        )}
+        {ruleSetMessage && <p role="status">{ruleSetMessage}</p>}
       </section>
       <ScenarioSetup api={api} onError={setMessage} />
     </main>
