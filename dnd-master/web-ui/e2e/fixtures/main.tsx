@@ -25,11 +25,9 @@ const identityApi: IdentityApi = {
 }
 
 const setupApi: SetupApi = {
-  async uploadRulebook(file) { return { id: 'rules-e2e', name: file.name, status: 'READY', warnings: [], owned: true } },
-  async refreshRulebook() { throw new Error('READY rulebook does not refresh') },
-  async confirmPartialExtraction() { throw new Error('READY rulebook needs no confirmation') },
+  async uploadRulebook(file) { return { rulebookId: file.name, status: 'INDEXED' } },
+  async getRulebookStatus(rulebookId) { return { rulebookId, status: 'INDEXED' } },
   async uploadScenario(file) { return { id: 'scenario-e2e', name: file.name } },
-  async saveRuleSet() {},
 }
 
 const adventureApi: AdventureApi = {
@@ -73,7 +71,7 @@ function Journey() {
   const auth = useAuth()
   if (!auth.session) return <main><h1>D&amp;D Master</h1><LoginForm /></main>
   return <>
-    <RulebookSetup api={setupApi} />
+    <RulebookSetup api={setupApi} playerId="player-e2e" />
     <div aria-label="모험 플레이">
       <AdventureStream adventureId={adventureId} api={adventureApi} />
       <RuleEvidence adventureId={adventureId} api={guidanceApi} />
