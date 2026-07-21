@@ -1,0 +1,1 @@
+{"$schema":"https://json-schema.org/draft/2020-12/schema","type":"object","required":["rulebookId","playerId","owned"],"properties":{"rulebookId":{"type":"string","format":"uuid"},"playerId":{"type":"string","format":"uuid"},"owned":{"type":"boolean"}}}

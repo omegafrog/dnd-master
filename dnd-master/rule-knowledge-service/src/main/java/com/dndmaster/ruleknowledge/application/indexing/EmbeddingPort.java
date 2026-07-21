@@ -4,5 +4,5 @@ import com.dndmaster.ruleknowledge.domain.index.RulebookChunk;
 import java.util.List;
 
 public interface EmbeddingPort {
-    void embed(List<RulebookChunk> chunks, String embeddingModel, int expectedDimension);
+    List<ChunkEmbedding> embed(List<RulebookChunk> chunks, String embeddingModel, int expectedDimension);
 }

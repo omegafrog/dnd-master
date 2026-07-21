@@ -2,14 +2,97 @@ openapi: 3.1.0
 info: { title: Rule Knowledge API, version: 1.0.0 }
 paths:
   /api/v1/rulebooks:
-    post: { operationId: uploadRulebook, requestBody: { required: true, content: { multipart/form-data: { schema: { $ref: './schemas/multipart-upload.json' } } } }, responses: { '202': { description: accepted, content: { application/json: { schema: { $ref: './schemas/async-status.json' } } } } } }
+    post:
+      operationId: uploadRulebook
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema: { $ref: './schemas/multipart-upload.json' }
+      responses:
+        '202':
+          description: accepted
+          content:
+            application/json:
+              schema: { $ref: './schemas/async-status.json' }
+        '409':
+          description: conflict - same idempotency key with different file
   /api/v1/rulebooks/{rulebookId}:
-    get: { operationId: rulebookStatus, responses: { '200': { description: processing status } } }
+    get:
+      operationId: rulebookStatus
+      parameters:
+        - name: rulebookId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: processing status
+          content:
+            application/json:
+              schema: { $ref: './schemas/rulebook-status-response.json' }
   /internal/v1/rulebooks:
-    get: { operationId: ownedRulebooks, responses: { '200': { description: owned rulebooks } } }
+    get:
+      operationId: ownedRulebooks
+      parameters:
+        - name: ownerId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: owned rulebooks
+          content:
+            application/json:
+              schema: { $ref: './schemas/owned-rulebooks-response.json' }
   /internal/v1/rulebook-indexes:
-    get: { operationId: ownedIndexes, responses: { '200': { description: owned indexes } } }
+    get:
+      operationId: ownedIndexes
+      parameters:
+        - name: ownerId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: owned indexes
+          content:
+            application/json:
+              schema: { $ref: './schemas/owned-indexes-response.json' }
   /internal/v1/rulebooks/{rulebookId}/ownership:
-    get: { operationId: rulebookOwnership, responses: { '200': { description: ownership } } }
+    get:
+      operationId: rulebookOwnership
+      parameters:
+        - name: rulebookId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: playerId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: ownership
+          content:
+            application/json:
+              schema: { $ref: './schemas/ownership-response.json' }
   /internal/v1/rule-evidence/search:
-    post: { operationId: searchEvidence, responses: { '200': { description: scoped evidence } } }
+    post:
+      operationId: searchEvidence
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './schemas/evidence-search-request.json' }
+      responses:
+        '200':
+          description: scoped evidence
+          content:
+            application/json:
+              schema: { $ref: './schemas/evidence-search-response.json' }

@@ -1,0 +1,20 @@
+spring:
+  ai:
+    ollama:
+      base-url: http://127.0.0.1:11434
+      init:
+        pull-model-strategy: never
+      embedding:
+        options:
+          model: qwen3-embedding:0.6b
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  flyway:
+    enabled: false
+
+rule-knowledge:
+  storage:
+    root: ./build/test-rulebooks
