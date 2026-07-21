@@ -9,6 +9,7 @@ it('lists, resumes and deletes adventures through the AdventurePlayApi', async (
   const calls: string[] = []
   const api: AdventurePlayApi = {
     async listSaved() { return [{ id: 'old', title: 'Old Keep', updatedAt: '2026-01-01' }] },
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     async save(_adventureId, _playerId, _expectedVersion, _currentScene) {
       calls.push('save')
       return { adventureId: 'new', newVersion: 1 }
