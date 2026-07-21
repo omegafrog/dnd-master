@@ -107,7 +107,7 @@ class OwnershipIsolationE2ETest {
             String content, String locator) {
         var chunk = new RulebookChunk(
                 rulebookId, new ChunkId(UUID.randomUUID()), 0,
-                new ExtractedContentRange(0, content.length()), content);
+                new ExtractedContentRange(0, content.length()), content, null, null);
         repository.storeReadyIndex(
                 new IndexMetadata(
                         IndexId.generate(), rulebookId,

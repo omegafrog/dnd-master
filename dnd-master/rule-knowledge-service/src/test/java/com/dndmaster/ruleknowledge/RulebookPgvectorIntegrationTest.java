@@ -117,7 +117,7 @@ class RulebookPgvectorIntegrationTest {
 
     private static RulebookChunk chunk(RulebookId rulebookId, ChunkId chunkId, int sequence, String content) {
         return new RulebookChunk(
-                rulebookId, chunkId, sequence, new ExtractedContentRange(0, content.length()), content);
+                rulebookId, chunkId, sequence, new ExtractedContentRange(0, content.length()), content, null, null);
     }
 
     private static OwnerPlayerId owner() {

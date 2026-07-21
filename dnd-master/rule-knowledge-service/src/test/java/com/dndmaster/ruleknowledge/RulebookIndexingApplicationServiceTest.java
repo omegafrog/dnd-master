@@ -10,6 +10,7 @@ import com.dndmaster.ruleknowledge.application.indexing.IndexingCommand;
 import com.dndmaster.ruleknowledge.application.indexing.IndexingFailedException;
 import com.dndmaster.ruleknowledge.application.indexing.RulebookIndexRepository;
 import com.dndmaster.ruleknowledge.application.indexing.RulebookIndexingApplicationService;
+import com.dndmaster.ruleknowledge.application.indexing.StructureDetectionPort;
 import com.dndmaster.ruleknowledge.domain.index.IndexKey;
 import com.dndmaster.ruleknowledge.domain.index.IndexStatus;
 import com.dndmaster.ruleknowledge.domain.index.RulebookChunk;
@@ -101,7 +102,7 @@ class RulebookIndexingApplicationServiceTest {
     private static RulebookIndexingApplicationService service(
             RulebookIndexRepository repository, EmbeddingPort embeddings, int maximumChunkCharacters) {
         return new RulebookIndexingApplicationService(
-                repository, embeddings, new RulebookIndexingPolicy(maximumChunkCharacters));
+                repository, embeddings, text -> StructureDetectionPort.DetectedStructure.none(), maximumChunkCharacters);
     }
 
     private static IndexingCommand command(Rulebook rulebook) {
