@@ -115,6 +115,7 @@ public class RuleKnowledgeController {
         return switch (status) {
             case UPLOADED -> "EXTRACTING";
             case EXTRACTED -> "INDEXING";
+            case INDEXED -> "READY";
             case PARTIAL_AWAITING_CONFIRMATION -> "PARTIAL";
             case PARTIAL_CONFIRMED -> "INDEXING";
             case REJECTED -> "FAILED";

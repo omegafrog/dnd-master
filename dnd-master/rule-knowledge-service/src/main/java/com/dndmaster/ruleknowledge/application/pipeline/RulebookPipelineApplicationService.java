@@ -20,18 +20,24 @@ public final class RulebookPipelineApplicationService {
     private final RulebookFileStorage fileStorage;
     private final RulebookContentExtractor contentExtractor;
     private final RulebookIndexingApplicationService indexingService;
+    private final int embeddingDimension;
 
     public RulebookPipelineApplicationService(
             RulebookRegistrationApplicationService registrationService,
             RulebookRegistrationRepository registrationRepository,
             RulebookFileStorage fileStorage,
             RulebookContentExtractor contentExtractor,
-            RulebookIndexingApplicationService indexingService) {
+            RulebookIndexingApplicationService indexingService,
+            int embeddingDimension) {
         this.registrationService = Objects.requireNonNull(registrationService, "registrationService must not be null");
         this.registrationRepository = Objects.requireNonNull(registrationRepository, "registrationRepository must not be null");
         this.fileStorage = Objects.requireNonNull(fileStorage, "fileStorage must not be null");
         this.contentExtractor = Objects.requireNonNull(contentExtractor, "contentExtractor must not be null");
         this.indexingService = Objects.requireNonNull(indexingService, "indexingService must not be null");
+        if (embeddingDimension <= 0) {
+            throw new IllegalArgumentException("embeddingDimension must be positive");
+        }
+        this.embeddingDimension = embeddingDimension;
     }
 
     public RulebookProcessingResult process(UploadRulebookCommand command) {
@@ -104,8 +110,26 @@ public final class RulebookPipelineApplicationService {
         if (rulebook.isEligibleForSplitting()) {
             try {
                 IndexKey indexKey = new IndexKey(rulebookId, hash, "ollama-embedding", "v1");
-                IndexingCommand indexingCommand = new IndexingCommand(rulebook, indexKey, 1536);
+                IndexingCommand indexingCommand = new IndexingCommand(rulebook, indexKey, embeddingDimension);
                 indexingService.indexContent(indexingCommand);
+                StoredRulebookRegistration indexed = new StoredRulebookRegistration(
+                        updated.rulebookId(),
+                        updated.ownerPlayerId(),
+                        updated.operationKey(),
+                        updated.contentHash(),
+                        updated.format(),
+                        updated.fileSize(),
+                        updated.storageKey(),
+                        ProcessingStatus.INDEXED,
+                        updated.extractionStatus(),
+                        updated.extractedContent(),
+                        updated.missingLocations(),
+                        updated.failureCode(),
+                        updated.version() + 1,
+                        updated.createdAt(),
+                        java.time.Instant.now());
+                registrationRepository.save(indexed);
+                return new RulebookProcessingResult(rulebookId, ProcessingStatus.INDEXED, List.of());
             } catch (Exception e) {
                 // Indexing failed but extraction succeeded — still return EXTRACTED status
                 return new RulebookProcessingResult(

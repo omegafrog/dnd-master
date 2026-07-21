@@ -14,24 +14,39 @@ import java.util.UUID;
 
 public final class RuleEvidenceSearchApplicationService {
     private final PgvectorRuleEvidenceSearchRepository searchRepository;
+    private final EmbeddingPort embeddingPort;
+    private final String embeddingModel;
+    private final int embeddingDimension;
 
-    public RuleEvidenceSearchApplicationService(PgvectorRuleEvidenceSearchRepository searchRepository) {
+    public RuleEvidenceSearchApplicationService(
+            PgvectorRuleEvidenceSearchRepository searchRepository,
+            EmbeddingPort embeddingPort,
+            String embeddingModel,
+            int embeddingDimension) {
         this.searchRepository = Objects.requireNonNull(searchRepository, "searchRepository must not be null");
+        this.embeddingPort = Objects.requireNonNull(embeddingPort, "embeddingPort must not be null");
+        this.embeddingModel = Objects.requireNonNull(embeddingModel, "embeddingModel must not be null");
+        if (embeddingDimension <= 0) {
+            throw new IllegalArgumentException("embeddingDimension must be positive");
+        }
+        this.embeddingDimension = embeddingDimension;
     }
 
     public List<RuleEvidenceResult> search(SearchRuleEvidenceQuery query) {
         Objects.requireNonNull(query, "query must not be null");
 
-        // Create a dummy chunk for embedding the query text
-        RulebookChunk dummyChunk = new RulebookChunk(
+        // Embed the query text using the real embedding model
+        RulebookChunk queryChunk = new RulebookChunk(
                 RulebookId.generate(),
                 new ChunkId(UUID.randomUUID()),
                 0,
                 new ExtractedContentRange(0, query.situation().length()),
                 query.situation());
 
-        // Use a fake embedding for now — the real embedding will come from QueryEmbeddingPort
-        float[] queryEmbedding = generateFakeEmbedding(query.situation(), 1536);
+        float[] queryEmbedding = embeddingPort.embed(
+                List.of(queryChunk), embeddingModel, embeddingDimension)
+                .get(0)
+                .vector();
 
         List<RuleSearchHit> hits = searchRepository.search(
                 query.owner(),
@@ -47,15 +62,5 @@ public final class RuleEvidenceSearchApplicationService {
                         hit.content(),
                         1.0 - hit.distance()))
                 .toList();
-    }
-
-    private static float[] generateFakeEmbedding(String text, int dimension) {
-        float[] embedding = new float[dimension];
-        int hash = text.hashCode();
-        for (int i = 0; i < dimension; i++) {
-            hash = hash * 31 + i;
-            embedding[i] = (float) Math.sin(hash) * 0.1f;
-        }
-        return embedding;
     }
 }

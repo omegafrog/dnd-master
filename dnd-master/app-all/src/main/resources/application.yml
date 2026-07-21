@@ -36,6 +36,8 @@ spring:
 rule-knowledge:
   storage:
     root: ./data/rulebooks
+  embedding-model: qwen3-embedding:0.6b
+  embedding-dimension: 1024
 
 local-ai:
   ollama:
