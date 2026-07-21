@@ -9,7 +9,9 @@ public record RuleSearchHit(
         ChunkId chunkId,
         String locator,
         String content,
-        double distance) {
+        double distance,
+        String chapter,
+        String section) {
     public RuleSearchHit {
         Objects.requireNonNull(rulebookId, "rulebookId must not be null");
         Objects.requireNonNull(chunkId, "chunkId must not be null");
