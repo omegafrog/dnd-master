@@ -18,6 +18,7 @@ class FakeSetupApi implements SetupApi {
     return { ...this.book, status: 'INDEXED' as const }
   }
   async uploadScenario(file: File) { return { id: 'scenario-1', name: file.name } }
+  async saveRuleSet() {}
 }
 
 describe('rulebook and adventure setup', () => {
