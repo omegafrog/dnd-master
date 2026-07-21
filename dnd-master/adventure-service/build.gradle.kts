@@ -9,4 +9,6 @@ dependencies {
     testImplementation("org.flywaydb:flyway-database-postgresql")
     testImplementation("org.testcontainers:postgresql")
     testImplementation("org.wiremock:wiremock-standalone:3.13.1")
+    testRuntimeOnly("com.h2database:h2")
+    testImplementation("org.springframework.boot:spring-boot-starter-jdbc")
 }

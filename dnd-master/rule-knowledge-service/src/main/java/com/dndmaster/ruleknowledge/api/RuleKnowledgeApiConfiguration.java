@@ -7,6 +7,7 @@ import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicat
 import com.dndmaster.ruleknowledge.infrastructure.extraction.*;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookIndexRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookRegistrationRepository;
+import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchPort;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorRuleEvidenceSearchRepository;
 import com.dndmaster.ruleknowledge.infrastructure.storage.LocalFileSystemRulebookStorage;
 import com.dndmaster.ruleknowledge.infrastructure.storage.RulebookStorageProperties;
@@ -55,7 +56,7 @@ public class RuleKnowledgeApiConfiguration {
     }
 
     @Bean
-    PgvectorRuleEvidenceSearchRepository evidenceSearchRepository(DataSource dataSource) {
+    RuleEvidenceSearchPort evidenceSearchRepository(DataSource dataSource) {
         return new PgvectorRuleEvidenceSearchRepository(dataSource);
     }
 
@@ -81,7 +82,7 @@ public class RuleKnowledgeApiConfiguration {
 
     @Bean
     RuleEvidenceSearchApplicationService evidenceSearchService(
-            PgvectorRuleEvidenceSearchRepository searchRepository,
+            RuleEvidenceSearchPort searchRepository,
             EmbeddingPort embeddingPort,
             @Value("${rule-knowledge.embedding-model:qwen3-embedding:0.6b}") String embeddingModel,
             @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension) {

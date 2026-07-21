@@ -4,7 +4,7 @@ import com.dndmaster.ruleknowledge.application.indexing.*;
 import com.dndmaster.ruleknowledge.application.registration.*;
 import com.dndmaster.ruleknowledge.domain.index.IndexKey;
 import com.dndmaster.ruleknowledge.domain.rulebook.*;
-import com.dndmaster.ruleknowledge.infrastructure.persistence.EmbeddedRulebookChunk;
+import com.dndmaster.ruleknowledge.domain.index.EmbeddedRulebookChunk;
 
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;

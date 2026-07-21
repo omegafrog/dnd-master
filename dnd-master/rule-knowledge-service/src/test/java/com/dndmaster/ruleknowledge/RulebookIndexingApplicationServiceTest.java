@@ -158,7 +158,7 @@ class RulebookIndexingApplicationServiceTest {
         }
 
         @Override
-        public void saveComplete(RulebookIndex index, List<com.dndmaster.ruleknowledge.infrastructure.persistence.EmbeddedRulebookChunk> chunks) {
+        public void saveComplete(RulebookIndex index, List<com.dndmaster.ruleknowledge.domain.index.EmbeddedRulebookChunk> chunks) {
             indexes.put(index.key(), index);
             savedStatuses.add(index.status());
         }

@@ -1,5 +1,7 @@
 package com.dndmaster.ruleknowledge.infrastructure.persistence;
 
+import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchPort;
+import com.dndmaster.ruleknowledge.application.search.RuleSearchHit;
 import com.dndmaster.ruleknowledge.domain.index.ChunkId;
 import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
@@ -12,7 +14,7 @@ import java.util.Objects;
 import java.util.UUID;
 import javax.sql.DataSource;
 
-public final class PgvectorRuleEvidenceSearchRepository {
+public final class PgvectorRuleEvidenceSearchRepository implements RuleEvidenceSearchPort {
     private static final String SEARCH = """
             SELECT rulebook_id, chunk_id, locator, content,
                    embedding <=> CAST(? AS vector) AS distance,
