@@ -5,21 +5,19 @@ import com.dndmaster.ruleknowledge.domain.index.ChunkId;
 import com.dndmaster.ruleknowledge.domain.index.ExtractedContentRange;
 import com.dndmaster.ruleknowledge.domain.index.RulebookChunk;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
-import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorRuleEvidenceSearchRepository;
-import com.dndmaster.ruleknowledge.infrastructure.persistence.RuleSearchHit;
 
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 
 public final class RuleEvidenceSearchApplicationService {
-    private final PgvectorRuleEvidenceSearchRepository searchRepository;
+    private final RuleEvidenceSearchPort searchRepository;
     private final EmbeddingPort embeddingPort;
     private final String embeddingModel;
     private final int embeddingDimension;
 
     public RuleEvidenceSearchApplicationService(
-            PgvectorRuleEvidenceSearchRepository searchRepository,
+            RuleEvidenceSearchPort searchRepository,
             EmbeddingPort embeddingPort,
             String embeddingModel,
             int embeddingDimension) {

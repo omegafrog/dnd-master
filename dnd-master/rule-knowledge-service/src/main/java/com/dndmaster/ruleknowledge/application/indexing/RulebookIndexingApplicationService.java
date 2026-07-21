@@ -6,7 +6,7 @@ import com.dndmaster.ruleknowledge.domain.index.RulebookChunk;
 import com.dndmaster.ruleknowledge.domain.index.RulebookIndex;
 import com.dndmaster.ruleknowledge.domain.index.RulebookIndexingPolicy;
 import com.dndmaster.ruleknowledge.domain.rulebook.Rulebook;
-import com.dndmaster.ruleknowledge.infrastructure.persistence.EmbeddedRulebookChunk;
+import com.dndmaster.ruleknowledge.domain.index.EmbeddedRulebookChunk;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;

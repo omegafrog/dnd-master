@@ -1,6 +1,8 @@
 package com.dndmaster.ruleknowledge.infrastructure.persistence;
 
+import com.dndmaster.ruleknowledge.application.search.RuleSearchHit;
 import com.dndmaster.ruleknowledge.domain.index.ChunkId;
+import com.dndmaster.ruleknowledge.domain.index.EmbeddedRulebookChunk;
 import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
 import java.sql.Connection;

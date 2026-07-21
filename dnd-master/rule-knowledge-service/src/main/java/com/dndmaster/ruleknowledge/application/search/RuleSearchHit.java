@@ -1,4 +1,4 @@
-package com.dndmaster.ruleknowledge.infrastructure.persistence;
+package com.dndmaster.ruleknowledge.application.search;
 
 import com.dndmaster.ruleknowledge.domain.index.ChunkId;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;

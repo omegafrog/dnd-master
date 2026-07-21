@@ -8,4 +8,6 @@ dependencies {
     testImplementation("org.flywaydb:flyway-core")
     testImplementation("org.flywaydb:flyway-database-postgresql")
     testImplementation("org.testcontainers:postgresql")
+    testRuntimeOnly("com.h2database:h2")
+    testImplementation("org.springframework.boot:spring-boot-starter-jdbc")
 }
