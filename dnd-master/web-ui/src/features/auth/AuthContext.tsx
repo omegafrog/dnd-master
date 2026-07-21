@@ -5,6 +5,7 @@ type AuthState = {
   session: IdentitySession | null
   message: string
   login(credentials: LoginCredentials): Promise<void>
+  register(credentials: LoginCredentials): Promise<void>
   logout(): Promise<void>
 }
 
@@ -38,6 +39,15 @@ export function AuthProvider({ api, children }: PropsWithChildren<{ api: Identit
         setSession(await api.login(credentials))
       } catch (error) {
         setMessage(error instanceof Error ? error.message : '로그인하지 못했습니다.')
+      }
+    },
+    async register(credentials) {
+      setMessage('')
+      try {
+        await api.register(credentials)
+        setMessage('회원가입이 완료되었습니다. 로그인하세요.')
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : '회원가입하지 못했습니다.')
       }
     },
     async logout() {

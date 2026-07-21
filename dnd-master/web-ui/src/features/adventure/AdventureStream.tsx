@@ -1,12 +1,10 @@
 import { type FormEvent, useState } from 'react'
 import type { AdventureApi } from './AdventureApi'
 
-type Message = { speaker: '플레이어' | 'AI 게임 마스터'; text: string; complete: boolean }
-
 export function AdventureStream({ adventureId, api }: { adventureId: string; api: AdventureApi }) {
-  const [messages, setMessages] = useState<Message[]>([])
+  const [messages, setMessages] = useState<{ speaker: string; text: string }[]>([])
   const [notice, setNotice] = useState('')
-  const [streaming, setStreaming] = useState(false)
+  const [sending, setSending] = useState(false)
 
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -14,20 +12,15 @@ export function AdventureStream({ adventureId, api }: { adventureId: string; api
     const text = String(form.get('message')).trim()
     if (!text) return
     setNotice('')
-    setStreaming(true)
-    setMessages(current => [...current, { speaker: '플레이어', text, complete: true },
-      { speaker: 'AI 게임 마스터', text: '', complete: false }])
+    setSending(true)
+    setMessages(current => [...current, { speaker: '플레이어', text }])
     try {
-      for await (const chunk of api.streamMessage(adventureId, text)) {
-        setMessages(current => current.map((item, index) => index === current.length - 1
-          ? { ...item, text: item.text + chunk } : item))
-      }
-      setMessages(current => current.map((item, index) => index === current.length - 1
-        ? { ...item, complete: true } : item))
+      await api.sendMessage(adventureId, text)
+      setMessages(current => [...current, { speaker: 'AI 게임 마스터', text: '(응답 전송됨)' }])
     } catch {
-      setNotice('응답 스트림이 중단되었습니다. 임시 내용은 확정된 진행이 아닙니다.')
+      setNotice('메시지를 전송하지 못했습니다.')
     } finally {
-      setStreaming(false)
+      setSending(false)
     }
   }
 
@@ -36,16 +29,15 @@ export function AdventureStream({ adventureId, api }: { adventureId: string; api
       <h2 id="conversation-heading">모험 대화</h2>
       <ol aria-label="대화 기록">
         {messages.map((message, index) => (
-          <li key={index} data-complete={message.complete}>
-            <strong>{message.speaker}</strong>: {message.text || '응답 준비 중…'}
-            {!message.complete && message.text && <em> (임시 응답)</em>}
+          <li key={index}>
+            <strong>{message.speaker}</strong>: {message.text}
           </li>
         ))}
       </ol>
       <p role="alert">{notice}</p>
       <form onSubmit={send}>
         <label>행동 또는 대화<input name="message" required /></label>
-        <button type="submit" disabled={streaming}>보내기</button>
+        <button type="submit" disabled={sending}>보내기</button>
       </form>
     </section>
   )

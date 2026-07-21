@@ -3,23 +3,29 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, it } from 'vitest'
 import { AdventureStream } from './AdventureStream'
+import type { AdventureApi } from './AdventureApi'
 
-it('renders completed streamed conversation', async () => {
-  const api = { async *streamMessage() { yield 'The door '; yield 'opens.' } }
+it('renders sent conversation and acknowledges delivery', async () => {
+  const sent: string[] = []
+  const api: AdventureApi = {
+    async sendMessage(_id, message) { sent.push(message) },
+  }
   const user = userEvent.setup()
   render(<AdventureStream adventureId="a1" api={api} />)
   await user.type(screen.getByLabelText('행동 또는 대화'), 'Open it')
   await user.click(screen.getByRole('button', { name: '보내기' }))
-  expect(await screen.findByText(/The door opens/)).toBeInTheDocument()
-  expect(screen.queryByText(/임시 응답/)).not.toBeInTheDocument()
+  expect(sent).toEqual(['Open it'])
+  expect(await screen.findByText((_, node) => node?.textContent === '플레이어: Open it')).toBeInTheDocument()
+  expect(await screen.findByText((_, node) => node?.textContent === 'AI 게임 마스터: (응답 전송됨)')).toBeInTheDocument()
 })
 
-it('marks interrupted stream content as temporary and announces interruption', async () => {
-  const api = { async *streamMessage() { yield 'Maybe the door'; throw new Error('disconnect') } }
+it('announces failure when message send fails', async () => {
+  const api: AdventureApi = {
+    async sendMessage() { throw new Error('전송 실패') },
+  }
   const user = userEvent.setup()
   render(<AdventureStream adventureId="a1" api={api} />)
-  await user.type(screen.getByLabelText('행동 또는 대화'), 'Open it')
+  await user.type(screen.getByLabelText('행동 또는 대화'), 'Kick the door')
   await user.click(screen.getByRole('button', { name: '보내기' }))
-  expect(await screen.findByRole('alert')).toHaveTextContent('스트림이 중단되었습니다')
-  expect(screen.getByText(/임시 응답/)).toBeInTheDocument()
+  expect(await screen.findByRole('alert')).toHaveTextContent('메시지를 전송하지 못했습니다')
 })

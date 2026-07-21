@@ -17,6 +17,10 @@ build/
 .DS_Store
 Thumbs.db
 
+# Frontend
+web-ui/dist/
+web-ui/node_modules/
+
 # Env
 .env.local
 .env.local-ai

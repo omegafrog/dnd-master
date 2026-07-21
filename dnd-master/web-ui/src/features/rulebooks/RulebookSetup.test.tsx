@@ -7,71 +7,54 @@ import type { RulebookView, SetupApi } from './SetupApi'
 
 class FakeSetupApi implements SetupApi {
   uploadError = ''
-  saved?: { edition: string; ids: string[] }
-  confirmed = false
-  private book: RulebookView = { id: 'phb', name: 'Player Handbook', status: 'PARTIAL', warnings: ['3쪽 표 추출 실패'], owned: true }
+  private book: RulebookView = { rulebookId: 'phb', status: 'PENDING' }
 
   async uploadRulebook() {
     if (this.uploadError) throw new Error(this.uploadError)
     return this.book
   }
-  async refreshRulebook() { return { ...this.book, status: 'READY' as const, warnings: [] } }
-  async confirmPartialExtraction() {
-    this.confirmed = true
-    this.book = { ...this.book, status: 'INDEXING' }
-    return this.book
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  async getRulebookStatus(_rulebookId: string) {
+    return { ...this.book, status: 'INDEXED' as const }
   }
   async uploadScenario(file: File) { return { id: 'scenario-1', name: file.name } }
-  async saveRuleSet(edition: '2014' | '2024', rulebookIds: string[]) { this.saved = { edition, ids: rulebookIds } }
+  async saveRuleSet() {}
 }
 
 describe('rulebook and adventure setup', () => {
-  it('shows partial extraction, confirms it, and exposes indexing delay until ready', async () => {
+  it('uploads rulebook, shows status, and refreshes to ready', async () => {
     const api = new FakeSetupApi()
     const user = userEvent.setup()
-    render(<RulebookSetup api={api} />)
+    render(<RulebookSetup api={api} playerId="p1" />)
     fireEvent.change(screen.getByLabelText('룰북 파일'), {
       target: { files: [new File(['rules'], 'phb.pdf', { type: 'application/pdf' })] },
     })
     await user.click(screen.getByRole('button', { name: '룰북 업로드' }))
 
-    expect(await screen.findByText(/부분 추출 확인 필요/)).toBeInTheDocument()
-    expect(screen.getByText('3쪽 표 추출 실패')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: '부분 추출 사용' }))
-    expect(api.confirmed).toBe(true)
-    expect(await screen.findByText(/색인 생성 중/)).toBeInTheDocument()
-    await user.click(await screen.findByRole('button', { name: '상태 새로고침' }))
-    expect(await screen.findByText(/사용 준비 완료/)).toBeInTheDocument()
+    expect(await screen.findByText('phb')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '상태 새로고침' })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '상태 새로고침' }))
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: '상태 새로고침' })).not.toBeInTheDocument()
+    })
   })
 
-  it.each(['지원하지 않거나 손상된 파일입니다.', '다른 플레이어의 자료는 사용할 수 없습니다.'])(
-    'displays upload denial: %s', async error => {
-      const api = new FakeSetupApi()
-      api.uploadError = error
-      const user = userEvent.setup()
-      render(<RulebookSetup api={api} />)
-      fireEvent.change(screen.getByLabelText('룰북 파일'), { target: { files: [new File(['bad'], 'bad.pdf')] } })
-      await user.click(screen.getByRole('button', { name: '룰북 업로드' }))
-      await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(error))
-    },
-  )
+  it('displays upload error', async () => {
+    const api = new FakeSetupApi()
+    api.uploadError = '지원하지 않거나 손상된 파일입니다.'
+    const user = userEvent.setup()
+    render(<RulebookSetup api={api} playerId="p1" />)
+    fireEvent.change(screen.getByLabelText('룰북 파일'), { target: { files: [new File(['bad'], 'bad.pdf')] } })
+    await user.click(screen.getByRole('button', { name: '룰북 업로드' }))
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(api.uploadError))
+  })
 
-  it('registers a scenario and saves edition with an owned ready rulebook', async () => {
+  it('registers a scenario', async () => {
     const api = new FakeSetupApi()
     const user = userEvent.setup()
-    render(<RulebookSetup api={api} />)
-    fireEvent.change(screen.getByLabelText('룰북 파일'), { target: { files: [new File(['rules'], 'phb.pdf')] } })
-    await user.click(screen.getByRole('button', { name: '룰북 업로드' }))
-    await user.click(await screen.findByRole('button', { name: '부분 추출 사용' }))
-    await user.click(await screen.findByRole('button', { name: '상태 새로고침' }))
+    render(<RulebookSetup api={api} playerId="p1" />)
     fireEvent.change(screen.getByLabelText('시나리오 파일'), { target: { files: [new File(['story'], 'castle.pdf')] } })
     await user.click(screen.getByRole('button', { name: '시나리오 등록' }))
-    await user.selectOptions(screen.getByLabelText('판본'), '2014')
-    await user.click(screen.getByRole('checkbox', { name: 'Player Handbook' }))
-    await user.click(screen.getByRole('button', { name: '룰 세트 저장' }))
-
     expect(await screen.findByText('등록 완료: castle.pdf')).toBeInTheDocument()
-    expect(api.saved).toEqual({ edition: '2014', ids: ['phb'] })
-    expect(screen.getByText('룰 세트가 저장되었습니다.')).toBeInTheDocument()
   })
 })
