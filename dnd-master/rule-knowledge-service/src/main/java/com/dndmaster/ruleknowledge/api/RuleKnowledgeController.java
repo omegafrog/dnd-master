@@ -96,7 +96,9 @@ public class RuleKnowledgeController {
                         r.chunkId().value(),
                         r.locator(),
                         r.excerpt(),
-                        r.score()))
+                        r.score(),
+                        r.chapter(),
+                        r.section()))
                 .toList();
         return new EvidenceSearchResponse(request.ownerId(), evidence);
     }
@@ -130,6 +132,6 @@ public class RuleKnowledgeController {
     public record OwnedIndexesResponse(UUID ownerId, List<?> indexes) {}
     public record OwnershipResponse(UUID rulebookId, UUID playerId, boolean owned) {}
     public record EvidenceSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, Integer limit) {}
-    public record EvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score) {}
+    public record EvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score, String chapter, String section) {}
     public record EvidenceSearchResponse(UUID ownerId, List<EvidenceItem> evidence) {}
 }

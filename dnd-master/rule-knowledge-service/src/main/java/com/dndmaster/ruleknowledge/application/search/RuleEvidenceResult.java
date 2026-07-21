@@ -9,7 +9,9 @@ public record RuleEvidenceResult(
         ChunkId chunkId,
         String locator,
         String excerpt,
-        double score) {
+        double score,
+        String chapter,
+        String section) {
 
     public RuleEvidenceResult {
         Objects.requireNonNull(rulebookId, "rulebookId must not be null");
