@@ -11,6 +11,7 @@ import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookRe
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorRuleEvidenceSearchRepository;
 import com.dndmaster.ruleknowledge.infrastructure.storage.LocalFileSystemRulebookStorage;
 import com.dndmaster.ruleknowledge.infrastructure.storage.RulebookStorageProperties;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -78,15 +79,19 @@ public class RuleKnowledgeApiConfiguration {
             RulebookRegistrationRepository registrationRepository,
             RulebookFileStorage fileStorage,
             RulebookContentExtractor contentExtractor,
-            RulebookIndexingApplicationService indexingService) {
+            RulebookIndexingApplicationService indexingService,
+            @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension) {
         return new RulebookPipelineApplicationService(
-                registrationService, registrationRepository, fileStorage, contentExtractor, indexingService);
+                registrationService, registrationRepository, fileStorage, contentExtractor, indexingService, embeddingDimension);
     }
 
     @Bean
     RuleEvidenceSearchApplicationService evidenceSearchService(
-            PgvectorRuleEvidenceSearchRepository searchRepository) {
-        return new RuleEvidenceSearchApplicationService(searchRepository);
+            PgvectorRuleEvidenceSearchRepository searchRepository,
+            EmbeddingPort embeddingPort,
+            @Value("${rule-knowledge.embedding-model:qwen3-embedding:0.6b}") String embeddingModel,
+            @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension) {
+        return new RuleEvidenceSearchApplicationService(searchRepository, embeddingPort, embeddingModel, embeddingDimension);
     }
 
     @Bean
