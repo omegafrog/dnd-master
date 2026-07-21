@@ -4,7 +4,6 @@ import com.dndmaster.ruleknowledge.application.indexing.*;
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.*;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicationService;
-import com.dndmaster.ruleknowledge.domain.index.RulebookIndexingPolicy;
 import com.dndmaster.ruleknowledge.infrastructure.extraction.*;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookIndexRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookRegistrationRepository;
@@ -50,11 +49,6 @@ public class RuleKnowledgeApiConfiguration {
     }
 
     @Bean
-    RulebookIndexingPolicy rulebookIndexingPolicy() {
-        return new RulebookIndexingPolicy(4000);
-    }
-
-    @Bean
     RulebookRegistrationApplicationService rulebookRegistrationApplicationService(
             RulebookFileStorage fileStorage, RulebookContentExtractor contentExtractor) {
         return new RulebookRegistrationApplicationService(fileStorage, contentExtractor);
@@ -69,8 +63,8 @@ public class RuleKnowledgeApiConfiguration {
     RulebookIndexingApplicationService indexingApplicationService(
             RulebookIndexRepository indexRepository,
             EmbeddingPort embeddingPort,
-            RulebookIndexingPolicy indexingPolicy) {
-        return new RulebookIndexingApplicationService(indexRepository, embeddingPort, indexingPolicy);
+            StructureDetectionPort structureDetectionPort) {
+        return new RulebookIndexingApplicationService(indexRepository, embeddingPort, structureDetectionPort, 4000);
     }
 
     @Bean
