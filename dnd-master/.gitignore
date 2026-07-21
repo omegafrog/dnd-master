@@ -24,3 +24,7 @@ web-ui/node_modules/
 # Env
 .env.local
 .env.local-ai
+
+# Runtime data
+app-all/data/
+data/
