@@ -20,8 +20,8 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
             """;
     private static final String INSERT_CHUNK = """
             INSERT INTO rulebook_vector_chunk
-                (chunk_id, index_id, rulebook_id, owner_player_id, sequence, locator, content, embedding)
-            VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS vector))
+                (chunk_id, index_id, rulebook_id, owner_player_id, sequence, locator, content, embedding, chapter, section)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS vector), ?, ?)
             """;
     private static final String UPDATE_INDEX_READY = """
             UPDATE rulebook_vector_index SET status = 'READY', version = version + 1
@@ -102,6 +102,8 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
                 ps.setString(6, embedded.locator());
                 ps.setString(7, embedded.chunk().content());
                 ps.setString(8, vectorLiteral(embedded.embedding()));
+                ps.setString(9, embedded.chunk().chapter());
+                ps.setString(10, embedded.chunk().section());
                 ps.addBatch();
             }
             ps.executeBatch();

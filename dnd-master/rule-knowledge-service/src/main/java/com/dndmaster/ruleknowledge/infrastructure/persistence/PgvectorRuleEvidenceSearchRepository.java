@@ -15,7 +15,8 @@ import javax.sql.DataSource;
 public final class PgvectorRuleEvidenceSearchRepository {
     private static final String SEARCH = """
             SELECT rulebook_id, chunk_id, locator, content,
-                   embedding <=> CAST(? AS vector) AS distance
+                   embedding <=> CAST(? AS vector) AS distance,
+                   chapter, section
               FROM rulebook_vector_chunk
              WHERE owner_player_id = ?
                AND rulebook_id = ANY (?)
@@ -64,7 +65,9 @@ public final class PgvectorRuleEvidenceSearchRepository {
                             new ChunkId(rows.getObject("chunk_id", UUID.class)),
                             rows.getString("locator"),
                             rows.getString("content"),
-                            rows.getDouble("distance")));
+                            rows.getDouble("distance"),
+                            rows.getString("chapter"),
+                            rows.getString("section")));
                 }
                 return List.copyOf(hits);
             }
