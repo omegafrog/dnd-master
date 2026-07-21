@@ -41,7 +41,9 @@ public final class RuleEvidenceSearchApplicationService {
                 new ChunkId(UUID.randomUUID()),
                 0,
                 new ExtractedContentRange(0, query.situation().length()),
-                query.situation());
+                query.situation(),
+                null,
+                null);
 
         float[] queryEmbedding = embeddingPort.embed(
                 List.of(queryChunk), embeddingModel, embeddingDimension)
@@ -60,7 +62,9 @@ public final class RuleEvidenceSearchApplicationService {
                         hit.chunkId(),
                         hit.locator(),
                         hit.content(),
-                        1.0 - hit.distance()))
+                        1.0 - hit.distance(),
+                        hit.chapter(),
+                        hit.section()))
                 .toList();
     }
 }
