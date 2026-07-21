@@ -1,8 +1,12 @@
 package com.dndmaster.ruleknowledge.application.indexing;
 
 import com.dndmaster.ruleknowledge.domain.index.IndexStatus;
+import com.dndmaster.ruleknowledge.domain.index.RulebookChunk;
 import com.dndmaster.ruleknowledge.domain.index.RulebookIndex;
 import com.dndmaster.ruleknowledge.domain.index.RulebookIndexingPolicy;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.EmbeddedRulebookChunk;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 
 public final class RulebookIndexingApplicationService {
@@ -52,14 +56,26 @@ public final class RulebookIndexingApplicationService {
         repository.save(index);
         var chunks = indexingPolicy.createChunks(command.rulebook());
         try {
-            embeddingPort.embed(chunks, command.key().embeddingModel(), command.dimension());
+            List<ChunkEmbedding> embeddings = embeddingPort.embed(chunks, command.key().embeddingModel(), command.dimension());
+            List<EmbeddedRulebookChunk> embedded = new ArrayList<>(embeddings.size());
+            for (ChunkEmbedding ce : embeddings) {
+                RulebookChunk chunk = chunks.stream()
+                        .filter(c -> c.chunkId().equals(ce.chunkId()))
+                        .findFirst()
+                        .orElseThrow(() -> new IllegalStateException("embedding result references unknown chunk"));
+                embedded.add(new EmbeddedRulebookChunk(chunk, formatLocator(chunk), ce.vector()));
+            }
+            index.complete(chunks);
+            repository.saveComplete(index, embedded);
         } catch (RuntimeException exception) {
             index.fail("embedding call failed");
             repository.save(index);
             throw new IndexingFailedException(exception);
         }
-        index.complete(chunks);
-        repository.save(index);
         return index;
+    }
+
+    private static String formatLocator(RulebookChunk chunk) {
+        return "offset " + chunk.range().startInclusive() + "-" + chunk.range().endExclusive();
     }
 }

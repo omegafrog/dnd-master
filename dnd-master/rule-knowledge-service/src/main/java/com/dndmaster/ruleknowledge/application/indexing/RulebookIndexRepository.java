@@ -2,10 +2,12 @@ package com.dndmaster.ruleknowledge.application.indexing;
 
 import com.dndmaster.ruleknowledge.domain.index.IndexKey;
 import com.dndmaster.ruleknowledge.domain.index.RulebookIndex;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.EmbeddedRulebookChunk;
+import java.util.List;
 import java.util.function.Supplier;
 
 public interface RulebookIndexRepository {
     RulebookIndex loadOrCreate(IndexKey key, Supplier<RulebookIndex> newIndex);
-
     void save(RulebookIndex index);
+    void saveComplete(RulebookIndex index, List<EmbeddedRulebookChunk> chunks);
 }
