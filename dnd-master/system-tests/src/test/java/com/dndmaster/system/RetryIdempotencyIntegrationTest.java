@@ -20,6 +20,7 @@ import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.dndmaster.ruleknowledge.application.indexing.IndexingCommand;
 import com.dndmaster.ruleknowledge.application.indexing.RulebookIndexRepository;
 import com.dndmaster.ruleknowledge.application.indexing.RulebookIndexingApplicationService;
+import com.dndmaster.ruleknowledge.application.indexing.StructureDetectionPort;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.RulebookFileStorage;
 import com.dndmaster.ruleknowledge.application.registration.RulebookUploadConflictException;
@@ -27,6 +28,7 @@ import com.dndmaster.ruleknowledge.application.registration.StoredRulebookFile;
 import com.dndmaster.ruleknowledge.domain.index.IndexKey;
 import com.dndmaster.ruleknowledge.domain.index.RulebookIndex;
 import com.dndmaster.ruleknowledge.domain.index.RulebookIndexingPolicy;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.EmbeddedRulebookChunk;
 import com.dndmaster.ruleknowledge.domain.rulebook.ExtractionResult;
 import com.dndmaster.ruleknowledge.domain.rulebook.FileSize;
 import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
@@ -82,7 +84,8 @@ class RetryIdempotencyIntegrationTest {
         InMemoryIndexRepository repository = new InMemoryIndexRepository();
         AtomicInteger embeddings = new AtomicInteger();
         RulebookIndexingApplicationService service = new RulebookIndexingApplicationService(
-                repository, (chunks, model, dimension) -> embeddings.incrementAndGet(), new RulebookIndexingPolicy(50));
+                repository, (chunks, model, dimension) -> { embeddings.incrementAndGet(); return List.of(); },
+                text -> StructureDetectionPort.DetectedStructure.none(), 50);
         Rulebook rulebook = Rulebook.acceptUpload(
                 RulebookId.generate(), new OwnerPlayerId(UUID.randomUUID()), RulebookFormat.PDF, new FileSize(10));
         rulebook.recordExtraction(ExtractionResult.success("initiative order"));
@@ -168,6 +171,7 @@ class RetryIdempotencyIntegrationTest {
             return indexes.computeIfAbsent(key, ignored -> factory.get());
         }
         @Override public void save(RulebookIndex index) { indexes.put(index.key(), index); }
+        @Override public void saveComplete(RulebookIndex index, List<EmbeddedRulebookChunk> chunks) { indexes.put(index.key(), index); }
     }
 
     private static final class InMemoryCombatRepository implements CombatOperationRepository {

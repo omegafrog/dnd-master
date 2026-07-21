@@ -10,6 +10,7 @@ import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.dndmaster.ruleknowledge.application.indexing.IndexingCommand;
 import com.dndmaster.ruleknowledge.application.indexing.RulebookIndexRepository;
 import com.dndmaster.ruleknowledge.application.indexing.RulebookIndexingApplicationService;
+import com.dndmaster.ruleknowledge.application.indexing.StructureDetectionPort;
 import com.dndmaster.ruleknowledge.domain.index.IndexKey;
 import com.dndmaster.ruleknowledge.domain.index.IndexStatus;
 import com.dndmaster.ruleknowledge.domain.index.RulebookIndex;
@@ -20,6 +21,7 @@ import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
 import com.dndmaster.ruleknowledge.domain.rulebook.Rulebook;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.EmbeddedRulebookChunk;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -76,8 +78,8 @@ class ResponseAndIndexingPerformanceTest {
         var embeddedCharacters = new AtomicLong();
         var indexing = new RulebookIndexingApplicationService(
                 repository,
-                (chunks, model, dimension) -> chunks.forEach(chunk -> embeddedCharacters.addAndGet(chunk.content().length())),
-                new RulebookIndexingPolicy(16_384));
+                (chunks, model, dimension) -> { chunks.forEach(chunk -> embeddedCharacters.addAndGet(chunk.content().length())); return List.of(); },
+                text -> StructureDetectionPort.DetectedStructure.none(), 16_384);
         Rulebook rulebook = hundredMegabyteDeclaredRulebook();
         IndexKey key = new IndexKey(rulebook.id(), "deterministic-content-hash", "fake-e2e", "v1");
         long indexingStart = System.nanoTime();
@@ -129,6 +131,7 @@ class ResponseAndIndexingPerformanceTest {
             return indexes.computeIfAbsent(key, ignored -> factory.get());
         }
         @Override public void save(RulebookIndex index) { indexes.put(index.key(), index); }
+        @Override public void saveComplete(RulebookIndex index, List<EmbeddedRulebookChunk> chunks) { indexes.put(index.key(), index); }
     }
 
     private static final class TelemetryProbe {

@@ -123,7 +123,7 @@ class SoloAdventureE2ETest {
             String content, FakeEmbedding embedding) {
         var chunk = new RulebookChunk(
                 rulebookId, new ChunkId(UUID.randomUUID()), 0,
-                new ExtractedContentRange(0, content.length()), content);
+                new ExtractedContentRange(0, content.length()), content, null, null);
         repository.storeReadyIndex(
                 new IndexMetadata(
                         IndexId.generate(), rulebookId,
