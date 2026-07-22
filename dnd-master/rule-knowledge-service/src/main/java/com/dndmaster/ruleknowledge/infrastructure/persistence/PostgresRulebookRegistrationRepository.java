@@ -17,19 +17,22 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
     private static final String FIND_BY_ID = """
             SELECT rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
                    storage_key, processing_status, extraction_status, extracted_content,
-                   missing_locations, failure_code, version, created_at, updated_at
+                   missing_locations, failure_code, version, created_at, updated_at,
+                   document_type, original_filename
               FROM rulebook_registration WHERE rulebook_id = ?
             """;
     private static final String FIND_BY_OPERATION_KEY = """
             SELECT rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
                    storage_key, processing_status, extraction_status, extracted_content,
-                   missing_locations, failure_code, version, created_at, updated_at
+                   missing_locations, failure_code, version, created_at, updated_at,
+                   document_type, original_filename
               FROM rulebook_registration WHERE operation_key = ?
             """;
     private static final String FIND_BY_OWNER = """
             SELECT rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
                    storage_key, processing_status, extraction_status, extracted_content,
-                   missing_locations, failure_code, version, created_at, updated_at
+                   missing_locations, failure_code, version, created_at, updated_at,
+                   document_type, original_filename
               FROM rulebook_registration WHERE owner_player_id = ?
               ORDER BY created_at DESC
             """;
@@ -37,8 +40,9 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
             INSERT INTO rulebook_registration
                 (rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
                  storage_key, processing_status, extraction_status, extracted_content,
-                 missing_locations, failure_code, version, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 missing_locations, failure_code, version, created_at, updated_at,
+                 document_type, original_filename)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (operation_key) DO UPDATE SET
                 owner_player_id = EXCLUDED.owner_player_id,
                 content_hash = EXCLUDED.content_hash,
@@ -51,7 +55,9 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                 missing_locations = EXCLUDED.missing_locations,
                 failure_code = EXCLUDED.failure_code,
                 version = EXCLUDED.version,
-                updated_at = EXCLUDED.updated_at
+                updated_at = EXCLUDED.updated_at,
+                document_type = EXCLUDED.document_type,
+                original_filename = EXCLUDED.original_filename
             """;
 
     private final DataSource dataSource;
@@ -108,6 +114,8 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
             ps.setLong(13, registration.version());
             ps.setTimestamp(14, Timestamp.from(registration.createdAt()));
             ps.setTimestamp(15, Timestamp.from(registration.updatedAt()));
+            ps.setString(16, registration.documentType().name());
+            ps.setString(17, registration.originalFilename());
             ps.executeUpdate();
         } catch (SQLException e) {
             throw new RuntimeException("failed to save rulebook registration", e);
@@ -149,7 +157,9 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                 rs.getString("failure_code"),
                 rs.getLong("version"),
                 rs.getTimestamp("created_at").toInstant(),
-                rs.getTimestamp("updated_at").toInstant());
+                rs.getTimestamp("updated_at").toInstant(),
+                DocumentType.valueOf(rs.getString("document_type")),
+                rs.getString("original_filename"));
     }
 
     private static <E extends Enum<E>> E getNullableEnum(ResultSet rs, String column, Class<E> type) throws SQLException {
