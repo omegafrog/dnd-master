@@ -28,7 +28,7 @@ import com.dndmaster.ruleknowledge.application.registration.StoredRulebookFile;
 import com.dndmaster.ruleknowledge.domain.index.IndexKey;
 import com.dndmaster.ruleknowledge.domain.index.RulebookIndex;
 import com.dndmaster.ruleknowledge.domain.index.RulebookIndexingPolicy;
-import com.dndmaster.ruleknowledge.infrastructure.persistence.EmbeddedRulebookChunk;
+import com.dndmaster.ruleknowledge.domain.index.EmbeddedRulebookChunk;
 import com.dndmaster.ruleknowledge.domain.rulebook.ExtractionResult;
 import com.dndmaster.ruleknowledge.domain.rulebook.FileSize;
 import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
