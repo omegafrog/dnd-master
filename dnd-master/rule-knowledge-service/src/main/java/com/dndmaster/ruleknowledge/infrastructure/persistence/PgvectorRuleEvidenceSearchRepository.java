@@ -1,6 +1,7 @@
 package com.dndmaster.ruleknowledge.infrastructure.persistence;
 
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchPort;
+import com.dndmaster.ruleknowledge.application.search.QueryIntent;
 import com.dndmaster.ruleknowledge.application.search.RuleSearchHit;
 import com.dndmaster.ruleknowledge.domain.index.ChunkId;
 import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
@@ -36,8 +37,10 @@ public final class PgvectorRuleEvidenceSearchRepository implements RuleEvidenceS
             OwnerPlayerId ownerPlayerId,
             Collection<RulebookId> selectedRulebookIds,
             float[] queryEmbedding,
+            QueryIntent queryIntent,
             int limit) {
         Objects.requireNonNull(ownerPlayerId, "ownerPlayerId must not be null");
+        Objects.requireNonNull(queryIntent, "queryIntent must not be null");
         List<RulebookId> selected = List.copyOf(
                 Objects.requireNonNull(selectedRulebookIds, "selectedRulebookIds must not be null"));
         if (selected.isEmpty()) {

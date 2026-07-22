@@ -13,6 +13,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioSource;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpKnowledgeDocumentLookupGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuleIntentClassificationGateway;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -102,6 +103,15 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    RuleIntentClassificationPort ruleIntentClassificationPort(ObjectMapper objectMapper) {
+        return new CrossContextHttpRuleIntentClassificationGateway(
+                HttpClient.newHttpClient(),
+                URI.create("http://127.0.0.1:18087/"),
+                Duration.ofSeconds(2),
+                objectMapper);
+    }
+
+    @Bean
     AiGameMasterPort aiGameMasterPort() {
         return new AiGameMasterPort() {
             @Override
@@ -131,7 +141,7 @@ public class AdventureApiConfiguration {
 
     @Bean
     RuleEvidenceSearchPort ruleEvidenceSearchPort() {
-        return (owner, rulebooks, situation) -> List.of();
+        return (owner, rulebooks, situation, queryIntent) -> List.of();
     }
 
     @Bean
@@ -163,9 +173,10 @@ public class AdventureApiConfiguration {
     RuleGuidanceApplicationService guidanceApplicationService(
             RuleInquiryRepository repository,
             RuleSetSearchScopePort scopePort,
+            RuleIntentClassificationPort intentPort,
             RuleEvidenceSearchPort searchPort,
             RuleAnswerCompositionPort compositionPort) {
-        return new RuleGuidanceApplicationService(repository, scopePort, searchPort, compositionPort);
+        return new RuleGuidanceApplicationService(repository, scopePort, intentPort, searchPort, compositionPort);
     }
 
     @Bean

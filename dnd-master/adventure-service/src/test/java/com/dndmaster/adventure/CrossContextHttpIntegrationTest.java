@@ -2,6 +2,7 @@ package com.dndmaster.adventure;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalToJson;
 import static com.github.tomakehurst.wiremock.client.WireMock.exactly;
 import static com.github.tomakehurst.wiremock.client.WireMock.get;
 import static com.github.tomakehurst.wiremock.client.WireMock.getRequestedFor;
@@ -19,6 +20,8 @@ import com.dndmaster.adventure.application.combat.CombatOperation;
 import com.dndmaster.adventure.application.combat.CombatOperationRepository;
 import com.dndmaster.adventure.application.combat.CrossContextCallException;
 import com.dndmaster.adventure.application.combat.CrossContextHttpCombatGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuleIntentClassificationGateway;
+import com.dndmaster.adventure.application.guidance.RuleQueryIntent;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
@@ -74,6 +77,21 @@ class CrossContextHttpIntegrationTest {
         server.verify(exactly(1), postRequestedFor(urlEqualTo("/moves")));
         server.verify(exactly(1), postRequestedFor(urlEqualTo("/ai/states")));
         server.verify(exactly(2), postRequestedFor(urlEqualTo("/ai/adjudications")).withHeader("Idempotency-Key", equalTo(key)));
+    }
+
+    @Test
+    void classifies_gm_intent_via_internal_ai_gateway() {
+        server = new WireMockServer(0);
+        server.start();
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/intent-classifications"))
+                .willReturn(aResponse().withStatus(200).withBody("{\"queryIntent\":\"STORY\"}")));
+
+        var gateway = new CrossContextHttpRuleIntentClassificationGateway(
+                HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new com.fasterxml.jackson.databind.ObjectMapper());
+
+        assertEquals(RuleQueryIntent.STORY, gateway.classify("What happened in the tavern?"));
+        server.verify(exactly(1), postRequestedFor(urlEqualTo("/internal/v1/gm/intent-classifications"))
+                .withRequestBody(equalToJson("{\"question\":\"What happened in the tavern?\"}")));
     }
 
     private static final class MemoryRepository implements CombatOperationRepository {

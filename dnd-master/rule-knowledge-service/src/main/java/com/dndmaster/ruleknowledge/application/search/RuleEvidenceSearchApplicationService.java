@@ -52,6 +52,7 @@ public final class RuleEvidenceSearchApplicationService {
                 query.owner(),
                 query.selectedRulebooks(),
                 queryEmbedding,
+                query.queryIntent(),
                 query.limit());
 
         return hits.stream()

@@ -33,7 +33,7 @@ class OpenApiSchemaTest {
         assertPaths("combat-map", "/internal/v1/combat-maps/{mapId}/player-view",
                 "/internal/v1/combat-maps/{mapId}/moves", "/internal/v1/combat-maps/{mapId}/ai-state");
         assertPaths("ai-game-master", "/internal/v1/gm/scenes", "/internal/v1/gm/judgments",
-                "/internal/v1/gm/rule-answers", "/internal/v1/gm/maps");
+                "/internal/v1/gm/rule-answers", "/internal/v1/gm/maps", "/internal/v1/gm/intent-classifications");
     }
 
     @Test
@@ -46,6 +46,7 @@ class OpenApiSchemaTest {
         JsonNode stream = schema("adventure/schemas/stream-event.json");
         JsonNode candidate = schema("adventure/schemas/candidate-rule.json");
         JsonNode playerMap = schema("combat-map/schemas/player-map-view.json");
+        JsonNode evidenceSearch = schema("rule-knowledge/schemas/evidence-search-request.json");
 
         assertTrue(multipart.at("/required").toString().contains("file"));
         assertTrue(batchMultipart.at("/required").toString().contains("documents"));
@@ -57,6 +58,7 @@ class OpenApiSchemaTest {
         assertEquals(1, candidate.at("/properties/sources/minItems").asInt());
         assertEquals("PLAYER_VISIBLE", playerMap.at("/properties/layers/items/properties/visibility/const").asText());
         assertFalse(playerMap.toString().contains("AI_ONLY"));
+        assertTrue(evidenceSearch.at("/required").toString().contains("queryIntent"));
     }
 
     @SuppressWarnings("unchecked")
