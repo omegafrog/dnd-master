@@ -74,7 +74,9 @@ public final class RulebookPipelineApplicationService {
                 null, null, null, null,
                 0L,
                 java.time.Instant.now(),
-                java.time.Instant.now());
+                java.time.Instant.now(),
+                DocumentType.RULEBOOK,
+                command.originalFilename());
         registrationRepository.save(registration);
 
         // 4. Build Rulebook domain object for extraction
@@ -103,7 +105,9 @@ public final class RulebookPipelineApplicationService {
                 extractionResult.failure().map(Enum::name).orElse(null),
                 registration.version() + 1,
                 registration.createdAt(),
-                java.time.Instant.now());
+                java.time.Instant.now(),
+                registration.documentType(),
+                registration.originalFilename());
         registrationRepository.save(updated);
 
         // 7. If eligible for splitting, index
@@ -127,7 +131,9 @@ public final class RulebookPipelineApplicationService {
                         updated.failureCode(),
                         updated.version() + 1,
                         updated.createdAt(),
-                        java.time.Instant.now());
+                        java.time.Instant.now(),
+                        updated.documentType(),
+                        updated.originalFilename());
                 registrationRepository.save(indexed);
                 return new RulebookProcessingResult(rulebookId, ProcessingStatus.INDEXED, List.of());
             } catch (Exception e) {
@@ -153,7 +159,8 @@ public final class RulebookPipelineApplicationService {
                                 r.operationKey(),
                                 r.ownerPlayerId(),
                                 r.format(),
-                                fileStorage.read(new StoredRulebookFile(r.storageKey()))));
+                                fileStorage.read(new StoredRulebookFile(r.storageKey())),
+                                r.originalFilename()));
                     } catch (Exception e) {
                         return new RulebookProcessingResult(
                                 r.rulebookId(),

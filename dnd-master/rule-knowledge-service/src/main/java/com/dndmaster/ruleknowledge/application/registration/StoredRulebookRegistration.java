@@ -20,7 +20,30 @@ public record StoredRulebookRegistration(
         String failureCode,
         long version,
         Instant createdAt,
-        Instant updatedAt) {
+        Instant updatedAt,
+        DocumentType documentType,
+        String originalFilename) {
+
+    public StoredRulebookRegistration(
+            RulebookId rulebookId,
+            OwnerPlayerId ownerPlayerId,
+            String operationKey,
+            String contentHash,
+            RulebookFormat format,
+            long fileSize,
+            String storageKey,
+            ProcessingStatus processingStatus,
+            ExtractionStatus extractionStatus,
+            String extractedContent,
+            List<String> missingLocations,
+            String failureCode,
+            long version,
+            Instant createdAt,
+            Instant updatedAt) {
+        this(rulebookId, ownerPlayerId, operationKey, contentHash, format, fileSize, storageKey,
+                processingStatus, extractionStatus, extractedContent, missingLocations, failureCode,
+                version, createdAt, updatedAt, DocumentType.RULEBOOK, "legacy-rulebook");
+    }
 
     public StoredRulebookRegistration {
         Objects.requireNonNull(rulebookId, "rulebookId must not be null");
@@ -34,6 +57,15 @@ public record StoredRulebookRegistration(
         if (version < 0) throw new IllegalArgumentException("version must not be negative");
         Objects.requireNonNull(createdAt, "createdAt must not be null");
         Objects.requireNonNull(updatedAt, "updatedAt must not be null");
+        documentType = DocumentType.require(documentType);
+        if (originalFilename == null || originalFilename.isBlank()) {
+            throw new IllegalArgumentException("original filename must not be blank");
+        }
+        originalFilename = originalFilename.trim();
         missingLocations = missingLocations == null ? List.of() : List.copyOf(missingLocations);
+    }
+
+    public KnowledgeDocumentId knowledgeDocumentId() {
+        return KnowledgeDocumentId.fromRulebookId(rulebookId);
     }
 }

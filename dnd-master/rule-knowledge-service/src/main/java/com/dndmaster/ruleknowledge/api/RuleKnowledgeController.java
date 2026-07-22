@@ -42,9 +42,11 @@ public class RuleKnowledgeController {
                 idempotencyKey,
                 new OwnerPlayerId(ownerPlayerId),
                 format,
-                file.getBytes());
+                file.getBytes(),
+                file.getOriginalFilename() != null ? file.getOriginalFilename() : "legacy-rulebook");
         RulebookProcessingResult result = pipelineService.process(command);
         return ResponseEntity.accepted().body(new AsyncStatusResponse(
+                result.rulebookId().value(),
                 result.rulebookId().value(),
                 mapStatus(result.status()),
                 result.warnings()));
@@ -53,15 +55,22 @@ public class RuleKnowledgeController {
     @GetMapping("/api/v1/rulebooks/{rulebookId}")
     RulebookStatusResponse rulebookStatus(@PathVariable UUID rulebookId) {
         return registrationRepository.findById(new RulebookId(rulebookId))
-                .map(r -> new RulebookStatusResponse(rulebookId, r.processingStatus().name()))
-                .orElse(new RulebookStatusResponse(rulebookId, "NOT_FOUND"));
+                .map(r -> new RulebookStatusResponse(
+                        rulebookId,
+                        r.knowledgeDocumentId().value(),
+                        r.processingStatus().name(),
+                        r.documentType(),
+                        r.originalFilename()))
+                .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null));
     }
 
     @GetMapping("/internal/v1/rulebooks")
     OwnedRulebooksResponse ownedRulebooks(@RequestParam UUID ownerId) {
         List<StoredRulebookRegistration> registrations = registrationRepository.findByOwner(new OwnerPlayerId(ownerId));
         List<RulebookSummary> summaries = registrations.stream()
-                .map(r -> new RulebookSummary(r.rulebookId().value(), r.processingStatus().name(), r.format().name()))
+                .map(r -> new RulebookSummary(
+                        r.rulebookId().value(), r.knowledgeDocumentId().value(), r.processingStatus().name(),
+                        r.format().name(), r.documentType(), r.originalFilename()))
                 .toList();
         return new OwnedRulebooksResponse(ownerId, summaries);
     }
@@ -125,9 +134,12 @@ public class RuleKnowledgeController {
     }
 
     // Response records
-    public record AsyncStatusResponse(UUID resourceId, String status, List<String> warnings) {}
-    public record RulebookStatusResponse(UUID rulebookId, String status) {}
-    public record RulebookSummary(UUID rulebookId, String status, String format) {}
+    public record AsyncStatusResponse(UUID resourceId, UUID knowledgeDocumentId, String status, List<String> warnings) {}
+    public record RulebookStatusResponse(
+            UUID rulebookId, UUID knowledgeDocumentId, String status, DocumentType documentType, String originalFilename) {}
+    public record RulebookSummary(
+            UUID rulebookId, UUID knowledgeDocumentId, String status, String format,
+            DocumentType documentType, String originalFilename) {}
     public record OwnedRulebooksResponse(UUID ownerId, List<RulebookSummary> rulebooks) {}
     public record OwnedIndexesResponse(UUID ownerId, List<?> indexes) {}
     public record OwnershipResponse(UUID rulebookId, UUID playerId, boolean owned) {}
