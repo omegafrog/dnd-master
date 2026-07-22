@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "skills": {
+    "architecture-spec": {
+      "source": "omegafrog/harness-codex",
+      "sourceType": "github",
+      "skillPath": ".codex/skills/architecture-spec/SKILL.md",
+      "computedHash": "4c1dbdbcf9e89eb641e6f7aa72c919eaf31698a643f215e504511219f30a44d0"
+    },
+    "code-research": {
+      "source": "omegafrog/harness-codex",
+      "sourceType": "github",
+      "skillPath": ".codex/skills/code-research/SKILL.md",
+      "computedHash": "c7707b4fdc964d172ac86e849a4b3eae666c7b4de04dbb6d3333f0b4c014323b"
+    },
+    "code-review": {
+      "source": "omegafrog/harness-codex",
+      "sourceType": "github",
+      "skillPath": ".codex/skills/code-review/SKILL.md",
+      "computedHash": "79102dfecc1f822ceb09eda22db816df3019d2dcc4ff0ca4d48980819ee17b9d"
+    },
+    "codebase-design": {
+      "source": "omegafrog/harness-codex",
+      "sourceType": "github",
+      "skillPath": ".codex/skills/codebase-design/SKILL.md",
+      "computedHash": "16ca19f84f60abb4946d41d24bc8750f81e649606f696951830d311d8098a357"
+    },
+    "ddd-design": {
+      "source": "omegafrog/harness-codex",
+      "sourceType": "github",
+      "skillPath": ".codex/skills/ddd-design/SKILL.md",
+      "computedHash": "48a9e1282b4cb1ccb1cfacc74cb7baf52e041c2d45074149201432e33aafd376"
+    },
+    "diagnosing-bugs": {
+      "source": "omegafrog/harness-codex",
+      "sourceType": "github",
+      "skillPath": ".codex/skills/diagnosing-bugs/SKILL.md",
+      "computedHash": "39577e7b1d74b32fc18ec4be16a27552853e9467fcaf9f79d255bd5fd2d36c40"
+    },
+    "domain-modeling": {
+      "source": "omegafrog/harness-codex",
+      "sourceType": "github",
+      "skillPath": ".codex/skills/domain-modeling/SKILL.md",
+      "computedHash": "4befc36829fbf42fd7d9487bf143767e9e14ff2ee9ca8b68caef454789b9facf"
+    },
+    "event-storming": {
+      "source": "omegafrog/harness-codex",
+      "sourceType": "github",
+      "skillPath": ".codex/skills/event-storming/SKILL.md",
+      "computedHash": "7eb2b91ca8eb030be8e3a2df8409b1da8bc01d0e98a4d234f41051df7e862003"
+    },
+    "grill-with-docs": {
+      "source": "omegafrog/harness-codex",
+      "sourceType": "github",
+      "skillPath": ".codex/skills/grill-with-docs/SKILL.md",
+      "computedHash": "bfeb1cb656435b02a73d3abf0709dd64ad1850016a094adf08637687aa172831"
+    },
+    "grilling": {
+      "source": "omegafrog/harness-codex",
+      "sourceType": "github",
+      "skillPath": ".codex/skills/grilling/SKILL.md",
+      "computedHash": "a9f8a49deced7ebedf488020b41138de6fd809ba6d20fc1ca476b4bc2ccf4c18"
+    },
+    "implement": {
+      "source": "omegafrog/harness-codex",
+      "sourceType": "github",
+      "skillPath": ".codex/skills/implement/SKILL.md",
+      "computedHash": "a93a09ab6f364cb3d4e609ca3a653c6ea2ef47c4a83528c3c537491f3c7bcf7d"
+    },
+    "product-spec": {
+      "source": "omegafrog/harness-codex",
+      "sourceType": "github",
+      "skillPath": ".codex/skills/product-spec/SKILL.md",
+      "computedHash": "83ebf76de6ae6bbcc448b0e091be86f59ab6c66f17514ff8c649ea74f5f08536"
+    },
+    "setup": {
+      "source": "omegafrog/harness-codex",
+      "sourceType": "github",
+      "skillPath": ".codex/skills/setup/SKILL.md",
+      "computedHash": "84e74a18179a9d2b47a94c9fdb99e119abb66363278a66c09ca49ac20744d958"
+    },
+    "spec-me": {
+      "source": "omegafrog/harness-codex",
+      "sourceType": "github",
+      "skillPath": ".codex/skills/spec-me/SKILL.md",
+      "computedHash": "9477359ddb11df29e3cb38bc627e998980e3aef66cbaf6a36b6c36648dbeccad"
+    },
+    "tdd": {
+      "source": "omegafrog/harness-codex",
+      "sourceType": "github",
+      "skillPath": ".codex/skills/tdd/SKILL.md",
+      "computedHash": "9fbc6c26685fff2124e5c9bb571c788276903eedb97fce066e8711e2d27f9d0b"
+    },
+    "to-ticket": {
+      "source": "omegafrog/harness-codex",
+      "sourceType": "github",
+      "skillPath": ".codex/skills/to-ticket/SKILL.md",
+      "computedHash": "491ff3643c640c077eef4c62d8cf06d3922b1498a275fbc29a49f977a4120289"
+    }
+  }
+}

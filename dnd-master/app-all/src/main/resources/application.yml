@@ -23,7 +23,7 @@ spring:
         pull-model-strategy: never
       chat:
         options:
-          model: qwen3:4b-instruct-2507-q4_K_M
+          model: qwen3.5:4b
           keep-alive: 30m
           num-ctx: 4096
           num-predict: 1024
@@ -33,16 +33,23 @@ spring:
           keep-alive: 30m
           dimensions: 1024
 
+rule-knowledge:
+  storage:
+    root: ./data/rulebooks
+  embedding-model: qwen3-embedding:0.6b
+  embedding-dimension: 1024
+
 local-ai:
   ollama:
-    base-url: http://127.0.0.1:11435
-    chat-model: qwen3:4b-instruct-2507-q4_K_M
+    base-url: http://127.0.0.1:11434
+    chat-model: qwen3.5:4b
     embedding-model: qwen3-embedding:0.6b
     allowed-models:
-      - qwen3:4b-instruct-2507-q4_K_M
-      - qwen3:8b-q4_K_M
+      - qwen3.5:4b
+      - qwen3.5:2b
+      - qwen3.5:9b
       - qwen3-embedding:0.6b
-    request-timeout: 5s
+    request-timeout: 120s
     circuit-failure-threshold: 3
     circuit-reset-timeout: 30s
     retry-max-attempts: 2

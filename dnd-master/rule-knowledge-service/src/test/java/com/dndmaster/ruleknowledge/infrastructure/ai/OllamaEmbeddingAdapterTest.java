@@ -39,7 +39,7 @@ class OllamaEmbeddingAdapterTest {
     private static List<RulebookChunk> chunks() {
         RulebookId rulebookId = RulebookId.generate();
         return List.of(
-                new RulebookChunk(rulebookId, new ChunkId(UUID.randomUUID()), 0, new ExtractedContentRange(0, 5), "first"),
-                new RulebookChunk(rulebookId, new ChunkId(UUID.randomUUID()), 1, new ExtractedContentRange(5, 11), "second"));
+                new RulebookChunk(rulebookId, new ChunkId(UUID.randomUUID()), 0, new ExtractedContentRange(0, 5), "first", null, null),
+                new RulebookChunk(rulebookId, new ChunkId(UUID.randomUUID()), 1, new ExtractedContentRange(5, 11), "second", null, null));
     }
 }

@@ -1,7 +1,9 @@
 package com.dndmaster.ruleknowledge.infrastructure.ai;
 
+import com.dndmaster.ruleknowledge.application.indexing.ChunkEmbedding;
 import com.dndmaster.ruleknowledge.application.indexing.EmbeddingPort;
 import com.dndmaster.ruleknowledge.domain.index.RulebookChunk;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import org.springframework.ai.embedding.EmbeddingModel;
@@ -14,7 +16,7 @@ public final class OllamaEmbeddingAdapter implements EmbeddingPort {
     }
 
     @Override
-    public void embed(List<RulebookChunk> chunks, String modelName, int expectedDimension) {
+    public List<ChunkEmbedding> embed(List<RulebookChunk> chunks, String modelName, int expectedDimension) {
         List<RulebookChunk> immutableChunks = List.copyOf(Objects.requireNonNull(chunks, "chunks must not be null"));
         if (immutableChunks.isEmpty()) {
             throw new IllegalArgumentException("chunks must not be empty");
@@ -35,7 +37,10 @@ public final class OllamaEmbeddingAdapter implements EmbeddingPort {
         if (embeddings == null || embeddings.size() != immutableChunks.size()) {
             throw new EmbeddingProviderException(new IllegalStateException("embedding response count does not match chunks"));
         }
-        for (float[] embedding : embeddings) {
+
+        List<ChunkEmbedding> result = new ArrayList<>(immutableChunks.size());
+        for (int i = 0; i < immutableChunks.size(); i++) {
+            float[] embedding = embeddings.get(i);
             if (embedding == null || embedding.length != expectedDimension) {
                 throw new EmbeddingProviderException(new IllegalStateException("embedding dimension does not match index contract"));
             }
@@ -44,6 +49,8 @@ public final class OllamaEmbeddingAdapter implements EmbeddingPort {
                     throw new EmbeddingProviderException(new IllegalStateException("embedding values must be finite"));
                 }
             }
+            result.add(new ChunkEmbedding(immutableChunks.get(i).chunkId(), embedding.clone()));
         }
+        return List.copyOf(result);
     }
 }
