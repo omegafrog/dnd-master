@@ -11,5 +11,6 @@ public interface RuleEvidenceSearchPort {
             OwnerPlayerId ownerPlayerId,
             Collection<RulebookId> selectedRulebookIds,
             float[] queryEmbedding,
+            QueryIntent queryIntent,
             int limit);
 }

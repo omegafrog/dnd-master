@@ -2,6 +2,7 @@ package com.dndmaster.aigamemaster.api;
 
 import com.dndmaster.aigamemaster.application.ports.AdjudicationModelPort;
 import com.dndmaster.aigamemaster.application.ports.MapModelPort;
+import com.dndmaster.aigamemaster.application.intent.IntentClassificationModelPort;
 import com.dndmaster.aigamemaster.application.rule.*;
 import com.dndmaster.aigamemaster.application.scene.NpcOutput;
 import com.dndmaster.aigamemaster.application.scene.ScenarioBoundSceneService;
@@ -19,16 +20,19 @@ public class AiGameMasterController {
     private final AdjudicationModelPort adjudicationPort;
     private final GroundedRuleAnswerService ruleAnswerService;
     private final MapModelPort mapPort;
+    private final IntentClassificationModelPort intentClassificationPort;
 
     public AiGameMasterController(
             ScenarioBoundSceneService sceneService,
             AdjudicationModelPort adjudicationPort,
             GroundedRuleAnswerService ruleAnswerService,
-            MapModelPort mapPort) {
+            MapModelPort mapPort,
+            IntentClassificationModelPort intentClassificationPort) {
         this.sceneService = sceneService;
         this.adjudicationPort = adjudicationPort;
         this.ruleAnswerService = ruleAnswerService;
         this.mapPort = mapPort;
+        this.intentClassificationPort = intentClassificationPort;
     }
 
     @PostMapping("/internal/v1/gm/scenes")
@@ -68,6 +72,13 @@ public class AiGameMasterController {
                 output.uncertaintyDisclosed());
     }
 
+    @PostMapping("/internal/v1/gm/intent-classifications")
+    IntentClassificationResponse classifyIntent(@RequestBody IntentClassificationRequest request) {
+        var output = intentClassificationPort.classify(
+                new IntentClassificationModelPort.IntentClassificationInput(request.question()));
+        return new IntentClassificationResponse(output.intent().name());
+    }
+
     @PostMapping("/internal/v1/gm/maps")
     MapResponse generateMap(@RequestBody MapRequest request) {
         var input = new MapModelPort.MapInput(request.selectedScenario(), request.currentContext());
@@ -97,6 +108,10 @@ public class AiGameMasterController {
             String conclusion, List<Citation> conclusionCitations,
             List<RuleCandidate> candidates, String evidenceStatus,
             boolean uncertaintyDisclosed) {}
+
+    public record IntentClassificationRequest(String question) {}
+
+    public record IntentClassificationResponse(String queryIntent) {}
 
     public record MapRequest(String selectedScenario, String currentContext) {}
 

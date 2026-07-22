@@ -24,6 +24,7 @@ web-ui/node_modules/
 # Env
 .env.local
 .env.local-ai
+.ollama-models/
 
 # Runtime data
 app-all/data/

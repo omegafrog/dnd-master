@@ -11,14 +11,17 @@ import java.util.Objects;
 public final class RuleGuidanceApplicationService {
     private final RuleInquiryRepository repository;
     private final RuleSetSearchScopePort scopePort;
+    private final RuleIntentClassificationPort intentPort;
     private final RuleEvidenceSearchPort searchPort;
     private final RuleAnswerCompositionPort compositionPort;
 
     public RuleGuidanceApplicationService(
             RuleInquiryRepository repository, RuleSetSearchScopePort scopePort,
+            RuleIntentClassificationPort intentPort,
             RuleEvidenceSearchPort searchPort, RuleAnswerCompositionPort compositionPort) {
         this.repository = Objects.requireNonNull(repository, "repository must not be null");
         this.scopePort = Objects.requireNonNull(scopePort, "scope port must not be null");
+        this.intentPort = Objects.requireNonNull(intentPort, "intent port must not be null");
         this.searchPort = Objects.requireNonNull(searchPort, "search port must not be null");
         this.compositionPort = Objects.requireNonNull(compositionPort, "composition port must not be null");
     }
@@ -29,8 +32,9 @@ public final class RuleGuidanceApplicationService {
                 command.adventureId(), command.ruleSetId(), command.requestingOwner());
         if (!scope.ready()) throw new RuleGuidanceNotReadyException();
 
+        RuleQueryIntent queryIntent = intentPort.classify(command.situation());
         List<RuleEvidence> evidence = searchPort.search(
-                command.requestingOwner(), scope.selectedRulebooks(), command.situation());
+                command.requestingOwner(), scope.selectedRulebooks(), command.situation(), queryIntent);
         requireSelectedSources(evidence.stream().map(RuleEvidence::source).toList(), scope);
         GuidanceComposition composition = compositionPort.compose(command.situation(), List.copyOf(evidence));
 
