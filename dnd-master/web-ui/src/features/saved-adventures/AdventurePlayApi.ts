@@ -13,6 +13,12 @@ export type CharacterSheet = {
 
 export type SavedAdventure = { id: string; title: string; updatedAt: string }
 
+export type SessionKnowledgeSet = {
+  adventureId: string
+  sessionId: string
+  knowledgeDocumentIds: string[]
+}
+
 export interface AdventurePlayApi {
   getCharacter(sheetId: string): Promise<CharacterSheet>
   rollDice(adventureId: string, ruleSetId: string, characterSheetId: string, role: string, action: string): Promise<{ rollId: string; total: number }>
@@ -20,6 +26,8 @@ export interface AdventurePlayApi {
   save(adventureId: string, playerId: string, expectedVersion: number, currentScene: string): Promise<{ adventureId: string; newVersion: number }>
   resume(adventureId: string): Promise<void>
   deleteAdventure(adventureId: string, playerId: string, expectedVersion: number): Promise<void>
+  getSessionKnowledgeSet(adventureId: string): Promise<SessionKnowledgeSet>
+  saveSessionKnowledgeSet(adventureId: string, playerId: string, knowledgeDocumentIds: string[]): Promise<SessionKnowledgeSet>
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -81,6 +89,20 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
       method: 'DELETE',
       headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
       body: JSON.stringify({ playerId, expectedVersion }),
+    })
+  }
+
+  getSessionKnowledgeSet(adventureId: string) {
+    return request<SessionKnowledgeSet>(`/api/v1/adventures/${adventureId}/knowledge-documents`, {
+      headers: this.authHeaders(),
+    })
+  }
+
+  saveSessionKnowledgeSet(adventureId: string, playerId: string, knowledgeDocumentIds: string[]) {
+    return request<SessionKnowledgeSet>(`/api/v1/adventures/${adventureId}/knowledge-documents`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      body: JSON.stringify({ playerId, knowledgeDocumentIds }),
     })
   }
 }

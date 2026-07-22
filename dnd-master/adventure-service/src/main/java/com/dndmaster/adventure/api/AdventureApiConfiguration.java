@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.api;
 
 import com.dndmaster.adventure.application.combat.*;
+import com.dndmaster.adventure.application.knowledge.*;
 import com.dndmaster.adventure.application.guidance.*;
 import com.dndmaster.adventure.application.progress.*;
 import com.dndmaster.adventure.application.ruleset.*;
@@ -10,6 +11,12 @@ import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.inquiry.RulebookId;
 import com.dndmaster.adventure.domain.scenario.ScenarioSource;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpKnowledgeDocumentLookupGateway;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.time.Duration;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -22,6 +29,11 @@ public class AdventureApiConfiguration {
     @Bean
     AdventureRepository adventureRepository(DataSource dataSource) {
         return new PostgresAdventureRepository(dataSource);
+    }
+
+    @Bean
+    SessionKnowledgeSetRepository sessionKnowledgeSetRepository(DataSource dataSource) {
+        return new PostgresSessionKnowledgeSetRepository(dataSource);
     }
 
     @Bean
@@ -65,6 +77,23 @@ public class AdventureApiConfiguration {
     @Bean
     SavedAdventureApplicationService savedAdventureApplicationService(AdventureRepository repository) {
         return new SavedAdventureApplicationService(repository);
+    }
+
+    @Bean
+    KnowledgeDocumentLookupPort knowledgeDocumentLookupPort(ObjectMapper objectMapper) {
+        return new CrossContextHttpKnowledgeDocumentLookupGateway(
+                HttpClient.newHttpClient(),
+                URI.create("http://127.0.0.1:18083/"),
+                Duration.ofSeconds(2),
+                objectMapper);
+    }
+
+    @Bean
+    SessionKnowledgeSetApplicationService sessionKnowledgeSetApplicationService(
+            AdventureRepository adventureRepository,
+            SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
+            KnowledgeDocumentLookupPort lookupPort) {
+        return new SessionKnowledgeSetApplicationService(adventureRepository, sessionKnowledgeSetRepository, lookupPort);
     }
 
     @Bean

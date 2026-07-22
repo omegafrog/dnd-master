@@ -17,6 +17,15 @@ export type BatchRulebookView = {
   failureReason?: string | null
 }
 
+export type KnowledgeDocumentStatus = 'UPLOADED' | 'EXTRACTED' | 'INDEXED' | 'PARTIAL_AWAITING_CONFIRMATION' | 'PARTIAL_CONFIRMED' | 'REJECTED'
+
+export type KnowledgeDocumentView = {
+  knowledgeDocumentId: string
+  documentType: DocumentType
+  originalFilename: string
+  status: KnowledgeDocumentStatus
+}
+
 export type RulebookUploadDraft = {
   file: File
   documentType: DocumentType
@@ -28,6 +37,7 @@ export interface SetupApi {
   getRulebookStatus(rulebookId: string): Promise<RulebookView>
   uploadScenario(file: File): Promise<{ id: string; name: string }>
   saveRuleSet(rulebookIds: string[]): Promise<void>
+  listKnowledgeDocuments(ownerId: string): Promise<KnowledgeDocumentView[]>
 }
 
 async function request<T>(path: string, init: RequestInit): Promise<T> {
@@ -86,5 +96,11 @@ export class HttpSetupApi implements SetupApi {
       headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ rulebookIds }),
     })
+  }
+
+  listKnowledgeDocuments(ownerId: string) {
+    return request<{ ownerId: string; rulebooks: KnowledgeDocumentView[] }>(`/internal/v1/rulebooks?ownerId=${ownerId}`, {
+      headers: this.authHeaders(),
+    }).then(response => response.rulebooks)
   }
 }
