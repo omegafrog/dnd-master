@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "properties": {
+    "adventureId": { "type": "string", "format": "uuid" },
+    "sessionId": { "type": "string", "format": "uuid" },
+    "knowledgeDocumentIds": {
+      "type": "array",
+      "items": { "type": "string", "format": "uuid" }
+    }
+  },
+  "required": ["adventureId", "sessionId", "knowledgeDocumentIds"],
+  "additionalProperties": false
+}

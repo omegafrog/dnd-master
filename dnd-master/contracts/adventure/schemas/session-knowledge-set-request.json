@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "playerId": { "type": "string", "format": "uuid" },
+    "knowledgeDocumentIds": {
+      "type": "array",
+      "items": { "type": "string", "format": "uuid" }
+    }
+  },
+  "required": ["playerId", "knowledgeDocumentIds"],
+  "additionalProperties": false
+}
