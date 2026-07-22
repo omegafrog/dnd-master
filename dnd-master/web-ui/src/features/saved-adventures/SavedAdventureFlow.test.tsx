@@ -28,6 +28,7 @@ it('lists, resumes, deletes and configures session knowledge sets', async () => 
   const setupApi: SetupApi = {
     async uploadRulebooks() { return [] },
     async getRulebookStatus() { return { rulebookId: 'rulebook-1', status: 'INDEXED' as const } },
+    async retryKnowledgeDocument(knowledgeDocumentId: string) { return { rulebookId: knowledgeDocumentId, status: 'INDEXED' as const } },
     async uploadScenario(file) { return { id: 'scenario', name: file.name } },
     async saveRuleSet() {},
     async listKnowledgeDocuments() {
