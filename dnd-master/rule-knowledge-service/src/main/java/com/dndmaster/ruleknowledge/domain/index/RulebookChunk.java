@@ -8,7 +8,9 @@ public record RulebookChunk(
         ChunkId chunkId,
         int sequence,
         ExtractedContentRange range,
-        String content) {
+        String content,
+        String chapter,
+        String section) {
     public RulebookChunk {
         Objects.requireNonNull(rulebookId, "rulebookId must not be null");
         Objects.requireNonNull(chunkId, "chunkId must not be null");

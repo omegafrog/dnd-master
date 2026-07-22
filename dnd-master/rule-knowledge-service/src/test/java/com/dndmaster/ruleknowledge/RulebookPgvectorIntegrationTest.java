@@ -10,7 +10,7 @@ import com.dndmaster.ruleknowledge.domain.index.IndexId;
 import com.dndmaster.ruleknowledge.domain.index.RulebookChunk;
 import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
-import com.dndmaster.ruleknowledge.infrastructure.persistence.EmbeddedRulebookChunk;
+import com.dndmaster.ruleknowledge.domain.index.EmbeddedRulebookChunk;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.IndexMetadata;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorRuleSearchRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.RuleVectorPersistenceException;
@@ -117,7 +117,7 @@ class RulebookPgvectorIntegrationTest {
 
     private static RulebookChunk chunk(RulebookId rulebookId, ChunkId chunkId, int sequence, String content) {
         return new RulebookChunk(
-                rulebookId, chunkId, sequence, new ExtractedContentRange(0, content.length()), content);
+                rulebookId, chunkId, sequence, new ExtractedContentRange(0, content.length()), content, null, null);
     }
 
     private static OwnerPlayerId owner() {

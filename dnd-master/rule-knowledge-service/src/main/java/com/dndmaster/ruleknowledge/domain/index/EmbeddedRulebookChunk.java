@@ -1,6 +1,5 @@
-package com.dndmaster.ruleknowledge.infrastructure.persistence;
+package com.dndmaster.ruleknowledge.domain.index;
 
-import com.dndmaster.ruleknowledge.domain.index.RulebookChunk;
 import java.util.Objects;
 
 public record EmbeddedRulebookChunk(RulebookChunk chunk, String locator, float[] embedding) {

@@ -20,8 +20,7 @@ class FakeIdentityApi implements IdentityApi {
     return this.session
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async register(_credentials: LoginCredentials) { /* noop */ }
+  async register(credentials: LoginCredentials) { this.credentials = credentials }
 
   async logout(accessToken: string) {
     this.logoutToken = accessToken

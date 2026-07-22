@@ -4,11 +4,13 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
+import com.dndmaster.ruleknowledge.application.indexing.ChunkEmbedding;
 import com.dndmaster.ruleknowledge.application.indexing.EmbeddingPort;
 import com.dndmaster.ruleknowledge.application.indexing.IndexingCommand;
 import com.dndmaster.ruleknowledge.application.indexing.IndexingFailedException;
 import com.dndmaster.ruleknowledge.application.indexing.RulebookIndexRepository;
 import com.dndmaster.ruleknowledge.application.indexing.RulebookIndexingApplicationService;
+import com.dndmaster.ruleknowledge.application.indexing.StructureDetectionPort;
 import com.dndmaster.ruleknowledge.domain.index.IndexKey;
 import com.dndmaster.ruleknowledge.domain.index.IndexStatus;
 import com.dndmaster.ruleknowledge.domain.index.RulebookChunk;
@@ -100,7 +102,7 @@ class RulebookIndexingApplicationServiceTest {
     private static RulebookIndexingApplicationService service(
             RulebookIndexRepository repository, EmbeddingPort embeddings, int maximumChunkCharacters) {
         return new RulebookIndexingApplicationService(
-                repository, embeddings, new RulebookIndexingPolicy(maximumChunkCharacters));
+                repository, embeddings, text -> StructureDetectionPort.DetectedStructure.none(), maximumChunkCharacters);
     }
 
     private static IndexingCommand command(Rulebook rulebook) {
@@ -127,13 +129,16 @@ class RulebookIndexingApplicationServiceTest {
         }
 
         @Override
-        public void embed(List<RulebookChunk> chunks, String embeddingModel, int expectedDimension) {
+        public List<ChunkEmbedding> embed(List<RulebookChunk> chunks, String embeddingModel, int expectedDimension) {
             calls++;
             assertEquals("mock-embedding", embeddingModel);
             assertEquals(DIMENSION, expectedDimension);
             if (failuresRemaining-- > 0) {
                 throw new IllegalStateException("mock embedding failure");
             }
+            return chunks.stream()
+                    .map(c -> new ChunkEmbedding(c.chunkId(), new float[]{1f, 0f, 0f}))
+                    .toList();
         }
     }
 
@@ -148,6 +153,12 @@ class RulebookIndexingApplicationServiceTest {
 
         @Override
         public void save(RulebookIndex index) {
+            indexes.put(index.key(), index);
+            savedStatuses.add(index.status());
+        }
+
+        @Override
+        public void saveComplete(RulebookIndex index, List<com.dndmaster.ruleknowledge.domain.index.EmbeddedRulebookChunk> chunks) {
             indexes.put(index.key(), index);
             savedStatuses.add(index.status());
         }

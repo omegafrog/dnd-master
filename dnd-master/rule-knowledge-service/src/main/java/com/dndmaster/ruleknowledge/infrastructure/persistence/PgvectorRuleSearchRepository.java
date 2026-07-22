@@ -1,6 +1,8 @@
 package com.dndmaster.ruleknowledge.infrastructure.persistence;
 
+import com.dndmaster.ruleknowledge.application.search.RuleSearchHit;
 import com.dndmaster.ruleknowledge.domain.index.ChunkId;
+import com.dndmaster.ruleknowledge.domain.index.EmbeddedRulebookChunk;
 import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
 import java.sql.Connection;
@@ -23,12 +25,13 @@ public final class PgvectorRuleSearchRepository {
             """;
     private static final String INSERT_CHUNK = """
             INSERT INTO rulebook_vector_chunk
-                (chunk_id, index_id, rulebook_id, owner_player_id, sequence, locator, content, embedding)
-            VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS vector))
+                (chunk_id, index_id, rulebook_id, owner_player_id, sequence, locator, content, embedding, chapter, section)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS vector), ?, ?)
             """;
     private static final String SEARCH = """
             SELECT rulebook_id, chunk_id, locator, content,
-                   embedding <=> CAST(? AS vector) AS distance
+                   embedding <=> CAST(? AS vector) AS distance,
+                   chapter, section
               FROM rulebook_vector_chunk
              WHERE owner_player_id = ?
                AND rulebook_id = ANY (?)
@@ -104,7 +107,9 @@ public final class PgvectorRuleSearchRepository {
                             new ChunkId(rows.getObject("chunk_id", UUID.class)),
                             rows.getString("locator"),
                             rows.getString("content"),
-                            rows.getDouble("distance")));
+                            rows.getDouble("distance"),
+                            rows.getString("chapter"),
+                            rows.getString("section")));
                 }
                 return List.copyOf(hits);
             }
@@ -148,6 +153,8 @@ public final class PgvectorRuleSearchRepository {
                 statement.setString(6, embedded.locator());
                 statement.setString(7, embedded.chunk().content());
                 statement.setString(8, vectorLiteral(embedded.embedding()));
+                statement.setString(9, embedded.chunk().chapter());
+                statement.setString(10, embedded.chunk().section());
                 statement.addBatch();
             }
             statement.executeBatch();

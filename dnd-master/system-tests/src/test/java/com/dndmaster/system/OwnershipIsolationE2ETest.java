@@ -34,7 +34,7 @@ import com.dndmaster.ruleknowledge.domain.index.ExtractedContentRange;
 import com.dndmaster.ruleknowledge.domain.index.IndexId;
 import com.dndmaster.ruleknowledge.domain.index.RulebookChunk;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
-import com.dndmaster.ruleknowledge.infrastructure.persistence.EmbeddedRulebookChunk;
+import com.dndmaster.ruleknowledge.domain.index.EmbeddedRulebookChunk;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.IndexMetadata;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorRuleSearchRepository;
 import java.util.List;
@@ -107,7 +107,7 @@ class OwnershipIsolationE2ETest {
             String content, String locator) {
         var chunk = new RulebookChunk(
                 rulebookId, new ChunkId(UUID.randomUUID()), 0,
-                new ExtractedContentRange(0, content.length()), content);
+                new ExtractedContentRange(0, content.length()), content, null, null);
         repository.storeReadyIndex(
                 new IndexMetadata(
                         IndexId.generate(), rulebookId,

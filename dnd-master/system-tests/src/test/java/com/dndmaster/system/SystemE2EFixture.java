@@ -69,9 +69,11 @@ final class SystemE2EFixture {
                 CREATE TABLE rulebook_vector_chunk (
                     chunk_id UUID PRIMARY KEY,
                     index_id UUID NOT NULL REFERENCES rulebook_vector_index(index_id) ON DELETE CASCADE,
-                    rulebook_id UUID NOT NULL, owner_player_id UUID NOT NULL,
+                    rulebook_id UUID NOT NULL,
+                    owner_player_id UUID NOT NULL,
                     sequence INTEGER NOT NULL CHECK (sequence >= 0), locator TEXT NOT NULL,
-                    content TEXT NOT NULL, embedding vector NOT NULL, UNIQUE (index_id, sequence)
+                    content TEXT NOT NULL, embedding vector NOT NULL, chapter TEXT, section TEXT,
+                    UNIQUE (index_id, sequence)
                 )
                 """);
         execute("CREATE INDEX rulebook_vector_chunk_owner_rulebook_idx ON rulebook_vector_chunk(owner_player_id, rulebook_id)");
