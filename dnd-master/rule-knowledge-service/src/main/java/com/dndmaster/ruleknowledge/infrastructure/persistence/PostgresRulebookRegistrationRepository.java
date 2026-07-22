@@ -36,6 +36,38 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
               FROM rulebook_registration WHERE owner_player_id = ?
               ORDER BY created_at DESC
             """;
+    private static final String FIND_BY_STATUS_PREFIX = """
+            SELECT rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
+                   storage_key, processing_status, extraction_status, extracted_content,
+                   missing_locations, failure_code, version, created_at, updated_at,
+                   document_type, original_filename
+              FROM rulebook_registration WHERE processing_status IN (
+            """;
+    private static final String CLAIM_PENDING = """
+            WITH claimed AS (
+                SELECT rulebook_id
+                  FROM rulebook_registration
+                 WHERE (
+                       processing_status IN ('QUEUED', 'UPLOADED', 'EXTRACTED')
+                    OR (processing_status = 'PROCESSING' AND updated_at < ?)
+                 )
+                 ORDER BY created_at ASC
+                 FOR UPDATE SKIP LOCKED
+                 LIMIT ?
+            )
+            UPDATE rulebook_registration registration
+               SET processing_status = 'PROCESSING',
+                   version = registration.version + 1,
+                   updated_at = now()
+              FROM claimed
+             WHERE registration.rulebook_id = claimed.rulebook_id
+            RETURNING registration.rulebook_id, registration.owner_player_id, registration.operation_key,
+                      registration.content_hash, registration.format, registration.file_size,
+                      registration.storage_key, registration.processing_status, registration.extraction_status,
+                      registration.extracted_content, registration.missing_locations, registration.failure_code,
+                      registration.version, registration.created_at, registration.updated_at,
+                      registration.document_type, registration.original_filename
+            """;
     private static final String UPSERT = """
             INSERT INTO rulebook_registration
                 (rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
@@ -91,6 +123,65 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
             }
         } catch (SQLException e) {
             throw new RuntimeException("failed to query rulebook registrations", e);
+        }
+    }
+
+    @Override
+    public List<StoredRulebookRegistration> findByProcessingStatuses(List<ProcessingStatus> statuses) {
+        List<ProcessingStatus> requested = List.copyOf(Objects.requireNonNull(statuses, "statuses must not be null"));
+        if (requested.isEmpty()) {
+            return List.of();
+        }
+        String sql = FIND_BY_STATUS_PREFIX + requested.stream().map(status -> "?").reduce((left, right) -> left + ", " + right).orElse("?") + ") ORDER BY created_at ASC";
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement ps = connection.prepareStatement(sql)) {
+            for (int index = 0; index < requested.size(); index++) {
+                ps.setString(index + 1, requested.get(index).name());
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                List<StoredRulebookRegistration> results = new ArrayList<>();
+                while (rs.next()) {
+                    results.add(mapRow(rs));
+                }
+                return List.copyOf(results);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("failed to query rulebook registrations by status", e);
+        }
+    }
+
+    @Override
+    public List<StoredRulebookRegistration> claimPending(Instant processingLeaseCutoff, int limit) {
+        Objects.requireNonNull(processingLeaseCutoff, "processingLeaseCutoff must not be null");
+        if (limit <= 0) {
+            return List.of();
+        }
+        try (Connection connection = dataSource.getConnection()) {
+            boolean previousAutoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            try (PreparedStatement ps = connection.prepareStatement(CLAIM_PENDING)) {
+                ps.setTimestamp(1, Timestamp.from(processingLeaseCutoff));
+                ps.setInt(2, limit);
+                try (ResultSet rs = ps.executeQuery()) {
+                    List<StoredRulebookRegistration> claimed = new ArrayList<>();
+                    while (rs.next()) {
+                        claimed.add(mapRow(rs));
+                    }
+                    connection.commit();
+                    return List.copyOf(claimed);
+                }
+            } catch (SQLException e) {
+                try {
+                    connection.rollback();
+                } catch (SQLException rollback) {
+                    e.addSuppressed(rollback);
+                }
+                throw new RuntimeException("failed to claim pending rulebook registrations", e);
+            } finally {
+                connection.setAutoCommit(previousAutoCommit);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("failed to access rulebook registration claim transaction", e);
         }
     }
 

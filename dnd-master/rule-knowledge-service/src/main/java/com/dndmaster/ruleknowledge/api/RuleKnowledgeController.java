@@ -27,6 +27,7 @@ import java.util.UUID;
 @RequestMapping
 public class RuleKnowledgeController {
     private final BatchRulebookUploadApplicationService batchUploadService;
+    private final RulebookPipelineApplicationService pipelineService;
     private final RulebookRegistrationRepository registrationRepository;
     private final RuleEvidenceSearchApplicationService evidenceSearchService;
     private final ObjectMapper objectMapper;
@@ -36,6 +37,7 @@ public class RuleKnowledgeController {
             RulebookRegistrationRepository registrationRepository,
             RuleEvidenceSearchApplicationService evidenceSearchService,
             ObjectMapper objectMapper) {
+        this.pipelineService = pipelineService;
         this.batchUploadService = new BatchRulebookUploadApplicationService(pipelineService);
         this.registrationRepository = registrationRepository;
         this.evidenceSearchService = evidenceSearchService;
@@ -76,8 +78,21 @@ public class RuleKnowledgeController {
                         r.knowledgeDocumentId().value(),
                         r.processingStatus().name(),
                         r.documentType(),
-                        r.originalFilename()))
-                .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null));
+                        r.originalFilename(),
+                        r.failureCode()))
+                .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null, null));
+    }
+
+    @PostMapping("/api/v1/rulebooks/{rulebookId}/retry")
+    RulebookStatusResponse retryRulebook(@PathVariable UUID rulebookId) {
+        try {
+            pipelineService.retry(new RulebookId(rulebookId));
+            return rulebookStatus(rulebookId);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, exception.getMessage(), exception);
+        } catch (IllegalStateException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
+        }
     }
 
     @GetMapping("/internal/v1/rulebooks")
@@ -86,7 +101,7 @@ public class RuleKnowledgeController {
         List<RulebookSummary> summaries = registrations.stream()
                 .map(r -> new RulebookSummary(
                         r.rulebookId().value(), r.knowledgeDocumentId().value(), r.processingStatus().name(),
-                        r.format().name(), r.documentType(), r.originalFilename()))
+                        r.format().name(), r.documentType(), r.originalFilename(), r.failureCode()))
                 .toList();
         return new OwnedRulebooksResponse(ownerId, summaries);
     }
@@ -152,10 +167,10 @@ public class RuleKnowledgeController {
     public record BatchUploadResponse(List<BatchUploadResult> documents) {}
     public record UploadDocumentRequest(String idempotencyKey, DocumentType documentType, String originalFilename) {}
     public record RulebookStatusResponse(
-            UUID rulebookId, UUID knowledgeDocumentId, String status, DocumentType documentType, String originalFilename) {}
+            UUID rulebookId, UUID knowledgeDocumentId, String status, DocumentType documentType, String originalFilename, String failureReason) {}
     public record RulebookSummary(
             UUID rulebookId, UUID knowledgeDocumentId, String status, String format,
-            DocumentType documentType, String originalFilename) {}
+            DocumentType documentType, String originalFilename, String failureReason) {}
     public record OwnedRulebooksResponse(UUID ownerId, List<RulebookSummary> rulebooks) {}
     public record OwnedIndexesResponse(UUID ownerId, List<?> indexes) {}
     public record OwnershipResponse(UUID rulebookId, UUID playerId, boolean owned) {}

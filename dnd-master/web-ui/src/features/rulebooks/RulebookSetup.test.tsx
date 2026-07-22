@@ -1,15 +1,19 @@
 import '@testing-library/jest-dom/vitest'
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { RulebookSetup } from './RulebookSetup'
-import type { BatchRulebookView, SetupApi } from './SetupApi'
+import type { BatchRulebookView, KnowledgeDocumentView, SetupApi } from './SetupApi'
 
 class FakeSetupApi implements SetupApi {
   uploadError = ''
   private results: BatchRulebookView[] = [
     { knowledgeDocumentId: 'doc-1', documentType: 'RULEBOOK', originalFilename: 'phb.pdf', status: 'ACCEPTED' },
     { knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK', originalFilename: 'campaign.md', status: 'VALIDATION_FAILED', failureReason: 'unsupported format' },
+  ]
+  private documents: KnowledgeDocumentView[] = [
+    { knowledgeDocumentId: 'doc-1', documentType: 'RULEBOOK', originalFilename: 'phb.pdf', status: 'QUEUED' as const },
+    { knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK', originalFilename: 'campaign.md', status: 'FAILED' as const, failureReason: 'indexer timeout' },
   ]
 
   async uploadRulebooks() {
@@ -20,9 +24,18 @@ class FakeSetupApi implements SetupApi {
   async getRulebookStatus(_rulebookId: string) {
     return { rulebookId: 'phb', status: 'INDEXED' as const }
   }
+  async retryKnowledgeDocument(knowledgeDocumentId: string) {
+    this.documents = this.documents.map(document => document.knowledgeDocumentId === knowledgeDocumentId
+      ? { ...document, status: 'QUEUED' as const, failureReason: null }
+      : document)
+    return { rulebookId: knowledgeDocumentId, status: 'QUEUED' as const }
+  }
   async uploadScenario(file: File) { return { id: 'scenario-1', name: file.name } }
   async saveRuleSet() {}
-  async listKnowledgeDocuments() { return [] }
+  async listKnowledgeDocuments(ownerId: string) {
+    void ownerId
+    return this.documents
+  }
 }
 
 describe('rulebook and adventure setup', () => {
@@ -53,6 +66,22 @@ describe('rulebook and adventure setup', () => {
     fireEvent.change(screen.getByLabelText('자료 파일'), { target: { files: [new File(['bad'], 'bad.pdf')] } })
     await user.click(screen.getByRole('button', { name: '자료 업로드' }))
     await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(api.uploadError))
+  })
+
+  it('shows document status and retries only the failed document', async () => {
+    const api = new FakeSetupApi()
+    const user = userEvent.setup()
+    render(<RulebookSetup api={api} playerId="p1" />)
+
+    const failedDocument = await screen.findByText('campaign.md')
+    expect(within(failedDocument.closest('li')!).getByText(/indexer timeout/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '다시 처리' })).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: '다시 처리' }))
+
+    const retriedDocument = screen.getByText('campaign.md').closest('li')!
+    expect(within(retriedDocument).queryByText(/indexer timeout/)).not.toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('다시 처리했습니다.')
   })
 
   it('registers a scenario', async () => {

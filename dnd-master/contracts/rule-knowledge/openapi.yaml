@@ -36,6 +36,24 @@ paths:
           content:
             application/json:
               schema: { $ref: './schemas/rulebook-status-response.json' }
+  /api/v1/rulebooks/{rulebookId}/retry:
+    post:
+      operationId: retryRulebook
+      parameters:
+        - name: rulebookId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: retried document status
+          content:
+            application/json:
+              schema: { $ref: './schemas/rulebook-status-response.json' }
+        '404':
+          description: document not found
+        '409':
+          description: retry rejected because document is not failed
   /internal/v1/rulebooks:
     get:
       operationId: ownedRulebooks

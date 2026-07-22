@@ -1,10 +1,22 @@
-import { type FormEvent, useState } from 'react'
-import type { BatchRulebookView, DocumentType, RulebookUploadDraft, SetupApi } from './SetupApi'
+import { type FormEvent, useCallback, useEffect, useState } from 'react'
+import type { BatchRulebookView, DocumentType, KnowledgeDocumentView, RulebookUploadDraft, SetupApi } from './SetupApi'
 import { ScenarioSetup } from '../scenarios/ScenarioSetup'
 
 const batchStatusText: Record<BatchRulebookView['status'], string> = {
   ACCEPTED: '사용 준비 완료',
   VALIDATION_FAILED: '검증 실패',
+}
+
+const knowledgeStatusText: Record<KnowledgeDocumentView['status'], string> = {
+  UPLOADED: '대기 중',
+  QUEUED: '대기 중',
+  PROCESSING: '처리 중',
+  INDEXED: '색인 완료',
+  FAILED: '실패',
+  EXTRACTED: '추출 완료',
+  PARTIAL_AWAITING_CONFIRMATION: '확인 대기',
+  PARTIAL_CONFIRMED: '확인 완료',
+  REJECTED: '실패',
 }
 
 const documentTypeLabel: Record<DocumentType, string> = {
@@ -22,10 +34,23 @@ function createIdempotencyKey(file: File, index: number) {
 export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: string }) {
   const [drafts, setDrafts] = useState<PendingDocument[]>([])
   const [results, setResults] = useState<BatchRulebookView[]>([])
+  const [documents, setDocuments] = useState<KnowledgeDocumentView[]>([])
   const [message, setMessage] = useState('')
   const [uploading, setUploading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [ruleSetMessage, setRuleSetMessage] = useState('')
+
+  const refreshDocuments = useCallback(async () => {
+    try {
+      setDocuments(await api.listKnowledgeDocuments(playerId))
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '문서 목록을 불러오지 못했습니다.')
+    }
+  }, [api, playerId])
+
+  useEffect(() => {
+    void refreshDocuments()
+  }, [refreshDocuments])
 
   function updateDraftType(index: number, documentType: DocumentType) {
     setDrafts(current => current.map((draft, draftIndex) => draftIndex === index ? { ...draft, documentType } : draft))
@@ -55,10 +80,21 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
         })
         return next
       })
+      await refreshDocuments()
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '자료를 업로드하지 못했습니다.')
     } finally {
       setUploading(false)
+    }
+  }
+
+  async function retryDocument(knowledgeDocumentId: string) {
+    try {
+      await api.retryKnowledgeDocument(knowledgeDocumentId)
+      await refreshDocuments()
+      setMessage('다시 처리했습니다.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '다시 처리하지 못했습니다.')
     }
   }
 
@@ -142,6 +178,23 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
           <button onClick={() => void saveRuleSet()}>룰 세트 저장</button>
         )}
         {ruleSetMessage && <p role="status">{ruleSetMessage}</p>}
+        <section aria-labelledby="document-status-heading">
+          <h3 id="document-status-heading">문서 상태</h3>
+          <ul aria-label="문서 상태 목록">
+            {documents.map(document => (
+              <li key={document.knowledgeDocumentId}>
+                <span>{document.originalFilename}</span>
+                <span> - {knowledgeStatusText[document.status]}</span>
+                {document.failureReason ? <span> ({document.failureReason})</span> : null}
+                {document.status === 'FAILED' ? (
+                  <button type="button" onClick={() => void retryDocument(document.knowledgeDocumentId)}>
+                    다시 처리
+                  </button>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
       </section>
       <ScenarioSetup api={api} onError={setMessage} />
     </main>

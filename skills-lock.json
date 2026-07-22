@@ -17,7 +17,7 @@
       "source": "omegafrog/harness-codex",
       "sourceType": "github",
       "skillPath": ".codex/skills/code-review/SKILL.md",
-      "computedHash": "79102dfecc1f822ceb09eda22db816df3019d2dcc4ff0ca4d48980819ee17b9d"
+      "computedHash": "5866edebaad2eac3be22bfd9bbc0aa3f29b6d3ea6bf0cc9fd5d1ac2ce37acea3"
     },
     "codebase-design": {
       "source": "omegafrog/harness-codex",
