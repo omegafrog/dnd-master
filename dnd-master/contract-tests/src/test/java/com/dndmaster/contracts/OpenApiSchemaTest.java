@@ -39,6 +39,8 @@ class OpenApiSchemaTest {
     @Test
     void multipart_async_stream_source_candidate_and_player_map_have_separate_valid_schemas() throws IOException {
         JsonNode multipart = schema("rule-knowledge/schemas/multipart-upload.json");
+        JsonNode batchMultipart = schema("rule-knowledge/schemas/batch-multipart-upload.json");
+        JsonNode batchResponse = schema("rule-knowledge/schemas/batch-upload-response.json");
         JsonNode async = schema("rule-knowledge/schemas/async-status.json");
         JsonNode source = schema("rule-knowledge/schemas/source-location.json");
         JsonNode stream = schema("adventure/schemas/stream-event.json");
@@ -46,6 +48,9 @@ class OpenApiSchemaTest {
         JsonNode playerMap = schema("combat-map/schemas/player-map-view.json");
 
         assertTrue(multipart.at("/required").toString().contains("file"));
+        assertTrue(batchMultipart.at("/required").toString().contains("documents"));
+        assertTrue(batchMultipart.at("/properties/documents/items/properties/documentType/enum").toString().contains("STORYBOOK"));
+        assertTrue(batchResponse.at("/properties/documents/items/properties/status/enum").toString().contains("VALIDATION_FAILED"));
         assertTrue(async.at("/properties/status/enum").toString().contains("PARTIAL"));
         assertEquals(2, source.at("/required").size());
         assertTrue(stream.at("/properties/type/enum").toString().contains("INTERRUPTED"));

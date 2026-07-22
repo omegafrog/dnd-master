@@ -1,55 +1,71 @@
 package com.dndmaster.ruleknowledge.api;
 
+import com.dndmaster.ruleknowledge.application.pipeline.BatchRulebookUploadApplicationService;
+import com.dndmaster.ruleknowledge.application.pipeline.BatchRulebookUploadApplicationService.BatchUploadItem;
+import com.dndmaster.ruleknowledge.application.pipeline.BatchRulebookUploadApplicationService.BatchUploadResult;
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
-import com.dndmaster.ruleknowledge.application.pipeline.RulebookProcessingResult;
-import com.dndmaster.ruleknowledge.application.pipeline.UploadRulebookCommand;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceResult;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.search.SearchRuleEvidenceQuery;
 import com.dndmaster.ruleknowledge.domain.rulebook.*;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.UUID;
 
 @RestController
 @RequestMapping
 public class RuleKnowledgeController {
-    private final RulebookPipelineApplicationService pipelineService;
+    private final BatchRulebookUploadApplicationService batchUploadService;
     private final RulebookRegistrationRepository registrationRepository;
     private final RuleEvidenceSearchApplicationService evidenceSearchService;
+    private final ObjectMapper objectMapper;
 
     public RuleKnowledgeController(
             RulebookPipelineApplicationService pipelineService,
             RulebookRegistrationRepository registrationRepository,
-            RuleEvidenceSearchApplicationService evidenceSearchService) {
-        this.pipelineService = pipelineService;
+            RuleEvidenceSearchApplicationService evidenceSearchService,
+            ObjectMapper objectMapper) {
+        this.batchUploadService = new BatchRulebookUploadApplicationService(pipelineService);
         this.registrationRepository = registrationRepository;
         this.evidenceSearchService = evidenceSearchService;
+        this.objectMapper = objectMapper;
     }
 
     @PostMapping("/api/v1/rulebooks")
-    ResponseEntity<AsyncStatusResponse> uploadRulebook(
-            @RequestHeader("Idempotency-Key") String idempotencyKey,
-            @RequestParam("file") MultipartFile file,
-            @RequestParam("ownerPlayerId") UUID ownerPlayerId) throws Exception {
-        RulebookFormat format = resolveFormat(file.getOriginalFilename());
-        UploadRulebookCommand command = new UploadRulebookCommand(
-                idempotencyKey,
-                new OwnerPlayerId(ownerPlayerId),
-                format,
-                file.getBytes(),
-                file.getOriginalFilename() != null ? file.getOriginalFilename() : "legacy-rulebook");
-        RulebookProcessingResult result = pipelineService.process(command);
-        return ResponseEntity.accepted().body(new AsyncStatusResponse(
-                result.rulebookId().value(),
-                result.rulebookId().value(),
-                mapStatus(result.status()),
-                result.warnings()));
+    ResponseEntity<BatchUploadResponse> uploadRulebooks(
+            @RequestParam("ownerPlayerId") UUID ownerPlayerId,
+            @RequestPart("documents") MultipartFile documents,
+            @RequestPart("files") List<MultipartFile> files) throws IOException {
+        List<UploadDocumentRequest> uploadDocuments = parseDocuments(documents.getBytes());
+        if (uploadDocuments.size() != files.size()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "documents and files must have the same size");
+        }
+        List<BatchUploadItem> items = new java.util.ArrayList<>(files.size());
+        for (int index = 0; index < files.size(); index++) {
+            MultipartFile file = files.get(index);
+            UploadDocumentRequest document = uploadDocuments.get(index);
+            String originalFilename = file.getOriginalFilename() != null ? file.getOriginalFilename() : document.originalFilename();
+            items.add(new BatchUploadItem(
+                    document.idempotencyKey(),
+                    new OwnerPlayerId(ownerPlayerId),
+                    document.documentType(),
+                    resolveFormat(originalFilename),
+                    originalFilename,
+                    file.getBytes()));
+        }
+        List<BatchUploadResult> results = batchUploadService.process(items);
+        return ResponseEntity.accepted().body(new BatchUploadResponse(results));
     }
 
     @GetMapping("/api/v1/rulebooks/{rulebookId}")
@@ -112,6 +128,16 @@ public class RuleKnowledgeController {
         return new EvidenceSearchResponse(request.ownerId(), evidence);
     }
 
+    private List<UploadDocumentRequest> parseDocuments(byte[] documentsJson) throws IOException {
+        try {
+            return objectMapper.readValue(
+                    new String(documentsJson, StandardCharsets.UTF_8),
+                    new TypeReference<List<UploadDocumentRequest>>() {});
+        } catch (IOException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "documents must be valid JSON", exception);
+        }
+    }
+
     private static RulebookFormat resolveFormat(String filename) {
         if (filename == null) return RulebookFormat.PDF;
         return switch (filename.substring(filename.lastIndexOf('.') + 1).toLowerCase()) {
@@ -122,19 +148,9 @@ public class RuleKnowledgeController {
         };
     }
 
-    private static String mapStatus(ProcessingStatus status) {
-        return switch (status) {
-            case UPLOADED -> "EXTRACTING";
-            case EXTRACTED -> "INDEXING";
-            case INDEXED -> "READY";
-            case PARTIAL_AWAITING_CONFIRMATION -> "PARTIAL";
-            case PARTIAL_CONFIRMED -> "INDEXING";
-            case REJECTED -> "FAILED";
-        };
-    }
-
     // Response records
-    public record AsyncStatusResponse(UUID resourceId, UUID knowledgeDocumentId, String status, List<String> warnings) {}
+    public record BatchUploadResponse(List<BatchUploadResult> documents) {}
+    public record UploadDocumentRequest(String idempotencyKey, DocumentType documentType, String originalFilename) {}
     public record RulebookStatusResponse(
             UUID rulebookId, UUID knowledgeDocumentId, String status, DocumentType documentType, String originalFilename) {}
     public record RulebookSummary(

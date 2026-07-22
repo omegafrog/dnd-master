@@ -11,6 +11,7 @@ import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchPort;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorRuleEvidenceSearchRepository;
 import com.dndmaster.ruleknowledge.infrastructure.storage.LocalFileSystemRulebookStorage;
 import com.dndmaster.ruleknowledge.infrastructure.storage.RulebookStorageProperties;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -93,7 +94,8 @@ public class RuleKnowledgeApiConfiguration {
     RuleKnowledgeController ruleKnowledgeController(
             RulebookPipelineApplicationService pipelineService,
             RulebookRegistrationRepository registrationRepository,
-            RuleEvidenceSearchApplicationService evidenceSearchService) {
-        return new RuleKnowledgeController(pipelineService, registrationRepository, evidenceSearchService);
+            RuleEvidenceSearchApplicationService evidenceSearchService,
+            ObjectMapper objectMapper) {
+        return new RuleKnowledgeController(pipelineService, registrationRepository, evidenceSearchService, objectMapper);
     }
 }
