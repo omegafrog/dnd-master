@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useState } from 'react'
 import type { BatchRulebookView, DocumentType, KnowledgeDocumentView, RulebookUploadDraft, SetupApi } from './SetupApi'
 import { ScenarioSetup } from '../scenarios/ScenarioSetup'
 
@@ -40,17 +40,17 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [ruleSetMessage, setRuleSetMessage] = useState('')
 
-  useEffect(() => {
-    void refreshDocuments()
-  }, [playerId])
-
-  async function refreshDocuments() {
+  const refreshDocuments = useCallback(async () => {
     try {
       setDocuments(await api.listKnowledgeDocuments(playerId))
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '문서 목록을 불러오지 못했습니다.')
     }
-  }
+  }, [api, playerId])
+
+  useEffect(() => {
+    void refreshDocuments()
+  }, [refreshDocuments])
 
   function updateDraftType(index: number, documentType: DocumentType) {
     setDrafts(current => current.map((draft, draftIndex) => draftIndex === index ? { ...draft, documentType } : draft))

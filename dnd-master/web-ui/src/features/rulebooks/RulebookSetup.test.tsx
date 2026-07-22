@@ -32,7 +32,10 @@ class FakeSetupApi implements SetupApi {
   }
   async uploadScenario(file: File) { return { id: 'scenario-1', name: file.name } }
   async saveRuleSet() {}
-  async listKnowledgeDocuments(_ownerId: string) { return this.documents }
+  async listKnowledgeDocuments(ownerId: string) {
+    void ownerId
+    return this.documents
+  }
 }
 
 describe('rulebook and adventure setup', () => {
