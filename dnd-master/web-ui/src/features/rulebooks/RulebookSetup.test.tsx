@@ -12,7 +12,7 @@ class FakeSetupApi implements SetupApi {
     { knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK', originalFilename: 'campaign.md', status: 'VALIDATION_FAILED', failureReason: 'unsupported format' },
   ]
 
-  async uploadRulebooks(_documents: Parameters<SetupApi['uploadRulebooks']>[0], _ownerId: string) {
+  async uploadRulebooks() {
     if (this.uploadError) throw new Error(this.uploadError)
     return this.results
   }
