@@ -86,6 +86,7 @@ jobs:
           docker version
           docker compose -f dnd-master/infra/compose.yaml config
       - run: npm --prefix dnd-master/web-ui ci
+      - run: npx --prefix dnd-master/web-ui playwright install --with-deps chromium
       - name: Backend system E2E tests
         run: |
           chmod +x ./dnd-master/gradlew

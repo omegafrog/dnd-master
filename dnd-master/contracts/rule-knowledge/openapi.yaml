@@ -13,13 +13,13 @@ paths:
         required: true
         content:
           multipart/form-data:
-            schema: { $ref: './schemas/multipart-upload.json' }
+            schema: { $ref: './schemas/batch-multipart-upload.json' }
       responses:
         '202':
           description: accepted
           content:
             application/json:
-              schema: { $ref: './schemas/async-status.json' }
+              schema: { $ref: './schemas/batch-upload-response.json' }
         '409':
           description: conflict - same idempotency key with different file
   /api/v1/rulebooks/{rulebookId}:

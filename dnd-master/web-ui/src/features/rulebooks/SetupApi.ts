@@ -5,8 +5,26 @@ export type RulebookView = {
   status: RulebookStatus
 }
 
+export type DocumentType = 'RULEBOOK' | 'STORYBOOK'
+
+export type BatchRulebookStatus = 'ACCEPTED' | 'VALIDATION_FAILED'
+
+export type BatchRulebookView = {
+  knowledgeDocumentId: string | null
+  documentType: DocumentType
+  originalFilename: string
+  status: BatchRulebookStatus
+  failureReason?: string | null
+}
+
+export type RulebookUploadDraft = {
+  file: File
+  documentType: DocumentType
+  idempotencyKey: string
+}
+
 export interface SetupApi {
-  uploadRulebook(file: File, ownerId: string): Promise<RulebookView>
+  uploadRulebooks(documents: RulebookUploadDraft[], ownerId: string): Promise<BatchRulebookView[]>
   getRulebookStatus(rulebookId: string): Promise<RulebookView>
   uploadScenario(file: File): Promise<{ id: string; name: string }>
   saveRuleSet(rulebookIds: string[]): Promise<void>
@@ -31,14 +49,19 @@ export class HttpSetupApi implements SetupApi {
     return { Authorization: `Bearer ${this.getToken()}` }
   }
 
-  uploadRulebook(file: File, ownerId: string) {
+  uploadRulebooks(documents: RulebookUploadDraft[], ownerId: string) {
     const body = new FormData()
-    body.append('file', file)
-    return request<RulebookView>(`/api/v1/rulebooks?ownerPlayerId=${ownerId}`, {
+    body.append('documents', new Blob([JSON.stringify(documents.map(document => ({
+      idempotencyKey: document.idempotencyKey,
+      documentType: document.documentType,
+      originalFilename: document.file.name,
+    })))], { type: 'application/json' }))
+    documents.forEach(document => body.append('files', document.file, document.file.name))
+    return request<{ documents: BatchRulebookView[] }>(`/api/v1/rulebooks?ownerPlayerId=${ownerId}`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${this.getToken()}` },
       body,
-    })
+    }).then(response => response.documents)
   }
 
   getRulebookStatus(rulebookId: string) {
