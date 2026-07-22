@@ -36,6 +36,13 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
               FROM rulebook_registration WHERE owner_player_id = ?
               ORDER BY created_at DESC
             """;
+    private static final String FIND_BY_STATUS_PREFIX = """
+            SELECT rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
+                   storage_key, processing_status, extraction_status, extracted_content,
+                   missing_locations, failure_code, version, created_at, updated_at,
+                   document_type, original_filename
+              FROM rulebook_registration WHERE processing_status IN (
+            """;
     private static final String UPSERT = """
             INSERT INTO rulebook_registration
                 (rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
@@ -91,6 +98,30 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
             }
         } catch (SQLException e) {
             throw new RuntimeException("failed to query rulebook registrations", e);
+        }
+    }
+
+    @Override
+    public List<StoredRulebookRegistration> findByProcessingStatuses(List<ProcessingStatus> statuses) {
+        List<ProcessingStatus> requested = List.copyOf(Objects.requireNonNull(statuses, "statuses must not be null"));
+        if (requested.isEmpty()) {
+            return List.of();
+        }
+        String sql = FIND_BY_STATUS_PREFIX + requested.stream().map(status -> "?").reduce((left, right) -> left + ", " + right).orElse("?") + ") ORDER BY created_at ASC";
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement ps = connection.prepareStatement(sql)) {
+            for (int index = 0; index < requested.size(); index++) {
+                ps.setString(index + 1, requested.get(index).name());
+            }
+            try (ResultSet rs = ps.executeQuery()) {
+                List<StoredRulebookRegistration> results = new ArrayList<>();
+                while (rs.next()) {
+                    results.add(mapRow(rs));
+                }
+                return List.copyOf(results);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("failed to query rulebook registrations by status", e);
         }
     }
 
