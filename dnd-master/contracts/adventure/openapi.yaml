@@ -13,6 +13,9 @@ paths:
     post: { operationId: rollDice, responses: { '200': { description: role roll } } }
   /api/v1/adventures/{adventureId}/save:
     put: { operationId: saveAdventure, responses: { '200': { description: saved } } }
+  /api/v1/adventures/{adventureId}/knowledge-documents:
+    get: { operationId: readSessionKnowledgeSet, responses: { '200': { description: session knowledge set, content: { application/json: { schema: { $ref: './schemas/session-knowledge-set-response.json' } } } } } }
+    put: { operationId: updateSessionKnowledgeSet, requestBody: { required: true, content: { application/json: { schema: { $ref: './schemas/session-knowledge-set-request.json' } } } }, responses: { '200': { description: saved session knowledge set, content: { application/json: { schema: { $ref: './schemas/session-knowledge-set-response.json' } } } } } }
   /api/v1/adventures/{adventureId}/resume:
     post: { operationId: resumeAdventure, responses: { '204': { description: resumed } } }
   /api/v1/adventures/{adventureId}:
