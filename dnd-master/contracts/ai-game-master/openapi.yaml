@@ -9,3 +9,5 @@ paths:
     post: { operationId: groundedAnswer, responses: { '200': { description: answer with sources or candidates } } }
   /internal/v1/gm/maps:
     post: { operationId: generateMap, responses: { '200': { description: AI map state } } }
+  /internal/v1/gm/intent-classifications:
+    post: { operationId: classifyIntent, responses: { '200': { description: GM query intent } } }

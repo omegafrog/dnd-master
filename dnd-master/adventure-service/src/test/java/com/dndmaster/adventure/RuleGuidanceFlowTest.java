@@ -10,7 +10,9 @@ import com.dndmaster.adventure.application.guidance.OutOfScopeRuleEvidenceExcept
 import com.dndmaster.adventure.application.guidance.RuleEvidence;
 import com.dndmaster.adventure.application.guidance.RuleGuidanceApplicationService;
 import com.dndmaster.adventure.application.guidance.RuleInquiryRepository;
+import com.dndmaster.adventure.application.guidance.RuleIntentClassificationPort;
 import com.dndmaster.adventure.application.guidance.RuleSearchScope;
+import com.dndmaster.adventure.application.guidance.RuleQueryIntent;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
@@ -43,8 +45,11 @@ class RuleGuidanceFlowTest {
 
         RuleInquiry inquiry = fixture.service.answerInquiry(command());
 
+        assertEquals("Can advantage stack?", fixture.classifiedSituation);
+        assertEquals(RuleQueryIntent.STORY, fixture.classifiedIntent);
         assertEquals(OWNER, fixture.searchedOwner);
         assertEquals(SELECTED, fixture.searchedRulebooks);
+        assertEquals(RuleQueryIntent.STORY, fixture.searchedIntent);
         assertEquals(EvidenceStatus.SUFFICIENT, inquiry.evidenceStatus());
         assertEquals("p. 173", inquiry.answer().orElseThrow().sources().getFirst().locator());
         assertTrue(inquiry.candidateRules().isEmpty());
@@ -107,9 +112,15 @@ class RuleGuidanceFlowTest {
         fixture.service = new RuleGuidanceApplicationService(
                 repository,
                 (adventureId, ruleSetId, owner) -> new RuleSearchScope(true, SELECTED),
-                (owner, rulebooks, situation) -> {
+                situation -> {
+                    fixture.classifiedSituation = situation;
+                    fixture.classifiedIntent = RuleQueryIntent.STORY;
+                    return RuleQueryIntent.STORY;
+                },
+                (owner, rulebooks, situation, intent) -> {
                     fixture.searchedOwner = owner;
                     fixture.searchedRulebooks = new ArrayList<>(rulebooks);
+                    fixture.searchedIntent = intent;
                     return List.of(new RuleEvidence("retrieved text", source(PHB, "p. 10")));
                 },
                 (situation, evidence) -> composition);
@@ -135,6 +146,9 @@ class RuleGuidanceFlowTest {
         private RuleGuidanceApplicationService service;
         private OwnerPlayerId searchedOwner;
         private List<RulebookId> searchedRulebooks;
+        private String classifiedSituation;
+        private RuleQueryIntent classifiedIntent;
+        private RuleQueryIntent searchedIntent;
 
         private Fixture(MemoryRepository repository) { this.repository = repository; }
     }

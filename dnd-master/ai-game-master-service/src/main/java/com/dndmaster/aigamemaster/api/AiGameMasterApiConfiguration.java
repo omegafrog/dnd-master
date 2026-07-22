@@ -2,6 +2,8 @@ package com.dndmaster.aigamemaster.api;
 
 import com.dndmaster.aigamemaster.application.ports.AdjudicationModelPort;
 import com.dndmaster.aigamemaster.application.ports.MapModelPort;
+import com.dndmaster.aigamemaster.application.intent.IntentClassificationModelPort;
+import com.dndmaster.aigamemaster.application.intent.IntentClassificationOutput;
 import com.dndmaster.aigamemaster.application.rule.*;
 import com.dndmaster.aigamemaster.application.scene.*;
 import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
@@ -52,6 +54,12 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
+    IntentClassificationModelPort intentClassificationModelPort(SpringAiChatAdapter adapter) {
+        return input -> adapter.complete(
+                "intent-" + UUID.randomUUID(), input.question(), IntentClassificationOutput::fromModelText);
+    }
+
+    @Bean
     ScenarioPromptFactory scenarioPromptFactory() {
         return new ScenarioPromptFactory();
     }
@@ -72,7 +80,8 @@ public class AiGameMasterApiConfiguration {
             ScenarioBoundSceneService sceneService,
             AdjudicationModelPort adjudicationPort,
             GroundedRuleAnswerService ruleAnswerService,
-            MapModelPort mapPort) {
-        return new AiGameMasterController(sceneService, adjudicationPort, ruleAnswerService, mapPort);
+            MapModelPort mapPort,
+            IntentClassificationModelPort intentClassificationPort) {
+        return new AiGameMasterController(sceneService, adjudicationPort, ruleAnswerService, mapPort, intentClassificationPort);
     }
 }

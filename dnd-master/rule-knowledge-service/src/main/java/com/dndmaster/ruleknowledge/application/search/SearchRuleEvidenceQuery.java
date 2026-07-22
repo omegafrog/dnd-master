@@ -9,6 +9,7 @@ public record SearchRuleEvidenceQuery(
         OwnerPlayerId owner,
         List<RulebookId> selectedRulebooks,
         String situation,
+        QueryIntent queryIntent,
         int limit) {
 
     public SearchRuleEvidenceQuery {
@@ -21,6 +22,7 @@ public record SearchRuleEvidenceQuery(
         if (situation.isBlank()) {
             throw new IllegalArgumentException("situation must not be blank");
         }
+        Objects.requireNonNull(queryIntent, "queryIntent must not be null");
         if (limit <= 0) {
             throw new IllegalArgumentException("limit must be positive");
         }

@@ -8,6 +8,8 @@ import com.dndmaster.adventure.application.guidance.GuidanceComposition;
 import com.dndmaster.adventure.application.guidance.RuleEvidence;
 import com.dndmaster.adventure.application.guidance.RuleGuidanceApplicationService;
 import com.dndmaster.adventure.application.guidance.RuleInquiryRepository;
+import com.dndmaster.adventure.application.guidance.RuleIntentClassificationPort;
+import com.dndmaster.adventure.application.guidance.RuleQueryIntent;
 import com.dndmaster.adventure.application.guidance.RuleSearchScope;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
@@ -67,7 +69,8 @@ class RuleAccuracyEvaluationTest {
         var service = new RuleGuidanceApplicationService(
                 repository,
                 (adventureId, ruleSetId, owner) -> new RuleSearchScope(true, List.of(RULEBOOK)),
-                (owner, rulebooks, situation) -> List.of(new RuleEvidence("retrieved evidence", source)),
+                situation -> RuleQueryIntent.UNKNOWN,
+                (owner, rulebooks, situation, queryIntent) -> List.of(new RuleEvidence("retrieved evidence", source)),
                 (situation, evidence) -> composition);
         return service.answerInquiry(new AnswerRuleInquiryCommand(
                 InquiryId.generate(), AdventureId.generate(), new RuleSetId(UUID.randomUUID()), OWNER,
