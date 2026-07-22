@@ -1,4 +1,14 @@
-export type RulebookStatus = 'PENDING' | 'INDEXED' | 'FAILED'
+export type RulebookStatus =
+  | 'PENDING'
+  | 'QUEUED'
+  | 'PROCESSING'
+  | 'INDEXED'
+  | 'FAILED'
+  | 'UPLOADED'
+  | 'EXTRACTED'
+  | 'PARTIAL_AWAITING_CONFIRMATION'
+  | 'PARTIAL_CONFIRMED'
+  | 'REJECTED'
 
 export type RulebookView = {
   rulebookId: string
@@ -17,13 +27,14 @@ export type BatchRulebookView = {
   failureReason?: string | null
 }
 
-export type KnowledgeDocumentStatus = 'UPLOADED' | 'EXTRACTED' | 'INDEXED' | 'PARTIAL_AWAITING_CONFIRMATION' | 'PARTIAL_CONFIRMED' | 'REJECTED'
+export type KnowledgeDocumentStatus = 'UPLOADED' | 'QUEUED' | 'PROCESSING' | 'FAILED' | 'EXTRACTED' | 'INDEXED' | 'PARTIAL_AWAITING_CONFIRMATION' | 'PARTIAL_CONFIRMED' | 'REJECTED'
 
 export type KnowledgeDocumentView = {
   knowledgeDocumentId: string
   documentType: DocumentType
   originalFilename: string
   status: KnowledgeDocumentStatus
+  failureReason?: string | null
 }
 
 export type RulebookUploadDraft = {
@@ -35,6 +46,7 @@ export type RulebookUploadDraft = {
 export interface SetupApi {
   uploadRulebooks(documents: RulebookUploadDraft[], ownerId: string): Promise<BatchRulebookView[]>
   getRulebookStatus(rulebookId: string): Promise<RulebookView>
+  retryKnowledgeDocument(knowledgeDocumentId: string): Promise<RulebookView>
   uploadScenario(file: File): Promise<{ id: string; name: string }>
   saveRuleSet(rulebookIds: string[]): Promise<void>
   listKnowledgeDocuments(ownerId: string): Promise<KnowledgeDocumentView[]>
@@ -43,6 +55,7 @@ export interface SetupApi {
 async function request<T>(path: string, init: RequestInit): Promise<T> {
   const response = await fetch(path, init)
   if (response.status === 400) throw new Error('지원하지 않거나 손상된 파일입니다.')
+  if (response.status === 409) throw new Error('재처리할 수 없는 상태입니다.')
   if (!response.ok) throw new Error('요청을 처리하지 못했습니다.')
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
@@ -76,6 +89,13 @@ export class HttpSetupApi implements SetupApi {
 
   getRulebookStatus(rulebookId: string) {
     return request<RulebookView>(`/api/v1/rulebooks/${rulebookId}`, {
+      headers: this.authHeaders(),
+    })
+  }
+
+  retryKnowledgeDocument(knowledgeDocumentId: string) {
+    return request<RulebookView>(`/api/v1/rulebooks/${knowledgeDocumentId}/retry`, {
+      method: 'POST',
       headers: this.authHeaders(),
     })
   }
