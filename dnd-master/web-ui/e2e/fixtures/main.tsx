@@ -75,7 +75,7 @@ function Journey() {
       <CharacterSheetView sheetId="sheet-e2e" api={playApi} />
       <RoleDiceRoller adventureId={adventureId} api={playApi} />
       <CombatMapView adventureId={adventureId} />
-      <SavedAdventurePanel api={playApi} playerId="player-e2e" />
+      <SavedAdventurePanel playApi={playApi} setupApi={setupApi} playerId="player-e2e" />
     </div>
   </>
 }
