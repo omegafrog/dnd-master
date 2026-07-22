@@ -20,6 +20,8 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @EnabledIf("isOllamaAvailable")
@@ -36,6 +38,13 @@ class LocalAiBenchmarkRouteTest {
     @Autowired TestRestTemplate http;
     @LocalServerPort int port;
     @Value("${spring.ai.ollama.chat.options.num-predict}") int numPredict;
+
+    @DynamicPropertySource
+    static void overrideBenchmarkProperties(DynamicPropertyRegistry registry) {
+        registry.add("local-ai.ollama.request-timeout", () -> env("LOCAL_AI_REQUEST_TIMEOUT", "120s"));
+        registry.add("spring.ai.ollama.chat.options.num-predict",
+                () -> Integer.parseInt(env("NUM_PREDICT", "32")));
+    }
 
     @Test
     void measuresCandidateCompletionBoundaryThroughProductionSpringModels() {
@@ -165,5 +174,10 @@ class LocalAiBenchmarkRouteTest {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    private static String env(String name, String defaultValue) {
+        String value = System.getenv(name);
+        return value == null || value.isBlank() ? defaultValue : value;
     }
 }
