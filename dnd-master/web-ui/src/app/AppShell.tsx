@@ -79,7 +79,7 @@ export function AppShell() {
         {route.page === 'login' && <a href="#/setup">자료 설정으로 이동</a>}
         {route.page === 'setup' && <RulebookSetup api={setupApi} playerId={playerId} />}
         {route.page === 'adventures' && (
-          <SavedAdventurePanel api={playApi} playerId={playerId} />
+          <SavedAdventurePanel playApi={playApi} setupApi={setupApi} playerId={playerId} />
         )}
         {route.page === 'adventure' && (
           <>

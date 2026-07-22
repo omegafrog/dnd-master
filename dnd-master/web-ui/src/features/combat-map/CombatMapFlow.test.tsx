@@ -21,6 +21,8 @@ function fakeApi(): AdventurePlayApi {
     async save() { return { adventureId: 'a1', newVersion: 1 } },
     async resume() {},
     async deleteAdventure() {},
+    async getSessionKnowledgeSet() { return { adventureId: 'a1', sessionId: 's1', knowledgeDocumentIds: [] } },
+    async saveSessionKnowledgeSet() { return { adventureId: 'a1', sessionId: 's1', knowledgeDocumentIds: [] } },
   }
 }
 
