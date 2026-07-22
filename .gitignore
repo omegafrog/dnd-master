@@ -28,3 +28,9 @@ node_modules/
 # OS
 .DS_Store
 Thumbs.db
+
+.agents/
+.claude/
+**/bin/**
+dnd-master/plans.md
+dnd-master/docs/specs/**
