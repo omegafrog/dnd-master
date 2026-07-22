@@ -25,7 +25,14 @@ const identityApi: IdentityApi = {
 }
 
 const setupApi: SetupApi = {
-  async uploadRulebook(file) { return { rulebookId: file.name, status: 'INDEXED' } },
+  async uploadRulebooks(documents, _ownerId) {
+    return documents.map(document => ({
+      knowledgeDocumentId: `${document.file.name}-${document.documentType}`,
+      documentType: document.documentType,
+      originalFilename: document.file.name,
+      status: 'ACCEPTED' as const,
+    }))
+  },
   async getRulebookStatus(rulebookId) { return { rulebookId, status: 'INDEXED' } },
   async uploadScenario(file) { return { id: 'scenario-e2e', name: file.name } },
   async saveRuleSet() {},

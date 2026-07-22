@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 
-public final class RulebookPipelineApplicationService {
+public final class RulebookPipelineApplicationService implements RulebookUploadProcessor {
     private final RulebookRegistrationApplicationService registrationService;
     private final RulebookRegistrationRepository registrationRepository;
     private final RulebookFileStorage fileStorage;
@@ -75,7 +75,7 @@ public final class RulebookPipelineApplicationService {
                 0L,
                 java.time.Instant.now(),
                 java.time.Instant.now(),
-                DocumentType.RULEBOOK,
+                command.documentType(),
                 command.originalFilename());
         registrationRepository.save(registration);
 
@@ -158,6 +158,7 @@ public final class RulebookPipelineApplicationService {
                         return process(new UploadRulebookCommand(
                                 r.operationKey(),
                                 r.ownerPlayerId(),
+                                r.documentType(),
                                 r.format(),
                                 fileStorage.read(new StoredRulebookFile(r.storageKey())),
                                 r.originalFilename()));
@@ -175,6 +176,8 @@ public final class RulebookPipelineApplicationService {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
             digest.update(command.ownerPlayerId().value().toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            digest.update((byte) 0);
+            digest.update(command.documentType().name().getBytes(java.nio.charset.StandardCharsets.UTF_8));
             digest.update((byte) 0);
             digest.update(command.format().name().getBytes(java.nio.charset.StandardCharsets.UTF_8));
             digest.update((byte) 0);
