@@ -19,6 +19,7 @@ import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
@@ -26,6 +27,9 @@ import java.util.Objects;
 import java.util.Optional;
 
 public final class RulebookPipelineApplicationService implements RulebookUploadProcessor {
+    private static final Duration PROCESSING_LEASE = Duration.ofMinutes(10);
+    private static final int PENDING_BATCH_SIZE = 10;
+
     private final RulebookRegistrationApplicationService registrationService;
     private final RulebookRegistrationRepository registrationRepository;
     private final RulebookFileStorage fileStorage;
@@ -89,58 +93,54 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
     }
 
     public List<RulebookProcessingResult> processPending() {
-        return registrationRepository.findByProcessingStatuses(List.of(ProcessingStatus.QUEUED)).stream()
-                .map(this::processStoredRegistration)
+        Instant leaseCutoff = Instant.now().minus(PROCESSING_LEASE);
+        return registrationRepository.claimPending(leaseCutoff, PENDING_BATCH_SIZE).stream()
+                .map(this::processClaimedRegistration)
                 .toList();
     }
 
     public RulebookProcessingResult retry(RulebookId rulebookId) {
         StoredRulebookRegistration registration = registrationRepository.findById(rulebookId)
                 .orElseThrow(() -> new IllegalArgumentException("knowledge document not found"));
-        if (registration.processingStatus() == ProcessingStatus.INDEXED) {
-            return new RulebookProcessingResult(rulebookId, ProcessingStatus.INDEXED, List.of());
-        }
         if (registration.processingStatus() != ProcessingStatus.FAILED) {
             throw new IllegalStateException("only failed document can be retried");
         }
         StoredRulebookRegistration queued = withStatus(registration, ProcessingStatus.QUEUED, null, null, null, null);
         registrationRepository.save(queued);
-        return processStoredRegistration(queued);
+        return new RulebookProcessingResult(rulebookId, ProcessingStatus.QUEUED, List.of());
     }
 
-    private RulebookProcessingResult processStoredRegistration(StoredRulebookRegistration registration) {
-        if (registration.processingStatus() != ProcessingStatus.QUEUED) {
-            throw new IllegalStateException("only queued document can be processed");
+    private RulebookProcessingResult processClaimedRegistration(StoredRulebookRegistration registration) {
+        if (registration.processingStatus() != ProcessingStatus.PROCESSING) {
+            throw new IllegalStateException("only claimed document can be processed");
         }
-        StoredRulebookRegistration processing = withStatus(registration, ProcessingStatus.PROCESSING, null, null, null, null);
-        registrationRepository.save(processing);
         try {
-            byte[] storedContent = fileStorage.read(new StoredRulebookFile(processing.storageKey()));
+            byte[] storedContent = fileStorage.read(new StoredRulebookFile(registration.storageKey()));
             ExtractionResult extractionResult = contentExtractor.extract(
-                    processing.format(), Arrays.copyOf(storedContent, storedContent.length));
+                    registration.format(), Arrays.copyOf(storedContent, storedContent.length));
             Rulebook rulebook = Rulebook.acceptUpload(
-                    processing.rulebookId(),
-                    processing.ownerPlayerId(),
-                    processing.format(),
-                    new FileSize(processing.fileSize()));
+                    registration.rulebookId(),
+                    registration.ownerPlayerId(),
+                    registration.format(),
+                    new FileSize(registration.fileSize()));
             rulebook.recordExtraction(extractionResult);
             if (!rulebook.isEligibleForSplitting()) {
-                return fail(processing, extractionResult, describeExtractionFailure(extractionResult));
+                return fail(registration, extractionResult, describeExtractionFailure(extractionResult));
             }
-            attemptIndexing(rulebook, processing);
+            attemptIndexing(rulebook, registration);
             StoredRulebookRegistration indexed = withStatus(
-                    processing,
+                    registration,
                     ProcessingStatus.INDEXED,
                     extractionResult,
                     null,
                     extractionResult.content().orElse(null),
                     extractionResult.missingLocations());
             registrationRepository.save(indexed);
-            return new RulebookProcessingResult(processing.rulebookId(), ProcessingStatus.INDEXED, List.of());
+            return new RulebookProcessingResult(registration.rulebookId(), ProcessingStatus.INDEXED, List.of());
         } catch (IndexingFailedException exception) {
-            return fail(processing, null, describeFailure(exception));
+            return fail(registration, null, describeFailure(exception));
         } catch (RuntimeException exception) {
-            return fail(processing, null, describeFailure(exception));
+            return fail(registration, null, describeFailure(exception));
         }
     }
 

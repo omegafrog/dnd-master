@@ -78,15 +78,20 @@ class RulebookPipelineApplicationServiceTest {
 
         RulebookProcessingResult retried = harness.service.retry(beta.rulebookId());
 
-        assertEquals(ProcessingStatus.INDEXED, retried.status());
-        assertEquals(ProcessingStatus.INDEXED, harness.repository.findById(beta.rulebookId()).orElseThrow().processingStatus());
+        assertEquals(ProcessingStatus.QUEUED, retried.status());
+        assertEquals(ProcessingStatus.QUEUED, harness.repository.findById(beta.rulebookId()).orElseThrow().processingStatus());
+        assertEquals(2, harness.embeddingPort.calls);
+        assertEquals(1, harness.embeddingPort.failures);
+        assertEquals(IndexStatus.FAILED, harness.indexingRepository.load(beta.rulebookId()).status());
+
+        assertThrows(IllegalStateException.class, () -> harness.service.retry(beta.rulebookId()));
+        assertEquals(ProcessingStatus.QUEUED, harness.repository.findById(beta.rulebookId()).orElseThrow().processingStatus());
+
+        harness.service.processPending();
+
         assertEquals(3, harness.embeddingPort.calls);
         assertEquals(1, harness.embeddingPort.failures);
         assertEquals(IndexStatus.READY, harness.indexingRepository.load(beta.rulebookId()).status());
-
-        RulebookProcessingResult duplicateRetry = harness.service.retry(beta.rulebookId());
-        assertEquals(ProcessingStatus.INDEXED, duplicateRetry.status());
-        assertEquals(3, harness.embeddingPort.calls);
     }
 
     @Test
@@ -96,6 +101,31 @@ class RulebookPipelineApplicationServiceTest {
 
         assertEquals(ProcessingStatus.QUEUED, queued.status());
         assertThrows(IllegalStateException.class, () -> harness.service.retry(queued.rulebookId()));
+    }
+
+    @Test
+    void processPendingClaimsLegacyAndStaleProcessingRows() {
+        TestHarness harness = new TestHarness();
+        Instant stale = Instant.now().minusSeconds(900);
+        StoredRulebookRegistration queued = registration(harness, "op-queued", ProcessingStatus.QUEUED, Instant.now(), "queued");
+        StoredRulebookRegistration legacy = registration(harness, "op-legacy", ProcessingStatus.UPLOADED, Instant.now(), "legacy");
+        StoredRulebookRegistration extracted = registration(harness, "op-extracted", ProcessingStatus.EXTRACTED, Instant.now(), "extracted");
+        StoredRulebookRegistration staleProcessing = registration(harness, "op-stale", ProcessingStatus.PROCESSING, stale, "stale");
+        StoredRulebookRegistration freshProcessing = registration(harness, "op-fresh", ProcessingStatus.PROCESSING, Instant.now(), "fresh");
+        harness.repository.save(queued);
+        harness.repository.save(legacy);
+        harness.repository.save(extracted);
+        harness.repository.save(staleProcessing);
+        harness.repository.save(freshProcessing);
+
+        List<RulebookProcessingResult> results = harness.service.processPending();
+
+        assertEquals(4, results.size());
+        assertEquals(ProcessingStatus.INDEXED, harness.repository.findByOperationKey("op-queued").orElseThrow().processingStatus());
+        assertEquals(ProcessingStatus.INDEXED, harness.repository.findByOperationKey("op-legacy").orElseThrow().processingStatus());
+        assertEquals(ProcessingStatus.INDEXED, harness.repository.findByOperationKey("op-extracted").orElseThrow().processingStatus());
+        assertEquals(ProcessingStatus.INDEXED, harness.repository.findByOperationKey("op-stale").orElseThrow().processingStatus());
+        assertEquals(ProcessingStatus.PROCESSING, harness.repository.findByOperationKey("op-fresh").orElseThrow().processingStatus());
     }
 
     private static UploadRulebookCommand command(String operationKey, String content) {
@@ -108,7 +138,32 @@ class RulebookPipelineApplicationServiceTest {
                 content + ".txt");
     }
 
+    private static StoredRulebookRegistration registration(
+            TestHarness harness, String operationKey, ProcessingStatus status, Instant updatedAt, String content) {
+        RulebookId rulebookId = RulebookId.generate();
+        harness.storage.store(rulebookId, content.getBytes(StandardCharsets.UTF_8));
+        return new StoredRulebookRegistration(
+                rulebookId,
+                new OwnerPlayerId(UUID.fromString("36c6b6fd-2f36-4b79-9a91-614f9e35bd91")),
+                operationKey,
+                operationKey + "-hash",
+                RulebookFormat.TXT,
+                content.getBytes(StandardCharsets.UTF_8).length,
+                rulebookId.value().toString(),
+                status,
+                null,
+                null,
+                List.of(),
+                null,
+                0L,
+                updatedAt,
+                updatedAt,
+                DocumentType.RULEBOOK,
+                operationKey + ".txt");
+    }
+
     private static final class TestHarness {
+        private final InMemoryFileStorage storage = new InMemoryFileStorage();
         private final InMemoryRulebookRegistrationRepository repository = new InMemoryRulebookRegistrationRepository();
         private final InMemoryRulebookIndexRepository indexingRepository = new InMemoryRulebookIndexRepository();
         private final RecordingExtractor extractor = new RecordingExtractor();
@@ -116,7 +171,6 @@ class RulebookPipelineApplicationServiceTest {
         private final RulebookPipelineApplicationService service;
 
         private TestHarness() {
-            RulebookFileStorage storage = new InMemoryFileStorage();
             RulebookRegistrationApplicationService registrationService =
                     new RulebookRegistrationApplicationService(storage, extractor);
             RulebookIndexingApplicationService indexingService = new RulebookIndexingApplicationService(
@@ -238,6 +292,39 @@ class RulebookPipelineApplicationServiceTest {
             return byId.values().stream()
                     .filter(registration -> statuses.contains(registration.processingStatus()))
                     .toList();
+        }
+
+        @Override
+        public List<StoredRulebookRegistration> claimPending(Instant processingLeaseCutoff, int limit) {
+            List<StoredRulebookRegistration> eligible = byId.values().stream()
+                    .filter(registration -> registration.processingStatus() == ProcessingStatus.QUEUED
+                            || registration.processingStatus() == ProcessingStatus.UPLOADED
+                            || registration.processingStatus() == ProcessingStatus.EXTRACTED
+                            || (registration.processingStatus() == ProcessingStatus.PROCESSING
+                            && registration.updatedAt().isBefore(processingLeaseCutoff)))
+                    .sorted(java.util.Comparator.comparing(StoredRulebookRegistration::createdAt))
+                    .limit(limit)
+                    .map(registration -> new StoredRulebookRegistration(
+                            registration.rulebookId(),
+                            registration.ownerPlayerId(),
+                            registration.operationKey(),
+                            registration.contentHash(),
+                            registration.format(),
+                            registration.fileSize(),
+                            registration.storageKey(),
+                            ProcessingStatus.PROCESSING,
+                            registration.extractionStatus(),
+                            registration.extractedContent(),
+                            registration.missingLocations(),
+                            registration.failureCode(),
+                            registration.version() + 1,
+                            registration.createdAt(),
+                            Instant.now(),
+                            registration.documentType(),
+                            registration.originalFilename()))
+                    .toList();
+            eligible.forEach(this::save);
+            return eligible;
         }
 
         @Override
