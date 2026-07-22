@@ -49,7 +49,7 @@ class PersistenceCompatibilityTest {
     @Test
     void expandMigrationPreservesOldAdventureState() throws Exception {
         ModuleSchema module = new ModuleSchema("adventure-service", "adventure_expand_contract");
-        flyway(module, "1").migrate();
+        flyway(module, "1.1").migrate();
         UUID adventureId = UUID.randomUUID();
         try (Connection connection = connection(); var statement = connection.prepareStatement("""
                 INSERT INTO adventure_expand_contract.adventure (
@@ -81,7 +81,7 @@ class PersistenceCompatibilityTest {
     @Test
     void pgvectorOldAndNextEmbeddingsCoexistDuringParallelIndexTransition() throws Exception {
         ModuleSchema module = new ModuleSchema("rule-knowledge-service", "vector_expand_contract");
-        flyway(module, "1").migrate();
+        flyway(module, "1.6").migrate();
         UUID indexId = UUID.randomUUID();
         UUID rulebookId = UUID.randomUUID();
         UUID ownerId = UUID.randomUUID();
