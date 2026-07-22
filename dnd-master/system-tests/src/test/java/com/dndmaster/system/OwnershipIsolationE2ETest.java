@@ -34,7 +34,7 @@ import com.dndmaster.ruleknowledge.domain.index.ExtractedContentRange;
 import com.dndmaster.ruleknowledge.domain.index.IndexId;
 import com.dndmaster.ruleknowledge.domain.index.RulebookChunk;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
-import com.dndmaster.ruleknowledge.infrastructure.persistence.EmbeddedRulebookChunk;
+import com.dndmaster.ruleknowledge.domain.index.EmbeddedRulebookChunk;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.IndexMetadata;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorRuleSearchRepository;
 import java.util.List;
