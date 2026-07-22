@@ -50,14 +50,15 @@ public final class RuleEvidenceSearchApplicationService {
 
         List<RuleSearchHit> hits = searchRepository.search(
                 query.owner(),
-                query.selectedRulebooks(),
+                query.selectedKnowledgeDocuments(),
                 queryEmbedding,
                 query.queryIntent(),
                 query.limit());
 
         return hits.stream()
                 .map(hit -> new RuleEvidenceResult(
-                        hit.rulebookId(),
+                        hit.knowledgeDocumentId(),
+                        hit.documentType(),
                         hit.chunkId(),
                         hit.locator(),
                         hit.content(),

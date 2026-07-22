@@ -4,8 +4,9 @@ import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchPort;
 import com.dndmaster.ruleknowledge.application.search.QueryIntent;
 import com.dndmaster.ruleknowledge.application.search.RuleSearchHit;
 import com.dndmaster.ruleknowledge.domain.index.ChunkId;
+import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
+import com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId;
 import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
-import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
 
 import java.sql.*;
 import java.util.ArrayList;
@@ -17,13 +18,22 @@ import javax.sql.DataSource;
 
 public final class PgvectorRuleEvidenceSearchRepository implements RuleEvidenceSearchPort {
     private static final String SEARCH = """
-            SELECT rulebook_id, chunk_id, locator, content,
-                   embedding <=> CAST(? AS vector) AS distance,
-                   chapter, section
-              FROM rulebook_vector_chunk
-             WHERE owner_player_id = ?
-               AND rulebook_id = ANY (?)
-             ORDER BY embedding <=> CAST(? AS vector), sequence
+            SELECT c.rulebook_id, r.document_type, c.chunk_id, c.locator, c.content,
+                   c.embedding <=> CAST(? AS vector) AS distance,
+                   c.chapter, c.section
+              FROM rulebook_vector_chunk c
+              JOIN rulebook_registration r
+                ON r.rulebook_id = c.rulebook_id
+               AND r.owner_player_id = c.owner_player_id
+             WHERE c.owner_player_id = ?
+               AND c.rulebook_id = ANY (?)
+             ORDER BY CASE r.document_type
+                          WHEN 'RULEBOOK' THEN ?
+                          WHEN 'STORYBOOK' THEN ?
+                          ELSE 0
+                      END,
+                      c.embedding <=> CAST(? AS vector),
+                      c.sequence
              LIMIT ?
             """;
 
@@ -35,38 +45,43 @@ public final class PgvectorRuleEvidenceSearchRepository implements RuleEvidenceS
 
     public List<RuleSearchHit> search(
             OwnerPlayerId ownerPlayerId,
-            Collection<RulebookId> selectedRulebookIds,
+            Collection<KnowledgeDocumentId> selectedKnowledgeDocumentIds,
             float[] queryEmbedding,
             QueryIntent queryIntent,
             int limit) {
         Objects.requireNonNull(ownerPlayerId, "ownerPlayerId must not be null");
         Objects.requireNonNull(queryIntent, "queryIntent must not be null");
-        List<RulebookId> selected = List.copyOf(
-                Objects.requireNonNull(selectedRulebookIds, "selectedRulebookIds must not be null"));
+        List<KnowledgeDocumentId> selected = List.copyOf(
+                Objects.requireNonNull(selectedKnowledgeDocumentIds, "selectedKnowledgeDocumentIds must not be null"));
         if (selected.isEmpty()) {
-            throw new IllegalArgumentException("at least one selected rulebook is required");
+            throw new IllegalArgumentException("at least one selected knowledge document is required");
         }
         if (selected.stream().anyMatch(Objects::isNull)) {
-            throw new IllegalArgumentException("selected rulebooks must not contain null");
+            throw new IllegalArgumentException("selected knowledge documents must not contain null");
         }
         if (limit <= 0) {
             throw new IllegalArgumentException("limit must be positive");
         }
         String vector = vectorLiteral(queryEmbedding);
+        int rulePriority = EvidenceQueryRankingPolicy.priority(queryIntent, DocumentType.RULEBOOK);
+        int storyPriority = EvidenceQueryRankingPolicy.priority(queryIntent, DocumentType.STORYBOOK);
 
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(SEARCH)) {
             statement.setString(1, vector);
             statement.setObject(2, ownerPlayerId.value(), Types.OTHER);
-            UUID[] ids = selected.stream().map(RulebookId::value).toArray(UUID[]::new);
+            UUID[] ids = selected.stream().map(KnowledgeDocumentId::value).toArray(UUID[]::new);
             statement.setArray(3, connection.createArrayOf("uuid", ids));
-            statement.setString(4, vector);
-            statement.setInt(5, limit);
+            statement.setInt(4, rulePriority);
+            statement.setInt(5, storyPriority);
+            statement.setString(6, vector);
+            statement.setInt(7, limit);
             try (ResultSet rows = statement.executeQuery()) {
                 List<RuleSearchHit> hits = new ArrayList<>();
                 while (rows.next()) {
                     hits.add(new RuleSearchHit(
-                            new RulebookId(rows.getObject("rulebook_id", UUID.class)),
+                            new KnowledgeDocumentId(rows.getObject("rulebook_id", UUID.class)),
+                            DocumentType.valueOf(rows.getString("document_type")),
                             new ChunkId(rows.getObject("chunk_id", UUID.class)),
                             rows.getString("locator"),
                             rows.getString("content"),

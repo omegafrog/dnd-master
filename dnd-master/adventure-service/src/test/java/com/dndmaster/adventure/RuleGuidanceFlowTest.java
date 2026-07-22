@@ -24,6 +24,7 @@ import com.dndmaster.adventure.domain.inquiry.RuleInquiry;
 import com.dndmaster.adventure.domain.inquiry.RulebookId;
 import com.dndmaster.adventure.domain.inquiry.SourceLocation;
 import com.dndmaster.adventure.domain.inquiry.UndisclosedCandidateSelectionException;
+import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -34,9 +35,9 @@ import org.junit.jupiter.api.Test;
 
 class RuleGuidanceFlowTest {
     private static final OwnerPlayerId OWNER = new OwnerPlayerId(UUID.randomUUID());
-    private static final RulebookId PHB = new RulebookId(UUID.randomUUID());
-    private static final RulebookId DMG = new RulebookId(UUID.randomUUID());
-    private static final List<RulebookId> SELECTED = List.of(PHB, DMG);
+    private static final KnowledgeDocumentId PHB = new KnowledgeDocumentId(UUID.randomUUID());
+    private static final KnowledgeDocumentId DMG = new KnowledgeDocumentId(UUID.randomUUID());
+    private static final List<KnowledgeDocumentId> SELECTED = List.of(PHB, DMG);
 
     @Test
     void searches_only_owner_selected_rulebooks_and_requires_citations_for_sufficient_answer() {
@@ -48,7 +49,7 @@ class RuleGuidanceFlowTest {
         assertEquals("Can advantage stack?", fixture.classifiedSituation);
         assertEquals(RuleQueryIntent.STORY, fixture.classifiedIntent);
         assertEquals(OWNER, fixture.searchedOwner);
-        assertEquals(SELECTED, fixture.searchedRulebooks);
+        assertEquals(SELECTED, fixture.searchedKnowledgeDocuments);
         assertEquals(RuleQueryIntent.STORY, fixture.searchedIntent);
         assertEquals(EvidenceStatus.SUFFICIENT, inquiry.evidenceStatus());
         assertEquals("p. 173", inquiry.answer().orElseThrow().sources().getFirst().locator());
@@ -98,7 +99,7 @@ class RuleGuidanceFlowTest {
 
     @Test
     void rejects_sources_from_unselected_rulebooks_even_if_a_downstream_service_returns_them() {
-        RulebookId foreign = new RulebookId(UUID.randomUUID());
+        KnowledgeDocumentId foreign = new KnowledgeDocumentId(UUID.randomUUID());
         var fixture = fixture(GuidanceComposition.sufficient(
                 new RuleAnswer("Foreign rule", List.of(source(foreign, "p. 1")))));
 
@@ -119,7 +120,7 @@ class RuleGuidanceFlowTest {
                 },
                 (owner, rulebooks, situation, intent) -> {
                     fixture.searchedOwner = owner;
-                    fixture.searchedRulebooks = new ArrayList<>(rulebooks);
+                    fixture.searchedKnowledgeDocuments = new ArrayList<>(rulebooks);
                     fixture.searchedIntent = intent;
                     return List.of(new RuleEvidence("retrieved text", source(PHB, "p. 10")));
                 },
@@ -133,19 +134,19 @@ class RuleGuidanceFlowTest {
                 "Can advantage stack?");
     }
 
-    private static CandidateRule candidate(String text, RulebookId rulebookId, String locator) {
-        return new CandidateRule(text, List.of(source(rulebookId, locator)));
+    private static CandidateRule candidate(String text, KnowledgeDocumentId knowledgeDocumentId, String locator) {
+        return new CandidateRule(text, List.of(source(knowledgeDocumentId, locator)));
     }
 
-    private static SourceLocation source(RulebookId rulebookId, String locator) {
-        return new SourceLocation(rulebookId, locator);
+    private static SourceLocation source(KnowledgeDocumentId knowledgeDocumentId, String locator) {
+        return new SourceLocation(knowledgeDocumentId, locator);
     }
 
     private static final class Fixture {
         private final MemoryRepository repository;
         private RuleGuidanceApplicationService service;
         private OwnerPlayerId searchedOwner;
-        private List<RulebookId> searchedRulebooks;
+        private List<KnowledgeDocumentId> searchedKnowledgeDocuments;
         private String classifiedSituation;
         private RuleQueryIntent classifiedIntent;
         private RuleQueryIntent searchedIntent;

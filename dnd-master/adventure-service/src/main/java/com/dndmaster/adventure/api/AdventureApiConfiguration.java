@@ -135,8 +135,16 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    RuleSetSearchScopePort ruleSetSearchScopePort() {
-        return (adventureId, ruleSetId, owner) -> new RuleSearchScope(true, List.of());
+    RuleSetSearchScopePort ruleSetSearchScopePort(
+            AdventureRepository adventureRepository,
+            SessionKnowledgeSetRepository sessionKnowledgeSetRepository) {
+        return (adventureId, ruleSetId, owner) -> adventureRepository.findById(adventureId)
+                .filter(adventure -> adventure.ownerPlayerId().equals(owner))
+                .filter(adventure -> adventure.ruleSetId().equals(ruleSetId))
+                .flatMap(adventure -> sessionKnowledgeSetRepository.findBySessionId(adventure.sessionId()))
+                .filter(set -> !set.knowledgeDocumentIds().isEmpty())
+                .map(set -> new RuleSearchScope(true, set.knowledgeDocumentIds()))
+                .orElseGet(() -> new RuleSearchScope(false, List.of()));
     }
 
     @Bean

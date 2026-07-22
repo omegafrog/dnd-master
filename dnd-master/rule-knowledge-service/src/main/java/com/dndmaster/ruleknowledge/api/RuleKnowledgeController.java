@@ -122,19 +122,20 @@ public class RuleKnowledgeController {
 
     @PostMapping("/internal/v1/rule-evidence/search")
     EvidenceSearchResponse searchEvidence(@RequestBody EvidenceSearchRequest request) {
-        List<RulebookId> rulebookIds = request.rulebookIds().stream()
-                .map(RulebookId::new)
+        List<KnowledgeDocumentId> knowledgeDocumentIds = request.knowledgeDocumentIds().stream()
+                .map(KnowledgeDocumentId::new)
                 .toList();
         SearchRuleEvidenceQuery query = new SearchRuleEvidenceQuery(
                 new OwnerPlayerId(request.ownerId()),
-                rulebookIds,
+                knowledgeDocumentIds,
                 request.situation(),
                 request.queryIntent(),
                 request.limit() != null ? request.limit() : 5);
         List<RuleEvidenceResult> results = evidenceSearchService.search(query);
         List<EvidenceItem> evidence = results.stream()
                 .map(r -> new EvidenceItem(
-                        r.rulebookId().value(),
+                        r.knowledgeDocumentId().value(),
+                        r.documentType(),
                         r.chunkId().value(),
                         r.locator(),
                         r.excerpt(),
@@ -176,7 +177,7 @@ public class RuleKnowledgeController {
     public record OwnedRulebooksResponse(UUID ownerId, List<RulebookSummary> rulebooks) {}
     public record OwnedIndexesResponse(UUID ownerId, List<?> indexes) {}
     public record OwnershipResponse(UUID rulebookId, UUID playerId, boolean owned) {}
-    public record EvidenceSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, QueryIntent queryIntent, Integer limit) {}
-    public record EvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score, String chapter, String section) {}
+    public record EvidenceSearchRequest(UUID ownerId, List<UUID> knowledgeDocumentIds, String situation, QueryIntent queryIntent, Integer limit) {}
+    public record EvidenceItem(UUID knowledgeDocumentId, DocumentType documentType, UUID chunkId, String locator, String excerpt, double score, String chapter, String section) {}
     public record EvidenceSearchResponse(UUID ownerId, List<EvidenceItem> evidence) {}
 }

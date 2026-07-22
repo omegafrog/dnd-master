@@ -5,6 +5,7 @@ import com.dndmaster.adventure.domain.inquiry.EvidenceStatus;
 import com.dndmaster.adventure.domain.inquiry.InquiryId;
 import com.dndmaster.adventure.domain.inquiry.RuleInquiry;
 import com.dndmaster.adventure.domain.inquiry.SourceLocation;
+import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import java.util.List;
 import java.util.Objects;
 
@@ -34,7 +35,7 @@ public final class RuleGuidanceApplicationService {
 
         RuleQueryIntent queryIntent = intentPort.classify(command.situation());
         List<RuleEvidence> evidence = searchPort.search(
-                command.requestingOwner(), scope.selectedRulebooks(), command.situation(), queryIntent);
+                command.requestingOwner(), scope.selectedKnowledgeDocuments(), command.situation(), queryIntent);
         requireSelectedSources(evidence.stream().map(RuleEvidence::source).toList(), scope);
         GuidanceComposition composition = compositionPort.compose(command.situation(), List.copyOf(evidence));
 
@@ -62,7 +63,7 @@ public final class RuleGuidanceApplicationService {
 
     private static void requireSelectedSources(List<SourceLocation> sources, RuleSearchScope scope) {
         boolean outOfScope = sources.stream()
-                .anyMatch(source -> !scope.selectedRulebooks().contains(source.rulebookId()));
+                .anyMatch(source -> !scope.selectedKnowledgeDocuments().contains(source.knowledgeDocumentId()));
         if (outOfScope) throw new OutOfScopeRuleEvidenceException();
     }
 }

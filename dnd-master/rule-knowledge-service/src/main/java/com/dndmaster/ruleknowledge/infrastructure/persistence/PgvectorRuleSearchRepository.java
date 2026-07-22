@@ -3,6 +3,8 @@ package com.dndmaster.ruleknowledge.infrastructure.persistence;
 import com.dndmaster.ruleknowledge.application.search.RuleSearchHit;
 import com.dndmaster.ruleknowledge.domain.index.ChunkId;
 import com.dndmaster.ruleknowledge.domain.index.EmbeddedRulebookChunk;
+import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
+import com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId;
 import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
 import java.sql.Connection;
@@ -103,7 +105,8 @@ public final class PgvectorRuleSearchRepository {
                 List<RuleSearchHit> hits = new ArrayList<>();
                 while (rows.next()) {
                     hits.add(new RuleSearchHit(
-                            new RulebookId(rows.getObject("rulebook_id", UUID.class)),
+                            new KnowledgeDocumentId(rows.getObject("rulebook_id", UUID.class)),
+                            DocumentType.RULEBOOK,
                             new ChunkId(rows.getObject("chunk_id", UUID.class)),
                             rows.getString("locator"),
                             rows.getString("content"),
