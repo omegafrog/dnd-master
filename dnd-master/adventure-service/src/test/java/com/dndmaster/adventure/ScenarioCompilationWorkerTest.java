@@ -108,6 +108,12 @@ class ScenarioCompilationWorkerTest {
         @Override public Optional<ScenarioCompilation> findById(UUID id) { return Optional.ofNullable(store.get(id)); }
         @Override public Optional<ScenarioCompilation> findByInputFingerprint(String fp) { return store.values().stream().filter(c -> c.inputFingerprint().equals(fp)).findFirst(); }
         @Override public void save(ScenarioCompilation c) { store.put(c.id(), c); }
+        @Override public synchronized boolean saveIfLeaseMatches(ScenarioCompilation next, UUID expectedLeaseToken) {
+            ScenarioCompilation current = store.get(next.id());
+            if (current == null || !Objects.equals(current.leaseToken(), expectedLeaseToken)) return false;
+            store.put(next.id(), next);
+            return true;
+        }
     }
     private static final class InMemoryBundleRepository implements ScenarioBundleRepository {
         private final ScenarioSourceBundle bundle;
