@@ -133,6 +133,11 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
                   ))}
                 </select>
               </label>
+              {document.status === 'PARTIAL_AWAITING_CONFIRMATION' ||
+              document.status === 'PARTIAL_CONFIRMED' ||
+              (document.warnings?.length ?? 0) > 0 ? (
+                <p role="alert">{document.originalFilename}: 추출 경고가 있어 컴파일 위험이 있습니다.</p>
+              ) : null}
             </li>
           ))}
         </ul>
