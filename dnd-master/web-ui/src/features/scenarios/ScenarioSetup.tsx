@@ -137,7 +137,7 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
                 </select>
               </label>
               {document.status === 'FAILED' ? (
-                <p role="alert">{document.originalFilename}: 컴파일 위험 — {(document.warnings ?? []).join(', ') || '추출 실패'}</p>
+                <p role="alert">{document.originalFilename}: 컴파일 위험 — {(document.warnings ?? []).join(', ') || document.failureReason || '추출 실패'}</p>
               ) : document.status === 'PARTIAL_AWAITING_CONFIRMATION' ||
                 document.status === 'PARTIAL_CONFIRMED' ||
                 (document.warnings?.length ?? 0) > 0 ? (
