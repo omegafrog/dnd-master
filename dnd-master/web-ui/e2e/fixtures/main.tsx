@@ -24,18 +24,41 @@ const identityApi: IdentityApi = {
   async logout() {},
 }
 
+const privateDocuments: Array<{ ownerId: string; knowledgeDocumentId: string; originalFilename: string; documentType: 'RULEBOOK' | 'STORYBOOK' }> = []
+
 const setupApi: SetupApi = {
   async uploadRulebooks(documents, _ownerId) {
-    return documents.map(document => ({
-      knowledgeDocumentId: `${document.file.name}-${document.documentType}`,
-      documentType: document.documentType,
-      originalFilename: document.file.name,
-      status: 'ACCEPTED' as const,
-    }))
+    return documents.map(document => {
+      const knowledgeDocumentId = `${document.file.name}-${document.documentType}`
+      if (!privateDocuments.some(existing => existing.knowledgeDocumentId === knowledgeDocumentId)) {
+        privateDocuments.push({
+          ownerId: _ownerId,
+          knowledgeDocumentId,
+          documentType: document.documentType,
+          originalFilename: document.file.name,
+        })
+      }
+      return {
+        knowledgeDocumentId,
+        documentType: document.documentType,
+        originalFilename: document.file.name,
+        status: 'ACCEPTED' as const,
+      }
+    })
   },
   async getRulebookStatus(rulebookId) { return { rulebookId, status: 'INDEXED' } },
   async uploadScenario(file) { return { id: 'scenario-e2e', name: file.name } },
   async saveRuleSet() {},
+  async listKnowledgeDocuments(ownerId) {
+    return privateDocuments
+      .filter(document => document.ownerId === ownerId)
+      .map(document => ({
+        knowledgeDocumentId: document.knowledgeDocumentId,
+        documentType: document.documentType,
+        originalFilename: document.originalFilename,
+        status: 'QUEUED' as const,
+      }))
+  },
 }
 
 const adventureApi: AdventureApi = {

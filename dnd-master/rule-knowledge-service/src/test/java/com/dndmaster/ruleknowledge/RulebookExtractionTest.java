@@ -84,6 +84,18 @@ class RulebookExtractionTest {
         assertThrows(IllegalStateException.class, () -> service.confirmPartialExtraction(registration));
     }
 
+    @Test
+    void sameOperationKeyAndSameBytesReuseRegistrationRegardlessOfFormat() throws Exception {
+        var service = new RulebookRegistrationApplicationService(new FakeFileStorage(), new FakeExtractor());
+        byte[] content = fixture("valid-rulebook.txt");
+
+        var first = service.uploadRulebook("op-1", OWNER, RulebookFormat.PDF, content);
+        var duplicate = service.uploadRulebook("op-1", OWNER, RulebookFormat.TXT, content);
+
+        assertEquals(first.rulebook().id(), duplicate.rulebook().id());
+        assertEquals(first.storedFile().key(), duplicate.storedFile().key());
+    }
+
     private static Stream<Arguments> rejectedFiles() {
         return Stream.of(
                 Arguments.of("encrypted.pdf", RulebookFormat.PDF, ExtractionFailure.ENCRYPTED),
