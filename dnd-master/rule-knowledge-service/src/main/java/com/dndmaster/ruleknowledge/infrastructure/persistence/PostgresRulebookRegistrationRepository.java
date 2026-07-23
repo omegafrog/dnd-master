@@ -82,9 +82,12 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                  missing_locations, failure_code, version, created_at, updated_at,
                  document_type, original_filename)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (rulebook_id) DO UPDATE SET
+            ON CONFLICT (owner_player_id, content_hash) DO UPDATE SET
                 owner_player_id = EXCLUDED.owner_player_id,
-                operation_key = EXCLUDED.operation_key,
+                operation_key = CASE
+                    WHEN position(EXCLUDED.operation_key in rulebook_registration.operation_key) > 0 THEN rulebook_registration.operation_key
+                    ELSE rulebook_registration.operation_key || EXCLUDED.operation_key
+                END,
                 content_hash = EXCLUDED.content_hash,
                 format = EXCLUDED.format,
                 file_size = EXCLUDED.file_size,
@@ -98,6 +101,10 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                 updated_at = EXCLUDED.updated_at,
                 document_type = EXCLUDED.document_type,
                 original_filename = EXCLUDED.original_filename
+            RETURNING rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
+                      storage_key, processing_status, extraction_status, extracted_content,
+                      missing_locations, failure_code, version, created_at, updated_at,
+                      document_type, original_filename
             """;
 
     private final DataSource dataSource;
@@ -214,7 +221,7 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
     }
 
     @Override
-    public void save(StoredRulebookRegistration registration) {
+    public StoredRulebookRegistration save(StoredRulebookRegistration registration) {
         Objects.requireNonNull(registration, "registration must not be null");
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement ps = connection.prepareStatement(UPSERT)) {
@@ -235,7 +242,12 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
             ps.setTimestamp(15, Timestamp.from(registration.updatedAt()));
             ps.setString(16, registration.documentType().name());
             ps.setString(17, registration.originalFilename());
-            ps.executeUpdate();
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return mapRow(rs);
+                }
+            }
+            throw new IllegalStateException("expected one saved rulebook registration");
         } catch (SQLException e) {
             throw new RuntimeException("failed to save rulebook registration", e);
         }

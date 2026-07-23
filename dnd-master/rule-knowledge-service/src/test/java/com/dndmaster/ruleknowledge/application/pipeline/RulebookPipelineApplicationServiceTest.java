@@ -420,9 +420,10 @@ class RulebookPipelineApplicationServiceTest {
         }
 
         @Override
-        public void save(StoredRulebookRegistration registration) {
+        public StoredRulebookRegistration save(StoredRulebookRegistration registration) {
             byOperationKey.put(registration.operationKey(), registration);
             byId.put(registration.rulebookId(), registration);
+            return registration;
         }
 
         private int size() {

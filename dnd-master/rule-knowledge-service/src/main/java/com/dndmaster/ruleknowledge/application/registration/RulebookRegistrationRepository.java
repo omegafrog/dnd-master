@@ -14,5 +14,5 @@ public interface RulebookRegistrationRepository {
     List<StoredRulebookRegistration> findByOwner(OwnerPlayerId owner);
     List<StoredRulebookRegistration> findByProcessingStatuses(List<ProcessingStatus> statuses);
     List<StoredRulebookRegistration> claimPending(Instant processingLeaseCutoff, int limit);
-    void save(StoredRulebookRegistration registration);
+    StoredRulebookRegistration save(StoredRulebookRegistration registration);
 }

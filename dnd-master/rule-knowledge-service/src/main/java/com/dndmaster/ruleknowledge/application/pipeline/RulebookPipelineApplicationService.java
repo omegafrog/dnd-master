@@ -115,9 +115,9 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                     previous.updatedAt(),
                     previous.documentType(),
                     previous.originalFilename());
-            registrationRepository.save(replayedRegistration);
-            rememberRegistration(replayedRegistration);
-            return new RulebookProcessingResult(previous.rulebookId(), previous.processingStatus(), List.of());
+            StoredRulebookRegistration persisted = registrationRepository.save(replayedRegistration);
+            rememberRegistration(persisted);
+            return new RulebookProcessingResult(persisted.rulebookId(), persisted.processingStatus(), List.of());
         }
 
         RulebookId rulebookId = RulebookId.generate();
@@ -140,9 +140,9 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 Instant.now(),
                 command.documentType(),
                 command.originalFilename());
-        registrationRepository.save(queued);
-        rememberRegistration(queued);
-        return new RulebookProcessingResult(rulebookId, ProcessingStatus.QUEUED, List.of());
+        StoredRulebookRegistration persisted = registrationRepository.save(queued);
+        rememberRegistration(persisted);
+        return new RulebookProcessingResult(persisted.rulebookId(), persisted.processingStatus(), List.of());
     }
 
     public List<RulebookProcessingResult> processPending() {
@@ -159,9 +159,9 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             throw new IllegalStateException("only failed document can be retried");
         }
         StoredRulebookRegistration queued = withStatus(registration, ProcessingStatus.QUEUED, null, null, null, null);
-        registrationRepository.save(queued);
-        rememberRegistration(queued);
-        return new RulebookProcessingResult(rulebookId, ProcessingStatus.QUEUED, List.of());
+        StoredRulebookRegistration persisted = registrationRepository.save(queued);
+        rememberRegistration(persisted);
+        return new RulebookProcessingResult(persisted.rulebookId(), persisted.processingStatus(), List.of());
     }
 
     private RulebookProcessingResult processClaimedRegistration(StoredRulebookRegistration registration) {
@@ -189,9 +189,9 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                     null,
                     extractionResult.content().orElse(null),
                     extractionResult.missingLocations());
-            registrationRepository.save(indexed);
-            rememberRegistration(indexed);
-            return new RulebookProcessingResult(registration.rulebookId(), ProcessingStatus.INDEXED, List.of());
+            StoredRulebookRegistration persisted = registrationRepository.save(indexed);
+            rememberRegistration(persisted);
+            return new RulebookProcessingResult(persisted.rulebookId(), persisted.processingStatus(), List.of());
         } catch (IndexingFailedException exception) {
             return fail(registration, null, describeFailure(exception));
         } catch (RuntimeException exception) {
@@ -222,9 +222,9 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 reason,
                 extractionResult != null ? extractionResult.content().orElse(null) : registration.extractedContent(),
                 extractionResult != null ? extractionResult.missingLocations() : registration.missingLocations());
-        registrationRepository.save(failed);
-        rememberRegistration(failed);
-        return new RulebookProcessingResult(registration.rulebookId(), ProcessingStatus.FAILED, List.of(reason));
+        StoredRulebookRegistration persisted = registrationRepository.save(failed);
+        rememberRegistration(persisted);
+        return new RulebookProcessingResult(persisted.rulebookId(), persisted.processingStatus(), List.of(reason));
     }
 
     private void rememberRegistration(StoredRulebookRegistration registration) {
