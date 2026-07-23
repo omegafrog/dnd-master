@@ -3,7 +3,6 @@ package com.dndmaster.adventure.application.scenario.compilation;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
 import com.dndmaster.adventure.domain.scenario.ResolutionKind;
-import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
@@ -116,7 +115,9 @@ public final class ScenarioPackageCompilationService {
                         ? com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE
                         : candidate.visibility(),
                 candidate.sourceQuote() == null ? "" : candidate.sourceQuote(),
-                candidate.sourceRefs() == null ? List.of() : candidate.sourceRefs(),
+                candidate.sourceRefs() == null
+                        ? List.of()
+                        : candidate.sourceRefs().stream().filter(Objects::nonNull).toList(),
                 candidate.provenance() == null ? "" : candidate.provenance(),
                 status,
                 messages);
