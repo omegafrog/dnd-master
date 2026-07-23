@@ -3,6 +3,8 @@ package com.dndmaster.ruleknowledge.infrastructure.persistence;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
 import com.dndmaster.ruleknowledge.domain.rulebook.*;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.*;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -18,21 +20,24 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
             SELECT rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
                    storage_key, processing_status, extraction_status, extracted_content,
                    missing_locations, failure_code, version, created_at, updated_at,
-                   document_type, original_filename
+                   document_type, original_filename, preview_content, preview_warnings,
+                   preview_spans, preview_assets
               FROM rulebook_registration WHERE rulebook_id = ?
             """;
     private static final String FIND_BY_OPERATION_KEY = """
             SELECT rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
                    storage_key, processing_status, extraction_status, extracted_content,
                    missing_locations, failure_code, version, created_at, updated_at,
-                   document_type, original_filename
+                   document_type, original_filename, preview_content, preview_warnings,
+                   preview_spans, preview_assets
               FROM rulebook_registration WHERE operation_key = ?
             """;
     private static final String FIND_BY_OWNER_AND_CONTENT_HASH = """
             SELECT rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
                    storage_key, processing_status, extraction_status, extracted_content,
                    missing_locations, failure_code, version, created_at, updated_at,
-                   document_type, original_filename
+                   document_type, original_filename, preview_content, preview_warnings,
+                   preview_spans, preview_assets
               FROM rulebook_registration
              WHERE owner_player_id = ? AND content_hash = ?
             """;
@@ -40,7 +45,8 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
             SELECT rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
                    storage_key, processing_status, extraction_status, extracted_content,
                    missing_locations, failure_code, version, created_at, updated_at,
-                   document_type, original_filename
+                   document_type, original_filename, preview_content, preview_warnings,
+                   preview_spans, preview_assets
               FROM rulebook_registration WHERE owner_player_id = ?
               ORDER BY created_at DESC
             """;
@@ -48,7 +54,8 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
             SELECT rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
                    storage_key, processing_status, extraction_status, extracted_content,
                    missing_locations, failure_code, version, created_at, updated_at,
-                   document_type, original_filename
+                   document_type, original_filename, preview_content, preview_warnings,
+                   preview_spans, preview_assets
               FROM rulebook_registration WHERE processing_status IN (
             """;
     private static final String CLAIM_PENDING = """
@@ -74,15 +81,18 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                       registration.storage_key, registration.processing_status, registration.extraction_status,
                       registration.extracted_content, registration.missing_locations, registration.failure_code,
                       registration.version, registration.created_at, registration.updated_at,
-                      registration.document_type, registration.original_filename
+                      registration.document_type, registration.original_filename,
+                      registration.preview_content, registration.preview_warnings,
+                      registration.preview_spans, registration.preview_assets
             """;
     private static final String UPSERT = """
             INSERT INTO rulebook_registration
                 (rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
                  storage_key, processing_status, extraction_status, extracted_content,
                  missing_locations, failure_code, version, created_at, updated_at,
-                 document_type, original_filename)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 document_type, original_filename, preview_content, preview_warnings,
+                 preview_spans, preview_assets)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (operation_key) DO UPDATE SET
                 owner_player_id = EXCLUDED.owner_player_id,
                 content_hash = EXCLUDED.content_hash,
@@ -97,13 +107,19 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                 version = EXCLUDED.version,
                 updated_at = EXCLUDED.updated_at,
                 document_type = EXCLUDED.document_type,
-                original_filename = EXCLUDED.original_filename
+                original_filename = EXCLUDED.original_filename,
+                preview_content = EXCLUDED.preview_content,
+                preview_warnings = EXCLUDED.preview_warnings,
+                preview_spans = EXCLUDED.preview_spans,
+                preview_assets = EXCLUDED.preview_assets
             """;
 
     private final DataSource dataSource;
+    private final ObjectMapper objectMapper;
 
-    public PostgresRulebookRegistrationRepository(DataSource dataSource) {
+    public PostgresRulebookRegistrationRepository(DataSource dataSource, ObjectMapper objectMapper) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource must not be null");
+        this.objectMapper = Objects.requireNonNull(objectMapper, "objectMapper must not be null");
     }
 
     @Override
@@ -126,7 +142,7 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
             ps.setString(2, contentHash);
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    return Optional.of(mapRow(rs));
+                    return Optional.of(mapRow(rs, objectMapper));
                 }
                 return Optional.empty();
             }
@@ -144,7 +160,7 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
             try (ResultSet rs = ps.executeQuery()) {
                 List<StoredRulebookRegistration> results = new ArrayList<>();
                 while (rs.next()) {
-                    results.add(mapRow(rs));
+                    results.add(mapRow(rs, objectMapper));
                 }
                 return List.copyOf(results);
             }
@@ -168,7 +184,7 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
             try (ResultSet rs = ps.executeQuery()) {
                 List<StoredRulebookRegistration> results = new ArrayList<>();
                 while (rs.next()) {
-                    results.add(mapRow(rs));
+                        results.add(mapRow(rs, objectMapper));
                 }
                 return List.copyOf(results);
             }
@@ -192,7 +208,7 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                 try (ResultSet rs = ps.executeQuery()) {
                     List<StoredRulebookRegistration> claimed = new ArrayList<>();
                     while (rs.next()) {
-                        claimed.add(mapRow(rs));
+                        claimed.add(mapRow(rs, objectMapper));
                     }
                     connection.commit();
                     return List.copyOf(claimed);
@@ -234,6 +250,10 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
             ps.setTimestamp(15, Timestamp.from(registration.updatedAt()));
             ps.setString(16, registration.documentType().name());
             ps.setString(17, registration.originalFilename());
+            ps.setString(18, registration.previewContent());
+            setStringArray(ps, 19, registration.previewWarnings());
+            setJson(ps, 20, registration.previewSpans());
+            setJson(ps, 21, registration.previewAssets());
             ps.executeUpdate();
         } catch (SQLException e) {
             throw new RuntimeException("failed to save rulebook registration", e);
@@ -250,7 +270,7 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
             }
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    return Optional.of(mapRow(rs));
+                    return Optional.of(mapRow(rs, objectMapper));
                 }
                 return Optional.empty();
             }
@@ -259,7 +279,7 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
         }
     }
 
-    private static StoredRulebookRegistration mapRow(ResultSet rs) throws SQLException {
+    private static StoredRulebookRegistration mapRow(ResultSet rs, ObjectMapper objectMapper) throws SQLException {
         return new StoredRulebookRegistration(
                 new RulebookId(rs.getObject("rulebook_id", UUID.class)),
                 new OwnerPlayerId(rs.getObject("owner_player_id", UUID.class)),
@@ -277,7 +297,11 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                 rs.getTimestamp("created_at").toInstant(),
                 rs.getTimestamp("updated_at").toInstant(),
                 DocumentType.valueOf(rs.getString("document_type")),
-                rs.getString("original_filename"));
+                rs.getString("original_filename"),
+                rs.getString("preview_content"),
+                getStringArray(rs, "preview_warnings"),
+                getJsonList(rs, "preview_spans", new TypeReference<List<PreviewSpan>>() {}, objectMapper),
+                getJsonList(rs, "preview_assets", new TypeReference<List<PreviewAsset>>() {}, objectMapper));
     }
 
     private static <E extends Enum<E>> E getNullableEnum(ResultSet rs, String column, Class<E> type) throws SQLException {
@@ -305,6 +329,31 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
             ps.setNull(index, Types.ARRAY);
         } else {
             ps.setArray(index, ps.getConnection().createArrayOf("text", values.toArray(new String[0])));
+        }
+    }
+
+    private void setJson(PreparedStatement ps, int index, Object value) throws SQLException {
+        if (value == null) {
+            ps.setNull(index, Types.VARCHAR);
+            return;
+        }
+        try {
+            ps.setString(index, objectMapper.writeValueAsString(value));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            throw new SQLException("failed to serialize json column", e);
+        }
+    }
+
+    private static <T> List<T> getJsonList(
+            ResultSet rs, String column, TypeReference<List<T>> type, ObjectMapper objectMapper) throws SQLException {
+        String value = rs.getString(column);
+        if (value == null || value.isBlank()) {
+            return List.of();
+        }
+        try {
+            return List.copyOf(objectMapper.readValue(value, type));
+        } catch (java.io.IOException e) {
+            throw new SQLException("failed to deserialize json column " + column, e);
         }
     }
 }

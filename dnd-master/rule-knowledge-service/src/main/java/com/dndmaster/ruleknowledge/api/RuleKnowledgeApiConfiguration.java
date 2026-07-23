@@ -49,8 +49,8 @@ public class RuleKnowledgeApiConfiguration {
     }
 
     @Bean
-    RulebookRegistrationRepository registrationRepository(DataSource dataSource) {
-        return new PostgresRulebookRegistrationRepository(dataSource);
+    RulebookRegistrationRepository registrationRepository(DataSource dataSource, ObjectMapper objectMapper) {
+        return new PostgresRulebookRegistrationRepository(dataSource, objectMapper);
     }
 
     @Bean
@@ -83,10 +83,17 @@ public class RuleKnowledgeApiConfiguration {
             RulebookRegistrationRepository registrationRepository,
             RulebookFileStorage fileStorage,
             RulebookContentExtractor contentExtractor,
+            SourcePreviewExtractor sourcePreviewExtractor,
             RulebookIndexingApplicationService indexingService,
             @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension) {
         return new RulebookPipelineApplicationService(
-                registrationService, registrationRepository, fileStorage, contentExtractor, indexingService, embeddingDimension);
+                registrationService,
+                registrationRepository,
+                fileStorage,
+                contentExtractor,
+                sourcePreviewExtractor,
+                indexingService,
+                embeddingDimension);
     }
 
     @Bean
@@ -102,11 +109,9 @@ public class RuleKnowledgeApiConfiguration {
     RuleKnowledgeController ruleKnowledgeController(
             RulebookPipelineApplicationService pipelineService,
             RulebookRegistrationRepository registrationRepository,
-            RulebookFileStorage fileStorage,
-            SourcePreviewExtractor sourcePreviewExtractor,
             RuleEvidenceSearchApplicationService evidenceSearchService,
             ObjectMapper objectMapper) {
         return new RuleKnowledgeController(
-                pipelineService, registrationRepository, fileStorage, sourcePreviewExtractor, evidenceSearchService, objectMapper);
+                pipelineService, registrationRepository, evidenceSearchService, objectMapper);
     }
 }

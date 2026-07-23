@@ -47,7 +47,11 @@ class RuleSetSaveIntegrationTest {
                     created_at TIMESTAMP NOT NULL,
                     updated_at TIMESTAMP NOT NULL,
                     document_type TEXT NOT NULL,
-                    original_filename TEXT NOT NULL
+                    original_filename TEXT NOT NULL,
+                    preview_content TEXT NOT NULL DEFAULT '',
+                    preview_warnings VARCHAR ARRAY,
+                    preview_spans TEXT NOT NULL DEFAULT '[]',
+                    preview_assets TEXT NOT NULL DEFAULT '[]'
                 )
                 """);
         jdbcTemplate.update("DELETE FROM rulebook_registration");
@@ -60,8 +64,9 @@ class RuleSetSaveIntegrationTest {
                     rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
                     storage_key, processing_status, extraction_status, extracted_content,
                     missing_locations, failure_code, version, created_at, updated_at,
-                    document_type, original_filename
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    document_type, original_filename, preview_content, preview_warnings,
+                    preview_spans, preview_assets
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 knowledgeDocumentId,
                 ownerId,
@@ -79,7 +84,11 @@ class RuleSetSaveIntegrationTest {
                 Instant.parse("2026-07-23T00:00:00Z"),
                 Instant.parse("2026-07-23T00:00:00Z"),
                 "RULEBOOK",
-                "phb.pdf");
+                "phb.pdf",
+                "",
+                null,
+                "[]",
+                "[]");
     }
 
     @Test
