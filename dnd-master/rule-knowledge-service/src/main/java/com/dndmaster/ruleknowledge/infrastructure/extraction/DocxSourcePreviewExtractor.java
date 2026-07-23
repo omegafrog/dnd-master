@@ -47,7 +47,9 @@ public final class DocxSourcePreviewExtractor implements CompositeSourcePreviewE
                                 0,
                                 text.length(),
                                 text,
-                                "section " + sectionIndex + " paragraph " + paragraphIndex));
+                                "section " + sectionIndex + " paragraph " + paragraphIndex,
+                                "TEXT",
+                                null));
                     }
                     continue;
                 }
@@ -92,7 +94,9 @@ public final class DocxSourcePreviewExtractor implements CompositeSourcePreviewE
                             0,
                             text.length(),
                             text,
-                            "section " + sectionIndex + " table " + tableIndex + " row " + (rowIndex + 1) + " cell " + (cellIndex + 1)));
+                            "section " + sectionIndex + " table " + tableIndex + " row " + (rowIndex + 1) + " cell " + (cellIndex + 1),
+                            "TEXT",
+                            null));
                 }
             }
             if (!cells.isEmpty()) {

@@ -1,5 +1,7 @@
 package com.dndmaster.ruleknowledge.infrastructure.extraction;
 
+import com.dndmaster.ruleknowledge.application.ocr.OcrLine;
+import com.dndmaster.ruleknowledge.application.ocr.OcrPort;
 import com.dndmaster.ruleknowledge.domain.rulebook.BoundingBox;
 import com.dndmaster.ruleknowledge.domain.rulebook.PreviewAsset;
 import com.dndmaster.ruleknowledge.domain.rulebook.PreviewSpan;
@@ -8,7 +10,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
-import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
@@ -22,6 +23,14 @@ import org.apache.pdfbox.text.TextPosition;
 public final class PdfSourcePreviewExtractor extends PdfRulebookContentExtractor
         implements CompositeSourcePreviewExtractor.FormatPreviewExtractor {
 
+    public PdfSourcePreviewExtractor() {
+        this(new com.dndmaster.ruleknowledge.infrastructure.ocr.TesseractOcrAdapter());
+    }
+
+    public PdfSourcePreviewExtractor(OcrPort ocrPort) {
+        super(ocrPort);
+    }
+
     @Override
     public SourcePreviewResult preview(byte[] content) {
         Objects.requireNonNull(content, "content must not be null");
@@ -31,10 +40,12 @@ public final class PdfSourcePreviewExtractor extends PdfRulebookContentExtractor
             List<String> warnings = new ArrayList<>();
             for (int i = 0; i < document.getNumberOfPages(); i++) {
                 try {
-                    spans.addAll(previewPage(document, i));
-                    assets.addAll(extractAssets(document.getPage(i), i + 1));
+                    PagePreview preview = previewPage(document, i);
+                    spans.addAll(preview.spans());
+                    assets.addAll(preview.assets());
+                    warnings.addAll(preview.warnings());
                 } catch (IOException exception) {
-                    warnings.add("page " + (i + 1));
+                    warnings.add(pageLocator(i) + ": " + exception.getMessage());
                 }
             }
             String text = String.join("\n\n", spans.stream().map(PreviewSpan::text).filter(value -> !value.isBlank()).toList()).trim();
@@ -46,23 +57,58 @@ public final class PdfSourcePreviewExtractor extends PdfRulebookContentExtractor
         }
     }
 
-    private List<PreviewSpan> previewPage(PDDocument document, int pageIndex) throws IOException {
-        LayoutTextStripper stripper = new LayoutTextStripper(pageIndex + 1);
-        stripper.setSortByPosition(true);
-        stripper.setStartPage(pageIndex + 1);
-        stripper.setEndPage(pageIndex + 1);
-        stripper.getText(document);
-        return stripper.spans();
+    private PagePreview previewPage(PDDocument document, int pageIndex) throws IOException {
+        int pageNumber = pageIndex + 1;
+        String nativeText = "";
+        try {
+            nativeText = extractPage(document, pageIndex).trim();
+        } catch (IOException exception) {
+            // Fall through to OCR. The content extractor already treats this page as recoverable.
+        }
+        if (!nativeText.isBlank()) {
+            LayoutTextStripper stripper = new LayoutTextStripper(pageNumber);
+            stripper.setSortByPosition(true);
+            stripper.setStartPage(pageNumber);
+            stripper.setEndPage(pageNumber);
+            stripper.getText(document);
+            return new PagePreview(stripper.spans(), assetForPage(document.getPage(pageIndex), pageNumber, false), List.of());
+        }
+        BufferedImagePreview preview = ocrPreview(document, pageIndex);
+        return new PagePreview(preview.spans(), preview.assets(), preview.warnings());
     }
 
-    private List<PreviewAsset> extractAssets(PDPage page, int pageNumber) throws IOException {
+    private BufferedImagePreview ocrPreview(PDDocument document, int pageIndex) throws IOException {
+        var outcome = ocrPage(document, pageIndex);
+        int pageNumber = pageIndex + 1;
+        List<PreviewSpan> spans = outcome.lines().stream()
+                .map(line -> new PreviewSpan(
+                        "OCR_LINE",
+                        List.of("page " + pageNumber, "line " + line.lineNumber()),
+                        pageNumber,
+                        line.bounds(),
+                        line.lineNumber(),
+                        0,
+                        line.text().length(),
+                        line.text(),
+                        "page " + pageNumber + " line " + line.lineNumber(),
+                        "OCR",
+                        line.confidence()))
+                .toList();
+        List<PreviewAsset> assets = new ArrayList<>(assetForPage(document.getPage(pageIndex), pageNumber, true));
+        return new BufferedImagePreview(spans, assets, outcome.warnings());
+    }
+
+    private List<PreviewAsset> assetForPage(PDPage page, int pageNumber, boolean rendered) throws IOException {
+        List<PreviewAsset> assets = new ArrayList<>();
+        if (rendered) {
+            assets.add(new PreviewAsset("RENDERED_PAGE", "page " + pageNumber + " rendered", "image/png", pageNumber));
+        }
         PDResources resources = page.getResources();
         if (resources == null) {
-            return List.of();
+            return List.copyOf(assets);
         }
-        List<PreviewAsset> assets = new ArrayList<>();
         int imageIndex = 1;
-        for (COSName name : resources.getXObjectNames()) {
+        for (var name : resources.getXObjectNames()) {
             PDXObject xObject = resources.getXObject(name);
             if (xObject instanceof PDImageXObject image) {
                 assets.add(new PreviewAsset(
@@ -72,7 +118,7 @@ public final class PdfSourcePreviewExtractor extends PdfRulebookContentExtractor
                         pageNumber));
             }
         }
-        return assets;
+        return List.copyOf(assets);
     }
 
     private static String mimeType(String suffix) {
@@ -121,7 +167,9 @@ public final class PdfSourcePreviewExtractor extends PdfRulebookContentExtractor
                     0,
                     normalized.length(),
                     normalized,
-                    "page " + pageNumber + " line " + lineNumber));
+                    "page " + pageNumber + " line " + lineNumber,
+                    "TEXT",
+                    null));
             lineNumber++;
         }
 
@@ -164,4 +212,8 @@ public final class PdfSourcePreviewExtractor extends PdfRulebookContentExtractor
             return List.copyOf(spans);
         }
     }
+
+    private record PagePreview(List<PreviewSpan> spans, List<PreviewAsset> assets, List<String> warnings) {}
+
+    private record BufferedImagePreview(List<PreviewSpan> spans, List<PreviewAsset> assets, List<String> warnings) {}
 }

@@ -141,6 +141,19 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                     new FileSize(registration.fileSize()));
             rulebook.recordExtraction(extractionResult);
             if (!rulebook.isEligibleForSplitting()) {
+                if (rulebook.processingStatus() == ProcessingStatus.NEEDS_INPUT) {
+                    StoredRulebookRegistration needsInput = withStatus(
+                            registration,
+                            ProcessingStatus.NEEDS_INPUT,
+                            extractionResult,
+                            previewResult,
+                            describeExtractionFailure(extractionResult),
+                            extractionResult.content().orElse(null),
+                            extractionResult.missingLocations());
+                    registrationRepository.save(needsInput);
+                    return new RulebookProcessingResult(registration.rulebookId(), ProcessingStatus.NEEDS_INPUT, List.of(
+                            describeExtractionFailure(extractionResult)));
+                }
                 return fail(registration, extractionResult, previewResult, describeExtractionFailure(extractionResult));
             }
             attemptIndexing(rulebook, registration);

@@ -117,7 +117,9 @@ public class RuleKnowledgeController {
                                 span.startInclusive(),
                                 span.endExclusive(),
                                 span.text(),
-                                span.locator()))
+                                span.locator(),
+                                span.sourceMethod(),
+                                span.confidence()))
                         .toList(),
                 preview.assets().stream()
                         .map(asset -> new PreviewAssetView(asset.kind(), asset.locator(), asset.contentType(), asset.pageNumber()))
@@ -229,6 +231,7 @@ public class RuleKnowledgeController {
             case "pdf" -> RulebookFormat.PDF;
             case "docx" -> RulebookFormat.DOCX;
             case "txt" -> RulebookFormat.TXT;
+            case "png", "jpg", "jpeg", "tif", "tiff", "bmp" -> RulebookFormat.IMAGE;
             default -> RulebookFormat.PDF;
         };
     }
@@ -262,7 +265,9 @@ public class RuleKnowledgeController {
             int startInclusive,
             int endExclusive,
             String text,
-            String locator) {}
+            String locator,
+            String sourceMethod,
+            Double confidence) {}
     public record PreviewAssetView(String kind, String locator, String contentType, Integer pageNumber) {}
 
     private static List<String> warningsFor(StoredRulebookRegistration registration) {

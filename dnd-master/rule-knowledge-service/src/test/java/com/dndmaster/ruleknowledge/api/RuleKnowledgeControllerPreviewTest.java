@@ -45,7 +45,7 @@ class RuleKnowledgeControllerPreviewTest {
                 "rules.pdf",
                 "stored preview content",
                 List.of("stored warning"),
-                List.of(new PreviewSpan("PAGE_LINE", List.of("page 1"), 1, null, 1, 0, 7, "preview", "page 1 line 1")),
+                List.of(new PreviewSpan("PAGE_LINE", List.of("page 1"), 1, null, 1, 0, 7, "preview", "page 1 line 1", "TEXT", null)),
                 List.of(new PreviewAsset("IMAGE", "page 1 image 1", "image/png", 1)));
 
         RuleKnowledgeController controller = new RuleKnowledgeController(
