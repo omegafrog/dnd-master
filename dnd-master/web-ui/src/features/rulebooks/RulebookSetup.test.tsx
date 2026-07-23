@@ -3,7 +3,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { RulebookSetup } from './RulebookSetup'
-import type { BatchRulebookView, KnowledgeDocumentView, SetupApi } from './SetupApi'
+import type { BatchRulebookView, KnowledgeDocumentView, RulebookUploadDraft, SetupApi } from './SetupApi'
 
 class FakeSetupApi implements SetupApi {
   uploadError = ''
@@ -23,7 +23,7 @@ class FakeSetupApi implements SetupApi {
     ]
   }
 
-  async uploadRulebooks(documents: any[], ownerId: string) {
+  async uploadRulebooks(documents: RulebookUploadDraft[], ownerId: string) {
     this.uploadCalls.push({ ownerId, documents: documents.map(document => document.file.name) })
     if (this.uploadError) throw new Error(this.uploadError)
     return this.results
