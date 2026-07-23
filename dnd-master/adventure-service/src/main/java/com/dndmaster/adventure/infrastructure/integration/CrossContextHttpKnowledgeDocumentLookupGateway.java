@@ -2,7 +2,6 @@ package com.dndmaster.adventure.infrastructure.integration;
 
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentLookupPort;
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
-import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -14,6 +13,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 public final class CrossContextHttpKnowledgeDocumentLookupGateway implements KnowledgeDocumentLookupPort {
     private final HttpClient client;
@@ -30,8 +30,8 @@ public final class CrossContextHttpKnowledgeDocumentLookupGateway implements Kno
     }
 
     @Override
-    public List<KnowledgeDocumentRecord> findOwnedDocuments(OwnerPlayerId ownerPlayerId) {
-        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/rulebooks?ownerId=" + ownerPlayerId.value()))
+    public List<KnowledgeDocumentRecord> findOwnedDocuments(UUID ownerPlayerId) {
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/rulebooks?ownerId=" + ownerPlayerId))
                 .timeout(timeout)
                 .GET()
                 .build();
@@ -46,7 +46,8 @@ public final class CrossContextHttpKnowledgeDocumentLookupGateway implements Kno
                             new KnowledgeDocumentId(summary.knowledgeDocumentId()),
                             KnowledgeDocumentStatus.valueOf(summary.status()),
                             summary.originalFilename(),
-                            summary.documentType()))
+                            summary.documentType(),
+                            summary.extractionVersion()))
                     .toList();
         } catch (IOException exception) {
             throw new KnowledgeDocumentLookupException("cross-context lookup failed", exception);
@@ -60,5 +61,10 @@ public final class CrossContextHttpKnowledgeDocumentLookupGateway implements Kno
     record OwnedRulebooksResponse(List<OwnedRulebookSummary> rulebooks) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record OwnedRulebookSummary(java.util.UUID knowledgeDocumentId, String status, String documentType, String originalFilename) {}
+    record OwnedRulebookSummary(
+            java.util.UUID knowledgeDocumentId,
+            String status,
+            String documentType,
+            String originalFilename,
+            long extractionVersion) {}
 }

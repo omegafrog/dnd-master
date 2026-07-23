@@ -32,7 +32,7 @@ public final class SessionKnowledgeSetApplicationService {
             AdventureId adventureId, OwnerPlayerId owner, List<KnowledgeDocumentId> knowledgeDocumentIds) {
         Adventure adventure = loadOwnedAdventure(adventureId, owner);
         List<KnowledgeDocumentId> requested = normalizeSelection(knowledgeDocumentIds);
-        Map<KnowledgeDocumentId, KnowledgeDocumentLookupPort.KnowledgeDocumentRecord> ownedDocuments = lookupPort.findOwnedDocuments(owner).stream()
+        Map<KnowledgeDocumentId, KnowledgeDocumentLookupPort.KnowledgeDocumentRecord> ownedDocuments = lookupPort.findOwnedDocuments(owner.value()).stream()
                 .collect(LinkedHashMap::new, (map, record) -> map.put(record.knowledgeDocumentId(), record), Map::putAll);
 
         for (KnowledgeDocumentId knowledgeDocumentId : requested) {

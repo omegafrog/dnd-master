@@ -135,22 +135,22 @@ class SessionKnowledgeSetApplicationServiceTest {
     }
 
     private static final class LookupMock implements KnowledgeDocumentLookupPort {
-        private final OwnerPlayerId owner;
+        private final UUID ownerId;
         private final Map<KnowledgeDocumentId, KnowledgeDocumentStatus> statuses;
 
         private LookupMock(OwnerPlayerId owner, Map<KnowledgeDocumentId, KnowledgeDocumentStatus> statuses) {
-            this.owner = owner;
+            this.ownerId = owner.value();
             this.statuses = statuses;
         }
 
         @Override
-        public List<KnowledgeDocumentLookupPort.KnowledgeDocumentRecord> findOwnedDocuments(OwnerPlayerId ownerPlayerId) {
-            if (!owner.equals(ownerPlayerId)) {
+        public List<KnowledgeDocumentLookupPort.KnowledgeDocumentRecord> findOwnedDocuments(UUID ownerPlayerId) {
+            if (!ownerId.equals(ownerPlayerId)) {
                 return List.of();
             }
             return statuses.entrySet().stream()
                     .map(entry -> new KnowledgeDocumentLookupPort.KnowledgeDocumentRecord(
-                            entry.getKey(), entry.getValue(), "doc-" + entry.getKey().value(), "RULEBOOK"))
+                            entry.getKey(), entry.getValue(), "doc-" + entry.getKey().value(), "RULEBOOK", 1L))
                     .toList();
         }
     }

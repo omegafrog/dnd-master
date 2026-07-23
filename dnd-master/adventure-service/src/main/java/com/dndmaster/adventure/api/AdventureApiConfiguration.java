@@ -11,6 +11,7 @@ import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.inquiry.RulebookId;
 import com.dndmaster.adventure.domain.scenario.ScenarioSource;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioBundleRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpKnowledgeDocumentLookupGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuleIntentClassificationGateway;
@@ -68,11 +69,22 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    ScenarioBundleRepository scenarioBundleRepository(DataSource dataSource) {
+        return new PostgresScenarioBundleRepository(dataSource);
+    }
+
+    @Bean
     AdventureScenarioApplicationService scenarioApplicationService(
             AdventureScenarioRepository repository,
             ScenarioStoragePort storagePort,
             ScenarioPreparationPort preparationPort) {
         return new AdventureScenarioApplicationService(repository, storagePort, preparationPort);
+    }
+
+    @Bean
+    ScenarioBundleApplicationService scenarioBundleApplicationService(
+            ScenarioBundleRepository repository, KnowledgeDocumentLookupPort lookupPort) {
+        return new ScenarioBundleApplicationService(repository, lookupPort);
     }
 
     @Bean

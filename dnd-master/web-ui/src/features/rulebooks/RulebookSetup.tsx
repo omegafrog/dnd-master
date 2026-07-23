@@ -236,7 +236,7 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
           ) : null}
         </section>
       </section>
-      <ScenarioSetup api={api} onError={setMessage} />
+      <ScenarioSetup api={api} playerId={playerId} onError={setMessage} />
     </main>
   )
 }
