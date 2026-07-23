@@ -46,7 +46,8 @@ class FakeSetupApi implements SetupApi {
       status: 'FAILED',
       format: 'PDF',
       extractionVersion: undefined,
-      warnings: ['page 1 extraction failed'],
+      warnings: [],
+      failureReason: 'document parser stopped',
     },
   ]
 
@@ -87,7 +88,7 @@ describe('ScenarioSetup', () => {
     expect(await screen.findByText('main.pdf')).toBeInTheDocument()
     expect(screen.queryByText('rules.pdf')).not.toBeInTheDocument()
     expect(screen.getByText('handout.pdf: 추출 경고가 있어 컴파일 위험이 있습니다.')).toBeInTheDocument()
-    expect(screen.getByText('failed-main.pdf: 컴파일 위험 — page 1 extraction failed')).toBeInTheDocument()
+    expect(screen.getByText('failed-main.pdf: 컴파일 위험 — document parser stopped')).toBeInTheDocument()
 
     await user.selectOptions(screen.getByLabelText('main.pdf 역할'), 'MAIN_SCENARIO')
     await user.selectOptions(screen.getByLabelText('handout.pdf 역할'), 'HANDOUT')
