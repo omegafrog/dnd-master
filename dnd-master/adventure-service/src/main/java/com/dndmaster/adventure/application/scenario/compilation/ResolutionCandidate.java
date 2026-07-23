@@ -16,7 +16,8 @@ public record ResolutionCandidate(
         List<ScenarioSourceReference> sourceRefs,
         String provenance) {
     public static ResolutionCandidate skillCheck(
-            KnowledgeDocumentId documentId, long extractionVersion, String skill, Integer dc, String quote) {
+            KnowledgeDocumentId documentId, long extractionVersion, String locator,
+            String skill, Integer dc, String quote) {
         return new ResolutionCandidate(
                 ResolutionKind.SKILL_ABILITY_CHECK,
                 skill,
@@ -24,12 +25,13 @@ public record ResolutionCandidate(
                 null,
                 ResolutionVisibility.GM_REFERENCE,
                 quote,
-                List.of(new ScenarioSourceReference(documentId, extractionVersion, "quote:" + quote.hashCode())),
+                List.of(new ScenarioSourceReference(documentId, extractionVersion, locator)),
                 "schema-v1");
     }
 
     public static ResolutionCandidate diceRoll(
-            KnowledgeDocumentId documentId, long extractionVersion, String diceExpression, String quote) {
+            KnowledgeDocumentId documentId, long extractionVersion, String locator,
+            String diceExpression, String quote) {
         return new ResolutionCandidate(
                 ResolutionKind.DICE_ROLL,
                 null,
@@ -37,7 +39,7 @@ public record ResolutionCandidate(
                 diceExpression,
                 ResolutionVisibility.GM_REFERENCE,
                 quote,
-                List.of(new ScenarioSourceReference(documentId, extractionVersion, "quote:" + quote.hashCode())),
+                List.of(new ScenarioSourceReference(documentId, extractionVersion, locator)),
                 "schema-v1");
     }
 }

@@ -7,6 +7,7 @@ import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
+import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -17,6 +18,7 @@ import java.util.Map;
 import java.util.Objects;
 
 public final class ScenarioPackageCompilationService {
+    private static final String COMPILER_VERSION = "resolution-compiler-v1";
     private static final String DICE_PATTERN = "(?i)\\d+d\\d+(?:\\s*[+-]\\s*\\d+)?";
     private final ScenarioPackageRepository repository;
 
@@ -58,13 +60,20 @@ public final class ScenarioPackageCompilationService {
             invalid.add("source reference is missing");
         } else {
             for (ScenarioSourceReference ref : candidate.sourceRefs()) {
-                if (!documents.containsKey(key(ref.knowledgeDocumentId(), ref.extractionVersion()))) {
+                ScenarioBundleDocumentSelection sourceDocument = ref == null
+                        ? null
+                        : documents.get(key(ref.knowledgeDocumentId(), ref.extractionVersion()));
+                if (sourceDocument == null || ref.locator().isBlank()) {
                     invalid.add("source reference is outside bundle revision");
+                } else if (candidate.visibility() == ResolutionVisibility.PLAYER_SAFE
+                        && sourceDocument.role() != com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.HANDOUT
+                        && sourceDocument.role() != com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.CHARACTER_SHEET) {
+                    invalid.add("GM reference cannot be player safe");
                 }
             }
         }
         if (candidate.kind() == ResolutionKind.DICE_ROLL) {
-            if (candidate.diceExpression() == null || !candidate.diceExpression().matches(DICE_PATTERN)) {
+            if (!validDice(candidate.diceExpression())) {
                 invalid.add("dice expression is invalid");
             }
         } else if (candidate.kind() != null) {
@@ -92,12 +101,22 @@ public final class ScenarioPackageCompilationService {
                         : candidate.visibility(),
                 candidate.sourceQuote() == null ? "" : candidate.sourceQuote(),
                 candidate.sourceRefs() == null ? List.of() : candidate.sourceRefs(),
+                candidate.provenance() == null ? "" : candidate.provenance(),
                 status,
                 messages);
     }
 
+    private static boolean validDice(String expression) {
+        if (expression == null || !expression.matches(DICE_PATTERN)) return false;
+        String[] parts = expression.toLowerCase().replace(" ", "").split("d");
+        int dice = Integer.parseInt(parts[0]);
+        int sides = Integer.parseInt(parts[1].replaceFirst("[+-].*", ""));
+        return dice > 0 && sides > 0 && dice <= 100 && sides <= 1000;
+    }
+
     private static String fingerprint(ScenarioSourceBundle bundle, List<ResolutionCandidate> candidates) {
-        StringBuilder value = new StringBuilder(bundle.id().value().toString())
+        StringBuilder value = new StringBuilder(COMPILER_VERSION).append('|')
+                .append(bundle.id().value().toString())
                 .append(':').append(bundle.currentRevision().revision());
         for (ResolutionCandidate candidate : candidates) {
             value.append('|').append(candidate);

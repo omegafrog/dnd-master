@@ -28,7 +28,7 @@ class ScenarioPackageCompilationServiceTest {
         InMemoryPackageRepository repository = new InMemoryPackageRepository();
         ScenarioPackageCompilationService service = new ScenarioPackageCompilationService(repository);
         ResolutionCandidate candidate = ResolutionCandidate.skillCheck(
-                documentId, 4, "Perception", 13, "A loose stone triggers the trap.");
+                documentId, 4, "page:1:span:2", "Perception", 13, "A loose stone triggers the trap.");
 
         var first = service.compile(bundle, List.of(candidate));
         var second = service.compile(bundle, List.of(candidate));
@@ -47,15 +47,38 @@ class ScenarioPackageCompilationServiceTest {
         ScenarioPackageCompilationService service = new ScenarioPackageCompilationService(new InMemoryPackageRepository());
 
         var result = service.compile(bundle, List.of(
-                ResolutionCandidate.skillCheck(documentId, 2, "Stealth", null, "The corridor is watched."),
-                ResolutionCandidate.diceRoll(documentId, 99, "1d20", "bad extraction version"),
-                ResolutionCandidate.diceRoll(documentId, 2, "twenty", "Not a dice expression.")));
+                ResolutionCandidate.skillCheck(documentId, 2, "page:2:span:1", "Stealth", null, "The corridor is watched."),
+                ResolutionCandidate.diceRoll(documentId, 99, "page:2:span:2", "1d20", "bad extraction version"),
+                ResolutionCandidate.diceRoll(documentId, 2, "page:2:span:3", "twenty", "Not a dice expression."),
+                ResolutionCandidate.diceRoll(documentId, 2, "page:2:span:4", "1d0", "Impossible dice.")));
 
         assertEquals("PARTIAL", result.units().get(0).status().name());
         assertEquals("INVALID", result.units().get(1).status().name());
         assertEquals("INVALID", result.units().get(2).status().name());
+        assertEquals("INVALID", result.units().get(3).status().name());
         assertEquals(0, result.runtimeCandidates().stream().filter(unit -> unit.status().name().equals("INVALID")).count());
         assertNotEquals(result.units().get(0).status(), result.units().get(2).status());
+    }
+
+    @Test
+    void rejectsPlayerSafeOutputForMainScenarioAndPreservesProvenance() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(documentId, 1);
+        ResolutionCandidate candidate = new ResolutionCandidate(
+                com.dndmaster.adventure.domain.scenario.ResolutionKind.DICE_ROLL,
+                null,
+                null,
+                "1d6",
+                com.dndmaster.adventure.domain.scenario.ResolutionVisibility.PLAYER_SAFE,
+                "A hidden trap.",
+                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 1, "page:1:span:9")),
+                "model-v2/prompt-v4/schema-v1");
+
+        var unit = new ScenarioPackageCompilationService(new InMemoryPackageRepository())
+                .compile(bundle, List.of(candidate)).units().get(0);
+
+        assertEquals("INVALID", unit.status().name());
+        assertEquals("model-v2/prompt-v4/schema-v1", unit.provenance());
     }
 
     private static ScenarioSourceBundle bundle(KnowledgeDocumentId documentId, long extractionVersion) {
