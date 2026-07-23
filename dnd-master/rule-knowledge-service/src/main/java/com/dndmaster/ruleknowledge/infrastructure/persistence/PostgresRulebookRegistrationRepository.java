@@ -26,7 +26,7 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                    storage_key, processing_status, extraction_status, extracted_content,
                    missing_locations, failure_code, version, created_at, updated_at,
                    document_type, original_filename
-              FROM rulebook_registration WHERE operation_key = ? OR operation_key LIKE ?
+              FROM rulebook_registration WHERE operation_key = ? OR operation_key LIKE ? ESCAPE '\\'
             """;
     private static final String FIND_BY_OWNER_AND_CONTENT_HASH = """
             SELECT rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
@@ -114,7 +114,7 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
     @Override
     public Optional<StoredRulebookRegistration> findByOperationKey(String operationKey) {
         String normalized = Objects.requireNonNull(operationKey, "operationKey must not be null").trim();
-        return queryOne(FIND_BY_OPERATION_KEY, new String[] {normalized, "%|" + normalized + "|%"});
+        return queryOne(FIND_BY_OPERATION_KEY, new String[] {normalized, "%|" + escapeLike(normalized) + "|%"});
     }
 
     @Override
@@ -310,5 +310,9 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
         } else {
             ps.setArray(index, ps.getConnection().createArrayOf("text", values.toArray(new String[0])));
         }
+    }
+
+    private static String escapeLike(String value) {
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 }
