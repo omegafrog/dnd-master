@@ -36,7 +36,7 @@ public final class ScenarioCompilationProcessManager {
     public ScenarioCompilation retry(ScenarioCompilation compilation, WorkQueuePort.Delivery delivery, String reason) {
         ScenarioCompilation current = requireDelivery(compilation, delivery);
         ScenarioCompilation waiting = current.retry(delivery.deliveryToken(), reason);
-        repository.save(waiting);
+        saveOwned(waiting, delivery);
         queue.retry(delivery, reason);
         return waiting;
     }
@@ -44,7 +44,7 @@ public final class ScenarioCompilationProcessManager {
     public ScenarioCompilation publish(ScenarioCompilation compilation, WorkQueuePort.Delivery delivery, UUID packageId) {
         ScenarioCompilation current = requireDelivery(compilation, delivery);
         ScenarioCompilation published = current.publish(delivery.deliveryToken(), packageId);
-        repository.save(published);
+        saveOwned(published, delivery);
         queue.acknowledge(delivery);
         return published;
     }
@@ -52,7 +52,7 @@ public final class ScenarioCompilationProcessManager {
     public ScenarioCompilation fail(ScenarioCompilation compilation, WorkQueuePort.Delivery delivery, String reason) {
         ScenarioCompilation current = requireDelivery(compilation, delivery);
         ScenarioCompilation failed = current.fail(delivery.deliveryToken(), reason);
-        repository.save(failed);
+        saveOwned(failed, delivery);
         queue.acknowledge(delivery);
         return failed;
     }
@@ -70,5 +70,11 @@ public final class ScenarioCompilationProcessManager {
             throw new IllegalStateException("work does not belong to compilation");
         }
         return current;
+    }
+
+    private void saveOwned(ScenarioCompilation compilation, WorkQueuePort.Delivery delivery) {
+        if (!repository.saveIfLeaseMatches(compilation, delivery.deliveryToken())) {
+            throw new IllegalStateException("compilation lease was superseded");
+        }
     }
 }
