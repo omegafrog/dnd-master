@@ -44,7 +44,8 @@ public final class ScenarioCompilation {
     }
 
     public ScenarioCompilation claim(UUID deliveryToken) {
-        requireStatus(ScenarioCompilationStatus.REQUESTED, ScenarioCompilationStatus.WAITING_RETRY);
+        requireStatus(ScenarioCompilationStatus.REQUESTED, ScenarioCompilationStatus.WAITING_RETRY,
+                ScenarioCompilationStatus.RUNNING);
         return next(ScenarioCompilationStatus.RUNNING, attempt + 1, deliveryToken, null, null);
     }
 
