@@ -38,6 +38,8 @@ class ScenarioPackageCompilationServiceTest {
         assertEquals(1, first.units().size());
         assertEquals("COMPLETE", first.units().get(0).status().name());
         assertEquals(first.inputFingerprint(), second.inputFingerprint());
+        assertEquals(1, first.documents().size());
+        assertEquals("COMPLETE", first.report().status().name());
     }
 
     @Test
@@ -46,16 +48,18 @@ class ScenarioPackageCompilationServiceTest {
         ScenarioSourceBundle bundle = bundle(documentId, 2);
         ScenarioPackageCompilationService service = new ScenarioPackageCompilationService(new InMemoryPackageRepository());
 
-        var result = service.compile(bundle, List.of(
+        var result = service.compile(bundle, java.util.Arrays.asList(
                 ResolutionCandidate.skillCheck(documentId, 2, "page:2:span:1", "Stealth", null, "The corridor is watched."),
                 ResolutionCandidate.diceRoll(documentId, 99, "page:2:span:2", "1d20", "bad extraction version"),
                 ResolutionCandidate.diceRoll(documentId, 2, "page:2:span:3", "twenty", "Not a dice expression."),
-                ResolutionCandidate.diceRoll(documentId, 2, "page:2:span:4", "1d0", "Impossible dice.")));
+                ResolutionCandidate.diceRoll(documentId, 2, "page:2:span:4", "1d0", "Impossible dice."),
+                null));
 
         assertEquals("PARTIAL", result.units().get(0).status().name());
         assertEquals("INVALID", result.units().get(1).status().name());
         assertEquals("INVALID", result.units().get(2).status().name());
         assertEquals("INVALID", result.units().get(3).status().name());
+        assertEquals("INVALID", result.units().get(4).status().name());
         assertEquals(0, result.runtimeCandidates().stream().filter(unit -> unit.status().name().equals("INVALID")).count());
         assertNotEquals(result.units().get(0).status(), result.units().get(2).status());
     }

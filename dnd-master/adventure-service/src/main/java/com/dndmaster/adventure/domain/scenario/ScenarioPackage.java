@@ -9,14 +9,18 @@ public final class ScenarioPackage {
     private final ScenarioBundleId bundleId;
     private final long bundleRevision;
     private final String inputFingerprint;
+    private final List<ScenarioBundleDocumentSelection> documents;
     private final List<ScenarioResolutionUnit> units;
+    private final ScenarioCompilationReport report;
 
     private ScenarioPackage(
             UUID packageId,
             ScenarioBundleId bundleId,
             long bundleRevision,
             String inputFingerprint,
-            List<ScenarioResolutionUnit> units) {
+            List<ScenarioBundleDocumentSelection> documents,
+            List<ScenarioResolutionUnit> units,
+            ScenarioCompilationReport report) {
         this.packageId = Objects.requireNonNull(packageId, "package id must not be null");
         this.bundleId = Objects.requireNonNull(bundleId, "bundle id must not be null");
         this.inputFingerprint = Objects.requireNonNull(inputFingerprint, "input fingerprint must not be null");
@@ -24,15 +28,19 @@ public final class ScenarioPackage {
             throw new IllegalArgumentException("package version must have a positive revision and fingerprint");
         }
         this.bundleRevision = bundleRevision;
+        this.documents = List.copyOf(Objects.requireNonNull(documents, "documents must not be null"));
         this.units = List.copyOf(Objects.requireNonNull(units, "units must not be null"));
+        this.report = Objects.requireNonNull(report, "report must not be null");
     }
 
     public static ScenarioPackage publish(
             ScenarioBundleId bundleId,
             long bundleRevision,
             String inputFingerprint,
-            List<ScenarioResolutionUnit> units) {
-        return new ScenarioPackage(UUID.randomUUID(), bundleId, bundleRevision, inputFingerprint, units);
+            List<ScenarioBundleDocumentSelection> documents,
+            List<ScenarioResolutionUnit> units,
+            ScenarioCompilationReport report) {
+        return new ScenarioPackage(UUID.randomUUID(), bundleId, bundleRevision, inputFingerprint, documents, units, report);
     }
 
     public List<ScenarioResolutionUnit> runtimeCandidates() {
@@ -43,5 +51,7 @@ public final class ScenarioPackage {
     public ScenarioBundleId bundleId() { return bundleId; }
     public long bundleRevision() { return bundleRevision; }
     public String inputFingerprint() { return inputFingerprint; }
+    public List<ScenarioBundleDocumentSelection> documents() { return documents; }
     public List<ScenarioResolutionUnit> units() { return units; }
+    public ScenarioCompilationReport report() { return report; }
 }
