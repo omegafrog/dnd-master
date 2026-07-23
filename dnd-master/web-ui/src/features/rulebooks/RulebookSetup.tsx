@@ -206,7 +206,7 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
                 {document.extractionVersion != null ? <span> (v{document.extractionVersion})</span> : null}
                 {document.failureReason ? <span> ({document.failureReason})</span> : null}
                 {document.warnings?.length ? <span> [경고: {document.warnings.join(', ')}]</span> : null}
-                {document.format === 'TXT' && (document.status === 'EXTRACTED' || document.status === 'PARTIAL_CONFIRMED') ? (
+                {(document.status === 'EXTRACTED' || document.status === 'PARTIAL_CONFIRMED') ? (
                   <button type="button" onClick={() => void previewDocument(document.knowledgeDocumentId)}>
                     미리보기
                   </button>
@@ -227,7 +227,7 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
               <ol aria-label="원문 줄 미리보기">
                 {sourcePreview.spans.map(span => (
                   <li key={`${span.lineNumber}-${span.startInclusive}-${span.endExclusive}`}>
-                    <span>{span.locator}</span>
+                    <span>{span.kind} · {span.locator}</span>
                     <pre>{span.text || ' '}</pre>
                   </li>
                 ))}

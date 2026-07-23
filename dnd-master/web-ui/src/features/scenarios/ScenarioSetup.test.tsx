@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { fireEvent, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { ScenarioSetup } from './ScenarioSetup'
@@ -7,6 +7,7 @@ import type {
   KnowledgeDocumentView,
   ScenarioBundleView,
   SetupApi,
+  SourcePreviewView,
 } from '../rulebooks/SetupApi'
 
 class FakeSetupApi implements SetupApi {
@@ -43,18 +44,18 @@ class FakeSetupApi implements SetupApi {
   async uploadRulebooks() { return [] }
   async getRulebookStatus() { return { rulebookId: 'rulebook', status: 'INDEXED' as const } }
   async retryKnowledgeDocument() { return { rulebookId: 'rulebook', status: 'INDEXED' as const } }
-  async getSourcePreview() { throw new Error('not used') }
+  async getSourcePreview(_knowledgeDocumentId: string): Promise<SourcePreviewView> { throw new Error('not used') }
   async uploadScenario() { return { id: 'legacy', name: 'legacy.pdf' } }
   async saveRuleSet() {}
   async listKnowledgeDocuments() { return this.documents }
   async createScenarioBundle() {
     return bundle('bundle-1', 1, [
-      { knowledgeDocumentId: 'doc-1', documentType: 'STORYBOOK', originalFilename: 'main.pdf', role: 'MAIN_SCENARIO', extractionVersion: 3 },
-      { knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK', originalFilename: 'handout.pdf', role: 'HANDOUT', extractionVersion: 7 },
+      { knowledgeDocumentId: 'doc-1', documentType: 'STORYBOOK', originalFilename: 'main.pdf', status: 'EXTRACTED', role: 'MAIN_SCENARIO', extractionVersion: 3 },
+      { knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK', originalFilename: 'handout.pdf', status: 'PARTIAL_CONFIRMED', role: 'HANDOUT', extractionVersion: 7 },
     ])
   }
   async reviseScenarioBundle() { return bundle('bundle-1', 2, [
-    { knowledgeDocumentId: 'doc-1', documentType: 'STORYBOOK', originalFilename: 'main.pdf', role: 'REFERENCE', extractionVersion: 3 },
+    { knowledgeDocumentId: 'doc-1', documentType: 'STORYBOOK', originalFilename: 'main.pdf', status: 'EXTRACTED', role: 'REFERENCE', extractionVersion: 3 },
   ]) }
   async getScenarioBundle() { return bundle('bundle-1', 1, []) }
 }

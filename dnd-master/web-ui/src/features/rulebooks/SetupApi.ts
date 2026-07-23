@@ -71,6 +71,7 @@ export type ScenarioBundleDraft = {
 }
 
 export type SourceSpanView = {
+  kind: string
   lineNumber: number
   startInclusive: number
   endExclusive: number
