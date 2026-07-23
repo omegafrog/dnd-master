@@ -43,6 +43,13 @@ class ScenarioPackageCompilationServiceTest {
     }
 
     @Test
+    void emptyCandidateExtractionIsPartial() {
+        ScenarioSourceBundle bundle = bundle(new KnowledgeDocumentId(UUID.randomUUID()), 1);
+        var result = new ScenarioPackageCompilationService(new InMemoryPackageRepository()).compile(bundle, List.of());
+        assertEquals("PARTIAL", result.report().status().name());
+    }
+
+    @Test
     void classifiesMissingDcAsPartialAndBadSourceOrDiceAsInvalid() {
         KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(documentId, 2);
