@@ -6,18 +6,16 @@ import com.dndmaster.ruleknowledge.domain.rulebook.Rulebook;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
 import java.util.Arrays;
-import java.util.HexFormat;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 
 public final class RulebookRegistrationApplicationService {
     private final RulebookFileStorage fileStorage;
     private final RulebookContentExtractor contentExtractor;
-    private final ConcurrentMap<String, UploadResult> completedUploads = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, UploadResult> completedUploadsByOperationKey = new ConcurrentHashMap<>();
+    private final ConcurrentMap<String, UploadResult> completedUploadsByOwnerAndHash = new ConcurrentHashMap<>();
 
     public RulebookRegistrationApplicationService(
             RulebookFileStorage fileStorage, RulebookContentExtractor contentExtractor) {
@@ -37,20 +35,30 @@ public final class RulebookRegistrationApplicationService {
         }
         Objects.requireNonNull(fileContent, "fileContent must not be null");
         byte[] safeContent = Arrays.copyOf(fileContent, fileContent.length);
-        String fingerprint = fingerprint(ownerPlayerId, format, safeContent);
-        return completedUploads.compute(operationKey.trim(), (key, previous) -> {
-            if (previous != null) {
-                if (!previous.fingerprint().equals(fingerprint)) {
-                    throw new RulebookUploadConflictException();
-                }
-                return previous;
+        String fingerprint = RulebookUploadHash.sha256(safeContent);
+        String operationKeyValue = operationKey.trim();
+        UploadResult existingByOperationKey = completedUploadsByOperationKey.get(operationKeyValue);
+        if (existingByOperationKey != null) {
+            if (!existingByOperationKey.ownerPlayerId().equals(ownerPlayerId)
+                    || !existingByOperationKey.fingerprint().equals(fingerprint)) {
+                throw new RulebookUploadConflictException();
             }
-            RulebookId rulebookId = RulebookId.generate();
-            Rulebook rulebook = Rulebook.acceptUpload(
-                    rulebookId, ownerPlayerId, format, new FileSize(safeContent.length));
-            StoredRulebookFile storedFile = fileStorage.store(rulebookId, safeContent);
-            return new UploadResult(fingerprint, new RegisteredRulebook(rulebook, storedFile));
-        }).registration();
+            return existingByOperationKey.registration();
+        }
+        String ownerHashKey = ownerHashKey(ownerPlayerId, fingerprint);
+        UploadResult existingByOwnerAndHash = completedUploadsByOwnerAndHash.get(ownerHashKey);
+        if (existingByOwnerAndHash != null) {
+            completedUploadsByOperationKey.putIfAbsent(operationKeyValue, existingByOwnerAndHash);
+            return existingByOwnerAndHash.registration();
+        }
+        RulebookId rulebookId = RulebookId.generate();
+        Rulebook rulebook = Rulebook.acceptUpload(
+                rulebookId, ownerPlayerId, format, new FileSize(safeContent.length));
+        StoredRulebookFile storedFile = fileStorage.store(rulebookId, safeContent);
+        UploadResult created = new UploadResult(ownerPlayerId, fingerprint, new RegisteredRulebook(rulebook, storedFile));
+        completedUploadsByOwnerAndHash.put(ownerHashKey, created);
+        completedUploadsByOperationKey.put(operationKeyValue, created);
+        return created.registration();
     }
 
     public void extractContent(RegisteredRulebook registration) {
@@ -65,20 +73,11 @@ public final class RulebookRegistrationApplicationService {
         registration.rulebook().confirmPartialExtraction();
     }
 
-    private static String fingerprint(OwnerPlayerId ownerPlayerId, RulebookFormat format, byte[] content) {
+    private static String ownerHashKey(OwnerPlayerId ownerPlayerId, String fingerprint) {
         Objects.requireNonNull(ownerPlayerId, "ownerPlayerId must not be null");
-        Objects.requireNonNull(format, "format must not be null");
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            digest.update(ownerPlayerId.value().toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            digest.update((byte) 0);
-            digest.update(format.name().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            digest.update((byte) 0);
-            return HexFormat.of().formatHex(digest.digest(content));
-        } catch (NoSuchAlgorithmException exception) {
-            throw new IllegalStateException("SHA-256 is required", exception);
-        }
+        Objects.requireNonNull(fingerprint, "fingerprint must not be null");
+        return ownerPlayerId.value() + ":" + fingerprint;
     }
 
-    private record UploadResult(String fingerprint, RegisteredRulebook registration) {}
+    private record UploadResult(OwnerPlayerId ownerPlayerId, String fingerprint, RegisteredRulebook registration) {}
 }

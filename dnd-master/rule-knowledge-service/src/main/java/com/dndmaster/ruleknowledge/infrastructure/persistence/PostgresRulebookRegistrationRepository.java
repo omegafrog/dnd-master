@@ -28,6 +28,13 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                    document_type, original_filename
               FROM rulebook_registration WHERE operation_key = ?
             """;
+    private static final String FIND_BY_OWNER_AND_CONTENT_HASH = """
+            SELECT rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
+                   storage_key, processing_status, extraction_status, extracted_content,
+                   missing_locations, failure_code, version, created_at, updated_at,
+                   document_type, original_filename
+              FROM rulebook_registration WHERE owner_player_id = ? AND content_hash = ?
+            """;
     private static final String FIND_BY_OWNER = """
             SELECT rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
                    storage_key, processing_status, extraction_status, extracted_content,
@@ -106,6 +113,25 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
     @Override
     public Optional<StoredRulebookRegistration> findByOperationKey(String operationKey) {
         return queryOne(FIND_BY_OPERATION_KEY, Objects.requireNonNull(operationKey, "operationKey must not be null"));
+    }
+
+    @Override
+    public Optional<StoredRulebookRegistration> findByOwnerAndContentHash(OwnerPlayerId owner, String contentHash) {
+        Objects.requireNonNull(owner, "owner must not be null");
+        Objects.requireNonNull(contentHash, "contentHash must not be null");
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement ps = connection.prepareStatement(FIND_BY_OWNER_AND_CONTENT_HASH)) {
+            ps.setObject(1, owner.value(), Types.OTHER);
+            ps.setString(2, contentHash);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.of(mapRow(rs));
+                }
+                return Optional.empty();
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("failed to query rulebook registration by owner and content hash", e);
+        }
     }
 
     @Override

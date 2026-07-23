@@ -7,6 +7,7 @@ import com.dndmaster.ruleknowledge.application.registration.RulebookContentExtra
 import com.dndmaster.ruleknowledge.application.registration.RulebookFileStorage;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
+import com.dndmaster.ruleknowledge.application.registration.RulebookUploadHash;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookFile;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
 import com.dndmaster.ruleknowledge.domain.index.IndexKey;
@@ -16,12 +17,9 @@ import com.dndmaster.ruleknowledge.domain.rulebook.FileSize;
 import com.dndmaster.ruleknowledge.domain.rulebook.ProcessingStatus;
 import com.dndmaster.ruleknowledge.domain.rulebook.Rulebook;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.Duration;
 import java.util.Arrays;
-import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
@@ -58,13 +56,22 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
     @Override
     public RulebookProcessingResult process(UploadRulebookCommand command) {
         Objects.requireNonNull(command, "command must not be null");
+        String contentHash = RulebookUploadHash.sha256(command.fileContent());
 
         Optional<StoredRulebookRegistration> existing = registrationRepository.findByOperationKey(command.operationKey());
         if (existing.isPresent()) {
             StoredRulebookRegistration previous = existing.get();
-            if (!previous.contentHash().equals(computeHash(command))) {
+            if (!previous.ownerPlayerId().equals(command.ownerPlayerId())
+                    || !previous.contentHash().equals(contentHash)) {
                 throw new RulebookPipelineException("conflict: same idempotency key with different file");
             }
+            return new RulebookProcessingResult(previous.rulebookId(), previous.processingStatus(), List.of());
+        }
+
+        Optional<StoredRulebookRegistration> duplicate =
+                registrationRepository.findByOwnerAndContentHash(command.ownerPlayerId(), contentHash);
+        if (duplicate.isPresent()) {
+            StoredRulebookRegistration previous = duplicate.get();
             return new RulebookProcessingResult(previous.rulebookId(), previous.processingStatus(), List.of());
         }
 
@@ -74,7 +81,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 rulebookId,
                 command.ownerPlayerId(),
                 command.operationKey(),
-                computeHash(command),
+                contentHash,
                 command.format(),
                 command.fileContent().length,
                 storedFile.key(),
@@ -169,21 +176,6 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 extractionResult != null ? extractionResult.missingLocations() : registration.missingLocations());
         registrationRepository.save(failed);
         return new RulebookProcessingResult(registration.rulebookId(), ProcessingStatus.FAILED, List.of(reason));
-    }
-
-    private static String computeHash(UploadRulebookCommand command) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            digest.update(command.ownerPlayerId().value().toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            digest.update((byte) 0);
-            digest.update(command.documentType().name().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            digest.update((byte) 0);
-            digest.update(command.format().name().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            digest.update((byte) 0);
-            return HexFormat.of().formatHex(digest.digest(command.fileContent()));
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 is required", e);
-        }
     }
 
     private static String describeExtractionFailure(ExtractionResult extractionResult) {
