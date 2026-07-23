@@ -8,6 +8,8 @@ import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
+import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
+import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -28,7 +30,7 @@ public final class ScenarioPackageCompilationService {
 
     public ScenarioPackage compile(ScenarioSourceBundle bundle, List<ResolutionCandidate> candidates) {
         Objects.requireNonNull(bundle, "bundle must not be null");
-        List<ResolutionCandidate> requested = List.copyOf(Objects.requireNonNull(candidates, "candidates must not be null"));
+        List<ResolutionCandidate> requested = new ArrayList<>(Objects.requireNonNull(candidates, "candidates must not be null"));
         String fingerprint = fingerprint(bundle, requested);
         var existing = repository.findByInputFingerprint(fingerprint);
         if (existing.isPresent()) {
@@ -42,8 +44,17 @@ public final class ScenarioPackageCompilationService {
         List<ScenarioResolutionUnit> units = requested.stream()
                 .map(candidate -> validate(candidate, documents))
                 .toList();
+        List<String> warnings = units.stream()
+                .flatMap(unit -> unit.validationMessages().stream())
+                .toList();
+        ResolutionStatus reportStatus = units.stream().anyMatch(unit -> unit.status() == ResolutionStatus.INVALID)
+                ? ResolutionStatus.INVALID
+                : units.stream().anyMatch(unit -> unit.status() == ResolutionStatus.PARTIAL)
+                        ? ResolutionStatus.PARTIAL : ResolutionStatus.COMPLETE;
         ScenarioPackage scenarioPackage = ScenarioPackage.publish(
-                bundle.id(), bundle.currentRevision().revision(), fingerprint, units);
+                bundle.id(), bundle.currentRevision().revision(), fingerprint,
+                bundle.currentRevision().documents(), units,
+                new ScenarioCompilationReport(reportStatus, warnings));
         repository.save(scenarioPackage);
         return scenarioPackage;
     }
@@ -52,6 +63,11 @@ public final class ScenarioPackageCompilationService {
             ResolutionCandidate candidate, Map<String, ScenarioBundleDocumentSelection> documents) {
         List<String> invalid = new ArrayList<>();
         List<String> incomplete = new ArrayList<>();
+        if (candidate == null) {
+            return new ScenarioResolutionUnit(
+                    null, null, null, null, ResolutionVisibility.GM_REFERENCE,
+                    "", List.of(), "", ResolutionStatus.INVALID, List.of("candidate is null"));
+        }
         if (candidate.kind() == null) invalid.add("resolution kind is missing");
         if (candidate.visibility() == null) incomplete.add("visibility is missing");
         if (candidate.provenance() == null || candidate.provenance().isBlank()) incomplete.add("provenance is missing");
