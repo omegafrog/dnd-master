@@ -23,6 +23,8 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 public final class RulebookPipelineApplicationService implements RulebookUploadProcessor {
     private static final Duration PROCESSING_LEASE = Duration.ofMinutes(10);
@@ -34,6 +36,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
     private final RulebookContentExtractor contentExtractor;
     private final RulebookIndexingApplicationService indexingService;
     private final int embeddingDimension;
+    private final ConcurrentMap<String, StoredRulebookRegistration> replayedUploads = new ConcurrentHashMap<>();
 
     public RulebookPipelineApplicationService(
             RulebookRegistrationApplicationService registrationService,
@@ -58,6 +61,15 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         Objects.requireNonNull(command, "command must not be null");
         String contentHash = RulebookUploadHash.sha256(command.fileContent());
 
+        StoredRulebookRegistration replayed = replayedUploads.get(command.operationKey());
+        if (replayed != null) {
+            if (!replayed.ownerPlayerId().equals(command.ownerPlayerId())
+                    || !replayed.contentHash().equals(contentHash)) {
+                throw new RulebookPipelineException("conflict: same idempotency key with different file");
+            }
+            return new RulebookProcessingResult(replayed.rulebookId(), replayed.processingStatus(), List.of());
+        }
+
         Optional<StoredRulebookRegistration> existing = registrationRepository.findByOperationKey(command.operationKey());
         if (existing.isPresent()) {
             StoredRulebookRegistration previous = existing.get();
@@ -65,6 +77,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                     || !previous.contentHash().equals(contentHash)) {
                 throw new RulebookPipelineException("conflict: same idempotency key with different file");
             }
+            replayedUploads.putIfAbsent(command.operationKey(), previous);
             return new RulebookProcessingResult(previous.rulebookId(), previous.processingStatus(), List.of());
         }
 
@@ -72,6 +85,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 registrationRepository.findByOwnerAndContentHash(command.ownerPlayerId(), contentHash);
         if (duplicate.isPresent()) {
             StoredRulebookRegistration previous = duplicate.get();
+            replayedUploads.putIfAbsent(command.operationKey(), previous);
             return new RulebookProcessingResult(previous.rulebookId(), previous.processingStatus(), List.of());
         }
 
@@ -96,6 +110,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 command.documentType(),
                 command.originalFilename());
         registrationRepository.save(queued);
+        replayedUploads.put(command.operationKey(), queued);
         return new RulebookProcessingResult(rulebookId, ProcessingStatus.QUEUED, List.of());
     }
 

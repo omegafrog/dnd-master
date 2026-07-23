@@ -53,6 +53,17 @@ class RulebookPipelineApplicationServiceTest {
     }
 
     @Test
+    void replayedOperationKeyStillConflictsAfterOwnerScopedDedup() {
+        TestHarness harness = new TestHarness();
+
+        harness.service.process(command("upload-1", "alpha", OWNER_A, "alpha.txt"));
+        harness.service.process(command("upload-2", "alpha", OWNER_A, "alpha.md"));
+
+        assertThrows(RulebookPipelineException.class, () ->
+                harness.service.process(command("upload-2", "beta", OWNER_A, "beta.txt")));
+    }
+
+    @Test
     void differentOwnerSameBytesCreatesSeparateDocuments() {
         TestHarness harness = new TestHarness();
 
