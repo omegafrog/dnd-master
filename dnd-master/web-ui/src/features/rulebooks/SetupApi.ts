@@ -40,6 +40,36 @@ export type KnowledgeDocumentView = {
   failureReason?: string | null
 }
 
+export type ScenarioBundleRole =
+  | 'MAIN_SCENARIO'
+  | 'MAP'
+  | 'HANDOUT'
+  | 'APPENDIX'
+  | 'REFERENCE'
+  | 'CHARACTER_SHEET'
+  | 'UNDETERMINED'
+
+export type ScenarioBundleDocumentView = {
+  knowledgeDocumentId: string
+  documentType: DocumentType
+  originalFilename: string
+  status: KnowledgeDocumentStatus
+  role: ScenarioBundleRole
+  extractionVersion: number
+}
+
+export type ScenarioBundleView = {
+  bundleId: string
+  ownerPlayerId: string
+  currentRevision: number
+  documents: ScenarioBundleDocumentView[]
+}
+
+export type ScenarioBundleDraft = {
+  knowledgeDocumentId: string
+  role: ScenarioBundleRole
+}
+
 export type SourceSpanView = {
   lineNumber: number
   startInclusive: number
@@ -73,13 +103,16 @@ export interface SetupApi {
   retryKnowledgeDocument(knowledgeDocumentId: string): Promise<RulebookView>
   getSourcePreview(knowledgeDocumentId: string): Promise<SourcePreviewView>
   uploadScenario(file: File): Promise<{ id: string; name: string }>
+  createScenarioBundle(ownerId: string, documents: ScenarioBundleDraft[]): Promise<ScenarioBundleView>
+  reviseScenarioBundle(bundleId: string, ownerId: string, documents: ScenarioBundleDraft[]): Promise<ScenarioBundleView>
+  getScenarioBundle(bundleId: string): Promise<ScenarioBundleView>
   saveRuleSet(rulebookIds: string[]): Promise<void>
   listKnowledgeDocuments(ownerId: string): Promise<KnowledgeDocumentView[]>
 }
 
-async function request<T>(path: string, init: RequestInit): Promise<T> {
+async function request<T>(path: string, init: RequestInit, badRequestMessage = '지원하지 않거나 손상된 파일입니다.'): Promise<T> {
   const response = await fetch(path, init)
-  if (response.status === 400) throw new Error('지원하지 않거나 손상된 파일입니다.')
+  if (response.status === 400) throw new Error(badRequestMessage)
   if (response.status === 409) throw new Error('재처리할 수 없는 상태입니다.')
   if (!response.ok) throw new Error('요청을 처리하지 못했습니다.')
   if (response.status === 204) return undefined as T
@@ -138,6 +171,28 @@ export class HttpSetupApi implements SetupApi {
       method: 'POST',
       headers: { Authorization: `Bearer ${this.getToken()}` },
       body,
+    })
+  }
+
+  createScenarioBundle(ownerId: string, documents: ScenarioBundleDraft[]) {
+    return request<ScenarioBundleView>('/api/v1/adventures/scenario-bundles', {
+      method: 'POST',
+      headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId: ownerId, documents }),
+    }, '시나리오 번들을 저장하지 못했습니다.')
+  }
+
+  reviseScenarioBundle(bundleId: string, ownerId: string, documents: ScenarioBundleDraft[]) {
+    return request<ScenarioBundleView>(`/api/v1/adventures/scenario-bundles/${bundleId}/revisions`, {
+      method: 'POST',
+      headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId: ownerId, documents }),
+    }, '시나리오 번들을 저장하지 못했습니다.')
+  }
+
+  getScenarioBundle(bundleId: string) {
+    return request<ScenarioBundleView>(`/api/v1/adventures/scenario-bundles/${bundleId}`, {
+      headers: this.authHeaders(),
     })
   }
 

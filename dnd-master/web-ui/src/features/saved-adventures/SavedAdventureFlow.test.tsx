@@ -31,6 +31,9 @@ it('lists, resumes, deletes and configures session knowledge sets', async () => 
     async retryKnowledgeDocument(knowledgeDocumentId: string) { return { rulebookId: knowledgeDocumentId, status: 'INDEXED' as const } },
     async getSourcePreview() { throw new Error() },
     async uploadScenario(file) { return { id: 'scenario', name: file.name } },
+    async createScenarioBundle() { return { bundleId: 'bundle', ownerPlayerId: 'p1', currentRevision: 1, documents: [] } },
+    async reviseScenarioBundle() { return { bundleId: 'bundle', ownerPlayerId: 'p1', currentRevision: 2, documents: [] } },
+    async getScenarioBundle() { return { bundleId: 'bundle', ownerPlayerId: 'p1', currentRevision: 1, documents: [] } },
     async saveRuleSet() {},
     async listKnowledgeDocuments() {
       return [

@@ -6,6 +6,7 @@ import { RulebookSetup } from './RulebookSetup'
 import type {
   BatchRulebookView,
   KnowledgeDocumentView,
+  ScenarioBundleView,
   RulebookUploadDraft,
   SetupApi,
   SourcePreviewView,
@@ -38,6 +39,7 @@ class FakeSetupApi implements SetupApi {
   constructor(includeFailedDocument = true) {
     this.knowledgeDocuments = [
       { knowledgeDocumentId: 'doc-1', documentType: 'RULEBOOK', originalFilename: 'phb.txt', status: 'EXTRACTED' as const, format: 'TXT' as const },
+      { knowledgeDocumentId: 'doc-3', documentType: 'STORYBOOK', originalFilename: 'castle.pdf', status: 'EXTRACTED' as const, format: 'PDF' as const },
       ...(includeFailedDocument
         ? [{ knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK' as const, originalFilename: 'campaign.md', status: 'FAILED' as const, format: 'TXT' as const, failureReason: 'indexer timeout' }]
         : []),
@@ -64,6 +66,9 @@ class FakeSetupApi implements SetupApi {
     return this.preview
   }
   async uploadScenario(file: File) { return { id: 'scenario-1', name: file.name } }
+  async createScenarioBundle() { return bundle('bundle-1', 1, []) }
+  async reviseScenarioBundle() { return bundle('bundle-1', 2, []) }
+  async getScenarioBundle() { return bundle('bundle-1', 1, []) }
   async saveRuleSet() {}
   async listKnowledgeDocuments(ownerId: string) {
     void ownerId
@@ -147,12 +152,16 @@ describe('rulebook and adventure setup', () => {
     expect(screen.getAllByRole('checkbox', { name: 'phb.pdf' })).toHaveLength(1)
   })
 
-  it('registers a scenario', async () => {
+  it('saves a scenario bundle', async () => {
     const api = new FakeSetupApi()
     const user = userEvent.setup()
     render(<RulebookSetup api={api} playerId="p1" />)
-    fireEvent.change(screen.getByLabelText('시나리오 파일'), { target: { files: [new File(['story'], 'castle.pdf')] } })
-    await user.click(screen.getByRole('button', { name: '시나리오 등록' }))
-    expect(await screen.findByText('등록 완료: castle.pdf')).toBeInTheDocument()
+    await screen.findByText('campaign.md')
+    await user.click(screen.getByRole('button', { name: '시나리오 번들 저장' }))
+    expect(await screen.findByText('번들 저장 완료: bundle-1 v1')).toBeInTheDocument()
   })
 })
+
+function bundle(bundleId: string, currentRevision: number, documents: ScenarioBundleView['documents']): ScenarioBundleView {
+  return { bundleId, ownerPlayerId: 'p1', currentRevision, documents }
+}
