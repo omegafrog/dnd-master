@@ -72,7 +72,8 @@ class FakeSetupApi implements SetupApi {
     return {
       packageId: 'package-1', bundleId: 'bundle-1', bundleRevision: 1, inputFingerprint: 'fp', reportStatus: 'COMPLETE' as const,
       warnings: [], units: [{ kind: 'SKILL_ABILITY_CHECK' as const, status: 'COMPLETE' as const, abilityOrSkill: 'Stealth', dc: 15,
-        diceExpression: null, visibility: 'GM_REFERENCE', sourceQuote: 'Sneak past the guard', provenance: 'ai-v1', validationMessages: [] }],
+        diceExpression: null, visibility: 'GM_REFERENCE', sourceQuote: 'Sneak past the guard', provenance: 'ai-v1', validationMessages: [],
+        sourceRefs: [{ documentId: 'doc-1', extractionVersion: 3, locator: 'page:4' }] }],
     }
   }
 }
@@ -107,7 +108,8 @@ describe('ScenarioSetup', () => {
     await user.click(screen.getByRole('button', { name: '시나리오 패키지 컴파일' }))
     expect(await screen.findByText('패키지 package-1 · COMPLETE')).toBeInTheDocument()
     expect(screen.getByText('SKILL_ABILITY_CHECK · Stealth · DC 15')).toBeInTheDocument()
-    expect(screen.getByText('근거: Sneak past the guard · provenance: ai-v1')).toBeInTheDocument()
+    expect(screen.getByText('visibility: GM_REFERENCE · 근거: Sneak past the guard · provenance: ai-v1')).toBeInTheDocument()
+    expect(screen.getByText('source: doc-1 v3 · page:4')).toBeInTheDocument()
   })
 
   it('can revise an existing bundle', async () => {

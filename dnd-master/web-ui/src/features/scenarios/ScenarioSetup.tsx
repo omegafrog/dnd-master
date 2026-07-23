@@ -193,7 +193,12 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
                     {unit.kind ?? 'UNKNOWN'} · {unit.abilityOrSkill ?? unit.diceExpression ?? '값 없음'}
                     {unit.dc === null ? '' : ` · DC ${unit.dc}`}
                     {unit.status !== 'COMPLETE' ? ` · ${unit.status}` : ''}
-                    <div>근거: {unit.sourceQuote || '없음'} · provenance: {unit.provenance || '없음'}</div>
+                    <div>visibility: {unit.visibility || '없음'} · 근거: {unit.sourceQuote || '없음'} · provenance: {unit.provenance || '없음'}</div>
+                    {unit.sourceRefs.length > 0 ? <ul>
+                      {unit.sourceRefs.map(ref => <li key={`${ref.documentId}-${ref.extractionVersion}-${ref.locator}`}>
+                        source: {ref.documentId} v{ref.extractionVersion} · {ref.locator}
+                      </li>)}
+                    </ul> : null}
                     {unit.validationMessages.length > 0 ? <ul>
                       {unit.validationMessages.map(message => <li key={message}>{message}</li>)}
                     </ul> : null}
