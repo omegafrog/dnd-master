@@ -44,6 +44,10 @@ public final class ScenarioCompilation {
     }
 
     public ScenarioCompilation claim(UUID deliveryToken) {
+        Objects.requireNonNull(deliveryToken, "delivery token must not be null");
+        if (status == ScenarioCompilationStatus.RUNNING && Objects.equals(leaseToken, deliveryToken)) {
+            throw new IllegalStateException("compilation lease is still active");
+        }
         requireStatus(ScenarioCompilationStatus.REQUESTED, ScenarioCompilationStatus.WAITING_RETRY,
                 ScenarioCompilationStatus.RUNNING);
         return next(ScenarioCompilationStatus.RUNNING, attempt + 1, deliveryToken, null, null);
