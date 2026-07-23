@@ -182,7 +182,25 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
             </button>
           ) : null}
           {scenarioPackage ? (
-            <p role="status">패키지 {scenarioPackage.packageId} · {scenarioPackage.reportStatus}</p>
+            <div role="status">
+              <p>패키지 {scenarioPackage.packageId} · {scenarioPackage.reportStatus}</p>
+              {scenarioPackage.warnings.length > 0 ? <ul>
+                {scenarioPackage.warnings.map(warning => <li key={warning}>{warning}</li>)}
+              </ul> : null}
+              <ul aria-label="해석 단위">
+                {scenarioPackage.units.map((unit, index) => (
+                  <li key={`${unit.kind ?? 'unknown'}-${index}`}>
+                    {unit.kind ?? 'UNKNOWN'} · {unit.abilityOrSkill ?? unit.diceExpression ?? '값 없음'}
+                    {unit.dc === null ? '' : ` · DC ${unit.dc}`}
+                    {unit.status !== 'COMPLETE' ? ` · ${unit.status}` : ''}
+                    <div>근거: {unit.sourceQuote || '없음'} · provenance: {unit.provenance || '없음'}</div>
+                    {unit.validationMessages.length > 0 ? <ul>
+                      {unit.validationMessages.map(message => <li key={message}>{message}</li>)}
+                    </ul> : null}
+                  </li>
+                ))}
+              </ul>
+            </div>
           ) : null}
         </section>
       ) : null}

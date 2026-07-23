@@ -73,7 +73,17 @@ export type ScenarioPackageView = {
   inputFingerprint: string
   reportStatus: 'COMPLETE' | 'PARTIAL' | 'INVALID'
   warnings: string[]
-  units: Array<{ kind: string | null; status: 'COMPLETE' | 'PARTIAL' | 'INVALID'; validationMessages: string[] }>
+  units: Array<{
+    kind: string | null
+    status: 'COMPLETE' | 'PARTIAL' | 'INVALID'
+    abilityOrSkill: string | null
+    dc: number | null
+    diceExpression: string | null
+    visibility: string | null
+    sourceQuote: string
+    provenance: string
+    validationMessages: string[]
+  }>
 }
 
 export type ScenarioBundleDraft = {

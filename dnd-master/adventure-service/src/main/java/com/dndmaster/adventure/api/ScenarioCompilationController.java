@@ -126,11 +126,15 @@ public class ScenarioCompilationController {
                     scenarioPackage.packageId(), scenarioPackage.bundleId().value(), scenarioPackage.bundleRevision(),
                     scenarioPackage.inputFingerprint(), scenarioPackage.report().status().name(),
                     scenarioPackage.report().warnings(), scenarioPackage.units().stream().map(unit -> new UnitResponse(
-                            unit.kind() == null ? null : unit.kind().name(), unit.status().name(),
-                            unit.validationMessages(), unit.sourceRefs().stream().map(ScenarioCompilationController::sourceRef).toList())).toList());
+                            unit.kind() == null ? null : unit.kind().name(), unit.status().name(), unit.abilityOrSkill(),
+                            unit.dc(), unit.diceExpression(), unit.visibility() == null ? null : unit.visibility().name(),
+                            unit.sourceQuote(), unit.provenance(), unit.validationMessages(),
+                            unit.sourceRefs().stream().map(ScenarioCompilationController::sourceRef).toList())).toList());
         }
     }
-    public record UnitResponse(String kind, String status, List<String> validationMessages, List<SourceReferenceRequest> sourceRefs) {}
+    public record UnitResponse(String kind, String status, String abilityOrSkill, Integer dc, String diceExpression,
+                               String visibility, String sourceQuote, String provenance, List<String> validationMessages,
+                               List<SourceReferenceRequest> sourceRefs) {}
 
     private static SourceReferenceRequest sourceRef(ScenarioSourceReference ref) {
         return new SourceReferenceRequest(ref.knowledgeDocumentId().value(), ref.extractionVersion(), ref.locator());
