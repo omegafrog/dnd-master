@@ -7,6 +7,7 @@ import com.dndmaster.ruleknowledge.domain.rulebook.SourcePreviewResult;
 import com.dndmaster.ruleknowledge.infrastructure.extraction.PdfSourcePreviewExtractor;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.List;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
@@ -25,11 +26,13 @@ class PdfSourcePreviewExtractorTest {
 
         assertTrue(result.warnings().isEmpty());
         assertEquals(2, result.spans().size());
-        assertEquals("PAGE", result.spans().get(0).kind());
-        assertEquals("page 1", result.spans().get(0).locator());
+        assertEquals("PAGE_LINE", result.spans().get(0).kind());
+        assertEquals(List.of("page 1", "line 1"), result.spans().get(0).path());
+        assertEquals("page 1 line 1", result.spans().get(0).locator());
         assertEquals("First page", result.spans().get(0).text());
-        assertEquals("PAGE", result.spans().get(1).kind());
-        assertEquals("page 2", result.spans().get(1).locator());
+        assertEquals("PAGE_LINE", result.spans().get(1).kind());
+        assertEquals(List.of("page 2", "line 1"), result.spans().get(1).path());
+        assertTrue(result.assets().isEmpty());
     }
 
     private static byte[] pdfWithTwoPages() throws IOException {

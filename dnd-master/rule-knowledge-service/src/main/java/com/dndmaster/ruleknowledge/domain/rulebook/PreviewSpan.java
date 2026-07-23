@@ -1,9 +1,13 @@
 package com.dndmaster.ruleknowledge.domain.rulebook;
 
+import java.util.List;
 import java.util.Objects;
 
 public record PreviewSpan(
         String kind,
+        List<String> path,
+        Integer pageNumber,
+        BoundingBox bounds,
         int lineNumber,
         int startInclusive,
         int endExclusive,
@@ -15,6 +19,7 @@ public record PreviewSpan(
             throw new IllegalArgumentException("kind must not be blank");
         }
         kind = kind.trim();
+        path = path == null ? List.of() : List.copyOf(path);
         if (lineNumber <= 0) {
             throw new IllegalArgumentException("lineNumber must be positive");
         }
@@ -25,6 +30,9 @@ public record PreviewSpan(
             throw new IllegalArgumentException("endExclusive must not be before startInclusive");
         }
         Objects.requireNonNull(text, "text must not be null");
+        if (pageNumber != null && pageNumber <= 0) {
+            throw new IllegalArgumentException("pageNumber must be positive when present");
+        }
         if (locator == null || locator.isBlank()) {
             locator = kind.toLowerCase() + " " + lineNumber + " chars " + startInclusive + "-" + endExclusive;
         } else {

@@ -16,12 +16,15 @@ public final class TxtSourcePreviewExtractor implements CompositeSourcePreviewEx
         List<PreviewSpan> spans = tracer.trace(text).stream()
                 .map(span -> new PreviewSpan(
                         "LINE",
+                        List.of("line " + span.lineNumber()),
+                        null,
+                        null,
                         span.lineNumber(),
                         span.startInclusive(),
                         span.endExclusive(),
                         span.text(),
                         span.locator()))
                 .toList();
-        return new SourcePreviewResult(text, List.of(), spans);
+        return new SourcePreviewResult(text, List.of(), spans, List.of());
     }
 }
