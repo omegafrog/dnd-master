@@ -58,7 +58,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
     }
 
     @Override
-    public RulebookProcessingResult process(UploadRulebookCommand command) {
+    public synchronized RulebookProcessingResult process(UploadRulebookCommand command) {
         Objects.requireNonNull(command, "command must not be null");
         String contentHash = RulebookUploadHash.sha256(command.fileContent());
 
@@ -66,6 +66,11 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         if (replayed != null) {
             if (!replayed.ownerPlayerId().equals(command.ownerPlayerId())
                     || !replayed.contentHash().equals(contentHash)) {
+                throw new RulebookPipelineException("conflict: same idempotency key with different file");
+            }
+            if (!replayed.format().equals(command.format())
+                    || !replayed.documentType().equals(command.documentType())
+                    || !replayed.originalFilename().equals(command.originalFilename())) {
                 throw new RulebookPipelineException("conflict: same idempotency key with different file");
             }
             rememberRegistration(replayed);
@@ -77,6 +82,11 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             StoredRulebookRegistration previous = existing.get();
             if (!previous.ownerPlayerId().equals(command.ownerPlayerId())
                     || !previous.contentHash().equals(contentHash)) {
+                throw new RulebookPipelineException("conflict: same idempotency key with different file");
+            }
+            if (!previous.format().equals(command.format())
+                    || !previous.documentType().equals(command.documentType())
+                    || !previous.originalFilename().equals(command.originalFilename())) {
                 throw new RulebookPipelineException("conflict: same idempotency key with different file");
             }
             rememberRegistration(previous);

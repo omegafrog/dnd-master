@@ -23,12 +23,12 @@ public final class RulebookRegistrationApplicationService {
         this.contentExtractor = Objects.requireNonNull(contentExtractor, "contentExtractor must not be null");
     }
 
-    public RegisteredRulebook uploadRulebook(
+    public synchronized RegisteredRulebook uploadRulebook(
             OwnerPlayerId ownerPlayerId, RulebookFormat format, byte[] fileContent) {
         return uploadRulebook(UUID.randomUUID().toString(), ownerPlayerId, format, fileContent);
     }
 
-    public RegisteredRulebook uploadRulebook(
+    public synchronized RegisteredRulebook uploadRulebook(
             String operationKey, OwnerPlayerId ownerPlayerId, RulebookFormat format, byte[] fileContent) {
         if (operationKey == null || operationKey.isBlank()) {
             throw new IllegalArgumentException("operation key must not be blank");

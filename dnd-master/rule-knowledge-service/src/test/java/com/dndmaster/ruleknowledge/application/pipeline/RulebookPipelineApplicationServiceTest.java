@@ -97,6 +97,22 @@ class RulebookPipelineApplicationServiceTest {
     }
 
     @Test
+    void sameOperationKeyDifferentFormatStillConflicts() {
+        TestHarness harness = new TestHarness();
+
+        harness.service.process(command("upload-1", "alpha", OWNER_A, "alpha.txt"));
+
+        assertThrows(RulebookPipelineException.class, () ->
+                harness.service.process(new UploadRulebookCommand(
+                        "upload-1",
+                        OWNER_A,
+                        DocumentType.RULEBOOK,
+                        RulebookFormat.PDF,
+                        "alpha".getBytes(StandardCharsets.UTF_8),
+                        "alpha.pdf")));
+    }
+
+    @Test
     void uploadQueuesFirstAndWorkerProcessesLater() {
         TestHarness harness = new TestHarness();
 
