@@ -147,3 +147,43 @@ paths:
           content:
             application/json:
               schema: { $ref: './schemas/evidence-search-response.json' }
+  /internal/v1/story-sources/search:
+    post:
+      operationId: searchStorySources
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './schemas/story-source-search-request.json' }
+      responses:
+        '200':
+          description: owner and package scoped story evidence; empty evidence is explicit
+          content:
+            application/json:
+              schema: { $ref: './schemas/story-source-search-response.json' }
+  /internal/v1/story-sources/{documentId}/context:
+    get:
+      operationId: readStorySourceContext
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema: { type: string, format: uuid }
+        - name: ownerId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: extractionVersion
+          in: query
+          required: true
+          schema: { type: integer, minimum: 0 }
+        - name: locator
+          in: query
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: requested source span and adjacent spans, or empty spans when locator is absent
+          content:
+            application/json:
+              schema: { $ref: './schemas/story-source-context-response.json' }

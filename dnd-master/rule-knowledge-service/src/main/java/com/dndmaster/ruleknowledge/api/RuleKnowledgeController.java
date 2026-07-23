@@ -10,6 +10,10 @@ import com.dndmaster.ruleknowledge.application.search.RuleEvidenceResult;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.search.QueryIntent;
 import com.dndmaster.ruleknowledge.application.search.SearchRuleEvidenceQuery;
+import com.dndmaster.ruleknowledge.application.search.StorySourceEvidence;
+import com.dndmaster.ruleknowledge.application.search.StorySourceScope;
+import com.dndmaster.ruleknowledge.application.search.StorySourceSearchApplicationService;
+import com.dndmaster.ruleknowledge.application.search.StorySourceSearchQuery;
 import com.dndmaster.ruleknowledge.domain.rulebook.*;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,6 +37,7 @@ public class RuleKnowledgeController {
     private final RulebookPipelineApplicationService pipelineService;
     private final RulebookRegistrationRepository registrationRepository;
     private final RuleEvidenceSearchApplicationService evidenceSearchService;
+    private final StorySourceSearchApplicationService storySourceSearchService;
     private final ObjectMapper objectMapper;
 
     public RuleKnowledgeController(
@@ -40,10 +45,20 @@ public class RuleKnowledgeController {
             RulebookRegistrationRepository registrationRepository,
             RuleEvidenceSearchApplicationService evidenceSearchService,
             ObjectMapper objectMapper) {
+        this(pipelineService, registrationRepository, evidenceSearchService, null, objectMapper);
+    }
+
+    public RuleKnowledgeController(
+            RulebookPipelineApplicationService pipelineService,
+            RulebookRegistrationRepository registrationRepository,
+            RuleEvidenceSearchApplicationService evidenceSearchService,
+            StorySourceSearchApplicationService storySourceSearchService,
+            ObjectMapper objectMapper) {
         this.pipelineService = pipelineService;
         this.batchUploadService = new BatchRulebookUploadApplicationService(pipelineService);
         this.registrationRepository = registrationRepository;
         this.evidenceSearchService = evidenceSearchService;
+        this.storySourceSearchService = storySourceSearchService;
         this.objectMapper = objectMapper;
     }
 
@@ -208,6 +223,63 @@ public class RuleKnowledgeController {
         return new EvidenceSearchResponse(request.ownerId(), evidence);
     }
 
+    @PostMapping("/internal/v1/story-sources/search")
+    StorySourceSearchResponse searchStorySources(@RequestBody StorySourceSearchRequest request) {
+        if (storySourceSearchService == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "story source search is not configured");
+        }
+        List<StorySourceScope> scope = request.documents().stream()
+                .map(document -> new StorySourceScope(
+                        new KnowledgeDocumentId(document.documentId()), document.extractionVersion()))
+                .toList();
+        List<StorySourceEvidence> evidence = storySourceSearchService.search(new StorySourceSearchQuery(
+                new OwnerPlayerId(request.ownerId()),
+                scope,
+                request.activeLocators(),
+                request.situation(),
+                request.limit() != null ? request.limit() : 5));
+        return new StorySourceSearchResponse(
+                request.ownerId(),
+                evidence.stream()
+                        .map(result -> new StorySourceEvidenceItem(
+                                result.documentId().value(), result.extractionVersion(), result.sourceSpanLocator(),
+                                result.excerpt(), result.score()))
+                        .toList());
+    }
+
+    @GetMapping("/internal/v1/story-sources/{documentId}/context")
+    StorySourceContextResponse readStorySourceContext(
+            @PathVariable UUID documentId,
+            @RequestParam UUID ownerId,
+            @RequestParam long extractionVersion,
+            @RequestParam String locator) {
+        StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(documentId))
+                .filter(candidate -> candidate.ownerPlayerId().value().equals(ownerId))
+                .filter(candidate -> candidate.documentType() == DocumentType.STORYBOOK)
+                .filter(candidate -> candidate.version() == extractionVersion)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "story source context not found"));
+        List<PreviewSpan> spans = registration.previewSpans();
+        int selected = -1;
+        for (int index = 0; index < spans.size(); index++) {
+            if (spans.get(index).locator().equals(locator)) {
+                selected = index;
+                break;
+            }
+        }
+        if (selected < 0) {
+            return new StorySourceContextResponse(documentId, extractionVersion, locator, List.of());
+        }
+        int from = Math.max(0, selected - 2);
+        int to = Math.min(spans.size(), selected + 3);
+        return new StorySourceContextResponse(
+                documentId,
+                extractionVersion,
+                locator,
+                spans.subList(from, to).stream()
+                        .map(span -> new StorySourceSpanItem(span.locator(), span.text(), span.pageNumber(), span.sourceMethod()))
+                        .toList());
+    }
+
     private List<UploadDocumentRequest> parseDocuments(byte[] documentsJson) throws IOException {
         try {
             return objectMapper.readValue(
@@ -256,6 +328,19 @@ public class RuleKnowledgeController {
     public record EvidenceSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, QueryIntent queryIntent, Integer limit) {}
     public record EvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score, String chapter, String section) {}
     public record EvidenceSearchResponse(UUID ownerId, List<EvidenceItem> evidence) {}
+    public record StorySourceSearchRequest(
+            UUID ownerId,
+            List<StorySourceScopeRequest> documents,
+            List<String> activeLocators,
+            String situation,
+            Integer limit) {}
+    public record StorySourceScopeRequest(UUID documentId, long extractionVersion) {}
+    public record StorySourceSearchResponse(UUID ownerId, List<StorySourceEvidenceItem> evidence) {}
+    public record StorySourceEvidenceItem(
+            UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt, double score) {}
+    public record StorySourceContextResponse(
+            UUID knowledgeDocumentId, long extractionVersion, String requestedLocator, List<StorySourceSpanItem> spans) {}
+    public record StorySourceSpanItem(String locator, String excerpt, Integer pageNumber, String sourceMethod) {}
     public record PreviewSpanView(
             String kind,
             List<String> path,
