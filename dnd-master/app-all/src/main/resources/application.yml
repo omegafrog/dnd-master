@@ -64,7 +64,7 @@ spring:
     ollama:
       chat:
         options:
-          model: qwen3:8b-q4_K_M
+          model: qwen3:8b
 local-ai:
   ollama:
-    chat-model: qwen3:8b-q4_K_M
+    chat-model: qwen3:8b
