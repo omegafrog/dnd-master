@@ -62,11 +62,11 @@ public final class PostgresScenarioCompilationRepository implements ScenarioComp
     public boolean saveIfLeaseMatches(ScenarioCompilation compilation, UUID expectedLeaseToken) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(
-                        "UPDATE scenario_compilation SET status = ?, attempt = ?, lease_token = ?, package_id = ?, failure_reason = ? WHERE compilation_id = ? AND lease_token = ?")) {
+                        "UPDATE scenario_compilation SET status = ?, attempt = ?, lease_token = ?, package_id = ?, failure_reason = ? WHERE compilation_id = ? AND ((? IS NULL AND lease_token IS NULL) OR lease_token = ?)")) {
             statement.setString(1, compilation.status().name()); statement.setInt(2, compilation.attempt());
             statement.setObject(3, compilation.leaseToken()); statement.setObject(4, compilation.packageId());
             statement.setString(5, compilation.failureReason()); statement.setObject(6, compilation.id());
-            statement.setObject(7, expectedLeaseToken);
+            statement.setObject(7, expectedLeaseToken); statement.setObject(8, expectedLeaseToken);
             return statement.executeUpdate() == 1;
         } catch (SQLException exception) {
             throw new ScenarioPackagePersistenceException("could not conditionally save compilation", exception);

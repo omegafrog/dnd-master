@@ -29,7 +29,9 @@ public final class ScenarioCompilationProcessManager {
     public ScenarioCompilation claim(WorkQueuePort.Delivery delivery) {
         ScenarioCompilation compilation = load(delivery);
         ScenarioCompilation claimed = compilation.claim(delivery.deliveryToken());
-        repository.save(claimed);
+        if (!repository.saveIfLeaseMatches(claimed, compilation.leaseToken())) {
+            throw new IllegalStateException("compilation lease was superseded");
+        }
         return claimed;
     }
 

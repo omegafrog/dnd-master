@@ -48,6 +48,12 @@ class ScenarioCompilationProcessManagerTest {
 
         @Override public Optional<ScenarioCompilation> findById(UUID id) { return Optional.ofNullable(store.get(id)); }
         @Override public void save(ScenarioCompilation compilation) { store.put(compilation.id(), compilation); }
+        @Override public synchronized boolean saveIfLeaseMatches(ScenarioCompilation next, UUID expectedLeaseToken) {
+            ScenarioCompilation current = store.get(next.id());
+            if (current == null || !java.util.Objects.equals(current.leaseToken(), expectedLeaseToken)) return false;
+            store.put(next.id(), next);
+            return true;
+        }
     }
 
     private static final class InMemoryWorkQueue implements WorkQueuePort {
