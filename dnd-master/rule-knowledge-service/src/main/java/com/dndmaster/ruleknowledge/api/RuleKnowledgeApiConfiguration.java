@@ -41,6 +41,14 @@ public class RuleKnowledgeApiConfiguration {
     }
 
     @Bean
+    SourcePreviewExtractor sourcePreviewExtractor() {
+        return new CompositeSourcePreviewExtractor(Map.of(
+                RulebookFormat.PDF, new PdfSourcePreviewExtractor(),
+                RulebookFormat.DOCX, new DocxSourcePreviewExtractor(),
+                RulebookFormat.TXT, new TxtSourcePreviewExtractor()));
+    }
+
+    @Bean
     RulebookRegistrationRepository registrationRepository(DataSource dataSource) {
         return new PostgresRulebookRegistrationRepository(dataSource);
     }
@@ -94,8 +102,11 @@ public class RuleKnowledgeApiConfiguration {
     RuleKnowledgeController ruleKnowledgeController(
             RulebookPipelineApplicationService pipelineService,
             RulebookRegistrationRepository registrationRepository,
+            RulebookFileStorage fileStorage,
+            SourcePreviewExtractor sourcePreviewExtractor,
             RuleEvidenceSearchApplicationService evidenceSearchService,
             ObjectMapper objectMapper) {
-        return new RuleKnowledgeController(pipelineService, registrationRepository, evidenceSearchService, objectMapper);
+        return new RuleKnowledgeController(
+                pipelineService, registrationRepository, fileStorage, sourcePreviewExtractor, evidenceSearchService, objectMapper);
     }
 }
