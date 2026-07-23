@@ -35,7 +35,7 @@ class ScenarioCompilationWorkerTest {
         manager.start(bundleId, 1, "fp");
         ScenarioCompilationWorker worker = new ScenarioCompilationWorker(
                 manager, compilations, queue, new InMemoryBundleRepository(bundle),
-                request -> List.of(), new ScenarioPackageCompilationService(packages), packages);
+                request -> List.of(), ignored -> List.of(), new ScenarioPackageCompilationService(packages), packages);
 
         var published = worker.processNext("worker-1", Duration.ofMinutes(1)).orElseThrow();
 
@@ -63,7 +63,7 @@ class ScenarioCompilationWorkerTest {
         queue.pending.add(new WorkEnvelope(UUID.randomUUID(), "retry", requested.id(), 1, "fp-failure", 2));
         ScenarioCompilationWorker worker = new ScenarioCompilationWorker(
                 manager, compilations, queue, new InMemoryBundleRepository(bundle),
-                request -> { throw new IllegalStateException("AI unavailable"); },
+                request -> { throw new IllegalStateException("AI unavailable"); }, ignored -> List.of(),
                 new ScenarioPackageCompilationService(packages), packages);
 
         assertThrows(IllegalStateException.class, () -> worker.processNext("worker-1", Duration.ofMinutes(1)));
