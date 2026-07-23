@@ -28,12 +28,18 @@ public final class ScenarioPackageCompilationService {
     }
 
     public ScenarioPackage compile(ScenarioSourceBundle bundle, List<ResolutionCandidate> candidates) {
-        return compile(bundle, candidates, List.of());
+        return compileInternal(bundle, candidates, List.of(), false);
     }
 
     public ScenarioPackage compile(
             ScenarioSourceBundle bundle, List<ResolutionCandidate> candidates,
             List<ResolutionExtractionPort.SourceExcerpt> excerpts) {
+        return compileInternal(bundle, candidates, excerpts, true);
+    }
+
+    private ScenarioPackage compileInternal(
+            ScenarioSourceBundle bundle, List<ResolutionCandidate> candidates,
+            List<ResolutionExtractionPort.SourceExcerpt> excerpts, boolean verifyEvidence) {
         Objects.requireNonNull(bundle, "bundle must not be null");
         List<ResolutionCandidate> requested = new ArrayList<>(Objects.requireNonNull(candidates, "candidates must not be null"));
         List<ResolutionExtractionPort.SourceExcerpt> availableExcerpts =
@@ -49,7 +55,7 @@ public final class ScenarioPackageCompilationService {
             documents.put(key(document.knowledgeDocumentId(), document.extractionVersion()), document);
         }
         List<ScenarioResolutionUnit> units = requested.stream()
-                .map(candidate -> validate(candidate, documents, availableExcerpts))
+                .map(candidate -> validate(candidate, documents, availableExcerpts, verifyEvidence))
                 .toList();
         List<String> warnings = units.stream()
                 .flatMap(unit -> unit.validationMessages().stream())
@@ -69,7 +75,7 @@ public final class ScenarioPackageCompilationService {
 
     private static ScenarioResolutionUnit validate(
             ResolutionCandidate candidate, Map<String, ScenarioBundleDocumentSelection> documents,
-            List<ResolutionExtractionPort.SourceExcerpt> excerpts) {
+            List<ResolutionExtractionPort.SourceExcerpt> excerpts, boolean verifyEvidence) {
         List<String> invalid = new ArrayList<>();
         List<String> incomplete = new ArrayList<>();
         if (candidate == null) {
@@ -90,7 +96,7 @@ public final class ScenarioPackageCompilationService {
                         : documents.get(key(ref.knowledgeDocumentId(), ref.extractionVersion()));
                 if (sourceDocument == null || ref.locator().isBlank()) {
                     invalid.add("source reference is outside bundle revision");
-                } else if (!excerpts.isEmpty() && excerpts.stream().noneMatch(excerpt ->
+                } else if (verifyEvidence && excerpts.stream().noneMatch(excerpt ->
                         ref.knowledgeDocumentId().equals(excerpt.documentId())
                                 && ref.extractionVersion() == excerpt.extractionVersion()
                                 && ref.locator().equals(excerpt.locator()))) {
@@ -102,15 +108,16 @@ public final class ScenarioPackageCompilationService {
                 }
             }
         }
-        if (!excerpts.isEmpty() && candidate.sourceQuote() != null && !candidate.sourceQuote().isBlank()
-                && candidate.sourceRefs() != null && candidate.sourceRefs().stream().noneMatch(ref ->
-                        excerpts.stream().anyMatch(excerpt -> ref != null
-                                && ref.knowledgeDocumentId().equals(excerpt.documentId())
-                                && ref.extractionVersion() == excerpt.extractionVersion()
-                                && ref.locator().equals(excerpt.locator())
-                                && excerpt.text() != null
-                                && excerpt.text().toLowerCase().contains(candidate.sourceQuote().toLowerCase())))) {
-            invalid.add("source quote is not present in referenced excerpt");
+        if (verifyEvidence) {
+            boolean quoteVerified = candidate.sourceQuote() != null && !candidate.sourceQuote().isBlank()
+                    && candidate.sourceRefs() != null && !candidate.sourceRefs().isEmpty()
+                    && excerpts.stream().anyMatch(excerpt -> candidate.sourceRefs().stream().anyMatch(ref ->
+                            ref != null && ref.knowledgeDocumentId().equals(excerpt.documentId())
+                                    && ref.extractionVersion() == excerpt.extractionVersion()
+                                    && ref.locator().equals(excerpt.locator())
+                                    && excerpt.text() != null
+                                    && excerpt.text().toLowerCase().contains(candidate.sourceQuote().toLowerCase())));
+            if (!quoteVerified) invalid.add("source quote cannot be verified against referenced excerpt");
         }
         if (candidate.kind() == ResolutionKind.DICE_ROLL) {
             if (!validDice(candidate.diceExpression())) {

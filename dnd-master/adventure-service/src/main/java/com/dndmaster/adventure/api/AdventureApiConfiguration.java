@@ -114,9 +114,10 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService compiler,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationProcessManager processManager,
-            com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationRepository compilationRepository) {
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationRepository compilationRepository,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort excerptPort) {
         return new com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationApplicationService(
-                bundleRepository, compiler, packageRepository, processManager, compilationRepository);
+                bundleRepository, compiler, packageRepository, processManager, compilationRepository, excerptPort);
     }
 
     @Bean
