@@ -22,7 +22,11 @@ public record StoredRulebookRegistration(
         Instant createdAt,
         Instant updatedAt,
         DocumentType documentType,
-        String originalFilename) {
+        String originalFilename,
+        String previewContent,
+        List<String> previewWarnings,
+        List<PreviewSpan> previewSpans,
+        List<PreviewAsset> previewAssets) {
 
     public StoredRulebookRegistration(
             RulebookId rulebookId,
@@ -45,6 +49,48 @@ public record StoredRulebookRegistration(
                 version, createdAt, updatedAt, DocumentType.RULEBOOK, "legacy-rulebook");
     }
 
+    public StoredRulebookRegistration(
+            RulebookId rulebookId,
+            OwnerPlayerId ownerPlayerId,
+            String operationKey,
+            String contentHash,
+            RulebookFormat format,
+            long fileSize,
+            String storageKey,
+            ProcessingStatus processingStatus,
+            ExtractionStatus extractionStatus,
+            String extractedContent,
+            List<String> missingLocations,
+            String failureCode,
+            long version,
+            Instant createdAt,
+            Instant updatedAt,
+            DocumentType documentType,
+            String originalFilename) {
+        this(
+                rulebookId,
+                ownerPlayerId,
+                operationKey,
+                contentHash,
+                format,
+                fileSize,
+                storageKey,
+                processingStatus,
+                extractionStatus,
+                extractedContent,
+                missingLocations,
+                failureCode,
+                version,
+                createdAt,
+                updatedAt,
+                documentType,
+                originalFilename,
+                extractedContent != null ? extractedContent : "",
+                List.of(),
+                List.of(),
+                List.of());
+    }
+
     public StoredRulebookRegistration {
         Objects.requireNonNull(rulebookId, "rulebookId must not be null");
         Objects.requireNonNull(ownerPlayerId, "ownerPlayerId must not be null");
@@ -63,9 +109,17 @@ public record StoredRulebookRegistration(
         }
         originalFilename = originalFilename.trim();
         missingLocations = missingLocations == null ? List.of() : List.copyOf(missingLocations);
+        previewContent = previewContent == null ? "" : previewContent;
+        previewWarnings = previewWarnings == null ? List.of() : List.copyOf(previewWarnings);
+        previewSpans = previewSpans == null ? List.of() : List.copyOf(previewSpans);
+        previewAssets = previewAssets == null ? List.of() : List.copyOf(previewAssets);
     }
 
     public KnowledgeDocumentId knowledgeDocumentId() {
         return KnowledgeDocumentId.fromRulebookId(rulebookId);
+    }
+
+    public SourcePreviewResult sourcePreviewResult() {
+        return new SourcePreviewResult(previewContent, previewWarnings, previewSpans, previewAssets);
     }
 }

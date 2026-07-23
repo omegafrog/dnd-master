@@ -13,6 +13,7 @@ import com.dndmaster.ruleknowledge.application.indexing.StructureDetectionPort;
 import com.dndmaster.ruleknowledge.application.registration.RulebookContentExtractor;
 import com.dndmaster.ruleknowledge.application.registration.RulebookFileStorage;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationApplicationService;
+import com.dndmaster.ruleknowledge.application.registration.SourcePreviewExtractor;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookFile;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
 import com.dndmaster.ruleknowledge.domain.index.ChunkId;
@@ -22,10 +23,13 @@ import com.dndmaster.ruleknowledge.domain.index.IndexStatus;
 import com.dndmaster.ruleknowledge.domain.index.RulebookIndex;
 import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
 import com.dndmaster.ruleknowledge.domain.rulebook.ExtractionResult;
+import com.dndmaster.ruleknowledge.domain.rulebook.PreviewAsset;
+import com.dndmaster.ruleknowledge.domain.rulebook.PreviewSpan;
 import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
 import com.dndmaster.ruleknowledge.domain.rulebook.ProcessingStatus;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
+import com.dndmaster.ruleknowledge.domain.rulebook.SourcePreviewResult;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -60,6 +64,22 @@ class RulebookPipelineApplicationServiceTest {
         assertEquals(ProcessingStatus.INDEXED, harness.repository.findByOperationKey("upload-1").orElseThrow().processingStatus());
         assertEquals(1, harness.extractor.calls);
         assertEquals(1, harness.embeddingPort.calls);
+        assertEquals(1, harness.previewExtractor.calls);
+    }
+
+    @Test
+    void processPendingPersistsPreviewSnapshot() {
+        TestHarness harness = new TestHarness();
+        harness.service.process(command("upload-1", "alpha"));
+
+        harness.service.processPending();
+
+        StoredRulebookRegistration stored = harness.repository.findByOperationKey("upload-1").orElseThrow();
+        assertEquals("preview-alpha", stored.previewContent());
+        assertEquals(List.of("preview warning"), stored.previewWarnings());
+        assertEquals(1, stored.previewSpans().size());
+        assertEquals("PREVIEW_LINE", stored.previewSpans().get(0).kind());
+        assertEquals(1, stored.previewAssets().size());
     }
 
     @Test
@@ -212,6 +232,7 @@ class RulebookPipelineApplicationServiceTest {
         private final InMemoryRulebookRegistrationRepository repository = new InMemoryRulebookRegistrationRepository();
         private final InMemoryRulebookIndexRepository indexingRepository = new InMemoryRulebookIndexRepository();
         private final RecordingExtractor extractor = new RecordingExtractor();
+        private final RecordingPreviewExtractor previewExtractor = new RecordingPreviewExtractor();
         private final RecordingEmbeddingPort embeddingPort = new RecordingEmbeddingPort("beta");
         private final RulebookPipelineApplicationService service;
 
@@ -228,6 +249,7 @@ class RulebookPipelineApplicationServiceTest {
                     repository,
                     storage,
                     extractor,
+                    previewExtractor,
                     indexingService,
                     3);
         }
@@ -374,7 +396,11 @@ class RulebookPipelineApplicationServiceTest {
                             registration.createdAt(),
                             Instant.now(),
                             registration.documentType(),
-                            registration.originalFilename()))
+                            registration.originalFilename(),
+                            registration.previewContent(),
+                            registration.previewWarnings(),
+                            registration.previewSpans(),
+                            registration.previewAssets()))
                     .toList();
             eligible.forEach(this::save);
             return eligible;
@@ -384,6 +410,21 @@ class RulebookPipelineApplicationServiceTest {
         public void save(StoredRulebookRegistration registration) {
             byOperationKey.put(registration.operationKey(), registration);
             byId.put(registration.rulebookId(), registration);
+        }
+    }
+
+    private static final class RecordingPreviewExtractor implements SourcePreviewExtractor {
+        private int calls;
+
+        @Override
+        public SourcePreviewResult preview(RulebookFormat format, byte[] content) {
+            calls++;
+            String text = "preview-" + new String(content, StandardCharsets.UTF_8);
+            return new SourcePreviewResult(
+                    text,
+                    List.of("preview warning"),
+                    List.of(new PreviewSpan("PREVIEW_LINE", List.of("preview"), 1, null, 1, 0, text.length(), text, "preview 1")),
+                    List.of(new PreviewAsset("IMAGE", "preview image 1", "image/png", 1)));
         }
     }
 }

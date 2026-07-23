@@ -5,9 +5,6 @@ import com.dndmaster.ruleknowledge.application.pipeline.BatchRulebookUploadAppli
 import com.dndmaster.ruleknowledge.application.pipeline.BatchRulebookUploadApplicationService.BatchUploadResult;
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
-import com.dndmaster.ruleknowledge.application.registration.RulebookFileStorage;
-import com.dndmaster.ruleknowledge.application.registration.StoredRulebookFile;
-import com.dndmaster.ruleknowledge.application.registration.SourcePreviewExtractor;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceResult;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicationService;
@@ -35,23 +32,17 @@ public class RuleKnowledgeController {
     private final BatchRulebookUploadApplicationService batchUploadService;
     private final RulebookPipelineApplicationService pipelineService;
     private final RulebookRegistrationRepository registrationRepository;
-    private final RulebookFileStorage fileStorage;
-    private final SourcePreviewExtractor sourcePreviewExtractor;
     private final RuleEvidenceSearchApplicationService evidenceSearchService;
     private final ObjectMapper objectMapper;
 
     public RuleKnowledgeController(
             RulebookPipelineApplicationService pipelineService,
             RulebookRegistrationRepository registrationRepository,
-            RulebookFileStorage fileStorage,
-            SourcePreviewExtractor sourcePreviewExtractor,
             RuleEvidenceSearchApplicationService evidenceSearchService,
             ObjectMapper objectMapper) {
         this.pipelineService = pipelineService;
         this.batchUploadService = new BatchRulebookUploadApplicationService(pipelineService);
         this.registrationRepository = registrationRepository;
-        this.fileStorage = fileStorage;
-        this.sourcePreviewExtractor = sourcePreviewExtractor;
         this.evidenceSearchService = evidenceSearchService;
         this.objectMapper = objectMapper;
     }
@@ -101,12 +92,11 @@ public class RuleKnowledgeController {
     ResponseEntity<SourcePreviewResponse> sourcePreview(@PathVariable UUID rulebookId) {
         StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(rulebookId))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "knowledge document not found"));
-        String content = registration.extractedContent();
-        if (content == null) {
+        SourcePreviewResult preview = registration.sourcePreviewResult();
+        String content = preview.content();
+        if (content == null || content.isBlank()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "source preview requires extracted content");
         }
-        byte[] fileContent = fileStorage.read(new StoredRulebookFile(registration.storageKey()));
-        SourcePreviewResult preview = sourcePreviewExtractor.preview(registration.format(), fileContent);
         return ResponseEntity.ok(new SourcePreviewResponse(
                 registration.rulebookId().value(),
                 registration.knowledgeDocumentId().value(),
@@ -114,9 +104,9 @@ public class RuleKnowledgeController {
                 registration.originalFilename(),
                 registration.format(),
                 registration.processingStatus().name(),
-                preview.content().isBlank() ? content : preview.content(),
+                content,
                 registration.version(),
-                combineWarnings(registration, preview.warnings()),
+                warningsFor(registration),
                 preview.spans().stream()
                         .map(span -> new PreviewSpanView(
                                 span.kind(),
@@ -281,12 +271,7 @@ public class RuleKnowledgeController {
             warnings.add(registration.failureCode());
         }
         warnings.addAll(registration.missingLocations());
-        return List.copyOf(warnings);
-    }
-
-    private static List<String> combineWarnings(StoredRulebookRegistration registration, List<String> previewWarnings) {
-        List<String> warnings = new java.util.ArrayList<>(warningsFor(registration));
-        warnings.addAll(previewWarnings);
+        warnings.addAll(registration.previewWarnings());
         return List.copyOf(warnings);
     }
 }
