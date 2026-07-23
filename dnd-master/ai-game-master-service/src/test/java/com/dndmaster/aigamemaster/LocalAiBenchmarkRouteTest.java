@@ -170,7 +170,9 @@ class LocalAiBenchmarkRouteTest {
                     .GET()
                     .build();
             var response = client.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
-            return response.statusCode() == 200;
+            return response.statusCode() == 200
+                    && response.body().contains("qwen3:8b")
+                    && response.body().contains("qwen3-embedding:0.6b");
         } catch (Exception e) {
             return false;
         }

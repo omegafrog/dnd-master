@@ -6,7 +6,7 @@ for contract in 'network_mode: service:ollama' '127.0.0.1:${LOCAL_AI_HOST_PORT:-
   printf '%s' "$compose" | grep -Fq "$contract"
 done
 ! printf '%s' "$compose" | grep -Fq 'ollama pull'
-grep -Fq 'ollama pull qwen3:4b-instruct-2507-q4_K_M' "$root/scripts/prepare-local-ai.sh"
+grep -Fq 'ollama pull qwen3:8b' "$root/scripts/prepare-local-ai.sh"
 grep -Fq 'ollama pull qwen3-embedding:0.6b' "$root/scripts/prepare-local-ai.sh"
 ! grep -Fq 'ollama pull' "$root/scripts/verify-local-ai.sh"
 ! grep -Fq 'ollama pull' "$root/scripts/benchmark-local-ai.sh"

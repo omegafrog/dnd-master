@@ -16,6 +16,6 @@ class OllamaConfigurationResourceTest {
 
         assertTrue(yaml.contains("pull-model-strategy: never"));
         assertTrue(yaml.contains("on-profile: quality"));
-        assertTrue(yaml.contains("qwen3:8b-q4_K_M"));
+        assertTrue(yaml.contains("qwen3:8b"));
     }
 }

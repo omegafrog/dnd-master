@@ -16,9 +16,9 @@ public record LocalOllamaProperties(
         Duration circuitResetTimeout,
         int retryMaxAttempts) {
 
-    public static final String DEFAULT_CHAT_MODEL = "qwen3:4b-instruct-2507-q4_K_M";
+    public static final String DEFAULT_CHAT_MODEL = "qwen3:8b";
     public static final String DEFAULT_EMBEDDING_MODEL = "qwen3-embedding:0.6b";
-    public static final String QUALITY_CHAT_MODEL = "qwen3:8b-q4_K_M";
+    public static final String QUALITY_CHAT_MODEL = "qwen3:8b";
 
     public LocalOllamaProperties {
         allowedModels = Set.copyOf(allowedModels == null ? Set.of() : allowedModels);
