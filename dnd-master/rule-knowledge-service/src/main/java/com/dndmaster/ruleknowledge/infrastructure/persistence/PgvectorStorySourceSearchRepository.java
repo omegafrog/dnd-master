@@ -21,10 +21,12 @@ public final class PgvectorStorySourceSearchRepository implements StorySourceSea
                    0.75 * (1 - (c.embedding <=> CAST(? AS vector)))
                        + 0.25 * ts_rank_cd(to_tsvector('simple', c.content), plainto_tsquery('simple', ?)) AS score
               FROM rulebook_vector_chunk c
+              JOIN rulebook_vector_index i ON i.index_id = c.index_id
               JOIN rulebook_registration r ON r.rulebook_id = c.rulebook_id
              WHERE c.owner_player_id = ?
                AND r.owner_player_id = c.owner_player_id
                AND r.document_type = 'STORYBOOK'
+               AND i.index_version = 'v1-' || r.content_hash
                AND EXISTS (
                    SELECT 1
                      FROM unnest(?::uuid[], ?::bigint[]) AS scope(document_id, extraction_version)
