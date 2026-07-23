@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.dndmaster.ruleknowledge.domain.rulebook.SourcePreviewResult;
 import com.dndmaster.ruleknowledge.infrastructure.extraction.DocxSourcePreviewExtractor;
 import java.io.ByteArrayOutputStream;
+import java.util.List;
 import org.apache.poi.xwpf.usermodel.XWPFDocument;
 import org.apache.poi.xwpf.usermodel.XWPFTable;
 import org.junit.jupiter.api.Test;
@@ -21,13 +22,16 @@ class DocxSourcePreviewExtractorTest {
         assertTrue(result.warnings().isEmpty());
         assertEquals(4, result.spans().size());
         assertEquals("PARAGRAPH", result.spans().get(0).kind());
-        assertEquals("paragraph 1", result.spans().get(0).locator());
+        assertEquals(List.of("section 1", "paragraph 1"), result.spans().get(0).path());
+        assertEquals("section 1 paragraph 1", result.spans().get(0).locator());
         assertEquals("Intro", result.spans().get(0).text());
         assertEquals("TABLE_CELL", result.spans().get(1).kind());
-        assertEquals("table 1 row 1 cell 1", result.spans().get(1).locator());
+        assertEquals(List.of("section 1", "table 1", "row 1", "cell 1"), result.spans().get(1).path());
+        assertEquals("section 1 table 1 row 1 cell 1", result.spans().get(1).locator());
         assertEquals("Left", result.spans().get(1).text());
         assertEquals("PARAGRAPH", result.spans().get(3).kind());
         assertEquals("Outro", result.spans().get(3).text());
+        assertTrue(result.assets().isEmpty());
     }
 
     private static byte[] docxWithParagraphTableParagraph() throws Exception {

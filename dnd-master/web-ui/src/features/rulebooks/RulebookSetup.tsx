@@ -227,11 +227,27 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
               <ol aria-label="원문 줄 미리보기">
                 {sourcePreview.spans.map(span => (
                   <li key={`${span.lineNumber}-${span.startInclusive}-${span.endExclusive}`}>
-                    <span>{span.kind} · {span.locator}</span>
+                    <span>{span.kind} · {span.path.join(' > ')}</span>
+                    {span.pageNumber ? <span> · p{span.pageNumber}</span> : null}
+                    {span.bounds ? <span> · [{span.bounds.left.toFixed(3)}, {span.bounds.top.toFixed(3)}, {span.bounds.right.toFixed(3)}, {span.bounds.bottom.toFixed(3)}]</span> : null}
                     <pre>{span.text || ' '}</pre>
                   </li>
                 ))}
               </ol>
+              {sourcePreview.assets.length ? (
+                <section aria-labelledby="preview-assets-heading">
+                  <h5 id="preview-assets-heading">첨부 자산</h5>
+                  <ul>
+                    {sourcePreview.assets.map(asset => (
+                      <li key={`${asset.kind}-${asset.locator}`}>
+                        {asset.kind} · {asset.locator}
+                        {asset.contentType ? ` · ${asset.contentType}` : ''}
+                        {asset.pageNumber ? ` · p${asset.pageNumber}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
             </section>
           ) : null}
         </section>

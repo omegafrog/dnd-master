@@ -72,11 +72,26 @@ export type ScenarioBundleDraft = {
 
 export type SourceSpanView = {
   kind: string
+  path: string[]
+  pageNumber: number | null
+  bounds: {
+    left: number
+    top: number
+    right: number
+    bottom: number
+  } | null
   lineNumber: number
   startInclusive: number
   endExclusive: number
   text: string
   locator: string
+}
+
+export type SourceAssetView = {
+  kind: string
+  locator: string
+  contentType?: string | null
+  pageNumber?: number | null
 }
 
 export type SourcePreviewView = {
@@ -90,6 +105,7 @@ export type SourcePreviewView = {
   extractionVersion: number
   warnings: string[]
   spans: SourceSpanView[]
+  assets: SourceAssetView[]
 }
 
 export type RulebookUploadDraft = {

@@ -27,9 +27,10 @@ class FakeSetupApi implements SetupApi {
     extractionVersion: 1,
     warnings: [],
     spans: [
-      { kind: 'LINE', lineNumber: 1, startInclusive: 0, endExclusive: 5, text: 'alpha', locator: 'line 1 chars 0-5' },
-      { kind: 'LINE', lineNumber: 2, startInclusive: 6, endExclusive: 10, text: 'beta', locator: 'line 2 chars 6-10' },
+      { kind: 'LINE', path: ['line 1'], pageNumber: null, bounds: null, lineNumber: 1, startInclusive: 0, endExclusive: 5, text: 'alpha', locator: 'line 1 chars 0-5' },
+      { kind: 'LINE', path: ['line 2'], pageNumber: null, bounds: null, lineNumber: 2, startInclusive: 6, endExclusive: 10, text: 'beta', locator: 'line 2 chars 6-10' },
     ],
+    assets: [],
   }
   private results: BatchRulebookView[] = [
     { knowledgeDocumentId: 'doc-1', documentType: 'RULEBOOK', originalFilename: 'phb.pdf', status: 'ACCEPTED' },
@@ -131,8 +132,7 @@ describe('rulebook and adventure setup', () => {
     await user.click(within(txtRow.closest('li')!).getByRole('button', { name: '미리보기' }))
 
     expect(await screen.findByRole('heading', { name: 'phb.txt 미리보기' })).toBeInTheDocument()
-    expect(screen.getByRole('list', { name: '원문 줄 미리보기' })).toHaveTextContent('line 1 chars 0-5')
-    expect(screen.getByRole('list', { name: '원문 줄 미리보기' })).toHaveTextContent('LINE · line 1 chars 0-5')
+    expect(screen.getByRole('list', { name: '원문 줄 미리보기' })).toHaveTextContent('LINE · line 1')
   })
 
   it('keeps one document visible after the same file is uploaded again', async () => {

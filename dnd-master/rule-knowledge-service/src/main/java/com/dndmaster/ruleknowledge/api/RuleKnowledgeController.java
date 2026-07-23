@@ -117,7 +117,21 @@ public class RuleKnowledgeController {
                 preview.content().isBlank() ? content : preview.content(),
                 registration.version(),
                 combineWarnings(registration, preview.warnings()),
-                preview.spans()));
+                preview.spans().stream()
+                        .map(span -> new PreviewSpanView(
+                                span.kind(),
+                                span.path(),
+                                span.pageNumber(),
+                                span.bounds(),
+                                span.lineNumber(),
+                                span.startInclusive(),
+                                span.endExclusive(),
+                                span.text(),
+                                span.locator()))
+                        .toList(),
+                preview.assets().stream()
+                        .map(asset -> new PreviewAssetView(asset.kind(), asset.locator(), asset.contentType(), asset.pageNumber()))
+                        .toList()));
     }
 
     @PostMapping("/api/v1/rulebooks/{rulebookId}/retry")
@@ -237,7 +251,8 @@ public class RuleKnowledgeController {
             String originalFilename, String failureReason, long extractionVersion, List<String> warnings) {}
     public record SourcePreviewResponse(
             UUID rulebookId, UUID knowledgeDocumentId, DocumentType documentType, String originalFilename,
-            RulebookFormat format, String status, String content, long extractionVersion, List<String> warnings, List<PreviewSpan> spans) {}
+            RulebookFormat format, String status, String content, long extractionVersion, List<String> warnings,
+            List<PreviewSpanView> spans, List<PreviewAssetView> assets) {}
     public record RulebookSummary(
             UUID rulebookId, UUID knowledgeDocumentId, String status, String format,
             DocumentType documentType, String originalFilename, String failureReason, long extractionVersion, List<String> warnings) {}
@@ -248,6 +263,17 @@ public class RuleKnowledgeController {
     public record EvidenceSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, QueryIntent queryIntent, Integer limit) {}
     public record EvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score, String chapter, String section) {}
     public record EvidenceSearchResponse(UUID ownerId, List<EvidenceItem> evidence) {}
+    public record PreviewSpanView(
+            String kind,
+            List<String> path,
+            Integer pageNumber,
+            BoundingBox bounds,
+            int lineNumber,
+            int startInclusive,
+            int endExclusive,
+            String text,
+            String locator) {}
+    public record PreviewAssetView(String kind, String locator, String contentType, Integer pageNumber) {}
 
     private static List<String> warningsFor(StoredRulebookRegistration registration) {
         List<String> warnings = new java.util.ArrayList<>();
