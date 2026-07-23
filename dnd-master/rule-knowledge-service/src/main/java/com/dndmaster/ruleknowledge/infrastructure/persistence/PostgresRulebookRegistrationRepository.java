@@ -26,7 +26,7 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                    storage_key, processing_status, extraction_status, extracted_content,
                    missing_locations, failure_code, version, created_at, updated_at,
                    document_type, original_filename
-              FROM rulebook_registration WHERE operation_key = ?
+              FROM rulebook_registration WHERE operation_key = ? OR operation_key LIKE ?
             """;
     private static final String FIND_BY_OWNER_AND_CONTENT_HASH = """
             SELECT rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
@@ -113,7 +113,8 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
 
     @Override
     public Optional<StoredRulebookRegistration> findByOperationKey(String operationKey) {
-        return queryOne(FIND_BY_OPERATION_KEY, Objects.requireNonNull(operationKey, "operationKey must not be null"));
+        String normalized = Objects.requireNonNull(operationKey, "operationKey must not be null").trim();
+        return queryOne(FIND_BY_OPERATION_KEY, new String[] {normalized, "%|" + normalized + "|%"});
     }
 
     @Override
@@ -245,6 +246,9 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                 PreparedStatement ps = connection.prepareStatement(sql)) {
             if (param instanceof UUID uuid) {
                 ps.setObject(1, uuid, Types.OTHER);
+            } else if (param instanceof String[] values) {
+                ps.setString(1, values[0]);
+                ps.setString(2, values[1]);
             } else if (param instanceof String str) {
                 ps.setString(1, str);
             }

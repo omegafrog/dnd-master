@@ -12,6 +12,7 @@ import com.dndmaster.ruleknowledge.application.indexing.RulebookIndexingApplicat
 import com.dndmaster.ruleknowledge.application.indexing.StructureDetectionPort;
 import com.dndmaster.ruleknowledge.application.registration.RulebookContentExtractor;
 import com.dndmaster.ruleknowledge.application.registration.RulebookFileStorage;
+import com.dndmaster.ruleknowledge.application.registration.OperationKeyChain;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookFile;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
@@ -342,7 +343,9 @@ class RulebookPipelineApplicationServiceTest {
 
         @Override
         public Optional<StoredRulebookRegistration> findByOperationKey(String operationKey) {
-            return Optional.ofNullable(byOperationKey.get(operationKey));
+            return byOperationKey.values().stream()
+                    .filter(registration -> OperationKeyChain.contains(registration.operationKey(), operationKey))
+                    .findFirst();
         }
 
         @Override

@@ -7,6 +7,7 @@ import com.dndmaster.ruleknowledge.application.registration.RulebookContentExtra
 import com.dndmaster.ruleknowledge.application.registration.RulebookFileStorage;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
+import com.dndmaster.ruleknowledge.application.registration.OperationKeyChain;
 import com.dndmaster.ruleknowledge.application.registration.RulebookUploadHash;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookFile;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
@@ -67,6 +68,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                     || !replayed.contentHash().equals(contentHash)) {
                 throw new RulebookPipelineException("conflict: same idempotency key with different file");
             }
+            rememberRegistration(replayed);
             return new RulebookProcessingResult(replayed.rulebookId(), replayed.processingStatus(), List.of());
         }
 
@@ -77,7 +79,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                     || !previous.contentHash().equals(contentHash)) {
                 throw new RulebookPipelineException("conflict: same idempotency key with different file");
             }
-            replayedUploads.putIfAbsent(command.operationKey(), previous);
+            rememberRegistration(previous);
             return new RulebookProcessingResult(previous.rulebookId(), previous.processingStatus(), List.of());
         }
 
@@ -88,7 +90,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             StoredRulebookRegistration replayedRegistration = new StoredRulebookRegistration(
                     previous.rulebookId(),
                     previous.ownerPlayerId(),
-                    command.operationKey(),
+                    OperationKeyChain.append(previous.operationKey(), command.operationKey()),
                     previous.contentHash(),
                     previous.format(),
                     previous.fileSize(),
@@ -104,7 +106,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                     previous.documentType(),
                     previous.originalFilename());
             registrationRepository.save(replayedRegistration);
-            replayedUploads.put(command.operationKey(), replayedRegistration);
+            rememberRegistration(replayedRegistration);
             return new RulebookProcessingResult(previous.rulebookId(), previous.processingStatus(), List.of());
         }
 
@@ -113,7 +115,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         StoredRulebookRegistration queued = new StoredRulebookRegistration(
                 rulebookId,
                 command.ownerPlayerId(),
-                command.operationKey(),
+                OperationKeyChain.canonicalize(command.operationKey()),
                 contentHash,
                 command.format(),
                 command.fileContent().length,
@@ -129,7 +131,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 command.documentType(),
                 command.originalFilename());
         registrationRepository.save(queued);
-        replayedUploads.put(command.operationKey(), queued);
+        rememberRegistration(queued);
         return new RulebookProcessingResult(rulebookId, ProcessingStatus.QUEUED, List.of());
     }
 
@@ -148,7 +150,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         }
         StoredRulebookRegistration queued = withStatus(registration, ProcessingStatus.QUEUED, null, null, null, null);
         registrationRepository.save(queued);
-        replayedUploads.put(queued.operationKey(), queued);
+        rememberRegistration(queued);
         return new RulebookProcessingResult(rulebookId, ProcessingStatus.QUEUED, List.of());
     }
 
@@ -178,7 +180,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                     extractionResult.content().orElse(null),
                     extractionResult.missingLocations());
             registrationRepository.save(indexed);
-            replayedUploads.put(indexed.operationKey(), indexed);
+            rememberRegistration(indexed);
             return new RulebookProcessingResult(registration.rulebookId(), ProcessingStatus.INDEXED, List.of());
         } catch (IndexingFailedException exception) {
             return fail(registration, null, describeFailure(exception));
@@ -211,8 +213,14 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 extractionResult != null ? extractionResult.content().orElse(null) : registration.extractedContent(),
                 extractionResult != null ? extractionResult.missingLocations() : registration.missingLocations());
         registrationRepository.save(failed);
-        replayedUploads.put(failed.operationKey(), failed);
+        rememberRegistration(failed);
         return new RulebookProcessingResult(registration.rulebookId(), ProcessingStatus.FAILED, List.of(reason));
+    }
+
+    private void rememberRegistration(StoredRulebookRegistration registration) {
+        for (String key : OperationKeyChain.keys(registration.operationKey())) {
+            replayedUploads.put(key, registration);
+        }
     }
 
     private static String describeExtractionFailure(ExtractionResult extractionResult) {
