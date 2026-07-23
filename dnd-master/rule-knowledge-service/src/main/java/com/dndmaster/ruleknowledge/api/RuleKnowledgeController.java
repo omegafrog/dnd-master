@@ -21,7 +21,9 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @RestController
@@ -96,6 +98,26 @@ public class RuleKnowledgeController {
         }
     }
 
+    @PostMapping("/api/v1/rulebooks/rule-set")
+    ResponseEntity<Void> saveRuleSet(
+            @RequestHeader("Authorization") String authorization,
+            @RequestBody RuleSetSaveRequest request) {
+        UUID ownerId = extractPlayerId(authorization);
+        List<UUID> knowledgeDocumentIds = request.knowledgeDocumentIds();
+        if (knowledgeDocumentIds == null || knowledgeDocumentIds.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "knowledgeDocumentIds must not be empty");
+        }
+        Set<UUID> selectedKnowledgeDocumentIds = new HashSet<>(knowledgeDocumentIds);
+        Set<UUID> ownedKnowledgeDocumentIds = registrationRepository.findByOwner(new OwnerPlayerId(ownerId)).stream()
+                .map(registration -> registration.knowledgeDocumentId().value())
+                .collect(java.util.stream.Collectors.toSet());
+        if (!ownedKnowledgeDocumentIds.containsAll(selectedKnowledgeDocumentIds)) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST, "knowledgeDocumentIds must belong to the authenticated owner");
+        }
+        return ResponseEntity.noContent().build();
+    }
+
     @GetMapping("/internal/v1/rulebooks")
     OwnedRulebooksResponse ownedRulebooks(@RequestParam UUID ownerId) {
         List<StoredRulebookRegistration> registrations = registrationRepository.findByOwner(new OwnerPlayerId(ownerId));
@@ -155,6 +177,13 @@ public class RuleKnowledgeController {
         }
     }
 
+    private static UUID extractPlayerId(String authorization) {
+        if (authorization == null || !authorization.startsWith("Bearer ")) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is required");
+        }
+        return UUID.fromString(authorization.substring("Bearer ".length()));
+    }
+
     private static RulebookFormat resolveFormat(String filename) {
         if (filename == null) return RulebookFormat.PDF;
         return switch (filename.substring(filename.lastIndexOf('.') + 1).toLowerCase()) {
@@ -176,6 +205,7 @@ public class RuleKnowledgeController {
     public record OwnedRulebooksResponse(UUID ownerId, List<RulebookSummary> rulebooks) {}
     public record OwnedIndexesResponse(UUID ownerId, List<?> indexes) {}
     public record OwnershipResponse(UUID rulebookId, UUID playerId, boolean owned) {}
+    public record RuleSetSaveRequest(List<UUID> knowledgeDocumentIds) {}
     public record EvidenceSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, QueryIntent queryIntent, Integer limit) {}
     public record EvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score, String chapter, String section) {}
     public record EvidenceSearchResponse(UUID ownerId, List<EvidenceItem> evidence) {}

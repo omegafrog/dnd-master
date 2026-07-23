@@ -54,6 +54,19 @@ paths:
           description: document not found
         '409':
           description: retry rejected because document is not failed
+  /api/v1/rulebooks/rule-set:
+    post:
+      operationId: saveRuleSet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './schemas/rule-set-save-request.json' }
+      responses:
+        '204':
+          description: rule set saved
+        '400':
+          description: invalid selection
   /internal/v1/rulebooks:
     get:
       operationId: ownedRulebooks

@@ -114,7 +114,7 @@ export class HttpSetupApi implements SetupApi {
     return request<void>('/api/v1/rulebooks/rule-set', {
       method: 'POST',
       headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rulebookIds }),
+      body: JSON.stringify({ knowledgeDocumentIds: rulebookIds }),
     })
   }
 
