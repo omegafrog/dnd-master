@@ -54,12 +54,24 @@ public class ScenarioCompilationController {
     }
 
     private static ResolutionCandidate candidate(CandidateRequest candidate) {
+        if (candidate == null) {
+            return null;
+        }
         return new ResolutionCandidate(
                 candidate.kind(), candidate.abilityOrSkill(), candidate.dc(), candidate.diceExpression(),
                 candidate.visibility(), candidate.sourceQuote(),
-                candidate.sourceRefs().stream().map(ref -> new ScenarioSourceReference(
-                        new KnowledgeDocumentId(ref.documentId()), ref.extractionVersion(), ref.locator())).toList(),
+                sourceRefs(candidate.sourceRefs()),
                 candidate.provenance());
+    }
+
+    private static List<ScenarioSourceReference> sourceRefs(List<SourceReferenceRequest> refs) {
+        if (refs == null) return null;
+        try {
+            return refs.stream().map(ref -> ref == null ? null : new ScenarioSourceReference(
+                    new KnowledgeDocumentId(ref.documentId()), ref.extractionVersion(), ref.locator())).toList();
+        } catch (RuntimeException malformed) {
+            return null;
+        }
     }
 
     private static OwnerPlayerId ownerFromAuthorization(String authorization) {
