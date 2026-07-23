@@ -16,18 +16,21 @@ public final class ScenarioCompilationApplicationService {
     private final ScenarioPackageRepository packageRepository;
     private final ScenarioCompilationProcessManager processManager;
     private final ScenarioCompilationRepository compilationRepository;
+    private final ScenarioSourceExcerptPort excerptPort;
 
     public ScenarioCompilationApplicationService(
             ScenarioBundleRepository bundleRepository,
             ScenarioPackageCompilationService compiler,
             ScenarioPackageRepository packageRepository,
             ScenarioCompilationProcessManager processManager,
-            ScenarioCompilationRepository compilationRepository) {
+            ScenarioCompilationRepository compilationRepository,
+            ScenarioSourceExcerptPort excerptPort) {
         this.bundleRepository = Objects.requireNonNull(bundleRepository, "bundle repository must not be null");
         this.compiler = Objects.requireNonNull(compiler, "compiler must not be null");
         this.packageRepository = Objects.requireNonNull(packageRepository, "package repository must not be null");
         this.processManager = Objects.requireNonNull(processManager, "process manager must not be null");
         this.compilationRepository = Objects.requireNonNull(compilationRepository, "compilation repository must not be null");
+        this.excerptPort = Objects.requireNonNull(excerptPort, "excerpt port must not be null");
     }
 
     public ScenarioPackage compile(
@@ -35,14 +38,14 @@ public final class ScenarioCompilationApplicationService {
         ScenarioSourceBundle bundle = bundleRepository.findById(bundleId)
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         bundle.authorize(owner);
-        return compiler.compile(bundle, candidates);
+        return compiler.compile(bundle, candidates, excerptPort.load(bundle));
     }
 
     public ScenarioPackage compile(ScenarioBundleId bundleId, OwnerPlayerId owner) {
         ScenarioSourceBundle bundle = bundleRepository.findById(bundleId)
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         bundle.authorize(owner);
-        return compiler.compile(bundle, List.of());
+        return compiler.compile(bundle, List.of(), excerptPort.load(bundle));
     }
 
     public ScenarioPackage read(UUID packageId, OwnerPlayerId owner) {

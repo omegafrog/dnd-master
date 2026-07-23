@@ -33,23 +33,24 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
     public List<ResolutionExtractionPort.SourceExcerpt> load(ScenarioSourceBundle bundle) {
         try {
             String body = objectMapper.writeValueAsString(new ExcerptRequest(
-                    bundle.id().value(), bundle.currentRevision().revision(),
+                    bundle.ownerPlayerId().value(),
                     bundle.currentRevision().documents().stream()
                             .map(document -> new DocumentRequest(document.knowledgeDocumentId().value(), document.extractionVersion()))
                             .toList()));
-            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/knowledge/source-excerpts"))
+            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/story-sources/search"))
                     .timeout(timeout).header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + bundle.ownerPlayerId().value())
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new ResolutionExtractionException("source excerpt lookup failed with status " + response.statusCode());
             }
-            ExcerptResponse extracted = objectMapper.readValue(response.body(), ExcerptResponse.class);
-            if (extracted.excerpts() == null) return List.of();
-            return extracted.excerpts().stream().filter(Objects::nonNull)
+            StorySourceSearchResponse extracted = objectMapper.readValue(response.body(), StorySourceSearchResponse.class);
+            if (extracted.evidence() == null) return List.of();
+            return extracted.evidence().stream().filter(Objects::nonNull)
                     .map(excerpt -> new ResolutionExtractionPort.SourceExcerpt(
                             new KnowledgeDocumentId(excerpt.documentId()), excerpt.extractionVersion(),
-                            excerpt.locator(), excerpt.text())).toList();
+                            excerpt.locator(), excerpt.excerpt())).toList();
         } catch (IOException exception) {
             throw new ResolutionExtractionException("source excerpt lookup failed", exception);
         } catch (InterruptedException exception) {
@@ -58,10 +59,15 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
         }
     }
 
-    record ExcerptRequest(java.util.UUID bundleId, long bundleRevision, List<DocumentRequest> documents) {}
+    record ExcerptRequest(java.util.UUID ownerId, List<DocumentRequest> documents,
+                          List<String> activeLocators, String situation, Integer limit) {
+        ExcerptRequest(java.util.UUID ownerId, List<DocumentRequest> documents) {
+            this(ownerId, documents, List.of(), "Extract source-grounded resolution procedures.", 50);
+        }
+    }
     record DocumentRequest(java.util.UUID documentId, long extractionVersion) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record ExcerptResponse(List<Excerpt> excerpts) {}
+    record StorySourceSearchResponse(List<Excerpt> evidence) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record Excerpt(java.util.UUID documentId, long extractionVersion, String locator, String text) {}
+    record Excerpt(java.util.UUID documentId, long extractionVersion, String locator, String excerpt) {}
 }
