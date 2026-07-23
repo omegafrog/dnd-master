@@ -72,6 +72,18 @@ class ScenarioCompilationWorkerTest {
         assertEquals(0, queue.pendingCount());
     }
 
+    @Test
+    void staleDeliveryCannotReplaceReclaimedLease() {
+        ScenarioBundleId bundleId = new ScenarioBundleId(UUID.randomUUID());
+        UUID activeLease = UUID.randomUUID();
+        ScenarioCompilation compilation = ScenarioCompilation.rehydrate(
+                UUID.randomUUID(), bundleId, 1, "fp-lease", ScenarioCompilationStatus.RUNNING,
+                1, activeLease, null, null);
+
+        assertThrows(IllegalStateException.class, () -> compilation.claim(activeLease));
+        assertEquals("RUNNING", compilation.claim(UUID.randomUUID()).status().name());
+    }
+
     private static final class InMemoryCompilationRepository implements ScenarioCompilationRepository {
         private final Map<UUID, ScenarioCompilation> store = new HashMap<>();
         @Override public Optional<ScenarioCompilation> findById(UUID id) { return Optional.ofNullable(store.get(id)); }
