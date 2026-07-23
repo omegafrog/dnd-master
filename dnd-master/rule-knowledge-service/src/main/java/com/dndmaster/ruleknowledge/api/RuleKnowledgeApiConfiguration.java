@@ -43,21 +43,23 @@ public class RuleKnowledgeApiConfiguration {
     }
 
     @Bean
-    RulebookContentExtractor rulebookContentExtractor() {
+    RulebookContentExtractor rulebookContentExtractor(
+            com.dndmaster.ruleknowledge.application.ocr.OcrPort ocrPort) {
         return new CompositeRulebookContentExtractor(Map.of(
-                RulebookFormat.PDF, new PdfRulebookContentExtractor(),
+                RulebookFormat.PDF, new PdfRulebookContentExtractor(ocrPort),
                 RulebookFormat.DOCX, new DocxRulebookContentExtractor(),
                 RulebookFormat.TXT, new TxtRulebookContentExtractor(),
-                RulebookFormat.IMAGE, new ImageRulebookContentExtractor()));
+                RulebookFormat.IMAGE, new ImageRulebookContentExtractor(ocrPort)));
     }
 
     @Bean
-    SourcePreviewExtractor sourcePreviewExtractor() {
+    SourcePreviewExtractor sourcePreviewExtractor(
+            com.dndmaster.ruleknowledge.application.ocr.OcrPort ocrPort) {
         return new CompositeSourcePreviewExtractor(Map.of(
-                RulebookFormat.PDF, new PdfSourcePreviewExtractor(),
+                RulebookFormat.PDF, new PdfSourcePreviewExtractor(ocrPort),
                 RulebookFormat.DOCX, new DocxSourcePreviewExtractor(),
                 RulebookFormat.TXT, new TxtSourcePreviewExtractor(),
-                RulebookFormat.IMAGE, new ImageSourcePreviewExtractor()));
+                RulebookFormat.IMAGE, new ImageSourcePreviewExtractor(ocrPort)));
     }
 
     @Bean
