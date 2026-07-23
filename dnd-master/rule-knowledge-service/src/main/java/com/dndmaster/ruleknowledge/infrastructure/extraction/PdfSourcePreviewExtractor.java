@@ -1,17 +1,21 @@
 package com.dndmaster.ruleknowledge.infrastructure.extraction;
 
 import com.dndmaster.ruleknowledge.domain.rulebook.BoundingBox;
-import com.dndmaster.ruleknowledge.domain.rulebook.PreviewSpan;
 import com.dndmaster.ruleknowledge.domain.rulebook.PreviewAsset;
+import com.dndmaster.ruleknowledge.domain.rulebook.PreviewSpan;
 import com.dndmaster.ruleknowledge.domain.rulebook.SourcePreviewResult;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import org.apache.pdfbox.cos.COSName;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
+import org.apache.pdfbox.pdmodel.PDResources;
 import org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException;
+import org.apache.pdfbox.pdmodel.graphics.PDXObject;
+import org.apache.pdfbox.pdmodel.graphics.image.PDImageXObject;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.pdfbox.text.TextPosition;
 
@@ -28,6 +32,7 @@ public final class PdfSourcePreviewExtractor extends PdfRulebookContentExtractor
             for (int i = 0; i < document.getNumberOfPages(); i++) {
                 try {
                     spans.addAll(previewPage(document, i));
+                    assets.addAll(extractAssets(document.getPage(i), i + 1));
                 } catch (IOException exception) {
                     warnings.add("page " + (i + 1));
                 }
@@ -48,6 +53,39 @@ public final class PdfSourcePreviewExtractor extends PdfRulebookContentExtractor
         stripper.setEndPage(pageIndex + 1);
         stripper.getText(document);
         return stripper.spans();
+    }
+
+    private List<PreviewAsset> extractAssets(PDPage page, int pageNumber) throws IOException {
+        PDResources resources = page.getResources();
+        if (resources == null) {
+            return List.of();
+        }
+        List<PreviewAsset> assets = new ArrayList<>();
+        int imageIndex = 1;
+        for (COSName name : resources.getXObjectNames()) {
+            PDXObject xObject = resources.getXObject(name);
+            if (xObject instanceof PDImageXObject image) {
+                assets.add(new PreviewAsset(
+                        "IMAGE",
+                        "page " + pageNumber + " image " + imageIndex++,
+                        mimeType(image.getSuffix()),
+                        pageNumber));
+            }
+        }
+        return assets;
+    }
+
+    private static String mimeType(String suffix) {
+        if (suffix == null) {
+            return null;
+        }
+        return switch (suffix.toLowerCase()) {
+            case "jpg", "jpeg" -> "image/jpeg";
+            case "png" -> "image/png";
+            case "tif", "tiff" -> "image/tiff";
+            case "gif" -> "image/gif";
+            default -> null;
+        };
     }
 
     private static final class LayoutTextStripper extends PDFTextStripper {
