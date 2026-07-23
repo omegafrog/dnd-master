@@ -24,7 +24,7 @@ spring:
         pull-model-strategy: never
       chat:
         options:
-          model: qwen3.5:4b
+          model: qwen3:8b
           keep-alive: 30m
           num-ctx: 4096
           num-predict: 1024
@@ -43,12 +43,10 @@ rule-knowledge:
 local-ai:
   ollama:
     base-url: http://127.0.0.1:11434
-    chat-model: qwen3.5:4b
+    chat-model: qwen3:8b
     embedding-model: qwen3-embedding:0.6b
     allowed-models:
-      - qwen3.5:4b
-      - qwen3.5:2b
-      - qwen3.5:9b
+      - qwen3:8b
       - qwen3-embedding:0.6b
     request-timeout: 120s
     circuit-failure-threshold: 3
