@@ -57,8 +57,8 @@ class ScenarioCompilationWorkerTest {
         InMemoryPackageRepository packages = new InMemoryPackageRepository();
         ScenarioCompilationProcessManager manager = new ScenarioCompilationProcessManager(compilations, queue);
         var requested = ScenarioCompilation.rehydrate(
-                UUID.randomUUID(), bundleId, 1, "fp-failure", ScenarioCompilationStatus.REQUESTED,
-                2, null, null, null);
+                UUID.randomUUID(), bundleId, 1, "fp-failure", ScenarioCompilationStatus.RUNNING,
+                2, UUID.randomUUID(), null, null);
         compilations.save(requested);
         queue.pending.add(new WorkEnvelope(UUID.randomUUID(), "retry", requested.id(), 1, "fp-failure", 2));
         ScenarioCompilationWorker worker = new ScenarioCompilationWorker(
