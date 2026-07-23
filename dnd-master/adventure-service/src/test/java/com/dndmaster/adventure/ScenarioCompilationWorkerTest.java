@@ -84,6 +84,25 @@ class ScenarioCompilationWorkerTest {
         assertEquals("RUNNING", compilation.claim(UUID.randomUUID()).status().name());
     }
 
+    @Test
+    void staleWorkerCannotPublishAfterAnotherWorkerReclaimsLease() {
+        ScenarioBundleId bundleId = new ScenarioBundleId(UUID.randomUUID());
+        UUID leaseA = UUID.randomUUID();
+        ScenarioCompilation compilationA = ScenarioCompilation.rehydrate(
+                UUID.randomUUID(), bundleId, 1, "fp-race", ScenarioCompilationStatus.RUNNING,
+                1, leaseA, null, null);
+        InMemoryCompilationRepository compilations = new InMemoryCompilationRepository();
+        InMemoryQueue queue = new InMemoryQueue();
+        ScenarioCompilationProcessManager manager = new ScenarioCompilationProcessManager(compilations, queue);
+        compilations.save(compilationA);
+        WorkEnvelope work = new WorkEnvelope(UUID.randomUUID(), "retry", compilationA.id(), 1, "fp-race", 1);
+        WorkQueuePort.Delivery deliveryA = new WorkQueuePort.Delivery(work, leaseA, "worker-a");
+        WorkQueuePort.Delivery deliveryB = new WorkQueuePort.Delivery(work, UUID.randomUUID(), "worker-b");
+        manager.claim(deliveryB);
+
+        assertThrows(IllegalStateException.class, () -> manager.publish(compilationA, deliveryA, UUID.randomUUID()));
+    }
+
     private static final class InMemoryCompilationRepository implements ScenarioCompilationRepository {
         private final Map<UUID, ScenarioCompilation> store = new HashMap<>();
         @Override public Optional<ScenarioCompilation> findById(UUID id) { return Optional.ofNullable(store.get(id)); }

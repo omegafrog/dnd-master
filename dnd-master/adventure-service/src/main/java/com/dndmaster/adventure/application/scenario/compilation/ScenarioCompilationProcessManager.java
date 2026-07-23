@@ -34,24 +34,24 @@ public final class ScenarioCompilationProcessManager {
     }
 
     public ScenarioCompilation retry(ScenarioCompilation compilation, WorkQueuePort.Delivery delivery, String reason) {
-        requireDelivery(compilation, delivery);
-        ScenarioCompilation waiting = compilation.retry(delivery.deliveryToken(), reason);
+        ScenarioCompilation current = requireDelivery(compilation, delivery);
+        ScenarioCompilation waiting = current.retry(delivery.deliveryToken(), reason);
         repository.save(waiting);
         queue.retry(delivery, reason);
         return waiting;
     }
 
     public ScenarioCompilation publish(ScenarioCompilation compilation, WorkQueuePort.Delivery delivery, UUID packageId) {
-        requireDelivery(compilation, delivery);
-        ScenarioCompilation published = compilation.publish(delivery.deliveryToken(), packageId);
+        ScenarioCompilation current = requireDelivery(compilation, delivery);
+        ScenarioCompilation published = current.publish(delivery.deliveryToken(), packageId);
         repository.save(published);
         queue.acknowledge(delivery);
         return published;
     }
 
     public ScenarioCompilation fail(ScenarioCompilation compilation, WorkQueuePort.Delivery delivery, String reason) {
-        requireDelivery(compilation, delivery);
-        ScenarioCompilation failed = compilation.fail(delivery.deliveryToken(), reason);
+        ScenarioCompilation current = requireDelivery(compilation, delivery);
+        ScenarioCompilation failed = current.fail(delivery.deliveryToken(), reason);
         repository.save(failed);
         queue.acknowledge(delivery);
         return failed;
@@ -62,9 +62,13 @@ public final class ScenarioCompilationProcessManager {
                 .orElseThrow(() -> new IllegalStateException("compilation not found"));
     }
 
-    private static void requireDelivery(ScenarioCompilation compilation, WorkQueuePort.Delivery delivery) {
-        if (!compilation.id().equals(delivery.work().aggregateId())) {
+    private ScenarioCompilation requireDelivery(ScenarioCompilation compilation, WorkQueuePort.Delivery delivery) {
+        ScenarioCompilation current = load(delivery);
+        if (!compilation.id().equals(delivery.work().aggregateId())
+                || !compilation.id().equals(current.id())
+                || !Objects.equals(current.leaseToken(), delivery.deliveryToken())) {
             throw new IllegalStateException("work does not belong to compilation");
         }
+        return current;
     }
 }
