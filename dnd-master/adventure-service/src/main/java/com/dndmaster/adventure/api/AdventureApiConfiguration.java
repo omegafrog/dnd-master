@@ -14,6 +14,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureRepos
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioBundleRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpKnowledgeDocumentLookupGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpResolutionExtractionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuleIntentClassificationGateway;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
@@ -85,6 +86,16 @@ public class AdventureApiConfiguration {
     ScenarioBundleApplicationService scenarioBundleApplicationService(
             ScenarioBundleRepository repository, KnowledgeDocumentLookupPort lookupPort) {
         return new ScenarioBundleApplicationService(repository, lookupPort);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort resolutionExtractionPort(
+            ObjectMapper objectMapper) {
+        return new CrossContextHttpResolutionExtractionGateway(
+                HttpClient.newHttpClient(),
+                URI.create("http://127.0.0.1:18084/"),
+                Duration.ofSeconds(10),
+                objectMapper);
     }
 
     @Bean
