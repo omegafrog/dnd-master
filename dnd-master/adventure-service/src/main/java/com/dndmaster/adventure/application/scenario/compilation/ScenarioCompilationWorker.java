@@ -10,6 +10,7 @@ import java.util.Optional;
 
 /** Executes one queued scenario compilation delivery. */
 public final class ScenarioCompilationWorker {
+    private static final int MAX_ATTEMPTS = 3;
     private final ScenarioCompilationProcessManager processManager;
     private final ScenarioCompilationRepository compilationRepository;
     private final WorkQueuePort queue;
@@ -56,7 +57,11 @@ public final class ScenarioCompilationWorker {
         } catch (RuntimeException exception) {
             String reason = exception.getMessage() == null || exception.getMessage().isBlank()
                     ? "scenario compilation failed" : exception.getMessage();
-            processManager.retry(claimed, delivery, reason);
+            if (claimed.attempt() >= MAX_ATTEMPTS) {
+                processManager.fail(claimed, delivery, reason);
+            } else {
+                processManager.retry(claimed, delivery, reason);
+            }
             throw exception;
         }
     }
