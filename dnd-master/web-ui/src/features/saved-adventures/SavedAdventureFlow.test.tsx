@@ -29,12 +29,13 @@ it('lists, resumes, deletes and configures session knowledge sets', async () => 
     async uploadRulebooks() { return [] },
     async getRulebookStatus() { return { rulebookId: 'rulebook-1', status: 'INDEXED' as const } },
     async retryKnowledgeDocument(knowledgeDocumentId: string) { return { rulebookId: knowledgeDocumentId, status: 'INDEXED' as const } },
+    async getSourcePreview() { throw new Error() },
     async uploadScenario(file) { return { id: 'scenario', name: file.name } },
     async saveRuleSet() {},
     async listKnowledgeDocuments() {
       return [
-        { knowledgeDocumentId: 'doc-1', documentType: 'RULEBOOK', originalFilename: 'phb.pdf', status: 'INDEXED' as const },
-        { knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK', originalFilename: 'campaign.md', status: 'UPLOADED' as const },
+        { knowledgeDocumentId: 'doc-1', documentType: 'RULEBOOK', originalFilename: 'phb.pdf', status: 'INDEXED' as const, format: 'PDF' as const },
+        { knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK', originalFilename: 'campaign.md', status: 'UPLOADED' as const, format: 'TXT' as const },
       ]
     },
   }

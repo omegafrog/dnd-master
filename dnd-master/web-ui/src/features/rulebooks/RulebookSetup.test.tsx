@@ -3,12 +3,33 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it } from 'vitest'
 import { RulebookSetup } from './RulebookSetup'
-import type { BatchRulebookView, KnowledgeDocumentView, RulebookUploadDraft, SetupApi } from './SetupApi'
+import type {
+  BatchRulebookView,
+  KnowledgeDocumentView,
+  RulebookUploadDraft,
+  SetupApi,
+  SourcePreviewView,
+} from './SetupApi'
 
 class FakeSetupApi implements SetupApi {
   uploadError = ''
   uploadCalls: Array<{ ownerId: string; documents: string[] }> = []
   private knowledgeDocuments: KnowledgeDocumentView[]
+  private preview: SourcePreviewView = {
+    rulebookId: 'doc-1',
+    knowledgeDocumentId: 'doc-1',
+    documentType: 'RULEBOOK',
+    originalFilename: 'phb.txt',
+    format: 'TXT',
+    status: 'EXTRACTED',
+    content: 'alpha\nbeta',
+    extractionVersion: 1,
+    warnings: [],
+    spans: [
+      { lineNumber: 1, startInclusive: 0, endExclusive: 5, text: 'alpha', locator: 'line 1 chars 0-5' },
+      { lineNumber: 2, startInclusive: 6, endExclusive: 10, text: 'beta', locator: 'line 2 chars 6-10' },
+    ],
+  }
   private results: BatchRulebookView[] = [
     { knowledgeDocumentId: 'doc-1', documentType: 'RULEBOOK', originalFilename: 'phb.pdf', status: 'ACCEPTED' },
     { knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK', originalFilename: 'campaign.md', status: 'VALIDATION_FAILED', failureReason: 'unsupported format' },
@@ -16,9 +37,9 @@ class FakeSetupApi implements SetupApi {
 
   constructor(includeFailedDocument = true) {
     this.knowledgeDocuments = [
-      { knowledgeDocumentId: 'doc-1', documentType: 'RULEBOOK', originalFilename: 'phb.pdf', status: 'QUEUED' as const },
+      { knowledgeDocumentId: 'doc-1', documentType: 'RULEBOOK', originalFilename: 'phb.txt', status: 'EXTRACTED' as const, format: 'TXT' as const },
       ...(includeFailedDocument
-        ? [{ knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK' as const, originalFilename: 'campaign.md', status: 'FAILED' as const, failureReason: 'indexer timeout' }]
+        ? [{ knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK' as const, originalFilename: 'campaign.md', status: 'FAILED' as const, format: 'TXT' as const, failureReason: 'indexer timeout' }]
         : []),
     ]
   }
@@ -37,6 +58,10 @@ class FakeSetupApi implements SetupApi {
       ? { ...document, status: 'QUEUED' as const, failureReason: null }
       : document)
     return { rulebookId: knowledgeDocumentId, status: 'QUEUED' as const }
+  }
+  async getSourcePreview(knowledgeDocumentId: string) {
+    if (knowledgeDocumentId !== this.preview.knowledgeDocumentId) throw new Error('not found')
+    return this.preview
   }
   async uploadScenario(file: File) { return { id: 'scenario-1', name: file.name } }
   async saveRuleSet() {}
@@ -92,6 +117,18 @@ describe('rulebook and adventure setup', () => {
     expect(screen.getByRole('status')).toHaveTextContent('다시 처리했습니다.')
   })
 
+  it('shows a source preview for an extracted TXT document', async () => {
+    const api = new FakeSetupApi()
+    const user = userEvent.setup()
+    render(<RulebookSetup api={api} playerId="p1" />)
+
+    await screen.findByText('phb.txt')
+    await user.click(screen.getByRole('button', { name: '미리보기' }))
+
+    expect(await screen.findByRole('heading', { name: 'phb.txt 미리보기' })).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: '원문 줄 미리보기' })).toHaveTextContent('line 1 chars 0-5')
+  })
+
   it('keeps one document visible after the same file is uploaded again', async () => {
     const api = new FakeSetupApi(false)
     const user = userEvent.setup()
@@ -100,13 +137,13 @@ describe('rulebook and adventure setup', () => {
     const file = new File(['rules'], 'phb.pdf', { type: 'application/pdf' })
     fireEvent.change(screen.getByLabelText('자료 파일'), { target: { files: [file] } })
     await user.click(screen.getByRole('button', { name: '자료 업로드' }))
-    expect(await screen.findAllByText('phb.pdf')).toHaveLength(2)
+    expect(await screen.findAllByText('phb.pdf')).toHaveLength(1)
 
     fireEvent.change(screen.getByLabelText('자료 파일'), { target: { files: [file] } })
     await user.click(screen.getByRole('button', { name: '자료 업로드' }))
 
     expect(api.uploadCalls).toHaveLength(2)
-    expect(screen.getAllByText('phb.pdf')).toHaveLength(2)
+    expect(screen.getAllByText('phb.pdf')).toHaveLength(1)
     expect(screen.getAllByRole('checkbox', { name: 'phb.pdf' })).toHaveLength(1)
   })
 

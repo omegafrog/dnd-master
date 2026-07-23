@@ -25,7 +25,7 @@ class OpenApiSchemaTest {
                 "/internal/v1/adventures/{adventureId}/roll-conditions",
                 "/internal/v1/adventures/{adventureId}/movement-validations",
                 "/internal/v1/adventures/{adventureId}/gm-context");
-        assertPaths("rule-knowledge", "/api/v1/rulebooks", "/api/v1/rulebooks/rule-set", "/internal/v1/rulebooks",
+        assertPaths("rule-knowledge", "/api/v1/rulebooks", "/api/v1/rulebooks/{rulebookId}/source-preview", "/api/v1/rulebooks/rule-set", "/internal/v1/rulebooks",
                 "/internal/v1/rulebook-indexes", "/internal/v1/rulebooks/{rulebookId}/ownership",
                 "/internal/v1/rule-evidence/search");
         assertPaths("character-management", "/internal/v1/character-sheets/{sheetId}");
@@ -43,6 +43,7 @@ class OpenApiSchemaTest {
         JsonNode batchResponse = schema("rule-knowledge/schemas/batch-upload-response.json");
         JsonNode async = schema("rule-knowledge/schemas/async-status.json");
         JsonNode source = schema("rule-knowledge/schemas/source-location.json");
+        JsonNode preview = schema("rule-knowledge/schemas/source-preview-response.json");
         JsonNode stream = schema("adventure/schemas/stream-event.json");
         JsonNode candidate = schema("adventure/schemas/candidate-rule.json");
         JsonNode playerMap = schema("combat-map/schemas/player-map-view.json");
@@ -54,6 +55,7 @@ class OpenApiSchemaTest {
         assertTrue(batchResponse.at("/properties/documents/items/properties/status/enum").toString().contains("VALIDATION_FAILED"));
         assertTrue(async.at("/properties/status/enum").toString().contains("PARTIAL"));
         assertEquals(2, source.at("/required").size());
+        assertTrue(preview.at("/properties/spans/items/properties/locator/minLength").asInt() >= 1);
         assertTrue(stream.at("/properties/type/enum").toString().contains("INTERRUPTED"));
         assertEquals(1, candidate.at("/properties/sources/minItems").asInt());
         assertEquals("PLAYER_VISIBLE", playerMap.at("/properties/layers/items/properties/visibility/const").asText());
