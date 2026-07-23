@@ -43,6 +43,13 @@ public final class ScenarioPackage {
         return new ScenarioPackage(UUID.randomUUID(), bundleId, bundleRevision, inputFingerprint, documents, units, report);
     }
 
+    public static ScenarioPackage rehydrate(
+            UUID packageId, ScenarioBundleId bundleId, long bundleRevision, String inputFingerprint,
+            List<ScenarioBundleDocumentSelection> documents, List<ScenarioResolutionUnit> units,
+            ScenarioCompilationReport report) {
+        return new ScenarioPackage(packageId, bundleId, bundleRevision, inputFingerprint, documents, units, report);
+    }
+
     public List<ScenarioResolutionUnit> runtimeCandidates() {
         return units.stream().filter(unit -> unit.status() != ResolutionStatus.INVALID).toList();
     }

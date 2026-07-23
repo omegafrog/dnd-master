@@ -116,6 +116,11 @@ class ScenarioPackageCompilationServiceTest {
         }
 
         @Override
+        public Optional<com.dndmaster.adventure.domain.scenario.ScenarioPackage> findById(UUID packageId) {
+            return packages.values().stream().filter(scenarioPackage -> scenarioPackage.packageId().equals(packageId)).findFirst();
+        }
+
+        @Override
         public void save(com.dndmaster.adventure.domain.scenario.ScenarioPackage scenarioPackage) {
             packages.put(scenarioPackage.inputFingerprint(), scenarioPackage);
         }

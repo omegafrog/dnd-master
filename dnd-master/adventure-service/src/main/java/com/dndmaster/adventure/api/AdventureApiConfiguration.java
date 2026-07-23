@@ -12,6 +12,7 @@ import com.dndmaster.adventure.domain.inquiry.RulebookId;
 import com.dndmaster.adventure.domain.scenario.ScenarioSource;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioBundleRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioPackageRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpKnowledgeDocumentLookupGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpResolutionExtractionGateway;
@@ -72,6 +73,27 @@ public class AdventureApiConfiguration {
     @Bean
     ScenarioBundleRepository scenarioBundleRepository(DataSource dataSource) {
         return new PostgresScenarioBundleRepository(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository scenarioPackageRepository(
+            DataSource dataSource) {
+        return new PostgresScenarioPackageRepository(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService scenarioPackageCompilationService(
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository repository) {
+        return new com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService(repository);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationApplicationService scenarioCompilationApplicationService(
+            ScenarioBundleRepository bundleRepository,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService compiler,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository) {
+        return new com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationApplicationService(
+                bundleRepository, compiler, packageRepository);
     }
 
     @Bean

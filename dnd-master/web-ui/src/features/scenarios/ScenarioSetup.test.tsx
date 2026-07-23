@@ -68,6 +68,9 @@ class FakeSetupApi implements SetupApi {
     { knowledgeDocumentId: 'doc-1', documentType: 'STORYBOOK', originalFilename: 'main.pdf', status: 'EXTRACTED', role: 'REFERENCE', extractionVersion: 3 },
   ]) }
   async getScenarioBundle() { return bundle('bundle-1', 1, []) }
+  async compileScenarioBundle() {
+    return { packageId: 'package-1', bundleId: 'bundle-1', bundleRevision: 1, inputFingerprint: 'fp', reportStatus: 'COMPLETE' as const, warnings: [], units: [] }
+  }
 }
 
 function bundle(id: string, revision: number, documents: ScenarioBundleView['documents']): ScenarioBundleView {
@@ -97,6 +100,8 @@ describe('ScenarioSetup', () => {
     expect(await screen.findByText('번들 저장 완료: bundle-1 v1')).toBeInTheDocument()
     expect(screen.getByText('main.pdf · MAIN_SCENARIO')).toBeInTheDocument()
     expect(screen.getByText('handout.pdf · HANDOUT')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '시나리오 패키지 컴파일' }))
+    expect(await screen.findByText('패키지 package-1 · COMPLETE')).toBeInTheDocument()
   })
 
   it('can revise an existing bundle', async () => {
