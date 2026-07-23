@@ -46,10 +46,11 @@ public final class ScenarioPackageCompilationService {
         List<String> warnings = units.stream()
                 .flatMap(unit -> unit.validationMessages().stream())
                 .toList();
+        if (units.isEmpty()) warnings = List.of("no resolution candidates were produced");
         ResolutionStatus reportStatus = units.stream().anyMatch(unit -> unit.status() == ResolutionStatus.INVALID)
                 ? ResolutionStatus.INVALID
                 : units.stream().anyMatch(unit -> unit.status() == ResolutionStatus.PARTIAL)
-                        ? ResolutionStatus.PARTIAL : ResolutionStatus.COMPLETE;
+                        || units.isEmpty() ? ResolutionStatus.PARTIAL : ResolutionStatus.COMPLETE;
         ScenarioPackage scenarioPackage = ScenarioPackage.publish(
                 bundle.id(), bundle.currentRevision().revision(), fingerprint,
                 bundle.currentRevision().documents(), units,

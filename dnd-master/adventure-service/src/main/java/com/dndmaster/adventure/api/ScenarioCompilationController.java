@@ -39,6 +39,9 @@ public class ScenarioCompilationController {
         if (!owner.value().equals(request.playerId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "playerId must match Authorization");
         }
+        if (request.candidates() == null || request.candidates().isEmpty()) {
+            return PackageResponse.from(service.compile(new ScenarioBundleId(bundleId), owner));
+        }
         List<ResolutionCandidate> candidates = request.candidates().stream().map(ScenarioCompilationController::candidate).toList();
         return PackageResponse.from(service.compile(new ScenarioBundleId(bundleId), owner, candidates));
     }
