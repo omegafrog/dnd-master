@@ -1,6 +1,7 @@
 package com.dndmaster.ruleknowledge.application.pipeline;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.ruleknowledge.application.indexing.ChunkEmbedding;
@@ -39,6 +40,8 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class RulebookPipelineApplicationServiceTest {
+    private static final OwnerPlayerId OWNER = new OwnerPlayerId(UUID.fromString("36c6b6fd-2f36-4b79-9a91-614f9e35bd91"));
+
     @Test
     void uploadQueuesFirstAndWorkerProcessesLater() {
         TestHarness harness = new TestHarness();
@@ -104,6 +107,48 @@ class RulebookPipelineApplicationServiceTest {
     }
 
     @Test
+    void sameOwnerSameBytesReusesExistingDocumentWithoutCreatingASecondRegistration() {
+        TestHarness harness = new TestHarness();
+        UploadRulebookCommand firstCommand = command("upload-1", "alpha");
+        UploadRulebookCommand duplicateCommand = command("upload-2", "alpha");
+
+        RulebookProcessingResult first = harness.service.process(firstCommand);
+        RulebookProcessingResult duplicate = harness.service.process(duplicateCommand);
+
+        assertEquals(first.rulebookId(), duplicate.rulebookId());
+        assertEquals(ProcessingStatus.QUEUED, duplicate.status());
+        assertEquals(1, harness.repository.findByOwner(OWNER).size());
+        assertNotSame(first, duplicate);
+        assertEquals(1, harness.storage.files.size());
+    }
+
+    @Test
+    void differentOwnerSameBytesCreatesSeparateDocuments() {
+        TestHarness harness = new TestHarness();
+        UploadRulebookCommand firstCommand = new UploadRulebookCommand(
+                "upload-1",
+                OWNER,
+                DocumentType.RULEBOOK,
+                RulebookFormat.TXT,
+                "alpha".getBytes(StandardCharsets.UTF_8),
+                "alpha.txt");
+        UploadRulebookCommand secondCommand = new UploadRulebookCommand(
+                "upload-2",
+                new OwnerPlayerId(UUID.fromString("c0f1f5ed-1c31-44d1-8f5c-2e2fd6f5c001")),
+                DocumentType.RULEBOOK,
+                RulebookFormat.TXT,
+                "alpha".getBytes(StandardCharsets.UTF_8),
+                "alpha.txt");
+
+        RulebookProcessingResult first = harness.service.process(firstCommand);
+        RulebookProcessingResult second = harness.service.process(secondCommand);
+
+        assertNotSame(first.rulebookId(), second.rulebookId());
+        assertEquals(2, harness.repository.findByProcessingStatuses(List.of(ProcessingStatus.QUEUED)).size());
+        assertEquals(2, harness.storage.files.size());
+    }
+
+    @Test
     void processPendingClaimsLegacyAndStaleProcessingRows() {
         TestHarness harness = new TestHarness();
         Instant stale = Instant.now().minusSeconds(900);
@@ -131,7 +176,7 @@ class RulebookPipelineApplicationServiceTest {
     private static UploadRulebookCommand command(String operationKey, String content) {
         return new UploadRulebookCommand(
                 operationKey,
-                new OwnerPlayerId(UUID.fromString("36c6b6fd-2f36-4b79-9a91-614f9e35bd91")),
+                OWNER,
                 DocumentType.RULEBOOK,
                 RulebookFormat.TXT,
                 content.getBytes(StandardCharsets.UTF_8),
@@ -144,7 +189,7 @@ class RulebookPipelineApplicationServiceTest {
         harness.storage.store(rulebookId, content.getBytes(StandardCharsets.UTF_8));
         return new StoredRulebookRegistration(
                 rulebookId,
-                new OwnerPlayerId(UUID.fromString("36c6b6fd-2f36-4b79-9a91-614f9e35bd91")),
+                OWNER,
                 operationKey,
                 operationKey + "-hash",
                 RulebookFormat.TXT,
@@ -281,9 +326,17 @@ class RulebookPipelineApplicationServiceTest {
         }
 
         @Override
+        public Optional<StoredRulebookRegistration> findByOwnerAndContentHash(OwnerPlayerId owner, String contentHash) {
+            return byId.values().stream()
+                    .filter(registration -> registration.ownerPlayerId().equals(owner)
+                            && registration.contentHash().equals(contentHash))
+                    .findFirst();
+        }
+
+        @Override
         public List<StoredRulebookRegistration> findByOwner(OwnerPlayerId owner) {
             return byId.values().stream()
-                    .filter(registration -> owner == null || registration.ownerPlayerId().equals(owner))
+                    .filter(registration -> registration.ownerPlayerId().equals(owner))
                     .toList();
         }
 

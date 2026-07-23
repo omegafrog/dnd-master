@@ -7,16 +7,24 @@ import type { BatchRulebookView, KnowledgeDocumentView, SetupApi } from './Setup
 
 class FakeSetupApi implements SetupApi {
   uploadError = ''
+  uploadCalls: Array<{ ownerId: string; documents: string[] }> = []
+  private knowledgeDocuments: KnowledgeDocumentView[]
   private results: BatchRulebookView[] = [
     { knowledgeDocumentId: 'doc-1', documentType: 'RULEBOOK', originalFilename: 'phb.pdf', status: 'ACCEPTED' },
     { knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK', originalFilename: 'campaign.md', status: 'VALIDATION_FAILED', failureReason: 'unsupported format' },
   ]
-  private documents: KnowledgeDocumentView[] = [
-    { knowledgeDocumentId: 'doc-1', documentType: 'RULEBOOK', originalFilename: 'phb.pdf', status: 'QUEUED' as const },
-    { knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK', originalFilename: 'campaign.md', status: 'FAILED' as const, failureReason: 'indexer timeout' },
-  ]
 
-  async uploadRulebooks() {
+  constructor(includeFailedDocument = true) {
+    this.knowledgeDocuments = [
+      { knowledgeDocumentId: 'doc-1', documentType: 'RULEBOOK', originalFilename: 'phb.pdf', status: 'QUEUED' as const },
+      ...(includeFailedDocument
+        ? [{ knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK' as const, originalFilename: 'campaign.md', status: 'FAILED' as const, failureReason: 'indexer timeout' }]
+        : []),
+    ]
+  }
+
+  async uploadRulebooks(documents: any[], ownerId: string) {
+    this.uploadCalls.push({ ownerId, documents: documents.map(document => document.file.name) })
     if (this.uploadError) throw new Error(this.uploadError)
     return this.results
   }
@@ -25,7 +33,7 @@ class FakeSetupApi implements SetupApi {
     return { rulebookId: 'phb', status: 'INDEXED' as const }
   }
   async retryKnowledgeDocument(knowledgeDocumentId: string) {
-    this.documents = this.documents.map(document => document.knowledgeDocumentId === knowledgeDocumentId
+    this.knowledgeDocuments = this.knowledgeDocuments.map(document => document.knowledgeDocumentId === knowledgeDocumentId
       ? { ...document, status: 'QUEUED' as const, failureReason: null }
       : document)
     return { rulebookId: knowledgeDocumentId, status: 'QUEUED' as const }
@@ -34,7 +42,7 @@ class FakeSetupApi implements SetupApi {
   async saveRuleSet() {}
   async listKnowledgeDocuments(ownerId: string) {
     void ownerId
-    return this.documents
+    return this.knowledgeDocuments
   }
 }
 
@@ -82,6 +90,24 @@ describe('rulebook and adventure setup', () => {
     const retriedDocument = screen.getByText('campaign.md').closest('li')!
     expect(within(retriedDocument).queryByText(/indexer timeout/)).not.toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('다시 처리했습니다.')
+  })
+
+  it('keeps one document visible after the same file is uploaded again', async () => {
+    const api = new FakeSetupApi(false)
+    const user = userEvent.setup()
+    render(<RulebookSetup api={api} playerId="p1" />)
+
+    const file = new File(['rules'], 'phb.pdf', { type: 'application/pdf' })
+    fireEvent.change(screen.getByLabelText('자료 파일'), { target: { files: [file] } })
+    await user.click(screen.getByRole('button', { name: '자료 업로드' }))
+    expect(await screen.findAllByText('phb.pdf')).toHaveLength(2)
+
+    fireEvent.change(screen.getByLabelText('자료 파일'), { target: { files: [file] } })
+    await user.click(screen.getByRole('button', { name: '자료 업로드' }))
+
+    expect(api.uploadCalls).toHaveLength(2)
+    expect(screen.getAllByText('phb.pdf')).toHaveLength(2)
+    expect(screen.getAllByRole('checkbox', { name: 'phb.pdf' })).toHaveLength(1)
   })
 
   it('registers a scenario', async () => {
