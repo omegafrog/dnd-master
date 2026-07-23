@@ -143,6 +143,20 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationWorker scenarioCompilationWorker(
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationProcessManager processManager,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationRepository compilationRepository,
+            com.dndmaster.adventure.application.scenario.compilation.WorkQueuePort queue,
+            ScenarioBundleRepository bundleRepository,
+            com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort extractionPort,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService compiler,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository) {
+        return new com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationWorker(
+                processManager, compilationRepository, queue, bundleRepository, extractionPort, compiler,
+                packageRepository);
+    }
+
+    @Bean
     SavedAdventureApplicationService savedAdventureApplicationService(AdventureRepository repository) {
         return new SavedAdventureApplicationService(repository);
     }
