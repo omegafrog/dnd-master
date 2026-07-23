@@ -55,6 +55,9 @@ public final class DocxSourcePreviewExtractor implements CompositeSourcePreviewE
             List<String> cells = new ArrayList<>();
             for (int cellIndex = 0; cellIndex < row.getTableCells().size(); cellIndex++) {
                 XWPFTableCell cell = row.getCell(cellIndex);
+                if (cell == null) {
+                    continue;
+                }
                 String text = cell.getText();
                 if (text != null && !text.isBlank()) {
                     cells.add(text);
