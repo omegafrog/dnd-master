@@ -19,5 +19,8 @@ CREATE TABLE rulebook_registration (
 CREATE UNIQUE INDEX rulebook_registration_operation_key_uq
     ON rulebook_registration(operation_key);
 
+CREATE UNIQUE INDEX rulebook_registration_owner_content_hash_uq
+    ON rulebook_registration(owner_player_id, content_hash);
+
 CREATE INDEX rulebook_registration_owner_idx
     ON rulebook_registration(owner_player_id);
