@@ -83,6 +83,7 @@ export type ScenarioPackageView = {
     sourceQuote: string
     provenance: string
     validationMessages: string[]
+    sourceRefs: Array<{ documentId: string; extractionVersion: number; locator: string }>
   }>
 }
 
