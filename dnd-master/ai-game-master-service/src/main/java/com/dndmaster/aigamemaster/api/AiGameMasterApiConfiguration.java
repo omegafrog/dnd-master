@@ -76,6 +76,13 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
+    ResolutionCandidateController resolutionCandidateController(
+            com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter adapter,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+        return new ResolutionCandidateController(adapter, objectMapper);
+    }
+
+    @Bean
     AiGameMasterController aiGameMasterController(
             ScenarioBoundSceneService sceneService,
             AdjudicationModelPort adjudicationPort,
