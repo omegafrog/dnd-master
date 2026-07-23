@@ -45,7 +45,9 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
                 throw new ResolutionExtractionException("resolution extraction failed with status " + response.statusCode());
             }
             ExtractionResponse extracted = objectMapper.readValue(response.body(), ExtractionResponse.class);
-            return extracted.candidates().stream().map(CrossContextHttpResolutionExtractionGateway::toCandidate).toList();
+            return extracted.candidates() == null ? List.of() : extracted.candidates().stream()
+                    .filter(Objects::nonNull)
+                    .map(CrossContextHttpResolutionExtractionGateway::toCandidate).toList();
         } catch (IOException exception) {
             throw new ResolutionExtractionException("resolution extraction failed", exception);
         } catch (InterruptedException exception) {
@@ -58,7 +60,7 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
         return new ResolutionCandidate(
                 candidate.kind(), candidate.abilityOrSkill(), candidate.dc(), candidate.diceExpression(),
                 candidate.visibility(), candidate.sourceQuote(),
-                candidate.sourceRefs().stream()
+                (candidate.sourceRefs() == null ? List.<SourceReferenceResponse>of() : candidate.sourceRefs()).stream()
                         .map(ref -> new ScenarioSourceReference(
                                 new KnowledgeDocumentId(ref.documentId()), ref.extractionVersion(), ref.locator()))
                         .toList(),
