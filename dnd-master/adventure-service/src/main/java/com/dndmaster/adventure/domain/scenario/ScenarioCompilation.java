@@ -36,6 +36,13 @@ public final class ScenarioCompilation {
                 ScenarioCompilationStatus.REQUESTED, 0, null, null, null);
     }
 
+    public static ScenarioCompilation rehydrate(
+            UUID id, ScenarioBundleId bundleId, long bundleRevision, String inputFingerprint,
+            ScenarioCompilationStatus status, int attempt, UUID leaseToken, UUID packageId, String failureReason) {
+        return new ScenarioCompilation(id, bundleId, bundleRevision, inputFingerprint, status, attempt,
+                leaseToken, packageId, failureReason);
+    }
+
     public ScenarioCompilation claim(UUID deliveryToken) {
         requireStatus(ScenarioCompilationStatus.REQUESTED, ScenarioCompilationStatus.WAITING_RETRY);
         return next(ScenarioCompilationStatus.RUNNING, attempt + 1, deliveryToken, null, null);

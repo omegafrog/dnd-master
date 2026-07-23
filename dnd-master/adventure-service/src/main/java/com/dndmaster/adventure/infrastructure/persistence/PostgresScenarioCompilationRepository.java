@@ -21,10 +21,19 @@ public final class PostgresScenarioCompilationRepository implements ScenarioComp
 
     @Override
     public Optional<ScenarioCompilation> findById(UUID id) {
+        return find("compilation_id", id);
+    }
+
+    @Override
+    public Optional<ScenarioCompilation> findByInputFingerprint(String fingerprint) {
+        return find("input_fingerprint", fingerprint);
+    }
+
+    private Optional<ScenarioCompilation> find(String column, Object value) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(
-                        "SELECT compilation_id, bundle_id, bundle_revision, input_fingerprint, status, attempt, lease_token, package_id, failure_reason FROM scenario_compilation WHERE compilation_id = ?")) {
-            statement.setObject(1, id);
+                        "SELECT compilation_id, bundle_id, bundle_revision, input_fingerprint, status, attempt, lease_token, package_id, failure_reason FROM scenario_compilation WHERE " + column + " = ?")) {
+            statement.setObject(1, value);
             try (ResultSet row = statement.executeQuery()) {
                 if (!row.next()) return Optional.empty();
                 return Optional.of(read(row));
@@ -50,16 +59,12 @@ public final class PostgresScenarioCompilationRepository implements ScenarioComp
     }
 
     private static ScenarioCompilation read(ResultSet row) throws SQLException {
-        ScenarioCompilation compilation = ScenarioCompilation.request(
+        return ScenarioCompilation.rehydrate(
+                row.getObject("compilation_id", UUID.class),
                 new ScenarioBundleId(row.getObject("bundle_id", UUID.class)),
-                row.getLong("bundle_revision"), row.getString("input_fingerprint"));
-        ScenarioCompilationStatus status = ScenarioCompilationStatus.valueOf(row.getString("status"));
-        UUID lease = row.getObject("lease_token", UUID.class);
-        if (status == ScenarioCompilationStatus.RUNNING) return compilation.claim(lease);
-        if (status == ScenarioCompilationStatus.WAITING_RETRY) {
-            ScenarioCompilation running = compilation.claim(lease);
-            return running.retry(lease, row.getString("failure_reason"));
-        }
-        return compilation;
+                row.getLong("bundle_revision"), row.getString("input_fingerprint"),
+                ScenarioCompilationStatus.valueOf(row.getString("status")), row.getInt("attempt"),
+                row.getObject("lease_token", UUID.class), row.getObject("package_id", UUID.class),
+                row.getString("failure_reason"));
     }
 }

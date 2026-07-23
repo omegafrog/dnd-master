@@ -17,6 +17,8 @@ public final class ScenarioCompilationProcessManager {
     }
 
     public ScenarioCompilation start(ScenarioBundleId bundleId, long bundleRevision, String inputFingerprint) {
+        var existing = repository.findByInputFingerprint(inputFingerprint);
+        if (existing.isPresent()) return existing.get();
         ScenarioCompilation compilation = ScenarioCompilation.request(bundleId, bundleRevision, inputFingerprint);
         repository.save(compilation);
         queue.enqueue(new WorkEnvelope(
