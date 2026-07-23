@@ -4,6 +4,7 @@ import type {
   ScenarioBundleDraft,
   ScenarioBundleRole,
   ScenarioBundleView,
+  ScenarioPackageView,
   SetupApi,
   StorySourceEvidenceView,
 } from '../rulebooks/SetupApi'
@@ -30,6 +31,8 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
   const [roles, setRoles] = useState<Record<string, ScenarioBundleRole>>({})
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bundle, setBundle] = useState<ScenarioBundleView | null>(null)
+  const [scenarioPackage, setScenarioPackage] = useState<ScenarioPackageView | null>(null)
+  const [compiling, setCompiling] = useState(false)
   const [saving, setSaving] = useState(false)
   const [sourceQuery, setSourceQuery] = useState('')
   const [sourceResults, setSourceResults] = useState<StorySourceEvidenceView[]>([])
@@ -107,6 +110,18 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
     }
   }
 
+  async function compile() {
+    if (!bundle || !api.compileScenarioBundle) return
+    setCompiling(true)
+    try {
+      setScenarioPackage(await api.compileScenarioBundle(bundle.bundleId, playerId))
+    } catch (error) {
+      onError(error instanceof Error ? error.message : '시나리오 패키지 컴파일에 실패했습니다.')
+    } finally {
+      setCompiling(false)
+    }
+  }
+
   return (
     <section aria-labelledby="scenario-heading">
       <h2 id="scenario-heading">시나리오 번들</h2>
@@ -161,6 +176,14 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
               </li>
             ))}
           </ul>
+          {api.compileScenarioBundle ? (
+            <button type="button" disabled={compiling} onClick={() => void compile()}>
+              {compiling ? '컴파일 중…' : '시나리오 패키지 컴파일'}
+            </button>
+          ) : null}
+          {scenarioPackage ? (
+            <p role="status">패키지 {scenarioPackage.packageId} · {scenarioPackage.reportStatus}</p>
+          ) : null}
         </section>
       ) : null}
       {api.searchStorySources ? (

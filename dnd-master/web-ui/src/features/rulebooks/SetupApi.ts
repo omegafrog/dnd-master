@@ -66,6 +66,16 @@ export type ScenarioBundleView = {
   documents: ScenarioBundleDocumentView[]
 }
 
+export type ScenarioPackageView = {
+  packageId: string
+  bundleId: string
+  bundleRevision: number
+  inputFingerprint: string
+  reportStatus: 'COMPLETE' | 'PARTIAL' | 'INVALID'
+  warnings: string[]
+  units: Array<{ kind: string | null; status: 'COMPLETE' | 'PARTIAL' | 'INVALID'; validationMessages: string[] }>
+}
+
 export type ScenarioBundleDraft = {
   knowledgeDocumentId: string
   role: ScenarioBundleRole
@@ -134,6 +144,7 @@ export interface SetupApi {
   createScenarioBundle(ownerId: string, documents: ScenarioBundleDraft[]): Promise<ScenarioBundleView>
   reviseScenarioBundle(bundleId: string, ownerId: string, documents: ScenarioBundleDraft[]): Promise<ScenarioBundleView>
   getScenarioBundle(bundleId: string): Promise<ScenarioBundleView>
+  compileScenarioBundle?(bundleId: string, ownerId: string): Promise<ScenarioPackageView>
   saveRuleSet(rulebookIds: string[]): Promise<void>
   listKnowledgeDocuments(ownerId: string): Promise<KnowledgeDocumentView[]>
   searchStorySources?(ownerId: string, documents: StorySourceScopeView[], situation: string, activeLocators?: string[]): Promise<StorySourceEvidenceView[]>
@@ -228,6 +239,14 @@ export class HttpSetupApi implements SetupApi {
     return request<ScenarioBundleView>(`/api/v1/adventures/scenario-bundles/${bundleId}`, {
       headers: this.authHeaders(),
     })
+  }
+
+  compileScenarioBundle(bundleId: string, ownerId: string) {
+    return request<ScenarioPackageView>(`/api/v1/adventures/scenario-bundles/${bundleId}/compilations`, {
+      method: 'POST',
+      headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId: ownerId, candidates: [] }),
+    }, '시나리오 패키지 컴파일에 실패했습니다.')
   }
 
   saveRuleSet(rulebookIds: string[]) {
