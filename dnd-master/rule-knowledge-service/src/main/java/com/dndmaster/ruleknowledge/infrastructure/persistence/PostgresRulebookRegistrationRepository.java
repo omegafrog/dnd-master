@@ -82,8 +82,9 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                  missing_locations, failure_code, version, created_at, updated_at,
                  document_type, original_filename)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT (operation_key) DO UPDATE SET
+            ON CONFLICT (rulebook_id) DO UPDATE SET
                 owner_player_id = EXCLUDED.owner_player_id,
+                operation_key = EXCLUDED.operation_key,
                 content_hash = EXCLUDED.content_hash,
                 format = EXCLUDED.format,
                 file_size = EXCLUDED.file_size,

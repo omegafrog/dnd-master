@@ -85,7 +85,26 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 registrationRepository.findByOwnerAndContentHash(command.ownerPlayerId(), contentHash);
         if (duplicate.isPresent()) {
             StoredRulebookRegistration previous = duplicate.get();
-            replayedUploads.putIfAbsent(command.operationKey(), previous);
+            StoredRulebookRegistration replayedRegistration = new StoredRulebookRegistration(
+                    previous.rulebookId(),
+                    previous.ownerPlayerId(),
+                    command.operationKey(),
+                    previous.contentHash(),
+                    previous.format(),
+                    previous.fileSize(),
+                    previous.storageKey(),
+                    previous.processingStatus(),
+                    previous.extractionStatus(),
+                    previous.extractedContent(),
+                    previous.missingLocations(),
+                    previous.failureCode(),
+                    previous.version(),
+                    previous.createdAt(),
+                    previous.updatedAt(),
+                    previous.documentType(),
+                    previous.originalFilename());
+            registrationRepository.save(replayedRegistration);
+            replayedUploads.put(command.operationKey(), replayedRegistration);
             return new RulebookProcessingResult(previous.rulebookId(), previous.processingStatus(), List.of());
         }
 
@@ -129,6 +148,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         }
         StoredRulebookRegistration queued = withStatus(registration, ProcessingStatus.QUEUED, null, null, null, null);
         registrationRepository.save(queued);
+        replayedUploads.put(queued.operationKey(), queued);
         return new RulebookProcessingResult(rulebookId, ProcessingStatus.QUEUED, List.of());
     }
 
@@ -158,6 +178,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                     extractionResult.content().orElse(null),
                     extractionResult.missingLocations());
             registrationRepository.save(indexed);
+            replayedUploads.put(indexed.operationKey(), indexed);
             return new RulebookProcessingResult(registration.rulebookId(), ProcessingStatus.INDEXED, List.of());
         } catch (IndexingFailedException exception) {
             return fail(registration, null, describeFailure(exception));
@@ -190,6 +211,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 extractionResult != null ? extractionResult.content().orElse(null) : registration.extractedContent(),
                 extractionResult != null ? extractionResult.missingLocations() : registration.missingLocations());
         registrationRepository.save(failed);
+        replayedUploads.put(failed.operationKey(), failed);
         return new RulebookProcessingResult(registration.rulebookId(), ProcessingStatus.FAILED, List.of(reason));
     }
 

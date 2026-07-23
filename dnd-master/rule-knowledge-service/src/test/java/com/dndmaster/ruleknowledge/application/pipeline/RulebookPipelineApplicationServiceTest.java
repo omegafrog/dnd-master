@@ -111,6 +111,7 @@ class RulebookPipelineApplicationServiceTest {
         assertEquals(1, processed.size());
         assertEquals(ProcessingStatus.INDEXED, processed.get(0).status());
         assertEquals(ProcessingStatus.INDEXED, harness.repository.findByOperationKey("upload-1").orElseThrow().processingStatus());
+        assertEquals(ProcessingStatus.INDEXED, harness.service.process(command("upload-1", "alpha")).status());
         assertEquals(1, harness.extractor.calls);
         assertEquals(1, harness.embeddingPort.calls);
     }
