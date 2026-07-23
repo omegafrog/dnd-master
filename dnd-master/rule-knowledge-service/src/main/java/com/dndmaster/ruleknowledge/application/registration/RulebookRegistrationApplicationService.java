@@ -37,6 +37,9 @@ public final class RulebookRegistrationApplicationService {
         byte[] safeContent = Arrays.copyOf(fileContent, fileContent.length);
         String fingerprint = RulebookUploadHash.sha256(safeContent);
         String operationKeyValue = operationKey.trim();
+        if (operationKeyValue.contains("|")) {
+            throw new IllegalArgumentException("operation key must not contain '|'");
+        }
         UploadResult existingByOperationKey = completedUploadsByOperationKey.get(operationKeyValue);
         if (existingByOperationKey != null) {
             if (!existingByOperationKey.ownerPlayerId().equals(ownerPlayerId)

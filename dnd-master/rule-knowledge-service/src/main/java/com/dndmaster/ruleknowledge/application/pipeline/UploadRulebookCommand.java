@@ -38,5 +38,8 @@ public record UploadRulebookCommand(
         operationKey = (operationKey == null || operationKey.isBlank())
                 ? UUID.randomUUID().toString()
                 : operationKey.trim();
+        if (operationKey.contains("|")) {
+            throw new IllegalArgumentException("operation key must not contain '|'");
+        }
     }
 }
