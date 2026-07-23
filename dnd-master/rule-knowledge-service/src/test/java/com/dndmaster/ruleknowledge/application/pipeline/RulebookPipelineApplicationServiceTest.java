@@ -426,6 +426,36 @@ class RulebookPipelineApplicationServiceTest {
             return registration;
         }
 
+        @Override
+        public StoredRulebookRegistration appendOperationKey(OwnerPlayerId owner, String contentHash, String operationKey) {
+            StoredRulebookRegistration current = byId.values().stream()
+                    .filter(registration -> registration.ownerPlayerId().equals(owner)
+                            && registration.contentHash().equals(contentHash))
+                    .findFirst()
+                    .orElseThrow();
+            StoredRulebookRegistration appended = new StoredRulebookRegistration(
+                    current.rulebookId(),
+                    current.ownerPlayerId(),
+                    OperationKeyChain.append(current.operationKey(), operationKey),
+                    current.contentHash(),
+                    current.format(),
+                    current.fileSize(),
+                    current.storageKey(),
+                    current.processingStatus(),
+                    current.extractionStatus(),
+                    current.extractedContent(),
+                    current.missingLocations(),
+                    current.failureCode(),
+                    current.version(),
+                    current.createdAt(),
+                    current.updatedAt(),
+                    current.documentType(),
+                    current.originalFilename());
+            byOperationKey.put(appended.operationKey(), appended);
+            byId.put(appended.rulebookId(), appended);
+            return appended;
+        }
+
         private int size() {
             return byId.size();
         }

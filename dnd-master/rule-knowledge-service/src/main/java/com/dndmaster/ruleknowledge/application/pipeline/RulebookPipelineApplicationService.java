@@ -97,25 +97,8 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 registrationRepository.findByOwnerAndContentHash(command.ownerPlayerId(), contentHash);
         if (duplicate.isPresent()) {
             StoredRulebookRegistration previous = duplicate.get();
-            StoredRulebookRegistration replayedRegistration = new StoredRulebookRegistration(
-                    previous.rulebookId(),
-                    previous.ownerPlayerId(),
-                    OperationKeyChain.append(previous.operationKey(), command.operationKey()),
-                    previous.contentHash(),
-                    previous.format(),
-                    previous.fileSize(),
-                    previous.storageKey(),
-                    previous.processingStatus(),
-                    previous.extractionStatus(),
-                    previous.extractedContent(),
-                    previous.missingLocations(),
-                    previous.failureCode(),
-                    previous.version(),
-                    previous.createdAt(),
-                    previous.updatedAt(),
-                    previous.documentType(),
-                    previous.originalFilename());
-            StoredRulebookRegistration persisted = registrationRepository.save(replayedRegistration);
+            StoredRulebookRegistration persisted = registrationRepository.appendOperationKey(
+                    previous.ownerPlayerId(), previous.contentHash(), OperationKeyChain.canonicalize(command.operationKey()));
             rememberRegistration(persisted);
             return new RulebookProcessingResult(persisted.rulebookId(), persisted.processingStatus(), List.of());
         }

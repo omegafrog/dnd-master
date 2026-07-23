@@ -86,6 +86,45 @@ class RulebookRegistrationRepositoryIntegrationTest {
         assertThat(persisted.operationKey()).contains("op-b");
     }
 
+    @Test
+    void appendOperationKeyDoesNotRollbackConcurrentState() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        String contentHash = "same-hash";
+        RulebookId rulebookId = RulebookId.generate();
+        StoredRulebookRegistration queued = registration(rulebookId, owner, "op-a", contentHash, "first.txt");
+        StoredRulebookRegistration indexed = new StoredRulebookRegistration(
+                queued.rulebookId(),
+                queued.ownerPlayerId(),
+                queued.operationKey(),
+                queued.contentHash(),
+                queued.format(),
+                queued.fileSize(),
+                queued.storageKey(),
+                ProcessingStatus.INDEXED,
+                queued.extractionStatus(),
+                queued.extractedContent(),
+                queued.missingLocations(),
+                queued.failureCode(),
+                queued.version() + 1,
+                queued.createdAt(),
+                queued.updatedAt().plusSeconds(5),
+                queued.documentType(),
+                queued.originalFilename());
+
+        repository.save(queued);
+        repository.save(indexed);
+
+        StoredRulebookRegistration replayed =
+                repository.appendOperationKey(owner, contentHash, "op-b");
+
+        assertThat(replayed.processingStatus()).isEqualTo(ProcessingStatus.INDEXED);
+        assertThat(replayed.version()).isEqualTo(indexed.version());
+        assertThat(replayed.operationKey()).contains("op-a");
+        assertThat(replayed.operationKey()).contains("op-b");
+        assertThat(repository.findByOwnerAndContentHash(owner, contentHash).orElseThrow().processingStatus())
+                .isEqualTo(ProcessingStatus.INDEXED);
+    }
+
     private StoredRulebookRegistration saveAfterLatch(
             StoredRulebookRegistration registration, CountDownLatch ready, CountDownLatch start) throws Exception {
         ready.countDown();

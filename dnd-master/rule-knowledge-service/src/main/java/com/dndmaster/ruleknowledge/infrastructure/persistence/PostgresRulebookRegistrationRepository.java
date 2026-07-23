@@ -106,6 +106,19 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                       missing_locations, failure_code, version, created_at, updated_at,
                       document_type, original_filename
             """;
+    private static final String APPEND_OPERATION_KEY = """
+            UPDATE rulebook_registration
+               SET operation_key = CASE
+                       WHEN position(? in operation_key) > 0 THEN operation_key
+                       ELSE operation_key || ?
+                   END
+             WHERE owner_player_id = ?
+               AND content_hash = ?
+            RETURNING rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
+                      storage_key, processing_status, extraction_status, extracted_content,
+                      missing_locations, failure_code, version, created_at, updated_at,
+                      document_type, original_filename
+            """;
 
     private final DataSource dataSource;
 
@@ -250,6 +263,28 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
             throw new IllegalStateException("expected one saved rulebook registration");
         } catch (SQLException e) {
             throw new RuntimeException("failed to save rulebook registration", e);
+        }
+    }
+
+    @Override
+    public StoredRulebookRegistration appendOperationKey(OwnerPlayerId owner, String contentHash, String operationKey) {
+        Objects.requireNonNull(owner, "owner must not be null");
+        Objects.requireNonNull(contentHash, "contentHash must not be null");
+        Objects.requireNonNull(operationKey, "operationKey must not be null");
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement ps = connection.prepareStatement(APPEND_OPERATION_KEY)) {
+            ps.setString(1, operationKey);
+            ps.setString(2, operationKey);
+            ps.setObject(3, owner.value(), Types.OTHER);
+            ps.setString(4, contentHash);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (rs.next()) {
+                    return mapRow(rs);
+                }
+            }
+            throw new IllegalStateException("expected one appended rulebook registration");
+        } catch (SQLException e) {
+            throw new RuntimeException("failed to append operation key to rulebook registration", e);
         }
     }
 
