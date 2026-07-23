@@ -14,14 +14,20 @@ public final class ScenarioCompilationApplicationService {
     private final ScenarioBundleRepository bundleRepository;
     private final ScenarioPackageCompilationService compiler;
     private final ScenarioPackageRepository packageRepository;
+    private final ScenarioCompilationProcessManager processManager;
+    private final ScenarioCompilationRepository compilationRepository;
 
     public ScenarioCompilationApplicationService(
             ScenarioBundleRepository bundleRepository,
             ScenarioPackageCompilationService compiler,
-            ScenarioPackageRepository packageRepository) {
+            ScenarioPackageRepository packageRepository,
+            ScenarioCompilationProcessManager processManager,
+            ScenarioCompilationRepository compilationRepository) {
         this.bundleRepository = Objects.requireNonNull(bundleRepository, "bundle repository must not be null");
         this.compiler = Objects.requireNonNull(compiler, "compiler must not be null");
         this.packageRepository = Objects.requireNonNull(packageRepository, "package repository must not be null");
+        this.processManager = Objects.requireNonNull(processManager, "process manager must not be null");
+        this.compilationRepository = Objects.requireNonNull(compilationRepository, "compilation repository must not be null");
     }
 
     public ScenarioPackage compile(
@@ -46,5 +52,23 @@ public final class ScenarioCompilationApplicationService {
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         bundle.authorize(owner);
         return scenarioPackage;
+    }
+
+    public com.dndmaster.adventure.domain.scenario.ScenarioCompilation start(
+            ScenarioBundleId bundleId, OwnerPlayerId owner, String inputFingerprint) {
+        ScenarioSourceBundle bundle = bundleRepository.findById(bundleId)
+                .orElseThrow(ScenarioBundleNotFoundException::new);
+        bundle.authorize(owner);
+        return processManager.start(bundleId, bundle.currentRevision().revision(), inputFingerprint);
+    }
+
+    public com.dndmaster.adventure.domain.scenario.ScenarioCompilation readCompilation(
+            UUID compilationId, OwnerPlayerId owner) {
+        var compilation = compilationRepository.findById(compilationId)
+                .orElseThrow(ScenarioBundleNotFoundException::new);
+        ScenarioSourceBundle bundle = bundleRepository.findById(compilation.bundleId())
+                .orElseThrow(ScenarioBundleNotFoundException::new);
+        bundle.authorize(owner);
+        return compilation;
     }
 }

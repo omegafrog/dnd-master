@@ -53,6 +53,25 @@ public class ScenarioCompilationController {
         return PackageResponse.from(service.read(packageId, ownerFromAuthorization(authorization)));
     }
 
+    @PostMapping("/scenario-bundles/{bundleId}/compilation-jobs")
+    CompilationResponse startJob(
+            @PathVariable UUID bundleId,
+            @RequestHeader("Authorization") String authorization,
+            @RequestBody CompilationJobRequest request) {
+        OwnerPlayerId owner = ownerFromAuthorization(authorization);
+        if (!owner.value().equals(request.playerId())) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "playerId must match Authorization");
+        }
+        return CompilationResponse.from(service.start(new ScenarioBundleId(bundleId), owner, request.inputFingerprint()));
+    }
+
+    @GetMapping("/compilations/{compilationId}")
+    CompilationResponse readJob(
+            @PathVariable UUID compilationId,
+            @RequestHeader("Authorization") String authorization) {
+        return CompilationResponse.from(service.readCompilation(compilationId, ownerFromAuthorization(authorization)));
+    }
+
     private static ResolutionCandidate candidate(CandidateRequest candidate) {
         if (candidate == null) {
             return null;
@@ -86,6 +105,14 @@ public class ScenarioCompilationController {
     }
 
     public record CompilationRequest(UUID playerId, List<CandidateRequest> candidates) {}
+    public record CompilationJobRequest(UUID playerId, String inputFingerprint) {}
+    public record CompilationResponse(UUID compilationId, UUID bundleId, long bundleRevision, String status, int attempt,
+                                      UUID packageId, String failureReason) {
+        static CompilationResponse from(com.dndmaster.adventure.domain.scenario.ScenarioCompilation compilation) {
+            return new CompilationResponse(compilation.id(), compilation.bundleId().value(), compilation.bundleRevision(),
+                    compilation.status().name(), compilation.attempt(), compilation.packageId(), compilation.failureReason());
+        }
+    }
     public record CandidateRequest(
             ResolutionKind kind, String abilityOrSkill, Integer dc, String diceExpression,
             ResolutionVisibility visibility, String sourceQuote,
