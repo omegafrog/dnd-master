@@ -14,17 +14,14 @@ public final class ScenarioCompilationApplicationService {
     private final ScenarioBundleRepository bundleRepository;
     private final ScenarioPackageCompilationService compiler;
     private final ScenarioPackageRepository packageRepository;
-    private final ResolutionExtractionPort extractionPort;
 
     public ScenarioCompilationApplicationService(
             ScenarioBundleRepository bundleRepository,
             ScenarioPackageCompilationService compiler,
-            ScenarioPackageRepository packageRepository,
-            ResolutionExtractionPort extractionPort) {
+            ScenarioPackageRepository packageRepository) {
         this.bundleRepository = Objects.requireNonNull(bundleRepository, "bundle repository must not be null");
         this.compiler = Objects.requireNonNull(compiler, "compiler must not be null");
         this.packageRepository = Objects.requireNonNull(packageRepository, "package repository must not be null");
-        this.extractionPort = Objects.requireNonNull(extractionPort, "extraction port must not be null");
     }
 
     public ScenarioPackage compile(
@@ -39,10 +36,7 @@ public final class ScenarioCompilationApplicationService {
         ScenarioSourceBundle bundle = bundleRepository.findById(bundleId)
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         bundle.authorize(owner);
-        List<ResolutionCandidate> candidates = extractionPort.extract(
-                new ResolutionExtractionPort.ResolutionExtractionRequest(
-                        UUID.randomUUID().toString(), List.of(), "resolution-candidate-v1", "resolution-prompt-v1"));
-        return compiler.compile(bundle, candidates);
+        return compiler.compile(bundle, List.of());
     }
 
     public ScenarioPackage read(UUID packageId, OwnerPlayerId owner) {
