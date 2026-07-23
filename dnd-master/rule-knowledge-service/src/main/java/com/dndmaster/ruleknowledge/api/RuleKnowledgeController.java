@@ -224,10 +224,14 @@ public class RuleKnowledgeController {
     }
 
     @PostMapping("/internal/v1/story-sources/search")
-    StorySourceSearchResponse searchStorySources(@RequestBody StorySourceSearchRequest request) {
+    StorySourceSearchResponse searchStorySources(
+            @RequestHeader("Authorization") String authorization,
+            @RequestBody StorySourceSearchRequest request) {
         if (storySourceSearchService == null) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "story source search is not configured");
         }
+        UUID authenticatedOwner = extractPlayerId(authorization);
+        requireOwner(authenticatedOwner, request.ownerId());
         List<StorySourceScope> scope = request.documents().stream()
                 .map(document -> new StorySourceScope(
                         new KnowledgeDocumentId(document.documentId()), document.extractionVersion()))
@@ -250,9 +254,11 @@ public class RuleKnowledgeController {
     @GetMapping("/internal/v1/story-sources/{documentId}/context")
     StorySourceContextResponse readStorySourceContext(
             @PathVariable UUID documentId,
+            @RequestHeader("Authorization") String authorization,
             @RequestParam UUID ownerId,
             @RequestParam long extractionVersion,
             @RequestParam String locator) {
+        requireOwner(extractPlayerId(authorization), ownerId);
         StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(documentId))
                 .filter(candidate -> candidate.ownerPlayerId().value().equals(ownerId))
                 .filter(candidate -> candidate.documentType() == DocumentType.STORYBOOK)
@@ -267,7 +273,7 @@ public class RuleKnowledgeController {
             }
         }
         if (selected < 0) {
-            return new StorySourceContextResponse(documentId, extractionVersion, locator, List.of());
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "story source span not found");
         }
         int from = Math.max(0, selected - 2);
         int to = Math.min(spans.size(), selected + 3);
@@ -295,6 +301,12 @@ public class RuleKnowledgeController {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is required");
         }
         return UUID.fromString(authorization.substring("Bearer ".length()));
+    }
+
+    private static void requireOwner(UUID authenticatedOwner, UUID requestedOwner) {
+        if (!authenticatedOwner.equals(requestedOwner)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "owner does not match authenticated player");
+        }
     }
 
     private static RulebookFormat resolveFormat(String filename) {

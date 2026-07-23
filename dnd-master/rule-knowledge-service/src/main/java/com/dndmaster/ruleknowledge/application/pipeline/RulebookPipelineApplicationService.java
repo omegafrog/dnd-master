@@ -175,7 +175,8 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
     }
 
     private void attemptIndexing(Rulebook rulebook, StoredRulebookRegistration registration) {
-        IndexKey indexKey = new IndexKey(registration.rulebookId(), registration.contentHash(), "ollama-embedding", "v1");
+        IndexKey indexKey = new IndexKey(
+                registration.rulebookId(), registration.contentHash(), "ollama-embedding", "v1-" + registration.contentHash());
         IndexingCommand indexingCommand = new IndexingCommand(rulebook, indexKey, embeddingDimension);
         try {
             indexingService.indexContent(indexingCommand);
