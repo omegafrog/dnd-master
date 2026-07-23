@@ -23,7 +23,9 @@ public final class TxtSourcePreviewExtractor implements CompositeSourcePreviewEx
                         span.startInclusive(),
                         span.endExclusive(),
                         span.text(),
-                        span.locator()))
+                        span.locator(),
+                        "TEXT",
+                        null))
                 .toList();
         return new SourcePreviewResult(text, List.of(), spans, List.of());
     }

@@ -423,7 +423,7 @@ class RulebookPipelineApplicationServiceTest {
             return new SourcePreviewResult(
                     text,
                     List.of("preview warning"),
-                    List.of(new PreviewSpan("PREVIEW_LINE", List.of("preview"), 1, null, 1, 0, text.length(), text, "preview 1")),
+                    List.of(new PreviewSpan("PREVIEW_LINE", List.of("preview"), 1, null, 1, 0, text.length(), text, "preview 1", "TEXT", null)),
                     List.of(new PreviewAsset("IMAGE", "preview image 1", "image/png", 1)));
         }
     }

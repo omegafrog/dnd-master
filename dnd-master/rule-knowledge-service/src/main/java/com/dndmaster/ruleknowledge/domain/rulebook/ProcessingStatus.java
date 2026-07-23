@@ -5,6 +5,7 @@ public enum ProcessingStatus {
     PROCESSING,
     INDEXED,
     FAILED,
+    NEEDS_INPUT,
     UPLOADED,
     EXTRACTED,
     PARTIAL_AWAITING_CONFIRMATION,

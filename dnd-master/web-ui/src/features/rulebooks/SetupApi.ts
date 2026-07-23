@@ -4,6 +4,7 @@ export type RulebookStatus =
   | 'PROCESSING'
   | 'INDEXED'
   | 'FAILED'
+  | 'NEEDS_INPUT'
   | 'UPLOADED'
   | 'EXTRACTED'
   | 'PARTIAL_AWAITING_CONFIRMATION'
@@ -27,14 +28,14 @@ export type BatchRulebookView = {
   failureReason?: string | null
 }
 
-export type KnowledgeDocumentStatus = 'UPLOADED' | 'QUEUED' | 'PROCESSING' | 'FAILED' | 'EXTRACTED' | 'INDEXED' | 'PARTIAL_AWAITING_CONFIRMATION' | 'PARTIAL_CONFIRMED' | 'REJECTED'
+export type KnowledgeDocumentStatus = 'UPLOADED' | 'NEEDS_INPUT' | 'QUEUED' | 'PROCESSING' | 'FAILED' | 'EXTRACTED' | 'INDEXED' | 'PARTIAL_AWAITING_CONFIRMATION' | 'PARTIAL_CONFIRMED' | 'REJECTED'
 
 export type KnowledgeDocumentView = {
   knowledgeDocumentId: string
   documentType: DocumentType
   originalFilename: string
   status: KnowledgeDocumentStatus
-  format: 'PDF' | 'DOCX' | 'TXT'
+  format: 'PDF' | 'DOCX' | 'TXT' | 'IMAGE'
   extractionVersion?: number
   warnings?: string[]
   failureReason?: string | null
@@ -85,6 +86,8 @@ export type SourceSpanView = {
   endExclusive: number
   text: string
   locator: string
+  sourceMethod?: string | null
+  confidence?: number | null
 }
 
 export type SourceAssetView = {
@@ -99,7 +102,7 @@ export type SourcePreviewView = {
   knowledgeDocumentId: string
   documentType: DocumentType
   originalFilename: string
-  format: 'PDF' | 'DOCX' | 'TXT'
+  format: 'PDF' | 'DOCX' | 'TXT' | 'IMAGE'
   status: string
   content: string
   extractionVersion: number

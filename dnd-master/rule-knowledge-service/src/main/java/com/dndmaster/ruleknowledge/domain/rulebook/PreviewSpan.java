@@ -12,7 +12,9 @@ public record PreviewSpan(
         int startInclusive,
         int endExclusive,
         String text,
-        String locator) {
+        String locator,
+        String sourceMethod,
+        Double confidence) {
 
     public PreviewSpan {
         if (kind == null || kind.isBlank()) {
@@ -37,6 +39,14 @@ public record PreviewSpan(
             locator = kind.toLowerCase() + " " + lineNumber + " chars " + startInclusive + "-" + endExclusive;
         } else {
             locator = locator.trim();
+        }
+        if (sourceMethod != null && sourceMethod.isBlank()) {
+            sourceMethod = null;
+        } else if (sourceMethod != null) {
+            sourceMethod = sourceMethod.trim();
+        }
+        if (confidence != null && (confidence.isNaN() || confidence < 0d || confidence > 100d)) {
+            throw new IllegalArgumentException("confidence must be between 0 and 100 when present");
         }
     }
 }

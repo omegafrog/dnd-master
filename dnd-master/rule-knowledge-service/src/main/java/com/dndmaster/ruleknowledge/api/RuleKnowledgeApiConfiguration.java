@@ -5,6 +5,7 @@ import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicat
 import com.dndmaster.ruleknowledge.application.registration.*;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicationService;
 import com.dndmaster.ruleknowledge.infrastructure.extraction.*;
+import com.dndmaster.ruleknowledge.infrastructure.ocr.TesseractOcrAdapter;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookIndexRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchPort;
@@ -20,6 +21,7 @@ import org.springframework.context.annotation.Configuration;
 import javax.sql.DataSource;
 import java.nio.file.Path;
 import java.util.Map;
+import java.time.Duration;
 
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat;
 
@@ -33,11 +35,20 @@ public class RuleKnowledgeApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.ruleknowledge.application.ocr.OcrPort ocrPort(
+            @Value("${rule-knowledge.ocr.executable:tesseract}") String executable,
+            @Value("${rule-knowledge.ocr.languages:eng,kor}") String languages,
+            @Value("${rule-knowledge.ocr.request-timeout:20s}") Duration requestTimeout) {
+        return new TesseractOcrAdapter(executable, java.util.Arrays.asList(languages.split(",")), requestTimeout);
+    }
+
+    @Bean
     RulebookContentExtractor rulebookContentExtractor() {
         return new CompositeRulebookContentExtractor(Map.of(
                 RulebookFormat.PDF, new PdfRulebookContentExtractor(),
                 RulebookFormat.DOCX, new DocxRulebookContentExtractor(),
-                RulebookFormat.TXT, new TxtRulebookContentExtractor()));
+                RulebookFormat.TXT, new TxtRulebookContentExtractor(),
+                RulebookFormat.IMAGE, new ImageRulebookContentExtractor()));
     }
 
     @Bean
@@ -45,7 +56,8 @@ public class RuleKnowledgeApiConfiguration {
         return new CompositeSourcePreviewExtractor(Map.of(
                 RulebookFormat.PDF, new PdfSourcePreviewExtractor(),
                 RulebookFormat.DOCX, new DocxSourcePreviewExtractor(),
-                RulebookFormat.TXT, new TxtSourcePreviewExtractor()));
+                RulebookFormat.TXT, new TxtSourcePreviewExtractor(),
+                RulebookFormat.IMAGE, new ImageSourcePreviewExtractor()));
     }
 
     @Bean

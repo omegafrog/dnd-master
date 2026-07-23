@@ -16,6 +16,7 @@ const batchStatusText: Record<BatchRulebookView['status'], string> = {
 
 const knowledgeStatusText: Record<KnowledgeDocumentView['status'], string> = {
   UPLOADED: '대기 중',
+  NEEDS_INPUT: '추가 입력 필요',
   QUEUED: '대기 중',
   PROCESSING: '처리 중',
   INDEXED: '색인 완료',
@@ -138,7 +139,7 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
             <input
               name="rulebooks"
               type="file"
-              accept=".pdf,.docx,.txt,.md"
+              accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff,.bmp"
               multiple
               onChange={event => {
                 const files = Array.from(event.currentTarget.files ?? [])
@@ -228,6 +229,8 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
                 {sourcePreview.spans.map(span => (
                   <li key={`${span.lineNumber}-${span.startInclusive}-${span.endExclusive}`}>
                     <span>{span.kind} · {span.path.join(' > ')}</span>
+                    {span.sourceMethod ? <span> · {span.sourceMethod}</span> : null}
+                    {span.confidence != null ? <span> · {span.confidence.toFixed(1)}%</span> : null}
                     {span.pageNumber ? <span> · p{span.pageNumber}</span> : null}
                     {span.bounds ? <span> · [{span.bounds.left.toFixed(3)}, {span.bounds.top.toFixed(3)}, {span.bounds.right.toFixed(3)}, {span.bounds.bottom.toFixed(3)}]</span> : null}
                     <pre>{span.text || ' '}</pre>
