@@ -13,6 +13,8 @@ import com.dndmaster.adventure.domain.scenario.ScenarioSource;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioBundleRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioPackageRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioCompilationRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresWorkQueueAdapter;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpKnowledgeDocumentLookupGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpResolutionExtractionGateway;
@@ -79,6 +81,24 @@ public class AdventureApiConfiguration {
     com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository scenarioPackageRepository(
             DataSource dataSource) {
         return new PostgresScenarioPackageRepository(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationRepository scenarioCompilationRepository(
+            DataSource dataSource) {
+        return new PostgresScenarioCompilationRepository(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.compilation.WorkQueuePort scenarioWorkQueue(DataSource dataSource) {
+        return new PostgresWorkQueueAdapter(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationProcessManager scenarioCompilationProcessManager(
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationRepository repository,
+            com.dndmaster.adventure.application.scenario.compilation.WorkQueuePort queue) {
+        return new com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationProcessManager(repository, queue);
     }
 
     @Bean
