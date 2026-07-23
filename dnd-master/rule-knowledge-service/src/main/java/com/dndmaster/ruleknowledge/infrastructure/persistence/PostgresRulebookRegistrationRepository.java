@@ -83,24 +83,55 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                  document_type, original_filename)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (owner_player_id, content_hash) DO UPDATE SET
-                owner_player_id = EXCLUDED.owner_player_id,
                 operation_key = CASE
                     WHEN position(EXCLUDED.operation_key in rulebook_registration.operation_key) > 0 THEN rulebook_registration.operation_key
                     ELSE rulebook_registration.operation_key || EXCLUDED.operation_key
                 END,
-                content_hash = EXCLUDED.content_hash,
-                format = EXCLUDED.format,
-                file_size = EXCLUDED.file_size,
-                storage_key = EXCLUDED.storage_key,
-                processing_status = EXCLUDED.processing_status,
-                extraction_status = EXCLUDED.extraction_status,
-                extracted_content = EXCLUDED.extracted_content,
-                missing_locations = EXCLUDED.missing_locations,
-                failure_code = EXCLUDED.failure_code,
-                version = EXCLUDED.version,
-                updated_at = EXCLUDED.updated_at,
-                document_type = EXCLUDED.document_type,
-                original_filename = EXCLUDED.original_filename
+                format = CASE
+                    WHEN EXCLUDED.version >= rulebook_registration.version THEN EXCLUDED.format
+                    ELSE rulebook_registration.format
+                END,
+                file_size = CASE
+                    WHEN EXCLUDED.version >= rulebook_registration.version THEN EXCLUDED.file_size
+                    ELSE rulebook_registration.file_size
+                END,
+                storage_key = CASE
+                    WHEN EXCLUDED.version >= rulebook_registration.version THEN EXCLUDED.storage_key
+                    ELSE rulebook_registration.storage_key
+                END,
+                processing_status = CASE
+                    WHEN EXCLUDED.version >= rulebook_registration.version THEN EXCLUDED.processing_status
+                    ELSE rulebook_registration.processing_status
+                END,
+                extraction_status = CASE
+                    WHEN EXCLUDED.version >= rulebook_registration.version THEN EXCLUDED.extraction_status
+                    ELSE rulebook_registration.extraction_status
+                END,
+                extracted_content = CASE
+                    WHEN EXCLUDED.version >= rulebook_registration.version THEN EXCLUDED.extracted_content
+                    ELSE rulebook_registration.extracted_content
+                END,
+                missing_locations = CASE
+                    WHEN EXCLUDED.version >= rulebook_registration.version THEN EXCLUDED.missing_locations
+                    ELSE rulebook_registration.missing_locations
+                END,
+                failure_code = CASE
+                    WHEN EXCLUDED.version >= rulebook_registration.version THEN EXCLUDED.failure_code
+                    ELSE rulebook_registration.failure_code
+                END,
+                version = GREATEST(rulebook_registration.version, EXCLUDED.version),
+                updated_at = CASE
+                    WHEN EXCLUDED.version >= rulebook_registration.version THEN EXCLUDED.updated_at
+                    ELSE rulebook_registration.updated_at
+                END,
+                document_type = CASE
+                    WHEN EXCLUDED.version >= rulebook_registration.version THEN EXCLUDED.document_type
+                    ELSE rulebook_registration.document_type
+                END,
+                original_filename = CASE
+                    WHEN EXCLUDED.version >= rulebook_registration.version THEN EXCLUDED.original_filename
+                    ELSE rulebook_registration.original_filename
+                END
             RETURNING rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
                       storage_key, processing_status, extraction_status, extracted_content,
                       missing_locations, failure_code, version, created_at, updated_at,

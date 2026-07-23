@@ -87,7 +87,7 @@ class RulebookRegistrationRepositoryIntegrationTest {
     }
 
     @Test
-    void appendOperationKeyDoesNotRollbackConcurrentState() {
+    void saveDoesNotRollbackConcurrentState() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
         String contentHash = "same-hash";
         RulebookId rulebookId = RulebookId.generate();
@@ -114,13 +114,12 @@ class RulebookRegistrationRepositoryIntegrationTest {
         repository.save(queued);
         repository.save(indexed);
 
-        StoredRulebookRegistration replayed =
-                repository.appendOperationKey(owner, contentHash, "op-b");
+        StoredRulebookRegistration replayed = repository.save(queued);
 
         assertThat(replayed.processingStatus()).isEqualTo(ProcessingStatus.INDEXED);
         assertThat(replayed.version()).isEqualTo(indexed.version());
         assertThat(replayed.operationKey()).contains("op-a");
-        assertThat(replayed.operationKey()).contains("op-b");
+        assertThat(replayed.operationKey()).doesNotContain("op-b");
         assertThat(repository.findByOwnerAndContentHash(owner, contentHash).orElseThrow().processingStatus())
                 .isEqualTo(ProcessingStatus.INDEXED);
     }
