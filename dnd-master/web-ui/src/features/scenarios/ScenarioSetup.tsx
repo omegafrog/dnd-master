@@ -40,10 +40,11 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
     void api.listKnowledgeDocuments(playerId)
       .then(items => {
         if (!active) return
-        const storybooks = items.filter(document => document.documentType === 'STORYBOOK' && selectableStatuses.has(document.status))
+        const storybooks = items.filter(document => document.documentType === 'STORYBOOK')
+        const selectableStorybooks = storybooks.filter(document => selectableStatuses.has(document.status))
         setDocuments(storybooks)
-        setSelectedIds(new Set(storybooks.map(document => document.knowledgeDocumentId)))
-        setRoles(storybooks.reduce<Record<string, ScenarioBundleRole>>((acc, document, index) => {
+        setSelectedIds(new Set(selectableStorybooks.map(document => document.knowledgeDocumentId)))
+        setRoles(selectableStorybooks.reduce<Record<string, ScenarioBundleRole>>((acc, document, index) => {
           acc[document.knowledgeDocumentId] = index === 0 ? 'MAIN_SCENARIO' : 'HANDOUT'
           return acc
         }, {}))
@@ -117,15 +118,17 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
                 <input
                   type="checkbox"
                   checked={selectedIds.has(document.knowledgeDocumentId)}
+                  disabled={!selectableStatuses.has(document.status)}
                   onChange={() => toggleSelected(document.knowledgeDocumentId)}
                 />
-                {document.originalFilename}
+                {selectableStatuses.has(document.status) ? document.originalFilename : '문서 선택 불가'}
               </label>
               <label>
                 {document.originalFilename} 역할
                 <select
                   aria-label={`${document.originalFilename} 역할`}
                   value={roles[document.knowledgeDocumentId] ?? 'UNDETERMINED'}
+                  disabled={!selectableStatuses.has(document.status)}
                   onChange={event => updateRole(document.knowledgeDocumentId, event.currentTarget.value as ScenarioBundleRole)}
                 >
                   {Object.entries(roleLabel).map(([role, label]) => (
@@ -133,9 +136,11 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
                   ))}
                 </select>
               </label>
-              {document.status === 'PARTIAL_AWAITING_CONFIRMATION' ||
-              document.status === 'PARTIAL_CONFIRMED' ||
-              (document.warnings?.length ?? 0) > 0 ? (
+              {document.status === 'FAILED' ? (
+                <p role="alert">{document.originalFilename}: 컴파일 위험 — {(document.warnings ?? []).join(', ') || '추출 실패'}</p>
+              ) : document.status === 'PARTIAL_AWAITING_CONFIRMATION' ||
+                document.status === 'PARTIAL_CONFIRMED' ||
+                (document.warnings?.length ?? 0) > 0 ? (
                 <p role="alert">{document.originalFilename}: 추출 경고가 있어 컴파일 위험이 있습니다.</p>
               ) : null}
             </li>
