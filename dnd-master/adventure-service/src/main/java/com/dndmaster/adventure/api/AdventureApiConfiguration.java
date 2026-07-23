@@ -18,6 +18,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresWorkQueueAdapt
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpKnowledgeDocumentLookupGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpResolutionExtractionGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpScenarioSourceExcerptGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuleIntentClassificationGateway;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
@@ -143,16 +144,25 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort scenarioSourceExcerptPort(
+            ObjectMapper objectMapper) {
+        return new CrossContextHttpScenarioSourceExcerptGateway(
+                HttpClient.newHttpClient(), URI.create("http://127.0.0.1:18083/"),
+                Duration.ofSeconds(10), objectMapper);
+    }
+
+    @Bean
     com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationWorker scenarioCompilationWorker(
             com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationProcessManager processManager,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationRepository compilationRepository,
             com.dndmaster.adventure.application.scenario.compilation.WorkQueuePort queue,
             ScenarioBundleRepository bundleRepository,
             com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort extractionPort,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort excerptPort,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService compiler,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository) {
         return new com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationWorker(
-                processManager, compilationRepository, queue, bundleRepository, extractionPort, compiler,
+                processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort, compiler,
                 packageRepository);
     }
 

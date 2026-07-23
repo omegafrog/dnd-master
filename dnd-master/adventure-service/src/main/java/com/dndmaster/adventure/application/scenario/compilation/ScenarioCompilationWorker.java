@@ -16,6 +16,7 @@ public final class ScenarioCompilationWorker {
     private final WorkQueuePort queue;
     private final ScenarioBundleRepository bundleRepository;
     private final ResolutionExtractionPort extractionPort;
+    private final ScenarioSourceExcerptPort excerptPort;
     private final ScenarioPackageCompilationService compiler;
 
     public ScenarioCompilationWorker(
@@ -24,6 +25,7 @@ public final class ScenarioCompilationWorker {
             WorkQueuePort queue,
             ScenarioBundleRepository bundleRepository,
             ResolutionExtractionPort extractionPort,
+            ScenarioSourceExcerptPort excerptPort,
             ScenarioPackageCompilationService compiler,
             ScenarioPackageRepository ignoredPackageRepository) {
         this.processManager = Objects.requireNonNull(processManager, "process manager must not be null");
@@ -31,6 +33,7 @@ public final class ScenarioCompilationWorker {
         this.queue = Objects.requireNonNull(queue, "queue must not be null");
         this.bundleRepository = Objects.requireNonNull(bundleRepository, "bundle repository must not be null");
         this.extractionPort = Objects.requireNonNull(extractionPort, "extraction port must not be null");
+        this.excerptPort = Objects.requireNonNull(excerptPort, "excerpt port must not be null");
         this.compiler = Objects.requireNonNull(compiler, "compiler must not be null");
         Objects.requireNonNull(ignoredPackageRepository, "package repository must not be null");
     }
@@ -48,10 +51,13 @@ public final class ScenarioCompilationWorker {
         try {
             ScenarioSourceBundle bundle = bundleRepository.findById(claimed.bundleId())
                     .orElseThrow(() -> new IllegalStateException("scenario bundle not found"));
+            List<ResolutionExtractionPort.SourceExcerpt> excerpts = excerptPort.load(bundle);
             List<ResolutionCandidate> candidates = extractionPort.extract(
                     new ResolutionExtractionPort.ResolutionExtractionRequest(
-                            claimed.id().toString(), List.of(), "resolution-candidate-v1", "resolution-prompt-v1"));
-            ScenarioPackage scenarioPackage = compiler.compile(bundle, candidates == null ? List.of() : candidates);
+                            claimed.id().toString(), excerpts == null ? List.of() : excerpts,
+                            "resolution-candidate-v1", "resolution-prompt-v1"));
+            ScenarioPackage scenarioPackage = compiler.compile(bundle, candidates == null ? List.of() : candidates,
+                    excerpts == null ? List.of() : excerpts);
             processManager.publish(claimed, delivery, scenarioPackage.packageId());
             return Optional.of(scenarioPackage);
         } catch (RuntimeException exception) {

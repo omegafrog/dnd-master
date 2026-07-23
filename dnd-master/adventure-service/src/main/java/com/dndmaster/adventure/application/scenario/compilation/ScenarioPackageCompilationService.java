@@ -28,8 +28,16 @@ public final class ScenarioPackageCompilationService {
     }
 
     public ScenarioPackage compile(ScenarioSourceBundle bundle, List<ResolutionCandidate> candidates) {
+        return compile(bundle, candidates, List.of());
+    }
+
+    public ScenarioPackage compile(
+            ScenarioSourceBundle bundle, List<ResolutionCandidate> candidates,
+            List<ResolutionExtractionPort.SourceExcerpt> excerpts) {
         Objects.requireNonNull(bundle, "bundle must not be null");
         List<ResolutionCandidate> requested = new ArrayList<>(Objects.requireNonNull(candidates, "candidates must not be null"));
+        List<ResolutionExtractionPort.SourceExcerpt> availableExcerpts =
+                List.copyOf(Objects.requireNonNull(excerpts, "excerpts must not be null"));
         String fingerprint = fingerprint(bundle, requested);
         var existing = repository.findByInputFingerprint(fingerprint);
         if (existing.isPresent()) {
@@ -41,7 +49,7 @@ public final class ScenarioPackageCompilationService {
             documents.put(key(document.knowledgeDocumentId(), document.extractionVersion()), document);
         }
         List<ScenarioResolutionUnit> units = requested.stream()
-                .map(candidate -> validate(candidate, documents))
+                .map(candidate -> validate(candidate, documents, availableExcerpts))
                 .toList();
         List<String> warnings = units.stream()
                 .flatMap(unit -> unit.validationMessages().stream())
@@ -60,7 +68,8 @@ public final class ScenarioPackageCompilationService {
     }
 
     private static ScenarioResolutionUnit validate(
-            ResolutionCandidate candidate, Map<String, ScenarioBundleDocumentSelection> documents) {
+            ResolutionCandidate candidate, Map<String, ScenarioBundleDocumentSelection> documents,
+            List<ResolutionExtractionPort.SourceExcerpt> excerpts) {
         List<String> invalid = new ArrayList<>();
         List<String> incomplete = new ArrayList<>();
         if (candidate == null) {
@@ -81,12 +90,27 @@ public final class ScenarioPackageCompilationService {
                         : documents.get(key(ref.knowledgeDocumentId(), ref.extractionVersion()));
                 if (sourceDocument == null || ref.locator().isBlank()) {
                     invalid.add("source reference is outside bundle revision");
+                } else if (!excerpts.isEmpty() && excerpts.stream().noneMatch(excerpt ->
+                        ref.knowledgeDocumentId().equals(excerpt.documentId())
+                                && ref.extractionVersion() == excerpt.extractionVersion()
+                                && ref.locator().equals(excerpt.locator()))) {
+                    invalid.add("source excerpt is unavailable");
                 } else if (candidate.visibility() == ResolutionVisibility.PLAYER_SAFE
                         && sourceDocument.role() != com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.HANDOUT
                         && sourceDocument.role() != com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.CHARACTER_SHEET) {
                     invalid.add("GM reference cannot be player safe");
                 }
             }
+        }
+        if (!excerpts.isEmpty() && candidate.sourceQuote() != null && !candidate.sourceQuote().isBlank()
+                && candidate.sourceRefs() != null && candidate.sourceRefs().stream().noneMatch(ref ->
+                        excerpts.stream().anyMatch(excerpt -> ref != null
+                                && ref.knowledgeDocumentId().equals(excerpt.documentId())
+                                && ref.extractionVersion() == excerpt.extractionVersion()
+                                && ref.locator().equals(excerpt.locator())
+                                && excerpt.text() != null
+                                && excerpt.text().toLowerCase().contains(candidate.sourceQuote().toLowerCase())))) {
+            invalid.add("source quote is not present in referenced excerpt");
         }
         if (candidate.kind() == ResolutionKind.DICE_ROLL) {
             if (!validDice(candidate.diceExpression())) {

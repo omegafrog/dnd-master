@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate;
+import com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
@@ -98,6 +99,25 @@ class ScenarioPackageCompilationServiceTest {
 
         assertEquals("INVALID", unit.status().name());
         assertEquals("model-v2/prompt-v4/schema-v1", unit.provenance());
+    }
+
+    @Test
+    void verifiesSourceQuoteAgainstReferencedExcerpt() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(documentId, 1);
+        ResolutionCandidate candidate = ResolutionCandidate.skillCheck(
+                documentId, 1, "page:1:span:1", "Perception", 13, "A loose stone triggers the trap.");
+        ResolutionExtractionPort.SourceExcerpt excerpt = new ResolutionExtractionPort.SourceExcerpt(
+                documentId, 1, "page:1:span:1", "A loose stone triggers the trap.");
+        var complete = new ScenarioPackageCompilationService(new InMemoryPackageRepository())
+                .compile(bundle, List.of(candidate), List.of(excerpt)).units().get(0);
+        assertEquals("COMPLETE", complete.status().name());
+
+        ResolutionCandidate hallucinated = ResolutionCandidate.skillCheck(
+                documentId, 1, "page:1:span:1", "Perception", 13, "The dragon is asleep.");
+        var invalid = new ScenarioPackageCompilationService(new InMemoryPackageRepository())
+                .compile(bundle, List.of(hallucinated), List.of(excerpt)).units().get(0);
+        assertEquals("INVALID", invalid.status().name());
     }
 
     private static ScenarioSourceBundle bundle(KnowledgeDocumentId documentId, long extractionVersion) {
