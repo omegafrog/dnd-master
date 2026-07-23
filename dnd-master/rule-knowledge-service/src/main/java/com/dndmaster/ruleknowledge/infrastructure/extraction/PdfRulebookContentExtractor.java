@@ -4,6 +4,8 @@ import com.dndmaster.ruleknowledge.domain.rulebook.ExtractionFailure;
 import com.dndmaster.ruleknowledge.domain.rulebook.ExtractionResult;
 import java.awt.geom.Rectangle2D;
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Objects;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
@@ -12,7 +14,7 @@ import org.apache.pdfbox.pdmodel.encryption.InvalidPasswordException;
 import org.apache.pdfbox.text.PDFTextStripper;
 import org.apache.pdfbox.text.PDFTextStripperByArea;
 
-public final class PdfRulebookContentExtractor implements CompositeRulebookContentExtractor.FormatExtractor {
+public class PdfRulebookContentExtractor implements CompositeRulebookContentExtractor.FormatExtractor {
 
     private static final int MIN_COLUMN_CHARS = 50;
 
@@ -20,16 +22,24 @@ public final class PdfRulebookContentExtractor implements CompositeRulebookConte
     public ExtractionResult extract(byte[] content) {
         Objects.requireNonNull(content, "content must not be null");
         try (PDDocument document = Loader.loadPDF(content)) {
-            StringBuilder result = new StringBuilder();
+            List<String> pages = new ArrayList<>();
+            List<String> missingLocations = new ArrayList<>();
             for (int i = 0; i < document.getNumberOfPages(); i++) {
-                if (i > 0) {
-                    result.append("\n\n");
+                try {
+                    String pageText = extractPage(document, i);
+                    if (!pageText.isBlank()) {
+                        pages.add(pageText);
+                    }
+                } catch (IOException exception) {
+                    missingLocations.add(pageLocator(i));
                 }
-                result.append(extractPage(document, i));
             }
-            String text = result.toString();
+            String text = String.join("\n\n", pages).trim();
             if (text.isBlank()) {
                 return ExtractionResult.failed(ExtractionFailure.UNPROCESSABLE);
+            }
+            if (!missingLocations.isEmpty()) {
+                return ExtractionResult.partial(text, missingLocations);
             }
             return ExtractionResult.success(text);
         } catch (InvalidPasswordException e) {
@@ -39,7 +49,7 @@ public final class PdfRulebookContentExtractor implements CompositeRulebookConte
         }
     }
 
-    private String extractPage(PDDocument document, int pageIndex) throws IOException {
+    protected String extractPage(PDDocument document, int pageIndex) throws IOException {
         PDPage page = document.getPage(pageIndex);
         float pageWidth = page.getMediaBox().getWidth();
         float midX = pageWidth / 2f;
@@ -62,5 +72,9 @@ public final class PdfRulebookContentExtractor implements CompositeRulebookConte
         stripper.setStartPage(pageIndex + 1);
         stripper.setEndPage(pageIndex + 1);
         return stripper.getText(document);
+    }
+
+    private static String pageLocator(int pageIndex) {
+        return "page " + (pageIndex + 1);
     }
 }
