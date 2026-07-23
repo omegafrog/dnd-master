@@ -5,6 +5,7 @@ import type {
   ScenarioBundleRole,
   ScenarioBundleView,
   SetupApi,
+  StorySourceEvidenceView,
 } from '../rulebooks/SetupApi'
 
 const roleLabel: Record<ScenarioBundleRole, string> = {
@@ -30,6 +31,9 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bundle, setBundle] = useState<ScenarioBundleView | null>(null)
   const [saving, setSaving] = useState(false)
+  const [sourceQuery, setSourceQuery] = useState('')
+  const [sourceResults, setSourceResults] = useState<StorySourceEvidenceView[]>([])
+  const [searchingSources, setSearchingSources] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -86,6 +90,22 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
     }
   }
 
+  async function searchSources(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!api.searchStorySources || !sourceQuery.trim()) return
+    setSearchingSources(true)
+    try {
+      const scope = documents
+        .filter(document => selectedIds.has(document.knowledgeDocumentId) && document.extractionVersion != null)
+        .map(document => ({ documentId: document.knowledgeDocumentId, extractionVersion: document.extractionVersion as number }))
+      setSourceResults(await api.searchStorySources(playerId, scope, sourceQuery.trim()))
+    } catch (error) {
+      onError(error instanceof Error ? error.message : '시나리오 원문 검색에 실패했습니다.')
+    } finally {
+      setSearchingSources(false)
+    }
+  }
+
   return (
     <section aria-labelledby="scenario-heading">
       <h2 id="scenario-heading">시나리오 번들</h2>
@@ -131,6 +151,28 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
               </li>
             ))}
           </ul>
+        </section>
+      ) : null}
+      {api.searchStorySources ? (
+        <section aria-labelledby="story-source-search-heading">
+          <h3 id="story-source-search-heading">시나리오 원문 검색 진단</h3>
+          <form onSubmit={searchSources}>
+            <label>
+              검색어
+              <input value={sourceQuery} onChange={event => setSourceQuery(event.currentTarget.value)} />
+            </label>
+            <button type="submit" disabled={searchingSources || selectedIds.size === 0 || !sourceQuery.trim()}>
+              {searchingSources ? '검색 중…' : '선택 문서에서 검색'}
+            </button>
+          </form>
+          <ul aria-label="시나리오 원문 검색 결과">
+            {sourceResults.map(result => (
+              <li key={`${result.knowledgeDocumentId}-${result.extractionVersion}-${result.locator}`}>
+                {result.locator}: {result.excerpt} · {result.score.toFixed(3)}
+              </li>
+            ))}
+          </ul>
+          {!searchingSources && sourceResults.length === 0 && sourceQuery ? <p>근거 없음</p> : null}
         </section>
       ) : null}
     </section>
