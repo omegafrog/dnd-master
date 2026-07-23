@@ -25,7 +25,7 @@ class OpenApiSchemaTest {
                 "/internal/v1/adventures/{adventureId}/roll-conditions",
                 "/internal/v1/adventures/{adventureId}/movement-validations",
                 "/internal/v1/adventures/{adventureId}/gm-context");
-        assertPaths("rule-knowledge", "/api/v1/rulebooks", "/internal/v1/rulebooks",
+        assertPaths("rule-knowledge", "/api/v1/rulebooks", "/api/v1/rulebooks/rule-set", "/internal/v1/rulebooks",
                 "/internal/v1/rulebook-indexes", "/internal/v1/rulebooks/{rulebookId}/ownership",
                 "/internal/v1/rule-evidence/search");
         assertPaths("character-management", "/internal/v1/character-sheets/{sheetId}");

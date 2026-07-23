@@ -40,6 +40,7 @@ echo ""
 echo "  Backend:  http://localhost:8080"
 echo "  Frontend: http://localhost:5173"
 echo "  Swagger:  http://localhost:8080/swagger-ui.html"
+echo "  Demo login: demo-player@example.com / secret-password"
 echo "  Press Ctrl+C to stop all."
 echo ""
 
