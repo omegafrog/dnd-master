@@ -58,13 +58,21 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
     @Override
     public RulebookProcessingResult process(UploadRulebookCommand command) {
         Objects.requireNonNull(command, "command must not be null");
+        String contentHash = computeHash(command);
 
         Optional<StoredRulebookRegistration> existing = registrationRepository.findByOperationKey(command.operationKey());
         if (existing.isPresent()) {
             StoredRulebookRegistration previous = existing.get();
-            if (!previous.contentHash().equals(computeHash(command))) {
+            if (!previous.contentHash().equals(contentHash)) {
                 throw new RulebookPipelineException("conflict: same idempotency key with different file");
             }
+            return new RulebookProcessingResult(previous.rulebookId(), previous.processingStatus(), List.of());
+        }
+
+        Optional<StoredRulebookRegistration> duplicate = registrationRepository.findByOwnerAndContentHash(
+                command.ownerPlayerId(), contentHash);
+        if (duplicate.isPresent()) {
+            StoredRulebookRegistration previous = duplicate.get();
             return new RulebookProcessingResult(previous.rulebookId(), previous.processingStatus(), List.of());
         }
 
@@ -74,7 +82,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 rulebookId,
                 command.ownerPlayerId(),
                 command.operationKey(),
-                computeHash(command),
+                contentHash,
                 command.format(),
                 command.fileContent().length,
                 storedFile.key(),
@@ -174,12 +182,6 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
     private static String computeHash(UploadRulebookCommand command) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            digest.update(command.ownerPlayerId().value().toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            digest.update((byte) 0);
-            digest.update(command.documentType().name().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            digest.update((byte) 0);
-            digest.update(command.format().name().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            digest.update((byte) 0);
             return HexFormat.of().formatHex(digest.digest(command.fileContent()));
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 is required", e);

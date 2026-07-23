@@ -37,7 +37,7 @@ public final class RulebookRegistrationApplicationService {
         }
         Objects.requireNonNull(fileContent, "fileContent must not be null");
         byte[] safeContent = Arrays.copyOf(fileContent, fileContent.length);
-        String fingerprint = fingerprint(ownerPlayerId, format, safeContent);
+        String fingerprint = fingerprint(safeContent);
         return completedUploads.compute(operationKey.trim(), (key, previous) -> {
             if (previous != null) {
                 if (!previous.fingerprint().equals(fingerprint)) {
@@ -65,15 +65,9 @@ public final class RulebookRegistrationApplicationService {
         registration.rulebook().confirmPartialExtraction();
     }
 
-    private static String fingerprint(OwnerPlayerId ownerPlayerId, RulebookFormat format, byte[] content) {
-        Objects.requireNonNull(ownerPlayerId, "ownerPlayerId must not be null");
-        Objects.requireNonNull(format, "format must not be null");
+    private static String fingerprint(byte[] content) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            digest.update(ownerPlayerId.value().toString().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            digest.update((byte) 0);
-            digest.update(format.name().getBytes(java.nio.charset.StandardCharsets.UTF_8));
-            digest.update((byte) 0);
             return HexFormat.of().formatHex(digest.digest(content));
         } catch (NoSuchAlgorithmException exception) {
             throw new IllegalStateException("SHA-256 is required", exception);
