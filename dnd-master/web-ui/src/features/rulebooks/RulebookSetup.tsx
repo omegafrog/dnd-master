@@ -1,5 +1,12 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
-import type { BatchRulebookView, DocumentType, KnowledgeDocumentView, RulebookUploadDraft, SetupApi } from './SetupApi'
+import type {
+  BatchRulebookView,
+  DocumentType,
+  KnowledgeDocumentView,
+  RulebookUploadDraft,
+  SetupApi,
+  SourcePreviewView,
+} from './SetupApi'
 import { ScenarioSetup } from '../scenarios/ScenarioSetup'
 
 const batchStatusText: Record<BatchRulebookView['status'], string> = {
@@ -39,6 +46,7 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
   const [uploading, setUploading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [ruleSetMessage, setRuleSetMessage] = useState('')
+  const [sourcePreview, setSourcePreview] = useState<SourcePreviewView | null>(null)
 
   const refreshDocuments = useCallback(async () => {
     try {
@@ -95,6 +103,16 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
       setMessage('다시 처리했습니다.')
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '다시 처리하지 못했습니다.')
+    }
+  }
+
+  async function previewDocument(knowledgeDocumentId: string) {
+    try {
+      setSourcePreview(null)
+      setSourcePreview(await api.getSourcePreview(knowledgeDocumentId))
+    } catch (error) {
+      setSourcePreview(null)
+      setMessage(error instanceof Error ? error.message : '미리보기를 불러오지 못했습니다.')
     }
   }
 
@@ -185,7 +203,14 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
               <li key={document.knowledgeDocumentId}>
                 <span>{document.originalFilename}</span>
                 <span> - {knowledgeStatusText[document.status]}</span>
+                {document.extractionVersion != null ? <span> (v{document.extractionVersion})</span> : null}
                 {document.failureReason ? <span> ({document.failureReason})</span> : null}
+                {document.warnings?.length ? <span> [경고: {document.warnings.join(', ')}]</span> : null}
+                {document.format === 'TXT' && (document.status === 'EXTRACTED' || document.status === 'PARTIAL_CONFIRMED') ? (
+                  <button type="button" onClick={() => void previewDocument(document.knowledgeDocumentId)}>
+                    미리보기
+                  </button>
+                ) : null}
                 {document.status === 'FAILED' ? (
                   <button type="button" onClick={() => void retryDocument(document.knowledgeDocumentId)}>
                     다시 처리
@@ -194,6 +219,21 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
               </li>
             ))}
           </ul>
+          {sourcePreview ? (
+            <section aria-labelledby="source-preview-heading">
+              <h4 id="source-preview-heading">{sourcePreview.originalFilename} 미리보기</h4>
+              <p>{sourcePreview.format} · {sourcePreview.status} · v{sourcePreview.extractionVersion}</p>
+              {sourcePreview.warnings.length ? <p>경고: {sourcePreview.warnings.join(', ')}</p> : null}
+              <ol aria-label="원문 줄 미리보기">
+                {sourcePreview.spans.map(span => (
+                  <li key={`${span.lineNumber}-${span.startInclusive}-${span.endExclusive}`}>
+                    <span>{span.locator}</span>
+                    <pre>{span.text || ' '}</pre>
+                  </li>
+                ))}
+              </ol>
+            </section>
+          ) : null}
         </section>
       </section>
       <ScenarioSetup api={api} onError={setMessage} />

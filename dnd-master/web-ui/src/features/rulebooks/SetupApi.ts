@@ -34,7 +34,31 @@ export type KnowledgeDocumentView = {
   documentType: DocumentType
   originalFilename: string
   status: KnowledgeDocumentStatus
+  format: 'PDF' | 'DOCX' | 'TXT'
+  extractionVersion?: number
+  warnings?: string[]
   failureReason?: string | null
+}
+
+export type SourceSpanView = {
+  lineNumber: number
+  startInclusive: number
+  endExclusive: number
+  text: string
+  locator: string
+}
+
+export type SourcePreviewView = {
+  rulebookId: string
+  knowledgeDocumentId: string
+  documentType: DocumentType
+  originalFilename: string
+  format: 'PDF' | 'DOCX' | 'TXT'
+  status: string
+  content: string
+  extractionVersion: number
+  warnings: string[]
+  spans: SourceSpanView[]
 }
 
 export type RulebookUploadDraft = {
@@ -47,6 +71,7 @@ export interface SetupApi {
   uploadRulebooks(documents: RulebookUploadDraft[], ownerId: string): Promise<BatchRulebookView[]>
   getRulebookStatus(rulebookId: string): Promise<RulebookView>
   retryKnowledgeDocument(knowledgeDocumentId: string): Promise<RulebookView>
+  getSourcePreview(knowledgeDocumentId: string): Promise<SourcePreviewView>
   uploadScenario(file: File): Promise<{ id: string; name: string }>
   saveRuleSet(rulebookIds: string[]): Promise<void>
   listKnowledgeDocuments(ownerId: string): Promise<KnowledgeDocumentView[]>
@@ -96,6 +121,12 @@ export class HttpSetupApi implements SetupApi {
   retryKnowledgeDocument(knowledgeDocumentId: string) {
     return request<RulebookView>(`/api/v1/rulebooks/${knowledgeDocumentId}/retry`, {
       method: 'POST',
+      headers: this.authHeaders(),
+    })
+  }
+
+  getSourcePreview(knowledgeDocumentId: string) {
+    return request<SourcePreviewView>(`/api/v1/rulebooks/${knowledgeDocumentId}/source-preview`, {
       headers: this.authHeaders(),
     })
   }

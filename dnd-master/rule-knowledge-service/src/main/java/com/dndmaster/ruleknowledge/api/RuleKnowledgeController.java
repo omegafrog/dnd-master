@@ -11,6 +11,7 @@ import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicat
 import com.dndmaster.ruleknowledge.application.search.QueryIntent;
 import com.dndmaster.ruleknowledge.application.search.SearchRuleEvidenceQuery;
 import com.dndmaster.ruleknowledge.domain.rulebook.*;
+import com.dndmaster.ruleknowledge.infrastructure.extraction.TxtSourceSpanTracer;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
@@ -34,6 +35,7 @@ public class RuleKnowledgeController {
     private final RulebookRegistrationRepository registrationRepository;
     private final RuleEvidenceSearchApplicationService evidenceSearchService;
     private final ObjectMapper objectMapper;
+    private final TxtSourceSpanTracer sourceSpanTracer;
 
     public RuleKnowledgeController(
             RulebookPipelineApplicationService pipelineService,
@@ -45,6 +47,7 @@ public class RuleKnowledgeController {
         this.registrationRepository = registrationRepository;
         this.evidenceSearchService = evidenceSearchService;
         this.objectMapper = objectMapper;
+        this.sourceSpanTracer = new TxtSourceSpanTracer();
     }
 
     @PostMapping("/api/v1/rulebooks")
@@ -82,8 +85,34 @@ public class RuleKnowledgeController {
                         r.processingStatus().name(),
                         r.documentType(),
                         r.originalFilename(),
-                        r.failureCode()))
-                .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null, null));
+                        r.failureCode(),
+                        r.version(),
+                        warningsFor(r)))
+                .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null, null, 0L, List.of()));
+    }
+
+    @GetMapping("/api/v1/rulebooks/{rulebookId}/source-preview")
+    ResponseEntity<SourcePreviewResponse> sourcePreview(@PathVariable UUID rulebookId) {
+        StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(rulebookId))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "knowledge document not found"));
+        if (registration.format() != RulebookFormat.TXT) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, "source preview is only available for TXT documents");
+        }
+        String content = registration.extractedContent();
+        if (content == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "source preview requires extracted content");
+        }
+        return ResponseEntity.ok(new SourcePreviewResponse(
+                registration.rulebookId().value(),
+                registration.knowledgeDocumentId().value(),
+                registration.documentType(),
+                registration.originalFilename(),
+                registration.format(),
+                registration.processingStatus().name(),
+                content,
+                registration.version(),
+                warningsFor(registration),
+                sourceSpanTracer.trace(content)));
     }
 
     @PostMapping("/api/v1/rulebooks/{rulebookId}/retry")
@@ -124,7 +153,8 @@ public class RuleKnowledgeController {
         List<RulebookSummary> summaries = registrations.stream()
                 .map(r -> new RulebookSummary(
                         r.rulebookId().value(), r.knowledgeDocumentId().value(), r.processingStatus().name(),
-                        r.format().name(), r.documentType(), r.originalFilename(), r.failureCode()))
+                        r.format().name(), r.documentType(), r.originalFilename(), r.failureCode(),
+                        r.version(), warningsFor(r)))
                 .toList();
         return new OwnedRulebooksResponse(ownerId, summaries);
     }
@@ -198,10 +228,14 @@ public class RuleKnowledgeController {
     public record BatchUploadResponse(List<BatchUploadResult> documents) {}
     public record UploadDocumentRequest(String idempotencyKey, DocumentType documentType, String originalFilename) {}
     public record RulebookStatusResponse(
-            UUID rulebookId, UUID knowledgeDocumentId, String status, DocumentType documentType, String originalFilename, String failureReason) {}
+            UUID rulebookId, UUID knowledgeDocumentId, String status, DocumentType documentType,
+            String originalFilename, String failureReason, long extractionVersion, List<String> warnings) {}
+    public record SourcePreviewResponse(
+            UUID rulebookId, UUID knowledgeDocumentId, DocumentType documentType, String originalFilename,
+            RulebookFormat format, String status, String content, long extractionVersion, List<String> warnings, List<SourceSpan> spans) {}
     public record RulebookSummary(
             UUID rulebookId, UUID knowledgeDocumentId, String status, String format,
-            DocumentType documentType, String originalFilename, String failureReason) {}
+            DocumentType documentType, String originalFilename, String failureReason, long extractionVersion, List<String> warnings) {}
     public record OwnedRulebooksResponse(UUID ownerId, List<RulebookSummary> rulebooks) {}
     public record OwnedIndexesResponse(UUID ownerId, List<?> indexes) {}
     public record OwnershipResponse(UUID rulebookId, UUID playerId, boolean owned) {}
@@ -209,4 +243,13 @@ public class RuleKnowledgeController {
     public record EvidenceSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, QueryIntent queryIntent, Integer limit) {}
     public record EvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score, String chapter, String section) {}
     public record EvidenceSearchResponse(UUID ownerId, List<EvidenceItem> evidence) {}
+
+    private static List<String> warningsFor(StoredRulebookRegistration registration) {
+        List<String> warnings = new java.util.ArrayList<>();
+        if (registration.failureCode() != null && !registration.failureCode().isBlank()) {
+            warnings.add(registration.failureCode());
+        }
+        warnings.addAll(registration.missingLocations());
+        return List.copyOf(warnings);
+    }
 }
