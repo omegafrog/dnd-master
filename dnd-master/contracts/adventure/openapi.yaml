@@ -4,7 +4,26 @@ paths:
   /api/v1/adventures/scenarios:
     post: { operationId: uploadScenario, requestBody: { required: true, content: { multipart/form-data: { schema: { $ref: '../rule-knowledge/schemas/multipart-upload.json' } } } }, responses: { '202': { description: accepted } } }
   /api/v1/adventures/{adventureId}/messages:
-    post: { operationId: streamAdventure, responses: { '200': { description: event stream, content: { text/event-stream: { schema: { $ref: './schemas/stream-event.json' } } } } } }
+    post:
+      operationId: streamAdventure
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [playerId, turnId, commandId, action]
+              properties:
+                playerId: { type: string, format: uuid }
+                turnId: { type: string, format: uuid }
+                commandId: { type: string, format: uuid }
+                action: { type: string }
+      responses:
+        '200':
+          description: event stream
+          content:
+            text/event-stream:
+              schema: { $ref: './schemas/stream-event.json' }
   /api/v1/adventures/{adventureId}/rule-inquiries:
     post: { operationId: answerRuleInquiry, responses: { '200': { description: grounded answer or candidates } } }
   /api/v1/adventures/{adventureId}/combat-map:

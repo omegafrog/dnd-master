@@ -63,8 +63,8 @@ public class AdventureController {
         RuntimeTurnResult result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
                 new AdventureId(adventureId),
                 new OwnerPlayerId(request.playerId()),
-                UUID.randomUUID(),
-                UUID.randomUUID(),
+                request.turnId(),
+                request.commandId(),
                 request.action()));
         return RuntimeTurnResponse.from(result);
     }
@@ -167,7 +167,7 @@ public class AdventureController {
         return UUID.fromString(authorization.substring("Bearer ".length()));
     }
 
-    public record StreamMessageRequest(UUID playerId, String action) {}
+    public record StreamMessageRequest(UUID playerId, UUID turnId, UUID commandId, String action) {}
     // 프런트가 바로 보여줄 수 있게 턴 결과를 압축한 응답이다.
     public record RuntimeTurnResponse(
             UUID turnId,

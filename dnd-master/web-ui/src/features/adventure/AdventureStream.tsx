@@ -11,11 +11,12 @@ export function AdventureStream({ adventureId, api }: { adventureId: string; api
     const form = new FormData(event.currentTarget)
     const text = String(form.get('message')).trim()
     if (!text) return
+    const command = createRuntimeCommandIdentity()
     setNotice('')
     setSending(true)
     setMessages(current => [...current, { speaker: '플레이어', text }])
     try {
-      const response = await api.sendMessage(adventureId, text)
+      const response = await api.sendMessage(adventureId, text, command)
       setMessages(current => [...current, { speaker: 'AI 게임 마스터', text: response.narration }])
     } catch {
       setNotice('메시지를 전송하지 못했습니다.')
@@ -41,4 +42,12 @@ export function AdventureStream({ adventureId, api }: { adventureId: string; api
       </form>
     </section>
   )
+}
+
+function createRuntimeCommandIdentity() {
+  if (globalThis.crypto && 'randomUUID' in globalThis.crypto) {
+    return { turnId: globalThis.crypto.randomUUID(), commandId: globalThis.crypto.randomUUID() }
+  }
+  const fallback = `${Date.now()}-${Math.random()}`
+  return { turnId: `turn-${fallback}`, commandId: `command-${fallback}` }
 }
