@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.infrastructure.integration;
 
 import com.dndmaster.adventure.application.scenario.LegacyScenarioIngestionPort;
+import com.dndmaster.adventure.application.scenario.LegacyScenarioIngestionValidationException;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -42,6 +43,10 @@ public final class CrossContextHttpLegacyScenarioIngestionGateway implements Leg
                     .POST(HttpRequest.BodyPublishers.ofByteArray(body))
                     .build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (response.statusCode() == 400 || response.statusCode() == 422) {
+                throw new LegacyScenarioIngestionValidationException(
+                        "legacy source ingestion rejected: " + response.body());
+            }
             if (response.statusCode() >= 400) {
                 throw new IllegalStateException("legacy source ingestion failed");
             }

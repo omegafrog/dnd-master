@@ -127,7 +127,7 @@ public final class LegacyScenarioMigrationApplicationService {
     private com.dndmaster.adventure.domain.scenario.AdventureScenario loadOwned(
             ScenarioId scenarioId, OwnerPlayerId ownerPlayerId) {
         com.dndmaster.adventure.domain.scenario.AdventureScenario scenario = scenarioRepository.findById(scenarioId)
-                .orElseThrow(() -> new IllegalStateException("legacy scenario not found"));
+                .orElseThrow(LegacyScenarioNotFoundException::new);
         scenario.authorizeAccess(new com.dndmaster.adventure.domain.scenario.RequestingPlayerId(ownerPlayerId.value()));
         return scenario;
     }

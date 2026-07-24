@@ -14,7 +14,9 @@ import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService
 import com.dndmaster.adventure.application.saved.SavedAdventureApplicationService;
 import com.dndmaster.adventure.application.scenario.AdventureScenarioApplicationService;
 import com.dndmaster.adventure.application.scenario.LegacyScenarioMigrationApplicationService;
+import com.dndmaster.adventure.application.scenario.LegacyScenarioNotFoundException;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
+import com.dndmaster.adventure.domain.scenario.ScenarioAccessDeniedException;
 import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
 import com.dndmaster.adventure.domain.scenario.ScenarioId;
 import java.nio.charset.StandardCharsets;
@@ -78,5 +80,29 @@ class LegacyScenarioMigrationControllerTest {
                         .header("Authorization", "Bearer " + ownerId))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.reupload").value(true));
+    }
+
+    @Test
+    void migrateReturnsNotFoundWhenScenarioMissing() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        UUID scenarioId = UUID.randomUUID();
+        when(migrationService.migrate(any(ScenarioId.class), any(OwnerPlayerId.class)))
+                .thenThrow(new LegacyScenarioNotFoundException());
+
+        mockMvc.perform(post("/api/v1/adventures/legacy-scenarios/{scenarioId}/migrate", scenarioId)
+                        .header("Authorization", "Bearer " + ownerId))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
+    void migrateReturnsForbiddenWhenScenarioOwnershipMismatch() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        UUID scenarioId = UUID.randomUUID();
+        when(migrationService.migrate(any(ScenarioId.class), any(OwnerPlayerId.class)))
+                .thenThrow(new ScenarioAccessDeniedException());
+
+        mockMvc.perform(post("/api/v1/adventures/legacy-scenarios/{scenarioId}/migrate", scenarioId)
+                        .header("Authorization", "Bearer " + ownerId))
+                .andExpect(status().isForbidden());
     }
 }
