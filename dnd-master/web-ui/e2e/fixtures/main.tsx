@@ -62,7 +62,16 @@ const setupApi: SetupApi = {
 }
 
 const adventureApi: AdventureApi = {
-  async sendMessage() {},
+  async sendMessage() {
+    return {
+      narration: '근거를 바탕으로 응답한다.',
+      judgment: '판정 완료',
+      currentScene: '새 장면',
+      sourceRefs: [],
+      warnings: [],
+      version: 1,
+    }
+  },
 }
 
 let saved: SavedAdventure[] = []
