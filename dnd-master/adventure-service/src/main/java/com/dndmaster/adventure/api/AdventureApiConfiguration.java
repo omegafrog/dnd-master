@@ -20,6 +20,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeBinding
 import com.dndmaster.adventure.infrastructure.persistence.PostgresWorkQueueAdapter;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpKnowledgeDocumentLookupGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpInitialSourceContextProposalGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpResolutionExtractionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpScenarioSourceExcerptGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuleIntentClassificationGateway;
@@ -239,10 +240,12 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    InitialSourceContextProposalPort initialSourceContextProposalPort() {
-        return (scenarioPackage, candidates) -> new InitialSourceContextProposalPort.InitialSourceContextProposalResult(
-                candidates.size() == 1 ? "CLEAR" : candidates.isEmpty() ? "BLOCKED" : "AMBIGUOUS",
-                candidates);
+    InitialSourceContextProposalPort initialSourceContextProposalPort(ObjectMapper objectMapper) {
+        return new CrossContextHttpInitialSourceContextProposalGateway(
+                HttpClient.newHttpClient(),
+                URI.create("http://127.0.0.1:18084/"),
+                Duration.ofSeconds(2),
+                objectMapper);
     }
 
     @Bean
