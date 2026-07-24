@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -32,6 +33,10 @@ import org.springframework.test.web.servlet.MockMvc;
 @WebMvcTest(controllers = LegacyScenarioMigrationController.class)
 @AutoConfigureMockMvc
 class LegacyScenarioMigrationControllerTest {
+    private static final String DEPRECATION_WARNING =
+            "299 dnd-master \"Legacy one-file scenario migration is deprecated; migrate to bundle/package flows\"";
+    private static final String LEGACY_SCENARIO_MIGRATION_SUNSET = "Fri, 31 Dec 2027 00:00:00 GMT";
+
     @Autowired MockMvc mockMvc;
 
     @MockBean SavedAdventureApplicationService savedAdventureService;
@@ -56,6 +61,10 @@ class LegacyScenarioMigrationControllerTest {
         mockMvc.perform(post("/api/v1/adventures/legacy-scenarios/{scenarioId}/migrate", scenarioId)
                         .header("Authorization", "Bearer " + ownerId))
                 .andExpect(status().isOk())
+                .andExpect(header().string("Deprecation", "true"))
+                .andExpect(header().string("Warning", DEPRECATION_WARNING))
+                .andExpect(header().string("Sunset", LEGACY_SCENARIO_MIGRATION_SUNSET))
+                .andExpect(header().string("Link", "</api/v1/adventures/scenario-bundles>; rel=\"alternate\""))
                 .andExpect(jsonPath("$.scenarioId").value(scenarioId.toString()))
                 .andExpect(jsonPath("$.bundleId").value(bundleId.toString()))
                 .andExpect(jsonPath("$.packageId").value(packageId.toString()))
@@ -79,6 +88,10 @@ class LegacyScenarioMigrationControllerTest {
                                 "replacement".getBytes(StandardCharsets.UTF_8)))
                         .header("Authorization", "Bearer " + ownerId))
                 .andExpect(status().isOk())
+                .andExpect(header().string("Deprecation", "true"))
+                .andExpect(header().string("Warning", DEPRECATION_WARNING))
+                .andExpect(header().string("Sunset", LEGACY_SCENARIO_MIGRATION_SUNSET))
+                .andExpect(header().string("Link", "</api/v1/adventures/scenario-bundles>; rel=\"alternate\""))
                 .andExpect(jsonPath("$.reupload").value(true));
     }
 
@@ -91,7 +104,11 @@ class LegacyScenarioMigrationControllerTest {
 
         mockMvc.perform(post("/api/v1/adventures/legacy-scenarios/{scenarioId}/migrate", scenarioId)
                         .header("Authorization", "Bearer " + ownerId))
-                .andExpect(status().isNotFound());
+                .andExpect(status().isNotFound())
+                .andExpect(header().string("Deprecation", "true"))
+                .andExpect(header().string("Warning", DEPRECATION_WARNING))
+                .andExpect(header().string("Sunset", LEGACY_SCENARIO_MIGRATION_SUNSET))
+                .andExpect(header().string("Link", "</api/v1/adventures/scenario-bundles>; rel=\"alternate\""));
     }
 
     @Test
@@ -103,6 +120,23 @@ class LegacyScenarioMigrationControllerTest {
 
         mockMvc.perform(post("/api/v1/adventures/legacy-scenarios/{scenarioId}/migrate", scenarioId)
                         .header("Authorization", "Bearer " + ownerId))
-                .andExpect(status().isForbidden());
+                .andExpect(status().isForbidden())
+                .andExpect(header().string("Deprecation", "true"))
+                .andExpect(header().string("Warning", DEPRECATION_WARNING))
+                .andExpect(header().string("Sunset", LEGACY_SCENARIO_MIGRATION_SUNSET))
+                .andExpect(header().string("Link", "</api/v1/adventures/scenario-bundles>; rel=\"alternate\""));
+    }
+
+    @Test
+    void migrateReturnsUnauthorizedWithDeprecationHeadersWhenAuthorizationIsInvalid() throws Exception {
+        UUID scenarioId = UUID.randomUUID();
+
+        mockMvc.perform(post("/api/v1/adventures/legacy-scenarios/{scenarioId}/migrate", scenarioId)
+                        .header("Authorization", "not-a-bearer-token"))
+                .andExpect(status().isUnauthorized())
+                .andExpect(header().string("Deprecation", "true"))
+                .andExpect(header().string("Warning", DEPRECATION_WARNING))
+                .andExpect(header().string("Sunset", LEGACY_SCENARIO_MIGRATION_SUNSET))
+                .andExpect(header().string("Link", "</api/v1/adventures/scenario-bundles>; rel=\"alternate\""));
     }
 }
