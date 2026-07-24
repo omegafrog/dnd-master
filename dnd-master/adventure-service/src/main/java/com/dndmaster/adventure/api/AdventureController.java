@@ -95,9 +95,13 @@ public class AdventureController {
                 new AdventureId(adventureId),
                 new RuleSetId(request.ruleSetId()),
                 new CharacterSheetId(request.characterSheetId()),
+                request.combatMapId(),
                 CombatActorRole.valueOf(request.role()),
                 request.action(),
-                null);
+                null,
+                request.ownerPlayerId(),
+                request.tokenId(),
+                request.expectedVersion());
         combatService.resolveCombatAction(command);
         return new DiceRollResponse(UUID.randomUUID(), request.role(), List.of(), 0);
     }
@@ -197,7 +201,15 @@ public class AdventureController {
     public record RuleInquiryRequest(UUID inquiryId, UUID ruleSetId, UUID playerId, String situation) {}
     public record RuleInquiryResponse(UUID inquiryId, String status) {}
     public record CombatMapResponse(UUID adventureId, String status) {}
-    public record DiceRollRequest(UUID ruleSetId, UUID characterSheetId, String role, String action) {}
+    public record DiceRollRequest(
+            UUID ruleSetId,
+            UUID characterSheetId,
+            UUID combatMapId,
+            UUID ownerPlayerId,
+            UUID tokenId,
+            long expectedVersion,
+            String role,
+            String action) {}
     public record DiceRollResponse(UUID rollId, String scope, List<Integer> faces, int total) {}
     public record SaveAdventureRequest(UUID playerId, long expectedVersion, String currentScene) {}
     public record SaveAdventureResponse(UUID adventureId, long newVersion) {}

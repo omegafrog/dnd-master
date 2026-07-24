@@ -47,10 +47,11 @@ class CrossContextHttpIntegrationTest {
     void retries_only_failed_bc_step_and_never_duplicates_completed_adjudication() {
         server = new WireMockServer(0);
         server.start();
-        server.stubFor(get(urlPathMatching("/characters/.*")).willReturn(aResponse().withStatus(200)));
+        server.stubFor(get(urlPathMatching("/internal/v1/character-sheets/.*"))
+                .willReturn(aResponse().withStatus(200).withBody("{\"edition\":\"DND_5E_2024\",\"version\":7}")));
         server.stubFor(post(urlEqualTo("/rolls")).willReturn(aResponse().withStatus(200).withBody("17")));
-        server.stubFor(post(urlEqualTo("/moves")).willReturn(aResponse().withStatus(200)));
-        server.stubFor(post(urlEqualTo("/ai/states")).willReturn(aResponse().withStatus(200)));
+        server.stubFor(post(urlPathMatching("/internal/v1/combat-maps/.*/moves")).willReturn(aResponse().withStatus(200)));
+        server.stubFor(post(urlPathMatching("/internal/v1/combat-maps/.*/ai-state")).willReturn(aResponse().withStatus(200)));
         server.stubFor(post(urlEqualTo("/ai/adjudications"))
                 .inScenario("partial failure").whenScenarioStateIs(Scenario.STARTED)
                 .willSetStateTo("recovered").willReturn(aResponse().withStatus(503)));
@@ -63,19 +64,30 @@ class CrossContextHttpIntegrationTest {
                 HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2));
         var service = new AdventureCombatApplicationService(repository, gateway, gateway, gateway, gateway);
         UUID operationId = UUID.randomUUID();
+        UUID combatMapId = UUID.randomUUID();
+        UUID ownerId = UUID.randomUUID();
+        UUID tokenId = UUID.randomUUID();
         var command = new CombatActionCommand(
                 operationId, AdventureId.generate(), new RuleSetId(UUID.randomUUID()),
-                new CharacterSheetId(UUID.randomUUID()), CombatActorRole.PLAYER, "attack", "A1>B1");
+                new CharacterSheetId(UUID.randomUUID()), combatMapId, CombatActorRole.PLAYER, "attack", "A1>B1",
+                ownerId, tokenId, 7L);
 
         assertThrows(CrossContextCallException.class, () -> service.resolveCombatAction(command));
         assertEquals("critical hit", service.resolveCombatAction(command).judgment());
         assertEquals("critical hit", service.resolveCombatAction(command).judgment());
 
         String key = operationId.toString();
-        server.verify(exactly(1), getRequestedFor(urlPathMatching("/characters/.*")).withHeader("Idempotency-Key", equalTo(key)));
+        server.verify(exactly(1), getRequestedFor(urlPathMatching("/internal/v1/character-sheets/.*")).withHeader("Idempotency-Key", equalTo(key)));
         server.verify(exactly(1), postRequestedFor(urlEqualTo("/rolls")).withHeader("Idempotency-Key", equalTo(key)));
-        server.verify(exactly(1), postRequestedFor(urlEqualTo("/moves")));
-        server.verify(exactly(1), postRequestedFor(urlEqualTo("/ai/states")));
+        server.verify(exactly(1), postRequestedFor(urlPathMatching("/internal/v1/combat-maps/.*/moves"))
+                .withRequestBody(equalToJson("""
+                        {"playerId":"%s","tokenId":"%s","positions":[{"x":0,"y":0},{"x":1,"y":0}],
+                         "distance":1,"appliedEdition":"DND_5E_2024","commandId":"%s","expectedVersion":7}
+                        """.formatted(ownerId, tokenId, key))));
+        server.verify(exactly(1), postRequestedFor(urlPathMatching("/internal/v1/combat-maps/.*/ai-state"))
+                .withRequestBody(equalToJson("""
+                        {"ownerId":"%s","tokenId":"%s","x":1,"y":0,"commandId":"%s","expectedVersion":7,"layers":[]}
+                        """.formatted(ownerId, tokenId, key))));
         server.verify(exactly(2), postRequestedFor(urlEqualTo("/ai/adjudications")).withHeader("Idempotency-Key", equalTo(key)));
     }
 

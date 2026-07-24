@@ -24,7 +24,8 @@ public record RuntimeTurn(
         List<ConversationEntry> conversation,
         long version,
         List<String> citations,
-        List<String> warnings) {
+        List<String> warnings,
+        boolean committed) {
     public RuntimeTurn {
         turnId = Objects.requireNonNull(turnId, "turn id must not be null");
         commandId = Objects.requireNonNull(commandId, "command id must not be null");
@@ -41,8 +42,34 @@ public record RuntimeTurn(
         warnings = List.copyOf(Objects.requireNonNull(warnings, "warnings must not be null"));
     }
 
+    public RuntimeTurn(
+            UUID turnId,
+            UUID commandId,
+            AdventureId adventureId,
+            UUID sessionId,
+            UUID scenarioPackageId,
+            long bindingVersion,
+            String action,
+            EvidencePack evidencePack,
+            RuntimePlan plan,
+            ActiveSourceContext activeSourceContext,
+            AdventureContext context,
+            List<ConversationEntry> conversation,
+            long version,
+            List<String> citations,
+            List<String> warnings) {
+        this(turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action, evidencePack, plan,
+                activeSourceContext, context, conversation, version, citations, warnings, false);
+    }
+
     private static String required(String value, String name) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " must not be blank");
         return value.trim();
+    }
+
+    public RuntimeTurn markCommitted() {
+        return committed ? this : new RuntimeTurn(
+                turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action, evidencePack, plan,
+                activeSourceContext, context, conversation, version, citations, warnings, true);
     }
 }

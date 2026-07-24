@@ -40,7 +40,9 @@ public class CombatMapController {
                 new PlayerId(request.playerId()),
                 new TokenId(request.tokenId()),
                 path,
-                request.appliedEdition());
+                request.appliedEdition(),
+                request.commandId(),
+                request.expectedVersion());
         CombatMap map = movementService.movePlayerToken(command);
         return new CombatMapMoveResponse(map.id().value());
     }
@@ -55,7 +57,7 @@ public class CombatMapController {
                         .toList();
         CombatMap map = mapViewService.controlAiState(
                 new MapId(mapId), new MapOwnerId(request.ownerId()),
-                request.expectedVersion(), new TokenId(request.tokenId()),
+                request.expectedVersion(), request.commandId(), new TokenId(request.tokenId()),
                 position, aiLayers);
         return new CombatMapAiStateResponse(map.id().value());
     }
@@ -63,13 +65,14 @@ public class CombatMapController {
     public record MoveRequest(
             UUID playerId, UUID tokenId,
             List<PositionRequest> positions, int distance,
-            String appliedEdition) {}
+            String appliedEdition, UUID commandId, long expectedVersion) {}
 
     public record PositionRequest(int x, int y) {}
 
     public record AiStateRequest(
             UUID ownerId, UUID tokenId,
             int x, int y,
+            UUID commandId,
             long expectedVersion,
             List<LayerRequest> layers) {}
 
