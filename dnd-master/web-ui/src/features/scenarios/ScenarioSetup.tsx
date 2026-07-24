@@ -6,6 +6,7 @@ import type {
   ScenarioBundleRole,
   ScenarioBundleView,
   ScenarioPackageView,
+  RuntimeBindingView,
   SetupApi,
   StorySourceEvidenceView,
 } from '../rulebooks/SetupApi'
@@ -37,12 +38,26 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
   const [bundle, setBundle] = useState<ScenarioBundleView | null>(null)
   const [scenarioPackage, setScenarioPackage] = useState<ScenarioPackageView | null>(null)
   const [compilation, setCompilation] = useState<ScenarioCompilationView | null>(null)
+  const [runtimeBinding, setRuntimeBinding] = useState<RuntimeBindingView | null>(null)
   const [compiling, setCompiling] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [bindingSubmitting, setBindingSubmitting] = useState(false)
   const [sourceQuery, setSourceQuery] = useState('')
   const [sourceResults, setSourceResults] = useState<StorySourceEvidenceView[]>([])
   const [searchingSources, setSearchingSources] = useState(false)
+  const [adventureId, setAdventureId] = useState('')
+  const [bindingPackageId, setBindingPackageId] = useState('')
+  const [bindingRulebookIds, setBindingRulebookIds] = useState('')
+  const [bindingCharacterSheetId, setBindingCharacterSheetId] = useState('')
+  const [bindingEngineId, setBindingEngineId] = useState('ollama')
+  const [bindingToolIds, setBindingToolIds] = useState('search, move')
+  const [selectedSourceLocator, setSelectedSourceLocator] = useState('')
   const canCompile = Boolean(api.compileScenarioBundle || (api.startScenarioCompilation && api.getScenarioCompilation && api.getScenarioPackage))
+
+  useEffect(() => {
+    if (!scenarioPackage) return
+    setBindingPackageId(current => current || scenarioPackage.packageId)
+  }, [scenarioPackage])
 
   useEffect(() => {
     let active = true
@@ -131,16 +146,84 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
         const published = await waitForCompilation(api, started, setCompilation)
         setCompilation(published)
         if (!published.packageId) throw new Error('시나리오 패키지 ID가 없습니다.')
-        setScenarioPackage(await api.getScenarioPackage(published.packageId))
+        const nextPackage = await api.getScenarioPackage(published.packageId)
+        setScenarioPackage(nextPackage)
         return
       }
       if (!api.compileScenarioBundle) return
       setCompilation(null)
-      setScenarioPackage(await api.compileScenarioBundle(bundle.bundleId, playerId))
+      const nextPackage = await api.compileScenarioBundle(bundle.bundleId, playerId)
+      setScenarioPackage(nextPackage)
     } catch (error) {
       onError(error instanceof Error ? error.message : '시나리오 패키지 컴파일에 실패했습니다.')
     } finally {
       setCompiling(false)
+    }
+  }
+
+  async function bindRuntime(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!api.bindRuntimeBinding || !scenarioPackage) return
+    if (!adventureId.trim()) {
+      onError('바인딩할 모험 ID가 필요합니다.')
+      return
+    }
+    const packageId = bindingPackageId.trim() || scenarioPackage.packageId
+    const rulebookIds = splitIds(bindingRulebookIds)
+    const toolIds = splitIds(bindingToolIds)
+    setBindingSubmitting(true)
+    try {
+      const nextBinding = await api.bindRuntimeBinding(adventureId.trim(), playerId, {
+        playerId,
+        scenarioPackageId: packageId,
+        rulebookIds,
+        characterSheetId: bindingCharacterSheetId.trim(),
+        engineId: bindingEngineId.trim(),
+        toolIds,
+      })
+      setRuntimeBinding(nextBinding)
+      setSelectedSourceLocator(nextBinding.activeSourceContext?.locator ?? nextBinding.playabilityReport.candidates[0]?.locator ?? '')
+    } catch (error) {
+      onError(error instanceof Error ? error.message : '런타임 바인딩을 저장하지 못했습니다.')
+    } finally {
+      setBindingSubmitting(false)
+    }
+  }
+
+  async function switchRuntimePackage() {
+    if (!api.switchRuntimePackage || !runtimeBinding || !adventureId.trim()) return
+    setBindingSubmitting(true)
+    try {
+      const nextBinding = await api.switchRuntimePackage(
+        adventureId.trim(),
+        playerId,
+        runtimeBinding.bindingVersion,
+        bindingPackageId.trim() || runtimeBinding.scenarioPackageId,
+      )
+      setRuntimeBinding(nextBinding)
+      setSelectedSourceLocator(nextBinding.activeSourceContext?.locator ?? nextBinding.playabilityReport.candidates[0]?.locator ?? '')
+    } catch (error) {
+      onError(error instanceof Error ? error.message : '런타임 패키지를 전환하지 못했습니다.')
+    } finally {
+      setBindingSubmitting(false)
+    }
+  }
+
+  async function chooseSourceContext() {
+    if (!api.selectRuntimeSourceContext || !runtimeBinding || !adventureId.trim() || !selectedSourceLocator.trim()) return
+    setBindingSubmitting(true)
+    try {
+      const nextBinding = await api.selectRuntimeSourceContext(
+        adventureId.trim(),
+        playerId,
+        runtimeBinding.bindingVersion,
+        selectedSourceLocator.trim(),
+      )
+      setRuntimeBinding(nextBinding)
+    } catch (error) {
+      onError(error instanceof Error ? error.message : '시작 원문 구간을 선택하지 못했습니다.')
+    } finally {
+      setBindingSubmitting(false)
     }
   }
 
@@ -273,6 +356,90 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
           {!searchingSources && sourceResults.length === 0 && sourceQuery ? <p>근거 없음</p> : null}
         </section>
       ) : null}
+      {scenarioPackage ? (
+        <section aria-labelledby="runtime-binding-heading">
+          <h3 id="runtime-binding-heading">런타임 바인딩</h3>
+          <form onSubmit={bindRuntime}>
+            <label>
+              모험 ID
+              <input value={adventureId} onChange={event => setAdventureId(event.currentTarget.value)} />
+            </label>
+            <label>
+              패키지 ID
+              <input value={bindingPackageId} onChange={event => setBindingPackageId(event.currentTarget.value)} />
+            </label>
+            <label>
+              룰북 ID 목록
+              <input
+                value={bindingRulebookIds}
+                onChange={event => setBindingRulebookIds(event.currentTarget.value)}
+                placeholder="uuid, uuid"
+              />
+            </label>
+            <label>
+              캐릭터 시트 ID
+              <input value={bindingCharacterSheetId} onChange={event => setBindingCharacterSheetId(event.currentTarget.value)} />
+            </label>
+            <label>
+              엔진
+              <input value={bindingEngineId} onChange={event => setBindingEngineId(event.currentTarget.value)} />
+            </label>
+            <label>
+              도구
+              <input value={bindingToolIds} onChange={event => setBindingToolIds(event.currentTarget.value)} placeholder="search, move" />
+            </label>
+            <button type="submit" disabled={bindingSubmitting}>
+              {bindingSubmitting ? '바인딩 중…' : '런타임 바인딩 저장'}
+            </button>
+          </form>
+          {runtimeBinding ? (
+            <div role="status">
+              <p>
+                바인딩 v{runtimeBinding.bindingVersion} · {runtimeBinding.playabilityReport.status}
+                {' '}· 패키지 {runtimeBinding.scenarioPackageId}
+              </p>
+              {runtimeBinding.playabilityReport.warnings.length > 0 ? (
+                <ul>
+                  {runtimeBinding.playabilityReport.warnings.map(warning => <li key={warning}>{warning}</li>)}
+                </ul>
+              ) : null}
+              {runtimeBinding.playabilityReport.blockers.length > 0 ? (
+                <ul aria-label="바인딩 차단 사유">
+                  {runtimeBinding.playabilityReport.blockers.map(blocker => <li key={blocker}>{blocker}</li>)}
+                </ul>
+              ) : null}
+              {runtimeBinding.playabilityReport.limits.length > 0 ? (
+                <ul aria-label="바인딩 제한 사유">
+                  {runtimeBinding.playabilityReport.limits.map(limit => <li key={limit}>{limit}</li>)}
+                </ul>
+              ) : null}
+              {runtimeBinding.activeSourceContext ? (
+                <p>시작 구간: {runtimeBinding.activeSourceContext.locator}</p>
+              ) : null}
+              {runtimeBinding.playabilityReport.candidates.length > 0 ? (
+                <div>
+                  <label>
+                    시작 원문 후보
+                    <select value={selectedSourceLocator} onChange={event => setSelectedSourceLocator(event.currentTarget.value)}>
+                      {runtimeBinding.playabilityReport.candidates.map(candidate => (
+                        <option key={candidate.locator} value={candidate.locator}>
+                          {candidate.locator} · {candidate.reason}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <button type="button" disabled={bindingSubmitting || !selectedSourceLocator} onClick={() => void chooseSourceContext()}>
+                    시작 구간 선택
+                  </button>
+                </div>
+              ) : null}
+              <button type="button" disabled={bindingSubmitting} onClick={() => void switchRuntimePackage()}>
+                패키지 전환
+              </button>
+            </div>
+          ) : null}
+        </section>
+      ) : null}
     </section>
   )
 }
@@ -299,4 +466,11 @@ async function waitForCompilation(
 
 function sleep(ms: number) {
   return new Promise(resolve => window.setTimeout(resolve, ms))
+}
+
+function splitIds(value: string) {
+  return value
+    .split(/[\s,]+/)
+    .map(part => part.trim())
+    .filter(Boolean)
 }
