@@ -2,6 +2,7 @@ package com.dndmaster.adventure.application.scenario.compilation;
 
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.ResolutionKind;
+import com.dndmaster.adventure.domain.scenario.ScenarioResolutionDetail;
 import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import java.util.List;
@@ -14,7 +15,8 @@ public record ResolutionCandidate(
         ResolutionVisibility visibility,
         String sourceQuote,
         List<ScenarioSourceReference> sourceRefs,
-        String provenance) {
+        String provenance,
+        ScenarioResolutionDetail detail) {
     public static ResolutionCandidate skillCheck(
             KnowledgeDocumentId documentId, long extractionVersion, String locator,
             String skill, Integer dc, String quote) {
@@ -26,7 +28,8 @@ public record ResolutionCandidate(
                 ResolutionVisibility.GM_REFERENCE,
                 quote,
                 List.of(new ScenarioSourceReference(documentId, extractionVersion, locator)),
-                "schema-v1");
+                "schema-v1",
+                null);
     }
 
     public static ResolutionCandidate diceRoll(
@@ -40,6 +43,7 @@ public record ResolutionCandidate(
                 ResolutionVisibility.GM_REFERENCE,
                 quote,
                 List.of(new ScenarioSourceReference(documentId, extractionVersion, locator)),
-                "schema-v1");
+                "schema-v1",
+                null);
     }
 }

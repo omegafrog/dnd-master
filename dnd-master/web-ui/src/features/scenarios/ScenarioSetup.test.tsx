@@ -72,9 +72,39 @@ class FakeSetupApi implements SetupApi {
   async getScenarioPackage() {
     return {
       packageId: 'package-1', bundleId: 'bundle-1', bundleRevision: 1, inputFingerprint: 'fp', reportStatus: 'COMPLETE' as const,
-      warnings: [], units: [{ kind: 'SKILL_ABILITY_CHECK' as const, status: 'COMPLETE' as const, abilityOrSkill: 'Stealth', dc: 15,
-        diceExpression: null, visibility: 'GM_REFERENCE', sourceQuote: 'Sneak past the guard', provenance: 'ai-v1', validationMessages: [],
-        sourceRefs: [{ documentId: 'doc-1', extractionVersion: 3, locator: 'page:4' }] }],
+      warnings: [], units: [{
+        kind: 'SAVING_THROW' as const,
+        status: 'PARTIAL' as const,
+        abilityOrSkill: 'Dexterity',
+        dc: 15,
+        diceExpression: null,
+        visibility: 'GM_REFERENCE',
+        sourceQuote: 'Dexterity save DC 15; on a failure take 4d6 fire damage, half on a success.',
+        provenance: 'ai-v2',
+        validationMessages: ['roller is missing'],
+        runtimeCapabilities: ['ATTACK_OR_SAVE', 'DAMAGE'],
+        detail: {
+          triggerCondition: 'Touching the trapped idol',
+          actor: null,
+          roller: null,
+          instructionVisibility: null,
+          resultVisibility: null,
+          modifiers: ['creature touching idol'],
+          advantageState: null,
+          reroll: null,
+          steps: [
+            { id: 'save', kind: 'SAVING_THROW', abilityOrSkill: 'Dexterity', dc: 15, diceExpression: null, condition: null, nextStepIds: ['damage'], successOutcomeIds: ['half'], failureOutcomeIds: ['full'], sourceRefs: [{ documentId: 'doc-1', extractionVersion: 3, locator: 'page:4' }] },
+            { id: 'damage', kind: 'DAMAGE_ROLL', abilityOrSkill: null, dc: null, diceExpression: '4d6', condition: null, nextStepIds: [], successOutcomeIds: ['full', 'half'], failureOutcomeIds: [], sourceRefs: [{ documentId: 'doc-1', extractionVersion: 3, locator: 'page:4' }] },
+          ],
+          outcomes: [
+            { id: 'full', label: 'FAILURE', description: 'Take 4d6 fire damage.', sourceRefs: [{ documentId: 'doc-1', extractionVersion: 3, locator: 'page:4' }] },
+            { id: 'half', label: 'SUCCESS', description: 'Take half damage.', sourceRefs: [{ documentId: 'doc-1', extractionVersion: 3, locator: 'page:4' }] },
+          ],
+          randomTable: [],
+          tableCoverage: null,
+        },
+        sourceRefs: [{ documentId: 'doc-1', extractionVersion: 3, locator: 'page:4' }],
+      }],
     }
   }
   async startScenarioCompilation() {
@@ -135,8 +165,13 @@ describe('ScenarioSetup', () => {
     await user.click(screen.getByRole('button', { name: '시나리오 패키지 컴파일' }))
     expect(await screen.findByText('컴파일 상태 REQUESTED · 시도 0')).toBeInTheDocument()
     expect(await screen.findByText('패키지 package-1 · COMPLETE')).toBeInTheDocument()
-    expect(screen.getByText('SKILL_ABILITY_CHECK · Stealth · DC 15')).toBeInTheDocument()
-    expect(screen.getByText('visibility: GM_REFERENCE · 근거: Sneak past the guard · provenance: ai-v1')).toBeInTheDocument()
+    expect(screen.getByText('SAVING_THROW · Dexterity · DC 15 · PARTIAL')).toBeInTheDocument()
+    expect(screen.getByText('visibility: GM_REFERENCE · 근거: Dexterity save DC 15; on a failure take 4d6 fire damage, half on a success. · provenance: ai-v2')).toBeInTheDocument()
+    expect(screen.getByText('runtime: ATTACK_OR_SAVE, DAMAGE')).toBeInTheDocument()
+    expect(screen.getByText('trigger: Touching the trapped idol')).toBeInTheDocument()
+    expect(screen.getByText('step save: SAVING_THROW · Dexterity · DC 15')).toBeInTheDocument()
+    expect(screen.getByText('step damage: DAMAGE_ROLL · 4d6')).toBeInTheDocument()
+    expect(screen.getByText('outcome full: FAILURE · Take 4d6 fire damage.')).toBeInTheDocument()
     expect(screen.getByText('source: doc-1 v3 · page:4')).toBeInTheDocument()
   })
 

@@ -4,6 +4,7 @@ import com.dndmaster.adventure.application.scenario.compilation.ResolutionCandid
 import com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.ResolutionKind;
+import com.dndmaster.adventure.domain.scenario.ScenarioResolutionDetail;
 import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -64,7 +65,8 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
                         .map(ref -> new ScenarioSourceReference(
                                 new KnowledgeDocumentId(ref.documentId()), ref.extractionVersion(), ref.locator()))
                         .toList(),
-                candidate.provenance());
+                candidate.provenance(),
+                candidate.detail());
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
@@ -79,7 +81,8 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
             ResolutionVisibility visibility,
             String sourceQuote,
             List<SourceReferenceResponse> sourceRefs,
-            String provenance) {}
+            String provenance,
+            ScenarioResolutionDetail detail) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record SourceReferenceResponse(java.util.UUID documentId, long extractionVersion, String locator) {}

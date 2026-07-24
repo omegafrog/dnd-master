@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.application.scenario.compilation;
 
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection;
+import com.dndmaster.adventure.domain.scenario.ScenarioResolutionDetail;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
 import com.dndmaster.adventure.domain.scenario.ResolutionKind;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
@@ -81,12 +82,13 @@ public final class ScenarioPackageCompilationService {
         if (candidate == null) {
             return new ScenarioResolutionUnit(
                     null, null, null, null, ResolutionVisibility.GM_REFERENCE,
-                    "", List.of(), "", ResolutionStatus.INVALID, List.of("candidate is null"));
+                    "", List.of(), "", ScenarioResolutionDetail.empty(), ResolutionStatus.INVALID, List.of("candidate is null"));
         }
         if (candidate.kind() == null) invalid.add("resolution kind is missing");
         if (candidate.visibility() == null) incomplete.add("visibility is missing");
         if (candidate.provenance() == null || candidate.provenance().isBlank()) incomplete.add("provenance is missing");
         if (candidate.sourceQuote() == null || candidate.sourceQuote().isBlank()) incomplete.add("source quote is missing");
+        ScenarioResolutionDetail detail = candidate.detail() == null ? ScenarioResolutionDetail.empty() : candidate.detail();
         if (candidate.sourceRefs() == null || candidate.sourceRefs().isEmpty()) {
             invalid.add("source reference is missing");
         } else {
@@ -119,20 +121,17 @@ public final class ScenarioPackageCompilationService {
                                     && excerpt.text().toLowerCase().contains(candidate.sourceQuote().toLowerCase())));
             if (!quoteVerified) invalid.add("source quote cannot be verified against referenced excerpt");
         }
-        if (candidate.kind() == ResolutionKind.DICE_ROLL) {
-            if (!validDice(candidate.diceExpression())) {
-                invalid.add("dice expression is invalid");
-            }
-        } else if (candidate.kind() != null) {
-            if (candidate.abilityOrSkill() == null || candidate.abilityOrSkill().isBlank()) {
-                incomplete.add("ability or skill is missing");
-            }
-            if (candidate.dc() == null) {
-                incomplete.add("DC is missing");
-            } else if (candidate.dc() < 0 || candidate.dc() > 100) {
-                invalid.add("DC is outside supported range");
+        if (!detail.isEmpty()) {
+            if (detail.actor() == null || detail.actor().isBlank()) incomplete.add("actor is missing");
+            if (detail.roller() == null || detail.roller().isBlank()) incomplete.add("roller is missing");
+            if (detail.instructionVisibility() == null || detail.instructionVisibility().isBlank()) {
+                incomplete.add("instruction visibility is missing");
             }
         }
+        if (candidate.kind() != null) {
+            validateByKind(candidate, detail, invalid, incomplete);
+        }
+        validateDetail(detail, invalid, incomplete);
         ResolutionStatus status = !invalid.isEmpty()
                 ? ResolutionStatus.INVALID
                 : incomplete.isEmpty() ? ResolutionStatus.COMPLETE : ResolutionStatus.PARTIAL;
@@ -151,8 +150,59 @@ public final class ScenarioPackageCompilationService {
                         ? List.of()
                         : candidate.sourceRefs().stream().filter(Objects::nonNull).toList(),
                 candidate.provenance() == null ? "" : candidate.provenance(),
+                detail,
                 status,
                 messages);
+    }
+
+    private static void validateByKind(
+            ResolutionCandidate candidate,
+            ScenarioResolutionDetail detail,
+            List<String> invalid,
+            List<String> incomplete) {
+        switch (candidate.kind()) {
+            case SKILL_ABILITY_CHECK, SAVING_THROW, PASSIVE_THRESHOLD, ATTACK_ROLL, OPPOSED_CHECK -> {
+                if (candidate.abilityOrSkill() == null || candidate.abilityOrSkill().isBlank()) {
+                    incomplete.add("ability or skill is missing");
+                }
+                validateDc(candidate.dc(), invalid, incomplete);
+            }
+            case DICE_ROLL, DAMAGE_ROLL, HEALING_ROLL, INITIATIVE_ROLL, RECHARGE_ROLL -> {
+                if (!validDice(candidate.diceExpression())) invalid.add("dice expression is invalid");
+            }
+            case RANDOM_TABLE -> {
+                if (!validDice(candidate.diceExpression())) invalid.add("dice expression is invalid");
+                if (detail.randomTable().isEmpty()) invalid.add("random table entries are missing");
+                if ("PARTIAL".equalsIgnoreCase(detail.tableCoverage())) incomplete.add("random table coverage is PARTIAL");
+            }
+            case SPECIAL_ROLL -> incomplete.add("special roll requires manual runtime support");
+        }
+    }
+
+    private static void validateDetail(ScenarioResolutionDetail detail, List<String> invalid, List<String> incomplete) {
+        for (ScenarioResolutionDetail.Step step : detail.steps()) {
+            if (step.id() == null || step.id().isBlank()) invalid.add("step id is missing");
+            if (step.kind() == null) invalid.add("step kind is missing");
+            if (step.sourceRefs().isEmpty()) invalid.add("step source reference is missing");
+        }
+        for (ScenarioResolutionDetail.Outcome outcome : detail.outcomes()) {
+            if (outcome.id() == null || outcome.id().isBlank()) invalid.add("outcome id is missing");
+            if (outcome.description() == null || outcome.description().isBlank()) invalid.add("outcome description is missing");
+            if (outcome.sourceRefs().isEmpty()) invalid.add("outcome source reference is missing");
+        }
+        for (ScenarioResolutionDetail.TableEntry entry : detail.randomTable()) {
+            if (entry.range() == null || entry.range().isBlank()) invalid.add("random table range is missing");
+            if (entry.outcome() == null || entry.outcome().isBlank()) invalid.add("random table outcome is missing");
+            if (entry.sourceRefs().isEmpty()) invalid.add("random table source reference is missing");
+        }
+    }
+
+    private static void validateDc(Integer dc, List<String> invalid, List<String> incomplete) {
+        if (dc == null) {
+            incomplete.add("DC is missing");
+        } else if (dc < 0 || dc > 100) {
+            invalid.add("DC is outside supported range");
+        }
     }
 
     private static boolean validDice(String expression) {

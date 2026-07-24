@@ -10,9 +10,12 @@ import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
+import com.dndmaster.adventure.domain.scenario.ScenarioResolutionDetail;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -24,6 +27,7 @@ import java.util.UUID;
 import javax.sql.DataSource;
 
 public final class PostgresScenarioPackageRepository implements ScenarioPackageRepository {
+    private static final ObjectMapper JSON = new ObjectMapper();
     private final DataSource dataSource;
 
     public PostgresScenarioPackageRepository(DataSource dataSource) {
@@ -116,7 +120,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
 
     private static void insertUnits(Connection connection, ScenarioPackage packageVersion) throws SQLException {
         try (PreparedStatement unit = connection.prepareStatement(
-                "INSERT INTO scenario_package_resolution_unit(package_id, unit_order, resolution_kind, ability_or_skill, dc, dice_expression, visibility, source_quote, provenance, status, validation_messages) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                "INSERT INTO scenario_package_resolution_unit(package_id, unit_order, resolution_kind, ability_or_skill, dc, dice_expression, visibility, source_quote, provenance, detail_json, status, validation_messages) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 PreparedStatement ref = connection.prepareStatement(
                         "INSERT INTO scenario_package_resolution_source_ref(package_id, unit_order, ref_order, knowledge_document_id, extraction_version, locator) VALUES (?, ?, ?, ?, ?, ?)")) {
             for (int index = 0; index < packageVersion.units().size(); index++) {
@@ -127,8 +131,9 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
                 if (resolution.dc() == null) unit.setNull(5, java.sql.Types.INTEGER); else unit.setInt(5, resolution.dc());
                 unit.setString(6, resolution.diceExpression()); unit.setString(7, resolution.visibility().name());
                 unit.setString(8, resolution.sourceQuote()); unit.setString(9, resolution.provenance());
-                unit.setString(10, resolution.status().name());
-                unit.setArray(11, connection.createArrayOf("text", resolution.validationMessages().toArray()));
+                unit.setString(10, writeDetail(resolution.detail()));
+                unit.setString(11, resolution.status().name());
+                unit.setArray(12, connection.createArrayOf("text", resolution.validationMessages().toArray()));
                 unit.addBatch();
                 for (int refIndex = 0; refIndex < resolution.sourceRefs().size(); refIndex++) {
                     ScenarioSourceReference source = resolution.sourceRefs().get(refIndex);
@@ -160,7 +165,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     private static List<ScenarioResolutionUnit> readUnits(Connection connection, UUID packageId) throws SQLException {
         List<ScenarioResolutionUnit> units = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT unit_order, resolution_kind, ability_or_skill, dc, dice_expression, visibility, source_quote, provenance, status, validation_messages FROM scenario_package_resolution_unit WHERE package_id = ? ORDER BY unit_order")) {
+                "SELECT unit_order, resolution_kind, ability_or_skill, dc, dice_expression, visibility, source_quote, provenance, detail_json, status, validation_messages FROM scenario_package_resolution_unit WHERE package_id = ? ORDER BY unit_order")) {
             statement.setObject(1, packageId);
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) {
@@ -171,6 +176,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
                             (Integer) rows.getObject("dc"), rows.getString("dice_expression"),
                             ResolutionVisibility.valueOf(rows.getString("visibility")), rows.getString("source_quote"),
                             readRefs(connection, packageId, order), rows.getString("provenance"),
+                            readDetail(rows.getString("detail_json")),
                             ResolutionStatus.valueOf(rows.getString("status")), readArray(rows.getArray("validation_messages"))));
                 }
             }
@@ -197,5 +203,22 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
         Object value = array.getArray();
         if (!(value instanceof Object[] values)) return List.of();
         return java.util.Arrays.stream(values).map(String::valueOf).toList();
+    }
+
+    private static String writeDetail(ScenarioResolutionDetail detail) {
+        try {
+            return JSON.writeValueAsString(detail == null ? ScenarioResolutionDetail.empty() : detail);
+        } catch (JsonProcessingException exception) {
+            throw new ScenarioPackagePersistenceException("could not serialize scenario resolution detail", exception);
+        }
+    }
+
+    private static ScenarioResolutionDetail readDetail(String value) {
+        if (value == null || value.isBlank()) return ScenarioResolutionDetail.empty();
+        try {
+            return JSON.readValue(value, ScenarioResolutionDetail.class);
+        } catch (JsonProcessingException exception) {
+            throw new ScenarioPackagePersistenceException("could not read scenario resolution detail", exception);
+        }
     }
 }

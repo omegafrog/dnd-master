@@ -11,6 +11,7 @@ import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
+import com.dndmaster.adventure.domain.scenario.ScenarioResolutionDetail;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundleRevision;
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
@@ -22,6 +23,114 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class ScenarioPackageCompilationServiceTest {
+    @Test
+    void preservesOrderedStepsAndOutcomesForCompoundSavingThrowProcedure() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(documentId, 4);
+        ScenarioPackageCompilationService service = new ScenarioPackageCompilationService(new InMemoryPackageRepository());
+        ResolutionCandidate candidate = new ResolutionCandidate(
+                com.dndmaster.adventure.domain.scenario.ResolutionKind.SAVING_THROW,
+                "Dexterity",
+                15,
+                null,
+                com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
+                "Dexterity saving throw DC 15, taking 4d6 fire damage on a failed save, or half as much on a success.",
+                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 4, "page:2:span:7")),
+                "schema-v2",
+                new ScenarioResolutionDetail(
+                        "When the trapped idol is touched.",
+                        "TRAP",
+                        "PLAYER",
+                        "GM_REFERENCE",
+                        "PLAYER_SAFE",
+                        List.of("creature that touched the idol"),
+                        null,
+                        null,
+                        List.of(
+                                new ScenarioResolutionDetail.Step(
+                                        "save",
+                                        com.dndmaster.adventure.domain.scenario.ResolutionKind.SAVING_THROW,
+                                        "Dexterity",
+                                        15,
+                                        null,
+                                        null,
+                                        List.of("damage"),
+                                        List.of("half-damage"),
+                                        List.of("full-damage"),
+                                        List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 4, "page:2:span:7"))),
+                                new ScenarioResolutionDetail.Step(
+                                        "damage",
+                                        com.dndmaster.adventure.domain.scenario.ResolutionKind.DAMAGE_ROLL,
+                                        null,
+                                        null,
+                                        "4d6",
+                                        null,
+                                        List.of(),
+                                        List.of("full-damage", "half-damage"),
+                                        List.of(),
+                                        List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 4, "page:2:span:7")))),
+                        List.of(
+                                new ScenarioResolutionDetail.Outcome(
+                                        "full-damage",
+                                        "FAILURE",
+                                        "Take 4d6 fire damage.",
+                                        List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 4, "page:2:span:7"))),
+                                new ScenarioResolutionDetail.Outcome(
+                                        "half-damage",
+                                        "SUCCESS",
+                                        "Take half of the rolled fire damage.",
+                                        List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 4, "page:2:span:7")))),
+                        List.of(),
+                        null))
+                ;
+
+        var unit = service.compile(bundle, List.of(candidate)).units().get(0);
+
+        assertEquals("COMPLETE", unit.status().name());
+        assertEquals(List.of("save", "damage"), unit.detail().steps().stream().map(ScenarioResolutionDetail.Step::id).toList());
+        assertEquals(List.of("full-damage", "half-damage"), unit.detail().outcomes().stream().map(ScenarioResolutionDetail.Outcome::id).toList());
+        assertEquals(List.of("ATTACK_OR_SAVE", "DAMAGE"), unit.runtimeCapabilities());
+    }
+
+    @Test
+    void marksUnknownActorVisibilityAndPartialRandomTableCoverageAsPartialWithoutSynthesis() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(documentId, 2);
+        ScenarioPackageCompilationService service = new ScenarioPackageCompilationService(new InMemoryPackageRepository());
+        ResolutionCandidate randomTable = new ResolutionCandidate(
+                com.dndmaster.adventure.domain.scenario.ResolutionKind.RANDOM_TABLE,
+                null,
+                null,
+                "1d6",
+                com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
+                "Roll 1d6 on the whispers table: 1-2 footsteps, 5-6 laughter.",
+                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 2, "page:5:span:2")),
+                "schema-v2",
+                new ScenarioResolutionDetail(
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        List.of(),
+                        null,
+                        null,
+                        List.of(),
+                        List.of(),
+                        List.of(
+                                new ScenarioResolutionDetail.TableEntry("1-2", "Footsteps in the dark.", List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 2, "page:5:span:2"))),
+                                new ScenarioResolutionDetail.TableEntry("5-6", "Distant laughter.", List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 2, "page:5:span:2")))),
+                        "PARTIAL"));
+
+        var unit = service.compile(bundle, List.of(randomTable)).units().get(0);
+
+        assertEquals("PARTIAL", unit.status().name());
+        assertEquals(List.of("RANDOM_TABLE"), unit.runtimeCapabilities());
+        assertEquals("PARTIAL", unit.detail().tableCoverage());
+        org.assertj.core.api.Assertions.assertThat(unit.validationMessages())
+                .contains("actor is missing", "roller is missing", "instruction visibility is missing", "random table coverage is PARTIAL");
+    }
+
     @Test
     void publishesImmutablePackageAndReusesSameInputFingerprint() {
         KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
@@ -68,7 +177,8 @@ class ScenarioPackageCompilationServiceTest {
                         com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
                         "Malformed source.",
                         java.util.Arrays.asList((com.dndmaster.adventure.domain.scenario.ScenarioSourceReference) null),
-                        "schema-v1")));
+                        "schema-v1",
+                        null)));
 
         assertEquals("PARTIAL", result.units().get(0).status().name());
         assertEquals("INVALID", result.units().get(1).status().name());
@@ -92,7 +202,8 @@ class ScenarioPackageCompilationServiceTest {
                 com.dndmaster.adventure.domain.scenario.ResolutionVisibility.PLAYER_SAFE,
                 "A hidden trap.",
                 List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 1, "page:1:span:9")),
-                "model-v2/prompt-v4/schema-v1");
+                "model-v2/prompt-v4/schema-v1",
+                null);
 
         var unit = new ScenarioPackageCompilationService(new InMemoryPackageRepository())
                 .compile(bundle, List.of(candidate)).units().get(0);

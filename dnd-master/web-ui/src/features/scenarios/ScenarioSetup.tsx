@@ -219,6 +219,23 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
                     {unit.dc === null ? '' : ` · DC ${unit.dc}`}
                     {unit.status !== 'COMPLETE' ? ` · ${unit.status}` : ''}
                     <div>visibility: {unit.visibility || '없음'} · 근거: {unit.sourceQuote || '없음'} · provenance: {unit.provenance || '없음'}</div>
+                    {unit.runtimeCapabilities.length > 0 ? <div>runtime: {unit.runtimeCapabilities.join(', ')}</div> : null}
+                    {unit.detail.triggerCondition ? <div>trigger: {unit.detail.triggerCondition}</div> : null}
+                    {unit.detail.steps.length > 0 ? <ul>
+                      {unit.detail.steps.map(step => <li key={step.id}>
+                        {`step ${step.id}: ${step.kind ?? 'UNKNOWN'}${step.abilityOrSkill ? ` · ${step.abilityOrSkill}` : ''}${step.dc === null ? '' : ` · DC ${step.dc}`}${step.diceExpression ? ` · ${step.diceExpression}` : ''}`}
+                      </li>)}
+                    </ul> : null}
+                    {unit.detail.outcomes.length > 0 ? <ul>
+                      {unit.detail.outcomes.map(outcome => <li key={outcome.id}>
+                        {`outcome ${outcome.id}: ${outcome.label ?? 'UNKNOWN'} · ${outcome.description ?? '값 없음'}`}
+                      </li>)}
+                    </ul> : null}
+                    {unit.detail.randomTable.length > 0 ? <ul>
+                      {unit.detail.randomTable.map(entry => <li key={`${entry.range}-${entry.outcome}`}>
+                        {`table ${entry.range ?? '?'}: ${entry.outcome ?? '값 없음'}`}
+                      </li>)}
+                    </ul> : null}
                     {unit.sourceRefs.length > 0 ? <ul>
                       {unit.sourceRefs.map(ref => <li key={`${ref.documentId}-${ref.extractionVersion}-${ref.locator}`}>
                         source: {ref.documentId} v{ref.extractionVersion} · {ref.locator}
