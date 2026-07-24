@@ -35,10 +35,15 @@ public class DiceRollController {
                 new AdventureId(request.adventureId()),
                 new RuleSetId(request.ruleSetId()),
                 RollScope.valueOf(request.scope()),
-                new DiceExpression(request.count(), request.sides(), request.modifier()));
+                new DiceExpression(request.count(), request.sides(), request.modifier()),
+                request.sessionId(),
+                request.turnId(),
+                request.commandId(),
+                request.expectedVersion());
     }
 
     public record DiceRollRequest(
             UUID adventureId, UUID ruleSetId, String scope,
-            int count, int sides, int modifier) {}
+            int count, int sides, int modifier,
+            UUID sessionId, UUID turnId, UUID commandId, long expectedVersion) {}
 }

@@ -50,7 +50,8 @@ class DiceRollHttpFailureTest {
     private static DiceRoll completedRoll() {
         DiceExpression expression = new DiceExpression(1, 20, 0);
         DiceRoll roll = new DiceRoll(
-                RollId.generate(), new AdventureId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), RollScope.NPC, expression);
+                RollId.generate(), new AdventureId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), RollScope.NPC, expression,
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 0);
         roll.recordBuiltInResult(DiceResult.forExpression(expression, List.of(12)));
         return roll;
     }

@@ -66,6 +66,17 @@ class DiceRollPostgresIntegrationTest {
     }
 
     @Test
+    void findsRollByCommandIdAndReplaysSavedResult() {
+        PostgresDiceRollRepository repository = new PostgresDiceRollRepository(dataSource);
+        DiceRoll roll = completedRoll(RollScope.PLAYER_ACTION, List.of(10), 0);
+        repository.save(roll);
+
+        DiceRoll replayed = repository.findByCommandId(roll.commandId()).orElseThrow();
+
+        assertEquals(roll, replayed);
+    }
+
+    @Test
     void deliveryStateRetriesFailedAttemptAndRejectsChangedPayloadForSameKey() {
         PostgresDiceRollRepository rolls = new PostgresDiceRollRepository(dataSource);
         DiceRoll roll = completedRoll(RollScope.ENEMY, List.of(9), 0);
@@ -90,8 +101,12 @@ class DiceRollPostgresIntegrationTest {
 
     private static DiceRoll completedRoll(RollScope scope, List<Integer> faces, int modifier) {
         DiceExpression expression = new DiceExpression(faces.size(), 20, modifier);
+        UUID sessionId = UUID.randomUUID();
+        UUID turnId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
         DiceRoll roll = new DiceRoll(
-                RollId.generate(), new AdventureId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), scope, expression);
+                RollId.generate(), new AdventureId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), scope, expression,
+                sessionId, turnId, commandId, 0);
         roll.recordBuiltInResult(DiceResult.forExpression(expression, faces));
         return roll;
     }

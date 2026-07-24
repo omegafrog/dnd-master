@@ -63,6 +63,8 @@ public class AdventureController {
         RuntimeTurnResult result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
                 new AdventureId(adventureId),
                 new OwnerPlayerId(request.playerId()),
+                UUID.randomUUID(),
+                UUID.randomUUID(),
                 request.action()));
         return RuntimeTurnResponse.from(result);
     }

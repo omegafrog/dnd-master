@@ -74,7 +74,8 @@ class RuntimeTurnApplicationServiceTest {
 
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventures, bindings, packages, turns, search, planning, safety);
-        RuntimeTurnResult result = service.submitTurn(new SubmitRuntimeTurnCommand(adventure.id(), owner, "Open the door"));
+        RuntimeTurnResult result = service.submitTurn(new SubmitRuntimeTurnCommand(
+                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Open the door"));
 
         assertEquals(List.of(RuntimeEvidenceType.STORYBOOK, RuntimeEvidenceType.RULEBOOK), search.requestTypes);
         assertEquals(1, result.turn().evidencePack().storybook().size());
@@ -109,11 +110,44 @@ class RuntimeTurnApplicationServiceTest {
                 adventures, bindings, packages, turns, search, planning, safety);
 
         assertThrows(IllegalStateException.class, () -> service.submitTurn(
-                new SubmitRuntimeTurnCommand(adventure.id(), owner, "Open the door")));
+                new SubmitRuntimeTurnCommand(adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Open the door")));
         assertEquals(0, adventures.current.version());
         assertEquals(0, adventures.current.conversation().size());
         assertEquals(null, bindings.current.activeSourceContext());
         assertEquals(0, turns.saved.size());
+    }
+
+    @Test
+    void retries_same_runtime_turn_command_from_saved_result_without_replanning() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId storyId = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(storyId, rulebookId);
+        ActiveSourceContext proposed = new ActiveSourceContext(storyId, 1, "page:1:span:1", "Story excerpt");
+        UUID turnId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+
+        InMemoryAdventureRepository adventures = new InMemoryAdventureRepository(adventure);
+        InMemoryBindingRepository bindings = new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId()));
+        InMemoryPackageRepository packages = new InMemoryPackageRepository(scenarioPackage);
+        InMemoryRuntimeTurnRepository turns = new InMemoryRuntimeTurnRepository();
+        RecordingEvidenceSearchPort search = new RecordingEvidenceSearchPort(storyId, rulebookId);
+        RecordingPlanningPort planning = new RecordingPlanningPort(proposed);
+        AllowingSafetyPort safety = new AllowingSafetyPort(true);
+
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
+                adventures, bindings, packages, turns, search, planning, safety);
+        SubmitRuntimeTurnCommand command = new SubmitRuntimeTurnCommand(adventure.id(), owner, turnId, commandId, "Open the door");
+
+        RuntimeTurnResult first = service.submitTurn(command);
+        RuntimeTurnResult second = service.submitTurn(command);
+
+        assertEquals(first, second);
+        assertEquals(2, search.calls);
+        assertEquals(1, planning.calls);
+        assertEquals(1, safety.calls);
+        assertEquals(1, turns.saved.size());
     }
 
     private static RuntimeBinding binding(AdventureId adventureId, OwnerPlayerId owner, UUID packageId) {
@@ -230,6 +264,11 @@ class RuntimeTurnApplicationServiceTest {
         }
 
         @Override
+        public Optional<com.dndmaster.adventure.application.runtime.RuntimeTurn> findByCommandId(UUID commandId) {
+            return saved.stream().filter(turn -> turn.commandId().equals(commandId)).findFirst();
+        }
+
+        @Override
         public List<com.dndmaster.adventure.application.runtime.RuntimeTurn> findAllByAdventureId(AdventureId adventureId) {
             return saved.stream().filter(turn -> turn.adventureId().equals(adventureId)).toList();
         }
@@ -244,6 +283,7 @@ class RuntimeTurnApplicationServiceTest {
         private final KnowledgeDocumentId storyId;
         private final KnowledgeDocumentId ruleId;
         private final List<RuntimeEvidenceType> requestTypes = new ArrayList<>();
+        private int calls;
 
         private RecordingEvidenceSearchPort(KnowledgeDocumentId storyId, KnowledgeDocumentId ruleId) {
             this.storyId = storyId;
@@ -252,6 +292,7 @@ class RuntimeTurnApplicationServiceTest {
 
         @Override
         public List<RuntimeEvidence> search(RuntimeEvidenceSearchRequest request) {
+            calls++;
             requestTypes.add(request.evidenceType());
             if (request.evidenceType() == RuntimeEvidenceType.STORYBOOK) {
                 return List.of(new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK, storyId, 1, "page:1:span:1", "Story excerpt"));
@@ -262,6 +303,7 @@ class RuntimeTurnApplicationServiceTest {
 
     private static final class RecordingPlanningPort implements RuntimePlanningPort {
         private final ActiveSourceContext proposed;
+        private int calls;
 
         private RecordingPlanningPort(ActiveSourceContext proposed) {
             this.proposed = proposed;
@@ -269,6 +311,7 @@ class RuntimeTurnApplicationServiceTest {
 
         @Override
         public RuntimePlan plan(RuntimePlanningRequest request) {
+            calls++;
             RuntimeEvidence cited = request.evidencePack().storybook().isEmpty()
                     ? request.evidencePack().rulebook().getFirst()
                     : request.evidencePack().storybook().getFirst();
@@ -285,6 +328,7 @@ class RuntimeTurnApplicationServiceTest {
 
     private static final class AllowingSafetyPort implements NarrationSafetyPort {
         private final boolean approved;
+        private int calls;
 
         private AllowingSafetyPort(boolean approved) {
             this.approved = approved;
@@ -292,6 +336,7 @@ class RuntimeTurnApplicationServiceTest {
 
         @Override
         public NarrationSafetyAssessment assess(NarrationSafetyRequest request) {
+            calls++;
             return new NarrationSafetyAssessment(approved, approved ? "approved" : "rejected");
         }
     }

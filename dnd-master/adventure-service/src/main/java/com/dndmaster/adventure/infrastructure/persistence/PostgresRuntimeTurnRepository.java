@@ -25,7 +25,7 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
 
     @Override
     public Optional<RuntimeTurn> findByTurnId(UUID turnId) {
-        String sql = "SELECT turn_id, adventure_id, runtime_turn_json FROM adventure_runtime_turn WHERE turn_id = ?";
+        String sql = "SELECT runtime_turn_json FROM adventure_runtime_turn WHERE turn_id = ?";
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setObject(1, turnId);
             try (ResultSet row = statement.executeQuery()) {
@@ -33,6 +33,19 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
             }
         } catch (SQLException exception) {
             throw new RuntimeTurnPersistenceException("could not load runtime turn", exception);
+        }
+    }
+
+    @Override
+    public Optional<RuntimeTurn> findByCommandId(UUID commandId) {
+        String sql = "SELECT runtime_turn_json FROM adventure_runtime_turn WHERE command_id = ?";
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, commandId);
+            try (ResultSet row = statement.executeQuery()) {
+                return row.next() ? Optional.of(read(row.getString("runtime_turn_json"))) : Optional.empty();
+            }
+        } catch (SQLException exception) {
+            throw new RuntimeTurnPersistenceException("could not load runtime turn by command id", exception);
         }
     }
 
@@ -55,10 +68,12 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
     public void save(RuntimeTurn turn) {
         String sql = """
                 INSERT INTO adventure_runtime_turn (
-                    turn_id, adventure_id, binding_version, scenario_package_id, action, runtime_turn_json
-                ) VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT (turn_id) DO UPDATE SET
+                    turn_id, command_id, adventure_id, session_id, binding_version, scenario_package_id, action, runtime_turn_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT (command_id) DO UPDATE SET
+                    turn_id = EXCLUDED.turn_id,
                     adventure_id = EXCLUDED.adventure_id,
+                    session_id = EXCLUDED.session_id,
                     binding_version = EXCLUDED.binding_version,
                     scenario_package_id = EXCLUDED.scenario_package_id,
                     action = EXCLUDED.action,
@@ -66,11 +81,13 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
                 """;
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setObject(1, turn.turnId());
-            statement.setObject(2, turn.adventureId().value());
-            statement.setLong(3, turn.bindingVersion());
-            statement.setObject(4, turn.scenarioPackageId());
-            statement.setString(5, turn.action());
-            statement.setString(6, write(turn));
+            statement.setObject(2, turn.commandId());
+            statement.setObject(3, turn.adventureId().value());
+            statement.setObject(4, turn.sessionId());
+            statement.setLong(5, turn.bindingVersion());
+            statement.setObject(6, turn.scenarioPackageId());
+            statement.setString(7, turn.action());
+            statement.setString(8, write(turn));
             statement.executeUpdate();
         } catch (SQLException exception) {
             throw new RuntimeTurnPersistenceException("could not save runtime turn", exception);
