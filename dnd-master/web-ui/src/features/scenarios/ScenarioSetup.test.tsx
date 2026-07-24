@@ -1,9 +1,10 @@
 import '@testing-library/jest-dom/vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ScenarioSetup } from './ScenarioSetup'
 import type {
+  ScenarioCompilationView,
   KnowledgeDocumentView,
   ScenarioBundleView,
   SetupApi,
@@ -68,12 +69,34 @@ class FakeSetupApi implements SetupApi {
     { knowledgeDocumentId: 'doc-1', documentType: 'STORYBOOK', originalFilename: 'main.pdf', status: 'EXTRACTED', role: 'REFERENCE', extractionVersion: 3 },
   ]) }
   async getScenarioBundle() { return bundle('bundle-1', 1, []) }
-  async compileScenarioBundle() {
+  async getScenarioPackage() {
     return {
       packageId: 'package-1', bundleId: 'bundle-1', bundleRevision: 1, inputFingerprint: 'fp', reportStatus: 'COMPLETE' as const,
       warnings: [], units: [{ kind: 'SKILL_ABILITY_CHECK' as const, status: 'COMPLETE' as const, abilityOrSkill: 'Stealth', dc: 15,
         diceExpression: null, visibility: 'GM_REFERENCE', sourceQuote: 'Sneak past the guard', provenance: 'ai-v1', validationMessages: [],
         sourceRefs: [{ documentId: 'doc-1', extractionVersion: 3, locator: 'page:4' }] }],
+    }
+  }
+  async startScenarioCompilation() {
+    return {
+      compilationId: 'compilation-1',
+      bundleId: 'bundle-1',
+      bundleRevision: 1,
+      status: 'REQUESTED' as const,
+      attempt: 0,
+      packageId: null,
+      failureReason: null,
+    }
+  }
+  async getScenarioCompilation(): Promise<ScenarioCompilationView> {
+    return {
+      compilationId: 'compilation-1',
+      bundleId: 'bundle-1',
+      bundleRevision: 1,
+      status: 'PUBLISHED',
+      attempt: 1,
+      packageId: 'package-1',
+      failureReason: null,
     }
   }
 }
@@ -88,6 +111,10 @@ function bundle(id: string, revision: number, documents: ScenarioBundleView['doc
 }
 
 describe('ScenarioSetup', () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('lets the owner assign roles to owned STORYBOOK documents and save a bundle revision', async () => {
     const api = new FakeSetupApi()
     const user = userEvent.setup()
@@ -106,6 +133,7 @@ describe('ScenarioSetup', () => {
     expect(screen.getByText('main.pdf · MAIN_SCENARIO')).toBeInTheDocument()
     expect(screen.getByText('handout.pdf · HANDOUT')).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '시나리오 패키지 컴파일' }))
+    expect(await screen.findByText('컴파일 상태 REQUESTED · 시도 0')).toBeInTheDocument()
     expect(await screen.findByText('패키지 package-1 · COMPLETE')).toBeInTheDocument()
     expect(screen.getByText('SKILL_ABILITY_CHECK · Stealth · DC 15')).toBeInTheDocument()
     expect(screen.getByText('visibility: GM_REFERENCE · 근거: Sneak past the guard · provenance: ai-v1')).toBeInTheDocument()
@@ -123,4 +151,50 @@ describe('ScenarioSetup', () => {
 
     expect(await screen.findByText('번들 저장 완료: bundle-1 v2')).toBeInTheDocument()
   })
+
+  it('polls compilation status until the package is published', async () => {
+    const api = new FakeSetupApi()
+    const statuses: ScenarioCompilationView[] = [
+      {
+        compilationId: 'compilation-1',
+        bundleId: 'bundle-1',
+        bundleRevision: 1,
+        status: 'WAITING_RETRY',
+        attempt: 1,
+        packageId: null,
+        failureReason: 'AI timeout',
+      },
+      {
+        compilationId: 'compilation-1',
+        bundleId: 'bundle-1',
+        bundleRevision: 1,
+        status: 'RUNNING',
+        attempt: 1,
+        packageId: null,
+        failureReason: null,
+      },
+      {
+        compilationId: 'compilation-1',
+        bundleId: 'bundle-1',
+        bundleRevision: 1,
+        status: 'PUBLISHED',
+        attempt: 1,
+        packageId: 'package-1',
+        failureReason: null,
+      },
+    ]
+    api.getScenarioCompilation = vi.fn(async () => statuses.shift() ?? statuses[statuses.length - 1])
+    const user = userEvent.setup()
+    render(<ScenarioSetup api={api} playerId="owner-1" onError={() => {}} />)
+
+    await screen.findByText('main.pdf')
+    await user.click(screen.getByRole('button', { name: '시나리오 번들 저장' }))
+    await user.click(screen.getByRole('button', { name: '시나리오 패키지 컴파일' }))
+
+    expect(await screen.findByText('컴파일 상태 REQUESTED · 시도 0')).toBeInTheDocument()
+    expect(await screen.findByText('컴파일 상태 WAITING_RETRY · 시도 1')).toBeInTheDocument()
+    expect(await screen.findByText('패키지 package-1 · COMPLETE')).toBeInTheDocument()
+    expect(api.getScenarioCompilation).toHaveBeenCalled()
+    expect(screen.getByText('컴파일 상태 PUBLISHED · 시도 1')).toBeInTheDocument()
+  }, 10000)
 })
