@@ -14,6 +14,7 @@ import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
+import com.dndmaster.adventure.domain.adventure.ConversationEntry;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
 import com.dndmaster.adventure.domain.adventure.ScenarioId;
@@ -71,18 +72,22 @@ class RuntimeTurnPostgresIntegrationTest {
     @Test
     void savesAndReloadsRuntimeTurnThroughPostgres() {
         AdventureId adventureId = AdventureId.generate();
+        SessionId sessionId = SessionId.generate();
         PostgresAdventureRepository adventureRepository = new PostgresAdventureRepository(dataSource);
         adventureRepository.save(Adventure.create(
                 adventureId,
-                SessionId.generate(),
+                sessionId,
                 new OwnerPlayerId(UUID.randomUUID()),
                 new ScenarioId(UUID.randomUUID()),
                 new RuleSetId(UUID.randomUUID()),
                 new CharacterSheetId(UUID.randomUUID()),
                 new AdventureContext("start", null, null, null)));
+        UUID commandId = UUID.randomUUID();
         RuntimeTurn turn = new RuntimeTurn(
                 UUID.randomUUID(),
+                commandId,
                 adventureId,
+                sessionId.value(),
                 UUID.randomUUID(),
                 3L,
                 "Open the door",
@@ -109,6 +114,9 @@ class RuntimeTurnPostgresIntegrationTest {
                         List.of(),
                         List.of("resolution evidence not prefetched")),
                 new ActiveSourceContext(new KnowledgeDocumentId(UUID.randomUUID()), 1L, "page:1:span:1", "A sealed door"),
+                new AdventureContext("The door creaks open.", "alert", "Open the door", "The action succeeds."),
+                List.of(new ConversationEntry(0, "AI_GAME_MASTER", "The door creaks open.")),
+                1L,
                 List.of("storybook:page:1:span:1"),
                 List.of("resolution evidence not prefetched"));
 

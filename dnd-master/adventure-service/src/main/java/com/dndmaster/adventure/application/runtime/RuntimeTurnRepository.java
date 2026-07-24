@@ -7,6 +7,7 @@ import java.util.UUID;
 
 public interface RuntimeTurnRepository {
     Optional<RuntimeTurn> findByTurnId(UUID turnId);
+    Optional<RuntimeTurn> findByCommandId(UUID commandId);
     List<RuntimeTurn> findAllByAdventureId(AdventureId adventureId);
     void save(RuntimeTurn turn);
 }

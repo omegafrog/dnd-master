@@ -49,6 +49,15 @@ public final class RuntimeTurnApplicationService {
         Adventure adventure = adventureRepository.findById(command.adventureId())
                 .orElseThrow(() -> new IllegalStateException("adventure not found"));
         adventure.reopen(command.ownerPlayerId());
+        RuntimeTurn existing = runtimeTurnRepository.findByCommandId(command.commandId()).orElse(null);
+        if (existing != null) {
+            if (!existing.turnId().equals(command.turnId())
+                    || !existing.adventureId().equals(command.adventureId())
+                    || !existing.action().equals(command.action())) {
+                throw new IllegalStateException("runtime command id reused with different payload");
+            }
+            return new RuntimeTurnResult(existing, existing.context(), existing.conversation(), existing.version());
+        }
         RuntimeBinding binding = bindingRepository.findCurrentByAdventureId(command.adventureId())
                 .orElseThrow(() -> new IllegalStateException("runtime binding not found"));
         if (!binding.ownerPlayerId().equals(command.ownerPlayerId())) {
@@ -91,8 +100,9 @@ public final class RuntimeTurnApplicationService {
         adventureRepository.save(progressed);
 
         RuntimeTurn turn = new RuntimeTurn(
-                UUID.randomUUID(), adventure.id(), binding.scenarioPackageId(), binding.bindingVersion(),
-                command.action(), evidencePack, plan, activeSourceContext,
+                command.turnId(), command.commandId(), adventure.id(), adventure.sessionId().value(), binding.scenarioPackageId(),
+                binding.bindingVersion(), command.action(), evidencePack, plan, activeSourceContext, nextContext,
+                conversation, progressed.version(),
                 plan.citedEvidence().stream()
                         .map(evidence -> evidence.evidenceType() + ":" + evidence.locator())
                         .toList(),
