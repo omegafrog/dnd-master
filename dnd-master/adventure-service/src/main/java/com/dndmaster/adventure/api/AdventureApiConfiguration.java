@@ -18,6 +18,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioPackag
 import com.dndmaster.adventure.infrastructure.persistence.PostgresResolutionOverrideRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioCompilationRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeBindingRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresWorkQueueAdapter;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpKnowledgeDocumentLookupGateway;
@@ -104,6 +105,11 @@ public class AdventureApiConfiguration {
     @Bean
     RuntimeBindingRepository runtimeBindingRepository(DataSource dataSource, ObjectMapper objectMapper) {
         return new PostgresRuntimeBindingRepository(dataSource, objectMapper);
+    }
+
+    @Bean
+    RuntimeTurnRepository runtimeTurnRepository(DataSource dataSource, ObjectMapper objectMapper) {
+        return new PostgresRuntimeTurnRepository(dataSource, objectMapper);
     }
 
     @Bean
@@ -333,11 +339,12 @@ public class AdventureApiConfiguration {
             AdventureRepository adventureRepository,
             RuntimeBindingRepository runtimeBindingRepository,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
+            RuntimeTurnRepository runtimeTurnRepository,
             RuntimeEvidenceSearchPort runtimeEvidenceSearchPort,
             RuntimePlanningPort runtimePlanningPort,
             NarrationSafetyPort narrationSafetyPort) {
         return new RuntimeTurnApplicationService(
-                adventureRepository, runtimeBindingRepository, packageRepository, runtimeEvidenceSearchPort,
+                adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort);
     }
 
