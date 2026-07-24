@@ -17,6 +17,7 @@ import com.dndmaster.adventure.application.runtime.RuntimePlanningPort;
 import com.dndmaster.adventure.application.runtime.RuntimePlanningRequest;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnResult;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnRepository;
 import com.dndmaster.adventure.application.runtime.SubmitRuntimeTurnCommand;
 import com.dndmaster.adventure.application.runtime.RuntimeBindingRepository;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
@@ -66,12 +67,13 @@ class RuntimeTurnApplicationServiceTest {
         InMemoryAdventureRepository adventures = new InMemoryAdventureRepository(adventure);
         InMemoryBindingRepository bindings = new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId()));
         InMemoryPackageRepository packages = new InMemoryPackageRepository(scenarioPackage);
+        InMemoryRuntimeTurnRepository turns = new InMemoryRuntimeTurnRepository();
         RecordingEvidenceSearchPort search = new RecordingEvidenceSearchPort(storyId, rulebookId);
         RecordingPlanningPort planning = new RecordingPlanningPort(proposed);
         AllowingSafetyPort safety = new AllowingSafetyPort(true);
 
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
-                adventures, bindings, packages, search, planning, safety);
+                adventures, bindings, packages, turns, search, planning, safety);
         RuntimeTurnResult result = service.submitTurn(new SubmitRuntimeTurnCommand(adventure.id(), owner, "Open the door"));
 
         assertEquals(List.of(RuntimeEvidenceType.STORYBOOK, RuntimeEvidenceType.RULEBOOK), search.requestTypes);
@@ -81,6 +83,8 @@ class RuntimeTurnApplicationServiceTest {
         assertEquals("근거를 바탕으로 응답한다.", result.turn().plan().narration());
         assertEquals(proposed, result.turn().activeSourceContext());
         assertEquals("page:1:span:1", bindings.current.activeSourceContext().locator());
+        assertEquals(1, turns.saved.size());
+        assertEquals(result.turn(), turns.saved.getFirst());
         assertEquals(3, result.conversation().size());
         assertEquals(1, result.version());
     }
@@ -96,18 +100,20 @@ class RuntimeTurnApplicationServiceTest {
         InMemoryAdventureRepository adventures = new InMemoryAdventureRepository(adventure);
         InMemoryBindingRepository bindings = new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId()));
         InMemoryPackageRepository packages = new InMemoryPackageRepository(scenarioPackage);
+        InMemoryRuntimeTurnRepository turns = new InMemoryRuntimeTurnRepository();
         RecordingEvidenceSearchPort search = new RecordingEvidenceSearchPort(storyId, rulebookId);
         RecordingPlanningPort planning = new RecordingPlanningPort(null);
         AllowingSafetyPort safety = new AllowingSafetyPort(false);
 
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
-                adventures, bindings, packages, search, planning, safety);
+                adventures, bindings, packages, turns, search, planning, safety);
 
         assertThrows(IllegalStateException.class, () -> service.submitTurn(
                 new SubmitRuntimeTurnCommand(adventure.id(), owner, "Open the door")));
         assertEquals(0, adventures.current.version());
         assertEquals(0, adventures.current.conversation().size());
         assertEquals(null, bindings.current.activeSourceContext());
+        assertEquals(0, turns.saved.size());
     }
 
     private static RuntimeBinding binding(AdventureId adventureId, OwnerPlayerId owner, UUID packageId) {
@@ -212,6 +218,25 @@ class RuntimeTurnApplicationServiceTest {
         @Override
         public void save(ScenarioPackage scenarioPackage) {
             packages.put(scenarioPackage.packageId(), scenarioPackage);
+        }
+    }
+
+    private static final class InMemoryRuntimeTurnRepository implements RuntimeTurnRepository {
+        private final List<com.dndmaster.adventure.application.runtime.RuntimeTurn> saved = new ArrayList<>();
+
+        @Override
+        public Optional<com.dndmaster.adventure.application.runtime.RuntimeTurn> findByTurnId(UUID turnId) {
+            return saved.stream().filter(turn -> turn.turnId().equals(turnId)).findFirst();
+        }
+
+        @Override
+        public List<com.dndmaster.adventure.application.runtime.RuntimeTurn> findAllByAdventureId(AdventureId adventureId) {
+            return saved.stream().filter(turn -> turn.adventureId().equals(adventureId)).toList();
+        }
+
+        @Override
+        public void save(com.dndmaster.adventure.application.runtime.RuntimeTurn turn) {
+            saved.add(turn);
         }
     }
 

@@ -22,6 +22,7 @@ public final class RuntimeTurnApplicationService {
     private final AdventureRepository adventureRepository;
     private final RuntimeBindingRepository bindingRepository;
     private final ScenarioPackageRepository scenarioPackageRepository;
+    private final RuntimeTurnRepository runtimeTurnRepository;
     private final RuntimeEvidenceSearchPort evidenceSearchPort;
     private final RuntimePlanningPort planningPort;
     private final NarrationSafetyPort narrationSafetyPort;
@@ -30,12 +31,14 @@ public final class RuntimeTurnApplicationService {
             AdventureRepository adventureRepository,
             RuntimeBindingRepository bindingRepository,
             ScenarioPackageRepository scenarioPackageRepository,
+            RuntimeTurnRepository runtimeTurnRepository,
             RuntimeEvidenceSearchPort evidenceSearchPort,
             RuntimePlanningPort planningPort,
             NarrationSafetyPort narrationSafetyPort) {
         this.adventureRepository = Objects.requireNonNull(adventureRepository, "adventure repository must not be null");
         this.bindingRepository = Objects.requireNonNull(bindingRepository, "binding repository must not be null");
         this.scenarioPackageRepository = Objects.requireNonNull(scenarioPackageRepository, "scenario package repository must not be null");
+        this.runtimeTurnRepository = Objects.requireNonNull(runtimeTurnRepository, "runtime turn repository must not be null");
         this.evidenceSearchPort = Objects.requireNonNull(evidenceSearchPort, "evidence search port must not be null");
         this.planningPort = Objects.requireNonNull(planningPort, "planning port must not be null");
         this.narrationSafetyPort = Objects.requireNonNull(narrationSafetyPort, "narration safety port must not be null");
@@ -94,6 +97,7 @@ public final class RuntimeTurnApplicationService {
                         .map(evidence -> evidence.evidenceType() + ":" + evidence.locator())
                         .toList(),
                 plan.warnings());
+        runtimeTurnRepository.save(turn);
         return new RuntimeTurnResult(turn, progressed.currentContext(), progressed.conversation(), progressed.version());
     }
 
