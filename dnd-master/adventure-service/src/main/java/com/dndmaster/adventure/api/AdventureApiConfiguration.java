@@ -13,6 +13,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioSource;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioBundleRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioPackageRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresResolutionOverrideRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioCompilationRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresWorkQueueAdapter;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
@@ -85,6 +86,12 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.scenario.compilation.ResolutionOverrideRepository resolutionOverrideRepository(
+            DataSource dataSource) {
+        return new PostgresResolutionOverrideRepository(dataSource);
+    }
+
+    @Bean
     com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationRepository scenarioCompilationRepository(
             DataSource dataSource) {
         return new PostgresScenarioCompilationRepository(dataSource);
@@ -104,8 +111,10 @@ public class AdventureApiConfiguration {
 
     @Bean
     com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService scenarioPackageCompilationService(
-            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository repository) {
-        return new com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService(repository);
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository repository,
+            com.dndmaster.adventure.application.scenario.compilation.ResolutionOverrideRepository overrideRepository) {
+        return new com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService(
+                repository, overrideRepository);
     }
 
     @Bean
@@ -115,9 +124,11 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationProcessManager processManager,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationRepository compilationRepository,
-            com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort excerptPort) {
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort excerptPort,
+            com.dndmaster.adventure.application.scenario.compilation.ResolutionOverrideRepository overrideRepository) {
         return new com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationApplicationService(
-                bundleRepository, compiler, packageRepository, processManager, compilationRepository, excerptPort);
+                bundleRepository, compiler, packageRepository, processManager, compilationRepository, excerptPort,
+                overrideRepository);
     }
 
     @Bean

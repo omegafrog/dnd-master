@@ -1,0 +1,6 @@
+id	kind	quote	ability_or_skill	dc	dice_expression	trigger_condition	actor	roller	instruction_visibility	result_visibility	step_kinds	outcome_labels	random_table_ranges	table_coverage	expected_status	expected_capabilities	expected_messages
+R01	SAVING_THROW	Dexterity saving throw DC 15, taking 4d6 fire damage on a failed save, or half as much on a success.	Dexterity	15		When the idol is touched.	TRAP	PLAYER	GM_REFERENCE	PLAYER_SAFE	SAVING_THROW;;DAMAGE_ROLL	FAILURE;;SUCCESS		COMPLETE	COMPLETE	ATTACK_OR_SAVE;;DAMAGE	-
+R02	RANDOM_TABLE	Roll 1d6 on the whispers table: 1-2 footsteps, 5-6 laughter.			1d6								1-2;;5-6	PARTIAL	PARTIAL	RANDOM_TABLE	actor is missing;;roller is missing;;instruction visibility is missing;;random table coverage is PARTIAL
+R03	ATTACK_ROLL	Melee Weapon Attack: +5 to hit, reach 5 ft., one target.	Attack		1d20 + 5	The ghoul lashes out.	MONSTER	GM	GM_REFERENCE	GM_REFERENCE	ATTACK_ROLL	HIT		COMPLETE	COMPLETE	ATTACK_OR_SAVE	-
+R04	HEALING_ROLL	The poultice restores 2d4 + 2 hit points.			2d4 + 2	Applying the poultice.	PLAYER	PLAYER	PLAYER_SAFE	PLAYER_SAFE	HEALING_ROLL	RESTORED		COMPLETE	COMPLETE	HEALING	-
+R05	SPECIAL_ROLL	의식이 시작되면 특수 굴림을 한다.						의식 진행자	GM_REFERENCE		SPECIAL_ROLL			COMPLETE	PARTIAL	MANUAL_SPECIAL_ROLL	actor is missing;;special roll requires manual runtime support

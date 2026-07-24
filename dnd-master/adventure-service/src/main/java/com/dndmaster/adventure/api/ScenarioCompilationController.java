@@ -5,6 +5,8 @@ import com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilat
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
 import com.dndmaster.adventure.domain.scenario.ResolutionKind;
+import com.dndmaster.adventure.domain.scenario.ResolutionOverride;
+import com.dndmaster.adventure.domain.scenario.ResolutionOverrideStatus;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionDetail;
 import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
@@ -12,6 +14,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import java.util.List;
 import java.util.UUID;
+import java.time.Instant;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -40,11 +43,16 @@ public class ScenarioCompilationController {
         if (!owner.value().equals(request.playerId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "playerId must match Authorization");
         }
-        if (request.candidates() == null || request.candidates().isEmpty()) {
+        List<ResolutionCandidate> candidates = request.candidates() == null
+                ? List.of()
+                : request.candidates().stream().map(ScenarioCompilationController::candidate).toList();
+        List<ResolutionOverride> overrides = request.overrides() == null
+                ? List.of()
+                : request.overrides().stream().map(ScenarioCompilationController::override).toList();
+        if (candidates.isEmpty() && overrides.isEmpty()) {
             return PackageResponse.from(service.compile(new ScenarioBundleId(bundleId), owner));
         }
-        List<ResolutionCandidate> candidates = request.candidates().stream().map(ScenarioCompilationController::candidate).toList();
-        return PackageResponse.from(service.compile(new ScenarioBundleId(bundleId), owner, candidates));
+        return PackageResponse.from(service.compile(new ScenarioBundleId(bundleId), owner, candidates, overrides));
     }
 
     @GetMapping("/scenario-packages/{packageId}")
@@ -83,6 +91,20 @@ public class ScenarioCompilationController {
                 sourceRefs(candidate.sourceRefs()),
                 candidate.provenance(),
                 detail(candidate.detail()));
+    }
+
+    private static ResolutionOverride override(OverrideRequest request) {
+        return ResolutionOverride.create(
+                new ScenarioBundleId(request.bundleId()),
+                new OwnerPlayerId(request.ownerPlayerId()),
+                request.author(),
+                request.reason(),
+                candidate(request.original()),
+                candidate(request.replacement()),
+                request.createdAt(),
+                request.updatedAt(),
+                request.status() == null ? ResolutionOverrideStatus.PENDING : request.status(),
+                request.revision());
     }
 
     private static ScenarioResolutionDetail detail(DetailRequest detail) {
@@ -127,7 +149,7 @@ public class ScenarioCompilationController {
         }
     }
 
-    public record CompilationRequest(UUID playerId, List<CandidateRequest> candidates) {}
+    public record CompilationRequest(UUID playerId, List<CandidateRequest> candidates, List<OverrideRequest> overrides) {}
     public record CompilationJobRequest(UUID playerId, String inputFingerprint) {}
     public record CompilationResponse(UUID compilationId, UUID bundleId, long bundleRevision, String status, int attempt,
                                       UUID packageId, String failureReason) {
@@ -167,6 +189,17 @@ public class ScenarioCompilationController {
     public record OutcomeRequest(String id, String label, String description, List<SourceReferenceRequest> sourceRefs) {}
     public record TableEntryRequest(String range, String outcome, List<SourceReferenceRequest> sourceRefs) {}
     public record SourceReferenceRequest(UUID documentId, long extractionVersion, String locator) {}
+    public record OverrideRequest(
+            UUID bundleId,
+            UUID ownerPlayerId,
+            String author,
+            String reason,
+            CandidateRequest original,
+            CandidateRequest replacement,
+            Instant createdAt,
+            Instant updatedAt,
+            ResolutionOverrideStatus status,
+            long revision) {}
     public record PackageResponse(
             UUID packageId, UUID bundleId, long bundleRevision, String inputFingerprint,
             String reportStatus, List<String> warnings, List<UnitResponse> units) {
