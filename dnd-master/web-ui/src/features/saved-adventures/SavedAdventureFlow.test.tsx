@@ -30,7 +30,16 @@ it('lists, resumes, deletes and configures session knowledge sets', async () => 
     async getRulebookStatus() { return { rulebookId: 'rulebook-1', status: 'INDEXED' as const } },
     async retryKnowledgeDocument(knowledgeDocumentId: string) { return { rulebookId: knowledgeDocumentId, status: 'INDEXED' as const } },
     async getSourcePreview() { throw new Error() },
-    async uploadScenario(file) { return { id: 'scenario', name: file.name } },
+    async uploadScenario(file) {
+      return {
+        id: 'scenario',
+        name: file.name,
+        deprecated: true,
+        deprecationMessage: 'bundle/package flows로 전환하세요.',
+        legacyScenarioId: 'scenario',
+        sunset: 'Fri, 31 Dec 2027 00:00:00 GMT',
+      }
+    },
     async createScenarioBundle() { return { bundleId: 'bundle', ownerPlayerId: 'p1', currentRevision: 1, documents: [] } },
     async reviseScenarioBundle() { return { bundleId: 'bundle', ownerPlayerId: 'p1', currentRevision: 2, documents: [] } },
     async getScenarioBundle() { return { bundleId: 'bundle', ownerPlayerId: 'p1', currentRevision: 1, documents: [] } },
@@ -45,9 +54,14 @@ it('lists, resumes, deletes and configures session knowledge sets', async () => 
   const user = userEvent.setup()
   render(<SavedAdventurePanel playApi={api} setupApi={setupApi} playerId="p1" />)
   expect(await screen.findByText('Old Keep')).toBeInTheDocument()
+  await user.upload(screen.getByLabelText('레거시 시나리오 파일'), new File(['legacy'], 'legacy.pdf', { type: 'application/pdf' }))
+  await user.click(screen.getByRole('button', { name: '레거시 시나리오 재업로드' }))
+  expect(await screen.findByText(/레거시 시나리오 업로드됨: legacy\.pdf/)).toBeInTheDocument()
+  expect(screen.getByText(/bundle\/package flows로 전환하세요\./)).toBeInTheDocument()
+  expect(screen.getByText(/종료 예정 Fri, 31 Dec 2027 00:00:00 GMT/)).toBeInTheDocument()
   const old = screen.getByText('Old Keep').closest('li')!
   await user.click(old.querySelectorAll('button')[0])
-  expect(screen.getByRole('status')).toHaveTextContent('재개했습니다')
+  expect(screen.getByText('모험을 재개했습니다.')).toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: '자료 설정' }))
   expect(await screen.findByRole('checkbox', { name: /phb\.pdf/ })).toBeChecked()
   await user.click(screen.getByRole('button', { name: '세션 자료 저장' }))

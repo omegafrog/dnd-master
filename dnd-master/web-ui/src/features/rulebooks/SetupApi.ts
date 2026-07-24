@@ -246,7 +246,14 @@ export interface SetupApi {
   getRulebookStatus(rulebookId: string): Promise<RulebookView>
   retryKnowledgeDocument(knowledgeDocumentId: string): Promise<RulebookView>
   getSourcePreview(knowledgeDocumentId: string): Promise<SourcePreviewView>
-  uploadScenario(file: File): Promise<{ id: string; name: string }>
+  uploadScenario(file: File): Promise<{
+    id: string
+    name: string
+    deprecated?: boolean
+    deprecationMessage?: string
+    legacyScenarioId?: string
+    sunset?: string | null
+  }>
   createScenarioBundle(ownerId: string, documents: ScenarioBundleDraft[]): Promise<ScenarioBundleView>
   reviseScenarioBundle(bundleId: string, ownerId: string, documents: ScenarioBundleDraft[]): Promise<ScenarioBundleView>
   getScenarioBundle(bundleId: string): Promise<ScenarioBundleView>
@@ -325,10 +332,24 @@ export class HttpSetupApi implements SetupApi {
   uploadScenario(file: File) {
     const body = new FormData()
     body.append('file', file)
-    return request<{ id: string; name: string }>('/api/v1/adventures/scenarios', {
+    return fetch('/api/v1/adventures/scenarios', {
       method: 'POST',
       headers: { Authorization: `Bearer ${this.getToken()}` },
       body,
+    }).then(async response => {
+      if (response.status === 400) throw new Error('지원하지 않거나 손상된 파일입니다.')
+      if (!response.ok) throw new Error('요청을 처리하지 못했습니다.')
+      const legacyScenarioId = response.headers.get('X-Legacy-Scenario-Id') ?? undefined
+      if (!legacyScenarioId) throw new Error('레거시 시나리오 식별자가 없습니다.')
+      const deprecationWarning = response.headers.get('Warning') ?? undefined
+      return {
+        id: legacyScenarioId,
+        name: file.name,
+        deprecated: response.headers.get('Deprecation') === 'true',
+        deprecationMessage: deprecationWarning?.replace(/^299 [^ ]+\s+"/, '').replace(/"$/, '') ?? undefined,
+        legacyScenarioId,
+        sunset: response.headers.get('Sunset'),
+      }
     })
   }
 
