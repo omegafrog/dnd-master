@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import type {
   KnowledgeDocumentView,
+  ScenarioCompilationView,
   ScenarioBundleDraft,
   ScenarioBundleRole,
   ScenarioBundleView,
@@ -26,17 +27,22 @@ const selectableStatuses = new Set<KnowledgeDocumentView['status']>([
   'PARTIAL_CONFIRMED',
 ])
 
+const compilationPollIntervalMs = 250
+const compilationPollLimit = 240
+
 export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playerId: string; onError: (message: string) => void }) {
   const [documents, setDocuments] = useState<KnowledgeDocumentView[]>([])
   const [roles, setRoles] = useState<Record<string, ScenarioBundleRole>>({})
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bundle, setBundle] = useState<ScenarioBundleView | null>(null)
   const [scenarioPackage, setScenarioPackage] = useState<ScenarioPackageView | null>(null)
+  const [compilation, setCompilation] = useState<ScenarioCompilationView | null>(null)
   const [compiling, setCompiling] = useState(false)
   const [saving, setSaving] = useState(false)
   const [sourceQuery, setSourceQuery] = useState('')
   const [sourceResults, setSourceResults] = useState<StorySourceEvidenceView[]>([])
   const [searchingSources, setSearchingSources] = useState(false)
+  const canCompile = Boolean(api.compileScenarioBundle || (api.startScenarioCompilation && api.getScenarioCompilation && api.getScenarioPackage))
 
   useEffect(() => {
     let active = true
@@ -111,9 +117,25 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
   }
 
   async function compile() {
-    if (!bundle || !api.compileScenarioBundle) return
+    if (!bundle) return
     setCompiling(true)
+    setScenarioPackage(null)
     try {
+      if (api.startScenarioCompilation && api.getScenarioCompilation && api.getScenarioPackage) {
+        const started = await api.startScenarioCompilation(
+          bundle.bundleId,
+          playerId,
+          `scenario-bundle:${bundle.bundleId}:revision:${bundle.currentRevision}`,
+        )
+        setCompilation(started)
+        const published = await waitForCompilation(api, started, setCompilation)
+        setCompilation(published)
+        if (!published.packageId) throw new Error('시나리오 패키지 ID가 없습니다.')
+        setScenarioPackage(await api.getScenarioPackage(published.packageId))
+        return
+      }
+      if (!api.compileScenarioBundle) return
+      setCompilation(null)
       setScenarioPackage(await api.compileScenarioBundle(bundle.bundleId, playerId))
     } catch (error) {
       onError(error instanceof Error ? error.message : '시나리오 패키지 컴파일에 실패했습니다.')
@@ -176,10 +198,13 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
               </li>
             ))}
           </ul>
-          {api.compileScenarioBundle ? (
+          {canCompile ? (
             <button type="button" disabled={compiling} onClick={() => void compile()}>
               {compiling ? '컴파일 중…' : '시나리오 패키지 컴파일'}
             </button>
+          ) : null}
+          {compilation ? (
+            <p>컴파일 상태 {compilation.status} · 시도 {compilation.attempt}</p>
           ) : null}
           {scenarioPackage ? (
             <div role="status">
@@ -233,4 +258,28 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
       ) : null}
     </section>
   )
+}
+
+async function waitForCompilation(
+  api: SetupApi,
+  started: ScenarioCompilationView,
+  onProgress: (compilation: ScenarioCompilationView) => void,
+): Promise<ScenarioCompilationView> {
+  const readCompilation = api.getScenarioCompilation
+  if (!readCompilation) throw new Error('시나리오 패키지 컴파일 상태 API가 없습니다.')
+  let current = started
+  for (let attempts = 0; attempts < compilationPollLimit; attempts += 1) {
+    if (current.status === 'PUBLISHED') return current
+    if (current.status === 'FAILED') {
+      throw new Error(current.failureReason || '시나리오 패키지 컴파일에 실패했습니다.')
+    }
+    await sleep(compilationPollIntervalMs)
+    current = await readCompilation(current.compilationId)
+    onProgress(current)
+  }
+  throw new Error('시나리오 패키지 컴파일이 아직 진행 중입니다. 잠시 후 상태를 다시 확인하세요.')
+}
+
+function sleep(ms: number) {
+  return new Promise(resolve => window.setTimeout(resolve, ms))
 }

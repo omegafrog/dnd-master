@@ -87,6 +87,18 @@ export type ScenarioPackageView = {
   }>
 }
 
+export type ScenarioCompilationStatus = 'REQUESTED' | 'RUNNING' | 'WAITING_RETRY' | 'PUBLISHED' | 'FAILED'
+
+export type ScenarioCompilationView = {
+  compilationId: string
+  bundleId: string
+  bundleRevision: number
+  status: ScenarioCompilationStatus
+  attempt: number
+  packageId?: string | null
+  failureReason?: string | null
+}
+
 export type ScenarioBundleDraft = {
   knowledgeDocumentId: string
   role: ScenarioBundleRole
@@ -156,6 +168,9 @@ export interface SetupApi {
   reviseScenarioBundle(bundleId: string, ownerId: string, documents: ScenarioBundleDraft[]): Promise<ScenarioBundleView>
   getScenarioBundle(bundleId: string): Promise<ScenarioBundleView>
   compileScenarioBundle?(bundleId: string, ownerId: string): Promise<ScenarioPackageView>
+  startScenarioCompilation?(bundleId: string, ownerId: string, inputFingerprint: string): Promise<ScenarioCompilationView>
+  getScenarioCompilation?(compilationId: string): Promise<ScenarioCompilationView>
+  getScenarioPackage?(packageId: string): Promise<ScenarioPackageView>
   saveRuleSet(rulebookIds: string[]): Promise<void>
   listKnowledgeDocuments(ownerId: string): Promise<KnowledgeDocumentView[]>
   searchStorySources?(ownerId: string, documents: StorySourceScopeView[], situation: string, activeLocators?: string[]): Promise<StorySourceEvidenceView[]>
@@ -258,6 +273,26 @@ export class HttpSetupApi implements SetupApi {
       headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ playerId: ownerId, candidates: [] }),
     }, '시나리오 패키지 컴파일에 실패했습니다.')
+  }
+
+  startScenarioCompilation(bundleId: string, ownerId: string, inputFingerprint: string) {
+    return request<ScenarioCompilationView>(`/api/v1/adventures/scenario-bundles/${bundleId}/compilation-jobs`, {
+      method: 'POST',
+      headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId: ownerId, inputFingerprint }),
+    }, '시나리오 패키지 컴파일을 시작하지 못했습니다.')
+  }
+
+  getScenarioCompilation(compilationId: string) {
+    return request<ScenarioCompilationView>(`/api/v1/adventures/compilations/${compilationId}`, {
+      headers: this.authHeaders(),
+    }, '시나리오 패키지 컴파일 상태를 불러오지 못했습니다.')
+  }
+
+  getScenarioPackage(packageId: string) {
+    return request<ScenarioPackageView>(`/api/v1/adventures/scenario-packages/${packageId}`, {
+      headers: this.authHeaders(),
+    }, '시나리오 패키지를 불러오지 못했습니다.')
   }
 
   saveRuleSet(rulebookIds: string[]) {
