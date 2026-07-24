@@ -6,6 +6,7 @@ import { RulebookSetup } from './RulebookSetup'
 import type {
   BatchRulebookView,
   KnowledgeDocumentView,
+  LegacyScenarioMigrationView,
   ScenarioBundleView,
   RulebookUploadDraft,
   SetupApi,
@@ -67,6 +68,8 @@ class FakeSetupApi implements SetupApi {
     return this.preview
   }
   async uploadScenario(file: File) { return { id: 'scenario-1', name: file.name } }
+  async migrateLegacyScenario(): Promise<LegacyScenarioMigrationView> { throw new Error('not used') }
+  async reuploadLegacyScenario(): Promise<LegacyScenarioMigrationView> { throw new Error('not used') }
   async createScenarioBundle() { return bundle('bundle-1', 1, []) }
   async reviseScenarioBundle() { return bundle('bundle-1', 2, []) }
   async getScenarioBundle() { return bundle('bundle-1', 1, []) }

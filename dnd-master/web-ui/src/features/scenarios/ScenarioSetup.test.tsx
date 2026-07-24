@@ -6,6 +6,7 @@ import { ScenarioSetup } from './ScenarioSetup'
 import type {
   ScenarioCompilationView,
   KnowledgeDocumentView,
+  LegacyScenarioMigrationView,
   ScenarioBundleView,
   RuntimeBindingView,
   SetupApi,
@@ -62,6 +63,8 @@ class FakeSetupApi implements SetupApi {
   async retryKnowledgeDocument() { return { rulebookId: 'rulebook', status: 'INDEXED' as const } }
   async getSourcePreview(): Promise<SourcePreviewView> { throw new Error('not used') }
   async uploadScenario() { return { id: 'legacy', name: 'legacy.pdf' } }
+  async migrateLegacyScenario(): Promise<LegacyScenarioMigrationView> { throw new Error('not used') }
+  async reuploadLegacyScenario(): Promise<LegacyScenarioMigrationView> { throw new Error('not used') }
   async saveRuleSet() {}
   async listKnowledgeDocuments() { return this.documents }
   async createScenarioBundle() {

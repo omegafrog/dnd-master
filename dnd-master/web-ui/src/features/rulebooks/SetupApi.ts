@@ -161,6 +161,17 @@ export type RuntimeBindingView = {
   activeSourceContext: ActiveSourceContextView | null
 }
 
+export type LegacyScenarioMigrationView = {
+  scenarioId: string
+  bundleId: string | null
+  packageId: string | null
+  knowledgeDocumentId: string | null
+  requiresReupload: boolean
+  reupload: boolean
+  sourceFilename: string
+  message: string
+}
+
 export type ScenarioCompilationStatus = 'REQUESTED' | 'RUNNING' | 'WAITING_RETRY' | 'PUBLISHED' | 'FAILED'
 
 export type ScenarioCompilationView = {
@@ -254,6 +265,8 @@ export interface SetupApi {
     legacyScenarioId?: string
     sunset?: string | null
   }>
+  migrateLegacyScenario(scenarioId: string): Promise<LegacyScenarioMigrationView>
+  reuploadLegacyScenario(scenarioId: string, file: File): Promise<LegacyScenarioMigrationView>
   createScenarioBundle(ownerId: string, documents: ScenarioBundleDraft[]): Promise<ScenarioBundleView>
   reviseScenarioBundle(bundleId: string, ownerId: string, documents: ScenarioBundleDraft[]): Promise<ScenarioBundleView>
   getScenarioBundle(bundleId: string): Promise<ScenarioBundleView>
@@ -351,6 +364,23 @@ export class HttpSetupApi implements SetupApi {
         sunset: response.headers.get('Sunset'),
       }
     })
+  }
+
+  migrateLegacyScenario(scenarioId: string) {
+    return request<LegacyScenarioMigrationView>(`/api/v1/adventures/legacy-scenarios/${scenarioId}/migrate`, {
+      method: 'POST',
+      headers: this.authHeaders(),
+    }, '레거시 시나리오를 마이그레이션하지 못했습니다.')
+  }
+
+  reuploadLegacyScenario(scenarioId: string, file: File) {
+    const body = new FormData()
+    body.append('file', file)
+    return request<LegacyScenarioMigrationView>(`/api/v1/adventures/legacy-scenarios/${scenarioId}/reupload`, {
+      method: 'POST',
+      headers: this.authHeaders(),
+      body,
+    }, '레거시 시나리오를 재업로드하지 못했습니다.')
   }
 
   createScenarioBundle(ownerId: string, documents: ScenarioBundleDraft[]) {

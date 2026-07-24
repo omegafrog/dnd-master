@@ -107,11 +107,21 @@ class AdventureScenarioApplicationServiceTest {
 
     private static final class FakeStorage implements ScenarioStoragePort {
         private int calls;
+        private ScenarioSource stored;
 
         @Override
         public ScenarioSource store(ScenarioUpload upload) {
             calls++;
-            return new ScenarioSource("scenarios/one", upload.originalFilename(), "sha256:one");
+            stored = new ScenarioSource("scenarios/one", upload.originalFilename(), "sha256:one");
+            return stored;
+        }
+
+        @Override
+        public byte[] read(ScenarioSource source) {
+            if (stored == null || !stored.storageKey().equals(source.storageKey())) {
+                throw new IllegalStateException("source missing");
+            }
+            return "A dark cave".getBytes(StandardCharsets.UTF_8);
         }
     }
 
