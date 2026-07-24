@@ -7,11 +7,14 @@ import type {
   ScenarioCompilationView,
   KnowledgeDocumentView,
   ScenarioBundleView,
+  RuntimeBindingView,
   SetupApi,
   SourcePreviewView,
 } from '../rulebooks/SetupApi'
 
 class FakeSetupApi implements SetupApi {
+  private bindingVersion = 1
+  private runtimeBinding: RuntimeBindingView | null = null
   private readonly documents: KnowledgeDocumentView[] = [
     {
       knowledgeDocumentId: 'doc-1',
@@ -51,6 +54,8 @@ class FakeSetupApi implements SetupApi {
       failureReason: 'document parser stopped',
     },
   ]
+
+  constructor(private readonly bindingCandidateCount = 1) {}
 
   async uploadRulebooks() { return [] }
   async getRulebookStatus() { return { rulebookId: 'rulebook', status: 'INDEXED' as const } }
@@ -107,6 +112,18 @@ class FakeSetupApi implements SetupApi {
       }],
     }
   }
+  async bindRuntimeBinding(adventureId: string, ownerId: string, draft: { scenarioPackageId: string }) {
+    return this.makeRuntimeBinding(adventureId, ownerId, draft.scenarioPackageId)
+  }
+  async getRuntimeBinding(adventureId: string, ownerId: string) {
+    return this.runtimeBinding ?? this.makeRuntimeBinding(adventureId, ownerId)
+  }
+  async switchRuntimePackage(adventureId: string, ownerId: string, _bindingVersion: number, scenarioPackageId: string) {
+    return this.makeRuntimeBinding(adventureId, ownerId, scenarioPackageId)
+  }
+  async selectRuntimeSourceContext(adventureId: string, ownerId: string, _bindingVersion: number, locator: string) {
+    return this.makeRuntimeBinding(adventureId, ownerId, undefined, locator)
+  }
   async startScenarioCompilation() {
     return {
       compilationId: 'compilation-1',
@@ -128,6 +145,55 @@ class FakeSetupApi implements SetupApi {
       packageId: 'package-1',
       failureReason: null,
     }
+  }
+
+  private makeRuntimeBinding(
+    adventureId: string,
+    _ownerId: string,
+    scenarioPackageId = 'package-1',
+    activeLocator?: string,
+  ): RuntimeBindingView {
+    this.bindingVersion += 1
+    const candidates = Array.from({ length: this.bindingCandidateCount }, (_, index) => {
+      const locator = `page:1:span:${index + 1}`
+      return {
+        knowledgeDocumentId: 'doc-1',
+        extractionVersion: 3,
+        locator,
+        excerpt: `start ${index + 1}`,
+        score: 1 - index * 0.1,
+        reason: this.bindingCandidateCount > 1 ? 'initial source context candidate' : 'clear start',
+      }
+    })
+    const selected = activeLocator
+      ? candidates.find(candidate => candidate.locator === activeLocator) ?? null
+      : candidates.length === 1 ? candidates[0] : null
+    this.runtimeBinding = {
+      adventureId,
+      bindingVersion: this.bindingVersion,
+      scenarioPackageId,
+      scenarioPackageRevision: 1,
+      rulebookIds: ['rulebook-1'],
+      characterSheetId: 'character-1',
+      engineId: 'ollama',
+      toolIds: ['search', 'move'],
+      playabilityReport: {
+        status: candidates.length > 1 ? 'BLOCKED' : 'PLAYABLE',
+        warnings: candidates.length > 1 ? ['start is ambiguous'] : [],
+        blockers: candidates.length > 1 ? ['initial source context is ambiguous'] : [],
+        limits: [],
+        candidates,
+      },
+      activeSourceContext: selected
+        ? {
+            knowledgeDocumentId: selected.knowledgeDocumentId,
+            extractionVersion: selected.extractionVersion,
+            locator: selected.locator,
+            excerpt: selected.excerpt,
+          }
+        : null,
+    }
+    return this.runtimeBinding
   }
 }
 
@@ -232,4 +298,31 @@ describe('ScenarioSetup', () => {
     expect(api.getScenarioCompilation).toHaveBeenCalled()
     expect(screen.getByText('컴파일 상태 PUBLISHED · 시도 1')).toBeInTheDocument()
   }, 10000)
+
+  it('shows runtime binding preflight and lets the owner choose an ambiguous start span', async () => {
+    const api = new FakeSetupApi(2)
+    const user = userEvent.setup()
+    render(<ScenarioSetup api={api} playerId="owner-1" onError={() => {}} />)
+
+    await screen.findByText('main.pdf')
+    await user.click(screen.getByRole('button', { name: '시나리오 번들 저장' }))
+    await user.click(screen.getByRole('button', { name: '시나리오 패키지 컴파일' }))
+    await screen.findByText('패키지 package-1 · COMPLETE')
+
+    await user.type(screen.getByLabelText('모험 ID'), 'adventure-1')
+    await user.clear(screen.getByLabelText('패키지 ID'))
+    await user.type(screen.getByLabelText('패키지 ID'), 'package-1')
+    await user.type(screen.getByLabelText('룰북 ID 목록'), 'rulebook-1')
+    await user.type(screen.getByLabelText('캐릭터 시트 ID'), 'character-1')
+    await user.click(screen.getByRole('button', { name: '런타임 바인딩 저장' }))
+
+    expect(await screen.findByText('바인딩 v2 · BLOCKED · 패키지 package-1')).toBeInTheDocument()
+    expect(screen.getByText('initial source context is ambiguous')).toBeInTheDocument()
+    expect(screen.getByLabelText('시작 원문 후보')).toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText('시작 원문 후보'), 'page:1:span:2')
+    await user.click(screen.getByRole('button', { name: '시작 구간 선택' }))
+
+    expect(await screen.findByText('시작 구간: page:1:span:2')).toBeInTheDocument()
+  })
 })

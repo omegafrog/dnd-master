@@ -122,6 +122,45 @@ export type ScenarioPackageView = {
   }>
 }
 
+export type RuntimeBindingStatus = 'PLAYABLE' | 'PLAYABLE_WITH_LIMITS' | 'BLOCKED'
+
+export type RuntimeSourceContextCandidateView = {
+  knowledgeDocumentId: string
+  extractionVersion: number
+  locator: string
+  excerpt: string
+  score: number
+  reason: string
+}
+
+export type ActiveSourceContextView = {
+  knowledgeDocumentId: string
+  extractionVersion: number
+  locator: string
+  excerpt: string
+}
+
+export type PlayabilityReportView = {
+  status: RuntimeBindingStatus
+  warnings: string[]
+  blockers: string[]
+  limits: string[]
+  candidates: RuntimeSourceContextCandidateView[]
+}
+
+export type RuntimeBindingView = {
+  adventureId: string
+  bindingVersion: number
+  scenarioPackageId: string
+  scenarioPackageRevision: number
+  rulebookIds: string[]
+  characterSheetId: string
+  engineId: string
+  toolIds: string[]
+  playabilityReport: PlayabilityReportView
+  activeSourceContext: ActiveSourceContextView | null
+}
+
 export type ScenarioCompilationStatus = 'REQUESTED' | 'RUNNING' | 'WAITING_RETRY' | 'PUBLISHED' | 'FAILED'
 
 export type ScenarioCompilationView = {
@@ -137,6 +176,15 @@ export type ScenarioCompilationView = {
 export type ScenarioBundleDraft = {
   knowledgeDocumentId: string
   role: ScenarioBundleRole
+}
+
+export type RuntimeBindingDraft = {
+  playerId: string
+  scenarioPackageId: string
+  rulebookIds: string[]
+  characterSheetId: string
+  engineId: string
+  toolIds: string[]
 }
 
 export type SourceSpanView = {
@@ -206,6 +254,10 @@ export interface SetupApi {
   startScenarioCompilation?(bundleId: string, ownerId: string, inputFingerprint: string): Promise<ScenarioCompilationView>
   getScenarioCompilation?(compilationId: string): Promise<ScenarioCompilationView>
   getScenarioPackage?(packageId: string): Promise<ScenarioPackageView>
+  bindRuntimeBinding?(adventureId: string, ownerId: string, draft: RuntimeBindingDraft): Promise<RuntimeBindingView>
+  getRuntimeBinding?(adventureId: string, ownerId: string): Promise<RuntimeBindingView>
+  switchRuntimePackage?(adventureId: string, ownerId: string, bindingVersion: number, scenarioPackageId: string): Promise<RuntimeBindingView>
+  selectRuntimeSourceContext?(adventureId: string, ownerId: string, bindingVersion: number, locator: string): Promise<RuntimeBindingView>
   saveRuleSet(rulebookIds: string[]): Promise<void>
   listKnowledgeDocuments(ownerId: string): Promise<KnowledgeDocumentView[]>
   searchStorySources?(ownerId: string, documents: StorySourceScopeView[], situation: string, activeLocators?: string[]): Promise<StorySourceEvidenceView[]>
@@ -328,6 +380,36 @@ export class HttpSetupApi implements SetupApi {
     return request<ScenarioPackageView>(`/api/v1/adventures/scenario-packages/${packageId}`, {
       headers: this.authHeaders(),
     }, '시나리오 패키지를 불러오지 못했습니다.')
+  }
+
+  bindRuntimeBinding(adventureId: string, _ownerId: string, draft: RuntimeBindingDraft) {
+    return request<RuntimeBindingView>(`/api/v1/adventures/${adventureId}/runtime-bindings`, {
+      method: 'POST',
+      headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(draft),
+    }, '런타임 바인딩을 저장하지 못했습니다.')
+  }
+
+  getRuntimeBinding(adventureId: string, _ownerId: string) {
+    return request<RuntimeBindingView>(`/api/v1/adventures/${adventureId}/runtime-bindings`, {
+      headers: this.authHeaders(),
+    }, '런타임 바인딩을 불러오지 못했습니다.')
+  }
+
+  switchRuntimePackage(adventureId: string, ownerId: string, bindingVersion: number, scenarioPackageId: string) {
+    return request<RuntimeBindingView>(`/api/v1/adventures/${adventureId}/runtime-bindings/${bindingVersion}/package-switch`, {
+      method: 'POST',
+      headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId: ownerId, scenarioPackageId }),
+    }, '런타임 바인딩 패키지를 전환하지 못했습니다.')
+  }
+
+  selectRuntimeSourceContext(adventureId: string, ownerId: string, bindingVersion: number, locator: string) {
+    return request<RuntimeBindingView>(`/api/v1/adventures/${adventureId}/runtime-bindings/${bindingVersion}/source-context`, {
+      method: 'POST',
+      headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ playerId: ownerId, locator }),
+    }, '시작 원문 구간을 선택하지 못했습니다.')
   }
 
   saveRuleSet(rulebookIds: string[]) {

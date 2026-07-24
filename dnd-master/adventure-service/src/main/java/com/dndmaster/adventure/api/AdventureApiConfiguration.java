@@ -5,6 +5,7 @@ import com.dndmaster.adventure.application.knowledge.*;
 import com.dndmaster.adventure.application.guidance.*;
 import com.dndmaster.adventure.application.progress.*;
 import com.dndmaster.adventure.application.ruleset.*;
+import com.dndmaster.adventure.application.runtime.*;
 import com.dndmaster.adventure.application.saved.*;
 import com.dndmaster.adventure.application.scenario.*;
 import com.dndmaster.adventure.domain.adventure.Adventure;
@@ -15,6 +16,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioBundle
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioPackageRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresResolutionOverrideRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioCompilationRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeBindingRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresWorkQueueAdapter;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpKnowledgeDocumentLookupGateway;
@@ -95,6 +97,11 @@ public class AdventureApiConfiguration {
     com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationRepository scenarioCompilationRepository(
             DataSource dataSource) {
         return new PostgresScenarioCompilationRepository(dataSource);
+    }
+
+    @Bean
+    RuntimeBindingRepository runtimeBindingRepository(DataSource dataSource, ObjectMapper objectMapper) {
+        return new PostgresRuntimeBindingRepository(dataSource, objectMapper);
     }
 
     @Bean
@@ -201,8 +208,10 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    AdventureReadinessPort adventureReadinessPort() {
-        return adventure -> new AdventureReadiness(true, true, true);
+    AdventureReadinessPort adventureReadinessPort(RuntimeBindingRepository runtimeBindingRepository) {
+        return adventure -> runtimeBindingRepository.findCurrentByAdventureId(adventure.id())
+                .map(binding -> new AdventureReadiness(!binding.playabilityReport().isBlocked(), true, true))
+                .orElse(new AdventureReadiness(false, true, true));
     }
 
     @Bean
@@ -227,6 +236,26 @@ public class AdventureApiConfiguration {
                 return new ActionJudgment(request.ruleSetId(), "judgment-result");
             }
         };
+    }
+
+    @Bean
+    InitialSourceContextProposalPort initialSourceContextProposalPort() {
+        return (scenarioPackage, candidates) -> new InitialSourceContextProposalPort.InitialSourceContextProposalResult(
+                candidates.size() == 1 ? "CLEAR" : candidates.isEmpty() ? "BLOCKED" : "AMBIGUOUS",
+                candidates);
+    }
+
+    @Bean
+    RuntimeBindingApplicationService runtimeBindingApplicationService(
+            AdventureRepository adventureRepository,
+            ScenarioBundleRepository bundleRepository,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
+            RuntimeBindingRepository runtimeBindingRepository,
+            InitialSourceContextProposalPort proposalPort,
+            KnowledgeDocumentLookupPort lookupPort) {
+        return new RuntimeBindingApplicationService(
+                adventureRepository, bundleRepository, packageRepository, runtimeBindingRepository, proposalPort,
+                lookupPort);
     }
 
     @Bean
@@ -376,5 +405,10 @@ public class AdventureApiConfiguration {
             AdventureCombatApplicationService combatService,
             AdventureScenarioApplicationService scenarioService) {
         return new AdventureController(savedAdventureService, progressService, guidanceService, combatService, scenarioService);
+    }
+
+    @Bean
+    RuntimeBindingController runtimeBindingController(RuntimeBindingApplicationService service) {
+        return new RuntimeBindingController(service);
     }
 }
