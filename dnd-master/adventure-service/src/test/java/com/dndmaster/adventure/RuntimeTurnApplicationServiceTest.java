@@ -2,6 +2,7 @@ package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
 import com.dndmaster.adventure.application.runtime.EvidencePack;
@@ -17,6 +18,7 @@ import com.dndmaster.adventure.application.runtime.RuntimePlanningPort;
 import com.dndmaster.adventure.application.runtime.RuntimePlanningRequest;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnResult;
+import com.dndmaster.adventure.application.runtime.RuntimeTurn;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnRepository;
 import com.dndmaster.adventure.application.runtime.SubmitRuntimeTurnCommand;
 import com.dndmaster.adventure.application.runtime.RuntimeBindingRepository;
@@ -84,8 +86,9 @@ class RuntimeTurnApplicationServiceTest {
         assertEquals("근거를 바탕으로 응답한다.", result.turn().plan().narration());
         assertEquals(proposed, result.turn().activeSourceContext());
         assertEquals("page:1:span:1", bindings.current.activeSourceContext().locator());
-        assertEquals(1, turns.saved.size());
-        assertEquals(result.turn(), turns.saved.getFirst());
+        assertTrue(result.turn().committed());
+        assertEquals(2, turns.saved.size());
+        assertEquals(result.turn(), turns.saved.getLast());
         assertEquals(3, result.conversation().size());
         assertEquals(1, result.version());
     }
@@ -147,7 +150,42 @@ class RuntimeTurnApplicationServiceTest {
         assertEquals(2, search.calls);
         assertEquals(1, planning.calls);
         assertEquals(1, safety.calls);
-        assertEquals(1, turns.saved.size());
+        assertEquals(2, turns.saved.size());
+    }
+
+    @Test
+    void resumes_a_partially_persisted_turn_without_replanning_or_double_advancing() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId storyId = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(storyId, rulebookId);
+        ActiveSourceContext proposed = new ActiveSourceContext(storyId, 1, "page:1:span:1", "Story excerpt");
+        UUID turnId = UUID.randomUUID();
+        UUID commandId = UUID.randomUUID();
+
+        InMemoryAdventureRepository adventures = new InMemoryAdventureRepository(adventure);
+        InMemoryBindingRepository bindings = new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId()));
+        InMemoryPackageRepository packages = new InMemoryPackageRepository(scenarioPackage);
+        FlakyRuntimeTurnRepository turns = new FlakyRuntimeTurnRepository();
+        RecordingEvidenceSearchPort search = new RecordingEvidenceSearchPort(storyId, rulebookId);
+        RecordingPlanningPort planning = new RecordingPlanningPort(proposed);
+        AllowingSafetyPort safety = new AllowingSafetyPort(true);
+
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
+                adventures, bindings, packages, turns, search, planning, safety);
+        SubmitRuntimeTurnCommand command = new SubmitRuntimeTurnCommand(adventure.id(), owner, turnId, commandId, "Open the door");
+
+        assertThrows(IllegalStateException.class, () -> service.submitTurn(command));
+        RuntimeTurnResult resumed = service.submitTurn(command);
+
+        assertEquals("근거를 바탕으로 응답한다.", resumed.turn().plan().narration());
+        assertEquals(1, adventures.current.version());
+        assertEquals(2, search.calls);
+        assertEquals(1, planning.calls);
+        assertEquals(1, safety.calls);
+        assertEquals(2, turns.saved.size());
+        assertTrue(turns.saved.stream().anyMatch(RuntimeTurn::committed));
     }
 
     private static RuntimeBinding binding(AdventureId adventureId, OwnerPlayerId owner, UUID packageId) {
@@ -265,7 +303,7 @@ class RuntimeTurnApplicationServiceTest {
 
         @Override
         public Optional<com.dndmaster.adventure.application.runtime.RuntimeTurn> findByCommandId(UUID commandId) {
-            return saved.stream().filter(turn -> turn.commandId().equals(commandId)).findFirst();
+            return saved.stream().filter(turn -> turn.commandId().equals(commandId)).reduce((first, second) -> second);
         }
 
         @Override
@@ -275,6 +313,35 @@ class RuntimeTurnApplicationServiceTest {
 
         @Override
         public void save(com.dndmaster.adventure.application.runtime.RuntimeTurn turn) {
+            saved.add(turn);
+        }
+    }
+
+    private static final class FlakyRuntimeTurnRepository implements RuntimeTurnRepository {
+        private final List<com.dndmaster.adventure.application.runtime.RuntimeTurn> saved = new ArrayList<>();
+        private boolean failOnce = true;
+
+        @Override
+        public Optional<com.dndmaster.adventure.application.runtime.RuntimeTurn> findByTurnId(UUID turnId) {
+            return saved.stream().filter(turn -> turn.turnId().equals(turnId)).findFirst();
+        }
+
+        @Override
+        public Optional<com.dndmaster.adventure.application.runtime.RuntimeTurn> findByCommandId(UUID commandId) {
+            return saved.stream().filter(turn -> turn.commandId().equals(commandId)).reduce((first, second) -> second);
+        }
+
+        @Override
+        public List<com.dndmaster.adventure.application.runtime.RuntimeTurn> findAllByAdventureId(AdventureId adventureId) {
+            return saved.stream().filter(turn -> turn.adventureId().equals(adventureId)).toList();
+        }
+
+        @Override
+        public void save(com.dndmaster.adventure.application.runtime.RuntimeTurn turn) {
+            if (failOnce && turn.committed()) {
+                failOnce = false;
+                throw new IllegalStateException("simulated turn persistence failure");
+            }
             saved.add(turn);
         }
     }

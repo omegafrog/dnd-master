@@ -56,7 +56,8 @@ public final class RuntimeTurnApplicationService {
                     || !existing.action().equals(command.action())) {
                 throw new IllegalStateException("runtime command id reused with different payload");
             }
-            return new RuntimeTurnResult(existing, existing.context(), existing.conversation(), existing.version());
+            RuntimeTurn committed = resumeCommittedTurn(command, adventure, existing);
+            return new RuntimeTurnResult(committed, committed.context(), committed.conversation(), committed.version());
         }
         RuntimeBinding binding = bindingRepository.findCurrentByAdventureId(command.adventureId())
                 .orElseThrow(() -> new IllegalStateException("runtime binding not found"));
@@ -92,6 +93,17 @@ public final class RuntimeTurnApplicationService {
         conversation.add(new ConversationEntry(conversation.size(), "PLAYER", command.action()));
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.judgment()));
 
+        long nextVersion = adventure.version() + 1;
+        RuntimeTurn turn = new RuntimeTurn(
+                command.turnId(), command.commandId(), adventure.id(), adventure.sessionId().value(), binding.scenarioPackageId(),
+                binding.bindingVersion(), command.action(), evidencePack, plan, activeSourceContext, nextContext,
+                conversation, nextVersion,
+                plan.citedEvidence().stream()
+                        .map(evidence -> evidence.evidenceType() + ":" + evidence.locator())
+                        .toList(),
+                plan.warnings());
+        runtimeTurnRepository.save(turn);
+
         Adventure progressed = Adventure.rehydrate(
                 adventure.id(), adventure.sessionId(), adventure.ownerPlayerId(), adventure.scenarioId(),
                 adventure.ruleSetId(), adventure.characterSheetId(), adventure.conversation(), adventure.currentContext(),
@@ -99,16 +111,26 @@ public final class RuntimeTurnApplicationService {
         progressed.preserveProgress(command.ownerPlayerId(), adventure.version(), nextContext, conversation);
         adventureRepository.save(progressed);
 
-        RuntimeTurn turn = new RuntimeTurn(
-                command.turnId(), command.commandId(), adventure.id(), adventure.sessionId().value(), binding.scenarioPackageId(),
-                binding.bindingVersion(), command.action(), evidencePack, plan, activeSourceContext, nextContext,
-                conversation, progressed.version(),
-                plan.citedEvidence().stream()
-                        .map(evidence -> evidence.evidenceType() + ":" + evidence.locator())
-                        .toList(),
-                plan.warnings());
-        runtimeTurnRepository.save(turn);
-        return new RuntimeTurnResult(turn, progressed.currentContext(), progressed.conversation(), progressed.version());
+        RuntimeTurn committed = turn.markCommitted();
+        runtimeTurnRepository.save(committed);
+        return new RuntimeTurnResult(committed, progressed.currentContext(), progressed.conversation(), progressed.version());
+    }
+
+    private RuntimeTurn resumeCommittedTurn(SubmitRuntimeTurnCommand command, Adventure adventure, RuntimeTurn existing) {
+        if (existing.committed()) {
+            return existing;
+        }
+        if (adventure.version() == existing.version() - 1) {
+            Adventure progressed = Adventure.rehydrate(
+                    adventure.id(), adventure.sessionId(), adventure.ownerPlayerId(), adventure.scenarioId(),
+                    adventure.ruleSetId(), adventure.characterSheetId(), adventure.conversation(), adventure.currentContext(),
+                    adventure.status(), adventure.version());
+            progressed.preserveProgress(command.ownerPlayerId(), adventure.version(), existing.context(), existing.conversation());
+            adventureRepository.save(progressed);
+        }
+        RuntimeTurn committed = existing.markCommitted();
+        runtimeTurnRepository.save(committed);
+        return committed;
     }
 
     private EvidencePack prefetchEvidence(

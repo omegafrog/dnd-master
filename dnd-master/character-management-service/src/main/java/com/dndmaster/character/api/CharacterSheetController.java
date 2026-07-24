@@ -24,11 +24,16 @@ public class CharacterSheetController {
 
     @PutMapping("/internal/v1/character-sheets/{sheetId}")
     CharacterSheetResponse preserveCharacterSheet(
-            @PathVariable UUID sheetId, @RequestBody CharacterSheetRequest request) {
+            @PathVariable UUID sheetId,
+            @RequestHeader("Idempotency-Key") UUID commandId,
+            @RequestHeader("If-Match-Version") long expectedVersion,
+            @RequestBody CharacterSheetRequest request) {
         CharacterSheetUpdate update = new CharacterSheetUpdate(
                 SheetEdition.valueOf(request.edition()),
                 parseData(request.edition(), request.characterName(), request.level(), request.inspiration()),
-                InputMode.STRUCTURED_SHEET);
+                InputMode.STRUCTURED_SHEET,
+                commandId,
+                expectedVersion);
         CharacterSheet sheet = characterSheetService.manageCharacter(new CharacterSheetId(sheetId), update);
         return CharacterSheetResponse.from(sheet);
     }

@@ -1,12 +1,454 @@
 package com.dndmaster.combatmap.infrastructure.persistence;
-import com.dndmaster.combatmap.application.view.*; import com.dndmaster.combatmap.domain.*; import java.sql.*; import java.util.*; import javax.sql.DataSource;
-public final class PostgresCombatMapViewStore implements CombatMapViewStore{
- private final DataSource ds;public PostgresCombatMapViewStore(DataSource ds){this.ds=Objects.requireNonNull(ds);}
- public void insert(MapOwnerId owner,CombatMap map){write(owner,map,-1,true);}
- public long update(MapOwnerId owner,CombatMap map,long expected){write(owner,map,expected,false);return expected+1;}
- private void write(MapOwnerId owner,CombatMap map,long expected,boolean insert){try(Connection c=ds.getConnection()){c.setAutoCommit(false);try{if(insert)insertMap(c,owner,map);else updateMap(c,owner,map,expected);replace(c,map);c.commit();}catch(SQLException|RuntimeException e){c.rollback();if(e instanceof OptimisticCombatMapLockException o)throw o;throw new CombatMapPersistenceException("map save failed",e);}}catch(SQLException e){throw new CombatMapPersistenceException("map DB failed",e);}}
- private static void insertMap(Connection c,MapOwnerId owner,CombatMap m)throws SQLException{try(PreparedStatement s=c.prepareStatement("INSERT INTO combat_map VALUES (?,?,?,?,?,?,?,?,0)")){s.setObject(1,m.id().value());s.setObject(2,owner.value());s.setObject(3,m.adventureId().value());s.setObject(4,m.ruleSetId().value());s.setInt(5,m.grid().width());s.setInt(6,m.grid().height());s.setInt(7,m.grid().cellSize());s.setInt(8,m.grid().distanceUnit());s.executeUpdate();}}
- private static void updateMap(Connection c,MapOwnerId owner,CombatMap m,long v)throws SQLException{try(PreparedStatement s=c.prepareStatement("UPDATE combat_map SET grid_width=?,grid_height=?,cell_size=?,distance_unit=?,version=version+1 WHERE map_id=? AND owner_player_id=? AND version=?")){s.setInt(1,m.grid().width());s.setInt(2,m.grid().height());s.setInt(3,m.grid().cellSize());s.setInt(4,m.grid().distanceUnit());s.setObject(5,m.id().value());s.setObject(6,owner.value());s.setLong(7,v);if(s.executeUpdate()!=1)throw new OptimisticCombatMapLockException();}}
- private static void replace(Connection c,CombatMap m)throws SQLException{for(String t:List.of("combat_map_token","combat_map_obstacle","combat_map_layer"))try(PreparedStatement s=c.prepareStatement("DELETE FROM "+t+" WHERE map_id=?")){s.setObject(1,m.id().value());s.executeUpdate();}try(PreparedStatement s=c.prepareStatement("INSERT INTO combat_map_token VALUES (?,?,?,?,?,?,?)")){for(CombatToken t:m.tokens()){s.setObject(1,m.id().value());s.setObject(2,t.id().value());s.setString(3,t.type().name());s.setInt(4,t.position().x());s.setInt(5,t.position().y());s.setString(6,t.controller().name());s.setObject(7,t.ownerPlayerId().map(PlayerId::value).orElse(null));s.addBatch();}s.executeBatch();}try(PreparedStatement s=c.prepareStatement("INSERT INTO combat_map_obstacle VALUES (?,?,?)")){for(GridPosition p:m.obstacles()){s.setObject(1,m.id().value());s.setInt(2,p.x());s.setInt(3,p.y());s.addBatch();}s.executeBatch();}try(PreparedStatement s=c.prepareStatement("INSERT INTO combat_map_layer(map_id,sequence,layer_type,layer_value,visibility) VALUES (?,?,?,?,?)")){for(int i=0;i<m.layers().size();i++){MapLayer l=m.layers().get(i);s.setObject(1,m.id().value());s.setInt(2,i);s.setString(3,l.type());s.setString(4,l.value());s.setString(5,l.visibility().name());s.addBatch();}s.executeBatch();}}
- public Optional<VersionedOwnedCombatMap> find(MapId id){try(Connection c=ds.getConnection();PreparedStatement s=c.prepareStatement("SELECT * FROM combat_map WHERE map_id=?")){s.setObject(1,id.value());try(ResultSet r=s.executeQuery()){if(!r.next())return Optional.empty();GridSpec g=new GridSpec(r.getInt("grid_width"),r.getInt("grid_height"),r.getInt("cell_size"),r.getInt("distance_unit"));List<CombatToken> tokens=new ArrayList<>();try(PreparedStatement q=c.prepareStatement("SELECT * FROM combat_map_token WHERE map_id=? ORDER BY token_id")){q.setObject(1,id.value());try(ResultSet x=q.executeQuery()){while(x.next())tokens.add(new CombatToken(new TokenId(x.getObject("token_id",UUID.class)),TokenType.valueOf(x.getString("token_type")),new GridPosition(x.getInt("x"),x.getInt("y")),TokenController.valueOf(x.getString("controller")),x.getObject("owner_player_id")==null?null:new PlayerId(x.getObject("owner_player_id",UUID.class))));}}Set<GridPosition> obstacles=new HashSet<>();try(PreparedStatement q=c.prepareStatement("SELECT x,y FROM combat_map_obstacle WHERE map_id=?")){q.setObject(1,id.value());try(ResultSet x=q.executeQuery()){while(x.next())obstacles.add(new GridPosition(x.getInt(1),x.getInt(2)));}}List<MapLayer> layers=new ArrayList<>();try(PreparedStatement q=c.prepareStatement("SELECT * FROM combat_map_layer WHERE map_id=? ORDER BY sequence")){q.setObject(1,id.value());try(ResultSet x=q.executeQuery()){while(x.next())layers.add(new MapLayer(x.getString("layer_type"),x.getString("layer_value"),LayerVisibility.valueOf(x.getString("visibility"))));}}CombatMap map=new CombatMap(id,new AdventureId(r.getObject("adventure_id",UUID.class)),new RuleSetId(r.getObject("rule_set_id",UUID.class)),g,tokens,obstacles,layers);return Optional.of(new VersionedOwnedCombatMap(map,new MapOwnerId(r.getObject("owner_player_id",UUID.class)),r.getLong("version")));}}catch(SQLException e){throw new CombatMapPersistenceException("map load failed",e);}}
+
+import com.dndmaster.combatmap.application.view.CombatMapViewStore;
+import com.dndmaster.combatmap.application.view.MapOwnerId;
+import com.dndmaster.combatmap.application.view.VersionedOwnedCombatMap;
+import com.dndmaster.combatmap.domain.AdventureId;
+import com.dndmaster.combatmap.domain.CombatMap;
+import com.dndmaster.combatmap.domain.CombatToken;
+import com.dndmaster.combatmap.domain.GridPosition;
+import com.dndmaster.combatmap.domain.GridSpec;
+import com.dndmaster.combatmap.domain.LayerVisibility;
+import com.dndmaster.combatmap.domain.MapId;
+import com.dndmaster.combatmap.domain.MapLayer;
+import com.dndmaster.combatmap.domain.PlayerId;
+import com.dndmaster.combatmap.domain.RuleSetId;
+import com.dndmaster.combatmap.domain.TokenController;
+import com.dndmaster.combatmap.domain.TokenId;
+import com.dndmaster.combatmap.domain.TokenType;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import javax.sql.DataSource;
+
+public final class PostgresCombatMapViewStore implements CombatMapViewStore {
+    private static final String TABLE = "combat_map";
+    private static final String TOKEN_TABLE = "combat_map_token";
+    private static final String OBSTACLE_TABLE = "combat_map_obstacle";
+    private static final String LAYER_TABLE = "combat_map_layer";
+    private static final String HISTORY_TABLE = "combat_map_command_history";
+    private static final String HISTORY_TOKEN_TABLE = "combat_map_command_token_history";
+    private static final String HISTORY_OBSTACLE_TABLE = "combat_map_command_obstacle_history";
+    private static final String HISTORY_LAYER_TABLE = "combat_map_command_layer_history";
+
+    private final DataSource dataSource;
+
+    public PostgresCombatMapViewStore(DataSource dataSource) {
+        this.dataSource = Objects.requireNonNull(dataSource);
+    }
+
+    @Override
+    public void insert(MapOwnerId owner, CombatMap map) {
+        write(owner, map, -1, true, 0L, map.operationKey(), map.operationFingerprint());
+        map.markPersisted(0, map.operationKey(), map.operationFingerprint());
+    }
+
+    @Override
+    public long update(MapOwnerId owner, CombatMap map, long expected) {
+        write(owner, map, expected, false, expected + 1, map.operationKey(), map.operationFingerprint());
+        map.markPersisted(expected + 1, map.operationKey(), map.operationFingerprint());
+        return expected + 1;
+    }
+
+    @Override
+    public long update(
+            MapOwnerId owner,
+            CombatMap map,
+            long expected,
+            long persistedVersion,
+            UUID operationKey,
+            String operationFingerprint) {
+        if (persistedVersion != expected + 1) {
+            throw new IllegalArgumentException("persisted version must advance by one");
+        }
+        write(owner, map, expected, false, persistedVersion, operationKey, operationFingerprint);
+        map.markPersisted(persistedVersion, operationKey, operationFingerprint);
+        return persistedVersion;
+    }
+
+    @Override
+    public Optional<VersionedOwnedCombatMap> find(MapId id) {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement("SELECT * FROM " + TABLE + " WHERE map_id=?")) {
+            statement.setObject(1, id.value());
+            try (ResultSet row = statement.executeQuery()) {
+                if (!row.next()) {
+                    return Optional.empty();
+                }
+                return Optional.of(readCurrent(connection, row));
+            }
+        } catch (SQLException exception) {
+            throw new CombatMapPersistenceException("map load failed", exception);
+        }
+    }
+
+    @Override
+    public Optional<VersionedOwnedCombatMap> findByCommandId(UUID commandId) {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement("SELECT * FROM " + HISTORY_TABLE + " WHERE command_id=?")) {
+            statement.setObject(1, commandId);
+            try (ResultSet row = statement.executeQuery()) {
+                if (!row.next()) {
+                    return Optional.empty();
+                }
+                return Optional.of(readHistory(connection, row));
+            }
+        } catch (SQLException exception) {
+            throw new CombatMapPersistenceException("map command history load failed", exception);
+        }
+    }
+
+    private void write(
+            MapOwnerId owner,
+            CombatMap map,
+            long expected,
+            boolean insert,
+            long persistedVersion,
+            UUID operationKey,
+            String operationFingerprint) {
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                if (insert) {
+                    insertMap(connection, owner, map, operationKey, operationFingerprint);
+                } else {
+                    updateMap(connection, owner, map, expected, persistedVersion, operationKey, operationFingerprint);
+                }
+                replaceCurrentChildren(connection, map);
+                recordHistory(connection, owner, map, persistedVersion, operationKey, operationFingerprint);
+                connection.commit();
+            } catch (SQLException | RuntimeException exception) {
+                connection.rollback();
+                if (exception instanceof OptimisticCombatMapLockException optimistic) {
+                    throw optimistic;
+                }
+                throw new CombatMapPersistenceException("map save failed", exception);
+            }
+        } catch (SQLException exception) {
+            throw new CombatMapPersistenceException("map DB failed", exception);
+        }
+    }
+
+    private static void insertMap(Connection connection, MapOwnerId owner, CombatMap map, UUID operationKey, String operationFingerprint)
+            throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "INSERT INTO combat_map(map_id,owner_player_id,adventure_id,rule_set_id,grid_width,grid_height,cell_size,distance_unit,version,operation_key,operation_fingerprint) VALUES (?,?,?,?,?,?,?,?,0,?,?)")) {
+            statement.setObject(1, map.id().value());
+            statement.setObject(2, owner.value());
+            statement.setObject(3, map.adventureId().value());
+            statement.setObject(4, map.ruleSetId().value());
+            statement.setInt(5, map.grid().width());
+            statement.setInt(6, map.grid().height());
+            statement.setInt(7, map.grid().cellSize());
+            statement.setInt(8, map.grid().distanceUnit());
+            statement.setObject(9, operationKey);
+            statement.setString(10, operationFingerprint);
+            statement.executeUpdate();
+        }
+    }
+
+    private static void updateMap(
+            Connection connection,
+            MapOwnerId owner,
+            CombatMap map,
+            long expectedVersion,
+            long persistedVersion,
+            UUID operationKey,
+            String operationFingerprint) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "UPDATE combat_map SET grid_width=?,grid_height=?,cell_size=?,distance_unit=?,operation_key=?,operation_fingerprint=?,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE map_id=? AND owner_player_id=? AND version=?")) {
+            statement.setInt(1, map.grid().width());
+            statement.setInt(2, map.grid().height());
+            statement.setInt(3, map.grid().cellSize());
+            statement.setInt(4, map.grid().distanceUnit());
+            statement.setObject(5, operationKey);
+            statement.setString(6, operationFingerprint);
+            statement.setObject(7, map.id().value());
+            statement.setObject(8, owner.value());
+            statement.setLong(9, expectedVersion);
+            if (statement.executeUpdate() != 1) {
+                throw new OptimisticCombatMapLockException();
+            }
+        }
+    }
+
+    private static void replaceCurrentChildren(Connection connection, CombatMap map) throws SQLException {
+        for (String table : List.of(TOKEN_TABLE, OBSTACLE_TABLE, LAYER_TABLE)) {
+            try (PreparedStatement statement = connection.prepareStatement("DELETE FROM " + table + " WHERE map_id=?")) {
+                statement.setObject(1, map.id().value());
+                statement.executeUpdate();
+            }
+        }
+        try (PreparedStatement statement = connection.prepareStatement("INSERT INTO combat_map_token VALUES (?,?,?,?,?,?,?)")) {
+            for (CombatToken token : map.tokens()) {
+                statement.setObject(1, map.id().value());
+                statement.setObject(2, token.id().value());
+                statement.setString(3, token.type().name());
+                statement.setInt(4, token.position().x());
+                statement.setInt(5, token.position().y());
+                statement.setString(6, token.controller().name());
+                statement.setObject(7, token.ownerPlayerId().map(PlayerId::value).orElse(null));
+                statement.addBatch();
+            }
+            statement.executeBatch();
+        }
+        try (PreparedStatement statement = connection.prepareStatement("INSERT INTO combat_map_obstacle VALUES (?,?,?)")) {
+            for (GridPosition obstacle : map.obstacles()) {
+                statement.setObject(1, map.id().value());
+                statement.setInt(2, obstacle.x());
+                statement.setInt(3, obstacle.y());
+                statement.addBatch();
+            }
+            statement.executeBatch();
+        }
+        try (PreparedStatement statement = connection.prepareStatement(
+                "INSERT INTO combat_map_layer(map_id,sequence,layer_type,layer_value,visibility) VALUES (?,?,?,?,?)")) {
+            for (int index = 0; index < map.layers().size(); index++) {
+                MapLayer layer = map.layers().get(index);
+                statement.setObject(1, map.id().value());
+                statement.setInt(2, index);
+                statement.setString(3, layer.type());
+                statement.setString(4, layer.value());
+                statement.setString(5, layer.visibility().name());
+                statement.addBatch();
+            }
+            statement.executeBatch();
+        }
+    }
+
+    private void recordHistory(
+            Connection connection,
+            MapOwnerId owner,
+            CombatMap map,
+            long persistedVersion,
+            UUID operationKey,
+            String operationFingerprint) throws SQLException {
+        if (operationKey == null) {
+            return;
+        }
+        try (PreparedStatement statement = connection.prepareStatement(
+                "INSERT INTO " + HISTORY_TABLE
+                        + " (command_id, map_id, owner_player_id, adventure_id, rule_set_id, grid_width, grid_height, cell_size, distance_unit, version, operation_key, operation_fingerprint)"
+                        + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                        + " ON CONFLICT (command_id) DO UPDATE SET"
+                        + " map_id = EXCLUDED.map_id,"
+                        + " owner_player_id = EXCLUDED.owner_player_id,"
+                        + " adventure_id = EXCLUDED.adventure_id,"
+                        + " rule_set_id = EXCLUDED.rule_set_id,"
+                        + " grid_width = EXCLUDED.grid_width,"
+                        + " grid_height = EXCLUDED.grid_height,"
+                        + " cell_size = EXCLUDED.cell_size,"
+                        + " distance_unit = EXCLUDED.distance_unit,"
+                        + " version = EXCLUDED.version,"
+                        + " operation_key = EXCLUDED.operation_key,"
+                        + " operation_fingerprint = EXCLUDED.operation_fingerprint")) {
+            statement.setObject(1, operationKey);
+            statement.setObject(2, map.id().value());
+            statement.setObject(3, owner.value());
+            statement.setObject(4, map.adventureId().value());
+            statement.setObject(5, map.ruleSetId().value());
+            statement.setInt(6, map.grid().width());
+            statement.setInt(7, map.grid().height());
+            statement.setInt(8, map.grid().cellSize());
+            statement.setInt(9, map.grid().distanceUnit());
+            statement.setLong(10, persistedVersion);
+            statement.setObject(11, operationKey);
+            statement.setString(12, operationFingerprint);
+            statement.executeUpdate();
+        }
+        try (PreparedStatement statement = connection.prepareStatement("DELETE FROM " + HISTORY_TOKEN_TABLE + " WHERE command_id=?")) {
+            statement.setObject(1, operationKey);
+            statement.executeUpdate();
+        }
+        try (PreparedStatement statement = connection.prepareStatement(
+                "INSERT INTO " + HISTORY_TOKEN_TABLE + " (command_id, sequence, token_id, token_type, x, y, controller, owner_player_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")) {
+            int index = 0;
+            for (CombatToken token : map.tokens()) {
+                statement.setObject(1, operationKey);
+                statement.setInt(2, index++);
+                statement.setObject(3, token.id().value());
+                statement.setString(4, token.type().name());
+                statement.setInt(5, token.position().x());
+                statement.setInt(6, token.position().y());
+                statement.setString(7, token.controller().name());
+                statement.setObject(8, token.ownerPlayerId().map(PlayerId::value).orElse(null));
+                statement.addBatch();
+            }
+            statement.executeBatch();
+        }
+        try (PreparedStatement statement = connection.prepareStatement("DELETE FROM " + HISTORY_OBSTACLE_TABLE + " WHERE command_id=?")) {
+            statement.setObject(1, operationKey);
+            statement.executeUpdate();
+        }
+        try (PreparedStatement statement = connection.prepareStatement(
+                "INSERT INTO " + HISTORY_OBSTACLE_TABLE + " (command_id, sequence, x, y) VALUES (?, ?, ?, ?)")) {
+            int index = 0;
+            for (GridPosition obstacle : map.obstacles()) {
+                statement.setObject(1, operationKey);
+                statement.setInt(2, index++);
+                statement.setInt(3, obstacle.x());
+                statement.setInt(4, obstacle.y());
+                statement.addBatch();
+            }
+            statement.executeBatch();
+        }
+        try (PreparedStatement statement = connection.prepareStatement("DELETE FROM " + HISTORY_LAYER_TABLE + " WHERE command_id=?")) {
+            statement.setObject(1, operationKey);
+            statement.executeUpdate();
+        }
+        try (PreparedStatement statement = connection.prepareStatement(
+                "INSERT INTO " + HISTORY_LAYER_TABLE + " (command_id, sequence, layer_type, layer_value, visibility) VALUES (?, ?, ?, ?, ?)")) {
+            for (int index = 0; index < map.layers().size(); index++) {
+                MapLayer layer = map.layers().get(index);
+                statement.setObject(1, operationKey);
+                statement.setInt(2, index);
+                statement.setString(3, layer.type());
+                statement.setString(4, layer.value());
+                statement.setString(5, layer.visibility().name());
+                statement.addBatch();
+            }
+            statement.executeBatch();
+        }
+    }
+
+    private VersionedOwnedCombatMap readCurrent(Connection connection, ResultSet row) throws SQLException {
+        GridSpec grid = new GridSpec(row.getInt("grid_width"), row.getInt("grid_height"), row.getInt("cell_size"), row.getInt("distance_unit"));
+        List<CombatToken> tokens = readTokens(connection, TOKEN_TABLE, "map_id", row.getObject("map_id", UUID.class));
+        Set<GridPosition> obstacles = new HashSet<>(readPositions(connection, OBSTACLE_TABLE, "map_id", row.getObject("map_id", UUID.class)));
+        List<MapLayer> layers = readLayers(connection, LAYER_TABLE, "map_id", row.getObject("map_id", UUID.class));
+        UUID ownerId = row.getObject("owner_player_id", UUID.class);
+        CombatMap map = new CombatMap(
+                new MapId(row.getObject("map_id", UUID.class)),
+                new AdventureId(row.getObject("adventure_id", UUID.class)),
+                new RuleSetId(row.getObject("rule_set_id", UUID.class)),
+                grid,
+                new PlayerId(ownerId),
+                tokens,
+                obstacles,
+                layers,
+                row.getLong("version"),
+                row.getString("operation_key") == null ? null : UUID.fromString(row.getString("operation_key")),
+                row.getString("operation_fingerprint"));
+        return new VersionedOwnedCombatMap(map, new MapOwnerId(ownerId), row.getLong("version"));
+    }
+
+    private VersionedOwnedCombatMap readHistory(Connection connection, ResultSet row) throws SQLException {
+        UUID commandId = row.getObject("command_id", UUID.class);
+        GridSpec grid = new GridSpec(row.getInt("grid_width"), row.getInt("grid_height"), row.getInt("cell_size"), row.getInt("distance_unit"));
+        List<CombatToken> tokens = readHistoryTokens(connection, commandId);
+        Set<GridPosition> obstacles = new HashSet<>(readHistoryPositions(connection, commandId));
+        List<MapLayer> layers = readHistoryLayers(connection, commandId);
+        UUID ownerId = row.getObject("owner_player_id", UUID.class);
+        CombatMap map = new CombatMap(
+                new MapId(row.getObject("map_id", UUID.class)),
+                new AdventureId(row.getObject("adventure_id", UUID.class)),
+                new RuleSetId(row.getObject("rule_set_id", UUID.class)),
+                grid,
+                new PlayerId(ownerId),
+                tokens,
+                obstacles,
+                layers,
+                row.getLong("version"),
+                row.getString("operation_key") == null ? null : UUID.fromString(row.getString("operation_key")),
+                row.getString("operation_fingerprint"));
+        return new VersionedOwnedCombatMap(map, new MapOwnerId(ownerId), row.getLong("version"));
+    }
+
+    private List<CombatToken> readTokens(Connection connection, String table, String fkColumn, UUID fkValue) throws SQLException {
+        List<CombatToken> tokens = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement("SELECT * FROM " + table + " WHERE " + fkColumn + "=? ORDER BY token_id")) {
+            statement.setObject(1, fkValue);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    tokens.add(readToken(rows));
+                }
+            }
+        }
+        return tokens;
+    }
+
+    private List<GridPosition> readPositions(Connection connection, String table, String fkColumn, UUID fkValue) throws SQLException {
+        List<GridPosition> positions = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement("SELECT x,y FROM " + table + " WHERE " + fkColumn + "=? ORDER BY x, y")) {
+            statement.setObject(1, fkValue);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    positions.add(new GridPosition(rows.getInt(1), rows.getInt(2)));
+                }
+            }
+        }
+        return positions;
+    }
+
+    private List<MapLayer> readLayers(Connection connection, String table, String fkColumn, UUID fkValue) throws SQLException {
+        List<MapLayer> layers = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement("SELECT * FROM " + table + " WHERE " + fkColumn + "=? ORDER BY sequence")) {
+            statement.setObject(1, fkValue);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    layers.add(new MapLayer(rows.getString("layer_type"), rows.getString("layer_value"), LayerVisibility.valueOf(rows.getString("visibility"))));
+                }
+            }
+        }
+        return layers;
+    }
+
+    private List<CombatToken> readHistoryTokens(Connection connection, UUID commandId) throws SQLException {
+        List<CombatToken> tokens = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT * FROM " + HISTORY_TOKEN_TABLE + " WHERE command_id=? ORDER BY sequence")) {
+            statement.setObject(1, commandId);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    tokens.add(readToken(rows));
+                }
+            }
+        }
+        return tokens;
+    }
+
+    private List<GridPosition> readHistoryPositions(Connection connection, UUID commandId) throws SQLException {
+        List<GridPosition> positions = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT x,y FROM " + HISTORY_OBSTACLE_TABLE + " WHERE command_id=? ORDER BY sequence")) {
+            statement.setObject(1, commandId);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    positions.add(new GridPosition(rows.getInt(1), rows.getInt(2)));
+                }
+            }
+        }
+        return positions;
+    }
+
+    private List<MapLayer> readHistoryLayers(Connection connection, UUID commandId) throws SQLException {
+        List<MapLayer> layers = new ArrayList<>();
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT * FROM " + HISTORY_LAYER_TABLE + " WHERE command_id=? ORDER BY sequence")) {
+            statement.setObject(1, commandId);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    layers.add(new MapLayer(rows.getString("layer_type"), rows.getString("layer_value"), LayerVisibility.valueOf(rows.getString("visibility"))));
+                }
+            }
+        }
+        return layers;
+    }
+
+    private static CombatToken readToken(ResultSet row) throws SQLException {
+        return new CombatToken(
+                new TokenId(row.getObject("token_id", UUID.class)),
+                TokenType.valueOf(row.getString("token_type")),
+                new GridPosition(row.getInt("x"), row.getInt("y")),
+                TokenController.valueOf(row.getString("controller")),
+                row.getObject("owner_player_id") == null ? null : new PlayerId(row.getObject("owner_player_id", UUID.class)));
+    }
 }

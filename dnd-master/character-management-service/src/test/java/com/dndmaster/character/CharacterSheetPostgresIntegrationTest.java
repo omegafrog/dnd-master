@@ -41,7 +41,7 @@ class CharacterSheetPostgresIntegrationTest {
     @BeforeEach
     void clearDatabase() throws SQLException {
         try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
-            statement.execute("TRUNCATE character_management.character_sheet");
+            statement.execute("TRUNCATE character_management.character_sheet CASCADE");
         }
     }
 
@@ -84,20 +84,86 @@ class CharacterSheetPostgresIntegrationTest {
         PostgresCharacterSheetRepository secondRepository = new PostgresCharacterSheetRepository(dataSource);
         CharacterSheet winner = firstRepository.findById(original.id()).orElseThrow();
         CharacterSheet stale = secondRepository.findById(original.id()).orElseThrow();
-        winner.applyUpdate(new CharacterSheetUpdate(
+        CharacterSheetUpdate winnerUpdate = new CharacterSheetUpdate(
                 SheetEdition.DND_5E_2024,
                 new CharacterSheetData2024("Borin", 9, true),
-                InputMode.STRUCTURED_SHEET));
-        stale.applyUpdate(new CharacterSheetUpdate(
+                InputMode.STRUCTURED_SHEET,
+                UUID.randomUUID(),
+                0);
+        CharacterSheetUpdate staleUpdate = new CharacterSheetUpdate(
                 SheetEdition.DND_5E_2024,
                 new CharacterSheetData2024("Borin", 10, false),
-                InputMode.STRUCTURED_SHEET));
+                InputMode.STRUCTURED_SHEET,
+                UUID.randomUUID(),
+                0);
+        winner.applyUpdate(winnerUpdate);
+        stale.applyUpdate(staleUpdate);
 
-        firstRepository.save(winner);
-        assertThrows(OptimisticCharacterSheetLockException.class, () -> secondRepository.save(stale));
+        firstRepository.save(winner, 1, winnerUpdate.commandId(), winnerUpdate.fingerprint());
+        assertThrows(OptimisticCharacterSheetLockException.class, () ->
+                secondRepository.save(stale, 1, staleUpdate.commandId(), staleUpdate.fingerprint()));
 
         CharacterSheet restored = new PostgresCharacterSheetRepository(dataSource).findById(original.id()).orElseThrow();
         assertEquals(9, restored.data().level());
+    }
+
+    @Test
+    void preserves_latest_command_metadata_when_updating() {
+        PostgresCharacterSheetRepository repository = new PostgresCharacterSheetRepository(dataSource);
+        CharacterSheet original = sheet(SheetEdition.DND_5E_2024, new CharacterSheetData2024("Borin", 8, false));
+        repository.save(original);
+        CharacterSheet loaded = repository.findById(original.id()).orElseThrow();
+        UUID commandId = UUID.randomUUID();
+        CharacterSheetUpdate update = new CharacterSheetUpdate(
+                SheetEdition.DND_5E_2024,
+                new CharacterSheetData2024("Borin", 9, true),
+                InputMode.STRUCTURED_SHEET,
+                commandId,
+                loaded.version());
+        loaded.applyUpdate(update);
+
+        repository.save(loaded, loaded.version() + 1, commandId, update.fingerprint());
+
+        CharacterSheet restored = new PostgresCharacterSheetRepository(dataSource).findById(original.id()).orElseThrow();
+        assertEquals(commandId, restored.operationKey());
+        assertEquals(loaded.operationFingerprint(), restored.operationFingerprint());
+        assertEquals(9, restored.data().level());
+        assertEquals(1L, restored.version());
+    }
+
+    @Test
+    void replays_an_older_character_command_from_history_even_after_a_later_update() {
+        PostgresCharacterSheetRepository repository = new PostgresCharacterSheetRepository(dataSource);
+        CharacterSheet original = sheet(SheetEdition.DND_5E_2024, new CharacterSheetData2024("Borin", 8, false));
+        repository.save(original);
+
+        CharacterSheet loaded = repository.findById(original.id()).orElseThrow();
+        UUID firstCommandId = UUID.randomUUID();
+        CharacterSheetUpdate firstUpdate = new CharacterSheetUpdate(
+                SheetEdition.DND_5E_2024,
+                new CharacterSheetData2024("Borin", 9, true),
+                InputMode.STRUCTURED_SHEET,
+                firstCommandId,
+                loaded.version());
+        loaded.applyUpdate(firstUpdate);
+        repository.save(loaded, loaded.version() + 1, firstCommandId, firstUpdate.fingerprint());
+
+        CharacterSheet later = repository.findById(original.id()).orElseThrow();
+        UUID laterCommandId = UUID.randomUUID();
+        CharacterSheetUpdate laterUpdate = new CharacterSheetUpdate(
+                SheetEdition.DND_5E_2024,
+                new CharacterSheetData2024("Borin", 10, false),
+                InputMode.STRUCTURED_SHEET,
+                laterCommandId,
+                later.version());
+        later.applyUpdate(laterUpdate);
+        repository.save(later, later.version() + 1, laterCommandId, laterUpdate.fingerprint());
+
+        CharacterSheet replay = repository.findByCommandId(firstCommandId).orElseThrow();
+
+        assertEquals(9, replay.data().level());
+        assertEquals(firstCommandId, replay.operationKey());
+        assertEquals(1L, replay.version());
     }
 
     private static CharacterSheet sheet(SheetEdition edition, CharacterSheetData data) {

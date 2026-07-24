@@ -10,7 +10,8 @@ public record CharacterSheetResponse(
         String edition,
         String characterName,
         int level,
-        boolean inspiration) {
+        boolean inspiration,
+        long version) {
     public static CharacterSheetResponse from(CharacterSheet sheet) {
         Objects.requireNonNull(sheet, "character sheet must not be null");
         boolean inspiration = switch (sheet.data()) {
@@ -19,6 +20,6 @@ public record CharacterSheetResponse(
         };
         return new CharacterSheetResponse(
                 sheet.id().value(), sheet.adventureId().value(), sheet.edition().name(),
-                sheet.data().characterName(), sheet.data().level(), inspiration);
+                sheet.data().characterName(), sheet.data().level(), inspiration, sheet.version());
     }
 }

@@ -67,8 +67,130 @@ class CharacterSheetApplicationServiceTest {
                         new CharacterSheetUpdate(
                                 SheetEdition.DND_5E_2014,
                                 new CharacterSheetData2014("Aria", 6, true),
-                                InputMode.DIALOGUE_ONLY)));
+                                InputMode.DIALOGUE_ONLY,
+                                UUID.randomUUID(),
+                                0)));
         assertEquals(5, sheet.data().level());
+    }
+
+    @Test
+    void replays_the_same_character_command_without_double_applying() {
+        InMemoryRepository repository = new InMemoryRepository();
+        CharacterSheetApplicationService service = service(repository, id -> SheetEdition.DND_5E_2014);
+        CharacterSheet sheet = service.createSheet(new CreateCharacterSheetCommand(
+                adventure(),
+                SheetEdition.DND_5E_2014,
+                new CharacterSheetData2014("Aria", 5, false)));
+
+        UUID commandId = UUID.randomUUID();
+        CharacterSheetUpdate update = new CharacterSheetUpdate(
+                SheetEdition.DND_5E_2014,
+                new CharacterSheetData2014("Aria", 6, true),
+                InputMode.STRUCTURED_SHEET,
+                commandId,
+                0);
+
+        CharacterSheet first = service.manageCharacter(sheet.id(), update);
+        CharacterSheet second = service.manageCharacter(sheet.id(), update);
+
+        assertEquals(6, first.data().level());
+        assertEquals(6, second.data().level());
+        assertEquals(commandId, second.operationKey());
+    }
+
+    @Test
+    void rejects_stale_character_update_when_version_has_moved_on() {
+        InMemoryRepository repository = new InMemoryRepository();
+        CharacterSheetApplicationService service = service(repository, id -> SheetEdition.DND_5E_2014);
+        CharacterSheet sheet = service.createSheet(new CreateCharacterSheetCommand(
+                adventure(),
+                SheetEdition.DND_5E_2014,
+                new CharacterSheetData2014("Aria", 5, false)));
+
+        service.manageCharacter(
+                sheet.id(),
+                new CharacterSheetUpdate(
+                        SheetEdition.DND_5E_2014,
+                        new CharacterSheetData2014("Aria", 6, true),
+                        InputMode.STRUCTURED_SHEET,
+                        UUID.randomUUID(),
+                        0));
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> service.manageCharacter(
+                        sheet.id(),
+                        new CharacterSheetUpdate(
+                                SheetEdition.DND_5E_2014,
+                                new CharacterSheetData2014("Aria", 7, false),
+                                InputMode.STRUCTURED_SHEET,
+                                UUID.randomUUID(),
+                                0)));
+    }
+
+    @Test
+    void rejects_reusing_a_character_command_id_for_different_payload() {
+        InMemoryRepository repository = new InMemoryRepository();
+        CharacterSheetApplicationService service = service(repository, id -> SheetEdition.DND_5E_2014);
+        CharacterSheet sheet = service.createSheet(new CreateCharacterSheetCommand(
+                adventure(),
+                SheetEdition.DND_5E_2014,
+                new CharacterSheetData2014("Aria", 5, false)));
+
+        UUID commandId = UUID.randomUUID();
+        service.manageCharacter(
+                sheet.id(),
+                new CharacterSheetUpdate(
+                        SheetEdition.DND_5E_2014,
+                        new CharacterSheetData2014("Aria", 6, true),
+                        InputMode.STRUCTURED_SHEET,
+                        commandId,
+                        0));
+
+        assertThrows(
+                IllegalStateException.class,
+                () -> service.manageCharacter(
+                        sheet.id(),
+                        new CharacterSheetUpdate(
+                                SheetEdition.DND_5E_2014,
+                                new CharacterSheetData2014("Aria", 7, false),
+                                InputMode.STRUCTURED_SHEET,
+                                commandId,
+                                1)));
+    }
+
+    @Test
+    void replays_an_older_character_command_from_history_even_after_a_later_update() {
+        InMemoryRepository repository = new InMemoryRepository();
+        CharacterSheetApplicationService service = service(repository, id -> SheetEdition.DND_5E_2014);
+        CharacterSheet sheet = service.createSheet(new CreateCharacterSheetCommand(
+                adventure(),
+                SheetEdition.DND_5E_2014,
+                new CharacterSheetData2014("Aria", 5, false)));
+
+        UUID firstCommandId = UUID.randomUUID();
+        CharacterSheetUpdate firstUpdate = new CharacterSheetUpdate(
+                SheetEdition.DND_5E_2014,
+                new CharacterSheetData2014("Aria", 6, true),
+                InputMode.STRUCTURED_SHEET,
+                firstCommandId,
+                0);
+        CharacterSheet first = service.manageCharacter(sheet.id(), firstUpdate);
+
+        CharacterSheetUpdate secondUpdate = new CharacterSheetUpdate(
+                SheetEdition.DND_5E_2014,
+                new CharacterSheetData2014("Aria", 7, false),
+                InputMode.STRUCTURED_SHEET,
+                UUID.randomUUID(),
+                1);
+        service.manageCharacter(sheet.id(), secondUpdate);
+
+        CharacterSheet replay = service.manageCharacter(sheet.id(), firstUpdate);
+
+        assertEquals(6, first.data().level());
+        assertEquals(6, replay.data().level());
+        assertEquals(firstCommandId, replay.operationKey());
+        assertEquals(1L, replay.version());
     }
 
     private static void assertCreates(SheetEdition edition, CharacterSheetData data) {
@@ -87,7 +209,25 @@ class CharacterSheetApplicationServiceTest {
 
     private static final class InMemoryRepository implements CharacterSheetRepository {
         private final Map<CharacterSheetId, CharacterSheet> values = new HashMap<>();
+        private final Map<UUID, CharacterSheet> commandHistory = new HashMap<>();
         @Override public Optional<CharacterSheet> findById(CharacterSheetId id) { return Optional.ofNullable(values.get(id)); }
-        @Override public void save(CharacterSheet sheet) { values.put(sheet.id(), sheet); }
+        @Override public Optional<CharacterSheet> findByCommandId(UUID commandId) { return Optional.ofNullable(commandHistory.get(commandId)); }
+        @Override public void save(CharacterSheet sheet) {
+            values.put(sheet.id(), copy(sheet));
+        }
+        @Override public void save(CharacterSheet sheet, long persistedVersion, UUID operationKey, String operationFingerprint) {
+            sheet.markPersisted(persistedVersion, operationKey, operationFingerprint);
+            CharacterSheet snapshot = copy(sheet);
+            values.put(sheet.id(), snapshot);
+            if (operationKey != null) {
+                commandHistory.put(operationKey, copy(sheet));
+            }
+        }
+
+        private static CharacterSheet copy(CharacterSheet sheet) {
+            return new CharacterSheet(
+                    sheet.id(), sheet.adventureId(), sheet.edition(), sheet.data(), sheet.version(),
+                    sheet.operationKey(), sheet.operationFingerprint());
+        }
     }
 }
