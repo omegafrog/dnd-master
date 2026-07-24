@@ -37,3 +37,4 @@ plans.md
 **/specs/**
 .gradle/**
 dnd-master/docs/specs/**
+skills-lock.json
