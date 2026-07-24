@@ -2,13 +2,17 @@ package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate;
 import com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort;
+import com.dndmaster.adventure.application.scenario.compilation.ResolutionOverrideRepository;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
+import com.dndmaster.adventure.domain.scenario.ResolutionOverride;
+import com.dndmaster.adventure.domain.scenario.ResolutionOverrideStatus;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionDetail;
@@ -20,6 +24,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.time.Instant;
 import org.junit.jupiter.api.Test;
 
 class ScenarioPackageCompilationServiceTest {
@@ -231,6 +236,73 @@ class ScenarioPackageCompilationServiceTest {
         assertEquals("INVALID", invalid.status().name());
     }
 
+    @Test
+    void reappliesStoredOverrideAcrossExtractionVersionChangeWhenAnchorMatchesExactly() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(documentId, 2);
+        ResolutionCandidate original = ResolutionCandidate.skillCheck(
+                documentId, 1, "page:1:span:1", "Perception", 13, "A loose stone triggers the trap.");
+        ResolutionCandidate revised = ResolutionCandidate.skillCheck(
+                documentId, 2, "page:1:span:1", "Perception", 13, "A loose stone triggers the trap.");
+        ResolutionCandidate replacement = new ResolutionCandidate(
+                com.dndmaster.adventure.domain.scenario.ResolutionKind.SKILL_ABILITY_CHECK,
+                "Perception",
+                15,
+                null,
+                com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
+                "A loose stone triggers the trap.",
+                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 2, "page:1:span:1")),
+                "author-edit",
+                null);
+        ResolutionOverride override = ResolutionOverride.create(
+                bundle.id(), new OwnerPlayerId(UUID.randomUUID()), "gm", "raise dc",
+                original, replacement, Instant.parse("2026-07-24T00:00:00Z"),
+                Instant.parse("2026-07-24T00:00:00Z"), ResolutionOverrideStatus.PENDING, 1);
+        InMemoryOverrideRepository overrides = new InMemoryOverrideRepository();
+        overrides.saveAll(List.of(override));
+        ResolutionExtractionPort.SourceExcerpt excerpt = new ResolutionExtractionPort.SourceExcerpt(
+                documentId, 2, "page:1:span:1", "A loose stone triggers the trap.");
+
+        var unit = new ScenarioPackageCompilationService(new InMemoryPackageRepository(), overrides)
+                .compile(bundle, List.of(revised), List.of(excerpt)).units().get(0);
+
+        assertEquals(15, unit.dc());
+        assertEquals("COMPLETE", unit.status().name());
+    }
+
+    @Test
+    void conflictsWhenMultipleCandidatesMatchTheSameOverrideAnchor() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(documentId, 1);
+        ResolutionCandidate candidate = ResolutionCandidate.skillCheck(
+                documentId, 1, "page:1:span:1", "Perception", 13, "A loose stone triggers the trap.");
+        ResolutionCandidate replacement = new ResolutionCandidate(
+                com.dndmaster.adventure.domain.scenario.ResolutionKind.SKILL_ABILITY_CHECK,
+                "Perception",
+                15,
+                null,
+                com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
+                "A loose stone triggers the trap.",
+                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 1, "page:1:span:1")),
+                "author-edit",
+                null);
+        ResolutionOverride override = ResolutionOverride.create(
+                bundle.id(), new OwnerPlayerId(UUID.randomUUID()), "gm", "raise dc",
+                candidate, replacement, Instant.parse("2026-07-24T00:00:00Z"),
+                Instant.parse("2026-07-24T00:00:00Z"), ResolutionOverrideStatus.PENDING, 1);
+        InMemoryOverrideRepository overrides = new InMemoryOverrideRepository();
+        overrides.saveAll(List.of(override));
+        ResolutionExtractionPort.SourceExcerpt excerpt = new ResolutionExtractionPort.SourceExcerpt(
+                documentId, 1, "page:1:span:1", "A loose stone triggers the trap.");
+
+        var packageVersion = new ScenarioPackageCompilationService(new InMemoryPackageRepository(), overrides)
+                .compile(bundle, List.of(candidate, candidate), List.of(excerpt));
+
+        assertEquals(13, packageVersion.units().get(0).dc());
+        assertEquals(13, packageVersion.units().get(1).dc());
+        assertTrue(packageVersion.report().warnings().stream().anyMatch(message -> message.contains("multiple candidates")));
+    }
+
     private static ScenarioSourceBundle bundle(KnowledgeDocumentId documentId, long extractionVersion) {
         return ScenarioSourceBundle.create(
                 ScenarioBundleId.generate(),
@@ -261,6 +333,22 @@ class ScenarioPackageCompilationServiceTest {
         @Override
         public void save(com.dndmaster.adventure.domain.scenario.ScenarioPackage scenarioPackage) {
             packages.put(scenarioPackage.inputFingerprint(), scenarioPackage);
+        }
+    }
+
+    private static final class InMemoryOverrideRepository implements ResolutionOverrideRepository {
+        private final Map<UUID, ResolutionOverride> overrides = new HashMap<>();
+
+        @Override
+        public List<ResolutionOverride> findByBundleId(ScenarioBundleId bundleId) {
+            return overrides.values().stream().filter(override -> override.bundleId().equals(bundleId)).toList();
+        }
+
+        @Override
+        public void saveAll(List<ResolutionOverride> overrides) {
+            for (ResolutionOverride override : overrides) {
+                this.overrides.put(override.overrideId(), override);
+            }
         }
     }
 }
