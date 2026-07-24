@@ -22,6 +22,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnRep
 import com.dndmaster.adventure.infrastructure.persistence.PostgresWorkQueueAdapter;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpKnowledgeDocumentLookupGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpLegacyScenarioIngestionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpInitialSourceContextProposalGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpResolutionExtractionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpScenarioSourceExcerptGateway;
@@ -30,6 +31,10 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+import java.util.Map;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -51,8 +56,24 @@ public class AdventureApiConfiguration {
 
     @Bean
     ScenarioStoragePort scenarioStoragePort() {
-        return upload -> new ScenarioSource(
-                upload.originalFilename(), upload.originalFilename(), "hash-" + upload.content().length);
+        Map<String, byte[]> archive = new java.util.concurrent.ConcurrentHashMap<>();
+        return new ScenarioStoragePort() {
+            @Override
+            public ScenarioSource store(ScenarioUpload upload) {
+                String storageKey = "scenario-" + contentHash(upload.content());
+                archive.put(storageKey, upload.content());
+                return new ScenarioSource(storageKey, upload.originalFilename(), contentHash(upload.content()));
+            }
+
+            @Override
+            public byte[] read(ScenarioSource source) {
+                byte[] content = archive.get(source.storageKey());
+                if (content == null) {
+                    throw new IllegalStateException("scenario source is missing");
+                }
+                return content.clone();
+            }
+        };
     }
 
     @Bean
@@ -161,6 +182,55 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.scenario.LegacyScenarioIngestionPort legacyScenarioIngestionPort(
+            ObjectMapper objectMapper) {
+        return new CrossContextHttpLegacyScenarioIngestionGateway(
+                HttpClient.newHttpClient(),
+                URI.create("http://127.0.0.1:18083/"),
+                Duration.ofSeconds(15),
+                objectMapper);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.LegacyScenarioMigrationApplicationService legacyScenarioMigrationApplicationService(
+            AdventureScenarioRepository scenarioRepository,
+            ScenarioStoragePort storagePort,
+            com.dndmaster.adventure.application.scenario.LegacyScenarioIngestionPort ingestionPort,
+            com.dndmaster.adventure.application.scenario.LegacyScenarioMigrationStateRepository stateRepository,
+            ScenarioBundleApplicationService bundleService,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationApplicationService compilationService,
+            KnowledgeDocumentLookupPort lookupPort) {
+        return new com.dndmaster.adventure.application.scenario.LegacyScenarioMigrationApplicationService(
+                scenarioRepository, storagePort, ingestionPort, stateRepository, bundleService, compilationService, lookupPort);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.LegacyScenarioMigrationStateRepository legacyScenarioMigrationStateRepository() {
+        return new com.dndmaster.adventure.application.scenario.LegacyScenarioMigrationStateRepository() {
+            private final Map<String, com.dndmaster.adventure.application.scenario.LegacyScenarioMigrationApplicationService.LegacyScenarioMigrationResult> store =
+                    new java.util.concurrent.ConcurrentHashMap<>();
+
+            @Override
+            public java.util.Optional<com.dndmaster.adventure.application.scenario.LegacyScenarioMigrationApplicationService.LegacyScenarioMigrationResult> findByScenarioIdAndSourceHash(
+                    com.dndmaster.adventure.domain.scenario.ScenarioId scenarioId, String sourceHash) {
+                return java.util.Optional.ofNullable(store.get(key(scenarioId, sourceHash)));
+            }
+
+            @Override
+            public void save(
+                    com.dndmaster.adventure.domain.scenario.ScenarioId scenarioId,
+                    String sourceHash,
+                    com.dndmaster.adventure.application.scenario.LegacyScenarioMigrationApplicationService.LegacyScenarioMigrationResult result) {
+                store.put(key(scenarioId, sourceHash), result);
+            }
+
+            private String key(com.dndmaster.adventure.domain.scenario.ScenarioId scenarioId, String sourceHash) {
+                return scenarioId.value() + ":" + sourceHash;
+            }
+        };
+    }
+
+    @Bean
     com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort resolutionExtractionPort(
             ObjectMapper objectMapper) {
         return new CrossContextHttpResolutionExtractionGateway(
@@ -244,6 +314,15 @@ public class AdventureApiConfiguration {
                 return new ActionJudgment(request.ruleSetId(), "judgment-result");
             }
         };
+    }
+
+    private static String contentHash(byte[] content) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(content));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is required", exception);
+        }
     }
 
     @Bean
