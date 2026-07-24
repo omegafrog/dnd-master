@@ -16,6 +16,7 @@ import com.dndmaster.adventure.application.scenario.ScenarioUpload;
 import com.dndmaster.adventure.domain.adventure.*;
 import com.dndmaster.adventure.domain.inquiry.InquiryId;
 import com.dndmaster.adventure.domain.ruleset.DndEdition;
+import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -26,6 +27,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping
 public class AdventureController {
+    private static final String LEGACY_SCENARIO_UPLOAD_SUNSET = "Fri, 31 Dec 2027 00:00:00 GMT";
     private final SavedAdventureApplicationService savedAdventureService;
     private final RuntimeTurnApplicationService runtimeTurnService;
     private final RuleGuidanceApplicationService guidanceService;
@@ -46,14 +48,25 @@ public class AdventureController {
     }
 
     @PostMapping("/api/v1/adventures/scenarios")
+    @Deprecated(forRemoval = false)
+    @Operation(
+            deprecated = true,
+            summary = "Legacy one-file scenario upload",
+            description = "Use bundle and package migration flows instead of the legacy one-file upload.")
     ResponseEntity<Void> uploadScenario(
             @RequestParam("file") MultipartFile file,
             @RequestHeader("Authorization") String authorization) throws Exception {
         UUID ownerId = extractPlayerId(authorization);
         ScenarioUpload upload = new ScenarioUpload(
                 new com.dndmaster.adventure.domain.scenario.OwnerPlayerId(ownerId), file.getOriginalFilename(), file.getBytes());
-        scenarioService.uploadScenario(upload);
-        return ResponseEntity.accepted().build();
+        var scenario = scenarioService.uploadScenario(upload);
+        return ResponseEntity.accepted()
+                .header("Deprecation", "true")
+                .header("Warning", "299 dnd-master \"Legacy one-file scenario upload is deprecated; migrate to bundle/package flows\"")
+                .header("Sunset", LEGACY_SCENARIO_UPLOAD_SUNSET)
+                .header("Link", "</api/v1/adventures/scenario-bundles>; rel=\"alternate\"")
+                .header("X-Legacy-Scenario-Id", scenario.id().value().toString())
+                .build();
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/messages")

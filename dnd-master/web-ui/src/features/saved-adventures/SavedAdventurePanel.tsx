@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import type { AdventurePlayApi, SavedAdventure, SessionKnowledgeSet } from './AdventurePlayApi'
 import type { KnowledgeDocumentView, SetupApi } from '../rulebooks/SetupApi'
 
@@ -18,6 +18,9 @@ export function SavedAdventurePanel({
   const [documents, setDocuments] = useState<KnowledgeDocumentView[]>([])
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(new Set())
   const [sessionMessage, setSessionMessage] = useState('')
+  const [legacyScenarioFile, setLegacyScenarioFile] = useState<File | null>(null)
+  const [legacyScenarioMessage, setLegacyScenarioMessage] = useState('')
+  const [uploadingLegacyScenario, setUploadingLegacyScenario] = useState(false)
 
   useEffect(() => { void playApi.listSaved(playerId).then(setItems).catch(() => {}) }, [playApi, playerId])
 
@@ -82,10 +85,49 @@ export function SavedAdventurePanel({
     }
   }
 
+  async function uploadLegacyScenario(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!legacyScenarioFile) return
+    setLegacyScenarioMessage('')
+    setUploadingLegacyScenario(true)
+    try {
+      const result = await setupApi.uploadScenario(legacyScenarioFile)
+      setLegacyScenarioMessage(
+        result.deprecated
+          ? `레거시 시나리오 업로드됨: ${result.name} · 사용 중단 예정 · ${result.deprecationMessage ?? 'bundle/package 흐름으로 전환하세요.'}${result.sunset ? ` · 종료 예정 ${result.sunset}` : ''}`
+          : `시나리오 업로드됨: ${result.name}`,
+      )
+    } catch {
+      setLegacyScenarioMessage('레거시 시나리오를 업로드하지 못했습니다.')
+    } finally {
+      setUploadingLegacyScenario(false)
+    }
+  }
+
   return (
     <section aria-labelledby="saved-heading">
       <h2 id="saved-heading">저장한 모험</h2>
       <p role="status">{message}</p>
+      <section aria-labelledby="legacy-scenario-heading">
+        <h3 id="legacy-scenario-heading">레거시 시나리오 재업로드</h3>
+        <form onSubmit={uploadLegacyScenario}>
+          <label>
+            레거시 시나리오 파일
+            <input
+              type="file"
+              accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff,.bmp"
+              onChange={event => {
+                setLegacyScenarioFile(event.currentTarget.files?.item(0) ?? null)
+                setLegacyScenarioMessage('')
+              }}
+            />
+          </label>
+          <button type="submit" disabled={uploadingLegacyScenario || legacyScenarioFile == null}>
+            {uploadingLegacyScenario ? '업로드 중…' : '레거시 시나리오 재업로드'}
+          </button>
+        </form>
+        {legacyScenarioMessage ? <p role="status">{legacyScenarioMessage}</p> : null}
+      </section>
       {items.length === 0 && <p>저장된 모험이 없습니다.</p>}
       <ul>
         {items.map(item => (
