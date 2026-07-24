@@ -5,6 +5,7 @@ import com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilat
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
 import com.dndmaster.adventure.domain.scenario.ResolutionKind;
+import com.dndmaster.adventure.domain.scenario.ScenarioResolutionDetail;
 import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
@@ -80,7 +81,29 @@ public class ScenarioCompilationController {
                 candidate.kind(), candidate.abilityOrSkill(), candidate.dc(), candidate.diceExpression(),
                 candidate.visibility(), candidate.sourceQuote(),
                 sourceRefs(candidate.sourceRefs()),
-                candidate.provenance());
+                candidate.provenance(),
+                detail(candidate.detail()));
+    }
+
+    private static ScenarioResolutionDetail detail(DetailRequest detail) {
+        if (detail == null) return null;
+        return new ScenarioResolutionDetail(
+                detail.triggerCondition(),
+                detail.actor(),
+                detail.roller(),
+                detail.instructionVisibility(),
+                detail.resultVisibility(),
+                detail.modifiers(),
+                detail.advantageState(),
+                detail.reroll(),
+                detail.steps() == null ? List.of() : detail.steps().stream().map(step -> new ScenarioResolutionDetail.Step(
+                        step.id(), step.kind(), step.abilityOrSkill(), step.dc(), step.diceExpression(), step.condition(),
+                        step.nextStepIds(), step.successOutcomeIds(), step.failureOutcomeIds(), sourceRefs(step.sourceRefs()))).toList(),
+                detail.outcomes() == null ? List.of() : detail.outcomes().stream().map(outcome -> new ScenarioResolutionDetail.Outcome(
+                        outcome.id(), outcome.label(), outcome.description(), sourceRefs(outcome.sourceRefs()))).toList(),
+                detail.randomTable() == null ? List.of() : detail.randomTable().stream().map(entry -> new ScenarioResolutionDetail.TableEntry(
+                        entry.range(), entry.outcome(), sourceRefs(entry.sourceRefs()))).toList(),
+                detail.tableCoverage());
     }
 
     private static List<ScenarioSourceReference> sourceRefs(List<SourceReferenceRequest> refs) {
@@ -116,7 +139,33 @@ public class ScenarioCompilationController {
     public record CandidateRequest(
             ResolutionKind kind, String abilityOrSkill, Integer dc, String diceExpression,
             ResolutionVisibility visibility, String sourceQuote,
-            List<SourceReferenceRequest> sourceRefs, String provenance) {}
+            List<SourceReferenceRequest> sourceRefs, String provenance, DetailRequest detail) {}
+    public record DetailRequest(
+            String triggerCondition,
+            String actor,
+            String roller,
+            String instructionVisibility,
+            String resultVisibility,
+            List<String> modifiers,
+            String advantageState,
+            String reroll,
+            List<StepRequest> steps,
+            List<OutcomeRequest> outcomes,
+            List<TableEntryRequest> randomTable,
+            String tableCoverage) {}
+    public record StepRequest(
+            String id,
+            ResolutionKind kind,
+            String abilityOrSkill,
+            Integer dc,
+            String diceExpression,
+            String condition,
+            List<String> nextStepIds,
+            List<String> successOutcomeIds,
+            List<String> failureOutcomeIds,
+            List<SourceReferenceRequest> sourceRefs) {}
+    public record OutcomeRequest(String id, String label, String description, List<SourceReferenceRequest> sourceRefs) {}
+    public record TableEntryRequest(String range, String outcome, List<SourceReferenceRequest> sourceRefs) {}
     public record SourceReferenceRequest(UUID documentId, long extractionVersion, String locator) {}
     public record PackageResponse(
             UUID packageId, UUID bundleId, long bundleRevision, String inputFingerprint,
@@ -128,12 +177,30 @@ public class ScenarioCompilationController {
                     scenarioPackage.report().warnings(), scenarioPackage.units().stream().map(unit -> new UnitResponse(
                             unit.kind() == null ? null : unit.kind().name(), unit.status().name(), unit.abilityOrSkill(),
                             unit.dc(), unit.diceExpression(), unit.visibility() == null ? null : unit.visibility().name(),
-                            unit.sourceQuote(), unit.provenance(), unit.validationMessages(),
+                            unit.sourceQuote(), unit.provenance(), unit.validationMessages(), unit.runtimeCapabilities(),
+                            detailResponse(unit.detail()),
                             unit.sourceRefs().stream().map(ScenarioCompilationController::sourceRef).toList())).toList());
         }
     }
+    private static DetailRequest detailResponse(ScenarioResolutionDetail detail) {
+        return new DetailRequest(
+                detail.triggerCondition(), detail.actor(), detail.roller(), detail.instructionVisibility(), detail.resultVisibility(),
+                detail.modifiers(), detail.advantageState(), detail.reroll(),
+                detail.steps().stream().map(step -> new StepRequest(
+                        step.id(), step.kind(), step.abilityOrSkill(), step.dc(), step.diceExpression(), step.condition(),
+                        step.nextStepIds(), step.successOutcomeIds(), step.failureOutcomeIds(),
+                        step.sourceRefs().stream().map(ScenarioCompilationController::sourceRef).toList())).toList(),
+                detail.outcomes().stream().map(outcome -> new OutcomeRequest(
+                        outcome.id(), outcome.label(), outcome.description(),
+                        outcome.sourceRefs().stream().map(ScenarioCompilationController::sourceRef).toList())).toList(),
+                detail.randomTable().stream().map(entry -> new TableEntryRequest(
+                        entry.range(), entry.outcome(),
+                        entry.sourceRefs().stream().map(ScenarioCompilationController::sourceRef).toList())).toList(),
+                detail.tableCoverage());
+    }
     public record UnitResponse(String kind, String status, String abilityOrSkill, Integer dc, String diceExpression,
                                String visibility, String sourceQuote, String provenance, List<String> validationMessages,
+                               List<String> runtimeCapabilities, DetailRequest detail,
                                List<SourceReferenceRequest> sourceRefs) {}
 
     private static SourceReferenceRequest sourceRef(ScenarioSourceReference ref) {

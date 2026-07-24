@@ -83,6 +83,41 @@ export type ScenarioPackageView = {
     sourceQuote: string
     provenance: string
     validationMessages: string[]
+    runtimeCapabilities: string[]
+    detail: {
+      triggerCondition: string | null
+      actor: string | null
+      roller: string | null
+      instructionVisibility: string | null
+      resultVisibility: string | null
+      modifiers: string[]
+      advantageState: string | null
+      reroll: string | null
+      steps: Array<{
+        id: string
+        kind: string | null
+        abilityOrSkill: string | null
+        dc: number | null
+        diceExpression: string | null
+        condition: string | null
+        nextStepIds: string[]
+        successOutcomeIds: string[]
+        failureOutcomeIds: string[]
+        sourceRefs: Array<{ documentId: string; extractionVersion: number; locator: string }>
+      }>
+      outcomes: Array<{
+        id: string
+        label: string | null
+        description: string | null
+        sourceRefs: Array<{ documentId: string; extractionVersion: number; locator: string }>
+      }>
+      randomTable: Array<{
+        range: string | null
+        outcome: string | null
+        sourceRefs: Array<{ documentId: string; extractionVersion: number; locator: string }>
+      }>
+      tableCoverage: string | null
+    }
     sourceRefs: Array<{ documentId: string; extractionVersion: number; locator: string }>
   }>
 }
