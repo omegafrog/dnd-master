@@ -22,6 +22,7 @@ it('lists, resumes, deletes and configures session knowledge sets', async () => 
       calls.push(`session:${adventureId}:${knowledgeDocumentIds.join(',')}`)
       return { adventureId, sessionId: 'session-1', knowledgeDocumentIds }
     },
+    async getCombatMap() { return { adventureId: 'old', status: 'authoritative-map' } },
     async getCharacter() { throw new Error() },
     async rollDice() { throw new Error() },
   }

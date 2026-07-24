@@ -19,6 +19,11 @@ export type SessionKnowledgeSet = {
   knowledgeDocumentIds: string[]
 }
 
+export type CombatMapView = {
+  adventureId: string
+  status: string
+}
+
 export interface AdventurePlayApi {
   getCharacter(sheetId: string): Promise<CharacterSheet>
   rollDice(adventureId: string, ruleSetId: string, characterSheetId: string, role: string, action: string): Promise<{ rollId: string; total: number }>
@@ -28,6 +33,7 @@ export interface AdventurePlayApi {
   deleteAdventure(adventureId: string, playerId: string, expectedVersion: number): Promise<void>
   getSessionKnowledgeSet(adventureId: string): Promise<SessionKnowledgeSet>
   saveSessionKnowledgeSet(adventureId: string, playerId: string, knowledgeDocumentIds: string[]): Promise<SessionKnowledgeSet>
+  getCombatMap(adventureId: string): Promise<CombatMapView>
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -103,6 +109,12 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
       body: JSON.stringify({ playerId, knowledgeDocumentIds }),
+    })
+  }
+
+  getCombatMap(adventureId: string) {
+    return request<CombatMapView>(`/api/v1/adventures/${adventureId}/combat-map`, {
+      headers: this.authHeaders(),
     })
   }
 }

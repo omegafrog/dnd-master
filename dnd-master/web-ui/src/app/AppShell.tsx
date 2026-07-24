@@ -87,7 +87,7 @@ export function AppShell() {
             <AdventureStream adventureId={route.adventureId} api={adventureApi} />
             <RoleDiceRoller adventureId={route.adventureId} api={playApi} />
             <RuleEvidence adventureId={route.adventureId} api={guidanceApi} />
-            <CombatMapView adventureId={route.adventureId} />
+            <CombatMapView adventureId={route.adventureId} api={playApi} />
           </>
         )}
         {route.page === 'character' && (
