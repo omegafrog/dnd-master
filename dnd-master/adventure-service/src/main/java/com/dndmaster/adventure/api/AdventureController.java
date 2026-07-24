@@ -6,8 +6,9 @@ import com.dndmaster.adventure.application.combat.CombatActorRole;
 import com.dndmaster.adventure.application.guidance.AnswerRuleInquiryCommand;
 import com.dndmaster.adventure.application.guidance.RuleGuidanceApplicationService;
 import com.dndmaster.adventure.application.progress.AdventureProgressApplicationService;
-import com.dndmaster.adventure.application.progress.AdventureProgressResult;
-import com.dndmaster.adventure.application.progress.ProgressAdventureCommand;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnResult;
+import com.dndmaster.adventure.application.runtime.SubmitRuntimeTurnCommand;
 import com.dndmaster.adventure.application.saved.CreateAdventureCommand;
 import com.dndmaster.adventure.application.saved.SavedAdventureApplicationService;
 import com.dndmaster.adventure.application.scenario.AdventureScenarioApplicationService;
@@ -26,19 +27,19 @@ import java.util.UUID;
 @RequestMapping
 public class AdventureController {
     private final SavedAdventureApplicationService savedAdventureService;
-    private final AdventureProgressApplicationService progressService;
+    private final RuntimeTurnApplicationService runtimeTurnService;
     private final RuleGuidanceApplicationService guidanceService;
     private final AdventureCombatApplicationService combatService;
     private final AdventureScenarioApplicationService scenarioService;
 
     public AdventureController(
             SavedAdventureApplicationService savedAdventureService,
-            AdventureProgressApplicationService progressService,
+            RuntimeTurnApplicationService runtimeTurnService,
             RuleGuidanceApplicationService guidanceService,
             AdventureCombatApplicationService combatService,
             AdventureScenarioApplicationService scenarioService) {
         this.savedAdventureService = savedAdventureService;
-        this.progressService = progressService;
+        this.runtimeTurnService = runtimeTurnService;
         this.guidanceService = guidanceService;
         this.combatService = combatService;
         this.scenarioService = scenarioService;
@@ -56,14 +57,14 @@ public class AdventureController {
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/messages")
-    ResponseEntity<Void> streamAdventure(
+    RuntimeTurnResponse streamAdventure(
             @PathVariable UUID adventureId, @RequestBody StreamMessageRequest request) {
-        ProgressAdventureCommand command = new ProgressAdventureCommand(
+        // 플레이어 입력을 런타임 턴으로 바꾸고, 서버가 만든 narration을 돌려준다.
+        RuntimeTurnResult result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
                 new AdventureId(adventureId),
                 new OwnerPlayerId(request.playerId()),
-                request.action());
-        progressService.progressAdventure(command);
-        return ResponseEntity.ok().build();
+                request.action()));
+        return RuntimeTurnResponse.from(result);
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/rule-inquiries")
@@ -165,6 +166,32 @@ public class AdventureController {
     }
 
     public record StreamMessageRequest(UUID playerId, String action) {}
+    // 프런트가 바로 보여줄 수 있게 턴 결과를 압축한 응답이다.
+    public record RuntimeTurnResponse(
+            UUID turnId,
+            UUID adventureId,
+            UUID scenarioPackageId,
+            long bindingVersion,
+            String narration,
+            String judgment,
+            String currentScene,
+            List<String> sourceRefs,
+            List<String> warnings,
+            long version) {
+        static RuntimeTurnResponse from(RuntimeTurnResult result) {
+            return new RuntimeTurnResponse(
+                    result.turn().turnId(),
+                    result.turn().adventureId().value(),
+                    result.turn().scenarioPackageId(),
+                    result.turn().bindingVersion(),
+                    result.turn().plan().narration(),
+                    result.turn().plan().judgment(),
+                    result.context().currentScene(),
+                    result.turn().citations(),
+                    result.turn().warnings(),
+                    result.version());
+        }
+    }
     public record RuleInquiryRequest(UUID inquiryId, UUID ruleSetId, UUID playerId, String situation) {}
     public record RuleInquiryResponse(UUID inquiryId, String status) {}
     public record CombatMapResponse(UUID adventureId, String status) {}

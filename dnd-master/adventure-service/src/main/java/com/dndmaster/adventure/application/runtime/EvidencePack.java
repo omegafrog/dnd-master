@@ -1,0 +1,13 @@
+package com.dndmaster.adventure.application.runtime;
+
+import java.util.List;
+import java.util.Objects;
+
+// 한 턴에서 함께 다루는 STORYBOOK, RULEBOOK, RESOLUTION 근거 묶음이다.
+public record EvidencePack(List<RuntimeEvidence> storybook, List<RuntimeEvidence> rulebook, List<RuntimeEvidence> resolution) {
+    public EvidencePack {
+        storybook = List.copyOf(Objects.requireNonNull(storybook, "storybook evidence must not be null"));
+        rulebook = List.copyOf(Objects.requireNonNull(rulebook, "rulebook evidence must not be null"));
+        resolution = List.copyOf(Objects.requireNonNull(resolution, "resolution evidence must not be null"));
+    }
+}

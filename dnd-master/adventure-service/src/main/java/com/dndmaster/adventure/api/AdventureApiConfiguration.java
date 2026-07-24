@@ -9,6 +9,7 @@ import com.dndmaster.adventure.application.runtime.*;
 import com.dndmaster.adventure.application.saved.*;
 import com.dndmaster.adventure.application.scenario.*;
 import com.dndmaster.adventure.domain.adventure.Adventure;
+import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.inquiry.RulebookId;
 import com.dndmaster.adventure.domain.scenario.ScenarioSource;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureRepository;
@@ -262,11 +263,82 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    AdventureProgressApplicationService progressApplicationService(
-            AdventureRepository repository,
-            AdventureReadinessPort readinessPort,
-            AiGameMasterPort aiGameMasterPort) {
-        return new AdventureProgressApplicationService(repository, readinessPort, aiGameMasterPort);
+    RuntimeEvidenceSearchPort runtimeEvidenceSearchPort() {
+        return request -> {
+            if (request.evidenceType() == RuntimeEvidenceType.STORYBOOK) {
+                ActiveSourceContext active = request.activeSourceContext();
+                if (active == null) return List.of();
+                return List.of(new RuntimeEvidence(
+                        RuntimeEvidenceType.STORYBOOK,
+                        active.knowledgeDocumentId(),
+                        active.extractionVersion(),
+                        active.locator(),
+                        active.excerpt()));
+            }
+            if (request.evidenceType() == RuntimeEvidenceType.RULEBOOK) {
+                return request.rulebookIds().stream().map(rulebookId -> new RuntimeEvidence(
+                        RuntimeEvidenceType.RULEBOOK,
+                        new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(rulebookId),
+                        1L,
+                        "rulebook:" + rulebookId,
+                        "Rulebook evidence for " + request.action()))
+                        .toList();
+            }
+            return List.of();
+        };
+    }
+
+    @Bean
+    RuntimePlanningPort runtimePlanningPort() {
+        return request -> {
+            RuntimeEvidence primaryEvidence = request.evidencePack().storybook().isEmpty()
+                    ? (request.evidencePack().rulebook().isEmpty() ? null : request.evidencePack().rulebook().getFirst())
+                    : request.evidencePack().storybook().getFirst();
+            String scene = primaryEvidence == null
+                    ? "서버가 현재 문맥을 바탕으로 장면을 정리했다."
+                    : primaryEvidence.excerpt();
+            String judgment = "서버가 '" + request.action() + "' 행동을 근거와 함께 정리했다.";
+            String narration = primaryEvidence == null
+                    ? "근거를 확인한 뒤 응답한다."
+                    : "근거를 바탕으로 '" + request.action() + "'에 응답한다.";
+            return new RuntimePlan(
+                    scene,
+                    request.currentContext().npcStateValue().orElse(null),
+                    judgment,
+                    narration,
+                    primaryEvidence == null ? request.activeSourceContext() : new ActiveSourceContext(
+                            primaryEvidence.knowledgeDocumentId(), primaryEvidence.extractionVersion(),
+                            primaryEvidence.locator(), primaryEvidence.excerpt()),
+                    primaryEvidence == null ? List.of() : List.of(primaryEvidence),
+                    request.evidencePack().resolution().isEmpty()
+                            ? List.of("resolution evidence not prefetched")
+                            : List.of());
+        };
+    }
+
+    @Bean
+    NarrationSafetyPort narrationSafetyPort() {
+        return request -> {
+            boolean approved = request.narration() != null
+                    && !request.narration().isBlank()
+                    && !request.narration().contains("\"")
+                    && !request.narration().contains("“")
+                    && !request.narration().contains("”");
+            return new NarrationSafetyAssessment(approved, approved ? "approved" : "narration failed safety check");
+        };
+    }
+
+    @Bean
+    RuntimeTurnApplicationService runtimeTurnApplicationService(
+            AdventureRepository adventureRepository,
+            RuntimeBindingRepository runtimeBindingRepository,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
+            RuntimeEvidenceSearchPort runtimeEvidenceSearchPort,
+            RuntimePlanningPort runtimePlanningPort,
+            NarrationSafetyPort narrationSafetyPort) {
+        return new RuntimeTurnApplicationService(
+                adventureRepository, runtimeBindingRepository, packageRepository, runtimeEvidenceSearchPort,
+                runtimePlanningPort, narrationSafetyPort);
     }
 
     @Bean
@@ -403,11 +475,11 @@ public class AdventureApiConfiguration {
     @Bean
     AdventureController adventureController(
             SavedAdventureApplicationService savedAdventureService,
-            AdventureProgressApplicationService progressService,
+            RuntimeTurnApplicationService runtimeTurnService,
             RuleGuidanceApplicationService guidanceService,
             AdventureCombatApplicationService combatService,
             AdventureScenarioApplicationService scenarioService) {
-        return new AdventureController(savedAdventureService, progressService, guidanceService, combatService, scenarioService);
+        return new AdventureController(savedAdventureService, runtimeTurnService, guidanceService, combatService, scenarioService);
     }
 
     @Bean

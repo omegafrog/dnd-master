@@ -15,8 +15,8 @@ export function AdventureStream({ adventureId, api }: { adventureId: string; api
     setSending(true)
     setMessages(current => [...current, { speaker: '플레이어', text }])
     try {
-      await api.sendMessage(adventureId, text)
-      setMessages(current => [...current, { speaker: 'AI 게임 마스터', text: '(응답 전송됨)' }])
+      const response = await api.sendMessage(adventureId, text)
+      setMessages(current => [...current, { speaker: 'AI 게임 마스터', text: response.narration }])
     } catch {
       setNotice('메시지를 전송하지 못했습니다.')
     } finally {
