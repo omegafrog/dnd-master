@@ -48,6 +48,17 @@ const setupApi: SetupApi = {
   },
   async getRulebookStatus(rulebookId) { return { rulebookId, status: 'INDEXED' } },
   async uploadScenario(file) { return { id: 'scenario-e2e', name: file.name } },
+  async createCharacterSheet() {
+    return {
+      characterSheetId: 'sheet-e2e',
+      adventureId: adventureId,
+      edition: 'DND_5E_2024',
+      characterName: 'Aria',
+      level: 1,
+      inspiration: false,
+      version: 0,
+    }
+  },
   async saveRuleSet() {},
   async listKnowledgeDocuments(ownerId) {
     return privateDocuments

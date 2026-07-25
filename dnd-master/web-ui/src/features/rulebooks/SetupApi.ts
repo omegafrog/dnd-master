@@ -141,6 +141,23 @@ export type PlayPreparationView = {
   characterCreationBlueprint: CharacterCreationBlueprintView
 }
 
+export type CreatedCharacterSheetView = {
+  characterSheetId: string
+  adventureId: string
+  edition: string
+  characterName: string
+  level: number
+  inspiration: boolean
+  version: number
+}
+
+export type CharacterCreationDraft = {
+  edition: 'DND_5E_2014' | 'DND_5E_2024'
+  characterName: string
+  level: number
+  inspiration: boolean
+}
+
 export type RuntimeOptionView = {
   id: string
   label: string
@@ -308,6 +325,7 @@ export interface SetupApi {
   getScenarioPackage?(packageId: string): Promise<ScenarioPackageView>
   getPlayPreparation?(scenarioPackageId: string): Promise<PlayPreparationView>
   getRuntimeOptions?(): Promise<RuntimeOptionsView>
+  createCharacterSheet?(draft: CharacterCreationDraft): Promise<CreatedCharacterSheetView>
   bindRuntimeBinding?(adventureId: string, ownerId: string, draft: RuntimeBindingDraft): Promise<RuntimeBindingView>
   getRuntimeBinding?(adventureId: string, ownerId: string): Promise<RuntimeBindingView>
   switchRuntimePackage?(adventureId: string, ownerId: string, bindingVersion: number, scenarioPackageId: string): Promise<RuntimeBindingView>
@@ -477,6 +495,14 @@ export class HttpSetupApi implements SetupApi {
     return request<RuntimeOptionsView>('/api/v1/runtime-options', {
       headers: this.authHeaders(),
     }, '런타임 옵션을 불러오지 못했습니다.')
+  }
+
+  createCharacterSheet(draft: CharacterCreationDraft) {
+    return request<CreatedCharacterSheetView>('/internal/v1/character-sheets', {
+      method: 'POST',
+      headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify(draft),
+    }, '캐릭터 시트를 생성하지 못했습니다.')
   }
 
   bindRuntimeBinding(adventureId: string, _ownerId: string, draft: RuntimeBindingDraft) {

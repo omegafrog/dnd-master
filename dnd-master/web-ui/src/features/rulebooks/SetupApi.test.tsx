@@ -112,4 +112,34 @@ describe('HttpSetupApi', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/scenario-packages/package-1/play-preparation', expect.any(Object))
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/runtime-options', expect.any(Object))
   })
+
+  it('creates a character sheet through the internal character endpoint', async () => {
+    const fetchMock = vi.fn(async () => ({
+      status: 200,
+      ok: true,
+      headers: new Headers(),
+      json: async () => ({
+        characterSheetId: 'sheet-1',
+        adventureId: 'adventure-1',
+        edition: 'DND_5E_2024',
+        characterName: 'Aria',
+        level: 3,
+        inspiration: true,
+        version: 0,
+      }),
+    } as Response))
+    vi.stubGlobal('fetch', fetchMock)
+
+    const api = new HttpSetupApi(() => 'owner-token')
+    await expect(api.createCharacterSheet?.({
+      edition: 'DND_5E_2024',
+      characterName: 'Aria',
+      level: 3,
+      inspiration: true,
+    })).resolves.toMatchObject({
+      characterSheetId: 'sheet-1',
+      adventureId: 'adventure-1',
+    })
+    expect(fetchMock).toHaveBeenCalledWith('/internal/v1/character-sheets', expect.any(Object))
+  })
 })

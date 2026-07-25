@@ -1,5 +1,7 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import type {
+  CreatedCharacterSheetView,
+  CharacterCreationDraft,
   KnowledgeDocumentView,
   PlayPreparationView,
   RuntimeOptionsView,
@@ -40,13 +42,20 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
   const [scenarioPackage, setScenarioPackage] = useState<ScenarioPackageView | null>(null)
   const [compilation, setCompilation] = useState<ScenarioCompilationView | null>(null)
   const [playPreparation, setPlayPreparation] = useState<PlayPreparationView | null>(null)
+  const [createdCharacterSheet, setCreatedCharacterSheet] = useState<CreatedCharacterSheetView | null>(null)
   const [runtimeOptions, setRuntimeOptions] = useState<RuntimeOptionsView | null>(null)
   const [compiling, setCompiling] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [creatingCharacter, setCreatingCharacter] = useState(false)
   const [sourceQuery, setSourceQuery] = useState('')
   const [sourceResults, setSourceResults] = useState<StorySourceEvidenceView[]>([])
   const [searchingSources, setSearchingSources] = useState(false)
+  const [characterEdition, setCharacterEdition] = useState<'DND_5E_2014' | 'DND_5E_2024'>('DND_5E_2024')
+  const [characterName, setCharacterName] = useState('')
+  const [characterLevel, setCharacterLevel] = useState(1)
+  const [characterInspiration, setCharacterInspiration] = useState(false)
   const canCompile = Boolean(api.compileScenarioBundle || (api.startScenarioCompilation && api.getScenarioCompilation && api.getScenarioPackage))
+  const canCreateCharacter = Boolean(api.createCharacterSheet && playPreparation?.characterCreationBlueprint?.available)
 
   useEffect(() => {
     let active = true
@@ -153,6 +162,26 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
       onError(error instanceof Error ? error.message : '시나리오 원문 검색에 실패했습니다.')
     } finally {
       setSearchingSources(false)
+    }
+  }
+
+  async function createCharacter(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!canCreateCharacter || !api.createCharacterSheet) return
+    if (!characterName.trim()) return
+    setCreatingCharacter(true)
+    try {
+      const draft: CharacterCreationDraft = {
+        edition: characterEdition,
+        characterName: characterName.trim(),
+        level: characterLevel,
+        inspiration: characterInspiration,
+      }
+      setCreatedCharacterSheet(await api.createCharacterSheet(draft))
+    } catch (error) {
+      onError(error instanceof Error ? error.message : '캐릭터를 생성하지 못했습니다.')
+    } finally {
+      setCreatingCharacter(false)
     }
   }
 
@@ -323,10 +352,67 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
                   </p>
                   {playPreparation.characterCreationBlueprint.diagnostics.length > 0 ? (
                     <ul aria-label="Blueprint 진단">
-                      {playPreparation.characterCreationBlueprint.diagnostics.map(diagnostic => <li key={diagnostic}>{diagnostic}</li>)}
+                      {playPreparation.characterCreationBlueprint.diagnostics.map(diagnostic => (
+                        <li key={diagnostic}>{diagnostic}</li>
+                      ))}
                     </ul>
                   ) : null}
                 </div>
+              ) : null}
+              {canCreateCharacter ? (
+                <section aria-labelledby="character-creation-heading">
+                  <h4 id="character-creation-heading">캐릭터 생성</h4>
+                  <form onSubmit={createCharacter}>
+                    <label>
+                      캐릭터 이름
+                      <input
+                        value={characterName}
+                        onChange={event => setCharacterName(event.currentTarget.value)}
+                        aria-label="캐릭터 이름"
+                      />
+                    </label>
+                    <label>
+                      에디션
+                      <select
+                        aria-label="캐릭터 에디션"
+                        value={characterEdition}
+                        onChange={event => setCharacterEdition(event.currentTarget.value as 'DND_5E_2014' | 'DND_5E_2024')}
+                      >
+                        <option value="DND_5E_2024">DND 5E 2024</option>
+                        <option value="DND_5E_2014">DND 5E 2014</option>
+                      </select>
+                    </label>
+                    <label>
+                      레벨
+                      <input
+                        type="number"
+                        min={1}
+                        max={20}
+                        value={characterLevel}
+                        onChange={event => setCharacterLevel(Number(event.currentTarget.value))}
+                        aria-label="캐릭터 레벨"
+                      />
+                    </label>
+                    <label>
+                      영감
+                      <input
+                        type="checkbox"
+                        checked={characterInspiration}
+                        onChange={event => setCharacterInspiration(event.currentTarget.checked)}
+                        aria-label="영감"
+                      />
+                    </label>
+                    <button type="submit" disabled={creatingCharacter || !characterName.trim() || !canCreateCharacter}>
+                      {creatingCharacter ? '생성 중…' : '캐릭터 시트 생성'}
+                    </button>
+                  </form>
+                  {createdCharacterSheet ? (
+                    <p role="status">
+                      캐릭터 시트 {createdCharacterSheet.characterSheetId} 생성 완료.
+                      <a href={`#/character/${createdCharacterSheet.characterSheetId}`}>캐릭터 보기</a>
+                    </p>
+                  ) : null}
+                </section>
               ) : null}
             </section>
           ) : null}

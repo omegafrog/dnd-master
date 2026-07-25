@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ScenarioSetup } from './ScenarioSetup'
 import type {
+  CreatedCharacterSheetView,
   CharacterCreationBlueprintView,
   KnowledgeDocumentView,
   LegacyScenarioMigrationView,
@@ -75,6 +76,17 @@ class FakeSetupApi implements SetupApi {
     { knowledgeDocumentId: 'doc-1', documentType: 'STORYBOOK', originalFilename: 'main.pdf', status: 'EXTRACTED', role: 'REFERENCE', extractionVersion: 3 },
   ]) }
   async getScenarioBundle() { return bundle('bundle-1', 1, []) }
+  async createCharacterSheet(): Promise<CreatedCharacterSheetView> {
+    return {
+      characterSheetId: 'sheet-1',
+      adventureId: 'adventure-1',
+      edition: 'DND_5E_2024',
+      characterName: 'Aria',
+      level: 1,
+      inspiration: false,
+      version: 0,
+    }
+  }
   async getScenarioPackage() {
     return {
       packageId: 'package-1',
@@ -201,7 +213,11 @@ describe('ScenarioSetup', () => {
 
     expect(await screen.findByText('패키지 package-1 · COMPLETE')).toBeInTheDocument()
     expect(await screen.findByText('준비 상태 READY · 패키지 package-1')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '캐릭터 생성' })).toBeInTheDocument()
     expect(screen.queryAllByText((_, element) => element?.textContent?.includes('STORYBOOK 1개, RULEBOOK 1개') ?? false).length).toBeGreaterThan(0)
+    await user.type(screen.getByLabelText('캐릭터 이름'), 'Aria')
+    await user.click(screen.getByRole('button', { name: '캐릭터 시트 생성' }))
+    expect(await screen.findByText(/캐릭터 시트 sheet-1 생성 완료/)).toBeInTheDocument()
     expect(screen.getByText('기본 엔진: ollama')).toBeInTheDocument()
     expect(screen.getByText('기본 도구: search, move')).toBeInTheDocument()
     expect(screen.queryByLabelText('모험 ID')).not.toBeInTheDocument()

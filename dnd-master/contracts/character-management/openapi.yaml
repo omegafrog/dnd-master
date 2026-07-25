@@ -1,6 +1,31 @@
 openapi: 3.1.0
 info: { title: Character Management API, version: 1.0.0 }
 paths:
+  /internal/v1/character-sheets:
+    post:
+      operationId: createCharacterSheet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [edition, characterName, level, inspiration]
+              properties:
+                adventureId:
+                  type: string
+                  format: uuid
+                edition:
+                  type: string
+                characterName:
+                  type: string
+                level:
+                  type: integer
+                inspiration:
+                  type: boolean
+      responses:
+        '200':
+          description: created character sheet
   /internal/v1/character-sheets/{sheetId}:
     get:
       operationId: getCharacterSheet

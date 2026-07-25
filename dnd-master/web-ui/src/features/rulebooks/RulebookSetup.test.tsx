@@ -73,6 +73,17 @@ class FakeSetupApi implements SetupApi {
   async createScenarioBundle() { return bundle('bundle-1', 1, []) }
   async reviseScenarioBundle() { return bundle('bundle-1', 2, []) }
   async getScenarioBundle() { return bundle('bundle-1', 1, []) }
+  async createCharacterSheet() {
+    return {
+      characterSheetId: 'sheet-1',
+      adventureId: 'adventure-1',
+      edition: 'DND_5E_2024',
+      characterName: 'Aria',
+      level: 1,
+      inspiration: false,
+      version: 0,
+    }
+  }
   async saveRuleSet() {}
   async listKnowledgeDocuments(ownerId: string) {
     void ownerId

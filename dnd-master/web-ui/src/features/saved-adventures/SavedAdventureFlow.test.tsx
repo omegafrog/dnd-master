@@ -75,6 +75,17 @@ it('lists, resumes, deletes and configures session knowledge sets', async () => 
     async createScenarioBundle() { return { bundleId: 'bundle', ownerPlayerId: 'p1', currentRevision: 1, documents: [] } },
     async reviseScenarioBundle() { return { bundleId: 'bundle', ownerPlayerId: 'p1', currentRevision: 2, documents: [] } },
     async getScenarioBundle() { return { bundleId: 'bundle', ownerPlayerId: 'p1', currentRevision: 1, documents: [] } },
+    async createCharacterSheet() {
+      return {
+        characterSheetId: 'sheet-1',
+        adventureId: 'adventure-1',
+        edition: 'DND_5E_2024',
+        characterName: 'Aria',
+        level: 1,
+        inspiration: false,
+        version: 0,
+      }
+    },
     async saveRuleSet() {},
     async listKnowledgeDocuments() {
       return [

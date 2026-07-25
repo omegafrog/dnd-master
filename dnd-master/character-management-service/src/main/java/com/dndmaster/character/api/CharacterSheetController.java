@@ -1,6 +1,7 @@
 package com.dndmaster.character.api;
 
 import com.dndmaster.character.application.CharacterSheetApplicationService;
+import com.dndmaster.character.application.CreateCharacterSheetCommand;
 import com.dndmaster.character.domain.*;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,6 +14,15 @@ public class CharacterSheetController {
 
     public CharacterSheetController(CharacterSheetApplicationService characterSheetService) {
         this.characterSheetService = characterSheetService;
+    }
+
+    @PostMapping("/internal/v1/character-sheets")
+    CharacterSheetResponse createCharacterSheet(@RequestBody CharacterSheetRequest request) {
+        CharacterSheet sheet = characterSheetService.createSheet(new CreateCharacterSheetCommand(
+                new AdventureId(request.adventureId() == null ? UUID.randomUUID() : request.adventureId()),
+                SheetEdition.valueOf(request.edition()),
+                parseData(request.edition(), request.characterName(), request.level(), request.inspiration())));
+        return CharacterSheetResponse.from(sheet);
     }
 
     @GetMapping("/internal/v1/character-sheets/{sheetId}")
@@ -47,5 +57,5 @@ public class CharacterSheetController {
     }
 
     public record CharacterSheetRequest(
-            String edition, String characterName, int level, boolean inspiration) {}
+            UUID adventureId, String edition, String characterName, int level, boolean inspiration) {}
 }
