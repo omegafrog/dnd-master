@@ -22,6 +22,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnRep
 import com.dndmaster.adventure.infrastructure.persistence.PostgresWorkQueueAdapter;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpKnowledgeDocumentLookupGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpPlayerSessionLookupGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpLegacyScenarioIngestionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpInitialSourceContextProposalGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpResolutionExtractionGateway;
@@ -273,6 +274,15 @@ public class AdventureApiConfiguration {
         return new CrossContextHttpKnowledgeDocumentLookupGateway(
                 HttpClient.newHttpClient(),
                 URI.create("http://127.0.0.1:18083/"),
+                Duration.ofSeconds(2),
+                objectMapper);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.auth.PlayerSessionLookupPort playerSessionLookupPort(ObjectMapper objectMapper) {
+        return new CrossContextHttpPlayerSessionLookupGateway(
+                HttpClient.newHttpClient(),
+                URI.create("http://127.0.0.1:18081/"),
                 Duration.ofSeconds(2),
                 objectMapper);
     }
@@ -564,12 +574,16 @@ public class AdventureApiConfiguration {
             RuntimeTurnApplicationService runtimeTurnService,
             RuleGuidanceApplicationService guidanceService,
             AdventureCombatApplicationService combatService,
-            AdventureScenarioApplicationService scenarioService) {
-        return new AdventureController(savedAdventureService, runtimeTurnService, guidanceService, combatService, scenarioService);
+            AdventureScenarioApplicationService scenarioService,
+            AuthenticatedPlayerResolver playerResolver) {
+        return new AdventureController(
+                savedAdventureService, runtimeTurnService, guidanceService, combatService, scenarioService, playerResolver);
     }
 
     @Bean
-    RuntimeBindingController runtimeBindingController(RuntimeBindingApplicationService service) {
-        return new RuntimeBindingController(service);
+    RuntimeBindingController runtimeBindingController(
+            RuntimeBindingApplicationService service,
+            AuthenticatedPlayerResolver playerResolver) {
+        return new RuntimeBindingController(service, playerResolver);
     }
 }

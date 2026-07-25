@@ -9,6 +9,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.dndmaster.adventure.application.auth.PlayerSessionLookupPort;
 import com.dndmaster.adventure.application.combat.AdventureCombatApplicationService;
 import com.dndmaster.adventure.application.guidance.RuleGuidanceApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
@@ -21,17 +22,21 @@ import com.dndmaster.adventure.domain.scenario.ScenarioAccessDeniedException;
 import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
 import com.dndmaster.adventure.domain.scenario.ScenarioId;
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.server.ResponseStatusException;
 
 @WebMvcTest(controllers = LegacyScenarioMigrationController.class)
 @AutoConfigureMockMvc
+@Import(AdventureSecurityConfiguration.class)
 class LegacyScenarioMigrationControllerTest {
     private static final String DEPRECATION_WARNING =
             "299 dnd-master \"Legacy one-file scenario migration is deprecated; migrate to bundle/package flows\"";
@@ -45,6 +50,8 @@ class LegacyScenarioMigrationControllerTest {
     @MockBean AdventureCombatApplicationService combatService;
     @MockBean AdventureScenarioApplicationService scenarioService;
     @MockBean LegacyScenarioMigrationApplicationService migrationService;
+    @MockBean AuthenticatedPlayerResolver playerResolver;
+    @MockBean PlayerSessionLookupPort playerSessionLookupPort;
 
     @Test
     void migrateReturnsBundleAndPackageIds() throws Exception {
@@ -53,6 +60,8 @@ class LegacyScenarioMigrationControllerTest {
         UUID bundleId = UUID.randomUUID();
         UUID packageId = UUID.randomUUID();
         UUID documentId = UUID.randomUUID();
+        when(playerResolver.playerId()).thenReturn(ownerId);
+        when(playerSessionLookupPort.resolvePlayerId(any())).thenReturn(Optional.of(ownerId));
         when(migrationService.migrate(any(ScenarioId.class), any(OwnerPlayerId.class))).thenReturn(
                 new LegacyScenarioMigrationApplicationService.LegacyScenarioMigrationResult(
                         new ScenarioId(scenarioId), bundleId, packageId, new KnowledgeDocumentId(documentId),
@@ -77,6 +86,8 @@ class LegacyScenarioMigrationControllerTest {
     void reuploadReturnsReuploadStatus() throws Exception {
         UUID ownerId = UUID.randomUUID();
         UUID scenarioId = UUID.randomUUID();
+        when(playerResolver.playerId()).thenReturn(ownerId);
+        when(playerSessionLookupPort.resolvePlayerId(any())).thenReturn(Optional.of(ownerId));
         when(migrationService.reupload(any(ScenarioId.class), any(OwnerPlayerId.class), any())).thenReturn(
                 new LegacyScenarioMigrationApplicationService.LegacyScenarioMigrationResult(
                         new ScenarioId(scenarioId), UUID.randomUUID(), UUID.randomUUID(),
@@ -99,6 +110,8 @@ class LegacyScenarioMigrationControllerTest {
     void migrateReturnsNotFoundWhenScenarioMissing() throws Exception {
         UUID ownerId = UUID.randomUUID();
         UUID scenarioId = UUID.randomUUID();
+        when(playerResolver.playerId()).thenReturn(ownerId);
+        when(playerSessionLookupPort.resolvePlayerId(any())).thenReturn(Optional.of(ownerId));
         when(migrationService.migrate(any(ScenarioId.class), any(OwnerPlayerId.class)))
                 .thenThrow(new LegacyScenarioNotFoundException());
 
@@ -115,6 +128,8 @@ class LegacyScenarioMigrationControllerTest {
     void migrateReturnsForbiddenWhenScenarioOwnershipMismatch() throws Exception {
         UUID ownerId = UUID.randomUUID();
         UUID scenarioId = UUID.randomUUID();
+        when(playerResolver.playerId()).thenReturn(ownerId);
+        when(playerSessionLookupPort.resolvePlayerId(any())).thenReturn(Optional.of(ownerId));
         when(migrationService.migrate(any(ScenarioId.class), any(OwnerPlayerId.class)))
                 .thenThrow(new ScenarioAccessDeniedException());
 
@@ -130,6 +145,8 @@ class LegacyScenarioMigrationControllerTest {
     @Test
     void migrateReturnsUnauthorizedWithDeprecationHeadersWhenAuthorizationIsInvalid() throws Exception {
         UUID scenarioId = UUID.randomUUID();
+        when(playerResolver.playerId()).thenThrow(new ResponseStatusException(
+                org.springframework.http.HttpStatus.UNAUTHORIZED, "Bearer token is invalid"));
 
         mockMvc.perform(post("/api/v1/adventures/legacy-scenarios/{scenarioId}/migrate", scenarioId)
                         .header("Authorization", "not-a-bearer-token"))

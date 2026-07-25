@@ -23,16 +23,17 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping
 public class ScenarioBundleController {
     private final ScenarioBundleApplicationService service;
+    private final AuthenticatedPlayerResolver playerResolver;
 
-    public ScenarioBundleController(ScenarioBundleApplicationService service) {
+    public ScenarioBundleController(ScenarioBundleApplicationService service, AuthenticatedPlayerResolver playerResolver) {
         this.service = service;
+        this.playerResolver = playerResolver;
     }
 
     @PostMapping("/api/v1/adventures/scenario-bundles")
     ScenarioBundleResponse createBundle(
-            @RequestHeader("Authorization") String authorization,
             @RequestBody ScenarioBundleRequest request) {
-        OwnerPlayerId owner = ownerFromAuthorization(authorization);
+        OwnerPlayerId owner = new OwnerPlayerId(playerResolver.playerId());
         authorize(owner, request.playerId());
         return ScenarioBundleResponse.from(service.createBundle(owner, request.documents().stream().map(draft ->
                 new BundleDocumentDraft(new KnowledgeDocumentId(draft.knowledgeDocumentId()), draft.role())).toList()));
@@ -41,9 +42,8 @@ public class ScenarioBundleController {
     @PostMapping("/api/v1/adventures/scenario-bundles/{bundleId}/revisions")
     ScenarioBundleResponse reviseBundle(
             @PathVariable UUID bundleId,
-            @RequestHeader("Authorization") String authorization,
             @RequestBody ScenarioBundleRequest request) {
-        OwnerPlayerId owner = ownerFromAuthorization(authorization);
+        OwnerPlayerId owner = new OwnerPlayerId(playerResolver.playerId());
         authorize(owner, request.playerId());
         return ScenarioBundleResponse.from(service.reviseBundle(
                 new ScenarioBundleId(bundleId),
@@ -55,17 +55,9 @@ public class ScenarioBundleController {
 
     @GetMapping("/api/v1/adventures/scenario-bundles/{bundleId}")
     ScenarioBundleResponse readBundle(
-            @PathVariable UUID bundleId,
-            @RequestHeader("Authorization") String authorization) {
-        OwnerPlayerId owner = ownerFromAuthorization(authorization);
+            @PathVariable UUID bundleId) {
+        OwnerPlayerId owner = new OwnerPlayerId(playerResolver.playerId());
         return ScenarioBundleResponse.from(service.readBundle(new ScenarioBundleId(bundleId), owner));
-    }
-
-    private static OwnerPlayerId ownerFromAuthorization(String authorization) {
-        if (authorization == null || !authorization.startsWith("Bearer ")) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is required");
-        }
-        return new OwnerPlayerId(UUID.fromString(authorization.substring("Bearer ".length())));
     }
 
     private static void authorize(OwnerPlayerId owner, UUID requestPlayerId) {

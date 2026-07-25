@@ -20,16 +20,19 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping
 public class SessionKnowledgeSetController {
     private final SessionKnowledgeSetApplicationService service;
+    private final AuthenticatedPlayerResolver playerResolver;
 
-    public SessionKnowledgeSetController(SessionKnowledgeSetApplicationService service) {
+    public SessionKnowledgeSetController(
+            SessionKnowledgeSetApplicationService service,
+            AuthenticatedPlayerResolver playerResolver) {
         this.service = service;
+        this.playerResolver = playerResolver;
     }
 
     @GetMapping("/api/v1/adventures/{adventureId}/knowledge-documents")
     SessionKnowledgeSetResponse readSessionKnowledgeSet(
-            @PathVariable UUID adventureId,
-            @RequestHeader("Authorization") String authorization) {
-        OwnerPlayerId owner = new OwnerPlayerId(extractPlayerId(authorization));
+            @PathVariable UUID adventureId) {
+        OwnerPlayerId owner = new OwnerPlayerId(playerResolver.playerId());
         SessionKnowledgeSet set = service.readSessionKnowledgeSet(new AdventureId(adventureId), owner);
         return SessionKnowledgeSetResponse.from(adventureId, set);
     }
@@ -37,9 +40,8 @@ public class SessionKnowledgeSetController {
     @PutMapping("/api/v1/adventures/{adventureId}/knowledge-documents")
     SessionKnowledgeSetResponse updateSessionKnowledgeSet(
             @PathVariable UUID adventureId,
-            @RequestHeader("Authorization") String authorization,
             @RequestBody SessionKnowledgeSetRequest request) {
-        UUID playerId = extractPlayerId(authorization);
+        UUID playerId = playerResolver.playerId();
         if (!playerId.equals(request.playerId())) {
             throw new org.springframework.web.server.ResponseStatusException(
                     HttpStatus.FORBIDDEN, "playerId must match Authorization");
@@ -50,13 +52,6 @@ public class SessionKnowledgeSetController {
                 owner,
                 request.knowledgeDocumentIds().stream().map(KnowledgeDocumentId::new).toList());
         return SessionKnowledgeSetResponse.from(adventureId, set);
-    }
-
-    private static UUID extractPlayerId(String authorization) {
-        if (authorization == null || !authorization.startsWith("Bearer ")) {
-            throw new IllegalArgumentException("Bearer authorization is required");
-        }
-        return UUID.fromString(authorization.substring("Bearer ".length()));
     }
 
     public record SessionKnowledgeSetRequest(UUID playerId, List<UUID> knowledgeDocumentIds) {}

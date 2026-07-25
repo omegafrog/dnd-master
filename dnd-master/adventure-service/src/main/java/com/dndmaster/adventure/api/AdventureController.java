@@ -33,18 +33,21 @@ public class AdventureController {
     private final RuleGuidanceApplicationService guidanceService;
     private final AdventureCombatApplicationService combatService;
     private final AdventureScenarioApplicationService scenarioService;
+    private final AuthenticatedPlayerResolver playerResolver;
 
     public AdventureController(
             SavedAdventureApplicationService savedAdventureService,
             RuntimeTurnApplicationService runtimeTurnService,
             RuleGuidanceApplicationService guidanceService,
             AdventureCombatApplicationService combatService,
-            AdventureScenarioApplicationService scenarioService) {
+            AdventureScenarioApplicationService scenarioService,
+            AuthenticatedPlayerResolver playerResolver) {
         this.savedAdventureService = savedAdventureService;
         this.runtimeTurnService = runtimeTurnService;
         this.guidanceService = guidanceService;
         this.combatService = combatService;
         this.scenarioService = scenarioService;
+        this.playerResolver = playerResolver;
     }
 
     @PostMapping("/api/v1/adventures/scenarios")
@@ -54,9 +57,8 @@ public class AdventureController {
             summary = "Legacy one-file scenario upload",
             description = "Use bundle and package migration flows instead of the legacy one-file upload.")
     ResponseEntity<Void> uploadScenario(
-            @RequestParam("file") MultipartFile file,
-            @RequestHeader("Authorization") String authorization) throws Exception {
-        UUID ownerId = extractPlayerId(authorization);
+            @RequestParam("file") MultipartFile file) throws Exception {
+        UUID ownerId = playerResolver.playerId();
         ScenarioUpload upload = new ScenarioUpload(
                 new com.dndmaster.adventure.domain.scenario.OwnerPlayerId(ownerId), file.getOriginalFilename(), file.getBytes());
         var scenario = scenarioService.uploadScenario(upload);
@@ -175,13 +177,6 @@ public class AdventureController {
     @GetMapping("/internal/v1/adventures/{adventureId}/gm-context")
     GmContextResponse gmContext(@PathVariable UUID adventureId) {
         return new GmContextResponse(adventureId, "current-scene", "npc-state");
-    }
-
-    private static UUID extractPlayerId(String authorization) {
-        if (authorization == null || !authorization.startsWith("Bearer ")) {
-            throw new IllegalArgumentException("Bearer authorization is required");
-        }
-        return UUID.fromString(authorization.substring("Bearer ".length()));
     }
 
     public record StreamMessageRequest(UUID playerId, UUID turnId, UUID commandId, String action) {}

@@ -12,24 +12,26 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api/v1/adventures/{adventureId}/runtime-bindings")
 public class RuntimeBindingController {
     private final RuntimeBindingApplicationService service;
+    private final AuthenticatedPlayerResolver playerResolver;
 
-    public RuntimeBindingController(RuntimeBindingApplicationService service) {
+    public RuntimeBindingController(RuntimeBindingApplicationService service, AuthenticatedPlayerResolver playerResolver) {
         this.service = service;
+        this.playerResolver = playerResolver;
     }
 
     @GetMapping
     RuntimeBindingResponse read(
-            @PathVariable UUID adventureId,
-            @RequestHeader("Authorization") String authorization) {
-        return RuntimeBindingResponse.from(service.read(new AdventureId(adventureId), ownerFromAuthorization(authorization)));
+            @PathVariable UUID adventureId) {
+        return RuntimeBindingResponse.from(service.read(
+                new AdventureId(adventureId),
+                new OwnerPlayerId(playerResolver.playerId())));
     }
 
     @PostMapping
     RuntimeBindingResponse bind(
             @PathVariable UUID adventureId,
-            @RequestHeader("Authorization") String authorization,
             @RequestBody BindRequest request) {
-        OwnerPlayerId owner = ownerFromAuthorization(authorization);
+        OwnerPlayerId owner = new OwnerPlayerId(playerResolver.playerId());
         if (!owner.value().equals(request.playerId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "playerId must match Authorization");
         }
@@ -47,9 +49,8 @@ public class RuntimeBindingController {
     RuntimeBindingResponse switchPackage(
             @PathVariable UUID adventureId,
             @PathVariable long bindingVersion,
-            @RequestHeader("Authorization") String authorization,
             @RequestBody SwitchRequest request) {
-        OwnerPlayerId owner = ownerFromAuthorization(authorization);
+        OwnerPlayerId owner = new OwnerPlayerId(playerResolver.playerId());
         if (!owner.value().equals(request.playerId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "playerId must match Authorization");
         }
@@ -61,26 +62,14 @@ public class RuntimeBindingController {
     RuntimeBindingResponse selectSourceContext(
             @PathVariable UUID adventureId,
             @PathVariable long bindingVersion,
-            @RequestHeader("Authorization") String authorization,
             @RequestBody SelectSourceContextRequest request) {
-        OwnerPlayerId owner = ownerFromAuthorization(authorization);
+        OwnerPlayerId owner = new OwnerPlayerId(playerResolver.playerId());
         if (!owner.value().equals(request.playerId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "playerId must match Authorization");
         }
         return RuntimeBindingResponse.from(service.chooseActiveSourceContext(
                 new RuntimeBindingApplicationService.ChooseActiveSourceContextCommand(
                         new AdventureId(adventureId), owner, bindingVersion, request.locator())));
-    }
-
-    private static OwnerPlayerId ownerFromAuthorization(String authorization) {
-        if (authorization == null || !authorization.startsWith("Bearer ")) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is required");
-        }
-        try {
-            return new OwnerPlayerId(UUID.fromString(authorization.substring("Bearer ".length())));
-        } catch (IllegalArgumentException exception) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is invalid", exception);
-        }
     }
 
     public record BindRequest(

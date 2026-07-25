@@ -21,9 +21,13 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api/v1/adventures/legacy-scenarios")
 public class LegacyScenarioMigrationController {
     private final LegacyScenarioMigrationApplicationService service;
+    private final AuthenticatedPlayerResolver playerResolver;
 
-    public LegacyScenarioMigrationController(LegacyScenarioMigrationApplicationService service) {
+    public LegacyScenarioMigrationController(
+            LegacyScenarioMigrationApplicationService service,
+            AuthenticatedPlayerResolver playerResolver) {
         this.service = service;
+        this.playerResolver = playerResolver;
     }
 
     @PostMapping("/{scenarioId}/migrate")
@@ -33,9 +37,8 @@ public class LegacyScenarioMigrationController {
             summary = "Legacy scenario migration",
             description = "Use bundle and package flows instead of the legacy one-file migration path.")
     ResponseEntity<LegacyScenarioMigrationResponse> migrate(
-            @PathVariable UUID scenarioId,
-            @RequestHeader("Authorization") String authorization) {
-        OwnerPlayerId owner = ownerFromAuthorization(authorization);
+            @PathVariable UUID scenarioId) {
+        OwnerPlayerId owner = new OwnerPlayerId(playerResolver.playerId());
         return ResponseEntity.ok(LegacyScenarioMigrationResponse.from(service.migrate(new ScenarioId(scenarioId), owner)));
     }
 
@@ -47,24 +50,12 @@ public class LegacyScenarioMigrationController {
             description = "Use bundle and package flows instead of the legacy one-file reupload path.")
     ResponseEntity<LegacyScenarioMigrationResponse> reupload(
             @PathVariable UUID scenarioId,
-            @RequestHeader("Authorization") String authorization,
             @RequestPart("file") MultipartFile file) throws Exception {
-        OwnerPlayerId owner = ownerFromAuthorization(authorization);
+        OwnerPlayerId owner = new OwnerPlayerId(playerResolver.playerId());
         ScenarioUpload upload = new ScenarioUpload(
                 owner, file.getOriginalFilename(), file.getBytes());
         return ResponseEntity.ok(LegacyScenarioMigrationResponse.from(
                 service.reupload(new ScenarioId(scenarioId), owner, upload)));
-    }
-
-    private static OwnerPlayerId ownerFromAuthorization(String authorization) {
-        if (authorization == null || !authorization.startsWith("Bearer ")) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is required");
-        }
-        try {
-            return new OwnerPlayerId(UUID.fromString(authorization.substring("Bearer ".length())));
-        } catch (IllegalArgumentException exception) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is invalid", exception);
-        }
     }
 
     public record LegacyScenarioMigrationResponse(

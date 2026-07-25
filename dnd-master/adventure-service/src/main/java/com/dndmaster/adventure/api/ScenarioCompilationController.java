@@ -29,17 +29,20 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/api/v1/adventures")
 public class ScenarioCompilationController {
     private final ScenarioCompilationApplicationService service;
+    private final AuthenticatedPlayerResolver playerResolver;
 
-    public ScenarioCompilationController(ScenarioCompilationApplicationService service) {
+    public ScenarioCompilationController(
+            ScenarioCompilationApplicationService service,
+            AuthenticatedPlayerResolver playerResolver) {
         this.service = service;
+        this.playerResolver = playerResolver;
     }
 
     @PostMapping("/scenario-bundles/{bundleId}/compilations")
     PackageResponse compile(
             @PathVariable UUID bundleId,
-            @RequestHeader("Authorization") String authorization,
             @RequestBody CompilationRequest request) {
-        OwnerPlayerId owner = ownerFromAuthorization(authorization);
+        OwnerPlayerId owner = new OwnerPlayerId(playerResolver.playerId());
         if (!owner.value().equals(request.playerId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "playerId must match Authorization");
         }
@@ -57,17 +60,15 @@ public class ScenarioCompilationController {
 
     @GetMapping("/scenario-packages/{packageId}")
     PackageResponse read(
-            @PathVariable UUID packageId,
-            @RequestHeader("Authorization") String authorization) {
-        return PackageResponse.from(service.read(packageId, ownerFromAuthorization(authorization)));
+            @PathVariable UUID packageId) {
+        return PackageResponse.from(service.read(packageId, new OwnerPlayerId(playerResolver.playerId())));
     }
 
     @PostMapping("/scenario-bundles/{bundleId}/compilation-jobs")
     CompilationResponse startJob(
             @PathVariable UUID bundleId,
-            @RequestHeader("Authorization") String authorization,
             @RequestBody CompilationJobRequest request) {
-        OwnerPlayerId owner = ownerFromAuthorization(authorization);
+        OwnerPlayerId owner = new OwnerPlayerId(playerResolver.playerId());
         if (!owner.value().equals(request.playerId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "playerId must match Authorization");
         }
@@ -76,9 +77,9 @@ public class ScenarioCompilationController {
 
     @GetMapping("/compilations/{compilationId}")
     CompilationResponse readJob(
-            @PathVariable UUID compilationId,
-            @RequestHeader("Authorization") String authorization) {
-        return CompilationResponse.from(service.readCompilation(compilationId, ownerFromAuthorization(authorization)));
+            @PathVariable UUID compilationId) {
+        return CompilationResponse.from(service.readCompilation(
+                compilationId, new OwnerPlayerId(playerResolver.playerId())));
     }
 
     private static ResolutionCandidate candidate(CandidateRequest candidate) {
@@ -135,17 +136,6 @@ public class ScenarioCompilationController {
                     new KnowledgeDocumentId(ref.documentId()), ref.extractionVersion(), ref.locator())).toList();
         } catch (RuntimeException malformed) {
             return null;
-        }
-    }
-
-    private static OwnerPlayerId ownerFromAuthorization(String authorization) {
-        if (authorization == null || !authorization.startsWith("Bearer ")) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is required");
-        }
-        try {
-            return new OwnerPlayerId(UUID.fromString(authorization.substring("Bearer ".length())));
-        } catch (IllegalArgumentException exception) {
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is invalid", exception);
         }
     }
 

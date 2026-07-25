@@ -8,6 +8,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import com.dndmaster.adventure.application.auth.PlayerSessionLookupPort;
 import com.dndmaster.adventure.application.combat.AdventureCombatApplicationService;
 import com.dndmaster.adventure.application.guidance.RuleGuidanceApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
@@ -19,17 +20,20 @@ import com.dndmaster.adventure.domain.scenario.ScenarioId;
 import com.dndmaster.adventure.domain.scenario.ScenarioPreparationStatus;
 import com.dndmaster.adventure.domain.scenario.ScenarioSource;
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.context.annotation.Import;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.web.servlet.MockMvc;
 
 @WebMvcTest(controllers = AdventureController.class)
 @AutoConfigureMockMvc
+@Import(AdventureSecurityConfiguration.class)
 class AdventureControllerTest {
     @Autowired MockMvc mockMvc;
 
@@ -38,11 +42,15 @@ class AdventureControllerTest {
     @MockBean RuleGuidanceApplicationService guidanceService;
     @MockBean AdventureCombatApplicationService combatService;
     @MockBean AdventureScenarioApplicationService scenarioService;
+    @MockBean AuthenticatedPlayerResolver playerResolver;
+    @MockBean PlayerSessionLookupPort playerSessionLookupPort;
 
     @Test
     void legacyScenarioUploadReturnsDeprecationMetadata() throws Exception {
         UUID ownerId = UUID.randomUUID();
         UUID scenarioId = UUID.randomUUID();
+        when(playerResolver.playerId()).thenReturn(ownerId);
+        when(playerSessionLookupPort.resolvePlayerId(any())).thenReturn(Optional.of(ownerId));
         when(scenarioService.uploadScenario(any())).thenReturn(AdventureScenario.recordUpload(
                 new ScenarioId(scenarioId),
                 new OwnerPlayerId(ownerId),

@@ -62,6 +62,7 @@ subprojects {
             ":ai-game-master-service",
     )) {
         tasks.named<ProcessResources>("processResources") {
+            exclude("db/migration/**/*.sql")
             from(layout.projectDirectory.dir("src/main/resources/db/migration")) {
                 include("**/*.sql")
                 into("db/migration/${project.name}")
