@@ -81,8 +81,15 @@ final class SystemE2EFixture {
                 CREATE TABLE combat_map (
                     map_id UUID PRIMARY KEY, owner_player_id UUID NOT NULL, adventure_id UUID NOT NULL,
                     rule_set_id UUID NOT NULL, grid_width INT NOT NULL, grid_height INT NOT NULL,
-                    cell_size INT NOT NULL, distance_unit INT NOT NULL, version BIGINT NOT NULL
+                    cell_size INT NOT NULL, distance_unit INT NOT NULL, version BIGINT NOT NULL,
+                    operation_key TEXT, operation_fingerprint TEXT,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT combat_map_version_non_negative CHECK (version >= 0)
                 )
+                """);
+        execute("""
+                CREATE UNIQUE INDEX combat_map_operation_key_uq
+                    ON combat_map(operation_key) WHERE operation_key IS NOT NULL
                 """);
         execute("""
                 CREATE TABLE combat_map_token (
