@@ -12,6 +12,7 @@ import com.dndmaster.adventure.domain.scenario.ResolutionOverride;
 import com.dndmaster.adventure.domain.scenario.ResolutionOverrideStatus;
 import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
+import com.dndmaster.adventure.domain.scenario.CharacterLimit;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -22,10 +23,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class ScenarioPackageCompilationService {
     private static final String COMPILER_VERSION = "resolution-compiler-v1";
     private static final String DICE_PATTERN = "(?i)\\d+d\\d+(?:\\s*[+-]\\s*\\d+)?";
+    private static final Pattern CHARACTER_LIMIT_PATTERN = Pattern.compile(
+            "(?i)(?:최대|up\\s+to|maximum(?:\\s+of)?|max)\\s*(\\d+)\\s*(?:명|players?|users?)");
     private final ScenarioPackageRepository repository;
     private final ResolutionOverrideRepository overrideRepository;
 
@@ -106,9 +111,39 @@ public final class ScenarioPackageCompilationService {
         ScenarioPackage scenarioPackage = ScenarioPackage.publish(
                 bundle.id(), bundle.currentRevision().revision(), fingerprint,
                 bundle.currentRevision().documents(), units,
-                new ScenarioCompilationReport(reportStatus, warnings));
+                new ScenarioCompilationReport(reportStatus, warnings),
+                characterLimit(bundle, availableExcerpts));
         repository.save(scenarioPackage);
         return scenarioPackage;
+    }
+
+    private static CharacterLimit characterLimit(
+            ScenarioSourceBundle bundle, List<ResolutionExtractionPort.SourceExcerpt> excerpts) {
+        return excerpts.stream()
+                .filter(excerpt -> isStorybook(bundle, excerpt))
+                .flatMap(excerpt -> matches(excerpt).stream())
+                .max(Comparator.comparingInt(CharacterLimit::maximumCharacters))
+                .orElseGet(CharacterLimit::defaultLimit);
+    }
+
+    private static boolean isStorybook(ScenarioSourceBundle bundle, ResolutionExtractionPort.SourceExcerpt excerpt) {
+        return bundle.currentRevision().documents().stream().anyMatch(document ->
+                document.knowledgeDocumentId().equals(excerpt.documentId())
+                        && document.extractionVersion() == excerpt.extractionVersion()
+                        && "STORYBOOK".equalsIgnoreCase(document.documentType()));
+    }
+
+    private static List<CharacterLimit> matches(ResolutionExtractionPort.SourceExcerpt excerpt) {
+        if (excerpt.text() == null) return List.of();
+        Matcher matcher = CHARACTER_LIMIT_PATTERN.matcher(excerpt.text());
+        List<CharacterLimit> limits = new ArrayList<>();
+        while (matcher.find()) {
+            int maximum = Integer.parseInt(matcher.group(1));
+            if (maximum > 0) limits.add(new CharacterLimit(maximum,
+                    new ScenarioSourceReference(excerpt.documentId(), excerpt.extractionVersion(), excerpt.locator()),
+                    matcher.group()));
+        }
+        return limits;
     }
 
     private static ScenarioResolutionUnit validate(

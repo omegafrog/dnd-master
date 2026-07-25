@@ -73,6 +73,7 @@ export type ScenarioPackageView = {
   inputFingerprint: string
   reportStatus: 'COMPLETE' | 'PARTIAL' | 'INVALID'
   warnings: string[]
+  characterLimit: CharacterLimitView
   units: Array<{
     kind: string | null
     status: 'COMPLETE' | 'PARTIAL' | 'INVALID'
@@ -122,6 +123,12 @@ export type ScenarioPackageView = {
   }>
 }
 
+export type CharacterLimitView = {
+  maximumCharacters: number
+  source: { documentId: string; extractionVersion: number; locator: string } | null
+  sourceQuote: string
+}
+
 export type PlayPreparationStatus = 'READY' | 'BLOCKED'
 
 export type CharacterCreationBlueprintView = {
@@ -139,6 +146,7 @@ export type PlayPreparationView = {
   status: PlayPreparationStatus
   blockers: string[]
   characterCreationBlueprint: CharacterCreationBlueprintView
+  characterLimit: CharacterLimitView
 }
 
 export type CreatedCharacterSheetView = {

@@ -237,6 +237,33 @@ class ScenarioPackageCompilationServiceTest {
     }
 
     @Test
+    void compilesGreatestStorybookCharacterLimitWithItsEvidenceAndDefaultsToOne() {
+        KnowledgeDocumentId firstStorybook = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId secondStorybook = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = ScenarioSourceBundle.create(
+                ScenarioBundleId.generate(),
+                new OwnerPlayerId(UUID.randomUUID()),
+                new ScenarioSourceBundleRevision(1, List.of(
+                        new com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection(
+                                firstStorybook, ScenarioBundleDocumentRole.MAIN_SCENARIO,
+                                KnowledgeDocumentStatus.INDEXED, "first.pdf", "STORYBOOK", 1),
+                        new com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection(
+                                secondStorybook, ScenarioBundleDocumentRole.HANDOUT,
+                                KnowledgeDocumentStatus.INDEXED, "second.pdf", "STORYBOOK", 2))));
+        ScenarioPackageCompilationService service = new ScenarioPackageCompilationService(new InMemoryPackageRepository());
+
+        var result = service.compile(bundle, List.of(), List.of(
+                new ResolutionExtractionPort.SourceExcerpt(firstStorybook, 1, "page:1", "이 모험은 최대 3명까지 참여할 수 있습니다."),
+                new ResolutionExtractionPort.SourceExcerpt(secondStorybook, 2, "page:9", "Maximum 5 players may join this story.")));
+
+        assertEquals(5, result.characterLimit().maximumCharacters());
+        assertEquals(secondStorybook, result.characterLimit().source().orElseThrow().knowledgeDocumentId());
+        assertEquals("page:9", result.characterLimit().source().orElseThrow().locator());
+        assertEquals(1, new ScenarioPackageCompilationService(new InMemoryPackageRepository())
+                .compile(bundle, List.of()).characterLimit().maximumCharacters());
+    }
+
+    @Test
     void reappliesStoredOverrideAcrossExtractionVersionChangeWhenAnchorMatchesExactly() {
         KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(documentId, 2);

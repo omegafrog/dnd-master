@@ -9,8 +9,14 @@ public record PlayPreparationView(
         long bundleRevision,
         PlayPreparationStatus status,
         List<String> blockers,
-        CharacterCreationBlueprintView characterCreationBlueprint) {
+        CharacterCreationBlueprintView characterCreationBlueprint,
+        CharacterLimitView characterLimit) {
     public PlayPreparationView {
         blockers = List.copyOf(blockers);
+    }
+
+    public PlayPreparationView(UUID scenarioPackageId, UUID bundleId, long bundleRevision, PlayPreparationStatus status,
+                               List<String> blockers, CharacterCreationBlueprintView characterCreationBlueprint) {
+        this(scenarioPackageId, bundleId, bundleRevision, status, blockers, characterCreationBlueprint, CharacterLimitView.defaultLimit());
     }
 }

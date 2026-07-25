@@ -41,6 +41,7 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
   const [bundle, setBundle] = useState<ScenarioBundleView | null>(null)
   const [scenarioPackage, setScenarioPackage] = useState<ScenarioPackageView | null>(null)
   const [compilation, setCompilation] = useState<ScenarioCompilationView | null>(null)
+  const [compilationFailure, setCompilationFailure] = useState<string | null>(null)
   const [playPreparation, setPlayPreparation] = useState<PlayPreparationView | null>(null)
   const [createdCharacterSheet, setCreatedCharacterSheet] = useState<CreatedCharacterSheetView | null>(null)
   const [runtimeOptions, setRuntimeOptions] = useState<RuntimeOptionsView | null>(null)
@@ -137,6 +138,7 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
     setSaving(true)
     setScenarioPackage(null)
     setPlayPreparation(null)
+    setCompilationFailure(null)
     try {
       const nextBundle = bundle
         ? await api.reviseScenarioBundle(bundle.bundleId, playerId, documentsToSave)
@@ -190,6 +192,7 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
     setCompiling(true)
     setScenarioPackage(null)
     setPlayPreparation(null)
+    setCompilationFailure(null)
     try {
       if (api.startScenarioCompilation && api.getScenarioCompilation && api.getScenarioPackage) {
         const started = await api.startScenarioCompilation(
@@ -210,7 +213,9 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
       const nextPackage = await api.compileScenarioBundle(bundle.bundleId, playerId)
       setScenarioPackage(nextPackage)
     } catch (error) {
-      onError(error instanceof Error ? error.message : '시나리오 패키지 컴파일에 실패했습니다.')
+      const message = error instanceof Error ? error.message : '시나리오 패키지 컴파일에 실패했습니다.'
+      setCompilationFailure(message)
+      onError(message)
     } finally {
       setCompiling(false)
     }
@@ -278,9 +283,14 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
           {compilation ? (
             <p>컴파일 상태 {compilation.status} · 시도 {compilation.attempt}</p>
           ) : null}
+          {compilationFailure ? <p role="alert">컴파일 실패: {compilationFailure} · 다시 컴파일하세요.</p> : null}
           {scenarioPackage ? (
             <div role="status">
               <p>패키지 {scenarioPackage.packageId} · {scenarioPackage.reportStatus}</p>
+              <p>캐릭터 한도: {scenarioPackage.characterLimit.maximumCharacters}명</p>
+              {scenarioPackage.characterLimit.source ? (
+                <p>한도 근거: {scenarioPackage.characterLimit.source.locator} · {scenarioPackage.characterLimit.sourceQuote}</p>
+              ) : <p>한도 근거: 추출되지 않아 기본값 1명 적용</p>}
               {scenarioPackage.warnings.length > 0 ? (
                 <ul>
                   {scenarioPackage.warnings.map(warning => <li key={warning}>{warning}</li>)}
@@ -337,6 +347,10 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
             <section aria-labelledby="play-preparation-heading">
               <h3 id="play-preparation-heading">플레이 준비</h3>
               <p>준비 상태 {playPreparation.status} · 패키지 {playPreparation.scenarioPackageId}</p>
+              <p>캐릭터 한도: {playPreparation.characterLimit.maximumCharacters}명</p>
+              {playPreparation.characterLimit.source ? (
+                <p>한도 근거: {playPreparation.characterLimit.source.locator} · {playPreparation.characterLimit.sourceQuote}</p>
+              ) : <p>한도 근거: 추출되지 않아 기본값 1명 적용</p>}
               {playPreparation.blockers.length > 0 ? (
                 <ul aria-label="준비 차단 사유">
                   {playPreparation.blockers.map(blocker => <li key={blocker}>{blocker}</li>)}

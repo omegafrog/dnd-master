@@ -9,6 +9,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
+import com.dndmaster.adventure.domain.scenario.CharacterLimit;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionDetail;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
@@ -47,7 +48,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     private Optional<ScenarioPackage> find(String column, Object value) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(
-                        "SELECT package_id, bundle_id, bundle_revision, input_fingerprint, report_status, report_warnings FROM scenario_package WHERE " + column + " = ?")) {
+                        "SELECT package_id, bundle_id, bundle_revision, input_fingerprint, report_status, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote FROM scenario_package WHERE " + column + " = ?")) {
             statement.setObject(1, value);
             try (ResultSet row = statement.executeQuery()) {
                 if (!row.next()) return Optional.empty();
@@ -61,7 +62,8 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
                         readUnits(connection, packageId),
                         new ScenarioCompilationReport(
                                 ResolutionStatus.valueOf(row.getString("report_status")),
-                                readArray(row.getArray("report_warnings")))));
+                                readArray(row.getArray("report_warnings"))),
+                        readCharacterLimit(row)));
             }
         } catch (SQLException exception) {
             throw new ScenarioPackagePersistenceException("could not load scenario package", exception);
@@ -92,13 +94,21 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
 
     private static void insertHeader(Connection connection, ScenarioPackage packageVersion) throws SQLException {
         try (PreparedStatement insert = connection.prepareStatement(
-                "INSERT INTO scenario_package(package_id, bundle_id, bundle_revision, input_fingerprint, report_status, report_warnings) VALUES (?, ?, ?, ?, ?, ?)")) {
+                "INSERT INTO scenario_package(package_id, bundle_id, bundle_revision, input_fingerprint, report_status, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
             insert.setObject(1, packageVersion.packageId());
             insert.setObject(2, packageVersion.bundleId().value());
             insert.setLong(3, packageVersion.bundleRevision());
             insert.setString(4, packageVersion.inputFingerprint());
             insert.setString(5, packageVersion.report().status().name());
             insert.setArray(6, connection.createArrayOf("text", packageVersion.report().warnings().toArray()));
+            insert.setInt(7, packageVersion.characterLimit().maximumCharacters());
+            var source = packageVersion.characterLimit().source().orElse(null);
+            if (source == null) {
+                insert.setNull(8, java.sql.Types.OTHER); insert.setNull(9, java.sql.Types.BIGINT); insert.setNull(10, java.sql.Types.VARCHAR);
+            } else {
+                insert.setObject(8, source.knowledgeDocumentId().value()); insert.setLong(9, source.extractionVersion()); insert.setString(10, source.locator());
+            }
+            insert.setString(11, packageVersion.characterLimit().sourceQuote());
             insert.executeUpdate();
         }
     }
@@ -203,6 +213,14 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
         Object value = array.getArray();
         if (!(value instanceof Object[] values)) return List.of();
         return java.util.Arrays.stream(values).map(String::valueOf).toList();
+    }
+
+    private static CharacterLimit readCharacterLimit(ResultSet row) throws SQLException {
+        UUID documentId = row.getObject("character_limit_source_document_id", UUID.class);
+        if (documentId == null) return CharacterLimit.defaultLimit();
+        return new CharacterLimit(row.getInt("character_limit"), new ScenarioSourceReference(
+                new KnowledgeDocumentId(documentId), row.getLong("character_limit_source_extraction_version"),
+                row.getString("character_limit_source_locator")), row.getString("character_limit_source_quote"));
     }
 
     private static String writeDetail(ScenarioResolutionDetail detail) {

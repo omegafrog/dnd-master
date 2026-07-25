@@ -95,6 +95,11 @@ class FakeSetupApi implements SetupApi {
       inputFingerprint: 'fp',
       reportStatus: 'COMPLETE' as const,
       warnings: [],
+      characterLimit: {
+        maximumCharacters: 2,
+        source: { documentId: 'doc-1', extractionVersion: 3, locator: 'page:1' },
+        sourceQuote: '최대 2명',
+      },
       units: [{
         kind: 'SAVING_THROW' as const,
         status: 'PARTIAL' as const,
@@ -139,6 +144,11 @@ class FakeSetupApi implements SetupApi {
       status: 'READY',
       blockers: [],
       characterCreationBlueprint: blueprint,
+      characterLimit: {
+        maximumCharacters: 2,
+        source: { documentId: 'doc-1', extractionVersion: 3, locator: 'page:1' },
+        sourceQuote: '최대 2명',
+      },
     }
   }
   async getRuntimeOptions(): Promise<RuntimeOptionsView> {
@@ -213,6 +223,8 @@ describe('ScenarioSetup', () => {
 
     expect(await screen.findByText('패키지 package-1 · COMPLETE')).toBeInTheDocument()
     expect(await screen.findByText('준비 상태 READY · 패키지 package-1')).toBeInTheDocument()
+    expect(screen.getAllByText('캐릭터 한도: 2명')).toHaveLength(2)
+    expect(screen.getAllByText('한도 근거: page:1 · 최대 2명')).toHaveLength(2)
     expect(screen.getByRole('heading', { name: '캐릭터 생성' })).toBeInTheDocument()
     expect(screen.queryAllByText((_, element) => element?.textContent?.includes('STORYBOOK 1개, RULEBOOK 1개') ?? false).length).toBeGreaterThan(0)
     await user.type(screen.getByLabelText('캐릭터 이름'), 'Aria')

@@ -192,17 +192,22 @@ public class ScenarioCompilationController {
             long revision) {}
     public record PackageResponse(
             UUID packageId, UUID bundleId, long bundleRevision, String inputFingerprint,
-            String reportStatus, List<String> warnings, List<UnitResponse> units) {
+            String reportStatus, List<String> warnings, CharacterLimitResponse characterLimit, List<UnitResponse> units) {
         static PackageResponse from(ScenarioPackage scenarioPackage) {
             return new PackageResponse(
                     scenarioPackage.packageId(), scenarioPackage.bundleId().value(), scenarioPackage.bundleRevision(),
                     scenarioPackage.inputFingerprint(), scenarioPackage.report().status().name(),
-                    scenarioPackage.report().warnings(), scenarioPackage.units().stream().map(unit -> new UnitResponse(
+                    scenarioPackage.report().warnings(), CharacterLimitResponse.from(scenarioPackage.characterLimit()), scenarioPackage.units().stream().map(unit -> new UnitResponse(
                             unit.kind() == null ? null : unit.kind().name(), unit.status().name(), unit.abilityOrSkill(),
                             unit.dc(), unit.diceExpression(), unit.visibility() == null ? null : unit.visibility().name(),
                             unit.sourceQuote(), unit.provenance(), unit.validationMessages(), unit.runtimeCapabilities(),
                             detailResponse(unit.detail()),
                             unit.sourceRefs().stream().map(ScenarioCompilationController::sourceRef).toList())).toList());
+        }
+    }
+    public record CharacterLimitResponse(int maximumCharacters, SourceReferenceRequest source, String sourceQuote) {
+        static CharacterLimitResponse from(com.dndmaster.adventure.domain.scenario.CharacterLimit limit) {
+            return new CharacterLimitResponse(limit.maximumCharacters(), limit.source().map(ScenarioCompilationController::sourceRef).orElse(null), limit.sourceQuote());
         }
     }
     private static DetailRequest detailResponse(ScenarioResolutionDetail detail) {

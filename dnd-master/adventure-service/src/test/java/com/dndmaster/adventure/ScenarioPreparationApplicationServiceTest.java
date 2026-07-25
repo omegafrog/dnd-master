@@ -62,11 +62,25 @@ class ScenarioPreparationApplicationServiceTest {
         assertEquals(1, blueprint.rulebookDocumentCount());
         assertEquals(1, blueprint.storybookDocumentCount());
         assertTrue(blueprint.diagnostics().isEmpty());
+        assertEquals(1, preparation.characterLimit().maximumCharacters());
 
         assertEquals("ollama", options.defaultEngineId());
         assertEquals(List.of("search", "move"), options.defaultToolIds());
         assertTrue(options.engines().stream().anyMatch(option -> option.id().equals("ollama") && option.selectedByDefault()));
         assertTrue(options.tools().stream().anyMatch(option -> option.id().equals("search") && option.selectedByDefault()));
+    }
+
+    @Test
+    void blocksCharacterCreationWhenPackageRevisionIsStale() {
+        ScenarioSourceBundle staleBundle = ScenarioSourceBundle.create(
+                new ScenarioBundleId(bundleId()), owner(), new ScenarioSourceBundleRevision(5, bundleWithRulebook().currentRevision().documents()));
+        TestFixture fixture = bundle(withRulebookPackage(), staleBundle);
+
+        var preparation = service(fixture).read(fixture.packageId(), owner());
+
+        assertEquals(PlayPreparationStatus.BLOCKED, preparation.status());
+        assertTrue(preparation.blockers().stream().anyMatch(message -> message.contains("개정")));
+        assertFalse(preparation.characterCreationBlueprint().available());
     }
 
     private static ScenarioPreparationApplicationService service(TestFixture fixture) {

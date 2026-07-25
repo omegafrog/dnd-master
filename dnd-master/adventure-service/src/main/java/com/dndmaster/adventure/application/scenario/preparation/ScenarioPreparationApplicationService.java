@@ -76,7 +76,8 @@ public final class ScenarioPreparationApplicationService {
                 scenarioPackage.bundleRevision(),
                 blockers.isEmpty() ? PlayPreparationStatus.READY : PlayPreparationStatus.BLOCKED,
                 blockers,
-                blueprint);
+                blueprint,
+                CharacterLimitView.from(scenarioPackage.characterLimit()));
     }
 
     public RuntimeOptionsView runtimeOptions(OwnerPlayerId ownerPlayerId) {
