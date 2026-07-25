@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": [
+    "rulebookId",
+    "knowledgeDocumentId",
+    "documentType",
+    "originalFilename",
+    "format",
+    "status",
+    "content",
+    "extractionVersion",
+    "warnings",
+    "spans",
+    "assets"
+  ],
+  "properties": {
+    "rulebookId": { "type": "string", "format": "uuid" },
+    "knowledgeDocumentId": { "type": "string", "format": "uuid" },
+    "documentType": { "enum": ["RULEBOOK", "STORYBOOK"] },
+    "originalFilename": { "type": "string", "minLength": 1 },
+    "format": { "enum": ["PDF", "DOCX", "TXT"] },
+    "status": { "type": "string", "minLength": 1 },
+    "content": { "type": "string", "minLength": 1 },
+    "extractionVersion": { "type": "integer", "minimum": 0 },
+    "warnings": { "type": "array", "items": { "type": "string" } },
+    "spans": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["lineNumber", "startInclusive", "endExclusive", "text", "locator"],
+        "properties": {
+          "lineNumber": { "type": "integer", "minimum": 1 },
+          "startInclusive": { "type": "integer", "minimum": 0 },
+          "endExclusive": { "type": "integer", "minimum": 0 },
+          "text": { "type": "string" },
+          "locator": { "type": "string", "minLength": 1 }
+        },
+        "additionalProperties": false
+      }
+    },
+    "assets": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["kind", "locator"],
+        "properties": {
+          "kind": { "type": "string", "minLength": 1 },
+          "locator": { "type": "string", "minLength": 1 },
+          "contentType": { "type": ["string", "null"] },
+          "pageNumber": { "type": ["integer", "null"], "minimum": 1 }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "additionalProperties": false
+}

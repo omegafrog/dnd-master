@@ -32,8 +32,36 @@ public class CombatMapApiConfiguration {
             }
 
             @Override
+            public java.util.Optional<CombatMap> findByCommandId(java.util.UUID commandId) {
+                return store.findByCommandId(commandId).map(VersionedOwnedCombatMap::map);
+            }
+
+            @Override
             public void save(CombatMap map) {
-                // simplified – full impl needs owner tracking
+                if (map.ownerPlayerId() == null) {
+                    throw new IllegalStateException("combat map owner is required for persistence");
+                }
+                store.update(
+                        new com.dndmaster.combatmap.application.view.MapOwnerId(map.ownerPlayerId().value()),
+                        map,
+                        map.version(),
+                        map.version() + 1,
+                        map.operationKey(),
+                        map.operationFingerprint());
+            }
+
+            @Override
+            public void save(CombatMap map, long persistedVersion, java.util.UUID operationKey, String operationFingerprint) {
+                if (map.ownerPlayerId() == null) {
+                    throw new IllegalStateException("combat map owner is required for persistence");
+                }
+                store.update(
+                        new com.dndmaster.combatmap.application.view.MapOwnerId(map.ownerPlayerId().value()),
+                        map,
+                        map.version(),
+                        persistedVersion,
+                        operationKey,
+                        operationFingerprint);
             }
         };
     }

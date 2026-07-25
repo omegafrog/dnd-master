@@ -30,7 +30,7 @@ test('solo player completes setup, grounded play, map and saved-adventure deleti
 
   await page.getByLabel('행동 또는 대화').fill('I sneak past the guardian')
   await page.getByRole('button', { name: '보내기' }).click()
-  await expect(page.getByText('AI 게임 마스터: (응답 전송됨)')).toBeVisible()
+  await expect(page.getByText('AI 게임 마스터: 근거를 바탕으로 응답한다.')).toBeVisible()
   await page.getByLabel('상황').fill('How does stealth work?')
   await page.getByRole('button', { name: '룰 확인' }).click()
   await expect(page.getByText('SUFFICIENT')).toBeVisible()

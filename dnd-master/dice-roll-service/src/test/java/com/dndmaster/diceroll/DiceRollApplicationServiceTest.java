@@ -26,6 +26,19 @@ class DiceRollApplicationServiceTest {
     }
 
     @Test
+    void same_command_id_replays_saved_roll_without_sampling_again() {
+        RecordingRepository repository = new RecordingRepository();
+        DiceRollApplicationService service = new DiceRollApplicationService(repository, new FakeRandom(0, 5));
+        RollCommand command = command(RollScope.PLAYER_ACTION, new DiceExpression(2, 6, 3));
+
+        DiceRoll first = service.executePlayerRoll(command);
+        DiceRoll second = service.executePlayerRoll(command);
+
+        assertEquals(first, second);
+        assertEquals(1, repository.saved.size());
+    }
+
+    @Test
     void playerCanExecuteOnlyPlayerAction() {
         for (RollScope forbidden : List.of(RollScope.NPC, RollScope.ENEMY, RollScope.SECRET_CHECK)) {
             DiceRollApplicationService service = new DiceRollApplicationService(new RecordingRepository(), new FakeRandom(0));
@@ -52,14 +65,15 @@ class DiceRollApplicationServiceTest {
         DiceExpression expression = new DiceExpression(2, 6, 1);
         assertThrows(IllegalArgumentException.class, () -> DiceResult.forExpression(expression, List.of(1)));
         DiceRoll roll = new DiceRoll(
-                RollId.generate(), adventure(), ruleSet(), RollScope.PLAYER_ACTION, expression);
+                RollId.generate(), adventure(), ruleSet(), RollScope.PLAYER_ACTION, expression,
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 0);
         assertThrows(
                 IllegalArgumentException.class,
                 () -> roll.recordBuiltInResult(new DiceResult(List.of(1, 2), 99)));
     }
 
     private static RollCommand command(RollScope scope, DiceExpression expression) {
-        return new RollCommand(adventure(), ruleSet(), scope, expression);
+        return new RollCommand(adventure(), ruleSet(), scope, expression, UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 0);
     }
     private static DiceExpression die() { return new DiceExpression(1, 20, 0); }
     private static AdventureId adventure() { return new AdventureId(UUID.randomUUID()); }
@@ -73,6 +87,9 @@ class DiceRollApplicationServiceTest {
 
     private static final class RecordingRepository implements DiceRollRepository {
         private final List<DiceRoll> saved = new ArrayList<>();
+        @Override public java.util.Optional<DiceRoll> findByCommandId(UUID commandId) {
+            return saved.stream().filter(roll -> roll.commandId().equals(commandId)).findFirst();
+        }
         @Override public void save(DiceRoll roll) { saved.add(roll); }
     }
 }

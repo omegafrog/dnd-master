@@ -2,8 +2,67 @@ openapi: 3.1.0
 info: { title: Combat Map API, version: 1.0.0 }
 paths:
   /internal/v1/combat-maps/{mapId}/player-view:
-    get: { operationId: playerView, responses: { '200': { description: filtered view, content: { application/json: { schema: { $ref: './schemas/player-map-view.json' } } } } } }
+    get:
+      operationId: playerView
+      responses:
+        '200':
+          description: filtered versioned view
+          content:
+            application/json:
+              schema: { $ref: './schemas/player-map-view.json' }
   /internal/v1/combat-maps/{mapId}/moves:
-    post: { operationId: movePlayer, responses: { '200': { description: moved }, '422': { description: movement denied } } }
+    post:
+      operationId: movePlayer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [playerId, tokenId, positions, distance, appliedEdition, commandId, expectedVersion]
+              properties:
+                playerId: { type: string, format: uuid }
+                tokenId: { type: string, format: uuid }
+                positions:
+                  type: array
+                  items:
+                    type: object
+                    required: [x, y]
+                    properties:
+                      x: { type: integer, minimum: 0 }
+                      y: { type: integer, minimum: 0 }
+                distance: { type: integer, minimum: 1 }
+                appliedEdition: { type: string }
+                commandId: { type: string, format: uuid }
+                expectedVersion: { type: integer, minimum: 0 }
+      responses:
+        '200': { description: moved }
+        '422': { description: movement denied }
   /internal/v1/combat-maps/{mapId}/ai-state:
-    post: { operationId: controlAiState, responses: { '200': { description: controlled } } }
+    post:
+      operationId: controlAiState
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ownerId, tokenId, x, y, commandId, expectedVersion]
+              properties:
+                ownerId: { type: string, format: uuid }
+                tokenId: { type: string, format: uuid }
+                x: { type: integer, minimum: 0 }
+                y: { type: integer, minimum: 0 }
+                commandId: { type: string, format: uuid }
+                expectedVersion: { type: integer, minimum: 0 }
+                layers:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, value, visibility]
+                    properties:
+                      type: { type: string }
+                      value: { type: string }
+                      visibility: { type: string, enum: [AI_ONLY] }
+      responses:
+        '200': { description: controlled }

@@ -1,5 +1,12 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
-import type { BatchRulebookView, DocumentType, KnowledgeDocumentView, RulebookUploadDraft, SetupApi } from './SetupApi'
+import type {
+  BatchRulebookView,
+  DocumentType,
+  KnowledgeDocumentView,
+  RulebookUploadDraft,
+  SetupApi,
+  SourcePreviewView,
+} from './SetupApi'
 import { ScenarioSetup } from '../scenarios/ScenarioSetup'
 
 const batchStatusText: Record<BatchRulebookView['status'], string> = {
@@ -9,6 +16,7 @@ const batchStatusText: Record<BatchRulebookView['status'], string> = {
 
 const knowledgeStatusText: Record<KnowledgeDocumentView['status'], string> = {
   UPLOADED: '대기 중',
+  NEEDS_INPUT: '추가 입력 필요',
   QUEUED: '대기 중',
   PROCESSING: '처리 중',
   INDEXED: '색인 완료',
@@ -31,7 +39,15 @@ function createIdempotencyKey(file: File, index: number) {
   return `${file.name}-${index}-${random}`
 }
 
-export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: string }) {
+export function RulebookSetup({
+  api,
+  playerId,
+  asMain = true,
+}: {
+  api: SetupApi
+  playerId: string
+  asMain?: boolean
+}) {
   const [drafts, setDrafts] = useState<PendingDocument[]>([])
   const [results, setResults] = useState<BatchRulebookView[]>([])
   const [documents, setDocuments] = useState<KnowledgeDocumentView[]>([])
@@ -39,6 +55,7 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
   const [uploading, setUploading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [ruleSetMessage, setRuleSetMessage] = useState('')
+  const [sourcePreview, setSourcePreview] = useState<SourcePreviewView | null>(null)
 
   const refreshDocuments = useCallback(async () => {
     try {
@@ -98,6 +115,16 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
     }
   }
 
+  async function previewDocument(knowledgeDocumentId: string) {
+    try {
+      setSourcePreview(null)
+      setSourcePreview(await api.getSourcePreview(knowledgeDocumentId))
+    } catch (error) {
+      setSourcePreview(null)
+      setMessage(error instanceof Error ? error.message : '미리보기를 불러오지 못했습니다.')
+    }
+  }
+
   async function saveRuleSet() {
     setRuleSetMessage('')
     try {
@@ -108,8 +135,10 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
     }
   }
 
+  const Container = asMain ? 'main' : 'section'
+
   return (
-    <main>
+    <Container>
       <h1>자료와 모험 설정</h1>
       <p role="status" aria-live="polite">{message}</p>
       <section aria-labelledby="rulebook-heading">
@@ -120,7 +149,7 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
             <input
               name="rulebooks"
               type="file"
-              accept=".pdf,.docx,.txt,.md"
+              accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff,.bmp"
               multiple
               onChange={event => {
                 const files = Array.from(event.currentTarget.files ?? [])
@@ -185,7 +214,14 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
               <li key={document.knowledgeDocumentId}>
                 <span>{document.originalFilename}</span>
                 <span> - {knowledgeStatusText[document.status]}</span>
+                {document.extractionVersion != null ? <span> (v{document.extractionVersion})</span> : null}
                 {document.failureReason ? <span> ({document.failureReason})</span> : null}
+                {document.warnings?.length ? <span> [경고: {document.warnings.join(', ')}]</span> : null}
+                {(document.status === 'EXTRACTED' || document.status === 'PARTIAL_CONFIRMED') ? (
+                  <button type="button" onClick={() => void previewDocument(document.knowledgeDocumentId)}>
+                    미리보기
+                  </button>
+                ) : null}
                 {document.status === 'FAILED' ? (
                   <button type="button" onClick={() => void retryDocument(document.knowledgeDocumentId)}>
                     다시 처리
@@ -194,9 +230,42 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
               </li>
             ))}
           </ul>
+          {sourcePreview ? (
+            <section aria-labelledby="source-preview-heading">
+              <h4 id="source-preview-heading">{sourcePreview.originalFilename} 미리보기</h4>
+              <p>{sourcePreview.format} · {sourcePreview.status} · v{sourcePreview.extractionVersion}</p>
+              {sourcePreview.warnings.length ? <p>경고: {sourcePreview.warnings.join(', ')}</p> : null}
+              <ol aria-label="원문 줄 미리보기">
+                {sourcePreview.spans.map(span => (
+                  <li key={`${span.lineNumber}-${span.startInclusive}-${span.endExclusive}`}>
+                    <span>{span.kind} · {span.path.join(' > ')}</span>
+                    {span.sourceMethod ? <span> · {span.sourceMethod}</span> : null}
+                    {span.confidence != null ? <span> · {span.confidence.toFixed(1)}%</span> : null}
+                    {span.pageNumber ? <span> · p{span.pageNumber}</span> : null}
+                    {span.bounds ? <span> · [{span.bounds.left.toFixed(3)}, {span.bounds.top.toFixed(3)}, {span.bounds.right.toFixed(3)}, {span.bounds.bottom.toFixed(3)}]</span> : null}
+                    <pre>{span.text || ' '}</pre>
+                  </li>
+                ))}
+              </ol>
+              {sourcePreview.assets.length ? (
+                <section aria-labelledby="preview-assets-heading">
+                  <h5 id="preview-assets-heading">첨부 자산</h5>
+                  <ul>
+                    {sourcePreview.assets.map(asset => (
+                      <li key={`${asset.kind}-${asset.locator}`}>
+                        {asset.kind} · {asset.locator}
+                        {asset.contentType ? ` · ${asset.contentType}` : ''}
+                        {asset.pageNumber ? ` · p${asset.pageNumber}` : ''}
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ) : null}
+            </section>
+          ) : null}
         </section>
       </section>
-      <ScenarioSetup api={api} onError={setMessage} />
-    </main>
+      <ScenarioSetup api={api} playerId={playerId} onError={setMessage} />
+    </Container>
   )
 }

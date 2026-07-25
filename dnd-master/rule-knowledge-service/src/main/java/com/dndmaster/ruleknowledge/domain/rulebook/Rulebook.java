@@ -32,7 +32,13 @@ public final class Rulebook {
         processingStatus = switch (result.status()) {
             case SUCCESS -> ProcessingStatus.EXTRACTED;
             case PARTIAL -> ProcessingStatus.PARTIAL_AWAITING_CONFIRMATION;
-            case FAILED -> ProcessingStatus.REJECTED;
+            case FAILED -> result.failure()
+                    .map(failure -> switch (failure) {
+                        case NEEDS_INPUT -> ProcessingStatus.NEEDS_INPUT;
+                        case TIMEOUT -> ProcessingStatus.FAILED;
+                        default -> ProcessingStatus.REJECTED;
+                    })
+                    .orElse(ProcessingStatus.REJECTED);
         };
     }
 

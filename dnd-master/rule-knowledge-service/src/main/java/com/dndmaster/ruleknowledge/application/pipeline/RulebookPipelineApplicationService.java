@@ -7,11 +7,13 @@ import com.dndmaster.ruleknowledge.application.registration.RulebookContentExtra
 import com.dndmaster.ruleknowledge.application.registration.RulebookFileStorage;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
+import com.dndmaster.ruleknowledge.application.registration.SourcePreviewExtractor;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookFile;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
 import com.dndmaster.ruleknowledge.domain.index.IndexKey;
 import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
 import com.dndmaster.ruleknowledge.domain.rulebook.ExtractionResult;
+import com.dndmaster.ruleknowledge.domain.rulebook.SourcePreviewResult;
 import com.dndmaster.ruleknowledge.domain.rulebook.FileSize;
 import com.dndmaster.ruleknowledge.domain.rulebook.ProcessingStatus;
 import com.dndmaster.ruleknowledge.domain.rulebook.Rulebook;
@@ -34,6 +36,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
     private final RulebookRegistrationRepository registrationRepository;
     private final RulebookFileStorage fileStorage;
     private final RulebookContentExtractor contentExtractor;
+    private final SourcePreviewExtractor sourcePreviewExtractor;
     private final RulebookIndexingApplicationService indexingService;
     private final int embeddingDimension;
 
@@ -42,12 +45,14 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             RulebookRegistrationRepository registrationRepository,
             RulebookFileStorage fileStorage,
             RulebookContentExtractor contentExtractor,
+            SourcePreviewExtractor sourcePreviewExtractor,
             RulebookIndexingApplicationService indexingService,
             int embeddingDimension) {
         this.registrationService = Objects.requireNonNull(registrationService, "registrationService must not be null");
         this.registrationRepository = Objects.requireNonNull(registrationRepository, "registrationRepository must not be null");
         this.fileStorage = Objects.requireNonNull(fileStorage, "fileStorage must not be null");
         this.contentExtractor = Objects.requireNonNull(contentExtractor, "contentExtractor must not be null");
+        this.sourcePreviewExtractor = Objects.requireNonNull(sourcePreviewExtractor, "sourcePreviewExtractor must not be null");
         this.indexingService = Objects.requireNonNull(indexingService, "indexingService must not be null");
         if (embeddingDimension <= 0) {
             throw new IllegalArgumentException("embeddingDimension must be positive");
@@ -113,7 +118,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         if (registration.processingStatus() != ProcessingStatus.FAILED) {
             throw new IllegalStateException("only failed document can be retried");
         }
-        StoredRulebookRegistration queued = withStatus(registration, ProcessingStatus.QUEUED, null, null, null, null);
+        StoredRulebookRegistration queued = withStatus(registration, ProcessingStatus.QUEUED, null, null, null, null, null);
         registrationRepository.save(queued);
         return new RulebookProcessingResult(rulebookId, ProcessingStatus.QUEUED, List.of());
     }
@@ -122,10 +127,13 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         if (registration.processingStatus() != ProcessingStatus.PROCESSING) {
             throw new IllegalStateException("only claimed document can be processed");
         }
+        ExtractionResult extractionResult = null;
+        SourcePreviewResult previewResult = null;
         try {
             byte[] storedContent = fileStorage.read(new StoredRulebookFile(registration.storageKey()));
-            ExtractionResult extractionResult = contentExtractor.extract(
-                    registration.format(), Arrays.copyOf(storedContent, storedContent.length));
+            byte[] safeStoredContent = Arrays.copyOf(storedContent, storedContent.length);
+            previewResult = sourcePreviewExtractor.preview(registration.format(), safeStoredContent);
+            extractionResult = contentExtractor.extract(registration.format(), safeStoredContent);
             Rulebook rulebook = Rulebook.acceptUpload(
                     registration.rulebookId(),
                     registration.ownerPlayerId(),
@@ -133,27 +141,42 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                     new FileSize(registration.fileSize()));
             rulebook.recordExtraction(extractionResult);
             if (!rulebook.isEligibleForSplitting()) {
-                return fail(registration, extractionResult, describeExtractionFailure(extractionResult));
+                if (rulebook.processingStatus() == ProcessingStatus.NEEDS_INPUT) {
+                    StoredRulebookRegistration needsInput = withStatus(
+                            registration,
+                            ProcessingStatus.NEEDS_INPUT,
+                            extractionResult,
+                            previewResult,
+                            describeExtractionFailure(extractionResult),
+                            extractionResult.content().orElse(null),
+                            extractionResult.missingLocations());
+                    registrationRepository.save(needsInput);
+                    return new RulebookProcessingResult(registration.rulebookId(), ProcessingStatus.NEEDS_INPUT, List.of(
+                            describeExtractionFailure(extractionResult)));
+                }
+                return fail(registration, extractionResult, previewResult, describeExtractionFailure(extractionResult));
             }
             attemptIndexing(rulebook, registration);
             StoredRulebookRegistration indexed = withStatus(
                     registration,
                     ProcessingStatus.INDEXED,
                     extractionResult,
+                    previewResult,
                     null,
                     extractionResult.content().orElse(null),
                     extractionResult.missingLocations());
             registrationRepository.save(indexed);
             return new RulebookProcessingResult(registration.rulebookId(), ProcessingStatus.INDEXED, List.of());
         } catch (IndexingFailedException exception) {
-            return fail(registration, null, describeFailure(exception));
+            return fail(registration, extractionResult, previewResult, describeFailure(exception));
         } catch (RuntimeException exception) {
-            return fail(registration, null, describeFailure(exception));
+            return fail(registration, extractionResult, previewResult, describeFailure(exception));
         }
     }
 
     private void attemptIndexing(Rulebook rulebook, StoredRulebookRegistration registration) {
-        IndexKey indexKey = new IndexKey(registration.rulebookId(), registration.contentHash(), "ollama-embedding", "v1");
+        IndexKey indexKey = new IndexKey(
+                registration.rulebookId(), registration.contentHash(), "ollama-embedding", "v1-" + registration.contentHash());
         IndexingCommand indexingCommand = new IndexingCommand(rulebook, indexKey, embeddingDimension);
         try {
             indexingService.indexContent(indexingCommand);
@@ -167,11 +190,12 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
     }
 
     private RulebookProcessingResult fail(
-            StoredRulebookRegistration registration, ExtractionResult extractionResult, String reason) {
+            StoredRulebookRegistration registration, ExtractionResult extractionResult, SourcePreviewResult previewResult, String reason) {
         StoredRulebookRegistration failed = withStatus(
                 registration,
                 ProcessingStatus.FAILED,
                 extractionResult,
+                previewResult,
                 reason,
                 extractionResult != null ? extractionResult.content().orElse(null) : registration.extractedContent(),
                 extractionResult != null ? extractionResult.missingLocations() : registration.missingLocations());
@@ -203,6 +227,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             StoredRulebookRegistration registration,
             ProcessingStatus status,
             ExtractionResult extractionResult,
+            SourcePreviewResult previewResult,
             String failureCode,
             String extractedContent,
             List<String> missingLocations) {
@@ -223,6 +248,10 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 registration.createdAt(),
                 Instant.now(),
                 registration.documentType(),
-                registration.originalFilename());
+                registration.originalFilename(),
+                previewResult != null && previewResult.content() != null ? previewResult.content() : registration.previewContent(),
+                previewResult != null ? previewResult.warnings() : registration.previewWarnings(),
+                previewResult != null ? previewResult.spans() : registration.previewSpans(),
+                previewResult != null ? previewResult.assets() : registration.previewAssets());
     }
 }

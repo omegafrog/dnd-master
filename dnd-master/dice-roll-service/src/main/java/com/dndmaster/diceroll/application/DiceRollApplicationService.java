@@ -16,18 +16,34 @@ public final class DiceRollApplicationService {
     }
 
     public DiceRoll executePlayerRoll(RollCommand command) {
-        DiceRoll roll = create(command);
-        roll.authorizePlayerExecution();
-        return execute(roll);
+        return execute(command, true);
     }
 
     public DiceRoll executeAiRoll(RollCommand command) {
-        DiceRoll roll = create(command);
-        roll.authorizeAiExecution();
-        return execute(roll);
+        return execute(command, false);
     }
 
-    private DiceRoll execute(DiceRoll roll) {
+    private DiceRoll execute(RollCommand command, boolean playerExecution) {
+        Objects.requireNonNull(command, "command must not be null");
+        DiceRoll existing = repository.findByCommandId(command.commandId()).orElse(null);
+        if (existing != null) {
+            if (!existing.adventureId().equals(command.adventureId())
+                    || !existing.ruleSetId().equals(command.ruleSetId())
+                    || !existing.scope().equals(command.scope())
+                    || !existing.expression().equals(command.expression())
+                    || !existing.sessionId().equals(command.sessionId())
+                    || !existing.turnId().equals(command.turnId())
+                    || existing.expectedVersion() != command.expectedVersion()) {
+                throw new IllegalStateException("dice command id reused with different payload");
+            }
+            return existing;
+        }
+        DiceRoll roll = create(command);
+        if (playerExecution) {
+            roll.authorizePlayerExecution();
+        } else {
+            roll.authorizeAiExecution();
+        }
         var faces = new ArrayList<Integer>(roll.expression().count());
         for (int index = 0; index < roll.expression().count(); index++) {
             int value = randomPort.nextInt(roll.expression().sides());
@@ -44,6 +60,7 @@ public final class DiceRollApplicationService {
     private static DiceRoll create(RollCommand command) {
         Objects.requireNonNull(command, "command must not be null");
         return new DiceRoll(
-                RollId.generate(), command.adventureId(), command.ruleSetId(), command.scope(), command.expression());
+                RollId.generate(), command.adventureId(), command.ruleSetId(), command.scope(), command.expression(),
+                command.sessionId(), command.turnId(), command.commandId(), command.expectedVersion());
     }
 }

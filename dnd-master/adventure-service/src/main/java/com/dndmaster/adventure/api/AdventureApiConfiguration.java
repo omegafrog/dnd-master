@@ -5,19 +5,36 @@ import com.dndmaster.adventure.application.knowledge.*;
 import com.dndmaster.adventure.application.guidance.*;
 import com.dndmaster.adventure.application.progress.*;
 import com.dndmaster.adventure.application.ruleset.*;
+import com.dndmaster.adventure.application.runtime.*;
 import com.dndmaster.adventure.application.saved.*;
 import com.dndmaster.adventure.application.scenario.*;
 import com.dndmaster.adventure.domain.adventure.Adventure;
+import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.inquiry.RulebookId;
 import com.dndmaster.adventure.domain.scenario.ScenarioSource;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioBundleRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioPackageRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresResolutionOverrideRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioCompilationRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeBindingRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresWorkQueueAdapter;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpKnowledgeDocumentLookupGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpLegacyScenarioIngestionGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpInitialSourceContextProposalGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpResolutionExtractionGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpScenarioSourceExcerptGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuleIntentClassificationGateway;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.time.Duration;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+import java.util.Map;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -39,8 +56,24 @@ public class AdventureApiConfiguration {
 
     @Bean
     ScenarioStoragePort scenarioStoragePort() {
-        return upload -> new ScenarioSource(
-                upload.originalFilename(), upload.originalFilename(), "hash-" + upload.content().length);
+        Map<String, byte[]> archive = new java.util.concurrent.ConcurrentHashMap<>();
+        return new ScenarioStoragePort() {
+            @Override
+            public ScenarioSource store(ScenarioUpload upload) {
+                String storageKey = "scenario-" + contentHash(upload.content());
+                archive.put(storageKey, upload.content());
+                return new ScenarioSource(storageKey, upload.originalFilename(), contentHash(upload.content()));
+            }
+
+            @Override
+            public byte[] read(ScenarioSource source) {
+                byte[] content = archive.get(source.storageKey());
+                if (content == null) {
+                    throw new IllegalStateException("scenario source is missing");
+                }
+                return content.clone();
+            }
+        };
     }
 
     @Bean
@@ -68,11 +101,166 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    ScenarioBundleRepository scenarioBundleRepository(DataSource dataSource) {
+        return new PostgresScenarioBundleRepository(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository scenarioPackageRepository(
+            DataSource dataSource) {
+        return new PostgresScenarioPackageRepository(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.compilation.ResolutionOverrideRepository resolutionOverrideRepository(
+            DataSource dataSource) {
+        return new PostgresResolutionOverrideRepository(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationRepository scenarioCompilationRepository(
+            DataSource dataSource) {
+        return new PostgresScenarioCompilationRepository(dataSource);
+    }
+
+    @Bean
+    RuntimeBindingRepository runtimeBindingRepository(DataSource dataSource, ObjectMapper objectMapper) {
+        return new PostgresRuntimeBindingRepository(dataSource, objectMapper);
+    }
+
+    @Bean
+    RuntimeTurnRepository runtimeTurnRepository(DataSource dataSource, ObjectMapper objectMapper) {
+        return new PostgresRuntimeTurnRepository(dataSource, objectMapper);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.compilation.WorkQueuePort scenarioWorkQueue(DataSource dataSource) {
+        return new PostgresWorkQueueAdapter(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationProcessManager scenarioCompilationProcessManager(
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationRepository repository,
+            com.dndmaster.adventure.application.scenario.compilation.WorkQueuePort queue) {
+        return new com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationProcessManager(repository, queue);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService scenarioPackageCompilationService(
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository repository,
+            com.dndmaster.adventure.application.scenario.compilation.ResolutionOverrideRepository overrideRepository) {
+        return new com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService(
+                repository, overrideRepository);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationApplicationService scenarioCompilationApplicationService(
+            ScenarioBundleRepository bundleRepository,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService compiler,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationProcessManager processManager,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationRepository compilationRepository,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort excerptPort,
+            com.dndmaster.adventure.application.scenario.compilation.ResolutionOverrideRepository overrideRepository) {
+        return new com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationApplicationService(
+                bundleRepository, compiler, packageRepository, processManager, compilationRepository, excerptPort,
+                overrideRepository);
+    }
+
+    @Bean
     AdventureScenarioApplicationService scenarioApplicationService(
             AdventureScenarioRepository repository,
             ScenarioStoragePort storagePort,
             ScenarioPreparationPort preparationPort) {
         return new AdventureScenarioApplicationService(repository, storagePort, preparationPort);
+    }
+
+    @Bean
+    ScenarioBundleApplicationService scenarioBundleApplicationService(
+            ScenarioBundleRepository repository, KnowledgeDocumentLookupPort lookupPort) {
+        return new ScenarioBundleApplicationService(repository, lookupPort);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.LegacyScenarioIngestionPort legacyScenarioIngestionPort(
+            ObjectMapper objectMapper) {
+        return new CrossContextHttpLegacyScenarioIngestionGateway(
+                HttpClient.newHttpClient(),
+                URI.create("http://127.0.0.1:18083/"),
+                Duration.ofSeconds(15),
+                objectMapper);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.LegacyScenarioMigrationApplicationService legacyScenarioMigrationApplicationService(
+            AdventureScenarioRepository scenarioRepository,
+            ScenarioStoragePort storagePort,
+            com.dndmaster.adventure.application.scenario.LegacyScenarioIngestionPort ingestionPort,
+            com.dndmaster.adventure.application.scenario.LegacyScenarioMigrationStateRepository stateRepository,
+            ScenarioBundleApplicationService bundleService,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationApplicationService compilationService,
+            KnowledgeDocumentLookupPort lookupPort) {
+        return new com.dndmaster.adventure.application.scenario.LegacyScenarioMigrationApplicationService(
+                scenarioRepository, storagePort, ingestionPort, stateRepository, bundleService, compilationService, lookupPort);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.LegacyScenarioMigrationStateRepository legacyScenarioMigrationStateRepository() {
+        return new com.dndmaster.adventure.application.scenario.LegacyScenarioMigrationStateRepository() {
+            private final Map<String, com.dndmaster.adventure.application.scenario.LegacyScenarioMigrationApplicationService.LegacyScenarioMigrationResult> store =
+                    new java.util.concurrent.ConcurrentHashMap<>();
+
+            @Override
+            public java.util.Optional<com.dndmaster.adventure.application.scenario.LegacyScenarioMigrationApplicationService.LegacyScenarioMigrationResult> findByScenarioIdAndSourceHash(
+                    com.dndmaster.adventure.domain.scenario.ScenarioId scenarioId, String sourceHash) {
+                return java.util.Optional.ofNullable(store.get(key(scenarioId, sourceHash)));
+            }
+
+            @Override
+            public void save(
+                    com.dndmaster.adventure.domain.scenario.ScenarioId scenarioId,
+                    String sourceHash,
+                    com.dndmaster.adventure.application.scenario.LegacyScenarioMigrationApplicationService.LegacyScenarioMigrationResult result) {
+                store.put(key(scenarioId, sourceHash), result);
+            }
+
+            private String key(com.dndmaster.adventure.domain.scenario.ScenarioId scenarioId, String sourceHash) {
+                return scenarioId.value() + ":" + sourceHash;
+            }
+        };
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort resolutionExtractionPort(
+            ObjectMapper objectMapper) {
+        return new CrossContextHttpResolutionExtractionGateway(
+                HttpClient.newHttpClient(),
+                URI.create("http://127.0.0.1:18084/"),
+                Duration.ofSeconds(10),
+                objectMapper);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort scenarioSourceExcerptPort(
+            ObjectMapper objectMapper) {
+        return new CrossContextHttpScenarioSourceExcerptGateway(
+                HttpClient.newHttpClient(), URI.create("http://127.0.0.1:18083/"),
+                Duration.ofSeconds(10), objectMapper);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationWorker scenarioCompilationWorker(
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationProcessManager processManager,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationRepository compilationRepository,
+            com.dndmaster.adventure.application.scenario.compilation.WorkQueuePort queue,
+            ScenarioBundleRepository bundleRepository,
+            com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort extractionPort,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort excerptPort,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService compiler,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository) {
+        return new com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationWorker(
+                processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort, compiler,
+                packageRepository);
     }
 
     @Bean
@@ -98,8 +286,10 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    AdventureReadinessPort adventureReadinessPort() {
-        return adventure -> new AdventureReadiness(true, true, true);
+    AdventureReadinessPort adventureReadinessPort(RuntimeBindingRepository runtimeBindingRepository) {
+        return adventure -> runtimeBindingRepository.findCurrentByAdventureId(adventure.id())
+                .map(binding -> new AdventureReadiness(!binding.playabilityReport().isBlocked(), true, true))
+                .orElse(new AdventureReadiness(false, true, true));
     }
 
     @Bean
@@ -126,12 +316,115 @@ public class AdventureApiConfiguration {
         };
     }
 
+    private static String contentHash(byte[] content) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            return HexFormat.of().formatHex(digest.digest(content));
+        } catch (NoSuchAlgorithmException exception) {
+            throw new IllegalStateException("SHA-256 is required", exception);
+        }
+    }
+
     @Bean
-    AdventureProgressApplicationService progressApplicationService(
-            AdventureRepository repository,
-            AdventureReadinessPort readinessPort,
-            AiGameMasterPort aiGameMasterPort) {
-        return new AdventureProgressApplicationService(repository, readinessPort, aiGameMasterPort);
+    InitialSourceContextProposalPort initialSourceContextProposalPort(ObjectMapper objectMapper) {
+        return new CrossContextHttpInitialSourceContextProposalGateway(
+                HttpClient.newHttpClient(),
+                URI.create("http://127.0.0.1:18084/"),
+                Duration.ofSeconds(2),
+                objectMapper);
+    }
+
+    @Bean
+    RuntimeBindingApplicationService runtimeBindingApplicationService(
+            AdventureRepository adventureRepository,
+            ScenarioBundleRepository bundleRepository,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
+            RuntimeBindingRepository runtimeBindingRepository,
+            InitialSourceContextProposalPort proposalPort,
+            KnowledgeDocumentLookupPort lookupPort) {
+        return new RuntimeBindingApplicationService(
+                adventureRepository, bundleRepository, packageRepository, runtimeBindingRepository, proposalPort,
+                lookupPort);
+    }
+
+    @Bean
+    RuntimeEvidenceSearchPort runtimeEvidenceSearchPort() {
+        return request -> {
+            if (request.evidenceType() == RuntimeEvidenceType.STORYBOOK) {
+                ActiveSourceContext active = request.activeSourceContext();
+                if (active == null) return List.of();
+                return List.of(new RuntimeEvidence(
+                        RuntimeEvidenceType.STORYBOOK,
+                        active.knowledgeDocumentId(),
+                        active.extractionVersion(),
+                        active.locator(),
+                        active.excerpt()));
+            }
+            if (request.evidenceType() == RuntimeEvidenceType.RULEBOOK) {
+                return request.rulebookIds().stream().map(rulebookId -> new RuntimeEvidence(
+                        RuntimeEvidenceType.RULEBOOK,
+                        new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(rulebookId),
+                        1L,
+                        "rulebook:" + rulebookId,
+                        "Rulebook evidence for " + request.action()))
+                        .toList();
+            }
+            return List.of();
+        };
+    }
+
+    @Bean
+    RuntimePlanningPort runtimePlanningPort() {
+        return request -> {
+            RuntimeEvidence primaryEvidence = request.evidencePack().storybook().isEmpty()
+                    ? (request.evidencePack().rulebook().isEmpty() ? null : request.evidencePack().rulebook().getFirst())
+                    : request.evidencePack().storybook().getFirst();
+            String scene = primaryEvidence == null
+                    ? "서버가 현재 문맥을 바탕으로 장면을 정리했다."
+                    : primaryEvidence.excerpt();
+            String judgment = "서버가 '" + request.action() + "' 행동을 근거와 함께 정리했다.";
+            String narration = primaryEvidence == null
+                    ? "근거를 확인한 뒤 응답한다."
+                    : "근거를 바탕으로 '" + request.action() + "'에 응답한다.";
+            return new RuntimePlan(
+                    scene,
+                    request.currentContext().npcStateValue().orElse(null),
+                    judgment,
+                    narration,
+                    primaryEvidence == null ? request.activeSourceContext() : new ActiveSourceContext(
+                            primaryEvidence.knowledgeDocumentId(), primaryEvidence.extractionVersion(),
+                            primaryEvidence.locator(), primaryEvidence.excerpt()),
+                    primaryEvidence == null ? List.of() : List.of(primaryEvidence),
+                    request.evidencePack().resolution().isEmpty()
+                            ? List.of("resolution evidence not prefetched")
+                            : List.of());
+        };
+    }
+
+    @Bean
+    NarrationSafetyPort narrationSafetyPort() {
+        return request -> {
+            boolean approved = request.narration() != null
+                    && !request.narration().isBlank()
+                    && !request.narration().contains("\"")
+                    && !request.narration().contains("“")
+                    && !request.narration().contains("”");
+            return new NarrationSafetyAssessment(approved, approved ? "approved" : "narration failed safety check");
+        };
+    }
+
+    @Bean
+    RuntimeTurnApplicationService runtimeTurnApplicationService(
+            AdventureRepository adventureRepository,
+            RuntimeBindingRepository runtimeBindingRepository,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
+            RuntimeTurnRepository runtimeTurnRepository,
+            RuntimeEvidenceSearchPort runtimeEvidenceSearchPort,
+            RuntimePlanningPort runtimePlanningPort,
+            NarrationSafetyPort narrationSafetyPort) {
+        return new RuntimeTurnApplicationService(
+                adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
+                runtimePlanningPort, narrationSafetyPort);
     }
 
     @Bean
@@ -268,10 +561,15 @@ public class AdventureApiConfiguration {
     @Bean
     AdventureController adventureController(
             SavedAdventureApplicationService savedAdventureService,
-            AdventureProgressApplicationService progressService,
+            RuntimeTurnApplicationService runtimeTurnService,
             RuleGuidanceApplicationService guidanceService,
             AdventureCombatApplicationService combatService,
             AdventureScenarioApplicationService scenarioService) {
-        return new AdventureController(savedAdventureService, progressService, guidanceService, combatService, scenarioService);
+        return new AdventureController(savedAdventureService, runtimeTurnService, guidanceService, combatService, scenarioService);
+    }
+
+    @Bean
+    RuntimeBindingController runtimeBindingController(RuntimeBindingApplicationService service) {
+        return new RuntimeBindingController(service);
     }
 }

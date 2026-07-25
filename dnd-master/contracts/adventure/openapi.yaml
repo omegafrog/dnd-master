@@ -4,13 +4,51 @@ paths:
   /api/v1/adventures/scenarios:
     post: { operationId: uploadScenario, requestBody: { required: true, content: { multipart/form-data: { schema: { $ref: '../rule-knowledge/schemas/multipart-upload.json' } } } }, responses: { '202': { description: accepted } } }
   /api/v1/adventures/{adventureId}/messages:
-    post: { operationId: streamAdventure, responses: { '200': { description: event stream, content: { text/event-stream: { schema: { $ref: './schemas/stream-event.json' } } } } } }
+    post:
+      operationId: streamAdventure
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [playerId, turnId, commandId, action]
+              properties:
+                playerId: { type: string, format: uuid }
+                turnId: { type: string, format: uuid }
+                commandId: { type: string, format: uuid }
+                action: { type: string }
+      responses:
+        '200':
+          description: event stream
+          content:
+            text/event-stream:
+              schema: { $ref: './schemas/stream-event.json' }
   /api/v1/adventures/{adventureId}/rule-inquiries:
     post: { operationId: answerRuleInquiry, responses: { '200': { description: grounded answer or candidates } } }
   /api/v1/adventures/{adventureId}/combat-map:
     get: { operationId: playerMap, responses: { '200': { description: player view, content: { application/json: { schema: { $ref: '../combat-map/schemas/player-map-view.json' } } } } } }
   /api/v1/adventures/{adventureId}/dice-rolls:
-    post: { operationId: rollDice, responses: { '200': { description: role roll } } }
+    post:
+      operationId: rollDice
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ruleSetId, characterSheetId, combatMapId, ownerPlayerId, tokenId, expectedVersion, role, action]
+              properties:
+                ruleSetId: { type: string, format: uuid }
+                characterSheetId: { type: string, format: uuid }
+                combatMapId: { type: string, format: uuid }
+                ownerPlayerId: { type: string, format: uuid }
+                tokenId: { type: string, format: uuid }
+                expectedVersion: { type: integer, minimum: 0 }
+                role: { type: string }
+                action: { type: string }
+      responses:
+        '200': { description: role roll }
   /api/v1/adventures/{adventureId}/save:
     put: { operationId: saveAdventure, responses: { '200': { description: saved } } }
   /api/v1/adventures/{adventureId}/knowledge-documents:

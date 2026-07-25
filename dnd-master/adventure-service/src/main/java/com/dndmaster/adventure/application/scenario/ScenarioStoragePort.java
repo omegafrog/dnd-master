@@ -4,4 +4,5 @@ import com.dndmaster.adventure.domain.scenario.ScenarioSource;
 
 public interface ScenarioStoragePort {
     ScenarioSource store(ScenarioUpload upload);
+    byte[] read(ScenarioSource source);
 }

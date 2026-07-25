@@ -31,11 +31,22 @@ public final class CharacterSheetApplicationService {
     }
 
     public CharacterSheet manageCharacter(CharacterSheetId id, CharacterSheetUpdate update) {
+        CharacterSheet replay = repository.findByCommandId(update.commandId()).orElse(null);
+        if (replay != null) {
+            if (!update.fingerprint().equals(replay.operationFingerprint())) {
+                throw new IllegalStateException("character sheet command id reused with different payload");
+            }
+            return replay;
+        }
         CharacterSheet sheet = load(id);
         SheetEdition applied = adventureEditionHttpPort.getAppliedEdition(sheet.adventureId());
         sheet.authorizeOpen(new CharacterSheetOpenRequest(sheet.adventureId(), applied, update.edition()));
+        if (sheet.version() != update.expectedVersion()) {
+            throw new IllegalStateException("character sheet version does not match");
+        }
         sheet.applyUpdate(update);
-        repository.save(sheet);
+        repository.save(sheet, update.expectedVersion() + 1, update.commandId(), update.fingerprint());
+        sheet.markPersisted(update.expectedVersion() + 1, update.commandId(), update.fingerprint());
         return sheet;
     }
 

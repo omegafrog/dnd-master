@@ -4,11 +4,15 @@ import com.dndmaster.ruleknowledge.application.indexing.*;
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.*;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicationService;
+import com.dndmaster.ruleknowledge.application.search.StorySourceSearchApplicationService;
+import com.dndmaster.ruleknowledge.application.search.StorySourceSearchPort;
 import com.dndmaster.ruleknowledge.infrastructure.extraction.*;
+import com.dndmaster.ruleknowledge.infrastructure.ocr.TesseractOcrAdapter;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookIndexRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchPort;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorRuleEvidenceSearchRepository;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorStorySourceSearchRepository;
 import com.dndmaster.ruleknowledge.infrastructure.storage.LocalFileSystemRulebookStorage;
 import com.dndmaster.ruleknowledge.infrastructure.storage.RulebookStorageProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -20,6 +24,7 @@ import org.springframework.context.annotation.Configuration;
 import javax.sql.DataSource;
 import java.nio.file.Path;
 import java.util.Map;
+import java.time.Duration;
 
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat;
 
@@ -33,16 +38,36 @@ public class RuleKnowledgeApiConfiguration {
     }
 
     @Bean
-    RulebookContentExtractor rulebookContentExtractor() {
-        return new CompositeRulebookContentExtractor(Map.of(
-                RulebookFormat.PDF, new PdfRulebookContentExtractor(),
-                RulebookFormat.DOCX, new DocxRulebookContentExtractor(),
-                RulebookFormat.TXT, new TxtRulebookContentExtractor()));
+    com.dndmaster.ruleknowledge.application.ocr.OcrPort ocrPort(
+            @Value("${rule-knowledge.ocr.executable:tesseract}") String executable,
+            @Value("${rule-knowledge.ocr.languages:eng,kor}") String languages,
+            @Value("${rule-knowledge.ocr.request-timeout:20s}") Duration requestTimeout) {
+        return new TesseractOcrAdapter(executable, java.util.Arrays.asList(languages.split(",")), requestTimeout);
     }
 
     @Bean
-    RulebookRegistrationRepository registrationRepository(DataSource dataSource) {
-        return new PostgresRulebookRegistrationRepository(dataSource);
+    RulebookContentExtractor rulebookContentExtractor(
+            com.dndmaster.ruleknowledge.application.ocr.OcrPort ocrPort) {
+        return new CompositeRulebookContentExtractor(Map.of(
+                RulebookFormat.PDF, new PdfRulebookContentExtractor(ocrPort),
+                RulebookFormat.DOCX, new DocxRulebookContentExtractor(),
+                RulebookFormat.TXT, new TxtRulebookContentExtractor(),
+                RulebookFormat.IMAGE, new ImageRulebookContentExtractor(ocrPort)));
+    }
+
+    @Bean
+    SourcePreviewExtractor sourcePreviewExtractor(
+            com.dndmaster.ruleknowledge.application.ocr.OcrPort ocrPort) {
+        return new CompositeSourcePreviewExtractor(Map.of(
+                RulebookFormat.PDF, new PdfSourcePreviewExtractor(ocrPort),
+                RulebookFormat.DOCX, new DocxSourcePreviewExtractor(),
+                RulebookFormat.TXT, new TxtSourcePreviewExtractor(),
+                RulebookFormat.IMAGE, new ImageSourcePreviewExtractor(ocrPort)));
+    }
+
+    @Bean
+    RulebookRegistrationRepository registrationRepository(DataSource dataSource, ObjectMapper objectMapper) {
+        return new PostgresRulebookRegistrationRepository(dataSource, objectMapper);
     }
 
     @Bean
@@ -62,6 +87,11 @@ public class RuleKnowledgeApiConfiguration {
     }
 
     @Bean
+    StorySourceSearchPort storySourceSearchRepository(DataSource dataSource) {
+        return new PgvectorStorySourceSearchRepository(dataSource);
+    }
+
+    @Bean
     RulebookIndexingApplicationService indexingApplicationService(
             RulebookIndexRepository indexRepository,
             EmbeddingPort embeddingPort,
@@ -75,10 +105,17 @@ public class RuleKnowledgeApiConfiguration {
             RulebookRegistrationRepository registrationRepository,
             RulebookFileStorage fileStorage,
             RulebookContentExtractor contentExtractor,
+            SourcePreviewExtractor sourcePreviewExtractor,
             RulebookIndexingApplicationService indexingService,
             @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension) {
         return new RulebookPipelineApplicationService(
-                registrationService, registrationRepository, fileStorage, contentExtractor, indexingService, embeddingDimension);
+                registrationService,
+                registrationRepository,
+                fileStorage,
+                contentExtractor,
+                sourcePreviewExtractor,
+                indexingService,
+                embeddingDimension);
     }
 
     @Bean
@@ -91,11 +128,22 @@ public class RuleKnowledgeApiConfiguration {
     }
 
     @Bean
+    StorySourceSearchApplicationService storySourceSearchService(
+            StorySourceSearchPort searchPort,
+            EmbeddingPort embeddingPort,
+            @Value("${rule-knowledge.embedding-model:qwen3-embedding:0.6b}") String embeddingModel,
+            @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension) {
+        return new StorySourceSearchApplicationService(searchPort, embeddingPort, embeddingModel, embeddingDimension);
+    }
+
+    @Bean
     RuleKnowledgeController ruleKnowledgeController(
             RulebookPipelineApplicationService pipelineService,
             RulebookRegistrationRepository registrationRepository,
             RuleEvidenceSearchApplicationService evidenceSearchService,
+            StorySourceSearchApplicationService storySourceSearchService,
             ObjectMapper objectMapper) {
-        return new RuleKnowledgeController(pipelineService, registrationRepository, evidenceSearchService, objectMapper);
+        return new RuleKnowledgeController(
+                pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService, objectMapper);
     }
 }

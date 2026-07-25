@@ -6,8 +6,9 @@ import com.dndmaster.adventure.application.combat.CombatActorRole;
 import com.dndmaster.adventure.application.guidance.AnswerRuleInquiryCommand;
 import com.dndmaster.adventure.application.guidance.RuleGuidanceApplicationService;
 import com.dndmaster.adventure.application.progress.AdventureProgressApplicationService;
-import com.dndmaster.adventure.application.progress.AdventureProgressResult;
-import com.dndmaster.adventure.application.progress.ProgressAdventureCommand;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnResult;
+import com.dndmaster.adventure.application.runtime.SubmitRuntimeTurnCommand;
 import com.dndmaster.adventure.application.saved.CreateAdventureCommand;
 import com.dndmaster.adventure.application.saved.SavedAdventureApplicationService;
 import com.dndmaster.adventure.application.scenario.AdventureScenarioApplicationService;
@@ -15,6 +16,7 @@ import com.dndmaster.adventure.application.scenario.ScenarioUpload;
 import com.dndmaster.adventure.domain.adventure.*;
 import com.dndmaster.adventure.domain.inquiry.InquiryId;
 import com.dndmaster.adventure.domain.ruleset.DndEdition;
+import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -25,45 +27,59 @@ import java.util.UUID;
 @RestController
 @RequestMapping
 public class AdventureController {
+    private static final String LEGACY_SCENARIO_UPLOAD_SUNSET = "Fri, 31 Dec 2027 00:00:00 GMT";
     private final SavedAdventureApplicationService savedAdventureService;
-    private final AdventureProgressApplicationService progressService;
+    private final RuntimeTurnApplicationService runtimeTurnService;
     private final RuleGuidanceApplicationService guidanceService;
     private final AdventureCombatApplicationService combatService;
     private final AdventureScenarioApplicationService scenarioService;
 
     public AdventureController(
             SavedAdventureApplicationService savedAdventureService,
-            AdventureProgressApplicationService progressService,
+            RuntimeTurnApplicationService runtimeTurnService,
             RuleGuidanceApplicationService guidanceService,
             AdventureCombatApplicationService combatService,
             AdventureScenarioApplicationService scenarioService) {
         this.savedAdventureService = savedAdventureService;
-        this.progressService = progressService;
+        this.runtimeTurnService = runtimeTurnService;
         this.guidanceService = guidanceService;
         this.combatService = combatService;
         this.scenarioService = scenarioService;
     }
 
     @PostMapping("/api/v1/adventures/scenarios")
+    @Deprecated(forRemoval = false)
+    @Operation(
+            deprecated = true,
+            summary = "Legacy one-file scenario upload",
+            description = "Use bundle and package migration flows instead of the legacy one-file upload.")
     ResponseEntity<Void> uploadScenario(
             @RequestParam("file") MultipartFile file,
             @RequestHeader("Authorization") String authorization) throws Exception {
         UUID ownerId = extractPlayerId(authorization);
         ScenarioUpload upload = new ScenarioUpload(
                 new com.dndmaster.adventure.domain.scenario.OwnerPlayerId(ownerId), file.getOriginalFilename(), file.getBytes());
-        scenarioService.uploadScenario(upload);
-        return ResponseEntity.accepted().build();
+        var scenario = scenarioService.uploadScenario(upload);
+        return ResponseEntity.accepted()
+                .header("Deprecation", "true")
+                .header("Warning", "299 dnd-master \"Legacy one-file scenario upload is deprecated; migrate to bundle/package flows\"")
+                .header("Sunset", LEGACY_SCENARIO_UPLOAD_SUNSET)
+                .header("Link", "</api/v1/adventures/scenario-bundles>; rel=\"alternate\"")
+                .header("X-Legacy-Scenario-Id", scenario.id().value().toString())
+                .build();
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/messages")
-    ResponseEntity<Void> streamAdventure(
+    RuntimeTurnResponse streamAdventure(
             @PathVariable UUID adventureId, @RequestBody StreamMessageRequest request) {
-        ProgressAdventureCommand command = new ProgressAdventureCommand(
+        // 플레이어 입력을 런타임 턴으로 바꾸고, 서버가 만든 narration을 돌려준다.
+        RuntimeTurnResult result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
                 new AdventureId(adventureId),
                 new OwnerPlayerId(request.playerId()),
-                request.action());
-        progressService.progressAdventure(command);
-        return ResponseEntity.ok().build();
+                request.turnId(),
+                request.commandId(),
+                request.action()));
+        return RuntimeTurnResponse.from(result);
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/rule-inquiries")
@@ -92,9 +108,13 @@ public class AdventureController {
                 new AdventureId(adventureId),
                 new RuleSetId(request.ruleSetId()),
                 new CharacterSheetId(request.characterSheetId()),
+                request.combatMapId(),
                 CombatActorRole.valueOf(request.role()),
                 request.action(),
-                null);
+                null,
+                request.ownerPlayerId(),
+                request.tokenId(),
+                request.expectedVersion());
         combatService.resolveCombatAction(command);
         return new DiceRollResponse(UUID.randomUUID(), request.role(), List.of(), 0);
     }
@@ -164,11 +184,45 @@ public class AdventureController {
         return UUID.fromString(authorization.substring("Bearer ".length()));
     }
 
-    public record StreamMessageRequest(UUID playerId, String action) {}
+    public record StreamMessageRequest(UUID playerId, UUID turnId, UUID commandId, String action) {}
+    // 프런트가 바로 보여줄 수 있게 턴 결과를 압축한 응답이다.
+    public record RuntimeTurnResponse(
+            UUID turnId,
+            UUID adventureId,
+            UUID scenarioPackageId,
+            long bindingVersion,
+            String narration,
+            String judgment,
+            String currentScene,
+            List<String> sourceRefs,
+            List<String> warnings,
+            long version) {
+        static RuntimeTurnResponse from(RuntimeTurnResult result) {
+            return new RuntimeTurnResponse(
+                    result.turn().turnId(),
+                    result.turn().adventureId().value(),
+                    result.turn().scenarioPackageId(),
+                    result.turn().bindingVersion(),
+                    result.turn().plan().narration(),
+                    result.turn().plan().judgment(),
+                    result.context().currentScene(),
+                    result.turn().citations(),
+                    result.turn().warnings(),
+                    result.version());
+        }
+    }
     public record RuleInquiryRequest(UUID inquiryId, UUID ruleSetId, UUID playerId, String situation) {}
     public record RuleInquiryResponse(UUID inquiryId, String status) {}
     public record CombatMapResponse(UUID adventureId, String status) {}
-    public record DiceRollRequest(UUID ruleSetId, UUID characterSheetId, String role, String action) {}
+    public record DiceRollRequest(
+            UUID ruleSetId,
+            UUID characterSheetId,
+            UUID combatMapId,
+            UUID ownerPlayerId,
+            UUID tokenId,
+            long expectedVersion,
+            String role,
+            String action) {}
     public record DiceRollResponse(UUID rollId, String scope, List<Integer> faces, int total) {}
     public record SaveAdventureRequest(UUID playerId, long expectedVersion, String currentScene) {}
     public record SaveAdventureResponse(UUID adventureId, long newVersion) {}
