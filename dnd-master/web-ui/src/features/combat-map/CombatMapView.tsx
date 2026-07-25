@@ -11,7 +11,7 @@ export function CombatMapView({ adventureId, api }: { adventureId: string; api: 
 
   async function move(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    setMessage('전투 맵 이동은 아직 읽기 전용입니다.')
+    setMessage('전투 맵 이동 기능은 준비 중입니다.')
   }
 
   return (
