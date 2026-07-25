@@ -6,6 +6,9 @@ import com.dndmaster.adventure.application.guidance.*;
 import com.dndmaster.adventure.application.progress.*;
 import com.dndmaster.adventure.application.ruleset.*;
 import com.dndmaster.adventure.application.runtime.*;
+import com.dndmaster.adventure.application.scenario.preparation.RuntimeOptionCatalogPort;
+import com.dndmaster.adventure.application.scenario.preparation.ScenarioPreparationApplicationService;
+import com.dndmaster.adventure.application.scenario.preparation.StaticRuntimeOptionCatalog;
 import com.dndmaster.adventure.application.saved.*;
 import com.dndmaster.adventure.application.scenario.*;
 import com.dndmaster.adventure.domain.adventure.Adventure;
@@ -36,6 +39,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Map;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -169,6 +173,19 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    RuntimeOptionCatalogPort runtimeOptionCatalogPort() {
+        return new StaticRuntimeOptionCatalog();
+    }
+
+    @Bean
+    ScenarioPreparationApplicationService scenarioPreparationApplicationService(
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
+            ScenarioBundleRepository bundleRepository,
+            RuntimeOptionCatalogPort runtimeOptionCatalogPort) {
+        return new ScenarioPreparationApplicationService(packageRepository, bundleRepository, runtimeOptionCatalogPort);
+    }
+
+    @Bean
     AdventureScenarioApplicationService scenarioApplicationService(
             AdventureScenarioRepository repository,
             ScenarioStoragePort storagePort,
@@ -184,10 +201,11 @@ public class AdventureApiConfiguration {
 
     @Bean
     com.dndmaster.adventure.application.scenario.LegacyScenarioIngestionPort legacyScenarioIngestionPort(
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl) {
         return new CrossContextHttpLegacyScenarioIngestionGateway(
                 HttpClient.newHttpClient(),
-                URI.create("http://127.0.0.1:18083/"),
+                URI.create(baseUrl),
                 Duration.ofSeconds(15),
                 objectMapper);
     }
@@ -233,20 +251,34 @@ public class AdventureApiConfiguration {
 
     @Bean
     com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort resolutionExtractionPort(
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.scenario-compilation.timeout:120s}") Duration timeout) {
         return new CrossContextHttpResolutionExtractionGateway(
                 HttpClient.newHttpClient(),
-                URI.create("http://127.0.0.1:18084/"),
-                Duration.ofSeconds(10),
+                URI.create(baseUrl),
+                timeout,
                 objectMapper);
+    }
+
+    com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort resolutionExtractionPort(
+            ObjectMapper objectMapper, String baseUrl) {
+        return resolutionExtractionPort(objectMapper, baseUrl, Duration.ofSeconds(120));
     }
 
     @Bean
     com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort scenarioSourceExcerptPort(
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.scenario-compilation.timeout:120s}") Duration timeout) {
         return new CrossContextHttpScenarioSourceExcerptGateway(
-                HttpClient.newHttpClient(), URI.create("http://127.0.0.1:18083/"),
-                Duration.ofSeconds(10), objectMapper);
+                HttpClient.newHttpClient(), URI.create(baseUrl),
+                timeout, objectMapper);
+    }
+
+    com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort scenarioSourceExcerptPort(
+            ObjectMapper objectMapper, String baseUrl) {
+        return scenarioSourceExcerptPort(objectMapper, baseUrl, Duration.ofSeconds(120));
     }
 
     @Bean
@@ -270,19 +302,23 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    KnowledgeDocumentLookupPort knowledgeDocumentLookupPort(ObjectMapper objectMapper) {
+    KnowledgeDocumentLookupPort knowledgeDocumentLookupPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl) {
         return new CrossContextHttpKnowledgeDocumentLookupGateway(
                 HttpClient.newHttpClient(),
-                URI.create("http://127.0.0.1:18083/"),
+                URI.create(baseUrl),
                 Duration.ofSeconds(2),
                 objectMapper);
     }
 
     @Bean
-    com.dndmaster.adventure.application.auth.PlayerSessionLookupPort playerSessionLookupPort(ObjectMapper objectMapper) {
+    com.dndmaster.adventure.application.auth.PlayerSessionLookupPort playerSessionLookupPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.identity-access.base-url:http://127.0.0.1:8080/}") String baseUrl) {
         return new CrossContextHttpPlayerSessionLookupGateway(
                 HttpClient.newHttpClient(),
-                URI.create("http://127.0.0.1:18081/"),
+                URI.create(baseUrl),
                 Duration.ofSeconds(2),
                 objectMapper);
     }
@@ -303,10 +339,12 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    RuleIntentClassificationPort ruleIntentClassificationPort(ObjectMapper objectMapper) {
+    RuleIntentClassificationPort ruleIntentClassificationPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl) {
         return new CrossContextHttpRuleIntentClassificationGateway(
                 HttpClient.newHttpClient(),
-                URI.create("http://127.0.0.1:18087/"),
+                URI.create(baseUrl),
                 Duration.ofSeconds(2),
                 objectMapper);
     }
@@ -336,10 +374,12 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    InitialSourceContextProposalPort initialSourceContextProposalPort(ObjectMapper objectMapper) {
+    InitialSourceContextProposalPort initialSourceContextProposalPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl) {
         return new CrossContextHttpInitialSourceContextProposalGateway(
                 HttpClient.newHttpClient(),
-                URI.create("http://127.0.0.1:18084/"),
+                URI.create(baseUrl),
                 Duration.ofSeconds(2),
                 objectMapper);
     }

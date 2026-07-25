@@ -62,4 +62,54 @@ describe('HttpSetupApi', () => {
     await expect(api.uploadScenario(new File(['legacy'], 'legacy.pdf', { type: 'application/pdf' })))
       .rejects.toThrow('지원하지 않거나 손상된 파일입니다.')
   })
+
+  it('reads play preparation and runtime options from the new endpoints', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({
+        status: 200,
+        ok: true,
+        headers: new Headers(),
+        json: async () => ({
+          scenarioPackageId: 'package-1',
+          bundleId: 'bundle-1',
+          bundleRevision: 1,
+          status: 'READY',
+          blockers: [],
+          characterCreationBlueprint: {
+            available: true,
+            summary: 'STORYBOOK 1개, RULEBOOK 1개',
+            rulebookDocumentCount: 1,
+            storybookDocumentCount: 1,
+            diagnostics: [],
+          },
+        }),
+      } as Response)
+      .mockResolvedValueOnce({
+        status: 200,
+        ok: true,
+        headers: new Headers(),
+        json: async () => ({
+          defaultEngineId: 'ollama',
+          defaultToolIds: ['search', 'move'],
+          engines: [{ id: 'ollama', label: 'Ollama', selectedByDefault: true }],
+          tools: [{ id: 'search', label: 'Search', selectedByDefault: true }],
+        }),
+      } as Response)
+    vi.stubGlobal('fetch', fetchMock)
+
+    const api = new HttpSetupApi(() => 'owner-token')
+
+    await expect(api.getPlayPreparation?.('package-1')).resolves.toMatchObject({
+      status: 'READY',
+      characterCreationBlueprint: {
+        available: true,
+      },
+    })
+    await expect(api.getRuntimeOptions?.()).resolves.toMatchObject({
+      defaultEngineId: 'ollama',
+      defaultToolIds: ['search', 'move'],
+    })
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/scenario-packages/package-1/play-preparation', expect.any(Object))
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/runtime-options', expect.any(Object))
+  })
 })

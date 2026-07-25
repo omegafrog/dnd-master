@@ -7,6 +7,7 @@ import java.util.Objects;
 import java.util.UUID;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.context.SecurityContextHolder;
@@ -21,19 +22,21 @@ import jakarta.servlet.http.HttpServletResponse;
 @Configuration(proxyBeanMethods = false)
 public class AdventureSecurityConfiguration {
     @Bean
-    SecurityFilterChain securityFilterChain(HttpSecurity http, BearerTokenAuthenticationFilter bearerTokenAuthenticationFilter)
+    @Order(1)
+    SecurityFilterChain adventureSecurityFilterChain(HttpSecurity http, PlayerSessionLookupPort sessionLookupPort)
             throws Exception {
-        return http.csrf(csrf -> csrf.disable())
+        BearerTokenAuthenticationFilter bearerTokenAuthenticationFilter = new BearerTokenAuthenticationFilter(sessionLookupPort);
+        return http.securityMatcher(
+                        "/api/v1/adventures/**",
+                        "/api/v1/scenario-packages/**",
+                        "/api/v1/runtime-options",
+                        "/internal/v1/adventures/**")
+                .csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(request -> request.anyRequest().permitAll())
                 .addFilterBefore(bearerTokenAuthenticationFilter,
                         org.springframework.security.web.authentication.AnonymousAuthenticationFilter.class)
                 .build();
-    }
-
-    @Bean
-    BearerTokenAuthenticationFilter bearerTokenAuthenticationFilter(PlayerSessionLookupPort sessionLookupPort) {
-        return new BearerTokenAuthenticationFilter(sessionLookupPort);
     }
 
     static final class BearerTokenAuthenticationFilter extends OncePerRequestFilter {

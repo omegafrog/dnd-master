@@ -1,12 +1,13 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import type {
   KnowledgeDocumentView,
-  ScenarioCompilationView,
+  PlayPreparationView,
+  RuntimeOptionsView,
   ScenarioBundleDraft,
   ScenarioBundleRole,
   ScenarioBundleView,
+  ScenarioCompilationView,
   ScenarioPackageView,
-  RuntimeBindingView,
   SetupApi,
   StorySourceEvidenceView,
 } from '../rulebooks/SetupApi'
@@ -38,26 +39,14 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
   const [bundle, setBundle] = useState<ScenarioBundleView | null>(null)
   const [scenarioPackage, setScenarioPackage] = useState<ScenarioPackageView | null>(null)
   const [compilation, setCompilation] = useState<ScenarioCompilationView | null>(null)
-  const [runtimeBinding, setRuntimeBinding] = useState<RuntimeBindingView | null>(null)
+  const [playPreparation, setPlayPreparation] = useState<PlayPreparationView | null>(null)
+  const [runtimeOptions, setRuntimeOptions] = useState<RuntimeOptionsView | null>(null)
   const [compiling, setCompiling] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [bindingSubmitting, setBindingSubmitting] = useState(false)
   const [sourceQuery, setSourceQuery] = useState('')
   const [sourceResults, setSourceResults] = useState<StorySourceEvidenceView[]>([])
   const [searchingSources, setSearchingSources] = useState(false)
-  const [adventureId, setAdventureId] = useState('')
-  const [bindingPackageId, setBindingPackageId] = useState('')
-  const [bindingRulebookIds, setBindingRulebookIds] = useState('')
-  const [bindingCharacterSheetId, setBindingCharacterSheetId] = useState('')
-  const [bindingEngineId, setBindingEngineId] = useState('ollama')
-  const [bindingToolIds, setBindingToolIds] = useState('search, move')
-  const [selectedSourceLocator, setSelectedSourceLocator] = useState('')
   const canCompile = Boolean(api.compileScenarioBundle || (api.startScenarioCompilation && api.getScenarioCompilation && api.getScenarioPackage))
-
-  useEffect(() => {
-    if (!scenarioPackage) return
-    setBindingPackageId(current => current || scenarioPackage.packageId)
-  }, [scenarioPackage])
 
   useEffect(() => {
     let active = true
@@ -79,6 +68,40 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
       })
     return () => { active = false }
   }, [api, onError, playerId])
+
+  useEffect(() => {
+    if (!api.getRuntimeOptions) return
+    let active = true
+    void api.getRuntimeOptions()
+      .then(options => {
+        if (!active) return
+        setRuntimeOptions(options)
+      })
+      .catch(error => {
+        if (!active) return
+        onError(error instanceof Error ? error.message : '런타임 옵션을 불러오지 못했습니다.')
+      })
+    return () => { active = false }
+  }, [api, onError, playerId])
+
+  useEffect(() => {
+    if (!scenarioPackage || !api.getPlayPreparation) {
+      setPlayPreparation(null)
+      return
+    }
+    let active = true
+    void api.getPlayPreparation(scenarioPackage.packageId)
+      .then(preparation => {
+        if (!active) return
+        setPlayPreparation(preparation)
+      })
+      .catch(error => {
+        if (!active) return
+        setPlayPreparation(null)
+        onError(error instanceof Error ? error.message : '플레이 준비 상태를 불러오지 못했습니다.')
+      })
+    return () => { active = false }
+  }, [api, onError, scenarioPackage])
 
   function toggleSelected(knowledgeDocumentId: string) {
     setSelectedIds(current => {
@@ -103,6 +126,8 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
       }))
     if (!documentsToSave.length) return
     setSaving(true)
+    setScenarioPackage(null)
+    setPlayPreparation(null)
     try {
       const nextBundle = bundle
         ? await api.reviseScenarioBundle(bundle.bundleId, playerId, documentsToSave)
@@ -135,6 +160,7 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
     if (!bundle) return
     setCompiling(true)
     setScenarioPackage(null)
+    setPlayPreparation(null)
     try {
       if (api.startScenarioCompilation && api.getScenarioCompilation && api.getScenarioPackage) {
         const started = await api.startScenarioCompilation(
@@ -158,72 +184,6 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
       onError(error instanceof Error ? error.message : '시나리오 패키지 컴파일에 실패했습니다.')
     } finally {
       setCompiling(false)
-    }
-  }
-
-  async function bindRuntime(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!api.bindRuntimeBinding || !scenarioPackage) return
-    if (!adventureId.trim()) {
-      onError('바인딩할 모험 ID가 필요합니다.')
-      return
-    }
-    const packageId = bindingPackageId.trim() || scenarioPackage.packageId
-    const rulebookIds = splitIds(bindingRulebookIds)
-    const toolIds = splitIds(bindingToolIds)
-    setBindingSubmitting(true)
-    try {
-      const nextBinding = await api.bindRuntimeBinding(adventureId.trim(), playerId, {
-        playerId,
-        scenarioPackageId: packageId,
-        rulebookIds,
-        characterSheetId: bindingCharacterSheetId.trim(),
-        engineId: bindingEngineId.trim(),
-        toolIds,
-      })
-      setRuntimeBinding(nextBinding)
-      setSelectedSourceLocator(nextBinding.activeSourceContext?.locator ?? nextBinding.playabilityReport.candidates[0]?.locator ?? '')
-    } catch (error) {
-      onError(error instanceof Error ? error.message : '런타임 바인딩을 저장하지 못했습니다.')
-    } finally {
-      setBindingSubmitting(false)
-    }
-  }
-
-  async function switchRuntimePackage() {
-    if (!api.switchRuntimePackage || !runtimeBinding || !adventureId.trim()) return
-    setBindingSubmitting(true)
-    try {
-      const nextBinding = await api.switchRuntimePackage(
-        adventureId.trim(),
-        playerId,
-        runtimeBinding.bindingVersion,
-        bindingPackageId.trim() || runtimeBinding.scenarioPackageId,
-      )
-      setRuntimeBinding(nextBinding)
-      setSelectedSourceLocator(nextBinding.activeSourceContext?.locator ?? nextBinding.playabilityReport.candidates[0]?.locator ?? '')
-    } catch (error) {
-      onError(error instanceof Error ? error.message : '런타임 패키지를 전환하지 못했습니다.')
-    } finally {
-      setBindingSubmitting(false)
-    }
-  }
-
-  async function chooseSourceContext() {
-    if (!api.selectRuntimeSourceContext || !runtimeBinding || !adventureId.trim() || !selectedSourceLocator.trim()) return
-    setBindingSubmitting(true)
-    try {
-      const nextBinding = await api.selectRuntimeSourceContext(
-        adventureId.trim(),
-        playerId,
-        runtimeBinding.bindingVersion,
-        selectedSourceLocator.trim(),
-      )
-      setRuntimeBinding(nextBinding)
-    } catch (error) {
-      onError(error instanceof Error ? error.message : '시작 원문 구간을 선택하지 못했습니다.')
-    } finally {
-      setBindingSubmitting(false)
     }
   }
 
@@ -292,9 +252,11 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
           {scenarioPackage ? (
             <div role="status">
               <p>패키지 {scenarioPackage.packageId} · {scenarioPackage.reportStatus}</p>
-              {scenarioPackage.warnings.length > 0 ? <ul>
-                {scenarioPackage.warnings.map(warning => <li key={warning}>{warning}</li>)}
-              </ul> : null}
+              {scenarioPackage.warnings.length > 0 ? (
+                <ul>
+                  {scenarioPackage.warnings.map(warning => <li key={warning}>{warning}</li>)}
+                </ul>
+              ) : null}
               <ul aria-label="해석 단위">
                 {scenarioPackage.units.map((unit, index) => (
                   <li key={`${unit.kind ?? 'unknown'}-${index}`}>
@@ -304,33 +266,96 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
                     <div>visibility: {unit.visibility || '없음'} · 근거: {unit.sourceQuote || '없음'} · provenance: {unit.provenance || '없음'}</div>
                     {unit.runtimeCapabilities.length > 0 ? <div>runtime: {unit.runtimeCapabilities.join(', ')}</div> : null}
                     {unit.detail.triggerCondition ? <div>trigger: {unit.detail.triggerCondition}</div> : null}
-                    {unit.detail.steps.length > 0 ? <ul>
-                      {unit.detail.steps.map(step => <li key={step.id}>
-                        {`step ${step.id}: ${step.kind ?? 'UNKNOWN'}${step.abilityOrSkill ? ` · ${step.abilityOrSkill}` : ''}${step.dc === null ? '' : ` · DC ${step.dc}`}${step.diceExpression ? ` · ${step.diceExpression}` : ''}`}
-                      </li>)}
-                    </ul> : null}
-                    {unit.detail.outcomes.length > 0 ? <ul>
-                      {unit.detail.outcomes.map(outcome => <li key={outcome.id}>
-                        {`outcome ${outcome.id}: ${outcome.label ?? 'UNKNOWN'} · ${outcome.description ?? '값 없음'}`}
-                      </li>)}
-                    </ul> : null}
-                    {unit.detail.randomTable.length > 0 ? <ul>
-                      {unit.detail.randomTable.map(entry => <li key={`${entry.range}-${entry.outcome}`}>
-                        {`table ${entry.range ?? '?'}: ${entry.outcome ?? '값 없음'}`}
-                      </li>)}
-                    </ul> : null}
-                    {unit.sourceRefs.length > 0 ? <ul>
-                      {unit.sourceRefs.map(ref => <li key={`${ref.documentId}-${ref.extractionVersion}-${ref.locator}`}>
-                        source: {ref.documentId} v{ref.extractionVersion} · {ref.locator}
-                      </li>)}
-                    </ul> : null}
-                    {unit.validationMessages.length > 0 ? <ul>
-                      {unit.validationMessages.map(message => <li key={message}>{message}</li>)}
-                    </ul> : null}
+                    {unit.detail.steps.length > 0 ? (
+                      <ul>
+                        {unit.detail.steps.map(step => <li key={step.id}>
+                          {`step ${step.id}: ${step.kind ?? 'UNKNOWN'}${step.abilityOrSkill ? ` · ${step.abilityOrSkill}` : ''}${step.dc === null ? '' : ` · DC ${step.dc}`}${step.diceExpression ? ` · ${step.diceExpression}` : ''}`}
+                        </li>)}
+                      </ul>
+                    ) : null}
+                    {unit.detail.outcomes.length > 0 ? (
+                      <ul>
+                        {unit.detail.outcomes.map(outcome => <li key={outcome.id}>
+                          {`outcome ${outcome.id}: ${outcome.label ?? 'UNKNOWN'} · ${outcome.description ?? '값 없음'}`}
+                        </li>)}
+                      </ul>
+                    ) : null}
+                    {unit.detail.randomTable.length > 0 ? (
+                      <ul>
+                        {unit.detail.randomTable.map(entry => <li key={`${entry.range}-${entry.outcome}`}>
+                          {`table ${entry.range ?? '?'}: ${entry.outcome ?? '값 없음'}`}
+                        </li>)}
+                      </ul>
+                    ) : null}
+                    {unit.sourceRefs.length > 0 ? (
+                      <ul>
+                        {unit.sourceRefs.map(ref => <li key={`${ref.documentId}-${ref.extractionVersion}-${ref.locator}`}>
+                          source: {ref.documentId} v{ref.extractionVersion} · {ref.locator}
+                        </li>)}
+                      </ul>
+                    ) : null}
+                    {unit.validationMessages.length > 0 ? (
+                      <ul>
+                        {unit.validationMessages.map(message => <li key={message}>{message}</li>)}
+                      </ul>
+                    ) : null}
                   </li>
                 ))}
               </ul>
             </div>
+          ) : null}
+          {playPreparation ? (
+            <section aria-labelledby="play-preparation-heading">
+              <h3 id="play-preparation-heading">플레이 준비</h3>
+              <p>준비 상태 {playPreparation.status} · 패키지 {playPreparation.scenarioPackageId}</p>
+              {playPreparation.blockers.length > 0 ? (
+                <ul aria-label="준비 차단 사유">
+                  {playPreparation.blockers.map(blocker => <li key={blocker}>{blocker}</li>)}
+                </ul>
+              ) : null}
+              {playPreparation.characterCreationBlueprint ? (
+                <div>
+                  <p>
+                    CharacterCreationBlueprint: {playPreparation.characterCreationBlueprint.summary ?? '없음'}
+                  </p>
+                  <p>
+                    RULEBOOK {playPreparation.characterCreationBlueprint.rulebookDocumentCount}개 · STORYBOOK {playPreparation.characterCreationBlueprint.storybookDocumentCount}개
+                  </p>
+                  {playPreparation.characterCreationBlueprint.diagnostics.length > 0 ? (
+                    <ul aria-label="Blueprint 진단">
+                      {playPreparation.characterCreationBlueprint.diagnostics.map(diagnostic => <li key={diagnostic}>{diagnostic}</li>)}
+                    </ul>
+                  ) : null}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+          {runtimeOptions ? (
+            <section aria-labelledby="runtime-options-heading">
+              <h3 id="runtime-options-heading">런타임 옵션</h3>
+              <details open>
+                <summary>엔진 선택지</summary>
+                <p>기본 엔진: {runtimeOptions.defaultEngineId}</p>
+                <ul aria-label="허용 엔진">
+                  {runtimeOptions.engines.map(option => (
+                    <li key={option.id}>
+                      {option.label} · {option.id}{option.selectedByDefault ? ' · 기본' : ''}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+              <details open>
+                <summary>도구 선택지</summary>
+                <p>기본 도구: {runtimeOptions.defaultToolIds.length > 0 ? runtimeOptions.defaultToolIds.join(', ') : '없음'}</p>
+                <ul aria-label="허용 도구">
+                  {runtimeOptions.tools.map(option => (
+                    <li key={option.id}>
+                      {option.label} · {option.id}{option.selectedByDefault ? ' · 기본' : ''}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            </section>
           ) : null}
         </section>
       ) : null}
@@ -356,90 +381,6 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
           {!searchingSources && sourceResults.length === 0 && sourceQuery ? <p>근거 없음</p> : null}
         </section>
       ) : null}
-      {scenarioPackage ? (
-        <section aria-labelledby="runtime-binding-heading">
-          <h3 id="runtime-binding-heading">런타임 바인딩</h3>
-          <form onSubmit={bindRuntime}>
-            <label>
-              모험 ID
-              <input value={adventureId} onChange={event => setAdventureId(event.currentTarget.value)} />
-            </label>
-            <label>
-              패키지 ID
-              <input value={bindingPackageId} onChange={event => setBindingPackageId(event.currentTarget.value)} />
-            </label>
-            <label>
-              룰북 ID 목록
-              <input
-                value={bindingRulebookIds}
-                onChange={event => setBindingRulebookIds(event.currentTarget.value)}
-                placeholder="uuid, uuid"
-              />
-            </label>
-            <label>
-              캐릭터 시트 ID
-              <input value={bindingCharacterSheetId} onChange={event => setBindingCharacterSheetId(event.currentTarget.value)} />
-            </label>
-            <label>
-              엔진
-              <input value={bindingEngineId} onChange={event => setBindingEngineId(event.currentTarget.value)} />
-            </label>
-            <label>
-              도구
-              <input value={bindingToolIds} onChange={event => setBindingToolIds(event.currentTarget.value)} placeholder="search, move" />
-            </label>
-            <button type="submit" disabled={bindingSubmitting}>
-              {bindingSubmitting ? '바인딩 중…' : '런타임 바인딩 저장'}
-            </button>
-          </form>
-          {runtimeBinding ? (
-            <div role="status">
-              <p>
-                바인딩 v{runtimeBinding.bindingVersion} · {runtimeBinding.playabilityReport.status}
-                {' '}· 패키지 {runtimeBinding.scenarioPackageId}
-              </p>
-              {runtimeBinding.playabilityReport.warnings.length > 0 ? (
-                <ul>
-                  {runtimeBinding.playabilityReport.warnings.map(warning => <li key={warning}>{warning}</li>)}
-                </ul>
-              ) : null}
-              {runtimeBinding.playabilityReport.blockers.length > 0 ? (
-                <ul aria-label="바인딩 차단 사유">
-                  {runtimeBinding.playabilityReport.blockers.map(blocker => <li key={blocker}>{blocker}</li>)}
-                </ul>
-              ) : null}
-              {runtimeBinding.playabilityReport.limits.length > 0 ? (
-                <ul aria-label="바인딩 제한 사유">
-                  {runtimeBinding.playabilityReport.limits.map(limit => <li key={limit}>{limit}</li>)}
-                </ul>
-              ) : null}
-              {runtimeBinding.activeSourceContext ? (
-                <p>시작 구간: {runtimeBinding.activeSourceContext.locator}</p>
-              ) : null}
-              {runtimeBinding.playabilityReport.candidates.length > 0 ? (
-                <div>
-                  <label>
-                    시작 원문 후보
-                    <select value={selectedSourceLocator} onChange={event => setSelectedSourceLocator(event.currentTarget.value)}>
-                      {runtimeBinding.playabilityReport.candidates.map(candidate => (
-                        <option key={candidate.locator} value={candidate.locator}>
-                          {candidate.locator} · {candidate.reason}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <button type="button" disabled={bindingSubmitting || !selectedSourceLocator} onClick={() => void chooseSourceContext()}>
-                    시작 구간 선택
-                  </button>
-                </div>
-              ) : null}
-              <button type="button" disabled={bindingSubmitting} onClick={() => void switchRuntimePackage()}>
-                패키지 전환
-              </button>
-            </div>
-          ) : null}
-        </section>
-      ) : null}
     </section>
   )
 }
@@ -449,8 +390,7 @@ async function waitForCompilation(
   started: ScenarioCompilationView,
   onProgress: (compilation: ScenarioCompilationView) => void,
 ): Promise<ScenarioCompilationView> {
-  const readCompilation = api.getScenarioCompilation
-  if (!readCompilation) throw new Error('시나리오 패키지 컴파일 상태 API가 없습니다.')
+  if (!api.getScenarioCompilation) throw new Error('시나리오 패키지 컴파일 상태 API가 없습니다.')
   let current = started
   for (let attempts = 0; attempts < compilationPollLimit; attempts += 1) {
     if (current.status === 'PUBLISHED') return current
@@ -458,7 +398,7 @@ async function waitForCompilation(
       throw new Error(current.failureReason || '시나리오 패키지 컴파일에 실패했습니다.')
     }
     await sleep(compilationPollIntervalMs)
-    current = await readCompilation(current.compilationId)
+    current = await api.getScenarioCompilation(current.compilationId)
     onProgress(current)
   }
   throw new Error('시나리오 패키지 컴파일이 아직 진행 중입니다. 잠시 후 상태를 다시 확인하세요.')
@@ -466,11 +406,4 @@ async function waitForCompilation(
 
 function sleep(ms: number) {
   return new Promise(resolve => window.setTimeout(resolve, ms))
-}
-
-function splitIds(value: string) {
-  return value
-    .split(/[\s,]+/)
-    .map(part => part.trim())
-    .filter(Boolean)
 }

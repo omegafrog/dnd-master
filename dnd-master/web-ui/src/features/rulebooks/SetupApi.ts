@@ -122,6 +122,38 @@ export type ScenarioPackageView = {
   }>
 }
 
+export type PlayPreparationStatus = 'READY' | 'BLOCKED'
+
+export type CharacterCreationBlueprintView = {
+  available: boolean
+  summary: string | null
+  rulebookDocumentCount: number
+  storybookDocumentCount: number
+  diagnostics: string[]
+}
+
+export type PlayPreparationView = {
+  scenarioPackageId: string
+  bundleId: string
+  bundleRevision: number
+  status: PlayPreparationStatus
+  blockers: string[]
+  characterCreationBlueprint: CharacterCreationBlueprintView
+}
+
+export type RuntimeOptionView = {
+  id: string
+  label: string
+  selectedByDefault: boolean
+}
+
+export type RuntimeOptionsView = {
+  defaultEngineId: string
+  defaultToolIds: string[]
+  engines: RuntimeOptionView[]
+  tools: RuntimeOptionView[]
+}
+
 export type RuntimeBindingStatus = 'PLAYABLE' | 'PLAYABLE_WITH_LIMITS' | 'BLOCKED'
 
 export type RuntimeSourceContextCandidateView = {
@@ -274,6 +306,8 @@ export interface SetupApi {
   startScenarioCompilation?(bundleId: string, ownerId: string, inputFingerprint: string): Promise<ScenarioCompilationView>
   getScenarioCompilation?(compilationId: string): Promise<ScenarioCompilationView>
   getScenarioPackage?(packageId: string): Promise<ScenarioPackageView>
+  getPlayPreparation?(scenarioPackageId: string): Promise<PlayPreparationView>
+  getRuntimeOptions?(): Promise<RuntimeOptionsView>
   bindRuntimeBinding?(adventureId: string, ownerId: string, draft: RuntimeBindingDraft): Promise<RuntimeBindingView>
   getRuntimeBinding?(adventureId: string, ownerId: string): Promise<RuntimeBindingView>
   switchRuntimePackage?(adventureId: string, ownerId: string, bindingVersion: number, scenarioPackageId: string): Promise<RuntimeBindingView>
@@ -431,6 +465,18 @@ export class HttpSetupApi implements SetupApi {
     return request<ScenarioPackageView>(`/api/v1/adventures/scenario-packages/${packageId}`, {
       headers: this.authHeaders(),
     }, '시나리오 패키지를 불러오지 못했습니다.')
+  }
+
+  getPlayPreparation(scenarioPackageId: string) {
+    return request<PlayPreparationView>(`/api/v1/scenario-packages/${scenarioPackageId}/play-preparation`, {
+      headers: this.authHeaders(),
+    }, '플레이 준비 상태를 불러오지 못했습니다.')
+  }
+
+  getRuntimeOptions() {
+    return request<RuntimeOptionsView>('/api/v1/runtime-options', {
+      headers: this.authHeaders(),
+    }, '런타임 옵션을 불러오지 못했습니다.')
   }
 
   bindRuntimeBinding(adventureId: string, _ownerId: string, draft: RuntimeBindingDraft) {
