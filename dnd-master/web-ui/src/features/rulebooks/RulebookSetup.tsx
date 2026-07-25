@@ -39,7 +39,15 @@ function createIdempotencyKey(file: File, index: number) {
   return `${file.name}-${index}-${random}`
 }
 
-export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: string }) {
+export function RulebookSetup({
+  api,
+  playerId,
+  asMain = true,
+}: {
+  api: SetupApi
+  playerId: string
+  asMain?: boolean
+}) {
   const [drafts, setDrafts] = useState<PendingDocument[]>([])
   const [results, setResults] = useState<BatchRulebookView[]>([])
   const [documents, setDocuments] = useState<KnowledgeDocumentView[]>([])
@@ -127,8 +135,10 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
     }
   }
 
+  const Container = asMain ? 'main' : 'section'
+
   return (
-    <main>
+    <Container>
       <h1>자료와 모험 설정</h1>
       <p role="status" aria-live="polite">{message}</p>
       <section aria-labelledby="rulebook-heading">
@@ -256,6 +266,6 @@ export function RulebookSetup({ api, playerId }: { api: SetupApi; playerId: stri
         </section>
       </section>
       <ScenarioSetup api={api} playerId={playerId} onError={setMessage} />
-    </main>
+    </Container>
   )
 }
