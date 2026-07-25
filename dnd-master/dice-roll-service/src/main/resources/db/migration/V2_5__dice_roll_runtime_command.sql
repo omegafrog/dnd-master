@@ -1,7 +1,7 @@
 ALTER TABLE dice_roll
-    ADD COLUMN session_id UUID,
-    ADD COLUMN turn_id UUID,
-    ADD COLUMN expected_version BIGINT NOT NULL DEFAULT 0;
+    ADD COLUMN IF NOT EXISTS session_id UUID,
+    ADD COLUMN IF NOT EXISTS turn_id UUID,
+    ADD COLUMN IF NOT EXISTS expected_version BIGINT NOT NULL DEFAULT 0;
 
 UPDATE dice_roll
 SET expected_version = version

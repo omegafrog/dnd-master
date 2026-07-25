@@ -1,4 +1,4 @@
-CREATE TABLE dice_roll (
+CREATE TABLE IF NOT EXISTS dice_roll (
     roll_id UUID PRIMARY KEY,
     adventure_id UUID NOT NULL,
     rule_set_id UUID NOT NULL,
@@ -11,7 +11,7 @@ CREATE TABLE dice_roll (
     version BIGINT NOT NULL CHECK (version >= 0)
 );
 
-CREATE TABLE adjudication_delivery (
+CREATE TABLE IF NOT EXISTS adjudication_delivery (
     delivery_key TEXT PRIMARY KEY,
     roll_id UUID NOT NULL REFERENCES dice_roll(roll_id),
     payload_hash TEXT NOT NULL,

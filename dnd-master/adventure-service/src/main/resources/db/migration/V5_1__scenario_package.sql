@@ -1,4 +1,4 @@
-CREATE TABLE scenario_package (
+CREATE TABLE IF NOT EXISTS scenario_package (
     package_id UUID PRIMARY KEY,
     bundle_id UUID NOT NULL REFERENCES scenario_source_bundle(bundle_id),
     bundle_revision BIGINT NOT NULL CHECK (bundle_revision >= 1),
@@ -8,7 +8,7 @@ CREATE TABLE scenario_package (
     published_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE scenario_package_document (
+CREATE TABLE IF NOT EXISTS scenario_package_document (
     package_id UUID NOT NULL REFERENCES scenario_package(package_id) ON DELETE CASCADE,
     selection_order INT NOT NULL CHECK (selection_order >= 0),
     knowledge_document_id UUID NOT NULL,
@@ -21,7 +21,7 @@ CREATE TABLE scenario_package_document (
     UNIQUE (package_id, knowledge_document_id)
 );
 
-CREATE TABLE scenario_package_resolution_unit (
+CREATE TABLE IF NOT EXISTS scenario_package_resolution_unit (
     package_id UUID NOT NULL REFERENCES scenario_package(package_id) ON DELETE CASCADE,
     unit_order INT NOT NULL CHECK (unit_order >= 0),
     resolution_kind TEXT,
@@ -36,7 +36,7 @@ CREATE TABLE scenario_package_resolution_unit (
     PRIMARY KEY (package_id, unit_order)
 );
 
-CREATE TABLE scenario_package_resolution_source_ref (
+CREATE TABLE IF NOT EXISTS scenario_package_resolution_source_ref (
     package_id UUID NOT NULL,
     unit_order INT NOT NULL,
     ref_order INT NOT NULL CHECK (ref_order >= 0),

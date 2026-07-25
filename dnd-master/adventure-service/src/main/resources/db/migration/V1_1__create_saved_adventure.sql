@@ -1,4 +1,4 @@
-CREATE TABLE adventure (
+CREATE TABLE IF NOT EXISTS adventure (
     adventure_id UUID PRIMARY KEY,
     session_id UUID NOT NULL UNIQUE,
     owner_player_id UUID NOT NULL,
@@ -13,9 +13,9 @@ CREATE TABLE adventure (
     version BIGINT NOT NULL CHECK (version >= 0)
 );
 
-CREATE INDEX adventure_saved_owner_idx ON adventure(owner_player_id) WHERE status = 'SAVED';
+CREATE INDEX IF NOT EXISTS adventure_saved_owner_idx ON adventure(owner_player_id) WHERE status = 'SAVED';
 
-CREATE TABLE adventure_conversation (
+CREATE TABLE IF NOT EXISTS adventure_conversation (
     adventure_id UUID NOT NULL REFERENCES adventure(adventure_id) ON DELETE CASCADE,
     sequence BIGINT NOT NULL CHECK (sequence >= 0),
     speaker TEXT NOT NULL,

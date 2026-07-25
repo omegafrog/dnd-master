@@ -1,4 +1,4 @@
-CREATE TABLE character_management.character_sheet_command_history (
+CREATE TABLE IF NOT EXISTS character_management.character_sheet_command_history (
     command_id UUID PRIMARY KEY,
     character_sheet_id UUID NOT NULL REFERENCES character_management.character_sheet(character_sheet_id) ON DELETE CASCADE,
     adventure_id UUID NOT NULL,
@@ -12,5 +12,5 @@ CREATE TABLE character_management.character_sheet_command_history (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE INDEX character_sheet_command_history_sheet_idx
+CREATE INDEX IF NOT EXISTS character_sheet_command_history_sheet_idx
     ON character_management.character_sheet_command_history (character_sheet_id, created_at, command_id);

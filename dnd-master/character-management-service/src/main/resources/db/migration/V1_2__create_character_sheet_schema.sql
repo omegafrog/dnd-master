@@ -1,6 +1,6 @@
 CREATE SCHEMA IF NOT EXISTS character_management;
 
-CREATE TABLE character_management.character_sheet (
+CREATE TABLE IF NOT EXISTS character_management.character_sheet (
     character_sheet_id UUID PRIMARY KEY,
     adventure_id UUID NOT NULL,
     edition TEXT NOT NULL CHECK (edition IN ('DND_5E_2014', 'DND_5E_2024')),
@@ -10,5 +10,5 @@ CREATE TABLE character_management.character_sheet (
     version BIGINT NOT NULL CHECK (version >= 0)
 );
 
-CREATE INDEX character_sheet_adventure_idx
+CREATE INDEX IF NOT EXISTS character_sheet_adventure_idx
     ON character_management.character_sheet(adventure_id);

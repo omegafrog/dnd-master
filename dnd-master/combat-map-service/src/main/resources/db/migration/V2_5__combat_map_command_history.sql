@@ -1,4 +1,4 @@
-CREATE TABLE combat_map_command_history (
+CREATE TABLE IF NOT EXISTS combat_map_command_history (
     command_id UUID PRIMARY KEY,
     map_id UUID NOT NULL REFERENCES combat_map(map_id) ON DELETE CASCADE,
     owner_player_id UUID NOT NULL,
@@ -14,7 +14,7 @@ CREATE TABLE combat_map_command_history (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE combat_map_command_token_history (
+CREATE TABLE IF NOT EXISTS combat_map_command_token_history (
     command_id UUID NOT NULL REFERENCES combat_map_command_history(command_id) ON DELETE CASCADE,
     sequence INTEGER NOT NULL,
     token_id UUID NOT NULL,
@@ -26,7 +26,7 @@ CREATE TABLE combat_map_command_token_history (
     PRIMARY KEY (command_id, sequence)
 );
 
-CREATE TABLE combat_map_command_obstacle_history (
+CREATE TABLE IF NOT EXISTS combat_map_command_obstacle_history (
     command_id UUID NOT NULL REFERENCES combat_map_command_history(command_id) ON DELETE CASCADE,
     sequence INTEGER NOT NULL,
     x INTEGER NOT NULL,
@@ -34,7 +34,7 @@ CREATE TABLE combat_map_command_obstacle_history (
     PRIMARY KEY (command_id, sequence)
 );
 
-CREATE TABLE combat_map_command_layer_history (
+CREATE TABLE IF NOT EXISTS combat_map_command_layer_history (
     command_id UUID NOT NULL REFERENCES combat_map_command_history(command_id) ON DELETE CASCADE,
     sequence INTEGER NOT NULL,
     layer_type TEXT NOT NULL,
@@ -43,5 +43,5 @@ CREATE TABLE combat_map_command_layer_history (
     PRIMARY KEY (command_id, sequence)
 );
 
-CREATE INDEX combat_map_command_history_map_idx
+CREATE INDEX IF NOT EXISTS combat_map_command_history_map_idx
     ON combat_map_command_history (map_id, created_at, command_id);

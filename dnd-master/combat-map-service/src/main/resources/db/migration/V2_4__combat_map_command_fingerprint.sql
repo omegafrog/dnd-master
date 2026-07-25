@@ -1,2 +1,2 @@
 ALTER TABLE combat_map
-    ADD COLUMN operation_fingerprint TEXT;
+    ADD COLUMN IF NOT EXISTS operation_fingerprint TEXT;

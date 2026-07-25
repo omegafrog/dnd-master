@@ -1,4 +1,5 @@
 import org.springframework.boot.gradle.plugin.SpringBootPlugin
+import org.gradle.language.jvm.tasks.ProcessResources
 
 plugins {
     java
@@ -50,8 +51,22 @@ subprojects {
             ":rule-knowledge-service", ":character-management-service",
             ":dice-roll-service", ":combat-map-service",
             ":ai-game-master-service", ":app-all",
-        )) {
+    )) {
         apply(plugin = "org.springframework.boot")
+    }
+
+    if (path in setOf(
+            ":identity-access-service", ":adventure-service",
+            ":rule-knowledge-service", ":character-management-service",
+            ":dice-roll-service", ":combat-map-service",
+            ":ai-game-master-service",
+    )) {
+        tasks.named<ProcessResources>("processResources") {
+            from(layout.projectDirectory.dir("src/main/resources/db/migration")) {
+                include("**/*.sql")
+                into("db/migration/${project.name}")
+            }
+        }
     }
 
     dependencies {

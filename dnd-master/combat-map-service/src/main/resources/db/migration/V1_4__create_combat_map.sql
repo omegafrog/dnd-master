@@ -1,4 +1,4 @@
-CREATE TABLE combat_map(map_id UUID PRIMARY KEY,owner_player_id UUID NOT NULL,adventure_id UUID NOT NULL,rule_set_id UUID NOT NULL,grid_width INT NOT NULL,grid_height INT NOT NULL,cell_size INT NOT NULL,distance_unit INT NOT NULL,version BIGINT NOT NULL);
-CREATE TABLE combat_map_token(map_id UUID REFERENCES combat_map ON DELETE CASCADE,token_id UUID,token_type TEXT NOT NULL,x INT NOT NULL,y INT NOT NULL,controller TEXT NOT NULL,owner_player_id UUID,PRIMARY KEY(map_id,token_id));
-CREATE TABLE combat_map_obstacle(map_id UUID REFERENCES combat_map ON DELETE CASCADE,x INT,y INT,PRIMARY KEY(map_id,x,y));
-CREATE TABLE combat_map_layer(map_id UUID REFERENCES combat_map ON DELETE CASCADE,sequence INT,layer_type TEXT NOT NULL,layer_value TEXT NOT NULL,visibility TEXT NOT NULL CHECK(visibility IN('PLAYER_VISIBLE','AI_ONLY')),PRIMARY KEY(map_id,sequence));
+CREATE TABLE IF NOT EXISTS combat_map(map_id UUID PRIMARY KEY,owner_player_id UUID NOT NULL,adventure_id UUID NOT NULL,rule_set_id UUID NOT NULL,grid_width INT NOT NULL,grid_height INT NOT NULL,cell_size INT NOT NULL,distance_unit INT NOT NULL,version BIGINT NOT NULL);
+CREATE TABLE IF NOT EXISTS combat_map_token(map_id UUID REFERENCES combat_map ON DELETE CASCADE,token_id UUID,token_type TEXT NOT NULL,x INT NOT NULL,y INT NOT NULL,controller TEXT NOT NULL,owner_player_id UUID,PRIMARY KEY(map_id,token_id));
+CREATE TABLE IF NOT EXISTS combat_map_obstacle(map_id UUID REFERENCES combat_map ON DELETE CASCADE,x INT,y INT,PRIMARY KEY(map_id,x,y));
+CREATE TABLE IF NOT EXISTS combat_map_layer(map_id UUID REFERENCES combat_map ON DELETE CASCADE,sequence INT,layer_type TEXT NOT NULL,layer_value TEXT NOT NULL,visibility TEXT NOT NULL CHECK(visibility IN('PLAYER_VISIBLE','AI_ONLY')),PRIMARY KEY(map_id,sequence));

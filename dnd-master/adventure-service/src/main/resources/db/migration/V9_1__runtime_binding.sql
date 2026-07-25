@@ -1,4 +1,4 @@
-CREATE TABLE adventure_runtime_binding (
+CREATE TABLE IF NOT EXISTS adventure_runtime_binding (
     adventure_id UUID NOT NULL REFERENCES adventure(adventure_id) ON DELETE CASCADE,
     binding_version BIGINT NOT NULL CHECK (binding_version >= 1),
     owner_player_id UUID NOT NULL,
@@ -18,5 +18,5 @@ CREATE TABLE adventure_runtime_binding (
     PRIMARY KEY (adventure_id, binding_version)
 );
 
-CREATE INDEX adventure_runtime_binding_current_idx
+CREATE INDEX IF NOT EXISTS adventure_runtime_binding_current_idx
     ON adventure_runtime_binding (adventure_id, binding_version DESC);

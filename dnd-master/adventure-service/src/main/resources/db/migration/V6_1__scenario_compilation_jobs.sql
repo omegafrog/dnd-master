@@ -1,4 +1,4 @@
-CREATE TABLE scenario_compilation (
+CREATE TABLE IF NOT EXISTS scenario_compilation (
     compilation_id UUID PRIMARY KEY,
     bundle_id UUID NOT NULL REFERENCES scenario_source_bundle(bundle_id),
     bundle_revision BIGINT NOT NULL CHECK (bundle_revision >= 1),
@@ -11,10 +11,10 @@ CREATE TABLE scenario_compilation (
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE UNIQUE INDEX scenario_compilation_fingerprint_idx
+CREATE UNIQUE INDEX IF NOT EXISTS scenario_compilation_fingerprint_idx
     ON scenario_compilation(input_fingerprint);
 
-CREATE TABLE adventure_work_job (
+CREATE TABLE IF NOT EXISTS adventure_work_job (
     work_id UUID PRIMARY KEY,
     work_type TEXT NOT NULL,
     aggregate_id UUID NOT NULL,
@@ -28,5 +28,5 @@ CREATE TABLE adventure_work_job (
     failure_reason TEXT
 );
 
-CREATE INDEX adventure_work_job_pending_idx
+CREATE INDEX IF NOT EXISTS adventure_work_job_pending_idx
     ON adventure_work_job(status, lease_until);

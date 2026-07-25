@@ -1,4 +1,4 @@
-CREATE TABLE ai_operation (
+CREATE TABLE IF NOT EXISTS ai_operation (
     operation_id UUID PRIMARY KEY,
     operation_key TEXT NOT NULL UNIQUE,
     payload_hash TEXT NOT NULL,
@@ -11,7 +11,7 @@ CREATE TABLE ai_operation (
         OR (lease_owner IS NOT NULL AND lease_until IS NOT NULL))
 );
 
-CREATE INDEX ai_operation_worker_claim_idx
+CREATE INDEX IF NOT EXISTS ai_operation_worker_claim_idx
     ON ai_operation(status, lease_until) WHERE status IN ('PENDING', 'FAILED');
 
 COMMENT ON INDEX ai_operation_worker_claim_idx IS

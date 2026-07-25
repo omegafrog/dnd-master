@@ -65,7 +65,7 @@
       "source": "omegafrog/harness-codex",
       "sourceType": "github",
       "skillPath": ".codex/skills/implement/SKILL.md",
-      "computedHash": "c2ab11a7541478798d8192f5d331e8c4012e319f1b7823e0e84c8a776fde2173"
+      "computedHash": "a886c373393e61bffa86c7d996effb6e1f3dfd370f8a632688e7b3ea7d69507e"
     },
     "product-spec": {
       "source": "omegafrog/harness-codex",
@@ -95,7 +95,7 @@
       "source": "omegafrog/harness-codex",
       "sourceType": "github",
       "skillPath": ".codex/skills/to-ticket/SKILL.md",
-      "computedHash": "491ff3643c640c077eef4c62d8cf06d3922b1498a275fbc29a49f977a4120289"
+      "computedHash": "4af506b9ac0e60c71d954f08821679f3837ee50b7817dc13f9500234d5430a0e"
     }
   }
 }

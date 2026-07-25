@@ -1,6 +1,6 @@
 CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA public;
 
-CREATE TABLE rulebook_vector_index (
+CREATE TABLE IF NOT EXISTS rulebook_vector_index (
     index_id UUID PRIMARY KEY,
     rulebook_id UUID NOT NULL,
     owner_player_id UUID NOT NULL,
@@ -11,7 +11,7 @@ CREATE TABLE rulebook_vector_index (
     UNIQUE (rulebook_id, owner_player_id, embedding_model, index_version)
 );
 
-CREATE TABLE rulebook_vector_chunk (
+CREATE TABLE IF NOT EXISTS rulebook_vector_chunk (
     chunk_id UUID PRIMARY KEY,
     index_id UUID NOT NULL REFERENCES rulebook_vector_index(index_id) ON DELETE CASCADE,
     rulebook_id UUID NOT NULL,
@@ -23,5 +23,5 @@ CREATE TABLE rulebook_vector_chunk (
     UNIQUE (index_id, sequence)
 );
 
-CREATE INDEX rulebook_vector_chunk_owner_rulebook_idx
+CREATE INDEX IF NOT EXISTS rulebook_vector_chunk_owner_rulebook_idx
     ON rulebook_vector_chunk (owner_player_id, rulebook_id);

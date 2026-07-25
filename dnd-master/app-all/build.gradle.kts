@@ -6,6 +6,8 @@ springBoot {
 
 dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("org.flywaydb:flyway-core")
+    implementation("org.flywaydb:flyway-database-postgresql")
     implementation(project(":identity-access-service"))
     implementation(project(":adventure-service"))
     implementation(project(":rule-knowledge-service"))

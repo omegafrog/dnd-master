@@ -1,4 +1,4 @@
-CREATE TABLE scenario_resolution_override (
+CREATE TABLE IF NOT EXISTS scenario_resolution_override (
     override_id UUID PRIMARY KEY,
     bundle_id UUID NOT NULL REFERENCES scenario_source_bundle(bundle_id) ON DELETE CASCADE,
     owner_player_id UUID NOT NULL,
@@ -19,5 +19,5 @@ CREATE TABLE scenario_resolution_override (
     revision_history TEXT[] NOT NULL DEFAULT '{}'
 );
 
-CREATE INDEX scenario_resolution_override_bundle_idx
+CREATE INDEX IF NOT EXISTS scenario_resolution_override_bundle_idx
     ON scenario_resolution_override(bundle_id, anchor_fingerprint);

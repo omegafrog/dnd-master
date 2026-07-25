@@ -1,4 +1,4 @@
-CREATE TABLE rulebook_registration (
+CREATE TABLE IF NOT EXISTS rulebook_registration (
     rulebook_id UUID PRIMARY KEY,
     owner_player_id UUID NOT NULL,
     operation_key TEXT NOT NULL,
@@ -16,11 +16,11 @@ CREATE TABLE rulebook_registration (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX rulebook_registration_operation_key_uq
+CREATE UNIQUE INDEX IF NOT EXISTS rulebook_registration_operation_key_uq
     ON rulebook_registration(operation_key);
 
-CREATE UNIQUE INDEX rulebook_registration_owner_content_hash_uq
+CREATE UNIQUE INDEX IF NOT EXISTS rulebook_registration_owner_content_hash_uq
     ON rulebook_registration(owner_player_id, content_hash);
 
-CREATE INDEX rulebook_registration_owner_idx
+CREATE INDEX IF NOT EXISTS rulebook_registration_owner_idx
     ON rulebook_registration(owner_player_id);
