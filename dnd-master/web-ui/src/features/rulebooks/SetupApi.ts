@@ -434,6 +434,7 @@ export class HttpSetupApi implements SetupApi {
   }
 
   bindRuntimeBinding(adventureId: string, _ownerId: string, draft: RuntimeBindingDraft) {
+    void _ownerId
     return request<RuntimeBindingView>(`/api/v1/adventures/${adventureId}/runtime-bindings`, {
       method: 'POST',
       headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
@@ -442,6 +443,7 @@ export class HttpSetupApi implements SetupApi {
   }
 
   getRuntimeBinding(adventureId: string, _ownerId: string) {
+    void _ownerId
     return request<RuntimeBindingView>(`/api/v1/adventures/${adventureId}/runtime-bindings`, {
       headers: this.authHeaders(),
     }, '런타임 바인딩을 불러오지 못했습니다.')
