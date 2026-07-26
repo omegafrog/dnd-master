@@ -13,6 +13,20 @@ import org.junit.jupiter.api.Test;
 
 class CharacterSheetApplicationServiceTest {
     @Test
+    void rejects_initial_attribute_change_when_session_policy_freezes_it() {
+        InMemoryRepository repository = new InMemoryRepository();
+        AdventureId adventureId = new AdventureId(UUID.randomUUID());
+        CharacterSheetApplicationService service = new CharacterSheetApplicationService(
+                repository, id -> SheetEdition.DND_5E_2024,
+                id -> new SessionCharacterPolicy(true, false, false));
+        CharacterSheet sheet = service.createSheet(new CreateCharacterSheetCommand(adventureId, SheetEdition.DND_5E_2024,
+                new CharacterSheetData2024("Aria", 1, false)));
+
+        assertThrows(IllegalStateException.class, () -> service.manageCharacter(sheet.id(), new CharacterSheetUpdate(
+                SheetEdition.DND_5E_2024, new CharacterSheetData2024("Borin", 1, false),
+                InputMode.STRUCTURED_SHEET, UUID.randomUUID(), 0)));
+    }
+    @Test
     void supportsDedicatedDataFor2014And2024Editions() {
         assertCreates(
                 SheetEdition.DND_5E_2014,

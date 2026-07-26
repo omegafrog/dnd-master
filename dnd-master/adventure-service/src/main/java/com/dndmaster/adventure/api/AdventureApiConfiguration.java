@@ -10,6 +10,7 @@ import com.dndmaster.adventure.application.scenario.preparation.RuntimeOptionCat
 import com.dndmaster.adventure.application.scenario.preparation.ScenarioPreparationApplicationService;
 import com.dndmaster.adventure.application.scenario.preparation.StaticRuntimeOptionCatalog;
 import com.dndmaster.adventure.application.saved.*;
+import com.dndmaster.adventure.application.session.*;
 import com.dndmaster.adventure.application.scenario.*;
 import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
@@ -24,6 +25,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeBinding
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresWorkQueueAdapter;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureSessionRepository;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpKnowledgeDocumentLookupGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpPlayerSessionLookupGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpLegacyScenarioIngestionGateway;
@@ -52,6 +54,18 @@ public class AdventureApiConfiguration {
     @Bean
     AdventureRepository adventureRepository(DataSource dataSource) {
         return new PostgresAdventureRepository(dataSource);
+    }
+
+    @Bean
+    AdventureSessionRepository adventureSessionRepository(DataSource dataSource) {
+        return new PostgresAdventureSessionRepository(dataSource);
+    }
+
+    @Bean
+    AdventureSessionApplicationService adventureSessionApplicationService(
+            AdventureSessionRepository repository,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository) {
+        return new AdventureSessionApplicationService(repository, packageRepository);
     }
 
     @Bean

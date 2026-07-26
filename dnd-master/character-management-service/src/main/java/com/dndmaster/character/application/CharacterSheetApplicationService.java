@@ -6,15 +6,26 @@ import java.util.Objects;
 public final class CharacterSheetApplicationService {
     private final CharacterSheetRepository repository;
     private final AdventureEditionHttpPort adventureEditionHttpPort;
+    private final SessionCharacterPolicyPort sessionPolicyPort;
 
     public CharacterSheetApplicationService(
             CharacterSheetRepository repository, AdventureEditionHttpPort adventureEditionHttpPort) {
+        this(repository, adventureEditionHttpPort, ignored -> SessionCharacterPolicy.draft());
+    }
+
+    public CharacterSheetApplicationService(
+            CharacterSheetRepository repository, AdventureEditionHttpPort adventureEditionHttpPort,
+            SessionCharacterPolicyPort sessionPolicyPort) {
         this.repository = Objects.requireNonNull(repository, "repository must not be null");
         this.adventureEditionHttpPort = Objects.requireNonNull(adventureEditionHttpPort, "edition HTTP port must not be null");
+        this.sessionPolicyPort = Objects.requireNonNull(sessionPolicyPort, "session policy port must not be null");
     }
 
     public CharacterSheet createSheet(CreateCharacterSheetCommand command) {
         Objects.requireNonNull(command, "command must not be null");
+        if (!sessionPolicyPort.policyFor(command.adventureId()).acceptingCharacterSheets()) {
+            throw new IllegalStateException("adventure session no longer accepts character sheets");
+        }
         SheetEdition applied = adventureEditionHttpPort.getAppliedEdition(command.adventureId());
         var sheet = new CharacterSheet(
                 CharacterSheetId.generate(), command.adventureId(), command.requestedEdition(), command.data());
@@ -39,10 +50,17 @@ public final class CharacterSheetApplicationService {
             return replay;
         }
         CharacterSheet sheet = load(id);
+        SessionCharacterPolicy policy = sessionPolicyPort.policyFor(sheet.adventureId());
         SheetEdition applied = adventureEditionHttpPort.getAppliedEdition(sheet.adventureId());
         sheet.authorizeOpen(new CharacterSheetOpenRequest(sheet.adventureId(), applied, update.edition()));
         if (sheet.version() != update.expectedVersion()) {
             throw new IllegalStateException("character sheet version does not match");
+        }
+        if (!policy.nameMutable() && !sheet.data().characterName().equals(update.data().characterName())) {
+            throw new IllegalStateException("character name is fixed for this adventure session");
+        }
+        if (!policy.levelMutable() && sheet.data().level() != update.data().level()) {
+            throw new IllegalStateException("character level is fixed for this adventure session");
         }
         sheet.applyUpdate(update);
         repository.save(sheet, update.expectedVersion() + 1, update.commandId(), update.fingerprint());
