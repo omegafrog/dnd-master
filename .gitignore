@@ -33,8 +33,12 @@ Thumbs.db
 .claude/
 **/bin/**
 plans.md
-**/plans/**
+**/docs/plans/**
 **/specs/**
 .gradle/**
 dnd-master/docs/specs/**
 skills-lock.json
+docs/plans/plans.md
+
+# Generated Graphify knowledge graph
+/graphify-out/

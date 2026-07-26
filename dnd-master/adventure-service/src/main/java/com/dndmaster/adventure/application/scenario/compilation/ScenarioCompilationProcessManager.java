@@ -5,9 +5,12 @@ import com.dndmaster.adventure.domain.scenario.ScenarioCompilation;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class ScenarioCompilationProcessManager {
     private static final String WORK_TYPE = "SCENARIO_RESOLUTION_CANDIDATE_EXTRACTION";
+    private static final Logger log = LoggerFactory.getLogger(ScenarioCompilationProcessManager.class);
     private final ScenarioCompilationRepository repository;
     private final WorkQueuePort queue;
 
@@ -18,11 +21,17 @@ public final class ScenarioCompilationProcessManager {
 
     public ScenarioCompilation start(ScenarioBundleId bundleId, long bundleRevision, String inputFingerprint) {
         var existing = repository.findByInputFingerprint(inputFingerprint);
-        if (existing.isPresent()) return existing.get();
+        if (existing.isPresent()) {
+            log.info("scenario compilation reuse bundleId={} revision={} inputFingerprint={} compilationId={}",
+                    bundleId.value(), bundleRevision, inputFingerprint, existing.get().id());
+            return existing.get();
+        }
         ScenarioCompilation compilation = ScenarioCompilation.request(bundleId, bundleRevision, inputFingerprint);
         repository.save(compilation);
         queue.enqueue(new WorkEnvelope(
                 UUID.randomUUID(), WORK_TYPE, compilation.id(), bundleRevision, inputFingerprint, 0));
+        log.info("scenario compilation queued bundleId={} revision={} inputFingerprint={} compilationId={}",
+                bundleId.value(), bundleRevision, inputFingerprint, compilation.id());
         return compilation;
     }
 
@@ -32,6 +41,8 @@ public final class ScenarioCompilationProcessManager {
         if (!repository.saveIfLeaseMatches(claimed, compilation.leaseToken())) {
             throw new IllegalStateException("compilation lease was superseded");
         }
+        log.info("scenario compilation claimed compilationId={} attempt={} deliveryToken={}",
+                claimed.id(), claimed.attempt(), delivery.deliveryToken());
         return claimed;
     }
 
@@ -40,6 +51,8 @@ public final class ScenarioCompilationProcessManager {
         ScenarioCompilation waiting = current.retry(delivery.deliveryToken(), reason);
         saveOwned(waiting, delivery);
         queue.retry(delivery, reason);
+        log.info("scenario compilation retry compilationId={} attempt={} reason={}",
+                current.id(), waiting.attempt(), reason);
         return waiting;
     }
 
@@ -48,6 +61,7 @@ public final class ScenarioCompilationProcessManager {
         ScenarioCompilation published = current.publish(delivery.deliveryToken(), packageId);
         saveOwned(published, delivery);
         queue.acknowledge(delivery);
+        log.info("scenario compilation published compilationId={} packageId={}", current.id(), packageId);
         return published;
     }
 
@@ -56,6 +70,7 @@ public final class ScenarioCompilationProcessManager {
         ScenarioCompilation failed = current.fail(delivery.deliveryToken(), reason);
         saveOwned(failed, delivery);
         queue.acknowledge(delivery);
+        log.info("scenario compilation failed compilationId={} reason={}", current.id(), reason);
         return failed;
     }
 

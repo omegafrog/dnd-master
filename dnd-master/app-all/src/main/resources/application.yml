@@ -1,6 +1,15 @@
 server:
   port: 8080
 
+adventure:
+  integration:
+    identity-access:
+      base-url: ${IDENTITY_ACCESS_BASE_URL:http://127.0.0.1:8080/}
+    rule-knowledge:
+      base-url: ${RULE_KNOWLEDGE_BASE_URL:http://127.0.0.1:8080/}
+    ai-game-master:
+      base-url: ${AI_GAME_MASTER_BASE_URL:http://127.0.0.1:8080/}
+
 spring:
   datasource:
     url: jdbc:postgresql://127.0.0.1:5432/postgres

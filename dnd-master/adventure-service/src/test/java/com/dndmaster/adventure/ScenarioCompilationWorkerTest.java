@@ -45,6 +45,28 @@ class ScenarioCompilationWorkerTest {
     }
 
     @Test
+    void scheduledWorkerProcessesRequestedJob() {
+        ScenarioBundleId bundleId = new ScenarioBundleId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = ScenarioSourceBundle.create(bundleId, new OwnerPlayerId(UUID.randomUUID()),
+                new ScenarioSourceBundleRevision(1, List.of(new ScenarioBundleDocumentSelection(
+                        new KnowledgeDocumentId(UUID.randomUUID()), ScenarioBundleDocumentRole.MAIN_SCENARIO,
+                        com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus.INDEXED,
+                        "scenario.pdf", "STORYBOOK", 1))));
+        InMemoryQueue queue = new InMemoryQueue();
+        InMemoryCompilationRepository compilations = new InMemoryCompilationRepository();
+        InMemoryPackageRepository packages = new InMemoryPackageRepository();
+        ScenarioCompilationProcessManager manager = new ScenarioCompilationProcessManager(compilations, queue);
+        manager.start(bundleId, 1, "scheduled-fp");
+        ScenarioCompilationWorker worker = new ScenarioCompilationWorker(
+                manager, compilations, queue, new InMemoryBundleRepository(bundle),
+                request -> List.of(), ignored -> List.of(), new ScenarioPackageCompilationService(packages), packages);
+
+        worker.processQueuedCompilations();
+
+        assertEquals("PUBLISHED", compilations.findByInputFingerprint("scheduled-fp").orElseThrow().status().name());
+    }
+
+    @Test
     void workerMarksPermanentFailureAfterThirdAttempt() {
         ScenarioBundleId bundleId = new ScenarioBundleId(UUID.randomUUID());
         ScenarioSourceBundle bundle = ScenarioSourceBundle.create(bundleId, new OwnerPlayerId(UUID.randomUUID()),

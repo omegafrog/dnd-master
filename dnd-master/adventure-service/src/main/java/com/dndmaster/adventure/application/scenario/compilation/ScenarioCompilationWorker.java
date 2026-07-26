@@ -7,10 +7,16 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.scheduling.annotation.Scheduled;
 
 /** Executes one queued scenario compilation delivery. */
 public final class ScenarioCompilationWorker {
     private static final int MAX_ATTEMPTS = 3;
+    private static final String WORKER_ID = "scenario-compilation-worker";
+    private static final Duration LEASE = Duration.ofMinutes(5);
+    private static final Logger log = LoggerFactory.getLogger(ScenarioCompilationWorker.class);
     private final ScenarioCompilationProcessManager processManager;
     private final ScenarioCompilationRepository compilationRepository;
     private final WorkQueuePort queue;
@@ -38,6 +44,15 @@ public final class ScenarioCompilationWorker {
         Objects.requireNonNull(ignoredPackageRepository, "package repository must not be null");
     }
 
+    @Scheduled(fixedDelayString = "${adventure.scenario-compilation.poll-delay-ms:1000}")
+    public void processQueuedCompilations() {
+        try {
+            processNext(WORKER_ID, LEASE);
+        } catch (RuntimeException exception) {
+            log.warn("scenario compilation worker delivery failed", exception);
+        }
+    }
+
     public Optional<ScenarioPackage> processNext(String workerId, Duration lease) {
         WorkQueuePort.Delivery delivery = queue.claim(
                 Objects.requireNonNull(workerId, "worker id must not be null"),
@@ -47,6 +62,8 @@ public final class ScenarioCompilationWorker {
 
         var compilation = compilationRepository.findById(delivery.work().aggregateId())
                 .orElseThrow(() -> new IllegalStateException("compilation not found"));
+        log.info("scenario compilation worker claimed work workerId={} compilationId={} attempt={} bundleId={}",
+                workerId, compilation.id(), compilation.attempt(), compilation.bundleId());
         var claimed = processManager.claim(delivery);
         try {
             ScenarioSourceBundle bundle = bundleRepository.findById(claimed.bundleId())
@@ -59,6 +76,8 @@ public final class ScenarioCompilationWorker {
             ScenarioPackage scenarioPackage = compiler.compile(bundle, candidates == null ? List.of() : candidates,
                     excerpts == null ? List.of() : excerpts);
             processManager.publish(claimed, delivery, scenarioPackage.packageId());
+            log.info("scenario compilation worker published compilationId={} packageId={}",
+                    claimed.id(), scenarioPackage.packageId());
             return Optional.of(scenarioPackage);
         } catch (RuntimeException exception) {
             String reason = exception.getMessage() == null || exception.getMessage().isBlank()
@@ -68,6 +87,8 @@ public final class ScenarioCompilationWorker {
             } else {
                 processManager.retry(claimed, delivery, reason);
             }
+            log.warn("scenario compilation worker failed compilationId={} attempt={} reason={}",
+                    claimed.id(), claimed.attempt(), reason, exception);
             throw exception;
         }
     }

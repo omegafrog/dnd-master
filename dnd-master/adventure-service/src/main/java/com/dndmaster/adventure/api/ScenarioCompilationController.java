@@ -15,6 +15,8 @@ import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import java.util.List;
 import java.util.UUID;
 import java.time.Instant;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -28,6 +30,7 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 @RequestMapping("/api/v1/adventures")
 public class ScenarioCompilationController {
+    private static final Logger log = LoggerFactory.getLogger(ScenarioCompilationController.class);
     private final ScenarioCompilationApplicationService service;
     private final AuthenticatedPlayerResolver playerResolver;
 
@@ -43,6 +46,7 @@ public class ScenarioCompilationController {
             @PathVariable UUID bundleId,
             @RequestBody CompilationRequest request) {
         OwnerPlayerId owner = new OwnerPlayerId(playerResolver.playerId());
+        log.info("scenario compile request bundleId={} owner={}", bundleId, owner.value());
         if (!owner.value().equals(request.playerId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "playerId must match Authorization");
         }
@@ -69,6 +73,8 @@ public class ScenarioCompilationController {
             @PathVariable UUID bundleId,
             @RequestBody CompilationJobRequest request) {
         OwnerPlayerId owner = new OwnerPlayerId(playerResolver.playerId());
+        log.info("scenario compilation start request bundleId={} owner={} inputFingerprint={}",
+                bundleId, owner.value(), request.inputFingerprint());
         if (!owner.value().equals(request.playerId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "playerId must match Authorization");
         }
@@ -78,8 +84,11 @@ public class ScenarioCompilationController {
     @GetMapping("/compilations/{compilationId}")
     CompilationResponse readJob(
             @PathVariable UUID compilationId) {
-        return CompilationResponse.from(service.readCompilation(
-                compilationId, new OwnerPlayerId(playerResolver.playerId())));
+        OwnerPlayerId owner = new OwnerPlayerId(playerResolver.playerId());
+        var compilation = service.readCompilation(compilationId, owner);
+        log.info("scenario compilation poll compilationId={} owner={} status={} attempt={} packageId={}",
+                compilationId, owner.value(), compilation.status(), compilation.attempt(), compilation.packageId());
+        return CompilationResponse.from(compilation);
     }
 
     private static ResolutionCandidate candidate(CandidateRequest candidate) {

@@ -10,8 +10,11 @@ import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class ScenarioCompilationApplicationService {
+    private static final Logger log = LoggerFactory.getLogger(ScenarioCompilationApplicationService.class);
     private final ScenarioBundleRepository bundleRepository;
     private final ScenarioPackageCompilationService compiler;
     private final ScenarioPackageRepository packageRepository;
@@ -53,7 +56,9 @@ public final class ScenarioCompilationApplicationService {
         ScenarioSourceBundle bundle = bundleRepository.findById(bundleId)
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         bundle.authorize(owner);
-        return compiler.compile(bundle, candidates, excerptPort.load(bundle), overrideRepository.findByBundleId(bundleId));
+        int candidateCount = candidates == null ? 0 : candidates.size();
+        log.info("scenario package compile bundleId={} owner={} candidates={}", bundleId.value(), owner.value(), candidateCount);
+        return compiler.compile(bundle, candidates == null ? List.of() : candidates, excerptPort.load(bundle), overrideRepository.findByBundleId(bundleId));
     }
 
     public ScenarioPackage compile(
@@ -65,13 +70,17 @@ public final class ScenarioCompilationApplicationService {
         if (overrides != null && !overrides.isEmpty()) {
             overrideRepository.saveAll(overrides);
         }
-        return compiler.compile(bundle, candidates, excerptPort.load(bundle), overrideRepository.findByBundleId(bundleId));
+        int candidateCount = candidates == null ? 0 : candidates.size();
+        log.info("scenario package compile bundleId={} owner={} candidates={} overrides={}",
+                bundleId.value(), owner.value(), candidateCount, overrides == null ? 0 : overrides.size());
+        return compiler.compile(bundle, candidates == null ? List.of() : candidates, excerptPort.load(bundle), overrideRepository.findByBundleId(bundleId));
     }
 
     public ScenarioPackage compile(ScenarioBundleId bundleId, OwnerPlayerId owner) {
         ScenarioSourceBundle bundle = bundleRepository.findById(bundleId)
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         bundle.authorize(owner);
+        log.info("scenario package compile bundleId={} owner={} candidates=0", bundleId.value(), owner.value());
         return compiler.compile(bundle, List.of(), excerptPort.load(bundle), overrideRepository.findByBundleId(bundleId));
     }
 
@@ -81,6 +90,7 @@ public final class ScenarioCompilationApplicationService {
         ScenarioSourceBundle bundle = bundleRepository.findById(scenarioPackage.bundleId())
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         bundle.authorize(owner);
+        log.info("scenario package read packageId={} owner={}", packageId, owner.value());
         return scenarioPackage;
     }
 
@@ -89,6 +99,8 @@ public final class ScenarioCompilationApplicationService {
         ScenarioSourceBundle bundle = bundleRepository.findById(bundleId)
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         bundle.authorize(owner);
+        log.info("scenario compilation enqueue bundleId={} owner={} revision={} inputFingerprint={}",
+                bundleId.value(), owner.value(), bundle.currentRevision().revision(), inputFingerprint);
         return processManager.start(bundleId, bundle.currentRevision().revision(), inputFingerprint);
     }
 
@@ -99,6 +111,8 @@ public final class ScenarioCompilationApplicationService {
         ScenarioSourceBundle bundle = bundleRepository.findById(compilation.bundleId())
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         bundle.authorize(owner);
+        log.info("scenario compilation read compilationId={} owner={} status={} attempt={} packageId={}",
+                compilationId, owner.value(), compilation.status(), compilation.attempt(), compilation.packageId());
         return compilation;
     }
 }
