@@ -4,7 +4,7 @@ export interface AdventureApi {
     message: string,
     command?: { turnId: string; commandId: string },
   ): Promise<AdventureMessageResponse>
-  runAgentTurn?(adventureId: string, turnIndex: number): Promise<AdventureMessageResponse>
+  runAgentTurn?(adventureId: string, expectedVersion: number): Promise<AdventureMessageResponse>
 }
 
 export interface AdventureMessageResponse {
@@ -14,6 +14,8 @@ export interface AdventureMessageResponse {
   sourceRefs: string[]
   warnings: string[]
   version: number
+  nextTurnIndex?: number
+  nextControlMode?: 'DIRECT' | 'AGENT'
 }
 
 export class HttpAdventureApi implements AdventureApi {
@@ -48,11 +50,11 @@ export class HttpAdventureApi implements AdventureApi {
     return response.json() as Promise<AdventureMessageResponse>
   }
 
-  async runAgentTurn(adventureId: string, turnIndex: number): Promise<AdventureMessageResponse> {
+  async runAgentTurn(adventureId: string, expectedVersion: number): Promise<AdventureMessageResponse> {
     const response = await fetch(`/api/v1/adventures/${adventureId}/agent-turns`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.getToken()}` },
-      body: JSON.stringify({ playerId: this.getPlayerId(), turnIndex }),
+      body: JSON.stringify({ playerId: this.getPlayerId(), expectedVersion }),
     })
     if (!response.ok) throw new Error('에이전트 턴을 실행하지 못했습니다.')
     return response.json() as Promise<AdventureMessageResponse>

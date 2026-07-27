@@ -3,6 +3,7 @@ package com.dndmaster.adventure.domain.adventure;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
 
 public final class Adventure {
     private final AdventureId id;
@@ -15,11 +16,13 @@ public final class Adventure {
     private AdventureContext currentContext;
     private AdventureStatus status;
     private long version;
+    private int turnIndex;
+    private String lastTurnKey;
 
     private Adventure(
             AdventureId id, SessionId sessionId, OwnerPlayerId ownerPlayerId, ScenarioId scenarioId,
             RuleSetId ruleSetId, List<AdventurePartyMember> party, List<ConversationEntry> conversation,
-            AdventureContext currentContext, AdventureStatus status, long version) {
+            AdventureContext currentContext, AdventureStatus status, long version, int turnIndex, String lastTurnKey) {
         this.id = Objects.requireNonNull(id, "adventure id must not be null");
         this.sessionId = Objects.requireNonNull(sessionId, "session id must not be null");
         this.ownerPlayerId = Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
@@ -32,6 +35,9 @@ public final class Adventure {
         this.status = Objects.requireNonNull(status, "status must not be null");
         if (version < 0) throw new IllegalArgumentException("version must not be negative");
         this.version = version;
+        if (turnIndex < 0 || turnIndex >= this.party.size()) throw new IllegalArgumentException("turn index out of range");
+        this.turnIndex = turnIndex;
+        this.lastTurnKey = lastTurnKey;
     }
 
     public static Adventure create(
@@ -39,18 +45,24 @@ public final class Adventure {
             RuleSetId ruleSetId, CharacterSheetId characterSheetId, AdventureContext context) {
         return new Adventure(id, sessionId, ownerPlayerId, scenarioId, ruleSetId,
                 List.of(new AdventurePartyMember(characterSheetId, ControlMode.DIRECT, true, true, true, true, true, true)),
-                List.of(), context, AdventureStatus.SAVED, 0);
+                List.of(), context, AdventureStatus.SAVED, 0, 0, null);
     }
     public static Adventure create(AdventureId id, SessionId sessionId, OwnerPlayerId ownerPlayerId, ScenarioId scenarioId, RuleSetId ruleSetId, List<AdventurePartyMember> party, AdventureContext context) {
         if (party == null || party.isEmpty()) throw new IllegalArgumentException("party must not be empty");
-        return new Adventure(id, sessionId, ownerPlayerId, scenarioId, ruleSetId, party, List.of(), context, AdventureStatus.SAVED, 0);
+        return new Adventure(id, sessionId, ownerPlayerId, scenarioId, ruleSetId, party, List.of(), context, AdventureStatus.SAVED, 0, 0, null);
     }
 
     public static Adventure rehydrate(
             AdventureId id, SessionId sessionId, OwnerPlayerId ownerPlayerId, ScenarioId scenarioId,
             RuleSetId ruleSetId, List<AdventurePartyMember> party, List<ConversationEntry> conversation,
             AdventureContext context, AdventureStatus status, long version) {
-        return new Adventure(id, sessionId, ownerPlayerId, scenarioId, ruleSetId, party, conversation, context, status, version);
+        return rehydrate(id, sessionId, ownerPlayerId, scenarioId, ruleSetId, party, conversation, context, status, version, 0, null);
+    }
+    public static Adventure rehydrate(
+            AdventureId id, SessionId sessionId, OwnerPlayerId ownerPlayerId, ScenarioId scenarioId,
+            RuleSetId ruleSetId, List<AdventurePartyMember> party, List<ConversationEntry> conversation,
+            AdventureContext context, AdventureStatus status, long version, int turnIndex, String lastTurnKey) {
+        return new Adventure(id, sessionId, ownerPlayerId, scenarioId, ruleSetId, party, conversation, context, status, version, turnIndex, lastTurnKey);
     }
     public void preserveProgress(
             OwnerPlayerId requestingOwner, long expectedVersion,
@@ -63,6 +75,17 @@ public final class Adventure {
     }
 
     public void reopen(OwnerPlayerId requestingOwner) { authorizeSaved(requestingOwner); }
+
+    public void advanceTurn(OwnerPlayerId requestingOwner, int expectedTurnIndex, CharacterSheetId characterSheetId, UUID turnId) {
+        authorizeSaved(requestingOwner);
+        String key = sessionId.value() + ":" + turnId + ":" + characterSheetId.value();
+        if (key.equals(lastTurnKey)) return;
+        if (turnIndex != expectedTurnIndex) throw new IllegalStateException("adventure turn cursor does not match");
+        if (!party.get(turnIndex).characterSheetId().equals(characterSheetId)) throw new IllegalStateException("character is not current turn owner");
+        turnIndex = (turnIndex + 1) % party.size();
+        lastTurnKey = key;
+        version++;
+    }
 
     public void delete(OwnerPlayerId requestingOwner, long expectedVersion) {
         authorizeSaved(requestingOwner);
@@ -104,4 +127,6 @@ public final class Adventure {
     public AdventureContext currentContext() { return currentContext; }
     public AdventureStatus status() { return status; }
     public long version() { return version; }
+    public int turnIndex() { return turnIndex; }
+    public String lastTurnKey() { return lastTurnKey; }
 }

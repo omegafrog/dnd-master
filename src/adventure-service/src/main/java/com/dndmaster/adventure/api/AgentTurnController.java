@@ -19,29 +19,36 @@ import org.springframework.web.bind.annotation.RestController;
 public final class AgentTurnController {
     private final AdventureRepository adventureRepository;
     private final AgentTurnApplicationService agentTurnService;
+    private final AuthenticatedPlayerResolver playerResolver;
 
-    public AgentTurnController(AdventureRepository adventureRepository, AgentTurnApplicationService agentTurnService) {
+    public AgentTurnController(AdventureRepository adventureRepository, AgentTurnApplicationService agentTurnService, AuthenticatedPlayerResolver playerResolver) {
         this.adventureRepository = adventureRepository;
         this.agentTurnService = agentTurnService;
+        this.playerResolver = playerResolver;
     }
 
     @PostMapping("/{adventureId}/agent-turns")
     AgentTurnResponse run(@PathVariable UUID adventureId, @RequestBody AgentTurnRequest request) {
         var adventure = adventureRepository.findById(new AdventureId(adventureId))
                 .orElseThrow(() -> new IllegalStateException("adventure not found"));
+        UUID authenticatedPlayer = playerResolver.playerId();
+        if (!authenticatedPlayer.equals(request.playerId())) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "player mismatch");
         var result = agentTurnService.runAgentTurn(
-                adventure, new OwnerPlayerId(request.playerId()), new TurnCursor(adventure.party(), request.turnIndex()));
-        return AgentTurnResponse.from(result.result());
+                adventure, new OwnerPlayerId(authenticatedPlayer), new TurnCursor(adventure.party(), adventure.turnIndex()), request.expectedVersion());
+        return AgentTurnResponse.from(result);
     }
 
-    public record AgentTurnRequest(UUID playerId, int turnIndex) {}
+    public record AgentTurnRequest(UUID playerId, long expectedVersion) {}
 
     public record AgentTurnResponse(UUID turnId, UUID adventureId, String narration, String judgment,
-                                    String currentScene, List<String> sourceRefs, List<String> warnings, long version) {
-        static AgentTurnResponse from(RuntimeTurnResult result) {
-            return new AgentTurnResponse(result.turn().turnId(), result.turn().adventureId().value(),
-                    result.turn().plan().narration(), result.turn().plan().judgment(), result.context().currentScene(),
-                    result.turn().citations(), result.turn().warnings(), result.version());
+                                    String currentScene, List<String> sourceRefs, List<String> warnings, long version,
+                                    int nextTurnIndex, String nextControlMode) {
+        static AgentTurnResponse from(AgentTurnApplicationService.AgentTurnResult result) {
+            RuntimeTurnResult runtime = result.result();
+            return new AgentTurnResponse(runtime.turn().turnId(), runtime.turn().adventureId().value(),
+                    runtime.turn().plan().narration(), runtime.turn().plan().judgment(), runtime.context().currentScene(),
+                    runtime.turn().citations(), runtime.turn().warnings(), runtime.version(), result.nextCursor().index(),
+                    result.nextCursor().current().controlMode().name());
         }
     }
 }

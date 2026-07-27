@@ -1,11 +1,11 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import type { AdventureApi } from './AdventureApi'
 
-export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', turnIndex = 0 }: { adventureId: string; api: AdventureApi; controlMode?: 'DIRECT' | 'AGENT'; turnIndex?: number }) {
+export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expectedVersion = 0 }: { adventureId: string; api: AdventureApi; controlMode?: 'DIRECT' | 'AGENT'; expectedVersion?: number }) {
   const [messages, setMessages] = useState<{ speaker: string; text: string }[]>([])
   const [notice, setNotice] = useState('')
   const [sending, setSending] = useState(false)
-  const [agentTurnIndex, setAgentTurnIndex] = useState(turnIndex)
+  const [agentVersion, setAgentVersion] = useState(expectedVersion)
   const [activeControlMode, setActiveControlMode] = useState(controlMode)
   const previousControlMode = useRef(controlMode)
 
@@ -20,16 +20,16 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', turn
     if (activeControlMode !== 'AGENT' || !api.runAgentTurn) return
     let cancelled = false
     setSending(true)
-    void api.runAgentTurn(adventureId, agentTurnIndex).then(response => {
+    void api.runAgentTurn(adventureId, agentVersion).then(response => {
       if (cancelled) return
       setMessages(current => [...current, { speaker: '에이전트 캐릭터', text: response.narration }])
-      setAgentTurnIndex(current => current + 1)
-      setActiveControlMode('DIRECT')
+      setAgentVersion(response.version)
+      setActiveControlMode(response.nextControlMode ?? 'DIRECT')
     }).catch(() => {
       if (!cancelled) setNotice('에이전트 턴을 실행하지 못했습니다.')
     }).finally(() => { if (!cancelled) setSending(false) })
     return () => { cancelled = true }
-  }, [adventureId, agentTurnIndex, activeControlMode, api])
+  }, [adventureId, agentVersion, activeControlMode, api])
 
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()

@@ -49,6 +49,9 @@ public final class RuntimeTurnApplicationService {
         Adventure adventure = adventureRepository.findById(command.adventureId())
                 .orElseThrow(() -> new IllegalStateException("adventure not found"));
         adventure.reopen(command.ownerPlayerId());
+        if (command.expectedVersion() >= 0 && adventure.version() != command.expectedVersion()) {
+            throw new IllegalStateException("adventure version does not match");
+        }
         RuntimeTurn existing = runtimeTurnRepository.findByCommandId(command.commandId()).orElse(null);
         if (existing != null) {
             if (!existing.turnId().equals(command.turnId())
@@ -107,7 +110,7 @@ public final class RuntimeTurnApplicationService {
         Adventure progressed = Adventure.rehydrate(
                 adventure.id(), adventure.sessionId(), adventure.ownerPlayerId(), adventure.scenarioId(),
                 adventure.ruleSetId(), adventure.party(), adventure.conversation(), adventure.currentContext(),
-                adventure.status(), adventure.version());
+                adventure.status(), adventure.version(), adventure.turnIndex(), adventure.lastTurnKey());
         progressed.preserveProgress(command.ownerPlayerId(), adventure.version(), nextContext, conversation);
         adventureRepository.save(progressed);
 
@@ -124,7 +127,7 @@ public final class RuntimeTurnApplicationService {
             Adventure progressed = Adventure.rehydrate(
                     adventure.id(), adventure.sessionId(), adventure.ownerPlayerId(), adventure.scenarioId(),
                     adventure.ruleSetId(), adventure.party(), adventure.conversation(), adventure.currentContext(),
-                    adventure.status(), adventure.version());
+                    adventure.status(), adventure.version(), adventure.turnIndex(), adventure.lastTurnKey());
             progressed.preserveProgress(command.ownerPlayerId(), adventure.version(), existing.context(), existing.conversation());
             adventureRepository.save(progressed);
         }

@@ -522,8 +522,9 @@ public class AdventureApiConfiguration {
     AgentTurnApplicationService agentTurnApplicationService(
             CharacterSheetReadPort characterSheetReadPort,
             AgentActionCandidatePort agentActionCandidatePort,
-            RuntimeTurnApplicationService runtimeTurnApplicationService) {
-        return new AgentTurnApplicationService(characterSheetReadPort, agentActionCandidatePort, runtimeTurnApplicationService);
+            RuntimeTurnApplicationService runtimeTurnApplicationService,
+            AdventureRepository adventureRepository) {
+        return new AgentTurnApplicationService(characterSheetReadPort, agentActionCandidatePort, runtimeTurnApplicationService, adventureRepository);
     }
 
     @Bean

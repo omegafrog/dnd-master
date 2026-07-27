@@ -60,6 +60,25 @@ import org.junit.jupiter.api.Test;
 
 class RuntimeTurnApplicationServiceTest {
     @Test
+    void rejects_stale_expected_version_before_planning_or_persistence() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId storyId = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(storyId, rulebookId);
+        InMemoryAdventureRepository adventures = new InMemoryAdventureRepository(adventure);
+        InMemoryBindingRepository bindings = new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId()));
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
+                adventures, bindings, new InMemoryPackageRepository(scenarioPackage), new InMemoryRuntimeTurnRepository(),
+                new RecordingEvidenceSearchPort(storyId, rulebookId), request -> { throw new AssertionError("must not plan"); },
+                new AllowingSafetyPort(true));
+
+        assertThrows(IllegalStateException.class, () -> service.submitTurn(new SubmitRuntimeTurnCommand(
+                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Open the door", 99)));
+        assertEquals(0, adventures.current.version());
+    }
+
+    @Test
     void prefetches_storybook_and_rulebook_evidence_separately_and_saves_proposed_context() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
         Adventure adventure = adventure(owner);
