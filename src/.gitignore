@@ -1,0 +1,34 @@
+# Maven (legacy — migrated to Gradle)
+target/
+
+# Gradle
+.gradle/
+build/
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Frontend
+web-ui/dist/
+web-ui/node_modules/
+
+# Env
+.env.local
+.env.local-ai
+.ollama-models/
+
+# Runtime data
+app-all/data/
+data/
+
+**/graphify-out
+**/.last-run.json
