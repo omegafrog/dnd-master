@@ -31,16 +31,17 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
   async function create() {
     if (!session || !preparation || !name.trim() || !setupApi.createCharacterSheet) return
     try {
+      const fieldValue = (...keys: string[]) => keys.map(key => values[key]).find(value => value != null) ?? ''
       const next = await setupApi.createCharacterSheet({
         sessionId,
         edition,
         characterName: name.trim(),
         level,
         inspiration: false,
-        race: values.race ?? '',
-        characterClass: values.characterClass ?? '',
-        background: values.background ?? '',
-        startingAbilities: values.startingAbilities ?? '',
+        race: fieldValue('race'),
+        characterClass: fieldValue('characterClass', 'class'),
+        background: fieldValue('background'),
+        startingAbilities: fieldValue('startingAbilities', 'starting_ability_scores'),
         blueprintRevision: session.blueprintRevision,
         blueprintValues: values,
       })
