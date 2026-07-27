@@ -127,6 +127,29 @@ class RuntimeBindingApplicationServiceTest {
         assertEquals(2, bindings.current.bindingVersion());
     }
 
+    @Test
+    void rejects_direct_rebind_after_session_runtime_has_a_binding() {
+        ScenarioBundleId bundleId = ScenarioBundleId.generate();
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId storyId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage firstPackage = scenarioPackage(bundleId, rulebookId, storyId, "page:1:span:1");
+
+        InMemoryAdventureRepository adventures = new InMemoryAdventureRepository(adventure);
+        InMemoryBundleRepository bundles = new InMemoryBundleRepository(bundleId, owner);
+        InMemoryPackageRepository packages = new InMemoryPackageRepository(firstPackage);
+        InMemoryBindingRepository bindings = new InMemoryBindingRepository();
+        RuntimeBindingApplicationService service = service(adventures, bundles, packages, bindings, rulebookId);
+        RuntimeBindingApplicationService.BindRuntimeBindingCommand command = new RuntimeBindingApplicationService.BindRuntimeBindingCommand(
+                adventure.id(), owner, firstPackage.packageId(), List.of(rulebookId.value()),
+                adventure.characterSheetId(), "ollama", List.of("search"));
+
+        service.bind(command);
+
+        assertThrows(IllegalStateException.class, () -> service.bind(command));
+    }
+
     private static RuntimeBindingApplicationService service(
             AdventureRepository adventureRepository,
             ScenarioBundleRepository bundleRepository,

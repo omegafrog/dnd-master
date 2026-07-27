@@ -37,6 +37,9 @@ public final class RuntimeBindingApplicationService {
 
     public RuntimeBinding bind(BindRuntimeBindingCommand command) {
         Adventure adventure = loadAdventure(command.adventureId(), command.ownerPlayerId());
+        if (bindingRepository.findCurrentByAdventureId(command.adventureId()).isPresent()) {
+            throw new IllegalStateException("runtime binding already exists; use the session lifecycle");
+        }
         ScenarioPackage scenarioPackage = loadPackage(command.scenarioPackageId(), command.ownerPlayerId());
         validateRulebookAccess(command.ownerPlayerId(), command.rulebookIds());
         return persistBinding(
@@ -110,7 +113,7 @@ public final class RuntimeBindingApplicationService {
                     ? RuntimeBinding.create(adventure.id(), ownerPlayerId, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), rulebookIds, characterSheetId, engineId, toolIds, report, selected)
                     : RuntimeBinding.create(adventure.id(), ownerPlayerId, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), rulebookIds, adventure.party(), engineId, toolIds, report, selected))
                 : RuntimeBinding.rehydrate(adventure.id(), ownerPlayerId, previousBindingVersion + 1, scenarioPackage.packageId(),
-                scenarioPackage.bundleRevision(), rulebookIds, characterSheetId, engineId, toolIds, report, selected);
+                scenarioPackage.bundleRevision(), rulebookIds, characterSheetId, adventure.party(), engineId, toolIds, report, selected);
         bindingRepository.save(binding);
         return binding;
     }
