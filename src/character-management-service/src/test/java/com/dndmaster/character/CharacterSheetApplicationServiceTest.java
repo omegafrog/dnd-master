@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.junit.jupiter.api.Test;
 
 class CharacterSheetApplicationServiceTest {
@@ -145,6 +146,27 @@ class CharacterSheetApplicationServiceTest {
     }
 
     @Test
+    void rejects_replay_of_a_character_command_after_session_termination() {
+        InMemoryRepository repository = new InMemoryRepository();
+        AtomicBoolean active = new AtomicBoolean(true);
+        AdventureId adventureId = adventure();
+        CharacterSheetApplicationService service = new CharacterSheetApplicationService(
+                repository, id -> SheetEdition.DND_5E_2014,
+                id -> new SessionCharacterPolicy(active.get(), true, true));
+        CharacterSheet sheet = service.createSheet(new CreateCharacterSheetCommand(
+                adventureId, SheetEdition.DND_5E_2014, new CharacterSheetData2014("Aria", 5, false)));
+        UUID commandId = UUID.randomUUID();
+        CharacterSheetUpdate update = new CharacterSheetUpdate(
+                SheetEdition.DND_5E_2014, new CharacterSheetData2014("Aria", 6, true),
+                InputMode.STRUCTURED_SHEET, commandId, 0);
+
+        service.manageCharacter(sheet.id(), update);
+        active.set(false);
+
+        assertThrows(IllegalStateException.class, () -> service.manageCharacter(sheet.id(), update));
+    }
+
+    @Test
     void rejects_stale_character_update_when_version_has_moved_on() {
         InMemoryRepository repository = new InMemoryRepository();
         CharacterSheetApplicationService service = service(repository, id -> SheetEdition.DND_5E_2014);
@@ -269,6 +291,7 @@ class CharacterSheetApplicationServiceTest {
                 commandHistory.put(operationKey, copy(sheet));
             }
         }
+        @Override public void deleteById(CharacterSheetId id) { values.remove(id); }
 
         private static CharacterSheet copy(CharacterSheet sheet) {
             return new CharacterSheet(

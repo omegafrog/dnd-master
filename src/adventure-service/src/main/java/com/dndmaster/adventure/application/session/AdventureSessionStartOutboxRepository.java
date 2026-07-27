@@ -12,5 +12,5 @@ public interface AdventureSessionStartOutboxRepository {
     default Optional<DeletionEvent> claimNextDeletion() { return Optional.empty(); }
     default void completeDeletion(UUID eventId) {}
     default void failDeletion(UUID eventId, String reason) {}
-    record DeletionEvent(UUID eventId, UUID sessionId, List<UUID> characterSheetIds) {}
+    record DeletionEvent(UUID eventId, UUID sessionId, List<UUID> characterSheetIds, int attempts) {}
 }

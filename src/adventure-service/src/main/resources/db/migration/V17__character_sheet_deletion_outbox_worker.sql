@@ -3,7 +3,7 @@ ALTER TABLE adventure_session_start_outbox
 
 ALTER TABLE adventure_session_start_outbox
     ADD CONSTRAINT adventure_session_start_outbox_status_check
-    CHECK (status IN ('PREPARED', 'COMMITTED'));
+    CHECK (status IN ('PREPARED', 'COMMITTED', 'ABORTED'));
 
 CREATE TABLE IF NOT EXISTS adventure_session_character_sheet_deletion_outbox (
     event_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -11,9 +11,15 @@ CREATE TABLE IF NOT EXISTS adventure_session_character_sheet_deletion_outbox (
     character_sheet_ids_json JSONB NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('PENDING', 'PROCESSING', 'FAILED', 'COMPLETED')),
     attempts INTEGER NOT NULL DEFAULT 0,
+    processing_started_at TIMESTAMPTZ,
+    last_error TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
     completed_at TIMESTAMPTZ
 );
+
+ALTER TABLE adventure_session_character_sheet_deletion_outbox
+    ADD COLUMN IF NOT EXISTS processing_started_at TIMESTAMPTZ,
+    ADD COLUMN IF NOT EXISTS last_error TEXT;
 
 CREATE INDEX IF NOT EXISTS adventure_session_character_sheet_deletion_pending_idx
     ON adventure_session_character_sheet_deletion_outbox(status, created_at);

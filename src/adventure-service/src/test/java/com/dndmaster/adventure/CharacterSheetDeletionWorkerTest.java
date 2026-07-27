@@ -26,7 +26,7 @@ class CharacterSheetDeletionWorkerTest {
         FakeOutbox(UUID eventId) { this.eventId = eventId; }
         public void prepare(com.dndmaster.adventure.domain.adventure.SessionId s, UUID r, UUID a, UUID p) {}
         public void commit(com.dndmaster.adventure.domain.adventure.SessionId s, UUID r) {}
-        public Optional<DeletionEvent> claimNextDeletion() { return attempts++ < 2 ? Optional.of(new DeletionEvent(eventId, UUID.randomUUID(), List.of(UUID.randomUUID()))) : Optional.empty(); }
+        public Optional<DeletionEvent> claimNextDeletion() { return attempts++ < 2 ? Optional.of(new DeletionEvent(eventId, UUID.randomUUID(), List.of(UUID.randomUUID()), attempts)) : Optional.empty(); }
         public void completeDeletion(UUID id) { completions++; }
         public void failDeletion(UUID id, String reason) { failures++; }
     }
