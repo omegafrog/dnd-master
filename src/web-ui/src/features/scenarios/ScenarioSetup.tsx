@@ -13,6 +13,7 @@ import type {
   SetupApi,
   StorySourceEvidenceView,
 } from '../rulebooks/SetupApi'
+import type { AdventureSessionApi } from '../adventure-session/AdventureSessionApi'
 
 const roleLabel: Record<ScenarioBundleRole, string> = {
   MAIN_SCENARIO: '메인 시나리오',
@@ -34,7 +35,7 @@ const selectableStatuses = new Set<KnowledgeDocumentView['status']>([
 const compilationPollIntervalMs = 250
 const compilationPollLimit = 240
 
-export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playerId: string; onError: (message: string) => void }) {
+export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCreated }: { api: SetupApi; playerId: string; onError: (message: string) => void; sessionApi?: Pick<AdventureSessionApi, 'create'>; onSessionCreated?: (sessionId: string) => void }) {
   const [documents, setDocuments] = useState<KnowledgeDocumentView[]>([])
   const [roles, setRoles] = useState<Record<string, ScenarioBundleRole>>({})
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -47,6 +48,7 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
   const [runtimeOptions, setRuntimeOptions] = useState<RuntimeOptionsView | null>(null)
   const [selectedEngineId, setSelectedEngineId] = useState('')
   const [selectedToolIds, setSelectedToolIds] = useState<string[]>([])
+  const [publishingBlueprint, setPublishingBlueprint] = useState(false)
   const [compiling, setCompiling] = useState(false)
   const [saving, setSaving] = useState(false)
   const [creatingCharacter, setCreatingCharacter] = useState(false)
@@ -59,7 +61,7 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
   const [characterInspiration, setCharacterInspiration] = useState(false)
   const [blueprintValues, setBlueprintValues] = useState<Record<string, string>>({})
   const canCompile = Boolean(api.compileScenarioBundle || (api.startScenarioCompilation && api.getScenarioCompilation && api.getScenarioPackage))
-  const canCreateCharacter = Boolean(api.createCharacterSheet && playPreparation?.characterCreationBlueprint?.available)
+  const canCreateCharacter = Boolean(!sessionApi && api.createCharacterSheet && playPreparation?.characterCreationBlueprint?.available)
 
   useEffect(() => {
     let active = true
@@ -226,6 +228,37 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
     } finally {
       setCompiling(false)
     }
+  }
+
+  async function createSession() {
+    const blueprint = playPreparation?.characterCreationBlueprint
+    if (!sessionApi || !scenarioPackage || !blueprint?.available || blueprint.revision == null) return
+    try {
+      const session = await sessionApi.create({
+        scenarioPackageId: scenarioPackage.packageId,
+        blueprintId: scenarioPackage.packageId,
+        blueprintRevision: blueprint.revision,
+      })
+      onSessionCreated?.(session.sessionId)
+    } catch (error) { onError(error instanceof Error ? error.message : '세션 초안을 생성하지 못했습니다.') }
+  }
+
+  async function publishBlueprint() {
+    if (!scenarioPackage || !api.publishBlueprint) return
+    setPublishingBlueprint(true)
+    try {
+      await api.publishBlueprint(scenarioPackage.packageId)
+      if (api.getPlayPreparation) setPlayPreparation(await api.getPlayPreparation(scenarioPackage.packageId))
+    } catch (error) { onError(error instanceof Error ? error.message : 'Blueprint 게시에 실패했습니다.') }
+    finally { setPublishingBlueprint(false) }
+  }
+
+  async function resolveBlueprint(fieldKey: string) {
+    if (!scenarioPackage || !api.resolveBlueprint || !api.getPlayPreparation) return
+    try {
+      await api.resolveBlueprint(scenarioPackage.packageId, fieldKey, blueprintValues[fieldKey] ?? '')
+      setPlayPreparation(await api.getPlayPreparation(scenarioPackage.packageId))
+    } catch (error) { onError(error instanceof Error ? error.message : 'Blueprint 검토를 저장하지 못했습니다.') }
   }
 
   return (
@@ -405,11 +438,16 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
                             />
                           )}
                           {field.inputStatus === 'MANUAL_INPUT_REQUIRED' ? <small>수동 입력 필요</small> : null}
+                          {api.resolveBlueprint && field.inputStatus === 'MANUAL_INPUT_REQUIRED' ? <button type="button" onClick={() => void resolveBlueprint(field.key)} disabled={!blueprintValues[field.key]}>검토값 저장</button> : null}
                         </label>
                       ))}
                     </fieldset>
                   ) : null}
+                  {api.publishBlueprint && playPreparation.characterCreationBlueprint.status !== 'PUBLISHED' ? <button type="button" disabled={publishingBlueprint || playPreparation.status !== 'READY'} onClick={() => void publishBlueprint()}>{publishingBlueprint ? '게시 중…' : 'Blueprint 게시'}</button> : null}
                 </div>
+              ) : null}
+              {sessionApi && playPreparation.status === 'READY' && playPreparation.characterCreationBlueprint.available ? (
+                <button type="button" onClick={() => void createSession()}>세션 초안 생성 후 캐릭터 만들기</button>
               ) : null}
               {canCreateCharacter ? (
                 <section aria-labelledby="character-creation-heading">

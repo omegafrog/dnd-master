@@ -170,6 +170,7 @@ export type CreatedCharacterSheetView = {
 }
 
 export type CharacterCreationDraft = {
+  sessionId?: string
   edition: 'DND_5E_2014' | 'DND_5E_2024'
   characterName: string
   level: number
@@ -354,6 +355,8 @@ export interface SetupApi {
   getScenarioCompilation?(compilationId: string): Promise<ScenarioCompilationView>
   getScenarioPackage?(packageId: string): Promise<ScenarioPackageView>
   getPlayPreparation?(scenarioPackageId: string): Promise<PlayPreparationView>
+  resolveBlueprint?(scenarioPackageId: string, fieldKey: string, value: string): Promise<unknown>
+  publishBlueprint?(scenarioPackageId: string): Promise<unknown>
   getRuntimeOptions?(): Promise<RuntimeOptionsView>
   createCharacterSheet?(draft: CharacterCreationDraft): Promise<CreatedCharacterSheetView>
   bindRuntimeBinding?(adventureId: string, ownerId: string, draft: RuntimeBindingDraft): Promise<RuntimeBindingView>
@@ -521,6 +524,18 @@ export class HttpSetupApi implements SetupApi {
     }, '플레이 준비 상태를 불러오지 못했습니다.')
   }
 
+  resolveBlueprint(scenarioPackageId: string, fieldKey: string, value: string) {
+    return request<unknown>(`/api/v1/scenario-packages/${scenarioPackageId}/character-blueprint/resolve`, {
+      method: 'POST', headers: { ...this.authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ fieldKey, value }),
+    }, 'Blueprint 검토를 저장하지 못했습니다.')
+  }
+
+  publishBlueprint(scenarioPackageId: string) {
+    return request<unknown>(`/api/v1/scenario-packages/${scenarioPackageId}/character-blueprint/publish`, {
+      method: 'POST', headers: this.authHeaders(),
+    }, 'Blueprint 게시에 실패했습니다.')
+  }
+
   getRuntimeOptions() {
     return request<RuntimeOptionsView>('/api/v1/runtime-options', {
       headers: this.authHeaders(),
@@ -528,7 +543,10 @@ export class HttpSetupApi implements SetupApi {
   }
 
   createCharacterSheet(draft: CharacterCreationDraft) {
-    return request<CreatedCharacterSheetView>('/internal/v1/character-sheets', {
+    const path = draft.sessionId
+      ? `/internal/v1/adventure-sessions/${draft.sessionId}/character-sheets`
+      : '/internal/v1/character-sheets'
+    return request<CreatedCharacterSheetView>(path, {
       method: 'POST',
       headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify(draft),
