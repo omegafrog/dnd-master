@@ -211,7 +211,6 @@ export type RuntimeBindingView = {
   scenarioPackageId: string
   scenarioPackageRevision: number
   rulebookIds: string[]
-  characterSheetId: string
   party: RuntimePartyMemberView[]
   engineId: string
   toolIds: string[]

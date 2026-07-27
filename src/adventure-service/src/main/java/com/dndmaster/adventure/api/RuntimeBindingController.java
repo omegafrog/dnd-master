@@ -40,7 +40,6 @@ public class RuntimeBindingController {
                 owner,
                 request.scenarioPackageId(),
                 request.rulebookIds(),
-                null,
                 request.engineId(),
                 request.toolIds())));
     }
@@ -89,7 +88,6 @@ public class RuntimeBindingController {
             UUID scenarioPackageId,
             long scenarioPackageRevision,
             List<UUID> rulebookIds,
-            UUID characterSheetId,
             List<PartyMemberResponse> party,
             String engineId,
             List<String> toolIds,
@@ -102,7 +100,6 @@ public class RuntimeBindingController {
                     binding.scenarioPackageId(),
                     binding.scenarioPackageRevision(),
                     binding.rulebookIds(),
-                    binding.characterSheetId().value(),
                     binding.party().stream().map(member -> new PartyMemberResponse(
                             member.characterSheetId().value(), member.controlMode().name(),
                             member.nameMutableAfterStart(), member.raceMutableAfterStart(),

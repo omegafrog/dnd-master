@@ -26,9 +26,11 @@ import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.adventure.Adventure;
+import com.dndmaster.adventure.domain.adventure.AdventurePartyMember;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
+import com.dndmaster.adventure.domain.adventure.ControlMode;
 import com.dndmaster.adventure.domain.adventure.ConversationEntry;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.adventure.PlayabilityReport;
@@ -195,7 +197,7 @@ class RuntimeTurnApplicationServiceTest {
                 packageId,
                 1,
                 List.of(UUID.randomUUID()),
-                new CharacterSheetId(UUID.randomUUID()),
+                List.of(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT, true, true, true, true, true, true)),
                 "engine-1",
                 List.of("search"),
                 new PlayabilityReport(PlayabilityStatus.PLAYABLE, List.of(), List.of(), List.of(), List.of()),

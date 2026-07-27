@@ -61,12 +61,12 @@ public final class PostgresAdventureRepository implements AdventureRepository {
     }
 
     private void insert(Connection connection, Adventure adventure) throws SQLException {
-        String sql = "INSERT INTO adventure(adventure_id, session_id, owner_player_id, scenario_id, rule_set_id, character_sheet_id, current_scene, npc_state, pending_action, latest_judgment, status, version, party_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        String sql = "INSERT INTO adventure(adventure_id, session_id, owner_player_id, scenario_id, rule_set_id, current_scene, npc_state, pending_action, latest_judgment, status, version, party_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (PreparedStatement s = connection.prepareStatement(sql)) {
             bindCommon(s, adventure);
-            s.setString(11, adventure.status().name());
-            s.setLong(12, adventure.version());
-            s.setString(13, partyJson(adventure));
+            s.setString(10, adventure.status().name());
+            s.setLong(11, adventure.version());
+            s.setString(12, partyJson(adventure));
             s.executeUpdate();
         }
     }
@@ -88,9 +88,9 @@ public final class PostgresAdventureRepository implements AdventureRepository {
     private static void bindCommon(PreparedStatement s, Adventure adventure) throws SQLException {
         s.setObject(1, adventure.id().value()); s.setObject(2, adventure.sessionId().value());
         s.setObject(3, adventure.ownerPlayerId().value()); s.setObject(4, adventure.scenarioId().value());
-        s.setObject(5, adventure.ruleSetId().value()); s.setObject(6, adventure.characterSheetId().value());
-        s.setString(7, adventure.currentContext().currentScene()); s.setString(8, adventure.currentContext().npcState());
-        s.setString(9, adventure.currentContext().pendingAction()); s.setString(10, adventure.currentContext().latestJudgment());
+        s.setObject(5, adventure.ruleSetId().value());
+        s.setString(6, adventure.currentContext().currentScene()); s.setString(7, adventure.currentContext().npcState());
+        s.setString(8, adventure.currentContext().pendingAction()); s.setString(9, adventure.currentContext().latestJudgment());
     }
 
     private static void replaceConversation(Connection connection, Adventure adventure) throws SQLException {
@@ -117,7 +117,7 @@ public final class PostgresAdventureRepository implements AdventureRepository {
         }
         return Adventure.rehydrate(new AdventureId(id), new SessionId(row.getObject("session_id", UUID.class)),
                 new OwnerPlayerId(row.getObject("owner_player_id", UUID.class)), new ScenarioId(row.getObject("scenario_id", UUID.class)),
-                new RuleSetId(row.getObject("rule_set_id", UUID.class)), new CharacterSheetId(row.getObject("character_sheet_id", UUID.class)), party(row),
+                new RuleSetId(row.getObject("rule_set_id", UUID.class)), party(row),
                 conversation, new AdventureContext(row.getString("current_scene"), row.getString("npc_state"), row.getString("pending_action"), row.getString("latest_judgment")),
                 AdventureStatus.valueOf(row.getString("status")), row.getLong("version"));
     }

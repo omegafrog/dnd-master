@@ -59,7 +59,7 @@ class RuntimeBindingApplicationServiceTest {
 
         RuntimeBinding binding = service.bind(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(
                 adventure.id(), owner, scenarioPackage.packageId(), List.of(rulebookId.value()),
-                adventure.characterSheetId(), "ollama", List.of("search", "move")));
+                "ollama", List.of("search", "move")));
 
         assertEquals(PlayabilityStatus.PLAYABLE, binding.playabilityReport().status());
         assertNotNull(binding.activeSourceContext());
@@ -85,7 +85,7 @@ class RuntimeBindingApplicationServiceTest {
 
         RuntimeBinding blocked = service.bind(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(
                 adventure.id(), owner, scenarioPackage.packageId(), List.of(rulebookId.value()),
-                adventure.characterSheetId(), "ollama", List.of("search")));
+                "ollama", List.of("search")));
 
         assertEquals(PlayabilityStatus.BLOCKED, blocked.playabilityReport().status());
         assertEquals(2, blocked.playabilityReport().candidates().size());
@@ -100,7 +100,7 @@ class RuntimeBindingApplicationServiceTest {
     }
 
     @Test
-    void switchesScenarioPackageByCreatingNewBindingVersion() {
+    void rejectsScenarioPackageSwitchForPartyBoundRuntime() {
         ScenarioBundleId bundleId = ScenarioBundleId.generate();
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
         Adventure adventure = adventure(owner);
@@ -117,14 +117,14 @@ class RuntimeBindingApplicationServiceTest {
 
         RuntimeBinding initial = service.bind(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(
                 adventure.id(), owner, firstPackage.packageId(), List.of(rulebookId.value()),
-                adventure.characterSheetId(), "ollama", List.of("search")));
-        RuntimeBinding switched = service.switchScenarioPackage(new RuntimeBindingApplicationService.SwitchRuntimePackageCommand(
-                adventure.id(), owner, initial.bindingVersion(), secondPackage.packageId()));
+                "ollama", List.of("search")));
+        IllegalStateException failure = assertThrows(IllegalStateException.class, () -> service.switchScenarioPackage(
+                new RuntimeBindingApplicationService.SwitchRuntimePackageCommand(
+                        adventure.id(), owner, initial.bindingVersion(), secondPackage.packageId())));
 
         assertEquals(1, initial.bindingVersion());
-        assertEquals(2, switched.bindingVersion());
-        assertEquals(secondPackage.packageId(), switched.scenarioPackageId());
-        assertEquals(2, bindings.current.bindingVersion());
+        assertEquals("started session runtime package is frozen", failure.getMessage());
+        assertEquals(1, bindings.current.bindingVersion());
     }
 
     @Test
@@ -143,7 +143,7 @@ class RuntimeBindingApplicationServiceTest {
         RuntimeBindingApplicationService service = service(adventures, bundles, packages, bindings, rulebookId);
         RuntimeBindingApplicationService.BindRuntimeBindingCommand command = new RuntimeBindingApplicationService.BindRuntimeBindingCommand(
                 adventure.id(), owner, firstPackage.packageId(), List.of(rulebookId.value()),
-                adventure.characterSheetId(), "ollama", List.of("search"));
+                "ollama", List.of("search"));
 
         service.bind(command);
 

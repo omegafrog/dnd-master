@@ -44,7 +44,7 @@ public final class RuntimeBindingApplicationService {
         validateRulebookAccess(command.ownerPlayerId(), command.rulebookIds());
         return persistBinding(
                 adventure, command.ownerPlayerId(), scenarioPackage, command.rulebookIds(),
-                command.characterSheetId(), command.engineId(), command.toolIds(), null);
+                command.engineId(), command.toolIds(), null);
     }
 
     /** Used only by session start recovery. Existing binding is the durable idempotency result. */
@@ -55,7 +55,7 @@ public final class RuntimeBindingApplicationService {
         ScenarioPackage scenarioPackage = loadPackage(command.scenarioPackageId(), command.ownerPlayerId());
         validateRulebookAccess(command.ownerPlayerId(), command.rulebookIds());
         return persistBinding(adventure, command.ownerPlayerId(), scenarioPackage, command.rulebookIds(),
-                command.characterSheetId(), command.engineId(), command.toolIds(), null);
+                command.engineId(), command.toolIds(), null);
     }
 
     public RuntimeBinding switchScenarioPackage(SwitchRuntimePackageCommand command) {
@@ -75,7 +75,7 @@ public final class RuntimeBindingApplicationService {
         validateRulebookAccess(command.ownerPlayerId(), current.rulebookIds());
         return persistBinding(
                 adventure, command.ownerPlayerId(), scenarioPackage, current.rulebookIds(),
-                current.characterSheetId(), current.engineId(), current.toolIds(), current.bindingVersion());
+                current.engineId(), current.toolIds(), current.bindingVersion());
     }
 
     public RuntimeBinding chooseActiveSourceContext(ChooseActiveSourceContextCommand command) {
@@ -109,7 +109,6 @@ public final class RuntimeBindingApplicationService {
             OwnerPlayerId ownerPlayerId,
             ScenarioPackage scenarioPackage,
             List<UUID> rulebookIds,
-            CharacterSheetId characterSheetId,
             String engineId,
             List<String> toolIds,
             Long previousBindingVersion) {
@@ -117,14 +116,12 @@ public final class RuntimeBindingApplicationService {
         InitialSourceContextProposalPort.InitialSourceContextProposalResult proposal = proposalPort.propose(scenarioPackage, candidates);
         PlayabilityReport report = buildReport(
                 scenarioPackage.report().status().name(), scenarioPackage.report().warnings(), candidates, proposal,
-                rulebookIds, characterSheetId, engineId, toolIds);
+                rulebookIds, engineId, toolIds);
         ActiveSourceContext selected = selectSourceContext(report, proposal);
         RuntimeBinding binding = previousBindingVersion == null
-                ? (adventure.party().isEmpty()
-                    ? RuntimeBinding.create(adventure.id(), ownerPlayerId, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), rulebookIds, characterSheetId, engineId, toolIds, report, selected)
-                    : RuntimeBinding.create(adventure.id(), ownerPlayerId, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), rulebookIds, adventure.party(), engineId, toolIds, report, selected))
+                ? RuntimeBinding.create(adventure.id(), ownerPlayerId, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), rulebookIds, adventure.party(), engineId, toolIds, report, selected)
                 : RuntimeBinding.rehydrate(adventure.id(), ownerPlayerId, previousBindingVersion + 1, scenarioPackage.packageId(),
-                scenarioPackage.bundleRevision(), rulebookIds, characterSheetId, adventure.party(), engineId, toolIds, report, selected);
+                scenarioPackage.bundleRevision(), rulebookIds, adventure.party(), engineId, toolIds, report, selected);
         bindingRepository.save(binding);
         return binding;
     }
@@ -135,7 +132,6 @@ public final class RuntimeBindingApplicationService {
             List<InitialSourceContextCandidate> candidates,
             InitialSourceContextProposalPort.InitialSourceContextProposalResult proposal,
             List<UUID> rulebookIds,
-            CharacterSheetId characterSheetId,
             String engineId,
             List<String> toolIds) {
         List<String> warnings = new ArrayList<>(packageWarnings);
@@ -158,10 +154,6 @@ public final class RuntimeBindingApplicationService {
         }
         if (rulebookIds == null || rulebookIds.isEmpty()) {
             blockers.add("rulebook knowledge set is missing");
-            status = PlayabilityStatus.BLOCKED;
-        }
-        if (characterSheetId == null) {
-            blockers.add("character sheet is missing");
             status = PlayabilityStatus.BLOCKED;
         }
         if (engineId == null || engineId.isBlank()) {
@@ -257,7 +249,6 @@ public final class RuntimeBindingApplicationService {
             OwnerPlayerId ownerPlayerId,
             UUID scenarioPackageId,
             List<UUID> rulebookIds,
-            CharacterSheetId characterSheetId,
             String engineId,
             List<String> toolIds) {}
 

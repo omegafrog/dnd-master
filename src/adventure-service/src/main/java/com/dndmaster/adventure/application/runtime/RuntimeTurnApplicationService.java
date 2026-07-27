@@ -106,7 +106,7 @@ public final class RuntimeTurnApplicationService {
 
         Adventure progressed = Adventure.rehydrate(
                 adventure.id(), adventure.sessionId(), adventure.ownerPlayerId(), adventure.scenarioId(),
-                adventure.ruleSetId(), adventure.characterSheetId(), adventure.conversation(), adventure.currentContext(),
+                adventure.ruleSetId(), adventure.party(), adventure.conversation(), adventure.currentContext(),
                 adventure.status(), adventure.version());
         progressed.preserveProgress(command.ownerPlayerId(), adventure.version(), nextContext, conversation);
         adventureRepository.save(progressed);
@@ -123,7 +123,7 @@ public final class RuntimeTurnApplicationService {
         if (adventure.version() == existing.version() - 1) {
             Adventure progressed = Adventure.rehydrate(
                     adventure.id(), adventure.sessionId(), adventure.ownerPlayerId(), adventure.scenarioId(),
-                    adventure.ruleSetId(), adventure.characterSheetId(), adventure.conversation(), adventure.currentContext(),
+                    adventure.ruleSetId(), adventure.party(), adventure.conversation(), adventure.currentContext(),
                     adventure.status(), adventure.version());
             progressed.preserveProgress(command.ownerPlayerId(), adventure.version(), existing.context(), existing.conversation());
             adventureRepository.save(progressed);

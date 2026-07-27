@@ -9,11 +9,11 @@ import javax.sql.DataSource;
 public final class PostgresAdventureSessionStartOutboxRepository implements AdventureSessionStartOutboxRepository {
     private final DataSource dataSource;
     public PostgresAdventureSessionStartOutboxRepository(DataSource dataSource) { this.dataSource = java.util.Objects.requireNonNull(dataSource); }
-    @Override public void recordPending(SessionId sessionId, UUID requestId, UUID adventureId, UUID scenarioPackageId) {
-        execute("INSERT INTO adventure_session_start_outbox(session_id, request_id, adventure_id, scenario_package_id, status) VALUES (?, ?, ?, ?, 'PENDING') ON CONFLICT (session_id, request_id) DO UPDATE SET status='PENDING'", sessionId.value(), requestId, adventureId, scenarioPackageId);
+    @Override public void prepare(SessionId sessionId, UUID requestId, UUID adventureId, UUID scenarioPackageId) {
+        execute("INSERT INTO adventure_session_start_outbox(session_id, request_id, adventure_id, scenario_package_id, status) VALUES (?, ?, ?, ?, 'PREPARED') ON CONFLICT (session_id, request_id) DO UPDATE SET status='PREPARED'", sessionId.value(), requestId, adventureId, scenarioPackageId);
     }
-    @Override public void markCompleted(SessionId sessionId, UUID requestId) {
-        execute("UPDATE adventure_session_start_outbox SET status='COMPLETED', completed_at=CURRENT_TIMESTAMP WHERE session_id=? AND request_id=?", sessionId.value(), requestId);
+    @Override public void commit(SessionId sessionId, UUID requestId) {
+        execute("UPDATE adventure_session_start_outbox SET status='COMMITTED', completed_at=CURRENT_TIMESTAMP WHERE session_id=? AND request_id=?", sessionId.value(), requestId);
     }
     private void execute(String sql, Object... values) {
         try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(sql)) {

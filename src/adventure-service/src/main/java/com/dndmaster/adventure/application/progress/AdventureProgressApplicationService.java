@@ -48,7 +48,7 @@ public final class AdventureProgressApplicationService {
 
         Adventure progressed = Adventure.rehydrate(
                 current.id(), current.sessionId(), current.ownerPlayerId(), current.scenarioId(), current.ruleSetId(),
-                current.characterSheetId(), current.conversation(), current.currentContext(), current.status(), current.version());
+                current.party(), current.conversation(), current.currentContext(), current.status(), current.version());
         progressed.preserveProgress(command.requestingOwner(), current.version(), nextContext, conversation);
         repository.save(progressed);
         return new AdventureProgressResult(progressed.currentContext(), progressed.conversation(), progressed.version());

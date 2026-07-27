@@ -9,7 +9,8 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit && vite build",
     "test": "vitest",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:e2e:backend": "playwright test e2e/backend-runtime-binding.spec.ts"
   },
   "dependencies": {
     "react": "19.1.1",

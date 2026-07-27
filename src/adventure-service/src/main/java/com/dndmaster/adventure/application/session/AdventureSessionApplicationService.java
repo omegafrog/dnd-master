@@ -19,8 +19,9 @@ public final class AdventureSessionApplicationService {
     private final ScenarioPackageRepository packageRepository;
     private final AdventureRepository adventureRepository;
     private final RuntimeBindingApplicationService runtimeBindingService;
-    private final AdventureSessionStartOutboxRepository startOutboxRepository;
-    public AdventureSessionApplicationService(AdventureSessionRepository repository, ScenarioPackageRepository packageRepository, AdventureRepository adventureRepository, RuntimeBindingApplicationService runtimeBindingService, AdventureSessionStartOutboxRepository startOutboxRepository) { this.repository = Objects.requireNonNull(repository); this.packageRepository = Objects.requireNonNull(packageRepository); this.adventureRepository = Objects.requireNonNull(adventureRepository); this.runtimeBindingService = Objects.requireNonNull(runtimeBindingService); this.startOutboxRepository = Objects.requireNonNull(startOutboxRepository); }
+    private final AdventureSessionStartCoordinator startCoordinator;
+    public AdventureSessionApplicationService(AdventureSessionRepository repository, ScenarioPackageRepository packageRepository, AdventureRepository adventureRepository, RuntimeBindingApplicationService runtimeBindingService, AdventureSessionStartOutboxRepository startOutboxRepository) { this(repository, packageRepository, adventureRepository, runtimeBindingService, new AdventureSessionStartCoordinator(startOutboxRepository)); }
+    public AdventureSessionApplicationService(AdventureSessionRepository repository, ScenarioPackageRepository packageRepository, AdventureRepository adventureRepository, RuntimeBindingApplicationService runtimeBindingService, AdventureSessionStartCoordinator startCoordinator) { this.repository = Objects.requireNonNull(repository); this.packageRepository = Objects.requireNonNull(packageRepository); this.adventureRepository = Objects.requireNonNull(adventureRepository); this.runtimeBindingService = Objects.requireNonNull(runtimeBindingService); this.startCoordinator = Objects.requireNonNull(startCoordinator); }
     public AdventureSession create(OwnerPlayerId owner, java.util.UUID scenarioPackageId) {
         return create(owner, scenarioPackageId, null);
     }
@@ -60,18 +61,18 @@ public final class AdventureSessionApplicationService {
         boolean newlyStarting = session.beginStart(adventureId, requestId);
         if (newlyStarting) {
             repository.save(session, expectedVersion);
-            startOutboxRepository.recordPending(session.id(), requestId, adventureId.value(), session.scenarioPackageId());
+            startCoordinator.prepare(session.id(), requestId, adventureId.value(), session.scenarioPackageId());
         }
         Adventure adventure = adventureRepository.findById(adventureId).orElse(null);
         if (adventure == null) {
             adventure = Adventure.create(adventureId, session.id(), owner, configuration.scenarioId(), configuration.ruleSetId(), session.party(), new AdventureContext(configuration.initialScene(), null, null, null));
             adventureRepository.save(adventure);
         }
-        runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(adventureId, owner, session.scenarioPackageId(), configuration.rulebookIds(), session.party().getFirst().characterSheetId(), configuration.engineId(), configuration.toolIds()));
+        runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(adventureId, owner, session.scenarioPackageId(), configuration.rulebookIds(), configuration.engineId(), configuration.toolIds()));
         if (session.status() == AdventureSession.Status.STARTING) {
             session.completeStart();
             repository.save(session, session.version() - 1);
-            startOutboxRepository.markCompleted(session.id(), requestId);
+            startCoordinator.commit(session.id(), requestId);
         }
         return session;
     }

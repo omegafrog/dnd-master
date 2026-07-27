@@ -12,7 +12,6 @@ public final class RuntimeBinding {
     private final UUID scenarioPackageId;
     private final long scenarioPackageRevision;
     private final List<UUID> rulebookIds;
-    private final CharacterSheetId characterSheetId;
     private final List<AdventurePartyMember> party;
     private final String engineId;
     private final List<String> toolIds;
@@ -26,7 +25,7 @@ public final class RuntimeBinding {
             UUID scenarioPackageId,
             long scenarioPackageRevision,
             List<UUID> rulebookIds,
-            CharacterSheetId characterSheetId, List<AdventurePartyMember> party,
+            List<AdventurePartyMember> party,
             String engineId,
             List<String> toolIds,
             PlayabilityReport playabilityReport,
@@ -44,8 +43,7 @@ public final class RuntimeBinding {
         this.scenarioPackageRevision = scenarioPackageRevision;
         this.rulebookIds = List.copyOf(Objects.requireNonNull(rulebookIds, "rulebook ids must not be null"));
         this.party = List.copyOf(Objects.requireNonNull(party, "party must not be null"));
-        if (characterSheetId == null && this.party.isEmpty()) throw new IllegalArgumentException("character sheet id or party must be present");
-        this.characterSheetId = characterSheetId;
+        if (this.party.isEmpty()) throw new IllegalArgumentException("party must not be empty");
         this.engineId = required(engineId, "engine id");
         this.toolIds = List.copyOf(Objects.requireNonNull(toolIds, "tool ids must not be null"));
         this.playabilityReport = Objects.requireNonNull(playabilityReport, "playability report must not be null");
@@ -58,20 +56,15 @@ public final class RuntimeBinding {
             UUID scenarioPackageId,
             long scenarioPackageRevision,
             List<UUID> rulebookIds,
-            CharacterSheetId characterSheetId,
+            List<AdventurePartyMember> party,
             String engineId,
             List<String> toolIds,
             PlayabilityReport playabilityReport,
             ActiveSourceContext activeSourceContext) {
         return new RuntimeBinding(
                 adventureId, ownerPlayerId, 1, scenarioPackageId, scenarioPackageRevision, rulebookIds,
-                characterSheetId, List.of(), engineId, toolIds, playabilityReport, activeSourceContext);
+                party, engineId, toolIds, playabilityReport, activeSourceContext);
     }
-    public static RuntimeBinding create(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, List<UUID> rulebookIds, List<AdventurePartyMember> party, String engineId, List<String> toolIds, PlayabilityReport report, ActiveSourceContext context) {
-        if (party == null || party.isEmpty()) throw new IllegalArgumentException("party must not be empty");
-        return new RuntimeBinding(adventureId, ownerPlayerId, 1, scenarioPackageId, scenarioPackageRevision, rulebookIds, null, party, engineId, toolIds, report, context);
-    }
-
     public static RuntimeBinding rehydrate(
             AdventureId adventureId,
             OwnerPlayerId ownerPlayerId,
@@ -79,19 +72,15 @@ public final class RuntimeBinding {
             UUID scenarioPackageId,
             long scenarioPackageRevision,
             List<UUID> rulebookIds,
-            CharacterSheetId characterSheetId,
+            List<AdventurePartyMember> party,
             String engineId,
             List<String> toolIds,
             PlayabilityReport playabilityReport,
             ActiveSourceContext activeSourceContext) {
         return new RuntimeBinding(
                 adventureId, ownerPlayerId, bindingVersion, scenarioPackageId, scenarioPackageRevision, rulebookIds,
-                characterSheetId, List.of(), engineId, toolIds, playabilityReport, activeSourceContext);
+                party, engineId, toolIds, playabilityReport, activeSourceContext);
     }
-    public static RuntimeBinding rehydrate(AdventureId adventureId, OwnerPlayerId ownerPlayerId, long bindingVersion, UUID scenarioPackageId, long scenarioPackageRevision, List<UUID> rulebookIds, CharacterSheetId characterSheetId, List<AdventurePartyMember> party, String engineId, List<String> toolIds, PlayabilityReport report, ActiveSourceContext context) {
-        return new RuntimeBinding(adventureId, ownerPlayerId, bindingVersion, scenarioPackageId, scenarioPackageRevision, rulebookIds, characterSheetId, party, engineId, toolIds, report, context);
-    }
-
     public RuntimeBinding withNewPackage(
             UUID scenarioPackageId,
             long scenarioPackageRevision,
@@ -99,13 +88,13 @@ public final class RuntimeBinding {
             ActiveSourceContext activeSourceContext) {
         return new RuntimeBinding(
                 adventureId, ownerPlayerId, bindingVersion + 1, scenarioPackageId, scenarioPackageRevision,
-                rulebookIds, characterSheetId, party, engineId, toolIds, playabilityReport, activeSourceContext);
+                rulebookIds, party, engineId, toolIds, playabilityReport, activeSourceContext);
     }
 
     public RuntimeBinding withActiveSourceContext(PlayabilityReport playabilityReport, ActiveSourceContext activeSourceContext) {
         return new RuntimeBinding(
                 adventureId, ownerPlayerId, bindingVersion, scenarioPackageId, scenarioPackageRevision,
-                rulebookIds, characterSheetId, party, engineId, toolIds, playabilityReport, activeSourceContext);
+                rulebookIds, party, engineId, toolIds, playabilityReport, activeSourceContext);
     }
 
     public AdventureId adventureId() { return adventureId; }
@@ -114,8 +103,6 @@ public final class RuntimeBinding {
     public UUID scenarioPackageId() { return scenarioPackageId; }
     public long scenarioPackageRevision() { return scenarioPackageRevision; }
     public List<UUID> rulebookIds() { return rulebookIds; }
-    /** Compatibility projection; party is authoritative for session-created bindings. */
-    public CharacterSheetId characterSheetId() { return characterSheetId != null ? characterSheetId : party.getFirst().characterSheetId(); }
     public List<AdventurePartyMember> party() { return party; }
     public String engineId() { return engineId; }
     public List<String> toolIds() { return toolIds; }
@@ -125,7 +112,7 @@ public final class RuntimeBinding {
     public RuntimeBinding withSelection(ActiveSourceContext selected, PlayabilityReport playabilityReport) {
         return new RuntimeBinding(
                 adventureId, ownerPlayerId, bindingVersion, scenarioPackageId, scenarioPackageRevision,
-                rulebookIds, characterSheetId, party, engineId, toolIds, playabilityReport, selected);
+                rulebookIds, party, engineId, toolIds, playabilityReport, selected);
     }
 
     private static String required(String value, String name) {
