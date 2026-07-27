@@ -42,3 +42,18 @@ test('solo player completes setup, grounded play, map and saved-adventure deleti
   await page.getByRole('button', { name: '이동' }).click()
   await expect(page.getByText('전투 맵 이동 기능은 준비 중입니다.')).toBeVisible()
 })
+
+test('player starts session and party becomes immutable', async ({ page }) => {
+  await page.goto('/e2e/fixtures/index.html')
+  await page.getByLabel('이메일').fill('player@example.com')
+  await page.getByLabel('비밀번호').fill('secret-password')
+  await page.getByRole('button', { name: '로그인' }).click()
+  await expect(page.getByRole('heading', { name: '모험 파티' })).toBeVisible()
+  const party = page.getByRole('region', { name: '모험 파티' })
+  await party.getByLabel('캐릭터 시트 ID').fill('sheet-e2e')
+  await party.getByRole('button', { name: '파티에 추가' }).click()
+  await expect(page.getByText('sheet-e2e · DIRECT')).toBeVisible()
+  await party.getByRole('button', { name: '모험 시작' }).click()
+  await expect(page.getByText('시작 후 파티와 제어 방식은 변경할 수 없습니다.')).toBeVisible()
+  await expect(party.getByRole('button', { name: '제거' })).toHaveCount(0)
+})

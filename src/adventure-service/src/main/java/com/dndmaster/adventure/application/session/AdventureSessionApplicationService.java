@@ -19,7 +19,8 @@ public final class AdventureSessionApplicationService {
     private final ScenarioPackageRepository packageRepository;
     private final AdventureRepository adventureRepository;
     private final RuntimeBindingApplicationService runtimeBindingService;
-    public AdventureSessionApplicationService(AdventureSessionRepository repository, ScenarioPackageRepository packageRepository, AdventureRepository adventureRepository, RuntimeBindingApplicationService runtimeBindingService) { this.repository = Objects.requireNonNull(repository); this.packageRepository = Objects.requireNonNull(packageRepository); this.adventureRepository = Objects.requireNonNull(adventureRepository); this.runtimeBindingService = Objects.requireNonNull(runtimeBindingService); }
+    private final AdventureSessionStartOutboxRepository startOutboxRepository;
+    public AdventureSessionApplicationService(AdventureSessionRepository repository, ScenarioPackageRepository packageRepository, AdventureRepository adventureRepository, RuntimeBindingApplicationService runtimeBindingService, AdventureSessionStartOutboxRepository startOutboxRepository) { this.repository = Objects.requireNonNull(repository); this.packageRepository = Objects.requireNonNull(packageRepository); this.adventureRepository = Objects.requireNonNull(adventureRepository); this.runtimeBindingService = Objects.requireNonNull(runtimeBindingService); this.startOutboxRepository = Objects.requireNonNull(startOutboxRepository); }
     public AdventureSession create(OwnerPlayerId owner, java.util.UUID scenarioPackageId) {
         return create(owner, scenarioPackageId, null);
     }
@@ -57,7 +58,10 @@ public final class AdventureSessionApplicationService {
         var configuration = session.runtimeConfiguration();
         if (configuration == null) throw new IllegalStateException("adventure session runtime configuration is required");
         boolean newlyStarting = session.beginStart(adventureId, requestId);
-        if (newlyStarting) repository.save(session, expectedVersion);
+        if (newlyStarting) {
+            repository.save(session, expectedVersion);
+            startOutboxRepository.recordPending(session.id(), requestId, adventureId.value(), session.scenarioPackageId());
+        }
         Adventure adventure = adventureRepository.findById(adventureId).orElse(null);
         if (adventure == null) {
             adventure = Adventure.create(adventureId, session.id(), owner, configuration.scenarioId(), configuration.ruleSetId(), session.party(), new AdventureContext(configuration.initialScene(), null, null, null));
@@ -67,6 +71,7 @@ public final class AdventureSessionApplicationService {
         if (session.status() == AdventureSession.Status.STARTING) {
             session.completeStart();
             repository.save(session, session.version() - 1);
+            startOutboxRepository.markCompleted(session.id(), requestId);
         }
         return session;
     }

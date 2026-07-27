@@ -262,7 +262,6 @@ export type RuntimeBindingDraft = {
   playerId: string
   scenarioPackageId: string
   rulebookIds: string[]
-  characterSheetId: string
   engineId: string
   toolIds: string[]
 }

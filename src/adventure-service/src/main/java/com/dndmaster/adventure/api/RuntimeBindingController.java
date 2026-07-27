@@ -40,7 +40,7 @@ public class RuntimeBindingController {
                 owner,
                 request.scenarioPackageId(),
                 request.rulebookIds(),
-                new CharacterSheetId(request.characterSheetId()),
+                null,
                 request.engineId(),
                 request.toolIds())));
     }
@@ -76,7 +76,6 @@ public class RuntimeBindingController {
             UUID playerId,
             UUID scenarioPackageId,
             List<UUID> rulebookIds,
-            UUID characterSheetId,
             String engineId,
             List<String> toolIds) {}
 

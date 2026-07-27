@@ -14,6 +14,8 @@ import { RulebookSetup } from '../../src/features/rulebooks/RulebookSetup'
 import type { SetupApi } from '../../src/features/rulebooks/SetupApi'
 import type { AdventurePlayApi, SavedAdventure } from '../../src/features/saved-adventures/AdventurePlayApi'
 import { SavedAdventurePanel } from '../../src/features/saved-adventures/SavedAdventurePanel'
+import { AdventureSessionPanel } from '../../src/features/adventure-session/AdventureSessionPanel'
+import type { AdventureSessionView } from '../../src/features/adventure-session/AdventureSessionApi'
 
 const adventureId = 'adventure-e2e'
 
@@ -113,12 +115,30 @@ const guidanceApi: RuleGuidanceApi = {
   },
 }
 
+let sessionView: AdventureSessionView = {
+  sessionId: 'session-e2e', characterLimit: 1, version: 0, status: 'DRAFT', adventureId: null,
+  runtimeConfiguration: null, party: [],
+}
+const sessionApi = {
+  async read() { return sessionView },
+  async addMember(_sessionId: string, version: number, member: AdventureSessionView['party'][number]) {
+    sessionView = { ...sessionView, version: version + 1, party: [member] }
+    return sessionView
+  },
+  async removeMember() { return sessionView },
+  async start(_sessionId: string, version: number, adventureId: string) {
+    sessionView = { ...sessionView, version: version + 2, status: 'STARTED', adventureId }
+    return sessionView
+  },
+}
+
 function Journey() {
   const auth = useAuth()
   if (!auth.session) return <main><h1>D&amp;D Master</h1><LoginForm /></main>
   return (
     <main>
       <RulebookSetup api={setupApi} playerId="player-e2e" asMain={false} />
+      <AdventureSessionPanel api={sessionApi} sessionId="session-e2e" />
       <ScenarioUploadPanel />
       <div aria-label="모험 플레이">
         <AdventureStream adventureId={adventureId} api={adventureApi} />

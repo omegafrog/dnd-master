@@ -26,6 +26,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnRep
 import com.dndmaster.adventure.infrastructure.persistence.PostgresWorkQueueAdapter;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureSessionRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureSessionStartOutboxRepository;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpKnowledgeDocumentLookupGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpPlayerSessionLookupGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpLegacyScenarioIngestionGateway;
@@ -66,8 +67,14 @@ public class AdventureApiConfiguration {
             AdventureSessionRepository repository,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
             AdventureRepository adventureRepository,
-            RuntimeBindingApplicationService runtimeBindingApplicationService) {
-        return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository, runtimeBindingApplicationService);
+            RuntimeBindingApplicationService runtimeBindingApplicationService,
+            AdventureSessionStartOutboxRepository startOutboxRepository) {
+        return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository, runtimeBindingApplicationService, startOutboxRepository);
+    }
+
+    @Bean
+    AdventureSessionStartOutboxRepository adventureSessionStartOutboxRepository(DataSource dataSource) {
+        return new PostgresAdventureSessionStartOutboxRepository(dataSource);
     }
 
     @Bean
