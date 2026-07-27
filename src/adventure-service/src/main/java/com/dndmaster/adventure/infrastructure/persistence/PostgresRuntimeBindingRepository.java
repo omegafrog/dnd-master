@@ -60,7 +60,7 @@ public final class PostgresRuntimeBindingRepository implements RuntimeBindingRep
                     rulebook_ids_json, party_json, engine_id, tool_ids_json,
                     playability_status, playability_warnings_json, playability_blockers_json,
                     playability_limits_json, active_source_context_json, source_context_candidates_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (adventure_id, binding_version) DO UPDATE SET
                     owner_player_id = EXCLUDED.owner_player_id,
                     scenario_package_id = EXCLUDED.scenario_package_id,
