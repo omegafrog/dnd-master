@@ -89,6 +89,37 @@ public final class ScenarioPreparationApplicationService {
         return runtimeOptionCatalog.read(ownerPlayerId);
     }
 
+    public CharacterCreationBlueprint resolveBlueprint(UUID packageId, OwnerPlayerId ownerPlayerId,
+                                                       String fieldKey, String value) {
+        ScenarioPackage scenarioPackage = packageRepository.findById(packageId)
+                .orElseThrow(ScenarioBundleNotFoundException::new);
+        ScenarioSourceBundle bundle = bundleRepository.findById(scenarioPackage.bundleId())
+                .orElseThrow(ScenarioBundleNotFoundException::new);
+        bundle.authorize(ownerPlayerId);
+        CharacterCreationBlueprint blueprint = requireBlueprint(scenarioPackage);
+        CharacterCreationBlueprint resolved = blueprint.resolve(fieldKey, value);
+        packageRepository.saveBlueprint(packageId, resolved);
+        return resolved;
+    }
+
+    public CharacterCreationBlueprint publishBlueprint(UUID packageId, OwnerPlayerId ownerPlayerId) {
+        ScenarioPackage scenarioPackage = packageRepository.findById(packageId)
+                .orElseThrow(ScenarioBundleNotFoundException::new);
+        ScenarioSourceBundle bundle = bundleRepository.findById(scenarioPackage.bundleId())
+                .orElseThrow(ScenarioBundleNotFoundException::new);
+        bundle.authorize(ownerPlayerId);
+        CharacterCreationBlueprint published = requireBlueprint(scenarioPackage).publish();
+        packageRepository.saveBlueprint(packageId, published);
+        return published;
+    }
+
+    private static CharacterCreationBlueprint requireBlueprint(ScenarioPackage scenarioPackage) {
+        if (scenarioPackage.characterCreationBlueprint() == null) {
+            throw new IllegalStateException("character creation blueprint is unavailable");
+        }
+        return scenarioPackage.characterCreationBlueprint();
+    }
+
     private static List<CharacterCreationBlueprintView.FieldView> blueprintFields(boolean hasHandout) {
         String source = hasHandout ? "HANDOUT" : "RULEBOOK";
         return List.of("name", "race", "class", "background", "starting_ability_scores", "level").stream()

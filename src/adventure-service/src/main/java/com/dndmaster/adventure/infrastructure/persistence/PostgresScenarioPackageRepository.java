@@ -95,6 +95,19 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
         }
     }
 
+    @Override
+    public void saveBlueprint(UUID packageId, CharacterCreationBlueprint blueprint) {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(
+                        "UPDATE scenario_package SET character_creation_blueprint_json = ? WHERE package_id = ?")) {
+            statement.setString(1, writeBlueprint(blueprint));
+            statement.setObject(2, packageId);
+            if (statement.executeUpdate() != 1) throw new IllegalStateException("scenario package not found");
+        } catch (SQLException exception) {
+            throw new ScenarioPackagePersistenceException("could not update character creation blueprint", exception);
+        }
+    }
+
     private static void insertHeader(Connection connection, ScenarioPackage packageVersion) throws SQLException {
         try (PreparedStatement insert = connection.prepareStatement(
                 "INSERT INTO scenario_package(package_id, bundle_id, bundle_revision, input_fingerprint, report_status, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {

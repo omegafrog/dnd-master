@@ -56,6 +56,20 @@ class CharacterCreationBlueprintCompilerTest {
                 new FieldCandidate("alignment", List.of("Good"), true, "HANDOUT", HANDOUT, "Good"))));
     }
 
+    @Test
+    void reviewResolutionThenPublishCreatesNewImmutableRevision() {
+        var draft = new CharacterCreationBlueprintCompiler().compile(1, List.of(
+                new FieldCandidate("race", List.of("Elf"), true, "HANDOUT", HANDOUT, "Elf")));
+
+        var resolved = draft.resolve("race", "Elf");
+        var published = resolved.publish();
+
+        assertEquals(CharacterCreationBlueprintStatus.READY, resolved.status());
+        assertEquals(CharacterCreationBlueprintStatus.PUBLISHED, published.status());
+        assertEquals(1, draft.revision());
+        assertEquals(3, published.revision());
+    }
+
     private static ScenarioSourceReference source(long version) {
         return new ScenarioSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), version, "p1");
     }

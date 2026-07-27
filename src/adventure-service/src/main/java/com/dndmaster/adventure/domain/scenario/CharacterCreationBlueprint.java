@@ -2,6 +2,7 @@ package com.dndmaster.adventure.domain.scenario;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.ArrayList;
 
 /** Immutable, versioned character-creation contract compiled with a scenario package. */
 public record CharacterCreationBlueprint(
@@ -19,6 +20,33 @@ public record CharacterCreationBlueprint(
     public Field field(String key) {
         return fields.stream().filter(field -> field.key().equals(key)).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("unknown blueprint field: " + key));
+    }
+
+    public CharacterCreationBlueprint resolve(String key, String value) {
+        if (value == null || value.isBlank()) throw new IllegalArgumentException("blueprint value must not be blank");
+        List<Field> next = new ArrayList<>();
+        boolean found = false;
+        for (Field field : fields) {
+            if (!field.key().equals(key)) { next.add(field); continue; }
+            if (!field.options().isEmpty() && !field.options().contains(value)) {
+                throw new IllegalArgumentException("value is not a blueprint option: " + value);
+            }
+            next.add(new Field(field.key(), List.of(value), field.required(), field.sourceType(), field.evidence(),
+                    "USER_CONFIRMED", List.of()));
+            found = true;
+        }
+        if (!found) throw new IllegalArgumentException("unknown blueprint field: " + key);
+        CharacterCreationBlueprintStatus nextStatus = next.stream().anyMatch(field ->
+                !field.diagnostics().isEmpty() || field.inputStatus().equals("MANUAL_INPUT_REQUIRED"))
+                ? CharacterCreationBlueprintStatus.NEEDS_REVIEW : CharacterCreationBlueprintStatus.READY;
+        return new CharacterCreationBlueprint(revision + 1, nextStatus, next, List.of());
+    }
+
+    public CharacterCreationBlueprint publish() {
+        if (status != CharacterCreationBlueprintStatus.READY) {
+            throw new IllegalStateException("blueprint has unresolved review items");
+        }
+        return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.PUBLISHED, fields, diagnostics);
     }
 
     public record Field(String key, List<String> options, boolean required, String sourceType,
