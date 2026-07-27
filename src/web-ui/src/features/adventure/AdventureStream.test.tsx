@@ -39,3 +39,13 @@ it('announces failure when message send fails', async () => {
   await user.click(screen.getByRole('button', { name: '보내기' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('메시지를 전송하지 못했습니다')
 })
+
+it('waits for direct input while agent turns progress automatically', () => {
+  const api: AdventureApi = { async sendMessage() { throw new Error('must not send') } }
+  const { rerender } = render(<AdventureStream adventureId="a1" api={api} controlMode="DIRECT" />)
+  expect(screen.getByRole('status')).toHaveTextContent('직접 플레이 입력 대기')
+  expect(screen.getByRole('button', { name: '보내기' })).toBeEnabled()
+  rerender(<AdventureStream adventureId="a1" api={api} controlMode="AGENT" />)
+  expect(screen.getByRole('status')).toHaveTextContent('에이전트 캐릭터 차례')
+  expect(screen.getByRole('button', { name: '보내기' })).toBeDisabled()
+})

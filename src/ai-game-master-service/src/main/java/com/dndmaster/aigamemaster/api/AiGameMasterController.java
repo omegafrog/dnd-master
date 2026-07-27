@@ -8,6 +8,8 @@ import com.dndmaster.aigamemaster.application.scene.NpcOutput;
 import com.dndmaster.aigamemaster.application.scene.ScenarioBoundSceneService;
 import com.dndmaster.aigamemaster.application.scene.ScenarioRequest;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.UUID;
@@ -86,6 +88,16 @@ public class AiGameMasterController {
         return new MapResponse(output.width(), output.height(), output.structuredLayers());
     }
 
+    @PostMapping("/internal/v1/gm/agent-actions")
+    AgentActionResponse proposeAgentAction(@RequestBody AgentActionRequest request) {
+        if (request == null || request.characterSheetId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "character sheet id required");
+        }
+        String action = request.currentScene() == null || request.currentScene().isBlank()
+                ? "Observe the current scene" : "Act from the current scene";
+        return new AgentActionResponse(UUID.randomUUID(), UUID.randomUUID(), action);
+    }
+
     public record SceneRequest(
             UUID scenarioId, String selectedScenario, String currentContext,
             UUID ruleSetId, List<EvidenceRef> evidence) {}
@@ -116,4 +128,9 @@ public class AiGameMasterController {
     public record MapRequest(String selectedScenario, String currentContext) {}
 
     public record MapResponse(int width, int height, String structuredLayers) {}
+
+    public record AgentActionRequest(UUID adventureId, UUID ownerPlayerId, UUID characterSheetId,
+                                     String characterName, int level, String currentScene) {}
+
+    public record AgentActionResponse(UUID turnId, UUID commandId, String action) {}
 }

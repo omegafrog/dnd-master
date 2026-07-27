@@ -34,6 +34,8 @@ import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpInitia
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpResolutionExtractionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpScenarioSourceExcerptGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuleIntentClassificationGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetReadGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAgentActionCandidateGateway;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -498,6 +500,30 @@ public class AdventureApiConfiguration {
         return new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort);
+    }
+
+    @Bean
+    CharacterSheetReadPort characterSheetReadPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.character-management.base-url:http://127.0.0.1:8080/}") String baseUrl) {
+        return new CrossContextHttpCharacterSheetReadGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(10), objectMapper);
+    }
+
+    @Bean
+    AgentActionCandidatePort agentActionCandidatePort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl) {
+        return new CrossContextHttpAgentActionCandidateGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(30), objectMapper);
+    }
+
+    @Bean
+    AgentTurnApplicationService agentTurnApplicationService(
+            CharacterSheetReadPort characterSheetReadPort,
+            AgentActionCandidatePort agentActionCandidatePort,
+            RuntimeTurnApplicationService runtimeTurnApplicationService) {
+        return new AgentTurnApplicationService(characterSheetReadPort, agentActionCandidatePort, runtimeTurnApplicationService);
     }
 
     @Bean

@@ -1,7 +1,7 @@
 import { type FormEvent, useState } from 'react'
 import type { AdventureApi } from './AdventureApi'
 
-export function AdventureStream({ adventureId, api }: { adventureId: string; api: AdventureApi }) {
+export function AdventureStream({ adventureId, api, controlMode = 'DIRECT' }: { adventureId: string; api: AdventureApi; controlMode?: 'DIRECT' | 'AGENT' }) {
   const [messages, setMessages] = useState<{ speaker: string; text: string }[]>([])
   const [notice, setNotice] = useState('')
   const [sending, setSending] = useState(false)
@@ -28,6 +28,7 @@ export function AdventureStream({ adventureId, api }: { adventureId: string; api
   return (
     <section aria-labelledby="conversation-heading">
       <h2 id="conversation-heading">모험 대화</h2>
+      <p role="status">{controlMode === 'AGENT' ? '에이전트 캐릭터 차례 — 자동 진행 중' : '직접 플레이 입력 대기 중'}</p>
       <ol aria-label="대화 기록">
         {messages.map((message, index) => (
           <li key={index}>
@@ -36,9 +37,9 @@ export function AdventureStream({ adventureId, api }: { adventureId: string; api
         ))}
       </ol>
       <p role="alert">{notice}</p>
-      <form onSubmit={send}>
+      <form onSubmit={send} aria-disabled={controlMode === 'AGENT'}>
         <label>행동 또는 대화<input name="message" required /></label>
-        <button type="submit" disabled={sending}>보내기</button>
+        <button type="submit" disabled={sending || controlMode === 'AGENT'}>보내기</button>
       </form>
     </section>
   )
