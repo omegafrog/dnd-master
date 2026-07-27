@@ -29,7 +29,7 @@ public final class CrossContextHttpAgentActionCandidateGateway implements AgentA
     public AgentActionCandidate propose(Request request) {
         try {
             String body = objectMapper.writeValueAsString(new CandidateRequest(
-                    request.adventureId().value(), request.ownerPlayerId().value(), request.characterSheetId().value(),
+                    request.adventureId().value(), request.ownerPlayerId().value(), request.sessionId(), request.turnIndex(), request.characterSheetId().value(),
                     request.characterSheet().name(), request.characterSheet().level(), request.context().currentScene()));
             HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/agent-actions"))
                     .timeout(timeout).header("Content-Type", "application/json")
@@ -48,7 +48,7 @@ public final class CrossContextHttpAgentActionCandidateGateway implements AgentA
         }
     }
 
-    record CandidateRequest(java.util.UUID adventureId, java.util.UUID ownerPlayerId, java.util.UUID characterSheetId,
+    record CandidateRequest(java.util.UUID adventureId, java.util.UUID ownerPlayerId, java.util.UUID sessionId, int turnIndex, java.util.UUID characterSheetId,
                             String characterName, int level, String currentScene) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
     record CandidateResponse(java.util.UUID turnId, java.util.UUID commandId, String action) {}

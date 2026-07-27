@@ -1,10 +1,25 @@
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import type { AdventureApi } from './AdventureApi'
 
-export function AdventureStream({ adventureId, api, controlMode = 'DIRECT' }: { adventureId: string; api: AdventureApi; controlMode?: 'DIRECT' | 'AGENT' }) {
+export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', turnIndex = 0 }: { adventureId: string; api: AdventureApi; controlMode?: 'DIRECT' | 'AGENT'; turnIndex?: number }) {
   const [messages, setMessages] = useState<{ speaker: string; text: string }[]>([])
   const [notice, setNotice] = useState('')
   const [sending, setSending] = useState(false)
+  const [agentTurnIndex, setAgentTurnIndex] = useState(turnIndex)
+
+  useEffect(() => {
+    if (controlMode !== 'AGENT' || !api.runAgentTurn) return
+    let cancelled = false
+    setSending(true)
+    void api.runAgentTurn(adventureId, agentTurnIndex).then(response => {
+      if (cancelled) return
+      setMessages(current => [...current, { speaker: '에이전트 캐릭터', text: response.narration }])
+      setAgentTurnIndex(current => current + 1)
+    }).catch(() => {
+      if (!cancelled) setNotice('에이전트 턴을 실행하지 못했습니다.')
+    }).finally(() => { if (!cancelled) setSending(false) })
+    return () => { cancelled = true }
+  }, [adventureId, agentTurnIndex, api, controlMode])
 
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()

@@ -36,7 +36,7 @@ public final class AgentTurnApplicationService {
         CharacterSheetId sheetId = cursor.current().characterSheetId();
         CharacterSheetReadPort.CharacterSheet sheet = characterSheetReadPort.read(sheetId);
         AgentActionCandidate candidate = candidatePort.propose(new AgentActionCandidatePort.Request(
-                adventure.id(), ownerPlayerId, sheetId, sheet, adventure.currentContext()));
+                adventure.id(), ownerPlayerId, adventure.sessionId().value(), cursor.index(), sheetId, sheet, adventure.currentContext()));
         if (!sheetId.equals(candidate.characterSheetId())) {
             throw new IllegalStateException("agent candidate character does not own current turn");
         }

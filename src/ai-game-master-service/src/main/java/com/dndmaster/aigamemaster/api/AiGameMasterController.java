@@ -95,7 +95,9 @@ public class AiGameMasterController {
         }
         String action = request.currentScene() == null || request.currentScene().isBlank()
                 ? "Observe the current scene" : "Act from the current scene";
-        return new AgentActionResponse(UUID.randomUUID(), UUID.randomUUID(), action);
+        UUID turnId = UUID.nameUUIDFromBytes((request.sessionId() + ":" + request.turnIndex() + ":" + request.characterSheetId()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        UUID commandId = UUID.nameUUIDFromBytes((turnId + ":command").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return new AgentActionResponse(turnId, commandId, action);
     }
 
     public record SceneRequest(
@@ -129,7 +131,7 @@ public class AiGameMasterController {
 
     public record MapResponse(int width, int height, String structuredLayers) {}
 
-    public record AgentActionRequest(UUID adventureId, UUID ownerPlayerId, UUID characterSheetId,
+    public record AgentActionRequest(UUID adventureId, UUID ownerPlayerId, UUID sessionId, int turnIndex, UUID characterSheetId,
                                      String characterName, int level, String currentScene) {}
 
     public record AgentActionResponse(UUID turnId, UUID commandId, String action) {}
