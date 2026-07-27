@@ -50,6 +50,14 @@ public class CharacterSheetController {
         return CharacterSheetResponse.from(sheet);
     }
 
+    @GetMapping("/internal/v1/adventure-sessions/{sessionId}/character-sheets/{sheetId}/ownership")
+    CharacterSheetResponse verifyOwnership(@RequestHeader(value = "X-Internal-Service", required = false) String service, @PathVariable UUID sessionId, @PathVariable UUID sheetId) {
+        if (!"adventure".equals(service)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "internal service header required");
+        CharacterSheetResponse response = CharacterSheetResponse.from(characterSheetService.openSheet(new CharacterSheetId(sheetId), SheetEdition.DND_5E_2024));
+        if (!sessionId.equals(response.sessionId())) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "character sheet belongs to another session");
+        return response;
+    }
+
     @PutMapping("/internal/v1/character-sheets/{sheetId}")
     CharacterSheetResponse preserveCharacterSheet(
             @PathVariable UUID sheetId,
