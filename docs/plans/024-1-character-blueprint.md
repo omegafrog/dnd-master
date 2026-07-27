@@ -1,6 +1,6 @@
 # 024-1 - Blueprint 컴파일·게시
 
-- Status: approved
+- Status: completed
 - Issue: [#67](https://github.com/omegafrog/dnd-master/issues/67)
 - Dependencies: none
 - Parent: [024](024-character-creation-flow.md)
