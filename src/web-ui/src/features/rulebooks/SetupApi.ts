@@ -146,6 +146,8 @@ export type CharacterCreationBlueprintView = {
     sourceType: string
     inputStatus: string
     diagnostics: string[]
+    constraints?: string[]
+    evidence?: Array<{ knowledgeDocumentId: string; extractionVersion: number; locator: string }>
   }>
 }
 
@@ -175,6 +177,10 @@ export type CharacterCreationDraft = {
   characterName: string
   level: number
   inspiration: boolean
+  race?: string
+  characterClass?: string
+  background?: string
+  startingAbilities?: string
   blueprintRevision?: number
   blueprintValues?: Record<string, string>
 }

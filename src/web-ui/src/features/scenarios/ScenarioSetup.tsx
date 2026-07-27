@@ -232,7 +232,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
 
   async function createSession() {
     const blueprint = playPreparation?.characterCreationBlueprint
-    if (!sessionApi || !scenarioPackage || !blueprint?.available || blueprint.revision == null) return
+    if (!sessionApi || !scenarioPackage || !blueprint?.available || blueprint.status !== 'PUBLISHED' || blueprint.revision == null) return
     try {
       const session = await sessionApi.create({
         scenarioPackageId: scenarioPackage.packageId,
@@ -438,7 +438,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
                             />
                           )}
                           {field.inputStatus === 'MANUAL_INPUT_REQUIRED' ? <small>수동 입력 필요</small> : null}
-                          {api.resolveBlueprint && field.inputStatus === 'MANUAL_INPUT_REQUIRED' ? <button type="button" onClick={() => void resolveBlueprint(field.key)} disabled={!blueprintValues[field.key]}>검토값 저장</button> : null}
+                          {api.resolveBlueprint && playPreparation.characterCreationBlueprint.status === 'NEEDS_REVIEW' ? <button type="button" onClick={() => void resolveBlueprint(field.key)} disabled={!blueprintValues[field.key]}>검토값 저장</button> : null}
                         </label>
                       ))}
                     </fieldset>
@@ -446,7 +446,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
                   {api.publishBlueprint && playPreparation.characterCreationBlueprint.status !== 'PUBLISHED' ? <button type="button" disabled={publishingBlueprint || playPreparation.status !== 'READY'} onClick={() => void publishBlueprint()}>{publishingBlueprint ? '게시 중…' : 'Blueprint 게시'}</button> : null}
                 </div>
               ) : null}
-              {sessionApi && playPreparation.status === 'READY' && playPreparation.characterCreationBlueprint.available ? (
+              {sessionApi && playPreparation.status === 'READY' && playPreparation.characterCreationBlueprint.available && playPreparation.characterCreationBlueprint.status === 'PUBLISHED' ? (
                 <button type="button" onClick={() => void createSession()}>세션 초안 생성 후 캐릭터 만들기</button>
               ) : null}
               {canCreateCharacter ? (

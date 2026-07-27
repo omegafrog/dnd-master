@@ -37,6 +37,10 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
         characterName: name.trim(),
         level,
         inspiration: false,
+        race: values.race ?? '',
+        characterClass: values.characterClass ?? '',
+        background: values.background ?? '',
+        startingAbilities: values.startingAbilities ?? '',
         blueprintRevision: session.blueprintRevision,
         blueprintValues: values,
       })
@@ -64,7 +68,7 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
 
   if (!session || !preparation) return <p role="status">{message || '캐릭터 생성 준비를 불러오는 중…'}</p>
   const blueprint = preparation.characterCreationBlueprint
-  const blocked = preparation.status !== 'READY' || !blueprint.available || blueprint.status === 'NEEDS_REVIEW'
+  const blocked = preparation.status !== 'READY' || !blueprint.available || blueprint.status !== 'PUBLISHED'
   return <section aria-labelledby="character-creation-heading">
     <h2 id="character-creation-heading">캐릭터 생성</h2>
     <p>세션 ID: {session.sessionId}</p>
@@ -77,6 +81,8 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
         {field.options.length > 0 ? <select aria-label={field.key} required={field.required} value={values[field.key] ?? ''} onChange={event => setValues(current => ({ ...current, [field.key]: event.currentTarget.value }))}><option value="">선택하세요</option>{field.options.map(option => <option key={option} value={option}>{option}</option>)}</select>
           : <input aria-label={field.key} required={field.required} value={values[field.key] ?? ''} onChange={event => setValues(current => ({ ...current, [field.key]: event.currentTarget.value }))} />}
         {field.inputStatus === 'MANUAL_INPUT_REQUIRED' && <small>수동 입력 필요 · 근거: {field.sourceType}</small>}
+        {(field.constraints ?? []).map(item => <small key={item}>제약: {item}</small>)}
+        {(field.evidence ?? []).map(item => <small key={`${item.knowledgeDocumentId}-${item.locator}`}>근거: {item.knowledgeDocumentId} v{item.extractionVersion} · {item.locator}</small>)}
         {field.diagnostics.map(item => <small key={item}>{item}</small>)}
       </label>)}
     </fieldset>
