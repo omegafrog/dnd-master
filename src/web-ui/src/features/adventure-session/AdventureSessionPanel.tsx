@@ -37,7 +37,7 @@ export function AdventureSessionPanel({ api, sessionId }: { api: SessionApi; ses
     <ul>{session.party.map(member => <li key={member.characterSheetId}>{member.characterSheetId} · {member.controlMode} {!frozen && <button type="button" onClick={() => void api.removeMember(sessionId, session.version, member.characterSheetId).then(setSession)}>제거</button>}</li>)}</ul>
     {!frozen && <div><label>캐릭터 시트 ID <input value={sheetId} onChange={event => setSheetId(event.target.value)} /></label><label>제어 방식 <select value={mode} onChange={event => setMode(event.target.value as SessionControlMode)}><option value="DIRECT">직접 플레이</option><option value="AGENT">에이전트</option></select></label><fieldset><legend>시작 속성 변경 허용</legend>{Object.entries(mutable).map(([key, checked]) => <label key={key}><input type="checkbox" checked={checked} onChange={event => setMutable(previous => ({ ...previous, [key]: event.target.checked }))} />{key}</label>)}</fieldset><button type="button" onClick={() => void addMember()} disabled={!sheetId.trim() || session.party.length >= session.characterLimit}>파티에 추가</button></div>}
     {!frozen && <button type="button" onClick={() => void start()} disabled={session.party.length === 0}>모험 시작</button>}
-    {frozen && <p>시작 후 파티와 제어 방식은 변경할 수 없습니다.</p>}
+    {frozen && <p>시작 후 파티와 제어 방식은 변경할 수 없습니다. 종료된 세션의 시트는 비활성화됩니다.</p>}
     {session.status === 'STARTED' && <div><button type="button" onClick={() => void finish('complete')}>세션 완료</button><button type="button" onClick={() => void finish('delete')}>세션 삭제</button></div>}
     <p role="status">{message}</p>
   </section>

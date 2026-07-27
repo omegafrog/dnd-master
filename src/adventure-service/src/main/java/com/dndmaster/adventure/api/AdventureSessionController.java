@@ -25,7 +25,7 @@ public final class AdventureSessionController {
         AdventureSession session = service.readInternal(new SessionId(sessionId));
         AdventurePartyMember member = characterSheetId == null ? null : session.party().stream().filter(item -> item.characterSheetId().value().equals(characterSheetId)).findFirst().orElse(null);
         boolean mutable = session.status() != AdventureSession.Status.STARTED && session.status() != AdventureSession.Status.STARTING;
-        return member == null ? CharacterPolicyView.draft() : new CharacterPolicyView(
+        return member == null && session.status() == AdventureSession.Status.DRAFT ? CharacterPolicyView.draft() : member == null ? CharacterPolicyView.terminated() : new CharacterPolicyView(
                 mutable, mutable || member.nameMutableAfterStart(), mutable || member.levelMutableAfterStart(),
                 mutable || member.raceMutableAfterStart(), mutable || member.characterClassMutableAfterStart(),
                 mutable || member.backgroundMutableAfterStart(), mutable || member.startingAbilitiesMutableAfterStart());
@@ -35,7 +35,8 @@ public final class AdventureSessionController {
     public record StartRequest(UUID adventureId) {}
     public record CharacterPolicyView(boolean acceptingCharacterSheets, boolean nameMutable, boolean levelMutable,
             boolean raceMutable, boolean characterClassMutable, boolean backgroundMutable, boolean startingAbilitiesMutable) {
-        static CharacterPolicyView draft() { return new CharacterPolicyView(true, true, true, true, true, true, true); }
+            static CharacterPolicyView draft() { return new CharacterPolicyView(true, true, true, true, true, true, true); }
+        static CharacterPolicyView terminated() { return new CharacterPolicyView(false, false, false, false, false, false, false); }
     }
     public record PartyMemberRequest(UUID characterSheetId, ControlMode controlMode, boolean nameMutableAfterStart, boolean raceMutableAfterStart, boolean characterClassMutableAfterStart, boolean backgroundMutableAfterStart, boolean startingAbilitiesMutableAfterStart, boolean levelMutableAfterStart) {
         AdventurePartyMember toDomain() { return toDomain(characterSheetId); }

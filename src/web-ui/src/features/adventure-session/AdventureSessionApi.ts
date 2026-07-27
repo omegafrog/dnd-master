@@ -1,5 +1,5 @@
 export type SessionControlMode = 'DIRECT' | 'AGENT'
-export type AdventureSessionStatus = 'DRAFT' | 'STARTING' | 'STARTED'
+export type AdventureSessionStatus = 'DRAFT' | 'STARTING' | 'STARTED' | 'COMPLETED' | 'DELETED'
 
 export type SessionPartyMember = {
   characterSheetId: string

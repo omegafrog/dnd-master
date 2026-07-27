@@ -24,6 +24,9 @@ import javax.sql.DataSource;
 public class CharacterManagementApiConfiguration {
 
     @Bean
+    ApiRequestGuard apiRequestGuard(@Value("${character.integration.internal-token:local-dev-internal-token}") String token) { return new ApiRequestGuard(token); }
+
+    @Bean
     CharacterSheetRepository characterSheetRepository(DataSource dataSource) {
         return new PostgresCharacterSheetRepository(dataSource);
     }

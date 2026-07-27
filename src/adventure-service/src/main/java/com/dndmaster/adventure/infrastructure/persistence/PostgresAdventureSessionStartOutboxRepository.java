@@ -5,6 +5,7 @@ import com.dndmaster.adventure.domain.adventure.SessionId;
 import java.sql.SQLException;
 import java.util.UUID;
 import java.util.List;
+import java.util.Optional;
 import javax.sql.DataSource;
 
 public final class PostgresAdventureSessionStartOutboxRepository implements AdventureSessionStartOutboxRepository {
@@ -23,6 +24,23 @@ public final class PostgresAdventureSessionStartOutboxRepository implements Adve
             throw new AdventurePersistenceException("could not serialize character sheet deletion event", exception);
         }
     }
+    @Override public Optional<AdventureSessionStartOutboxRepository.DeletionEvent> claimNextDeletion() {
+        try (var connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try (var select = connection.prepareStatement("SELECT event_id, session_id, character_sheet_ids_json FROM adventure_session_character_sheet_deletion_outbox WHERE status IN ('PENDING','FAILED') ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1")) {
+                try (var rows = select.executeQuery()) {
+                    if (!rows.next()) { connection.commit(); return Optional.empty(); }
+                    UUID eventId = rows.getObject("event_id", UUID.class);
+                    try (var update = connection.prepareStatement("UPDATE adventure_session_character_sheet_deletion_outbox SET status='PROCESSING', attempts=attempts+1 WHERE event_id=?")) { update.setObject(1, eventId); update.executeUpdate(); }
+                    var ids = new com.fasterxml.jackson.databind.ObjectMapper().readValue(rows.getString("character_sheet_ids_json"), new com.fasterxml.jackson.core.type.TypeReference<List<UUID>>() {});
+                    connection.commit();
+                    return Optional.of(new AdventureSessionStartOutboxRepository.DeletionEvent(eventId, rows.getObject("session_id", UUID.class), ids));
+                }
+            } catch (Exception e) { connection.rollback(); throw new AdventurePersistenceException("could not claim character sheet deletion", e); }
+        } catch (SQLException e) { throw new AdventurePersistenceException("could not claim character sheet deletion", e); }
+    }
+    @Override public void completeDeletion(UUID eventId) { execute("UPDATE adventure_session_character_sheet_deletion_outbox SET status='COMPLETED', completed_at=CURRENT_TIMESTAMP WHERE event_id=?", eventId); }
+    @Override public void failDeletion(UUID eventId, String reason) { execute("UPDATE adventure_session_character_sheet_deletion_outbox SET status='FAILED' WHERE event_id=?", eventId); }
     private void execute(String sql, Object... values) {
         try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(sql)) {
             for (int i = 0; i < values.length; i++) statement.setObject(i + 1, values[i]);

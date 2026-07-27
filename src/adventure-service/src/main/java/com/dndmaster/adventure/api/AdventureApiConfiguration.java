@@ -35,6 +35,7 @@ import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpResolu
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpScenarioSourceExcerptGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuleIntentClassificationGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetReadGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetDeletionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAgentActionCandidateGateway;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
@@ -77,6 +78,18 @@ public class AdventureApiConfiguration {
     @Bean
     AdventureSessionStartOutboxRepository adventureSessionStartOutboxRepository(DataSource dataSource) {
         return new PostgresAdventureSessionStartOutboxRepository(dataSource);
+    }
+
+    @Bean
+    CharacterSheetDeletionPort characterSheetDeletionPort(ObjectMapper objectMapper,
+            @Value("${adventure.integration.character-management.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:local-dev-internal-token}") String token) {
+        return new CrossContextHttpCharacterSheetDeletionGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(10), objectMapper, token);
+    }
+
+    @Bean
+    CharacterSheetDeletionWorker characterSheetDeletionWorker(AdventureSessionStartOutboxRepository outbox, CharacterSheetDeletionPort port) {
+        return new CharacterSheetDeletionWorker(outbox, port);
     }
 
     @Bean

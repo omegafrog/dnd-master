@@ -79,16 +79,14 @@ public final class AdventureSessionApplicationService {
     }
     public AdventureSession complete(SessionId id, OwnerPlayerId owner, long expectedVersion) {
         AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion);
-        List<com.dndmaster.adventure.domain.adventure.CharacterSheetId> sheets = session.complete();
+        session.complete();
         repository.save(session, expectedVersion);
-        startCoordinator.requestCharacterSheetDeletion(session.id(), sheets.stream().map(s -> s.value()).toList());
         return session;
     }
     public AdventureSession delete(SessionId id, OwnerPlayerId owner, long expectedVersion) {
         AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion);
-        List<com.dndmaster.adventure.domain.adventure.CharacterSheetId> sheets = session.delete();
+        session.delete();
         repository.save(session, expectedVersion);
-        startCoordinator.requestCharacterSheetDeletion(session.id(), sheets.stream().map(s -> s.value()).toList());
         return session;
     }
     private AdventureSession load(SessionId id) { return repository.findById(id).orElseThrow(() -> new IllegalArgumentException("adventure session not found")); }

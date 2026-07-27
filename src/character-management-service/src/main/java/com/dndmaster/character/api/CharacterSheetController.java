@@ -8,12 +8,14 @@ import org.springframework.web.bind.annotation.*;
 import java.util.UUID;
 import com.dndmaster.character.application.CharacterSheetsDeletionConsumer;
 import com.dndmaster.character.application.CharacterSheetsDeletionRequested;
+import com.dndmaster.character.api.ApiRequestGuard;
 
 @RestController
 @RequestMapping
 public class CharacterSheetController {
     private final CharacterSheetApplicationService characterSheetService;
     private CharacterSheetsDeletionConsumer deletionConsumer;
+    private ApiRequestGuard requestGuard;
 
     public CharacterSheetController(CharacterSheetApplicationService characterSheetService) {
         this.characterSheetService = characterSheetService;
@@ -21,9 +23,13 @@ public class CharacterSheetController {
 
     @org.springframework.beans.factory.annotation.Autowired(required = false)
     void setDeletionConsumer(CharacterSheetsDeletionConsumer deletionConsumer) { this.deletionConsumer = deletionConsumer; }
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setRequestGuard(ApiRequestGuard requestGuard) { this.requestGuard = requestGuard; }
 
     @PostMapping("/internal/v1/character-sheets/deletion-requests")
-    void deleteCharacterSheets(@RequestBody CharacterSheetsDeletionRequest request) {
+    void deleteCharacterSheets(@RequestHeader(value = "X-Internal-Token", required = false) String token, @RequestBody CharacterSheetsDeletionRequest request) {
+        if (requestGuard == null) throw new IllegalStateException("request guard is not configured");
+        requestGuard.internal(token);
         if (deletionConsumer == null) throw new IllegalStateException("deletion consumer is not configured");
         deletionConsumer.consume(new CharacterSheetsDeletionRequested(request.sessionId(), request.characterSheetIds()));
     }
