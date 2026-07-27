@@ -126,7 +126,8 @@ public final class RuntimeTurnApplicationService {
         if (existing.committed()) {
             return existing;
         }
-        if (adventure.version() == existing.version() - 1) {
+        long expectedProgressDelta = command.turnCharacterSheetId() == null ? 1 : 2;
+        if (adventure.version() == existing.version() - expectedProgressDelta) {
             Adventure progressed = Adventure.rehydrate(
                     adventure.id(), adventure.sessionId(), adventure.ownerPlayerId(), adventure.scenarioId(),
                     adventure.ruleSetId(), adventure.party(), adventure.conversation(), adventure.currentContext(),
