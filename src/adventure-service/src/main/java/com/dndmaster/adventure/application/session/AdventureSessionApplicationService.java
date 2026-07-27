@@ -70,7 +70,14 @@ public final class AdventureSessionApplicationService {
         boolean resumingStart = session.status() == AdventureSession.Status.STARTING;
         if (!resumingStart) requireVersion(session, expectedVersion);
         var scenarioPackage = packageRepository.findById(session.scenarioPackageId()).orElseThrow(() -> new IllegalStateException("scenario package not found"));
-        if (scenarioPackage.report().status() != ResolutionStatus.COMPLETE || scenarioPackage.bundleRevision() != session.scenarioPackageRevision() || scenarioPackage.characterLimit().maximumCharacters() != session.characterLimit()) throw new IllegalStateException("scenario package changed since session draft");
+        var blueprint = scenarioPackage.characterCreationBlueprint();
+        if (scenarioPackage.report().status() != ResolutionStatus.COMPLETE
+                || scenarioPackage.bundleRevision() != session.scenarioPackageRevision()
+                || scenarioPackage.characterLimit().maximumCharacters() != session.characterLimit()
+                || blueprint == null
+                || !blueprint.status().equals(com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.PUBLISHED)
+                || !session.blueprintId().equals(session.scenarioPackageId())
+                || blueprint.revision() != session.blueprintRevision()) throw new IllegalStateException("scenario package or blueprint changed since session draft");
         session.validateStart();
         var configuration = session.runtimeConfiguration();
         if (configuration == null) throw new IllegalStateException("adventure session runtime configuration is required");
