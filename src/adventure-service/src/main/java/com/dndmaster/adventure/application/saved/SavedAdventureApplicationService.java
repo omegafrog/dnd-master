@@ -11,14 +11,25 @@ import java.util.Objects;
 
 public final class SavedAdventureApplicationService {
     private final AdventureRepository repository;
+    private final boolean legacyCreationAllowed;
 
     public SavedAdventureApplicationService(AdventureRepository repository) {
+        this(repository, true);
+    }
+
+    public SavedAdventureApplicationService(AdventureRepository repository, boolean legacyCreationAllowed) {
         this.repository = Objects.requireNonNull(repository, "repository must not be null");
+        this.legacyCreationAllowed = legacyCreationAllowed;
     }
 
     public Adventure createAdventure(CreateAdventureCommand command) {
         Objects.requireNonNull(command, "command must not be null");
-        throw new IllegalStateException("direct adventure creation is disabled; start an adventure session");
+        if (!legacyCreationAllowed) throw new IllegalStateException("direct adventure creation is disabled; start an adventure session");
+        Adventure adventure = Adventure.create(
+                AdventureId.generate(), SessionId.generate(), command.ownerPlayerId(), command.scenarioId(),
+                command.ruleSetId(), command.characterSheetId(), command.initialContext());
+        repository.save(adventure);
+        return adventure;
     }
 
     public Adventure preserveProgress(

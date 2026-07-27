@@ -321,7 +321,7 @@ public class AdventureApiConfiguration {
 
     @Bean
     SavedAdventureApplicationService savedAdventureApplicationService(AdventureRepository repository) {
-        return new SavedAdventureApplicationService(repository);
+        return new SavedAdventureApplicationService(repository, false);
     }
 
     @Bean
