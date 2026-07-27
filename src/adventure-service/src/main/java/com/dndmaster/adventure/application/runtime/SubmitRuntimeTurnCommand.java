@@ -2,14 +2,20 @@ package com.dndmaster.adventure.application.runtime;
 
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
+import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import java.util.Objects;
 import java.util.UUID;
 
 // 플레이어 행동 1회를 런타임 턴으로 처리하라고 넘기는 명령이다.
 public record SubmitRuntimeTurnCommand(
-        AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID turnId, UUID commandId, String action, long expectedVersion) {
+        AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID turnId, UUID commandId, String action, long expectedVersion,
+        CharacterSheetId turnCharacterSheetId, int turnIndex) {
     public SubmitRuntimeTurnCommand(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID turnId, UUID commandId, String action) {
-        this(adventureId, ownerPlayerId, turnId, commandId, action, -1);
+        this(adventureId, ownerPlayerId, turnId, commandId, action, -1, null, -1);
+    }
+
+    public SubmitRuntimeTurnCommand(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID turnId, UUID commandId, String action, long expectedVersion) {
+        this(adventureId, ownerPlayerId, turnId, commandId, action, expectedVersion, null, -1);
     }
     public SubmitRuntimeTurnCommand {
         adventureId = Objects.requireNonNull(adventureId, "adventure id must not be null");
@@ -19,5 +25,7 @@ public record SubmitRuntimeTurnCommand(
         if (action == null || action.isBlank()) throw new IllegalArgumentException("action must not be blank");
         action = action.trim();
         if (expectedVersion < -1) throw new IllegalArgumentException("expected version must be -1 or non-negative");
+        if (turnIndex < -1) throw new IllegalArgumentException("turn index must be -1 or non-negative");
+        if ((turnCharacterSheetId == null) != (turnIndex < 0)) throw new IllegalArgumentException("agent turn cursor fields must be paired");
     }
 }

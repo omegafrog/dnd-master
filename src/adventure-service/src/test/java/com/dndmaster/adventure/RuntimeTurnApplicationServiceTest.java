@@ -162,7 +162,7 @@ class RuntimeTurnApplicationServiceTest {
 
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventures, bindings, packages, turns, search, planning, safety);
-        SubmitRuntimeTurnCommand command = new SubmitRuntimeTurnCommand(adventure.id(), owner, turnId, commandId, "Open the door");
+        SubmitRuntimeTurnCommand command = new SubmitRuntimeTurnCommand(adventure.id(), owner, turnId, commandId, "Open the door", 0);
 
         RuntimeTurnResult first = service.submitTurn(command);
         RuntimeTurnResult second = service.submitTurn(command);

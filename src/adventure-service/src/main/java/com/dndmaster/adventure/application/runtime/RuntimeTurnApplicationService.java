@@ -49,9 +49,6 @@ public final class RuntimeTurnApplicationService {
         Adventure adventure = adventureRepository.findById(command.adventureId())
                 .orElseThrow(() -> new IllegalStateException("adventure not found"));
         adventure.reopen(command.ownerPlayerId());
-        if (command.expectedVersion() >= 0 && adventure.version() != command.expectedVersion()) {
-            throw new IllegalStateException("adventure version does not match");
-        }
         RuntimeTurn existing = runtimeTurnRepository.findByCommandId(command.commandId()).orElse(null);
         if (existing != null) {
             if (!existing.turnId().equals(command.turnId())
@@ -61,6 +58,9 @@ public final class RuntimeTurnApplicationService {
             }
             RuntimeTurn committed = resumeCommittedTurn(command, adventure, existing);
             return new RuntimeTurnResult(committed, committed.context(), committed.conversation(), committed.version());
+        }
+        if (command.expectedVersion() >= 0 && adventure.version() != command.expectedVersion()) {
+            throw new IllegalStateException("adventure version does not match");
         }
         RuntimeBinding binding = bindingRepository.findCurrentByAdventureId(command.adventureId())
                 .orElseThrow(() -> new IllegalStateException("runtime binding not found"));
@@ -96,7 +96,7 @@ public final class RuntimeTurnApplicationService {
         conversation.add(new ConversationEntry(conversation.size(), "PLAYER", command.action()));
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.judgment()));
 
-        long nextVersion = adventure.version() + 1;
+        long nextVersion = adventure.version() + 1 + (command.turnCharacterSheetId() == null ? 0 : 1);
         RuntimeTurn turn = new RuntimeTurn(
                 command.turnId(), command.commandId(), adventure.id(), adventure.sessionId().value(), binding.scenarioPackageId(),
                 binding.bindingVersion(), command.action(), evidencePack, plan, activeSourceContext, nextContext,
@@ -112,6 +112,9 @@ public final class RuntimeTurnApplicationService {
                 adventure.ruleSetId(), adventure.party(), adventure.conversation(), adventure.currentContext(),
                 adventure.status(), adventure.version(), adventure.turnIndex(), adventure.lastTurnKey());
         progressed.preserveProgress(command.ownerPlayerId(), adventure.version(), nextContext, conversation);
+        if (command.turnCharacterSheetId() != null) {
+            progressed.advanceTurn(command.ownerPlayerId(), command.turnIndex(), command.turnCharacterSheetId(), command.turnId());
+        }
         adventureRepository.save(progressed);
 
         RuntimeTurn committed = turn.markCommitted();
@@ -129,6 +132,9 @@ public final class RuntimeTurnApplicationService {
                     adventure.ruleSetId(), adventure.party(), adventure.conversation(), adventure.currentContext(),
                     adventure.status(), adventure.version(), adventure.turnIndex(), adventure.lastTurnKey());
             progressed.preserveProgress(command.ownerPlayerId(), adventure.version(), existing.context(), existing.conversation());
+            if (command.turnCharacterSheetId() != null) {
+                progressed.advanceTurn(command.ownerPlayerId(), command.turnIndex(), command.turnCharacterSheetId(), command.turnId());
+            }
             adventureRepository.save(progressed);
         }
         RuntimeTurn committed = existing.markCommitted();

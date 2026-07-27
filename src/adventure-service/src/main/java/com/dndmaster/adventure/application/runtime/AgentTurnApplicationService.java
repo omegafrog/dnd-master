@@ -58,11 +58,9 @@ public final class AgentTurnApplicationService {
         if (runtimeTurnService == null || adventureRepository == null) throw new IllegalStateException("agent turn execution dependencies are required");
         PreparedAgentTurn prepared = prepareAgentTurn(adventure, ownerPlayerId, cursor);
         RuntimeTurnResult result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
-                adventure.id(), ownerPlayerId, prepared.candidate().turnId(), prepared.candidate().commandId(), prepared.candidate().action(), expectedVersion));
-        Adventure progressed = adventureRepository.findById(adventure.id()).orElseThrow();
-        progressed.advanceTurn(ownerPlayerId, cursor.index(), prepared.candidate().characterSheetId(), prepared.candidate().turnId());
-        adventureRepository.save(progressed);
-        return new AgentTurnResult(result, new TurnCursor(progressed.party(), progressed.turnIndex()));
+                adventure.id(), ownerPlayerId, prepared.candidate().turnId(), prepared.candidate().commandId(), prepared.candidate().action(),
+                expectedVersion, prepared.candidate().characterSheetId(), cursor.index()));
+        return new AgentTurnResult(result, cursor.advanceAfterAgentTurn(prepared.candidate().characterSheetId()));
     }
 
     public record PreparedAgentTurn(AgentActionCandidate candidate, TurnCursor cursor) {}
