@@ -11,6 +11,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.dndmaster.character.application.CharacterSheetApplicationService;
+import com.dndmaster.character.application.CharacterSheetsDeletionConsumer;
 import com.dndmaster.character.domain.*;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -26,6 +27,8 @@ class CharacterSheetControllerTest {
     @Autowired MockMvc mockMvc;
 
     @MockBean CharacterSheetApplicationService service;
+    @MockBean ApiRequestGuard requestGuard;
+    @MockBean CharacterSheetsDeletionConsumer deletionConsumer;
 
     @Test
     void createsAndReturnsCharacterSheetWithoutUserFacingUuidInput() throws Exception {
@@ -94,5 +97,15 @@ class CharacterSheetControllerTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.characterSheetId").value(sheetId.toString()));
+    }
+
+    @Test
+    void rejects_unauthorized_deletion_request() throws Exception {
+        org.mockito.Mockito.doThrow(new ApiRequestGuard.ApiContractException(401, "INVALID_SERVICE_TOKEN"))
+                .when(requestGuard).internal(null);
+        mockMvc.perform(post("/internal/v1/character-sheets/deletion-requests")
+                        .contentType("application/json")
+                        .content("{\"sessionId\":\"22222222-2222-2222-2222-222222222222\",\"characterSheetIds\":[]}"))
+                .andExpect(status().isUnauthorized());
     }
 }
