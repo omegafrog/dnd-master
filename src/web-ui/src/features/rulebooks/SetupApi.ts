@@ -137,6 +137,16 @@ export type CharacterCreationBlueprintView = {
   rulebookDocumentCount: number
   storybookDocumentCount: number
   diagnostics: string[]
+  revision?: number
+  status?: 'DRAFT' | 'NEEDS_REVIEW' | 'READY' | 'PUBLISHED'
+  fields?: Array<{
+    key: string
+    options: string[]
+    required: boolean
+    sourceType: string
+    inputStatus: string
+    diagnostics: string[]
+  }>
 }
 
 export type PlayPreparationView = {
@@ -164,6 +174,8 @@ export type CharacterCreationDraft = {
   characterName: string
   level: number
   inspiration: boolean
+  blueprintRevision?: number
+  blueprintValues?: Record<string, string>
 }
 
 export type RuntimeOptionView = {

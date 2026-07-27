@@ -29,6 +29,11 @@ public final class AdventureSessionApplicationService {
     public AdventureSession create(OwnerPlayerId owner, java.util.UUID scenarioPackageId, AdventureSessionRuntimeConfiguration runtimeConfiguration) {
         var scenarioPackage = packageRepository.findById(scenarioPackageId).orElseThrow(() -> new IllegalArgumentException("scenario package not found"));
         if (scenarioPackage.report().status() != ResolutionStatus.COMPLETE) throw new IllegalStateException("scenario package is not compiled successfully");
+        if (scenarioPackage.characterCreationBlueprint() != null
+                && scenarioPackage.characterCreationBlueprint().status() != com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.READY
+                && scenarioPackage.characterCreationBlueprint().status() != com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.PUBLISHED) {
+            throw new IllegalStateException("character creation blueprint requires review");
+        }
         AdventureSession session = runtimeConfiguration == null
                 ? AdventureSession.create(SessionId.generate(), owner, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), scenarioPackage.characterLimit().maximumCharacters())
                 : AdventureSession.create(SessionId.generate(), owner, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), scenarioPackage.characterLimit().maximumCharacters(), runtimeConfiguration);

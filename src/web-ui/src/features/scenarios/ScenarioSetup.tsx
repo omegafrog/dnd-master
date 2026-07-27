@@ -45,6 +45,8 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
   const [playPreparation, setPlayPreparation] = useState<PlayPreparationView | null>(null)
   const [createdCharacterSheet, setCreatedCharacterSheet] = useState<CreatedCharacterSheetView | null>(null)
   const [runtimeOptions, setRuntimeOptions] = useState<RuntimeOptionsView | null>(null)
+  const [selectedEngineId, setSelectedEngineId] = useState('')
+  const [selectedToolIds, setSelectedToolIds] = useState<string[]>([])
   const [compiling, setCompiling] = useState(false)
   const [saving, setSaving] = useState(false)
   const [creatingCharacter, setCreatingCharacter] = useState(false)
@@ -55,6 +57,7 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
   const [characterName, setCharacterName] = useState('')
   const [characterLevel, setCharacterLevel] = useState(1)
   const [characterInspiration, setCharacterInspiration] = useState(false)
+  const [blueprintValues, setBlueprintValues] = useState<Record<string, string>>({})
   const canCompile = Boolean(api.compileScenarioBundle || (api.startScenarioCompilation && api.getScenarioCompilation && api.getScenarioPackage))
   const canCreateCharacter = Boolean(api.createCharacterSheet && playPreparation?.characterCreationBlueprint?.available)
 
@@ -86,6 +89,8 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
       .then(options => {
         if (!active) return
         setRuntimeOptions(options)
+        setSelectedEngineId(options.defaultEngineId)
+        setSelectedToolIds(options.defaultToolIds)
       })
       .catch(error => {
         if (!active) return
@@ -178,6 +183,8 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
         characterName: characterName.trim(),
         level: characterLevel,
         inspiration: characterInspiration,
+        blueprintRevision: playPreparation?.characterCreationBlueprint.revision,
+        blueprintValues,
       }
       setCreatedCharacterSheet(await api.createCharacterSheet(draft))
     } catch (error) {
@@ -361,8 +368,12 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
                   <p>
                     CharacterCreationBlueprint: {playPreparation.characterCreationBlueprint.summary ?? '없음'}
                   </p>
+                  <p>상태: {playPreparation.characterCreationBlueprint.status ?? 'READY'} · revision {playPreparation.characterCreationBlueprint.revision ?? 0}</p>
                   <p>
-                    RULEBOOK {playPreparation.characterCreationBlueprint.rulebookDocumentCount}개 · STORYBOOK {playPreparation.characterCreationBlueprint.storybookDocumentCount}개
+                    {playPreparation.characterCreationBlueprint.rulebookDocumentCount > 0
+                      ? `RULEBOOK ${playPreparation.characterCreationBlueprint.rulebookDocumentCount}개 · `
+                      : 'RULEBOOK 런타임 세트 별도 · '}
+                    STORYBOOK {playPreparation.characterCreationBlueprint.storybookDocumentCount}개
                   </p>
                   {playPreparation.characterCreationBlueprint.diagnostics.length > 0 ? (
                     <ul aria-label="Blueprint 진단">
@@ -370,6 +381,33 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
                         <li key={diagnostic}>{diagnostic}</li>
                       ))}
                     </ul>
+                  ) : null}
+                  {(playPreparation.characterCreationBlueprint.fields ?? []).length > 0 ? (
+                    <fieldset aria-label="Blueprint 캐릭터 필드">
+                      <legend>캐릭터 생성 필드</legend>
+                      {(playPreparation.characterCreationBlueprint.fields ?? []).map(field => (
+                        <label key={field.key}>
+                          {field.key}
+                          {field.options.length > 0 ? (
+                            <select
+                              aria-label={field.key}
+                              value={blueprintValues[field.key] ?? ''}
+                              onChange={event => setBlueprintValues(current => ({ ...current, [field.key]: event.currentTarget.value }))}
+                            >
+                              <option value="">선택하세요</option>
+                              {field.options.map(option => <option key={option} value={option}>{option}</option>)}
+                            </select>
+                          ) : (
+                            <input
+                              aria-label={field.key}
+                              value={blueprintValues[field.key] ?? ''}
+                              onChange={event => setBlueprintValues(current => ({ ...current, [field.key]: event.currentTarget.value }))}
+                            />
+                          )}
+                          {field.inputStatus === 'MANUAL_INPUT_REQUIRED' ? <small>수동 입력 필요</small> : null}
+                        </label>
+                      ))}
+                    </fieldset>
                   ) : null}
                 </div>
               ) : null}
@@ -435,25 +473,31 @@ export function ScenarioSetup({ api, playerId, onError }: { api: SetupApi; playe
               <h3 id="runtime-options-heading">런타임 옵션</h3>
               <details open>
                 <summary>엔진 선택지</summary>
-                <p>기본 엔진: {runtimeOptions.defaultEngineId}</p>
-                <ul aria-label="허용 엔진">
-                  {runtimeOptions.engines.map(option => (
-                    <li key={option.id}>
-                      {option.label} · {option.id}{option.selectedByDefault ? ' · 기본' : ''}
-                    </li>
-                  ))}
-                </ul>
+                <label>
+                  엔진
+                  <select aria-label="런타임 엔진" value={selectedEngineId} onChange={event => setSelectedEngineId(event.currentTarget.value)}>
+                    {runtimeOptions.engines.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
+                  </select>
+                </label>
               </details>
               <details open>
                 <summary>도구 선택지</summary>
-                <p>기본 도구: {runtimeOptions.defaultToolIds.length > 0 ? runtimeOptions.defaultToolIds.join(', ') : '없음'}</p>
-                <ul aria-label="허용 도구">
+                <fieldset>
+                  <legend>도구</legend>
                   {runtimeOptions.tools.map(option => (
-                    <li key={option.id}>
-                      {option.label} · {option.id}{option.selectedByDefault ? ' · 기본' : ''}
-                    </li>
+                    <label key={option.id}>
+                      <input
+                        type="checkbox"
+                        aria-label={option.id}
+                        checked={selectedToolIds.includes(option.id)}
+                        onChange={event => setSelectedToolIds(current => event.currentTarget.checked
+                          ? [...current, option.id]
+                          : current.filter(id => id !== option.id))}
+                      />
+                      {option.label}
+                    </label>
                   ))}
-                </ul>
+                </fieldset>
               </details>
             </section>
           ) : null}

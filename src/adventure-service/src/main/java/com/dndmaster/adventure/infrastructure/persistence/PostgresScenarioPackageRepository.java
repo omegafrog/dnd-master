@@ -10,12 +10,14 @@ import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
 import com.dndmaster.adventure.domain.scenario.CharacterLimit;
+import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionDetail;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -28,7 +30,8 @@ import java.util.UUID;
 import javax.sql.DataSource;
 
 public final class PostgresScenarioPackageRepository implements ScenarioPackageRepository {
-    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final ObjectMapper JSON = new ObjectMapper()
+            .configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
     private final DataSource dataSource;
 
     public PostgresScenarioPackageRepository(DataSource dataSource) {
@@ -48,7 +51,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     private Optional<ScenarioPackage> find(String column, Object value) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(
-                        "SELECT package_id, bundle_id, bundle_revision, input_fingerprint, report_status, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote FROM scenario_package WHERE " + column + " = ?")) {
+                        "SELECT package_id, bundle_id, bundle_revision, input_fingerprint, report_status, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json FROM scenario_package WHERE " + column + " = ?")) {
             statement.setObject(1, value);
             try (ResultSet row = statement.executeQuery()) {
                 if (!row.next()) return Optional.empty();
@@ -63,7 +66,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
                         new ScenarioCompilationReport(
                                 ResolutionStatus.valueOf(row.getString("report_status")),
                                 readArray(row.getArray("report_warnings"))),
-                        readCharacterLimit(row)));
+                        readCharacterLimit(row), readBlueprint(row.getString("character_creation_blueprint_json"))));
             }
         } catch (SQLException exception) {
             throw new ScenarioPackagePersistenceException("could not load scenario package", exception);
@@ -94,7 +97,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
 
     private static void insertHeader(Connection connection, ScenarioPackage packageVersion) throws SQLException {
         try (PreparedStatement insert = connection.prepareStatement(
-                "INSERT INTO scenario_package(package_id, bundle_id, bundle_revision, input_fingerprint, report_status, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
+                "INSERT INTO scenario_package(package_id, bundle_id, bundle_revision, input_fingerprint, report_status, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
             insert.setObject(1, packageVersion.packageId());
             insert.setObject(2, packageVersion.bundleId().value());
             insert.setLong(3, packageVersion.bundleRevision());
@@ -109,6 +112,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
                 insert.setObject(8, source.knowledgeDocumentId().value()); insert.setLong(9, source.extractionVersion()); insert.setString(10, source.locator());
             }
             insert.setString(11, packageVersion.characterLimit().sourceQuote());
+            insert.setString(12, writeBlueprint(packageVersion.characterCreationBlueprint()));
             insert.executeUpdate();
         }
     }
@@ -228,6 +232,24 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
             return JSON.writeValueAsString(detail == null ? ScenarioResolutionDetail.empty() : detail);
         } catch (JsonProcessingException exception) {
             throw new ScenarioPackagePersistenceException("could not serialize scenario resolution detail", exception);
+        }
+    }
+
+    private static String writeBlueprint(CharacterCreationBlueprint blueprint) {
+        if (blueprint == null) return null;
+        try {
+            return JSON.writeValueAsString(blueprint);
+        } catch (JsonProcessingException exception) {
+            throw new ScenarioPackagePersistenceException("could not serialize character creation blueprint", exception);
+        }
+    }
+
+    private static CharacterCreationBlueprint readBlueprint(String value) {
+        if (value == null || value.isBlank()) return null;
+        try {
+            return JSON.readValue(value, CharacterCreationBlueprint.class);
+        } catch (JsonProcessingException exception) {
+            throw new ScenarioPackagePersistenceException("could not read character creation blueprint", exception);
         }
     }
 
