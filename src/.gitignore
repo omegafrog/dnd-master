@@ -29,3 +29,6 @@ web-ui/node_modules/
 # Runtime data
 app-all/data/
 data/
+
+**/graphify-out
+**/.last-run.json
