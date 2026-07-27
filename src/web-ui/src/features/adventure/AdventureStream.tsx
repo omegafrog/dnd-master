@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useEffect, useRef, useState } from 'react'
 import type { AdventureApi } from './AdventureApi'
 
 export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', turnIndex = 0 }: { adventureId: string; api: AdventureApi; controlMode?: 'DIRECT' | 'AGENT'; turnIndex?: number }) {
@@ -6,20 +6,30 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', turn
   const [notice, setNotice] = useState('')
   const [sending, setSending] = useState(false)
   const [agentTurnIndex, setAgentTurnIndex] = useState(turnIndex)
+  const [activeControlMode, setActiveControlMode] = useState(controlMode)
+  const previousControlMode = useRef(controlMode)
 
   useEffect(() => {
-    if (controlMode !== 'AGENT' || !api.runAgentTurn) return
+    if (previousControlMode.current !== controlMode) {
+      previousControlMode.current = controlMode
+      setActiveControlMode(controlMode)
+    }
+  }, [controlMode])
+
+  useEffect(() => {
+    if (activeControlMode !== 'AGENT' || !api.runAgentTurn) return
     let cancelled = false
     setSending(true)
     void api.runAgentTurn(adventureId, agentTurnIndex).then(response => {
       if (cancelled) return
       setMessages(current => [...current, { speaker: '에이전트 캐릭터', text: response.narration }])
       setAgentTurnIndex(current => current + 1)
+      setActiveControlMode('DIRECT')
     }).catch(() => {
       if (!cancelled) setNotice('에이전트 턴을 실행하지 못했습니다.')
     }).finally(() => { if (!cancelled) setSending(false) })
     return () => { cancelled = true }
-  }, [adventureId, agentTurnIndex, api, controlMode])
+  }, [adventureId, agentTurnIndex, activeControlMode, api])
 
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -43,7 +53,7 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', turn
   return (
     <section aria-labelledby="conversation-heading">
       <h2 id="conversation-heading">모험 대화</h2>
-      <p role="status">{controlMode === 'AGENT' ? '에이전트 캐릭터 차례 — 자동 진행 중' : '직접 플레이 입력 대기 중'}</p>
+      <p role="status">{activeControlMode === 'AGENT' ? '에이전트 캐릭터 차례 — 자동 진행 중' : '직접 플레이 입력 대기 중'}</p>
       <ol aria-label="대화 기록">
         {messages.map((message, index) => (
           <li key={index}>
@@ -52,9 +62,9 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', turn
         ))}
       </ol>
       <p role="alert">{notice}</p>
-      <form onSubmit={send} aria-disabled={controlMode === 'AGENT'}>
+      <form onSubmit={send} aria-disabled={activeControlMode === 'AGENT'}>
         <label>행동 또는 대화<input name="message" required /></label>
-        <button type="submit" disabled={sending || controlMode === 'AGENT'}>보내기</button>
+        <button type="submit" disabled={sending || activeControlMode === 'AGENT'}>보내기</button>
       </form>
     </section>
   )
