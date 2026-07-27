@@ -15,7 +15,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [edition, characterName, level, inspiration]
+              required: [edition, characterName, level, inspiration, ownerPlayerId]
               properties:
                 edition:
                   type: string
@@ -25,6 +25,9 @@ paths:
                   type: integer
                 inspiration:
                   type: boolean
+                ownerPlayerId:
+                  type: string
+                  format: uuid
       responses:
         '200':
           description: created character sheet

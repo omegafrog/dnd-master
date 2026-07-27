@@ -28,7 +28,7 @@ public final class CharacterSheetApplicationService {
         }
         SheetEdition applied = adventureEditionHttpPort.getAppliedEdition(command.sessionId().asAdventureId());
         var sheet = new CharacterSheet(
-                CharacterSheetId.generate(), command.sessionId(), command.requestedEdition(), command.data());
+                CharacterSheetId.generate(), command.sessionId(), command.ownerPlayerId(), command.requestedEdition(), command.data());
         sheet.authorizeOpen(new CharacterSheetOpenRequest(command.sessionId().asAdventureId(), applied, command.requestedEdition()));
         repository.save(sheet);
         return sheet;
@@ -42,9 +42,10 @@ public final class CharacterSheetApplicationService {
         return sheet;
     }
 
-    public CharacterSheet verifySessionOwnership(CharacterSheetId id, SessionId sessionId) {
+    public CharacterSheet verifySessionOwnership(CharacterSheetId id, SessionId sessionId, java.util.UUID ownerPlayerId) {
         CharacterSheet sheet = load(id);
         if (!sheet.sessionId().equals(sessionId)) throw new IllegalStateException("character sheet belongs to another session");
+        if (sheet.ownerPlayerId() == null || !sheet.ownerPlayerId().equals(ownerPlayerId)) throw new IllegalStateException("character sheet belongs to another owner");
         requireSessionActive(sheet);
         return sheet;
     }

@@ -12,7 +12,7 @@ public final class CrossContextHttpCharacterSheetOwnershipGateway implements Cha
     public CrossContextHttpCharacterSheetOwnershipGateway(HttpClient client, URI baseUri, Duration timeout, ObjectMapper mapper, String internalToken) { this.client = client; this.baseUri = baseUri; this.timeout = timeout; this.mapper = mapper; this.internalToken = internalToken; }
     public void verify(SessionId sessionId, OwnerPlayerId ownerPlayerId, CharacterSheetId sheetId) {
         try {
-            var request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/adventure-sessions/" + sessionId.value() + "/character-sheets/" + sheetId.value() + "/ownership")).timeout(timeout).header("X-Internal-Token", internalToken).GET().build();
+            var request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/adventure-sessions/" + sessionId.value() + "/character-sheets/" + sheetId.value() + "/ownership")).timeout(timeout).header("X-Internal-Token", internalToken).header("X-Owner-Player-ID", ownerPlayerId.value().toString()).GET().build();
             var response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() / 100 != 2) throw new IllegalStateException("character sheet ownership validation failed: " + response.statusCode());
             var view = mapper.readTree(response.body());
