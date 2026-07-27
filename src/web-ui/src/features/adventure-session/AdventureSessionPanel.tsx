@@ -9,7 +9,7 @@ export function AdventureSessionPanel({ api, sessionId }: { api: AdventureSessio
   const [message, setMessage] = useState('')
   const frozen = session?.status !== 'DRAFT'
   const load = () => void api.read(sessionId).then(setSession).catch(error => setMessage(error instanceof Error ? error.message : '세션을 불러오지 못했습니다.'))
-  useEffect(load, [sessionId])
+  useEffect(load, [api, sessionId])
 
   async function addMember() {
     if (!session || frozen || !sheetId.trim()) return
