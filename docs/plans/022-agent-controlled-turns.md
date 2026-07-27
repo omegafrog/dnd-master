@@ -1,6 +1,6 @@
 # 022 - 에이전트 캐릭터 자동 턴
 
-- Status: completed
+- Status: ready-for-agent
 - Dependencies: 021
 - Issue: [#54](https://github.com/omegafrog/dnd-master/issues/54)
 
