@@ -28,6 +28,16 @@ class SessionScopedCharacterCreationTest {
     }
 
     @Test
+    void stores_player_owner_for_cross_context_validation() {
+        var owner = UUID.randomUUID();
+        var service = new CharacterSheetApplicationService(new InMemoryRepository(), id -> SheetEdition.DND_5E_2024,
+                id -> SessionCharacterPolicy.draft());
+        var sheet = service.createSheet(new CreateCharacterSheetCommand(new SessionId(UUID.randomUUID()), owner,
+                SheetEdition.DND_5E_2024, new CharacterSheetData2024("Aria", 1, false)));
+        assertEquals(owner, sheet.ownerPlayerId());
+    }
+
+    @Test
     void rejects_creation_without_session_id() {
         assertThrows(NullPointerException.class, () ->
                 new CreateCharacterSheetCommand((SessionId) null, SheetEdition.DND_5E_2024,
