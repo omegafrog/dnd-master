@@ -1,6 +1,6 @@
 package com.dndmaster.adventure.application.knowledge;
 
-public enum KnowledgeDocumentStatus {
+public enum KnowledgeDocumentStatus implements com.dndmaster.adventure.domain.scenario.KnowledgeDocumentStatus {
     UPLOADED,
     NEEDS_INPUT,
     EXTRACTED,

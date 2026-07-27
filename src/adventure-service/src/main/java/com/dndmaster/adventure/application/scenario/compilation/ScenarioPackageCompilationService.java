@@ -386,7 +386,7 @@ public final class ScenarioPackageCompilationService {
             List<Integer> matches = candidateIndexesByAnchor.getOrDefault(override.anchorFingerprint(), List.of());
             if (matches.size() == 1) {
                 int index = matches.get(0);
-                effective.set(index, override.replacementCandidate());
+                effective.set(index, (ResolutionCandidate) override.replacementCandidate());
                 resolvedOverrides.add(override.withStatus(
                         override.reason(), override.updatedAt(), ResolutionOverrideStatus.APPLIED,
                         override.replacementCandidate()));

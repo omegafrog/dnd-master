@@ -1,6 +1,5 @@
 package com.dndmaster.adventure.domain.scenario;
 
-import com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate;
 import java.time.Instant;
 import java.util.List;
 import java.util.Objects;

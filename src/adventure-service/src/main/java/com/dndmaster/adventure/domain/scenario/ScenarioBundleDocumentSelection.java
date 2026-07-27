@@ -1,6 +1,5 @@
 package com.dndmaster.adventure.domain.scenario;
 
-import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import java.util.Objects;
 

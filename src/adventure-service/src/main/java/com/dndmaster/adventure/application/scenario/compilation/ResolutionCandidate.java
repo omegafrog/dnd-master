@@ -16,7 +16,7 @@ public record ResolutionCandidate(
         String sourceQuote,
         List<ScenarioSourceReference> sourceRefs,
         String provenance,
-        ScenarioResolutionDetail detail) {
+        ScenarioResolutionDetail detail) implements com.dndmaster.adventure.domain.scenario.ResolutionCandidate {
     public static ResolutionCandidate skillCheck(
             KnowledgeDocumentId documentId, long extractionVersion, String locator,
             String skill, Integer dc, String quote) {

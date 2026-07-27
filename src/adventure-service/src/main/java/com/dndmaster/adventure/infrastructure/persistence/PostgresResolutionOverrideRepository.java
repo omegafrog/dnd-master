@@ -140,7 +140,7 @@ public final class PostgresResolutionOverrideRepository implements ResolutionOve
                 + revision.createdAt() + "|" + revision.updatedAt() + "|" + revision.status();
     }
 
-    private static String writeCandidate(ResolutionCandidate candidate) {
+    private static String writeCandidate(com.dndmaster.adventure.domain.scenario.ResolutionCandidate candidate) {
         try {
             return JSON.writeValueAsString(candidate);
         } catch (JsonProcessingException exception) {
