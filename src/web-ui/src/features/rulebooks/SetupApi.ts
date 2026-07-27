@@ -212,10 +212,22 @@ export type RuntimeBindingView = {
   scenarioPackageRevision: number
   rulebookIds: string[]
   characterSheetId: string
+  party: RuntimePartyMemberView[]
   engineId: string
   toolIds: string[]
   playabilityReport: PlayabilityReportView
   activeSourceContext: ActiveSourceContextView | null
+}
+
+export type RuntimePartyMemberView = {
+  characterSheetId: string
+  controlMode: 'DIRECT' | 'AGENT'
+  nameMutableAfterStart: boolean
+  raceMutableAfterStart: boolean
+  characterClassMutableAfterStart: boolean
+  backgroundMutableAfterStart: boolean
+  startingAbilitiesMutableAfterStart: boolean
+  levelMutableAfterStart: boolean
 }
 
 export type LegacyScenarioMigrationView = {

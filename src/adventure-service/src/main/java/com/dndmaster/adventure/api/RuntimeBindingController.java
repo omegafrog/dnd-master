@@ -91,6 +91,7 @@ public class RuntimeBindingController {
             long scenarioPackageRevision,
             List<UUID> rulebookIds,
             UUID characterSheetId,
+            List<PartyMemberResponse> party,
             String engineId,
             List<String> toolIds,
             PlayabilityReportResponse playabilityReport,
@@ -103,12 +104,27 @@ public class RuntimeBindingController {
                     binding.scenarioPackageRevision(),
                     binding.rulebookIds(),
                     binding.characterSheetId().value(),
+                    binding.party().stream().map(member -> new PartyMemberResponse(
+                            member.characterSheetId().value(), member.controlMode().name(),
+                            member.nameMutableAfterStart(), member.raceMutableAfterStart(),
+                            member.characterClassMutableAfterStart(), member.backgroundMutableAfterStart(),
+                            member.startingAbilitiesMutableAfterStart(), member.levelMutableAfterStart())).toList(),
                     binding.engineId(),
                     binding.toolIds(),
                     PlayabilityReportResponse.from(binding.playabilityReport()),
                     binding.activeSourceContext() == null ? null : ActiveSourceContextResponse.from(binding.activeSourceContext()));
         }
     }
+
+    public record PartyMemberResponse(
+            UUID characterSheetId,
+            String controlMode,
+            boolean nameMutableAfterStart,
+            boolean raceMutableAfterStart,
+            boolean characterClassMutableAfterStart,
+            boolean backgroundMutableAfterStart,
+            boolean startingAbilitiesMutableAfterStart,
+            boolean levelMutableAfterStart) {}
 
     public record PlayabilityReportResponse(
             String status,
