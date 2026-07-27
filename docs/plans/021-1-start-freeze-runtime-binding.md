@@ -1,6 +1,6 @@
 # 021-1 - 모험 시작·파티 고정·런타임 바인딩 전환
 
-- Status: completed
+- Status: ready-for-agent
 - Dependencies: 020
 - Supersedes: remaining scope of 021
 
