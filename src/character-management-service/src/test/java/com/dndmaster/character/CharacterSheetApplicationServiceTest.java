@@ -26,6 +26,22 @@ class CharacterSheetApplicationServiceTest {
                 SheetEdition.DND_5E_2024, new CharacterSheetData2024("Borin", 1, false),
                 InputMode.STRUCTURED_SHEET, UUID.randomUUID(), 0)));
     }
+
+    @Test
+    void enforces_all_six_initial_attribute_policies() {
+        InMemoryRepository repository = new InMemoryRepository();
+        AdventureId adventureId = adventure();
+        CharacterSheetApplicationService service = new CharacterSheetApplicationService(
+                repository, id -> SheetEdition.DND_5E_2024,
+                id -> new SessionCharacterPolicy(true, false, false, false, false, false, false));
+        CharacterSheet sheet = service.createSheet(new CreateCharacterSheetCommand(adventureId, SheetEdition.DND_5E_2024,
+                new CharacterSheetData2024("Aria", 1, false, "Elf", "Wizard", "Sage", "STR:8")));
+
+        assertThrows(IllegalStateException.class, () -> service.manageCharacter(sheet.id(), new CharacterSheetUpdate(
+                SheetEdition.DND_5E_2024,
+                new CharacterSheetData2024("Aria", 1, false, "Dwarf", "Fighter", "Soldier", "STR:15"),
+                InputMode.STRUCTURED_SHEET, UUID.randomUUID(), 0)));
+    }
     @Test
     void supportsDedicatedDataFor2014And2024Editions() {
         assertCreates(

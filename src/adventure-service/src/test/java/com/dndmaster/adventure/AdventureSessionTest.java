@@ -51,6 +51,21 @@ class AdventureSessionTest {
         assertThrows(IllegalStateException.class, () -> session.removePartyMember(member.characterSheetId()));
     }
 
+    @Test
+    void records_starting_before_external_runtime_creation_and_completes_once() {
+        AdventureSession session = configuredSession();
+        session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT, true, true, true, true, true, true));
+        AdventureId adventureId = AdventureId.generate();
+        UUID requestId = UUID.randomUUID();
+
+        assertEquals(true, session.beginStart(adventureId, requestId));
+        assertEquals(AdventureSession.Status.STARTING, session.status());
+        assertEquals(false, session.beginStart(adventureId, requestId));
+        session.completeStart();
+        assertEquals(AdventureSession.Status.STARTED, session.status());
+        assertEquals(session, session.start(adventureId, requestId));
+    }
+
     private static AdventureSession configuredSession() {
         return AdventureSession.create(SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 1, 2,
                 new AdventureSessionRuntimeConfiguration(new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), List.of(), "ollama", List.of("search"), "opening"));

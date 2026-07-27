@@ -28,6 +28,7 @@ public class AdventureSecurityConfiguration {
         BearerTokenAuthenticationFilter bearerTokenAuthenticationFilter = new BearerTokenAuthenticationFilter(sessionLookupPort);
         return http.securityMatcher(
                         "/api/v1/adventures/**",
+                        "/api/v1/adventure-sessions/**",
                         "/api/v1/scenario-packages/**",
                         "/api/v1/runtime-options",
                         "/internal/v1/adventures/**")

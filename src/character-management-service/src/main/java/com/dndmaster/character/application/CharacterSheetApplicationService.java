@@ -50,7 +50,7 @@ public final class CharacterSheetApplicationService {
             return replay;
         }
         CharacterSheet sheet = load(id);
-        SessionCharacterPolicy policy = sessionPolicyPort.policyFor(sheet.adventureId());
+        SessionCharacterPolicy policy = sessionPolicyPort.policyFor(sheet.adventureId(), sheet.id());
         SheetEdition applied = adventureEditionHttpPort.getAppliedEdition(sheet.adventureId());
         sheet.authorizeOpen(new CharacterSheetOpenRequest(sheet.adventureId(), applied, update.edition()));
         if (sheet.version() != update.expectedVersion()) {
@@ -62,6 +62,10 @@ public final class CharacterSheetApplicationService {
         if (!policy.levelMutable() && sheet.data().level() != update.data().level()) {
             throw new IllegalStateException("character level is fixed for this adventure session");
         }
+        if (!policy.raceMutable() && !sheet.data().race().equals(update.data().race())) throw new IllegalStateException("character race is fixed for this adventure session");
+        if (!policy.characterClassMutable() && !sheet.data().characterClass().equals(update.data().characterClass())) throw new IllegalStateException("character class is fixed for this adventure session");
+        if (!policy.backgroundMutable() && !sheet.data().background().equals(update.data().background())) throw new IllegalStateException("character background is fixed for this adventure session");
+        if (!policy.startingAbilitiesMutable() && !sheet.data().startingAbilities().equals(update.data().startingAbilities())) throw new IllegalStateException("starting abilities are fixed for this adventure session");
         sheet.applyUpdate(update);
         repository.save(sheet, update.expectedVersion() + 1, update.commandId(), update.fingerprint());
         sheet.markPersisted(update.expectedVersion() + 1, update.commandId(), update.fingerprint());

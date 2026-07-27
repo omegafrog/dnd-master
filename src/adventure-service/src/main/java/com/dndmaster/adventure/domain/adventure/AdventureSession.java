@@ -7,7 +7,7 @@ import java.util.UUID;
 
 /** Draft session. Plan 021 owns transition to started/frozen state. */
 public final class AdventureSession {
-    public enum Status { DRAFT, STARTED }
+    public enum Status { DRAFT, STARTING, STARTED }
     private final SessionId id;
     private final OwnerPlayerId ownerPlayerId;
     private final int characterLimit;
@@ -90,14 +90,23 @@ public final class AdventureSession {
         version++;
     }
     public AdventureSession start(AdventureId adventureId, UUID requestId) {
+        if (!beginStart(adventureId, requestId)) return this;
+        completeStart();
+        return this;
+    }
+    public boolean beginStart(AdventureId adventureId, UUID requestId) {
         Objects.requireNonNull(adventureId, "adventure id must not be null"); Objects.requireNonNull(requestId, "request id must not be null");
-        if (status == Status.STARTED) {
-            if (adventureId.equals(startedAdventureId) && requestId.equals(startRequestId)) return this;
-            throw new IllegalStateException("adventure session is already started");
+        if (status == Status.STARTED || status == Status.STARTING) {
+            if (adventureId.equals(startedAdventureId) && requestId.equals(startRequestId)) return false;
+            throw new IllegalStateException("adventure session is already starting or started");
         }
-        if (runtimeConfiguration == null) throw new IllegalStateException("adventure session runtime configuration is required");
-        if (party.isEmpty()) throw new IllegalStateException("adventure session requires at least one party member");
-        status = Status.STARTED; startedAdventureId = adventureId; startRequestId = requestId; version++; return this;
+        validateStart();
+        status = Status.STARTING; startedAdventureId = adventureId; startRequestId = requestId; version++;
+        return true;
+    }
+    public void completeStart() {
+        if (status != Status.STARTING) throw new IllegalStateException("adventure session is not starting");
+        status = Status.STARTED; version++;
     }
     public void validateStart() {
         if (runtimeConfiguration == null) throw new IllegalStateException("adventure session runtime configuration is required");

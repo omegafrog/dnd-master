@@ -12,12 +12,15 @@ import { RulebookSetup } from '../features/rulebooks/RulebookSetup'
 import { CharacterSheetView } from '../features/character/CharacterSheetView'
 import { RoleDiceRoller } from '../features/dice/RoleDiceRoller'
 import { CombatMapView } from '../features/combat-map/CombatMapView'
+import { AdventureSessionApi } from '../features/adventure-session/AdventureSessionApi'
+import { AdventureSessionPanel } from '../features/adventure-session/AdventureSessionPanel'
 
 type Route =
   | { page: 'setup' }
   | { page: 'adventures' }
   | { page: 'adventure'; adventureId: string }
   | { page: 'character'; sheetId: string }
+  | { page: 'session'; sessionId: string }
   | { page: 'login' }
 
 function parseRoute(hash: string): Route {
@@ -27,6 +30,7 @@ function parseRoute(hash: string): Route {
   if (segments[0] === 'adventures' && segments[1]) return { page: 'adventure', adventureId: segments[1] }
   if (segments[0] === 'adventures') return { page: 'adventures' }
   if (segments[0] === 'character' && segments[1]) return { page: 'character', sheetId: segments[1] }
+  if (segments[0] === 'sessions' && segments[1]) return { page: 'session', sessionId: segments[1] }
   return { page: 'login' }
 }
 
@@ -61,6 +65,7 @@ export function AppShell() {
   const playApi = new HttpAdventurePlayApi(getToken)
   const guidanceApi = new HttpRuleGuidanceApi(getToken, getPlayerId)
   const setupApi = new HttpSetupApi(getToken)
+  const sessionApi = new AdventureSessionApi(token)
 
   return (
     <>
@@ -93,6 +98,7 @@ export function AppShell() {
         {route.page === 'character' && (
           <CharacterSheetView sheetId={route.sheetId} api={playApi} />
         )}
+        {route.page === 'session' && <AdventureSessionPanel api={sessionApi} sessionId={route.sessionId} />}
       </main>
     </>
   )

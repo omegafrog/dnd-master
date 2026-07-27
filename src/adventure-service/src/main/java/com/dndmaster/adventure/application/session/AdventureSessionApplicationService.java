@@ -32,6 +32,7 @@ public final class AdventureSessionApplicationService {
         repository.save(session, 0); return session;
     }
     public AdventureSession read(SessionId id, OwnerPlayerId owner) { return authorize(load(id), owner); }
+    public AdventureSession readInternal(SessionId id) { return load(id); }
     public AdventureSession addMember(SessionId id, OwnerPlayerId owner, long expectedVersion, AdventurePartyMember member) {
         AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion); session.addPartyMember(member); repository.save(session, expectedVersion); return session;
     }
@@ -44,16 +45,30 @@ public final class AdventureSessionApplicationService {
     public AdventureSession start(SessionId id, OwnerPlayerId owner, long expectedVersion, java.util.UUID requestId, AdventureId adventureId) {
         AdventureSession session = authorize(load(id), owner);
         if (session.status() == AdventureSession.Status.STARTED && requestId.equals(session.startRequestId()) && adventureId.equals(session.startedAdventureId())) return session;
-        requireVersion(session, expectedVersion);
+        if (session.status() == AdventureSession.Status.STARTING
+                && (!requestId.equals(session.startRequestId()) || !adventureId.equals(session.startedAdventureId()))) {
+            throw new IllegalStateException("adventure session is already starting with another request");
+        }
+        boolean resumingStart = session.status() == AdventureSession.Status.STARTING;
+        if (!resumingStart) requireVersion(session, expectedVersion);
         var scenarioPackage = packageRepository.findById(session.scenarioPackageId()).orElseThrow(() -> new IllegalStateException("scenario package not found"));
         if (scenarioPackage.report().status() != ResolutionStatus.COMPLETE || scenarioPackage.bundleRevision() != session.scenarioPackageRevision() || scenarioPackage.characterLimit().maximumCharacters() != session.characterLimit()) throw new IllegalStateException("scenario package changed since session draft");
         session.validateStart();
         var configuration = session.runtimeConfiguration();
         if (configuration == null) throw new IllegalStateException("adventure session runtime configuration is required");
-        Adventure adventure = Adventure.create(adventureId, session.id(), owner, configuration.scenarioId(), configuration.ruleSetId(), session.party(), new AdventureContext(configuration.initialScene(), null, null, null));
-        adventureRepository.save(adventure);
-        runtimeBindingService.bind(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(adventureId, owner, session.scenarioPackageId(), configuration.rulebookIds(), session.party().getFirst().characterSheetId(), configuration.engineId(), configuration.toolIds()));
-        session.start(adventureId, requestId); repository.save(session, expectedVersion); return session;
+        boolean newlyStarting = session.beginStart(adventureId, requestId);
+        if (newlyStarting) repository.save(session, expectedVersion);
+        Adventure adventure = adventureRepository.findById(adventureId).orElse(null);
+        if (adventure == null) {
+            adventure = Adventure.create(adventureId, session.id(), owner, configuration.scenarioId(), configuration.ruleSetId(), session.party(), new AdventureContext(configuration.initialScene(), null, null, null));
+            adventureRepository.save(adventure);
+        }
+        runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(adventureId, owner, session.scenarioPackageId(), configuration.rulebookIds(), session.party().getFirst().characterSheetId(), configuration.engineId(), configuration.toolIds()));
+        if (session.status() == AdventureSession.Status.STARTING) {
+            session.completeStart();
+            repository.save(session, session.version() - 1);
+        }
+        return session;
     }
     private AdventureSession load(SessionId id) { return repository.findById(id).orElseThrow(() -> new IllegalArgumentException("adventure session not found")); }
     private static AdventureSession authorize(AdventureSession session, OwnerPlayerId owner) {

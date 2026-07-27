@@ -47,6 +47,17 @@ public final class RuntimeBindingApplicationService {
                 command.characterSheetId(), command.engineId(), command.toolIds(), null);
     }
 
+    /** Used only by session start recovery. Existing binding is the durable idempotency result. */
+    public RuntimeBinding bindForSession(BindRuntimeBindingCommand command) {
+        Adventure adventure = loadAdventure(command.adventureId(), command.ownerPlayerId());
+        RuntimeBinding existing = bindingRepository.findCurrentByAdventureId(command.adventureId()).orElse(null);
+        if (existing != null) return existing;
+        ScenarioPackage scenarioPackage = loadPackage(command.scenarioPackageId(), command.ownerPlayerId());
+        validateRulebookAccess(command.ownerPlayerId(), command.rulebookIds());
+        return persistBinding(adventure, command.ownerPlayerId(), scenarioPackage, command.rulebookIds(),
+                command.characterSheetId(), command.engineId(), command.toolIds(), null);
+    }
+
     public RuntimeBinding switchScenarioPackage(SwitchRuntimePackageCommand command) {
         Adventure adventure = loadAdventure(command.adventureId(), command.ownerPlayerId());
         RuntimeBinding current = bindingRepository.findCurrentByAdventureId(command.adventureId())

@@ -8,6 +8,12 @@ import com.dndmaster.character.application.SessionCharacterPolicyPort;
 import com.dndmaster.character.domain.AdventureId;
 import com.dndmaster.character.domain.SheetEdition;
 import com.dndmaster.character.infrastructure.persistence.PostgresCharacterSheetRepository;
+import com.dndmaster.character.infrastructure.CrossContextHttpSessionCharacterPolicyAdapter;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.time.Duration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -27,8 +33,10 @@ public class CharacterManagementApiConfiguration {
     }
 
     @Bean
-    SessionCharacterPolicyPort sessionCharacterPolicyPort() {
-        return ignored -> SessionCharacterPolicy.draft();
+    SessionCharacterPolicyPort sessionCharacterPolicyPort(
+            ObjectMapper objectMapper,
+            @Value("${character.integration.adventure.base-url:http://127.0.0.1:8080/}") String baseUrl) {
+        return new CrossContextHttpSessionCharacterPolicyAdapter(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), objectMapper);
     }
 
     @Bean

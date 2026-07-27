@@ -21,7 +21,7 @@ public class CharacterSheetController {
         CharacterSheet sheet = characterSheetService.createSheet(new CreateCharacterSheetCommand(
                 new AdventureId(request.adventureId() == null ? UUID.randomUUID() : request.adventureId()),
                 SheetEdition.valueOf(request.edition()),
-                parseData(request.edition(), request.characterName(), request.level(), request.inspiration())));
+                parseData(request.edition(), request.characterName(), request.level(), request.inspiration(), request.race(), request.characterClass(), request.background(), request.startingAbilities())));
         return CharacterSheetResponse.from(sheet);
     }
 
@@ -40,7 +40,7 @@ public class CharacterSheetController {
             @RequestBody CharacterSheetRequest request) {
         CharacterSheetUpdate update = new CharacterSheetUpdate(
                 SheetEdition.valueOf(request.edition()),
-                parseData(request.edition(), request.characterName(), request.level(), request.inspiration()),
+                parseData(request.edition(), request.characterName(), request.level(), request.inspiration(), request.race(), request.characterClass(), request.background(), request.startingAbilities()),
                 InputMode.STRUCTURED_SHEET,
                 commandId,
                 expectedVersion);
@@ -49,13 +49,14 @@ public class CharacterSheetController {
     }
 
     private static CharacterSheetData parseData(
-            String edition, String characterName, int level, boolean inspiration) {
+            String edition, String characterName, int level, boolean inspiration, String race, String characterClass, String background, String startingAbilities) {
         return switch (SheetEdition.valueOf(edition)) {
-            case DND_5E_2014 -> new CharacterSheetData2014(characterName, level, inspiration);
-            case DND_5E_2024 -> new CharacterSheetData2024(characterName, level, inspiration);
+            case DND_5E_2014 -> new CharacterSheetData2014(characterName, level, inspiration, race, characterClass, background, startingAbilities);
+            case DND_5E_2024 -> new CharacterSheetData2024(characterName, level, inspiration, race, characterClass, background, startingAbilities);
         };
     }
 
     public record CharacterSheetRequest(
-            UUID adventureId, String edition, String characterName, int level, boolean inspiration) {}
+            UUID adventureId, String edition, String characterName, int level, boolean inspiration,
+            String race, String characterClass, String background, String startingAbilities) {}
 }
