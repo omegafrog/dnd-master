@@ -1,9 +1,14 @@
 openapi: 3.1.0
 info: { title: Character Management API, version: 1.0.0 }
 paths:
-  /internal/v1/character-sheets:
+  /internal/v1/adventure-sessions/{sessionId}/character-sheets:
     post:
       operationId: createCharacterSheet
+      parameters:
+        - in: path
+          name: sessionId
+          required: true
+          schema: { type: string, format: uuid }
       requestBody:
         required: true
         content:
@@ -12,9 +17,6 @@ paths:
               type: object
               required: [edition, characterName, level, inspiration]
               properties:
-                adventureId:
-                  type: string
-                  format: uuid
                 edition:
                   type: string
                 characterName:

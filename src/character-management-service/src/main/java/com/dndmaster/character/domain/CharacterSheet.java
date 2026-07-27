@@ -6,6 +6,7 @@ import java.util.UUID;
 public final class CharacterSheet {
     private final CharacterSheetId id;
     private final AdventureId adventureId;
+    private final SessionId sessionId;
     private final SheetEdition edition;
     private CharacterSheetData data;
     private long version;
@@ -22,12 +23,17 @@ public final class CharacterSheet {
             long version, UUID operationKey, String operationFingerprint) {
         this.id = Objects.requireNonNull(id, "character sheet id must not be null");
         this.adventureId = Objects.requireNonNull(adventureId, "adventure id must not be null");
+        this.sessionId = new SessionId(adventureId.value());
         this.edition = Objects.requireNonNull(edition, "edition must not be null");
         this.data = requireMatchingData(edition, data);
         if (version < 0) throw new IllegalArgumentException("version must not be negative");
         this.version = version;
         this.operationKey = operationKey;
         this.operationFingerprint = operationFingerprint;
+    }
+
+    public CharacterSheet(CharacterSheetId id, SessionId sessionId, SheetEdition edition, CharacterSheetData data) {
+        this(id, new AdventureId(sessionId.value()), edition, data, 0, null, null);
     }
 
     public void authorizeOpen(CharacterSheetOpenRequest request) {
@@ -61,6 +67,7 @@ public final class CharacterSheet {
 
     public CharacterSheetId id() { return id; }
     public AdventureId adventureId() { return adventureId; }
+    public SessionId sessionId() { return sessionId; }
     public SheetEdition edition() { return edition; }
     public CharacterSheetData data() { return data; }
     public long version() { return version; }

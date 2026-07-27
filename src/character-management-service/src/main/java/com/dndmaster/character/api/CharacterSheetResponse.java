@@ -6,6 +6,7 @@ import java.util.UUID;
 
 public record CharacterSheetResponse(
         UUID characterSheetId,
+        UUID sessionId,
         UUID adventureId,
         String edition,
         String characterName,
@@ -23,7 +24,7 @@ public record CharacterSheetResponse(
             case com.dndmaster.character.domain.CharacterSheetData2024 data -> data.heroicInspiration();
         };
         return new CharacterSheetResponse(
-                sheet.id().value(), sheet.adventureId().value(), sheet.edition().name(),
+                sheet.id().value(), sheet.sessionId().value(), sheet.adventureId().value(), sheet.edition().name(),
                 sheet.data().characterName(), sheet.data().level(), inspiration,
                 sheet.data().race(), sheet.data().characterClass(), sheet.data().background(), sheet.data().startingAbilities(), sheet.version());
     }

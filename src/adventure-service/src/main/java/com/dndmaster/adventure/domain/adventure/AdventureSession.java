@@ -13,6 +13,8 @@ public final class AdventureSession {
     private final int characterLimit;
     private final UUID scenarioPackageId;
     private final long scenarioPackageRevision;
+    private final UUID blueprintId;
+    private final long blueprintRevision;
     private final List<AdventurePartyMember> party;
     private final AdventureSessionRuntimeConfiguration runtimeConfiguration;
     private Status status;
@@ -20,13 +22,16 @@ public final class AdventureSession {
     private UUID startRequestId;
     private long version;
 
-    private AdventureSession(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, int characterLimit,
+    private AdventureSession(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, UUID blueprintId, long blueprintRevision, int characterLimit,
             List<AdventurePartyMember> party, AdventureSessionRuntimeConfiguration runtimeConfiguration, Status status, AdventureId startedAdventureId, UUID startRequestId, long version) {
         this.id = Objects.requireNonNull(id, "session id must not be null");
         this.ownerPlayerId = Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
         this.scenarioPackageId = Objects.requireNonNull(scenarioPackageId, "scenario package id must not be null");
         if (scenarioPackageRevision < 1) throw new IllegalArgumentException("scenario package revision must be positive");
         this.scenarioPackageRevision = scenarioPackageRevision;
+        this.blueprintId = Objects.requireNonNull(blueprintId, "blueprint id must not be null");
+        if (blueprintRevision < 1) throw new IllegalArgumentException("blueprint revision must be positive");
+        this.blueprintRevision = blueprintRevision;
         if (characterLimit < 1) throw new IllegalArgumentException("character limit must be positive");
         this.characterLimit = characterLimit;
         this.party = new ArrayList<>(Objects.requireNonNull(party, "party must not be null"));
@@ -40,26 +45,38 @@ public final class AdventureSession {
     }
 
     public static AdventureSession create(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, int characterLimit) {
-        return new AdventureSession(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, characterLimit, List.of(), null, Status.DRAFT, null, null, 0);
+        return create(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, scenarioPackageId, 1, characterLimit);
+    }
+    public static AdventureSession create(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, UUID blueprintId, long blueprintRevision, int characterLimit) {
+        return new AdventureSession(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, blueprintId, blueprintRevision, characterLimit, List.of(), null, Status.DRAFT, null, null, 0);
+    }
+    public static AdventureSession create(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, UUID blueprintId, long blueprintRevision, int characterLimit, AdventureSessionRuntimeConfiguration runtimeConfiguration) {
+        return new AdventureSession(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, blueprintId, blueprintRevision, characterLimit, List.of(), Objects.requireNonNull(runtimeConfiguration, "runtime configuration must not be null"), Status.DRAFT, null, null, 0);
     }
 
     public static AdventureSession create(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, int characterLimit,
             AdventureSessionRuntimeConfiguration runtimeConfiguration) {
-        return new AdventureSession(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, characterLimit, List.of(), Objects.requireNonNull(runtimeConfiguration, "runtime configuration must not be null"), Status.DRAFT, null, null, 0);
+        return new AdventureSession(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, scenarioPackageId, 1, characterLimit, List.of(), Objects.requireNonNull(runtimeConfiguration, "runtime configuration must not be null"), Status.DRAFT, null, null, 0);
     }
 
     public static AdventureSession rehydrate(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, int characterLimit,
             List<AdventurePartyMember> party, long version) {
-        return new AdventureSession(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, characterLimit, party, null, Status.DRAFT, null, null, version);
+        return createRehydrated(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, scenarioPackageId, 1, characterLimit, party, null, Status.DRAFT, null, null, version);
     }
 
     public static AdventureSession rehydrate(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, int characterLimit,
             List<AdventurePartyMember> party, AdventureSessionRuntimeConfiguration runtimeConfiguration, long version) {
-        return new AdventureSession(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, characterLimit, party, runtimeConfiguration, Status.DRAFT, null, null, version);
+        return createRehydrated(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, scenarioPackageId, 1, characterLimit, party, runtimeConfiguration, Status.DRAFT, null, null, version);
     }
     public static AdventureSession rehydrate(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, int characterLimit,
             List<AdventurePartyMember> party, AdventureSessionRuntimeConfiguration runtimeConfiguration, Status status, AdventureId startedAdventureId, UUID startRequestId, long version) {
-        return new AdventureSession(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, characterLimit, party, runtimeConfiguration, status, startedAdventureId, startRequestId, version);
+        return createRehydrated(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, scenarioPackageId, 1, characterLimit, party, runtimeConfiguration, status, startedAdventureId, startRequestId, version);
+    }
+    public static AdventureSession rehydrate(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, UUID blueprintId, long blueprintRevision, int characterLimit, List<AdventurePartyMember> party, AdventureSessionRuntimeConfiguration runtimeConfiguration, Status status, AdventureId startedAdventureId, UUID startRequestId, long version) {
+        return createRehydrated(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, blueprintId, blueprintRevision, characterLimit, party, runtimeConfiguration, status, startedAdventureId, startRequestId, version);
+    }
+    private static AdventureSession createRehydrated(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, UUID blueprintId, long blueprintRevision, int characterLimit, List<AdventurePartyMember> party, AdventureSessionRuntimeConfiguration runtimeConfiguration, Status status, AdventureId startedAdventureId, UUID startRequestId, long version) {
+        return new AdventureSession(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, blueprintId, blueprintRevision, characterLimit, party, runtimeConfiguration, status, startedAdventureId, startRequestId, version);
     }
 
     public void addPartyMember(AdventurePartyMember member) {
@@ -139,6 +156,8 @@ public final class AdventureSession {
     public int characterLimit() { return characterLimit; }
     public UUID scenarioPackageId() { return scenarioPackageId; }
     public long scenarioPackageRevision() { return scenarioPackageRevision; }
+    public UUID blueprintId() { return blueprintId; }
+    public long blueprintRevision() { return blueprintRevision; }
     public List<AdventurePartyMember> party() { return List.copyOf(party); }
     public AdventureSessionRuntimeConfiguration runtimeConfiguration() { return runtimeConfiguration; }
     public Status status() { return status; }

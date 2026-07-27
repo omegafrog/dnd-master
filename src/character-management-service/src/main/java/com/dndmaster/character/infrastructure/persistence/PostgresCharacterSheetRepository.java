@@ -124,17 +124,18 @@ public final class PostgresCharacterSheetRepository implements CharacterSheetRep
 
     private void insert(CharacterSheet sheet, long persistedVersion, UUID operationKey, String operationFingerprint) {
         String sql = "INSERT INTO " + TABLE
-                + " (character_sheet_id, adventure_id, edition, character_name, character_level, inspiration, race, character_class, background, starting_abilities, operation_key, operation_fingerprint, version)"
-                + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                + " (character_sheet_id, adventure_id, session_id, edition, character_name, character_level, inspiration, race, character_class, background, starting_abilities, operation_key, operation_fingerprint, version)"
+                + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setObject(1, sheet.id().value());
                 statement.setObject(2, sheet.adventureId().value());
-                bindData(statement, sheet, 3);
-                statement.setObject(11, operationKey);
-                statement.setString(12, operationFingerprint);
-                statement.setLong(13, persistedVersion);
+                statement.setObject(3, sheet.sessionId().value());
+                bindData(statement, sheet, 4);
+                statement.setObject(12, operationKey);
+                statement.setString(13, operationFingerprint);
+                statement.setLong(14, persistedVersion);
                 statement.executeUpdate();
                 sheet.markPersisted(persistedVersion, operationKey, operationFingerprint);
                 recordHistory(connection, sheet, operationKey, operationFingerprint);

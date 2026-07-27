@@ -34,10 +34,10 @@ public class CharacterSheetController {
         deletionConsumer.consume(new CharacterSheetsDeletionRequested(request.sessionId(), request.characterSheetIds()));
     }
 
-    @PostMapping("/internal/v1/character-sheets")
-    CharacterSheetResponse createCharacterSheet(@RequestBody CharacterSheetRequest request) {
+    @PostMapping("/internal/v1/adventure-sessions/{sessionId}/character-sheets")
+    CharacterSheetResponse createCharacterSheet(@PathVariable UUID sessionId, @RequestBody CharacterSheetRequest request) {
         CharacterSheet sheet = characterSheetService.createSheet(new CreateCharacterSheetCommand(
-                new AdventureId(request.adventureId() == null ? UUID.randomUUID() : request.adventureId()),
+                new SessionId(sessionId),
                 SheetEdition.valueOf(request.edition()),
                 parseData(request.edition(), request.characterName(), request.level(), request.inspiration(), request.race(), request.characterClass(), request.background(), request.startingAbilities())));
         return CharacterSheetResponse.from(sheet);

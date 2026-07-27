@@ -1,6 +1,6 @@
 # 024-2 - 세션 snapshot·session-scoped character creation
 
-- Status: approved
+- Status: completed
 - Issue: [#65](https://github.com/omegafrog/dnd-master/issues/65)
 - Dependencies: 024-1
 - Parent: [024](024-character-creation-flow.md)

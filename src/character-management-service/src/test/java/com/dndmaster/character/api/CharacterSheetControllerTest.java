@@ -41,7 +41,7 @@ class CharacterSheetControllerTest {
                 new CharacterSheetData2024("Aria", 3, true));
         when(service.createSheet(any())).thenReturn(sheet);
 
-        mockMvc.perform(post("/internal/v1/character-sheets")
+        mockMvc.perform(post("/internal/v1/adventure-sessions/{sessionId}/character-sheets", adventureId)
                         .contentType("application/json")
                         .content("""
                                 {
