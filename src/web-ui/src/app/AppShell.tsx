@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../features/auth/AuthContext'
 import { LoginForm } from '../features/auth/LoginForm'
 import { HttpAdventureApi } from '../features/adventure/AdventureApi'
@@ -37,6 +37,7 @@ function parseRoute(hash: string): Route {
 export function AppShell() {
   const auth = useAuth()
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.hash))
+  const sessionApi = useMemo(() => new AdventureSessionApi(auth.session?.accessToken ?? ''), [auth.session?.accessToken])
 
   const onHashChange = useCallback(() => setRoute(parseRoute(window.location.hash)), [])
   useEffect(() => {
@@ -65,7 +66,6 @@ export function AppShell() {
   const playApi = new HttpAdventurePlayApi(getToken)
   const guidanceApi = new HttpRuleGuidanceApi(getToken, getPlayerId)
   const setupApi = new HttpSetupApi(getToken)
-  const sessionApi = new AdventureSessionApi(token)
 
   return (
     <>

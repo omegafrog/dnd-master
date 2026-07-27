@@ -30,6 +30,7 @@ export type AdventureSessionView = {
 }
 
 export class AdventureSessionApi {
+  private readonly startKeys = new Map<string, string>()
   constructor(private readonly token: string) {}
 
   private headers(extra: HeadersInit = {}): HeadersInit { return { Authorization: `Bearer ${this.token}`, ...extra } }
@@ -46,6 +47,8 @@ export class AdventureSessionApi {
     return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/party/${characterSheetId}`, { method: 'DELETE', headers: { 'If-Match-Version': String(version) } })
   }
   start(sessionId: string, version: number, adventureId: string) {
-    return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/start`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match-Version': String(version), 'Idempotency-Key': crypto.randomUUID() }, body: JSON.stringify({ adventureId }) })
+    const requestId = this.startKeys.get(sessionId) ?? crypto.randomUUID()
+    this.startKeys.set(sessionId, requestId)
+    return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/start`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match-Version': String(version), 'Idempotency-Key': requestId }, body: JSON.stringify({ adventureId }) })
   }
 }

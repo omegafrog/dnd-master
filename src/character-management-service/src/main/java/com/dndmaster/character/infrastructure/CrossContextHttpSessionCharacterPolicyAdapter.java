@@ -28,7 +28,7 @@ public final class CrossContextHttpSessionCharacterPolicyAdapter implements Sess
         String path = "api/v1/adventure-sessions/internal/" + sessionId.value() + "/character-policy";
         if (sheetId != null) path += "?characterSheetId=" + sheetId.value();
         try {
-            HttpResponse<String> response = client.send(HttpRequest.newBuilder(baseUri.resolve(path)).timeout(timeout).GET().build(), HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = client.send(HttpRequest.newBuilder(baseUri.resolve(path)).timeout(timeout).header("X-Internal-Service", "character-management").GET().build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() / 100 != 2) throw new IllegalStateException("adventure session policy lookup failed: " + response.statusCode());
             PolicyView view = objectMapper.readValue(response.body(), PolicyView.class);
             return new SessionCharacterPolicy(view.acceptingCharacterSheets(), view.nameMutable(), view.levelMutable(), view.raceMutable(), view.characterClassMutable(), view.backgroundMutable(), view.startingAbilitiesMutable());
