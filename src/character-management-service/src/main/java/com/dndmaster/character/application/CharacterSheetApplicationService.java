@@ -42,6 +42,13 @@ public final class CharacterSheetApplicationService {
         return sheet;
     }
 
+    public CharacterSheet verifySessionOwnership(CharacterSheetId id, SessionId sessionId) {
+        CharacterSheet sheet = load(id);
+        if (!sheet.sessionId().equals(sessionId)) throw new IllegalStateException("character sheet belongs to another session");
+        requireSessionActive(sheet);
+        return sheet;
+    }
+
     public CharacterSheet manageCharacter(CharacterSheetId id, CharacterSheetUpdate update) {
         CharacterSheet sheet = load(id);
         SessionCharacterPolicy policy = sessionPolicyPort.policyFor(sheet.adventureId(), sheet.id());
