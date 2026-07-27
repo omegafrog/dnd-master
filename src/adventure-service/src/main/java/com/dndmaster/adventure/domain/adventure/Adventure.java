@@ -11,6 +11,7 @@ public final class Adventure {
     private final ScenarioId scenarioId;
     private final RuleSetId ruleSetId;
     private final CharacterSheetId characterSheetId;
+    private final List<AdventurePartyMember> party;
     private List<ConversationEntry> conversation;
     private AdventureContext currentContext;
     private AdventureStatus status;
@@ -18,7 +19,7 @@ public final class Adventure {
 
     private Adventure(
             AdventureId id, SessionId sessionId, OwnerPlayerId ownerPlayerId, ScenarioId scenarioId,
-            RuleSetId ruleSetId, CharacterSheetId characterSheetId, List<ConversationEntry> conversation,
+            RuleSetId ruleSetId, CharacterSheetId characterSheetId, List<AdventurePartyMember> party, List<ConversationEntry> conversation,
             AdventureContext currentContext, AdventureStatus status, long version) {
         this.id = Objects.requireNonNull(id, "adventure id must not be null");
         this.sessionId = Objects.requireNonNull(sessionId, "session id must not be null");
@@ -26,6 +27,7 @@ public final class Adventure {
         this.scenarioId = Objects.requireNonNull(scenarioId, "scenario id must not be null");
         this.ruleSetId = Objects.requireNonNull(ruleSetId, "rule set id must not be null");
         this.characterSheetId = Objects.requireNonNull(characterSheetId, "character sheet id must not be null");
+        this.party = List.copyOf(Objects.requireNonNull(party, "party must not be null"));
         this.conversation = validateConversation(conversation);
         this.currentContext = Objects.requireNonNull(currentContext, "current context must not be null");
         this.status = Objects.requireNonNull(status, "status must not be null");
@@ -36,16 +38,23 @@ public final class Adventure {
     public static Adventure create(
             AdventureId id, SessionId sessionId, OwnerPlayerId ownerPlayerId, ScenarioId scenarioId,
             RuleSetId ruleSetId, CharacterSheetId characterSheetId, AdventureContext context) {
-        return new Adventure(id, sessionId, ownerPlayerId, scenarioId, ruleSetId, characterSheetId,
+        return new Adventure(id, sessionId, ownerPlayerId, scenarioId, ruleSetId, characterSheetId, List.of(),
                 List.of(), context, AdventureStatus.SAVED, 0);
+    }
+    public static Adventure create(AdventureId id, SessionId sessionId, OwnerPlayerId ownerPlayerId, ScenarioId scenarioId, RuleSetId ruleSetId, List<AdventurePartyMember> party, AdventureContext context) {
+        if (party == null || party.isEmpty()) throw new IllegalArgumentException("party must not be empty");
+        return new Adventure(id, sessionId, ownerPlayerId, scenarioId, ruleSetId, party.getFirst().characterSheetId(), party, List.of(), context, AdventureStatus.SAVED, 0);
     }
 
     public static Adventure rehydrate(
             AdventureId id, SessionId sessionId, OwnerPlayerId ownerPlayerId, ScenarioId scenarioId,
             RuleSetId ruleSetId, CharacterSheetId characterSheetId, List<ConversationEntry> conversation,
             AdventureContext context, AdventureStatus status, long version) {
-        return new Adventure(id, sessionId, ownerPlayerId, scenarioId, ruleSetId, characterSheetId,
+        return new Adventure(id, sessionId, ownerPlayerId, scenarioId, ruleSetId, characterSheetId, List.of(),
                 conversation, context, status, version);
+    }
+    public static Adventure rehydrate(AdventureId id, SessionId sessionId, OwnerPlayerId ownerPlayerId, ScenarioId scenarioId, RuleSetId ruleSetId, CharacterSheetId characterSheetId, List<AdventurePartyMember> party, List<ConversationEntry> conversation, AdventureContext context, AdventureStatus status, long version) {
+        return new Adventure(id, sessionId, ownerPlayerId, scenarioId, ruleSetId, characterSheetId, party, conversation, context, status, version);
     }
 
     public void preserveProgress(
@@ -96,6 +105,7 @@ public final class Adventure {
     public ScenarioId scenarioId() { return scenarioId; }
     public RuleSetId ruleSetId() { return ruleSetId; }
     public CharacterSheetId characterSheetId() { return characterSheetId; }
+    public List<AdventurePartyMember> party() { return party; }
     public List<ConversationEntry> conversation() { return conversation; }
     public AdventureContext currentContext() { return currentContext; }
     public AdventureStatus status() { return status; }

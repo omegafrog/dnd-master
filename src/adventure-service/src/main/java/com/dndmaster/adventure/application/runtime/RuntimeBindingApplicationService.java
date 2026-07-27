@@ -54,6 +54,9 @@ public final class RuntimeBindingApplicationService {
         if (current.bindingVersion() != command.bindingVersion()) {
             throw new IllegalStateException("runtime binding version mismatch");
         }
+        if (!current.party().isEmpty()) {
+            throw new IllegalStateException("started session runtime package is frozen");
+        }
         ScenarioPackage scenarioPackage = loadPackage(command.scenarioPackageId(), command.ownerPlayerId());
         validateRulebookAccess(command.ownerPlayerId(), current.rulebookIds());
         return persistBinding(
@@ -103,8 +106,9 @@ public final class RuntimeBindingApplicationService {
                 rulebookIds, characterSheetId, engineId, toolIds);
         ActiveSourceContext selected = selectSourceContext(report, proposal);
         RuntimeBinding binding = previousBindingVersion == null
-                ? RuntimeBinding.create(adventure.id(), ownerPlayerId, scenarioPackage.packageId(), scenarioPackage.bundleRevision(),
-                rulebookIds, characterSheetId, engineId, toolIds, report, selected)
+                ? (adventure.party().isEmpty()
+                    ? RuntimeBinding.create(adventure.id(), ownerPlayerId, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), rulebookIds, characterSheetId, engineId, toolIds, report, selected)
+                    : RuntimeBinding.create(adventure.id(), ownerPlayerId, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), rulebookIds, adventure.party(), engineId, toolIds, report, selected))
                 : RuntimeBinding.rehydrate(adventure.id(), ownerPlayerId, previousBindingVersion + 1, scenarioPackage.packageId(),
                 scenarioPackage.bundleRevision(), rulebookIds, characterSheetId, engineId, toolIds, report, selected);
         bindingRepository.save(binding);

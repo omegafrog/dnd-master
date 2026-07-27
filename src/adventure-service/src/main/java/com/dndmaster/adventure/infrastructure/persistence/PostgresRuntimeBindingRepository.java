@@ -57,16 +57,17 @@ public final class PostgresRuntimeBindingRepository implements RuntimeBindingRep
         String sql = """
                 INSERT INTO adventure_runtime_binding (
                     adventure_id, binding_version, owner_player_id, scenario_package_id, scenario_package_revision,
-                    rulebook_ids_json, character_sheet_id, engine_id, tool_ids_json,
+                    rulebook_ids_json, character_sheet_id, party_json, engine_id, tool_ids_json,
                     playability_status, playability_warnings_json, playability_blockers_json,
                     playability_limits_json, active_source_context_json, source_context_candidates_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (adventure_id, binding_version) DO UPDATE SET
                     owner_player_id = EXCLUDED.owner_player_id,
                     scenario_package_id = EXCLUDED.scenario_package_id,
                     scenario_package_revision = EXCLUDED.scenario_package_revision,
                     rulebook_ids_json = EXCLUDED.rulebook_ids_json,
                     character_sheet_id = EXCLUDED.character_sheet_id,
+                    party_json = EXCLUDED.party_json,
                     engine_id = EXCLUDED.engine_id,
                     tool_ids_json = EXCLUDED.tool_ids_json,
                     playability_status = EXCLUDED.playability_status,
@@ -92,14 +93,9 @@ public final class PostgresRuntimeBindingRepository implements RuntimeBindingRep
         statement.setLong(5, binding.scenarioPackageRevision());
         statement.setString(6, write(binding.rulebookIds()));
         statement.setObject(7, binding.characterSheetId().value());
-        statement.setString(8, binding.engineId());
-        statement.setString(9, write(binding.toolIds()));
-        statement.setString(10, binding.playabilityReport().status().name());
-        statement.setString(11, write(binding.playabilityReport().warnings()));
-        statement.setString(12, write(binding.playabilityReport().blockers()));
-        statement.setString(13, write(binding.playabilityReport().limits()));
-        statement.setString(14, write(binding.activeSourceContext()));
-        statement.setString(15, write(binding.playabilityReport().candidates()));
+        statement.setString(8, write(binding.party())); statement.setString(9, binding.engineId());
+        statement.setString(10, write(binding.toolIds())); statement.setString(11, binding.playabilityReport().status().name());
+        statement.setString(12, write(binding.playabilityReport().warnings())); statement.setString(13, write(binding.playabilityReport().blockers())); statement.setString(14, write(binding.playabilityReport().limits())); statement.setString(15, write(binding.activeSourceContext())); statement.setString(16, write(binding.playabilityReport().candidates()));
     }
 
     private RuntimeBinding map(ResultSet row) throws SQLException {
@@ -111,6 +107,7 @@ public final class PostgresRuntimeBindingRepository implements RuntimeBindingRep
                 row.getLong("scenario_package_revision"),
                 readUuidList(row.getString("rulebook_ids_json")),
                 new CharacterSheetId(row.getObject("character_sheet_id", UUID.class)),
+                readParty(row.getString("party_json")),
                 row.getString("engine_id"),
                 readStringList(row.getString("tool_ids_json")),
                 new PlayabilityReport(
@@ -121,6 +118,7 @@ public final class PostgresRuntimeBindingRepository implements RuntimeBindingRep
                         readCandidates(row.getString("source_context_candidates_json"))),
                 readActive(row.getString("active_source_context_json")));
     }
+    private List<AdventurePartyMember> readParty(String json) throws SQLException { if (json == null || json.isBlank()) return List.of(); try { return objectMapper.readValue(json, new TypeReference<List<AdventurePartyMember>>() {}); } catch (Exception e) { throw new SQLException("could not read runtime party", e); } }
 
     private List<InitialSourceContextCandidate> readCandidates(String json) throws SQLException {
         if (json == null || json.isBlank()) {

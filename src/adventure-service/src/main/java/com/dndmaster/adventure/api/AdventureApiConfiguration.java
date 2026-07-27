@@ -64,8 +64,10 @@ public class AdventureApiConfiguration {
     @Bean
     AdventureSessionApplicationService adventureSessionApplicationService(
             AdventureSessionRepository repository,
-            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository) {
-        return new AdventureSessionApplicationService(repository, packageRepository);
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
+            AdventureRepository adventureRepository,
+            RuntimeBindingApplicationService runtimeBindingApplicationService) {
+        return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository, runtimeBindingApplicationService);
     }
 
     @Bean

@@ -7,10 +7,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import javax.sql.DataSource;
 
 public final class PostgresAdventureRepository implements AdventureRepository {
     private final DataSource dataSource;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public PostgresAdventureRepository(DataSource dataSource) { this.dataSource = java.util.Objects.requireNonNull(dataSource); }
 
@@ -57,18 +60,19 @@ public final class PostgresAdventureRepository implements AdventureRepository {
         } catch (SQLException exception) { throw failure("could not access adventure storage", exception); }
     }
 
-    private static void insert(Connection connection, Adventure adventure) throws SQLException {
-        String sql = "INSERT INTO adventure VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    private void insert(Connection connection, Adventure adventure) throws SQLException {
+        String sql = "INSERT INTO adventure(adventure_id, session_id, owner_player_id, scenario_id, rule_set_id, character_sheet_id, current_scene, npc_state, pending_action, latest_judgment, status, version, party_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (PreparedStatement s = connection.prepareStatement(sql)) {
             bindCommon(s, adventure);
             s.setString(11, adventure.status().name());
             s.setLong(12, adventure.version());
+            s.setString(13, partyJson(adventure));
             s.executeUpdate();
         }
     }
 
-    private static void update(Connection connection, Adventure adventure) throws SQLException {
-        String sql = "UPDATE adventure SET current_scene=?, npc_state=?, pending_action=?, latest_judgment=?, status=?, version=? WHERE adventure_id=? AND version=?";
+    private void update(Connection connection, Adventure adventure) throws SQLException {
+        String sql = "UPDATE adventure SET current_scene=?, npc_state=?, pending_action=?, latest_judgment=?, status=?, version=?, party_json=? WHERE adventure_id=? AND version=?";
         try (PreparedStatement s = connection.prepareStatement(sql)) {
             s.setString(1, adventure.currentContext().currentScene());
             s.setString(2, adventure.currentContext().npcState());
@@ -76,8 +80,7 @@ public final class PostgresAdventureRepository implements AdventureRepository {
             s.setString(4, adventure.currentContext().latestJudgment());
             s.setString(5, adventure.status().name());
             s.setLong(6, adventure.version());
-            s.setObject(7, adventure.id().value());
-            s.setLong(8, adventure.version() - 1);
+            s.setString(7, partyJson(adventure)); s.setObject(8, adventure.id().value()); s.setLong(9, adventure.version() - 1);
             if (s.executeUpdate() != 1) throw new OptimisticAdventureLockException();
         }
     }
@@ -103,7 +106,7 @@ public final class PostgresAdventureRepository implements AdventureRepository {
         }
     }
 
-    private static Adventure mapAdventure(Connection connection, ResultSet row) throws SQLException {
+    private Adventure mapAdventure(Connection connection, ResultSet row) throws SQLException {
         UUID id = row.getObject("adventure_id", UUID.class);
         List<ConversationEntry> conversation = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement("SELECT sequence, speaker, content FROM adventure_conversation WHERE adventure_id=? ORDER BY sequence")) {
@@ -114,10 +117,12 @@ public final class PostgresAdventureRepository implements AdventureRepository {
         }
         return Adventure.rehydrate(new AdventureId(id), new SessionId(row.getObject("session_id", UUID.class)),
                 new OwnerPlayerId(row.getObject("owner_player_id", UUID.class)), new ScenarioId(row.getObject("scenario_id", UUID.class)),
-                new RuleSetId(row.getObject("rule_set_id", UUID.class)), new CharacterSheetId(row.getObject("character_sheet_id", UUID.class)),
+                new RuleSetId(row.getObject("rule_set_id", UUID.class)), new CharacterSheetId(row.getObject("character_sheet_id", UUID.class)), party(row),
                 conversation, new AdventureContext(row.getString("current_scene"), row.getString("npc_state"), row.getString("pending_action"), row.getString("latest_judgment")),
                 AdventureStatus.valueOf(row.getString("status")), row.getLong("version"));
     }
+    private List<AdventurePartyMember> party(ResultSet row) throws SQLException { String json = row.getString("party_json"); if (json == null || json.isBlank()) return List.of(); try { return objectMapper.readValue(json, new TypeReference<List<AdventurePartyMember>>() {}); } catch (Exception e) { throw new SQLException("could not read adventure party", e); } }
+    private String partyJson(Adventure adventure) throws SQLException { try { return objectMapper.writeValueAsString(adventure.party()); } catch (Exception e) { throw new SQLException("could not write adventure party", e); } }
 
     private static void rollback(Connection connection, Throwable original) {
         try { connection.rollback(); } catch (SQLException rollbackFailure) { original.addSuppressed(rollbackFailure); }

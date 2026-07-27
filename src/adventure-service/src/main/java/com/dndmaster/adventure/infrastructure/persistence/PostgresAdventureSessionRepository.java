@@ -10,10 +10,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import javax.sql.DataSource;
 
 public final class PostgresAdventureSessionRepository implements AdventureSessionRepository {
     private final DataSource dataSource;
+    private final ObjectMapper objectMapper = new ObjectMapper();
     public PostgresAdventureSessionRepository(DataSource dataSource) { this.dataSource = java.util.Objects.requireNonNull(dataSource); }
     @Override public Optional<AdventureSession> findById(SessionId id) {
         try (Connection c = dataSource.getConnection(); PreparedStatement s = c.prepareStatement("SELECT * FROM adventure_session WHERE session_id=?")) {
@@ -25,11 +28,11 @@ public final class PostgresAdventureSessionRepository implements AdventureSessio
             boolean autoCommit = c.getAutoCommit(); c.setAutoCommit(false);
             try {
                 String sql = expectedVersion == 0 && session.version() == 0
-                        ? "INSERT INTO adventure_session(session_id, owner_player_id, scenario_package_id, scenario_package_revision, character_limit, version) VALUES (?, ?, ?, ?, ?, ?)"
-                        : "UPDATE adventure_session SET character_limit=?, version=? WHERE session_id=? AND version=?";
+                        ? "INSERT INTO adventure_session(session_id, owner_player_id, scenario_package_id, scenario_package_revision, character_limit, runtime_scenario_id, runtime_rule_set_id, runtime_rulebook_ids_json, runtime_engine_id, runtime_tool_ids_json, runtime_initial_scene, status, started_adventure_id, start_request_id, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                        : "UPDATE adventure_session SET character_limit=?, runtime_scenario_id=?, runtime_rule_set_id=?, runtime_rulebook_ids_json=?, runtime_engine_id=?, runtime_tool_ids_json=?, runtime_initial_scene=?, status=?, started_adventure_id=?, start_request_id=?, version=? WHERE session_id=? AND version=?";
                 try (PreparedStatement s = c.prepareStatement(sql)) {
-                    if (expectedVersion == 0 && session.version() == 0) { s.setObject(1, session.id().value()); s.setObject(2, session.ownerPlayerId().value()); s.setObject(3, session.scenarioPackageId()); s.setLong(4, session.scenarioPackageRevision()); s.setInt(5, session.characterLimit()); s.setLong(6, session.version()); }
-                    else { s.setInt(1, session.characterLimit()); s.setLong(2, session.version()); s.setObject(3, session.id().value()); s.setLong(4, expectedVersion); }
+                    if (expectedVersion == 0 && session.version() == 0) { s.setObject(1, session.id().value()); s.setObject(2, session.ownerPlayerId().value()); s.setObject(3, session.scenarioPackageId()); s.setLong(4, session.scenarioPackageRevision()); s.setInt(5, session.characterLimit()); bindConfiguration(s, 6, session.runtimeConfiguration()); bindStart(s, 12, session); s.setLong(15, session.version()); }
+                    else { s.setInt(1, session.characterLimit()); bindConfiguration(s, 2, session.runtimeConfiguration()); bindStart(s, 8, session); s.setLong(11, session.version()); s.setObject(12, session.id().value()); s.setLong(13, expectedVersion); }
                     if (s.executeUpdate() != 1) throw new OptimisticAdventureLockException();
                 }
                 try (PreparedStatement s = c.prepareStatement("DELETE FROM adventure_session_party_member WHERE session_id=?")) { s.setObject(1, session.id().value()); s.executeUpdate(); }
@@ -41,11 +44,23 @@ public final class PostgresAdventureSessionRepository implements AdventureSessio
             } catch (SQLException | RuntimeException e) { c.rollback(); throw e; } finally { c.setAutoCommit(autoCommit); }
         } catch (SQLException e) { throw new AdventurePersistenceException("could not save adventure session", e); }
     }
-    private static AdventureSession map(Connection c, ResultSet row) throws SQLException {
+    private AdventureSession map(Connection c, ResultSet row) throws SQLException {
         SessionId id = new SessionId(row.getObject("session_id", UUID.class)); List<AdventurePartyMember> party = new ArrayList<>();
         try (PreparedStatement s = c.prepareStatement("SELECT * FROM adventure_session_party_member WHERE session_id=? ORDER BY character_sheet_id")) {
             s.setObject(1, id.value()); try (ResultSet members = s.executeQuery()) { while (members.next()) party.add(new AdventurePartyMember(new CharacterSheetId(members.getObject("character_sheet_id", UUID.class)), ControlMode.valueOf(members.getString("control_mode")), members.getBoolean("name_mutable_after_start"), members.getBoolean("race_mutable_after_start"), members.getBoolean("class_mutable_after_start"), members.getBoolean("background_mutable_after_start"), members.getBoolean("abilities_mutable_after_start"), members.getBoolean("level_mutable_after_start"))); }
         }
-        return AdventureSession.rehydrate(id, new OwnerPlayerId(row.getObject("owner_player_id", UUID.class)), row.getObject("scenario_package_id", UUID.class), row.getLong("scenario_package_revision"), row.getInt("character_limit"), party, row.getLong("version"));
+        UUID adventureId = row.getObject("started_adventure_id", UUID.class);
+        return AdventureSession.rehydrate(id, new OwnerPlayerId(row.getObject("owner_player_id", UUID.class)), row.getObject("scenario_package_id", UUID.class), row.getLong("scenario_package_revision"), row.getInt("character_limit"), party, configuration(row), AdventureSession.Status.valueOf(row.getString("status")), adventureId == null ? null : new AdventureId(adventureId), row.getObject("start_request_id", UUID.class), row.getLong("version"));
     }
+    private void bindConfiguration(PreparedStatement s, int offset, AdventureSessionRuntimeConfiguration c) throws SQLException {
+        if (c == null) { for (int i = 0; i < 6; i++) s.setObject(offset + i, null); return; }
+        s.setObject(offset, c.scenarioId().value()); s.setObject(offset + 1, c.ruleSetId().value());
+        try { s.setString(offset + 2, objectMapper.writeValueAsString(c.rulebookIds())); s.setString(offset + 4, objectMapper.writeValueAsString(c.toolIds())); } catch (Exception e) { throw new SQLException("could not write runtime configuration", e); }
+        s.setString(offset + 3, c.engineId()); s.setString(offset + 5, c.initialScene());
+    }
+    private AdventureSessionRuntimeConfiguration configuration(ResultSet row) throws SQLException {
+        UUID scenarioId = row.getObject("runtime_scenario_id", UUID.class); if (scenarioId == null) return null;
+        try { return new AdventureSessionRuntimeConfiguration(new ScenarioId(scenarioId), new RuleSetId(row.getObject("runtime_rule_set_id", UUID.class)), objectMapper.readValue(row.getString("runtime_rulebook_ids_json"), new TypeReference<List<UUID>>() {}), row.getString("runtime_engine_id"), objectMapper.readValue(row.getString("runtime_tool_ids_json"), new TypeReference<List<String>>() {}), row.getString("runtime_initial_scene")); } catch (Exception e) { throw new SQLException("could not read runtime configuration", e); }
+    }
+    private static void bindStart(PreparedStatement s, int offset, AdventureSession session) throws SQLException { s.setString(offset, session.status().name()); s.setObject(offset + 1, session.startedAdventureId() == null ? null : session.startedAdventureId().value()); s.setObject(offset + 2, session.startRequestId()); }
 }
