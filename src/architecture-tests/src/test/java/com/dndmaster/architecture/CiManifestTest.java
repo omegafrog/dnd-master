@@ -31,14 +31,14 @@ class CiManifestTest {
                 "actions/setup-node@v4",
                 "node-version: \"22\"",
                 "docker version",
-                "docker compose -f dnd-master/infra/compose.yaml config",
+                "docker compose -f src/infra/compose.yaml config",
                 ":architecture-tests:test",
                 ":contract-tests:test",
                 ":system-tests:integrationTest",
-                "npm --prefix dnd-master/web-ui run lint",
-                "npm --prefix dnd-master/web-ui test -- --run",
-                "npm --prefix dnd-master/web-ui run build",
-                "npm --prefix dnd-master/web-ui run test:e2e"));
+                "npm --prefix src/web-ui run lint",
+                "npm --prefix src/web-ui test -- --run",
+                "npm --prefix src/web-ui run build",
+                "npm --prefix src/web-ui run test:e2e"));
         assertFalse(workflow.contains("continue-on-error: true"));
     }
 

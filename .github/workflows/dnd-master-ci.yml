@@ -29,10 +29,10 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: gradle
+      - uses: gradle/actions/setup-gradle@v4
       - name: Build and run focused service tests
         run: |
-          chmod +x ./dnd-master/gradlew
-          ./dnd-master/gradlew -p dnd-master :${{ matrix.service }}:test
+          gradle -p src :${{ matrix.service }}:test
 
   architecture-and-contracts:
     runs-on: ubuntu-latest
@@ -43,14 +43,13 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: gradle
+      - uses: gradle/actions/setup-gradle@v4
       - name: Architecture tests
         run: |
-          chmod +x ./dnd-master/gradlew
-          ./dnd-master/gradlew -p dnd-master :architecture-tests:test
+          gradle -p src :architecture-tests:test
       - name: Contract tests
         run: |
-          chmod +x ./dnd-master/gradlew
-          ./dnd-master/gradlew -p dnd-master :contract-tests:test
+          gradle -p src :contract-tests:test
 
   web-ui:
     runs-on: ubuntu-latest
@@ -60,11 +59,11 @@ jobs:
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: dnd-master/web-ui/package-lock.json
-      - run: npm --prefix dnd-master/web-ui ci
-      - run: npm --prefix dnd-master/web-ui run lint
-      - run: npm --prefix dnd-master/web-ui test -- --run
-      - run: npm --prefix dnd-master/web-ui run build
+          cache-dependency-path: src/web-ui/package-lock.json
+      - run: npm --prefix src/web-ui ci
+      - run: npm --prefix src/web-ui run lint
+      - run: npm --prefix src/web-ui test -- --run
+      - run: npm --prefix src/web-ui run build
 
   end-to-end:
     runs-on: ubuntu-latest
@@ -76,20 +75,20 @@ jobs:
           distribution: temurin
           java-version: "21"
           cache: gradle
+      - uses: gradle/actions/setup-gradle@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
           cache: npm
-          cache-dependency-path: dnd-master/web-ui/package-lock.json
+          cache-dependency-path: src/web-ui/package-lock.json
       - name: Verify Docker runtime
         run: |
           docker version
-          docker compose -f dnd-master/infra/compose.yaml config
-      - run: npm --prefix dnd-master/web-ui ci
-      - run: npx --prefix dnd-master/web-ui playwright install --with-deps chromium
+          docker compose -f src/infra/compose.yaml config
+      - run: npm --prefix src/web-ui ci
+      - run: npx --prefix src/web-ui playwright install --with-deps chromium
       - name: Backend system E2E tests
         run: |
-          chmod +x ./dnd-master/gradlew
-          ./dnd-master/gradlew -p dnd-master :system-tests:integrationTest
+          gradle -p src :system-tests:integrationTest
       - name: Browser E2E tests
-        run: npm --prefix dnd-master/web-ui run test:e2e
+        run: npm --prefix src/web-ui run test:e2e
