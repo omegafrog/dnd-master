@@ -43,8 +43,9 @@ public final class RuntimeBinding {
         }
         this.scenarioPackageRevision = scenarioPackageRevision;
         this.rulebookIds = List.copyOf(Objects.requireNonNull(rulebookIds, "rulebook ids must not be null"));
-        this.characterSheetId = Objects.requireNonNull(characterSheetId, "character sheet id must not be null");
         this.party = List.copyOf(Objects.requireNonNull(party, "party must not be null"));
+        if (characterSheetId == null && this.party.isEmpty()) throw new IllegalArgumentException("character sheet id or party must be present");
+        this.characterSheetId = characterSheetId;
         this.engineId = required(engineId, "engine id");
         this.toolIds = List.copyOf(Objects.requireNonNull(toolIds, "tool ids must not be null"));
         this.playabilityReport = Objects.requireNonNull(playabilityReport, "playability report must not be null");
@@ -68,7 +69,7 @@ public final class RuntimeBinding {
     }
     public static RuntimeBinding create(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, List<UUID> rulebookIds, List<AdventurePartyMember> party, String engineId, List<String> toolIds, PlayabilityReport report, ActiveSourceContext context) {
         if (party == null || party.isEmpty()) throw new IllegalArgumentException("party must not be empty");
-        return new RuntimeBinding(adventureId, ownerPlayerId, 1, scenarioPackageId, scenarioPackageRevision, rulebookIds, party.getFirst().characterSheetId(), party, engineId, toolIds, report, context);
+        return new RuntimeBinding(adventureId, ownerPlayerId, 1, scenarioPackageId, scenarioPackageRevision, rulebookIds, null, party, engineId, toolIds, report, context);
     }
 
     public static RuntimeBinding rehydrate(
@@ -113,7 +114,8 @@ public final class RuntimeBinding {
     public UUID scenarioPackageId() { return scenarioPackageId; }
     public long scenarioPackageRevision() { return scenarioPackageRevision; }
     public List<UUID> rulebookIds() { return rulebookIds; }
-    public CharacterSheetId characterSheetId() { return characterSheetId; }
+    /** Compatibility projection; party is authoritative for session-created bindings. */
+    public CharacterSheetId characterSheetId() { return characterSheetId != null ? characterSheetId : party.getFirst().characterSheetId(); }
     public List<AdventurePartyMember> party() { return party; }
     public String engineId() { return engineId; }
     public List<String> toolIds() { return toolIds; }

@@ -26,8 +26,9 @@ public final class Adventure {
         this.ownerPlayerId = Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
         this.scenarioId = Objects.requireNonNull(scenarioId, "scenario id must not be null");
         this.ruleSetId = Objects.requireNonNull(ruleSetId, "rule set id must not be null");
-        this.characterSheetId = Objects.requireNonNull(characterSheetId, "character sheet id must not be null");
         this.party = List.copyOf(Objects.requireNonNull(party, "party must not be null"));
+        if (characterSheetId == null && this.party.isEmpty()) throw new IllegalArgumentException("character sheet id or party must be present");
+        this.characterSheetId = characterSheetId;
         this.conversation = validateConversation(conversation);
         this.currentContext = Objects.requireNonNull(currentContext, "current context must not be null");
         this.status = Objects.requireNonNull(status, "status must not be null");
@@ -43,7 +44,7 @@ public final class Adventure {
     }
     public static Adventure create(AdventureId id, SessionId sessionId, OwnerPlayerId ownerPlayerId, ScenarioId scenarioId, RuleSetId ruleSetId, List<AdventurePartyMember> party, AdventureContext context) {
         if (party == null || party.isEmpty()) throw new IllegalArgumentException("party must not be empty");
-        return new Adventure(id, sessionId, ownerPlayerId, scenarioId, ruleSetId, party.getFirst().characterSheetId(), party, List.of(), context, AdventureStatus.SAVED, 0);
+        return new Adventure(id, sessionId, ownerPlayerId, scenarioId, ruleSetId, null, party, List.of(), context, AdventureStatus.SAVED, 0);
     }
 
     public static Adventure rehydrate(
@@ -104,7 +105,8 @@ public final class Adventure {
     public OwnerPlayerId ownerPlayerId() { return ownerPlayerId; }
     public ScenarioId scenarioId() { return scenarioId; }
     public RuleSetId ruleSetId() { return ruleSetId; }
-    public CharacterSheetId characterSheetId() { return characterSheetId; }
+    /** Compatibility projection; party is authoritative for session-created adventures. */
+    public CharacterSheetId characterSheetId() { return characterSheetId != null ? characterSheetId : party.getFirst().characterSheetId(); }
     public List<AdventurePartyMember> party() { return party; }
     public List<ConversationEntry> conversation() { return conversation; }
     public AdventureContext currentContext() { return currentContext; }

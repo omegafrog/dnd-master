@@ -21,3 +21,6 @@ SET party_json = json_build_array(json_build_object(
     'startingAbilitiesMutableAfterStart', false,
     'levelMutableAfterStart', false))::text
 WHERE (party_json IS NULL OR party_json = '[]') AND character_sheet_id IS NOT NULL;
+
+ALTER TABLE adventure ALTER COLUMN character_sheet_id DROP NOT NULL;
+ALTER TABLE adventure_runtime_binding ALTER COLUMN character_sheet_id DROP NOT NULL;
