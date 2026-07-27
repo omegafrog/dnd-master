@@ -68,6 +68,8 @@ class CharacterCreationBlueprintCompilerTest {
         assertEquals(CharacterCreationBlueprintStatus.PUBLISHED, published.status());
         assertEquals(1, draft.revision());
         assertEquals(3, published.revision());
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
+                () -> published.resolve("race", "Elf"));
     }
 
     private static ScenarioSourceReference source(long version) {

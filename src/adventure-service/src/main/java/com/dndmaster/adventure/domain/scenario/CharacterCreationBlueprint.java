@@ -23,6 +23,9 @@ public record CharacterCreationBlueprint(
     }
 
     public CharacterCreationBlueprint resolve(String key, String value) {
+        if (status == CharacterCreationBlueprintStatus.PUBLISHED) {
+            throw new IllegalStateException("published blueprint is immutable");
+        }
         if (value == null || value.isBlank()) throw new IllegalArgumentException("blueprint value must not be blank");
         List<Field> next = new ArrayList<>();
         boolean found = false;
@@ -39,7 +42,10 @@ public record CharacterCreationBlueprint(
         CharacterCreationBlueprintStatus nextStatus = next.stream().anyMatch(field ->
                 !field.diagnostics().isEmpty() || field.inputStatus().equals("MANUAL_INPUT_REQUIRED"))
                 ? CharacterCreationBlueprintStatus.NEEDS_REVIEW : CharacterCreationBlueprintStatus.READY;
-        return new CharacterCreationBlueprint(revision + 1, nextStatus, next, List.of());
+        List<String> nextDiagnostics = diagnostics.stream()
+                .filter(diagnostic -> !diagnostic.startsWith(key + ":"))
+                .toList();
+        return new CharacterCreationBlueprint(revision + 1, nextStatus, next, nextDiagnostics);
     }
 
     public CharacterCreationBlueprint publish() {

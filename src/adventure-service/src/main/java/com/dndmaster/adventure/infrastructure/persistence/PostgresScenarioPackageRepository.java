@@ -80,6 +80,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
             connection.setAutoCommit(false);
             try {
                 insertHeader(connection, scenarioPackage);
+                insertBlueprintRevision(connection, scenarioPackage.packageId(), scenarioPackage.characterCreationBlueprint());
                 insertDocuments(connection, scenarioPackage);
                 insertUnits(connection, scenarioPackage);
                 connection.commit();
@@ -99,10 +100,17 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     public void saveBlueprint(UUID packageId, CharacterCreationBlueprint blueprint) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(
-                        "UPDATE scenario_package SET character_creation_blueprint_json = ? WHERE package_id = ?")) {
+                        "UPDATE scenario_package SET character_creation_blueprint_json = ? WHERE package_id = ? AND (character_creation_blueprint_json::jsonb ->> 'revision')::bigint = ?")) {
             statement.setString(1, writeBlueprint(blueprint));
             statement.setObject(2, packageId);
-            if (statement.executeUpdate() != 1) throw new IllegalStateException("scenario package not found");
+            statement.setLong(3, blueprint.revision() - 1);
+            if (statement.executeUpdate() != 1) throw new IllegalStateException("blueprint revision is stale or package not found");
+            try (PreparedStatement history = connection.prepareStatement(
+                    "INSERT INTO scenario_package_blueprint_revision(package_id, blueprint_revision, status, blueprint_json) VALUES (?, ?, ?, ?)")) {
+                history.setObject(1, packageId); history.setLong(2, blueprint.revision());
+                history.setString(3, blueprint.status().name()); history.setString(4, writeBlueprint(blueprint));
+                history.executeUpdate();
+            }
         } catch (SQLException exception) {
             throw new ScenarioPackagePersistenceException("could not update character creation blueprint", exception);
         }
@@ -126,6 +134,17 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
             }
             insert.setString(11, packageVersion.characterLimit().sourceQuote());
             insert.setString(12, writeBlueprint(packageVersion.characterCreationBlueprint()));
+            insert.executeUpdate();
+        }
+    }
+
+    private static void insertBlueprintRevision(Connection connection, UUID packageId,
+                                                CharacterCreationBlueprint blueprint) throws SQLException {
+        if (blueprint == null) return;
+        try (PreparedStatement insert = connection.prepareStatement(
+                "INSERT INTO scenario_package_blueprint_revision(package_id, blueprint_revision, status, blueprint_json) VALUES (?, ?, ?, ?)")) {
+            insert.setObject(1, packageId); insert.setLong(2, blueprint.revision());
+            insert.setString(3, blueprint.status().name()); insert.setString(4, writeBlueprint(blueprint));
             insert.executeUpdate();
         }
     }

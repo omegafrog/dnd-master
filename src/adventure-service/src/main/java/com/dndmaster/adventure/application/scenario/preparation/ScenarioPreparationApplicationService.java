@@ -96,6 +96,7 @@ public final class ScenarioPreparationApplicationService {
         ScenarioSourceBundle bundle = bundleRepository.findById(scenarioPackage.bundleId())
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         bundle.authorize(ownerPlayerId);
+        requireCurrentBundleRevision(scenarioPackage, bundle);
         CharacterCreationBlueprint blueprint = requireBlueprint(scenarioPackage);
         CharacterCreationBlueprint resolved = blueprint.resolve(fieldKey, value);
         packageRepository.saveBlueprint(packageId, resolved);
@@ -108,6 +109,10 @@ public final class ScenarioPreparationApplicationService {
         ScenarioSourceBundle bundle = bundleRepository.findById(scenarioPackage.bundleId())
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         bundle.authorize(ownerPlayerId);
+        requireCurrentBundleRevision(scenarioPackage, bundle);
+        if (scenarioPackage.report().status() != ResolutionStatus.COMPLETE || scenarioPackage.runtimeCandidates().isEmpty()) {
+            throw new IllegalStateException("scenario package is not ready for blueprint publication");
+        }
         CharacterCreationBlueprint published = requireBlueprint(scenarioPackage).publish();
         packageRepository.saveBlueprint(packageId, published);
         return published;
@@ -118,6 +123,12 @@ public final class ScenarioPreparationApplicationService {
             throw new IllegalStateException("character creation blueprint is unavailable");
         }
         return scenarioPackage.characterCreationBlueprint();
+    }
+
+    private static void requireCurrentBundleRevision(ScenarioPackage scenarioPackage, ScenarioSourceBundle bundle) {
+        if (bundle.currentRevision().revision() != scenarioPackage.bundleRevision()) {
+            throw new IllegalStateException("scenario package is stale for current bundle revision");
+        }
     }
 
     private static List<CharacterCreationBlueprintView.FieldView> blueprintFields(boolean hasHandout) {
