@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react'
 import type { AdventureSessionApi, AdventureSessionView, SessionControlMode } from './AdventureSessionApi'
 
-export function AdventureSessionPanel({ api, sessionId }: { api: AdventureSessionApi; sessionId: string }) {
+type SessionApi = Pick<AdventureSessionApi, 'read' | 'addMember' | 'removeMember' | 'start'>
+
+export function AdventureSessionPanel({ api, sessionId }: { api: SessionApi; sessionId: string }) {
   const [session, setSession] = useState<AdventureSessionView | null>(null)
   const [sheetId, setSheetId] = useState('')
   const [mode, setMode] = useState<SessionControlMode>('DIRECT')
