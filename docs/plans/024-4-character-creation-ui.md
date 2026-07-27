@@ -1,6 +1,7 @@
 # 024-4 - Web UI 캐릭터 생성 흐름
 
 - Status: approved
+- Issue: [#66](https://github.com/omegafrog/dnd-master/issues/66)
 - Dependencies: 024-1, 024-2, 024-3
 - Parent: [024](024-character-creation-flow.md)
 

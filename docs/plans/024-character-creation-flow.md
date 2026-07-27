@@ -1,6 +1,7 @@
 # 024 - 세션 기반 캐릭터 생성 흐름
 
 - Status: approved
+- Issue: [#63](https://github.com/omegafrog/dnd-master/issues/63)
 - Dependencies: 024-1, 024-2, 024-3, 024-4
 - Product Spec: `docs/specs/product-spec.md`
 - Architecture Spec: `docs/specs/architecture-spec.md`

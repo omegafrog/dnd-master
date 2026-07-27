@@ -1,6 +1,7 @@
 # 024-3 - 파티 귀속 검증·모험 시작
 
 - Status: approved
+- Issue: [#64](https://github.com/omegafrog/dnd-master/issues/64)
 - Dependencies: 024-2
 - Parent: [024](024-character-creation-flow.md)
 
