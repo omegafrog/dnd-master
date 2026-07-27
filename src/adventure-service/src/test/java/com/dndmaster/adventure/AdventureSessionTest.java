@@ -92,4 +92,23 @@ class AdventureSessionTest {
         AdventureSession session = configuredSession();
         assertThrows(IllegalStateException.class, session::validateStart);
     }
+
+    @Test
+    void completed_or_deleted_session_is_terminal_and_exposes_sheet_cleanup_ids() {
+        AdventureSession session = configuredSession();
+        CharacterSheetId sheetId = new CharacterSheetId(UUID.randomUUID());
+        session.addPartyMember(new AdventurePartyMember(sheetId, ControlMode.DIRECT, true, true, true, true, true, true));
+        session.start(AdventureId.generate(), UUID.randomUUID());
+
+        assertEquals(List.of(sheetId), session.complete());
+        assertEquals(AdventureSession.Status.COMPLETED, session.status());
+        assertThrows(IllegalStateException.class, () -> session.addPartyMember(
+                new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT, true, true, true, true, true, true)));
+
+        AdventureSession deleted = configuredSession();
+        deleted.addPartyMember(new AdventurePartyMember(sheetId, ControlMode.DIRECT, true, true, true, true, true, true));
+        deleted.start(AdventureId.generate(), UUID.randomUUID());
+        assertEquals(List.of(sheetId), deleted.delete());
+        assertEquals(AdventureSession.Status.DELETED, deleted.status());
+    }
 }

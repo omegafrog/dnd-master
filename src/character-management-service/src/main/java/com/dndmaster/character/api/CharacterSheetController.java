@@ -6,14 +6,26 @@ import com.dndmaster.character.domain.*;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
+import com.dndmaster.character.application.CharacterSheetsDeletionConsumer;
+import com.dndmaster.character.application.CharacterSheetsDeletionRequested;
 
 @RestController
 @RequestMapping
 public class CharacterSheetController {
     private final CharacterSheetApplicationService characterSheetService;
+    private CharacterSheetsDeletionConsumer deletionConsumer;
 
     public CharacterSheetController(CharacterSheetApplicationService characterSheetService) {
         this.characterSheetService = characterSheetService;
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired(required = false)
+    void setDeletionConsumer(CharacterSheetsDeletionConsumer deletionConsumer) { this.deletionConsumer = deletionConsumer; }
+
+    @PostMapping("/internal/v1/character-sheets/deletion-requests")
+    void deleteCharacterSheets(@RequestBody CharacterSheetsDeletionRequest request) {
+        if (deletionConsumer == null) throw new IllegalStateException("deletion consumer is not configured");
+        deletionConsumer.consume(new CharacterSheetsDeletionRequested(request.sessionId(), request.characterSheetIds()));
     }
 
     @PostMapping("/internal/v1/character-sheets")
@@ -59,4 +71,5 @@ public class CharacterSheetController {
     public record CharacterSheetRequest(
             UUID adventureId, String edition, String characterName, int level, boolean inspiration,
             String race, String characterClass, String background, String startingAbilities) {}
+    public record CharacterSheetsDeletionRequest(UUID sessionId, java.util.List<UUID> characterSheetIds) {}
 }

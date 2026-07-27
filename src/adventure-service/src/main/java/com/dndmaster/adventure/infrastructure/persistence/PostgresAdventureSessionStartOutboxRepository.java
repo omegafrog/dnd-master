@@ -4,6 +4,7 @@ import com.dndmaster.adventure.application.session.AdventureSessionStartOutboxRe
 import com.dndmaster.adventure.domain.adventure.SessionId;
 import java.sql.SQLException;
 import java.util.UUID;
+import java.util.List;
 import javax.sql.DataSource;
 
 public final class PostgresAdventureSessionStartOutboxRepository implements AdventureSessionStartOutboxRepository {
@@ -14,6 +15,13 @@ public final class PostgresAdventureSessionStartOutboxRepository implements Adve
     }
     @Override public void commit(SessionId sessionId, UUID requestId) {
         execute("UPDATE adventure_session_start_outbox SET status='COMMITTED', completed_at=CURRENT_TIMESTAMP WHERE session_id=? AND request_id=?", sessionId.value(), requestId);
+    }
+    @Override public void requestCharacterSheetDeletion(SessionId sessionId, List<UUID> characterSheetIds) {
+        try {
+            execute("INSERT INTO adventure_session_character_sheet_deletion_outbox(session_id, character_sheet_ids_json, status) VALUES (?, ?::jsonb, 'PENDING')", sessionId.value(), new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(characterSheetIds));
+        } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
+            throw new AdventurePersistenceException("could not serialize character sheet deletion event", exception);
+        }
     }
     private void execute(String sql, Object... values) {
         try (var connection = dataSource.getConnection(); var statement = connection.prepareStatement(sql)) {

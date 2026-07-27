@@ -7,7 +7,7 @@ import java.util.UUID;
 
 /** Draft session. Plan 021 owns transition to started/frozen state. */
 public final class AdventureSession {
-    public enum Status { DRAFT, STARTING, STARTED }
+    public enum Status { DRAFT, STARTING, STARTED, COMPLETED, DELETED }
     private final SessionId id;
     private final OwnerPlayerId ownerPlayerId;
     private final int characterLimit;
@@ -108,11 +108,28 @@ public final class AdventureSession {
         if (status != Status.STARTING) throw new IllegalStateException("adventure session is not starting");
         status = Status.STARTED; version++;
     }
+
+    public List<CharacterSheetId> complete() {
+        requireStarted();
+        status = Status.COMPLETED;
+        version++;
+        return party.stream().map(AdventurePartyMember::characterSheetId).toList();
+    }
+
+    public List<CharacterSheetId> delete() {
+        if (status != Status.STARTED && status != Status.COMPLETED) {
+            throw new IllegalStateException("only an active or completed adventure session can be deleted");
+        }
+        status = Status.DELETED;
+        version++;
+        return party.stream().map(AdventurePartyMember::characterSheetId).toList();
+    }
     public void validateStart() {
         if (runtimeConfiguration == null) throw new IllegalStateException("adventure session runtime configuration is required");
         if (party.isEmpty()) throw new IllegalStateException("adventure session requires at least one party member");
     }
     private void requireDraft() { if (status != Status.DRAFT) throw new IllegalStateException("started adventure session party is frozen"); }
+    private void requireStarted() { if (status != Status.STARTED) throw new IllegalStateException("adventure session is not started"); }
     private int indexOf(CharacterSheetId characterSheetId) {
         for (int index = 0; index < party.size(); index++) if (party.get(index).characterSheetId().equals(characterSheetId)) return index;
         return -1;

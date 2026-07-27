@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { AdventureSessionApi, AdventureSessionView, SessionControlMode } from './AdventureSessionApi'
 
-type SessionApi = Pick<AdventureSessionApi, 'read' | 'addMember' | 'removeMember' | 'start'>
+type SessionApi = Pick<AdventureSessionApi, 'read' | 'addMember' | 'removeMember' | 'start' | 'complete' | 'delete'>
 
 export function AdventureSessionPanel({ api, sessionId }: { api: SessionApi; sessionId: string }) {
   const [session, setSession] = useState<AdventureSessionView | null>(null)
@@ -24,6 +24,11 @@ export function AdventureSessionPanel({ api, sessionId }: { api: SessionApi; ses
     try { setSession(await api.start(sessionId, session.version, adventureId)); setMessage('모험 시작 완료. 파티가 고정되었습니다.') }
     catch (error) { setMessage(error instanceof Error ? error.message : '모험을 시작하지 못했습니다.') }
   }
+  async function finish(action: 'complete' | 'delete') {
+    if (!session || session.status !== 'STARTED') return
+    try { setSession(await api[action](sessionId, session.version)); setMessage('세션이 종료되었습니다. 캐릭터 시트 정리를 요청했습니다.') }
+    catch (error) { setMessage(error instanceof Error ? error.message : '세션을 종료하지 못했습니다.') }
+  }
 
   if (!session) return <p role="status">{message || '세션 불러오는 중...'}</p>
   return <section aria-labelledby="session-party-heading">
@@ -33,6 +38,7 @@ export function AdventureSessionPanel({ api, sessionId }: { api: SessionApi; ses
     {!frozen && <div><label>캐릭터 시트 ID <input value={sheetId} onChange={event => setSheetId(event.target.value)} /></label><label>제어 방식 <select value={mode} onChange={event => setMode(event.target.value as SessionControlMode)}><option value="DIRECT">직접 플레이</option><option value="AGENT">에이전트</option></select></label><fieldset><legend>시작 속성 변경 허용</legend>{Object.entries(mutable).map(([key, checked]) => <label key={key}><input type="checkbox" checked={checked} onChange={event => setMutable(previous => ({ ...previous, [key]: event.target.checked }))} />{key}</label>)}</fieldset><button type="button" onClick={() => void addMember()} disabled={!sheetId.trim() || session.party.length >= session.characterLimit}>파티에 추가</button></div>}
     {!frozen && <button type="button" onClick={() => void start()} disabled={session.party.length === 0}>모험 시작</button>}
     {frozen && <p>시작 후 파티와 제어 방식은 변경할 수 없습니다.</p>}
+    {session.status === 'STARTED' && <div><button type="button" onClick={() => void finish('complete')}>세션 완료</button><button type="button" onClick={() => void finish('delete')}>세션 삭제</button></div>}
     <p role="status">{message}</p>
   </section>
 }

@@ -5,6 +5,7 @@ import com.dndmaster.character.application.CharacterSheetApplicationService;
 import com.dndmaster.character.application.CharacterSheetRepository;
 import com.dndmaster.character.application.SessionCharacterPolicy;
 import com.dndmaster.character.application.SessionCharacterPolicyPort;
+import com.dndmaster.character.application.CharacterSheetsDeletionConsumer;
 import com.dndmaster.character.domain.AdventureId;
 import com.dndmaster.character.domain.SheetEdition;
 import com.dndmaster.character.infrastructure.persistence.PostgresCharacterSheetRepository;
@@ -44,6 +45,11 @@ public class CharacterManagementApiConfiguration {
             CharacterSheetRepository repository, AdventureEditionHttpPort adventureEditionHttpPort,
             SessionCharacterPolicyPort sessionCharacterPolicyPort) {
         return new CharacterSheetApplicationService(repository, adventureEditionHttpPort, sessionCharacterPolicyPort);
+    }
+
+    @Bean
+    CharacterSheetsDeletionConsumer characterSheetsDeletionConsumer(CharacterSheetRepository repository) {
+        return new CharacterSheetsDeletionConsumer(repository);
     }
 
     @Bean

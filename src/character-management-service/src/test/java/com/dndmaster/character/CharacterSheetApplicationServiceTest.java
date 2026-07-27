@@ -28,6 +28,22 @@ class CharacterSheetApplicationServiceTest {
     }
 
     @Test
+    void rejects_open_and_update_after_session_termination() {
+        InMemoryRepository repository = new InMemoryRepository();
+        AdventureId adventureId = adventure();
+        CharacterSheetApplicationService service = new CharacterSheetApplicationService(
+                repository, id -> SheetEdition.DND_5E_2024,
+                id -> new SessionCharacterPolicy(false, false, false));
+        CharacterSheet sheet = new CharacterSheet(CharacterSheetId.generate(), adventureId, SheetEdition.DND_5E_2024,
+                new CharacterSheetData2024("Aria", 1, false));
+        repository.save(sheet);
+
+        assertThrows(IllegalStateException.class, () -> service.openSheet(sheet.id(), SheetEdition.DND_5E_2024));
+        assertThrows(IllegalStateException.class, () -> service.manageCharacter(sheet.id(), new CharacterSheetUpdate(
+                SheetEdition.DND_5E_2024, sheet.data(), InputMode.STRUCTURED_SHEET, UUID.randomUUID(), 0)));
+    }
+
+    @Test
     void enforces_all_six_initial_attribute_policies() {
         InMemoryRepository repository = new InMemoryRepository();
         AdventureId adventureId = adventure();

@@ -10,4 +10,5 @@ public interface CharacterSheetRepository {
     Optional<CharacterSheet> findByCommandId(UUID commandId);
     void save(CharacterSheet sheet);
     void save(CharacterSheet sheet, long persistedVersion, UUID operationKey, String operationFingerprint);
+    default void deleteById(CharacterSheetId id) {}
 }

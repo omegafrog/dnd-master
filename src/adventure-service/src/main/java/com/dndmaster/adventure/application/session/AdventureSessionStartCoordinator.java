@@ -3,6 +3,7 @@ package com.dndmaster.adventure.application.session;
 import com.dndmaster.adventure.domain.adventure.SessionId;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.List;
 
 /** Durable two-phase coordinator for session start. PREPARED is recoverable; COMMITTED is terminal. */
 public final class AdventureSessionStartCoordinator {
@@ -18,5 +19,9 @@ public final class AdventureSessionStartCoordinator {
 
     public void commit(SessionId sessionId, UUID requestId) {
         transactionLog.commit(sessionId, requestId);
+    }
+
+    public void requestCharacterSheetDeletion(SessionId sessionId, List<UUID> characterSheetIds) {
+        transactionLog.requestCharacterSheetDeletion(sessionId, characterSheetIds);
     }
 }

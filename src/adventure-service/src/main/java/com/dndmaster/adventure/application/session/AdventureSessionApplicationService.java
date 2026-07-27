@@ -13,6 +13,7 @@ import com.dndmaster.adventure.application.runtime.RuntimeBindingApplicationServ
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import java.util.Objects;
+import java.util.List;
 
 public final class AdventureSessionApplicationService {
     private final AdventureSessionRepository repository;
@@ -74,6 +75,20 @@ public final class AdventureSessionApplicationService {
             repository.save(session, session.version() - 1);
             startCoordinator.commit(session.id(), requestId);
         }
+        return session;
+    }
+    public AdventureSession complete(SessionId id, OwnerPlayerId owner, long expectedVersion) {
+        AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion);
+        List<com.dndmaster.adventure.domain.adventure.CharacterSheetId> sheets = session.complete();
+        repository.save(session, expectedVersion);
+        startCoordinator.requestCharacterSheetDeletion(session.id(), sheets.stream().map(s -> s.value()).toList());
+        return session;
+    }
+    public AdventureSession delete(SessionId id, OwnerPlayerId owner, long expectedVersion) {
+        AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion);
+        List<com.dndmaster.adventure.domain.adventure.CharacterSheetId> sheets = session.delete();
+        repository.save(session, expectedVersion);
+        startCoordinator.requestCharacterSheetDeletion(session.id(), sheets.stream().map(s -> s.value()).toList());
         return session;
     }
     private AdventureSession load(SessionId id) { return repository.findById(id).orElseThrow(() -> new IllegalArgumentException("adventure session not found")); }

@@ -36,6 +36,7 @@ public final class CharacterSheetApplicationService {
 
     public CharacterSheet openSheet(CharacterSheetId id, SheetEdition requestedEdition) {
         CharacterSheet sheet = load(id);
+        requireSessionActive(sheet);
         SheetEdition applied = adventureEditionHttpPort.getAppliedEdition(sheet.adventureId());
         sheet.authorizeOpen(new CharacterSheetOpenRequest(sheet.adventureId(), applied, requestedEdition));
         return sheet;
@@ -51,6 +52,7 @@ public final class CharacterSheetApplicationService {
         }
         CharacterSheet sheet = load(id);
         SessionCharacterPolicy policy = sessionPolicyPort.policyFor(sheet.adventureId(), sheet.id());
+        if (!policy.acceptingCharacterSheets()) throw new IllegalStateException("character sheet belongs to a terminated adventure session");
         SheetEdition applied = adventureEditionHttpPort.getAppliedEdition(sheet.adventureId());
         sheet.authorizeOpen(new CharacterSheetOpenRequest(sheet.adventureId(), applied, update.edition()));
         if (sheet.version() != update.expectedVersion()) {
@@ -70,6 +72,12 @@ public final class CharacterSheetApplicationService {
         repository.save(sheet, update.expectedVersion() + 1, update.commandId(), update.fingerprint());
         sheet.markPersisted(update.expectedVersion() + 1, update.commandId(), update.fingerprint());
         return sheet;
+    }
+
+    private void requireSessionActive(CharacterSheet sheet) {
+        if (!sessionPolicyPort.policyFor(sheet.adventureId(), sheet.id()).acceptingCharacterSheets()) {
+            throw new IllegalStateException("character sheet belongs to a terminated adventure session");
+        }
     }
 
     private CharacterSheet load(CharacterSheetId id) {

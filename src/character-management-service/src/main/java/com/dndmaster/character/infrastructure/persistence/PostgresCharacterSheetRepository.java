@@ -37,6 +37,17 @@ public final class PostgresCharacterSheetRepository implements CharacterSheetRep
         }
     }
 
+    @Override
+    public void deleteById(CharacterSheetId id) {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement("DELETE FROM " + TABLE + " WHERE character_sheet_id = ?")) {
+            statement.setObject(1, id.value());
+            statement.executeUpdate();
+            loadedVersions.remove(id);
+        } catch (SQLException exception) {
+            throw failure("could not delete character sheet", exception);
+        }
+    }
+
     public Optional<VersionedCharacterSheet> findVersionedById(CharacterSheetId id) {
         String sql = "SELECT * FROM " + TABLE + " WHERE character_sheet_id = ?";
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
