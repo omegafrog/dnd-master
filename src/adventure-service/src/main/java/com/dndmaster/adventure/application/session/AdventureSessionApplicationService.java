@@ -47,6 +47,7 @@ public final class AdventureSessionApplicationService {
         requireVersion(session, expectedVersion);
         var scenarioPackage = packageRepository.findById(session.scenarioPackageId()).orElseThrow(() -> new IllegalStateException("scenario package not found"));
         if (scenarioPackage.report().status() != ResolutionStatus.COMPLETE || scenarioPackage.bundleRevision() != session.scenarioPackageRevision() || scenarioPackage.characterLimit().maximumCharacters() != session.characterLimit()) throw new IllegalStateException("scenario package changed since session draft");
+        session.validateStart();
         var configuration = session.runtimeConfiguration();
         if (configuration == null) throw new IllegalStateException("adventure session runtime configuration is required");
         Adventure adventure = Adventure.create(adventureId, session.id(), owner, configuration.scenarioId(), configuration.ruleSetId(), session.party(), new AdventureContext(configuration.initialScene(), null, null, null));

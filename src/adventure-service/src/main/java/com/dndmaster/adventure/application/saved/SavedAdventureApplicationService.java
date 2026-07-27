@@ -18,11 +18,7 @@ public final class SavedAdventureApplicationService {
 
     public Adventure createAdventure(CreateAdventureCommand command) {
         Objects.requireNonNull(command, "command must not be null");
-        Adventure adventure = Adventure.create(
-                AdventureId.generate(), SessionId.generate(), command.ownerPlayerId(), command.scenarioId(),
-                command.ruleSetId(), command.characterSheetId(), command.initialContext());
-        repository.save(adventure);
-        return adventure;
+        throw new IllegalStateException("direct adventure creation is disabled; start an adventure session");
     }
 
     public Adventure preserveProgress(

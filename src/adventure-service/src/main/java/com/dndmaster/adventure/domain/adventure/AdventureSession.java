@@ -99,6 +99,10 @@ public final class AdventureSession {
         if (party.isEmpty()) throw new IllegalStateException("adventure session requires at least one party member");
         status = Status.STARTED; startedAdventureId = adventureId; startRequestId = requestId; version++; return this;
     }
+    public void validateStart() {
+        if (runtimeConfiguration == null) throw new IllegalStateException("adventure session runtime configuration is required");
+        if (party.isEmpty()) throw new IllegalStateException("adventure session requires at least one party member");
+    }
     private void requireDraft() { if (status != Status.DRAFT) throw new IllegalStateException("started adventure session party is frozen"); }
     private int indexOf(CharacterSheetId characterSheetId) {
         for (int index = 0; index < party.size(); index++) if (party.get(index).characterSheetId().equals(characterSheetId)) return index;

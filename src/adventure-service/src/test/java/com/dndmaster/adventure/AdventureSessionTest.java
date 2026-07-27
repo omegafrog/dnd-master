@@ -71,4 +71,10 @@ class AdventureSessionTest {
         session.removePartyMember(first.characterSheetId());
         assertEquals(0, session.party().size());
     }
+
+    @Test
+    void rejects_start_validation_before_party_is_read() {
+        AdventureSession session = configuredSession();
+        assertThrows(IllegalStateException.class, session::validateStart);
+    }
 }
