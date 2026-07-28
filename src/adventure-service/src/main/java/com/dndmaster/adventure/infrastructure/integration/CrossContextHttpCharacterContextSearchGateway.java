@@ -38,7 +38,10 @@ public final class CrossContextHttpCharacterContextSearchGateway implements Char
                     .POST(HttpRequest.BodyPublishers.ofString(body))
                     .build();
             HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() / 100 != 2) throw new IllegalStateException("character context search returned " + response.statusCode());
+            if (response.statusCode() / 100 != 2) {
+                throw new CharacterContextSearchPort.CharacterContextSearchException(
+                        "character context search returned " + response.statusCode());
+            }
             Response parsed = objectMapper.readValue(response.body(), Response.class);
             if (parsed.evidence() == null) return List.of();
             Set<String> requested = request.documents().stream()
