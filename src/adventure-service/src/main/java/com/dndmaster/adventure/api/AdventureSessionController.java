@@ -12,7 +12,7 @@ public final class AdventureSessionController {
     private final AdventureSessionApplicationService service;
     private final AuthenticatedPlayerResolver playerResolver;
     public AdventureSessionController(AdventureSessionApplicationService service, AuthenticatedPlayerResolver playerResolver) { this.service = service; this.playerResolver = playerResolver; }
-    @PostMapping SessionView create(@RequestBody CreateSessionRequest request) { return SessionView.from(service.create(owner(), request.scenarioPackageId(), request.runtimeConfiguration())); }
+    @PostMapping SessionView create(@RequestBody CreateSessionRequest request) { return SessionView.from(service.create(owner(), request.scenarioPackageId(), request.blueprintId(), request.blueprintRevision(), request.runtimeConfiguration())); }
     @GetMapping("/{sessionId}") SessionView read(@PathVariable UUID sessionId) { return SessionView.from(service.read(new SessionId(sessionId), owner())); }
     @PostMapping("/{sessionId}/party") SessionView add(@PathVariable UUID sessionId, @RequestHeader("If-Match-Version") long version, @RequestBody PartyMemberRequest request) { return SessionView.from(service.addMember(new SessionId(sessionId), owner(), version, request.toDomain())); }
     @PutMapping("/{sessionId}/party/{characterSheetId}") SessionView replace(@PathVariable UUID sessionId, @PathVariable UUID characterSheetId, @RequestHeader("If-Match-Version") long version, @RequestBody PartyMemberRequest request) { return SessionView.from(service.replaceMember(new SessionId(sessionId), owner(), version, request.toDomain(characterSheetId))); }
@@ -31,7 +31,7 @@ public final class AdventureSessionController {
                 mutable || member.backgroundMutableAfterStart(), mutable || member.startingAbilitiesMutableAfterStart());
     }
     private OwnerPlayerId owner() { return new OwnerPlayerId(playerResolver.playerId()); }
-    public record CreateSessionRequest(UUID scenarioPackageId, AdventureSessionRuntimeConfiguration runtimeConfiguration) {}
+    public record CreateSessionRequest(UUID scenarioPackageId, UUID blueprintId, long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration) {}
     public record StartRequest(UUID adventureId) {}
     public record CharacterPolicyView(boolean acceptingCharacterSheets, boolean nameMutable, boolean levelMutable,
             boolean raceMutable, boolean characterClassMutable, boolean backgroundMutable, boolean startingAbilitiesMutable) {
@@ -42,7 +42,7 @@ public final class AdventureSessionController {
         AdventurePartyMember toDomain() { return toDomain(characterSheetId); }
         AdventurePartyMember toDomain(UUID id) { return new AdventurePartyMember(new CharacterSheetId(id), controlMode, nameMutableAfterStart, raceMutableAfterStart, characterClassMutableAfterStart, backgroundMutableAfterStart, startingAbilitiesMutableAfterStart, levelMutableAfterStart); }
     }
-    public record SessionView(UUID sessionId, int characterLimit, long version, AdventureSession.Status status, UUID adventureId, AdventureSessionRuntimeConfiguration runtimeConfiguration, List<PartyMemberRequest> party) {
-        static SessionView from(AdventureSession session) { return new SessionView(session.id().value(), session.characterLimit(), session.version(), session.status(), session.startedAdventureId() == null ? null : session.startedAdventureId().value(), session.runtimeConfiguration(), session.party().stream().map(m -> new PartyMemberRequest(m.characterSheetId().value(), m.controlMode(), m.nameMutableAfterStart(), m.raceMutableAfterStart(), m.characterClassMutableAfterStart(), m.backgroundMutableAfterStart(), m.startingAbilitiesMutableAfterStart(), m.levelMutableAfterStart())).toList()); }
+    public record SessionView(UUID sessionId, UUID scenarioPackageId, long scenarioPackageRevision, UUID blueprintId, long blueprintRevision, int characterLimit, long version, AdventureSession.Status status, UUID adventureId, AdventureSessionRuntimeConfiguration runtimeConfiguration, List<PartyMemberRequest> party) {
+        static SessionView from(AdventureSession session) { return new SessionView(session.id().value(), session.scenarioPackageId(), session.scenarioPackageRevision(), session.blueprintId(), session.blueprintRevision(), session.characterLimit(), session.version(), session.status(), session.startedAdventureId() == null ? null : session.startedAdventureId().value(), session.runtimeConfiguration(), session.party().stream().map(m -> new PartyMemberRequest(m.characterSheetId().value(), m.controlMode(), m.nameMutableAfterStart(), m.raceMutableAfterStart(), m.characterClassMutableAfterStart(), m.backgroundMutableAfterStart(), m.startingAbilitiesMutableAfterStart(), m.levelMutableAfterStart())).toList()); }
     }
 }

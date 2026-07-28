@@ -6,6 +6,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.Optional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,9 +70,13 @@ public final class ScenarioCompilationWorker {
             ScenarioSourceBundle bundle = bundleRepository.findById(claimed.bundleId())
                     .orElseThrow(() -> new IllegalStateException("scenario bundle not found"));
             List<ResolutionExtractionPort.SourceExcerpt> excerpts = excerptPort.load(bundle);
+            Set<java.util.UUID> bundleDocumentIds = bundle.currentRevision().documents().stream()
+                    .map(document -> document.knowledgeDocumentId().value()).collect(java.util.stream.Collectors.toSet());
             List<ResolutionCandidate> candidates = extractionPort.extract(
                     new ResolutionExtractionPort.ResolutionExtractionRequest(
-                            claimed.id().toString(), excerpts == null ? List.of() : excerpts,
+                            claimed.id().toString(), excerpts == null ? List.of() : excerpts.stream()
+                                    .filter(excerpt -> bundleDocumentIds.contains(excerpt.documentId().value()))
+                                    .limit(3).toList(),
                             "resolution-candidate-v1", "resolution-prompt-v1"));
             ScenarioPackage scenarioPackage = compiler.compile(bundle, candidates == null ? List.of() : candidates,
                     excerpts == null ? List.of() : excerpts);

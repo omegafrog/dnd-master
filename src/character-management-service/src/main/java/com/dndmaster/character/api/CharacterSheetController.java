@@ -34,10 +34,11 @@ public class CharacterSheetController {
         deletionConsumer.consume(new CharacterSheetsDeletionRequested(request.sessionId(), request.characterSheetIds()));
     }
 
-    @PostMapping("/internal/v1/character-sheets")
-    CharacterSheetResponse createCharacterSheet(@RequestBody CharacterSheetRequest request) {
+    @PostMapping("/internal/v1/adventure-sessions/{sessionId}/character-sheets")
+    CharacterSheetResponse createCharacterSheet(@PathVariable UUID sessionId, @RequestBody CharacterSheetRequest request) {
         CharacterSheet sheet = characterSheetService.createSheet(new CreateCharacterSheetCommand(
-                new AdventureId(request.adventureId() == null ? UUID.randomUUID() : request.adventureId()),
+                new SessionId(sessionId),
+                request.ownerPlayerId(),
                 SheetEdition.valueOf(request.edition()),
                 parseData(request.edition(), request.characterName(), request.level(), request.inspiration(), request.race(), request.characterClass(), request.background(), request.startingAbilities())));
         return CharacterSheetResponse.from(sheet);
@@ -48,6 +49,13 @@ public class CharacterSheetController {
         CharacterSheet sheet = characterSheetService.openSheet(
                 new CharacterSheetId(sheetId), SheetEdition.DND_5E_2024);
         return CharacterSheetResponse.from(sheet);
+    }
+
+    @GetMapping("/internal/v1/adventure-sessions/{sessionId}/character-sheets/{sheetId}/ownership")
+    CharacterSheetResponse verifyOwnership(@RequestHeader(value = "X-Internal-Token", required = false) String token, @RequestHeader("X-Owner-Player-ID") UUID ownerPlayerId, @PathVariable UUID sessionId, @PathVariable UUID sheetId) {
+        if (requestGuard == null) throw new IllegalStateException("request guard is not configured");
+        requestGuard.internal(token);
+        return CharacterSheetResponse.from(characterSheetService.verifySessionOwnership(new CharacterSheetId(sheetId), new SessionId(sessionId), ownerPlayerId));
     }
 
     @PutMapping("/internal/v1/character-sheets/{sheetId}")
@@ -75,7 +83,7 @@ public class CharacterSheetController {
     }
 
     public record CharacterSheetRequest(
-            UUID adventureId, String edition, String characterName, int level, boolean inspiration,
+            UUID adventureId, UUID ownerPlayerId, String edition, String characterName, int level, boolean inspiration,
             String race, String characterClass, String background, String startingAbilities) {}
     public record CharacterSheetsDeletionRequest(UUID sessionId, java.util.List<UUID> characterSheetIds) {}
 }

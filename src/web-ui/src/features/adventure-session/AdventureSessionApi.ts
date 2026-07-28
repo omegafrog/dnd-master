@@ -14,6 +14,10 @@ export type SessionPartyMember = {
 
 export type AdventureSessionView = {
   sessionId: string
+  scenarioPackageId?: string
+  scenarioPackageRevision?: number
+  blueprintId?: string
+  blueprintRevision?: number
   characterLimit: number
   version: number
   status: AdventureSessionStatus
@@ -40,6 +44,13 @@ export class AdventureSessionApi {
     return response.json() as Promise<T>
   }
   read(sessionId: string) { return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}`) }
+  create(request: CreateAdventureSessionRequest) {
+    return this.request<AdventureSessionView>('/api/v1/adventure-sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request),
+    })
+  }
   addMember(sessionId: string, version: number, member: SessionPartyMember) {
     return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/party`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match-Version': String(version) }, body: JSON.stringify(member) })
   }
@@ -53,4 +64,11 @@ export class AdventureSessionApi {
   }
   complete(sessionId: string, version: number) { return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/complete`, { method: 'POST', headers: { 'If-Match-Version': String(version) } }) }
   delete(sessionId: string, version: number) { return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}`, { method: 'DELETE', headers: { 'If-Match-Version': String(version) } }) }
+}
+
+export type CreateAdventureSessionRequest = {
+  scenarioPackageId: string
+  blueprintId: string
+  blueprintRevision: number
+  runtimeConfiguration?: AdventureSessionView['runtimeConfiguration']
 }

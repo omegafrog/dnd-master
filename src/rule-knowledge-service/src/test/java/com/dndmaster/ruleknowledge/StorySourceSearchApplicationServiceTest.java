@@ -54,6 +54,25 @@ class StorySourceSearchApplicationServiceTest {
                 1));
     }
 
+    @Test
+    void fallsBackToWholePackageWhenNoActiveLocatorsAreProvided() {
+        KnowledgeDocumentId documentId = KnowledgeDocumentId.generate();
+        RecordingSearchPort searchPort = new RecordingSearchPort(documentId);
+        StorySourceSearchApplicationService service = new StorySourceSearchApplicationService(
+                searchPort, new FixedEmbeddingPort(), "test", 3);
+
+        List<StorySourceEvidence> results = service.search(new StorySourceSearchQuery(
+                new OwnerPlayerId(UUID.randomUUID()),
+                List.of(new StorySourceScope(documentId, 7)),
+                List.of(),
+                "find the hidden door",
+                2));
+
+        assertEquals(2, results.size());
+        assertEquals(List.of(true, false), searchPort.activeContextOnlyCalls);
+        assertEquals("page 3 line 1", results.get(1).sourceSpanLocator());
+    }
+
     private static final class RecordingSearchPort implements StorySourceSearchPort {
         private final KnowledgeDocumentId documentId;
         private final java.util.ArrayList<Boolean> activeContextOnlyCalls = new java.util.ArrayList<>();

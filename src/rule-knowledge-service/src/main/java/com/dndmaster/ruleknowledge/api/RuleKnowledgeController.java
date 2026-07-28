@@ -109,6 +109,7 @@ public class RuleKnowledgeController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "knowledge document not found"));
         SourcePreviewResult preview = registration.sourcePreviewResult();
         String content = preview.content();
+        if (content == null || content.isBlank()) content = registration.extractedContent();
         if (content == null || content.isBlank()) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "source preview requires extracted content");
         }

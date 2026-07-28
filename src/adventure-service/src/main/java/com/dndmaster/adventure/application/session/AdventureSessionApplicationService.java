@@ -21,26 +21,45 @@ public final class AdventureSessionApplicationService {
     private final AdventureRepository adventureRepository;
     private final RuntimeBindingApplicationService runtimeBindingService;
     private final AdventureSessionStartCoordinator startCoordinator;
-    public AdventureSessionApplicationService(AdventureSessionRepository repository, ScenarioPackageRepository packageRepository, AdventureRepository adventureRepository, RuntimeBindingApplicationService runtimeBindingService, AdventureSessionStartOutboxRepository startOutboxRepository) { this(repository, packageRepository, adventureRepository, runtimeBindingService, new AdventureSessionStartCoordinator(startOutboxRepository)); }
-    public AdventureSessionApplicationService(AdventureSessionRepository repository, ScenarioPackageRepository packageRepository, AdventureRepository adventureRepository, RuntimeBindingApplicationService runtimeBindingService, AdventureSessionStartCoordinator startCoordinator) { this.repository = Objects.requireNonNull(repository); this.packageRepository = Objects.requireNonNull(packageRepository); this.adventureRepository = Objects.requireNonNull(adventureRepository); this.runtimeBindingService = Objects.requireNonNull(runtimeBindingService); this.startCoordinator = Objects.requireNonNull(startCoordinator); }
+    private final CharacterSheetOwnershipPort characterSheetOwnershipPort;
+    private static final CharacterSheetOwnershipPort MISSING_OWNERSHIP_PORT = (session, owner, sheet) -> { throw new IllegalStateException("character sheet ownership verifier is required"); };
+    public AdventureSessionApplicationService(AdventureSessionRepository repository, ScenarioPackageRepository packageRepository, AdventureRepository adventureRepository, RuntimeBindingApplicationService runtimeBindingService, AdventureSessionStartOutboxRepository startOutboxRepository) { this(repository, packageRepository, adventureRepository, runtimeBindingService, new AdventureSessionStartCoordinator(startOutboxRepository), MISSING_OWNERSHIP_PORT); }
+    public AdventureSessionApplicationService(AdventureSessionRepository repository, ScenarioPackageRepository packageRepository, AdventureRepository adventureRepository, RuntimeBindingApplicationService runtimeBindingService, AdventureSessionStartOutboxRepository startOutboxRepository, CharacterSheetOwnershipPort ownershipPort) { this(repository, packageRepository, adventureRepository, runtimeBindingService, new AdventureSessionStartCoordinator(startOutboxRepository), ownershipPort); }
+    public AdventureSessionApplicationService(AdventureSessionRepository repository, ScenarioPackageRepository packageRepository, AdventureRepository adventureRepository, RuntimeBindingApplicationService runtimeBindingService, AdventureSessionStartCoordinator startCoordinator) { this(repository, packageRepository, adventureRepository, runtimeBindingService, startCoordinator, MISSING_OWNERSHIP_PORT); }
+    public AdventureSessionApplicationService(AdventureSessionRepository repository, ScenarioPackageRepository packageRepository, AdventureRepository adventureRepository, RuntimeBindingApplicationService runtimeBindingService, AdventureSessionStartCoordinator startCoordinator, CharacterSheetOwnershipPort characterSheetOwnershipPort) { this.repository = Objects.requireNonNull(repository); this.packageRepository = Objects.requireNonNull(packageRepository); this.adventureRepository = Objects.requireNonNull(adventureRepository); this.runtimeBindingService = Objects.requireNonNull(runtimeBindingService); this.startCoordinator = Objects.requireNonNull(startCoordinator); this.characterSheetOwnershipPort = Objects.requireNonNull(characterSheetOwnershipPort); }
     public AdventureSession create(OwnerPlayerId owner, java.util.UUID scenarioPackageId) {
-        return create(owner, scenarioPackageId, null);
+        return create(owner, scenarioPackageId, scenarioPackageId, 1, null);
     }
     public AdventureSession create(OwnerPlayerId owner, java.util.UUID scenarioPackageId, AdventureSessionRuntimeConfiguration runtimeConfiguration) {
         var scenarioPackage = packageRepository.findById(scenarioPackageId).orElseThrow(() -> new IllegalArgumentException("scenario package not found"));
         if (scenarioPackage.report().status() != ResolutionStatus.COMPLETE) throw new IllegalStateException("scenario package is not compiled successfully");
+        if (scenarioPackage.characterCreationBlueprint() != null
+                && scenarioPackage.characterCreationBlueprint().status() != com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.READY
+                && scenarioPackage.characterCreationBlueprint().status() != com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.PUBLISHED) {
+            throw new IllegalStateException("character creation blueprint requires review");
+        }
+        AdventureSession session = AdventureSession.create(SessionId.generate(), owner, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), scenarioPackage.packageId(), 1, scenarioPackage.characterLimit().maximumCharacters());
+        if (runtimeConfiguration != null) {
+            session = AdventureSession.create(SessionId.generate(), owner, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), scenarioPackage.characterLimit().maximumCharacters(), runtimeConfiguration);
+        }
+        repository.save(session, 0); return session;
+    }
+    public AdventureSession create(OwnerPlayerId owner, java.util.UUID scenarioPackageId, java.util.UUID blueprintId, long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration) {
+        var scenarioPackage = packageRepository.findById(scenarioPackageId).orElseThrow(() -> new IllegalArgumentException("scenario package not found"));
+        var blueprint = scenarioPackage.characterCreationBlueprint();
+        if (blueprint == null || !blueprintId.equals(scenarioPackageId) || blueprint.revision() != blueprintRevision || blueprint.status() != com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.PUBLISHED) throw new IllegalStateException("published blueprint revision is required");
         AdventureSession session = runtimeConfiguration == null
-                ? AdventureSession.create(SessionId.generate(), owner, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), scenarioPackage.characterLimit().maximumCharacters())
-                : AdventureSession.create(SessionId.generate(), owner, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), scenarioPackage.characterLimit().maximumCharacters(), runtimeConfiguration);
+                ? AdventureSession.create(SessionId.generate(), owner, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), blueprintId, blueprintRevision, scenarioPackage.characterLimit().maximumCharacters())
+                : AdventureSession.create(SessionId.generate(), owner, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), blueprintId, blueprintRevision, scenarioPackage.characterLimit().maximumCharacters(), runtimeConfiguration);
         repository.save(session, 0); return session;
     }
     public AdventureSession read(SessionId id, OwnerPlayerId owner) { return authorize(load(id), owner); }
     public AdventureSession readInternal(SessionId id) { return load(id); }
     public AdventureSession addMember(SessionId id, OwnerPlayerId owner, long expectedVersion, AdventurePartyMember member) {
-        AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion); session.addPartyMember(member); repository.save(session, expectedVersion); return session;
+        AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion); characterSheetOwnershipPort.verify(session.id(), owner, member.characterSheetId()); session.addPartyMember(member); repository.save(session, expectedVersion); return session;
     }
     public AdventureSession replaceMember(SessionId id, OwnerPlayerId owner, long expectedVersion, AdventurePartyMember member) {
-        AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion); session.replacePartyMember(member); repository.save(session, expectedVersion); return session;
+        AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion); characterSheetOwnershipPort.verify(session.id(), owner, member.characterSheetId()); session.replacePartyMember(member); repository.save(session, expectedVersion); return session;
     }
     public AdventureSession removeMember(SessionId id, OwnerPlayerId owner, long expectedVersion, com.dndmaster.adventure.domain.adventure.CharacterSheetId sheetId) {
         AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion); session.removePartyMember(sheetId); repository.save(session, expectedVersion); return session;
@@ -55,7 +74,14 @@ public final class AdventureSessionApplicationService {
         boolean resumingStart = session.status() == AdventureSession.Status.STARTING;
         if (!resumingStart) requireVersion(session, expectedVersion);
         var scenarioPackage = packageRepository.findById(session.scenarioPackageId()).orElseThrow(() -> new IllegalStateException("scenario package not found"));
-        if (scenarioPackage.report().status() != ResolutionStatus.COMPLETE || scenarioPackage.bundleRevision() != session.scenarioPackageRevision() || scenarioPackage.characterLimit().maximumCharacters() != session.characterLimit()) throw new IllegalStateException("scenario package changed since session draft");
+        var blueprint = scenarioPackage.characterCreationBlueprint();
+        if (scenarioPackage.report().status() != ResolutionStatus.COMPLETE
+                || scenarioPackage.bundleRevision() != session.scenarioPackageRevision()
+                || scenarioPackage.characterLimit().maximumCharacters() != session.characterLimit()
+                || blueprint == null
+                || !blueprint.status().equals(com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.PUBLISHED)
+                || !session.blueprintId().equals(session.scenarioPackageId())
+                || blueprint.revision() != session.blueprintRevision()) throw new IllegalStateException("scenario package or blueprint changed since session draft");
         session.validateStart();
         var configuration = session.runtimeConfiguration();
         if (configuration == null) throw new IllegalStateException("adventure session runtime configuration is required");

@@ -23,13 +23,13 @@ public final class CharacterSheetApplicationService {
 
     public CharacterSheet createSheet(CreateCharacterSheetCommand command) {
         Objects.requireNonNull(command, "command must not be null");
-        if (!sessionPolicyPort.policyFor(command.adventureId()).acceptingCharacterSheets()) {
+        if (!sessionPolicyPort.policyFor(command.sessionId()).acceptingCharacterSheets()) {
             throw new IllegalStateException("adventure session no longer accepts character sheets");
         }
-        SheetEdition applied = adventureEditionHttpPort.getAppliedEdition(command.adventureId());
+        SheetEdition applied = adventureEditionHttpPort.getAppliedEdition(command.sessionId().asAdventureId());
         var sheet = new CharacterSheet(
-                CharacterSheetId.generate(), command.adventureId(), command.requestedEdition(), command.data());
-        sheet.authorizeOpen(new CharacterSheetOpenRequest(command.adventureId(), applied, command.requestedEdition()));
+                CharacterSheetId.generate(), command.sessionId(), command.ownerPlayerId(), command.requestedEdition(), command.data());
+        sheet.authorizeOpen(new CharacterSheetOpenRequest(command.sessionId().asAdventureId(), applied, command.requestedEdition()));
         repository.save(sheet);
         return sheet;
     }
@@ -39,6 +39,14 @@ public final class CharacterSheetApplicationService {
         requireSessionActive(sheet);
         SheetEdition applied = adventureEditionHttpPort.getAppliedEdition(sheet.adventureId());
         sheet.authorizeOpen(new CharacterSheetOpenRequest(sheet.adventureId(), applied, requestedEdition));
+        return sheet;
+    }
+
+    public CharacterSheet verifySessionOwnership(CharacterSheetId id, SessionId sessionId, java.util.UUID ownerPlayerId) {
+        CharacterSheet sheet = load(id);
+        if (!sheet.sessionId().equals(sessionId)) throw new IllegalStateException("character sheet belongs to another session");
+        if (sheet.ownerPlayerId() == null || !sheet.ownerPlayerId().equals(ownerPlayerId)) throw new IllegalStateException("character sheet belongs to another owner");
+        requireSessionActive(sheet);
         return sheet;
     }
 

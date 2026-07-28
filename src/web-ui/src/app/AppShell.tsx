@@ -10,6 +10,7 @@ import { RuleEvidence } from '../features/rule-guidance/RuleEvidence'
 import { HttpSetupApi } from '../features/rulebooks/SetupApi'
 import { RulebookSetup } from '../features/rulebooks/RulebookSetup'
 import { CharacterSheetView } from '../features/character/CharacterSheetView'
+import { CharacterCreationPage } from '../features/character/CharacterCreationPage'
 import { RoleDiceRoller } from '../features/dice/RoleDiceRoller'
 import { CombatMapView } from '../features/combat-map/CombatMapView'
 import { AdventureSessionApi } from '../features/adventure-session/AdventureSessionApi'
@@ -21,6 +22,7 @@ type Route =
   | { page: 'adventure'; adventureId: string }
   | { page: 'character'; sheetId: string }
   | { page: 'session'; sessionId: string }
+  | { page: 'character-create'; sessionId: string }
   | { page: 'login' }
 
 function parseRoute(hash: string): Route {
@@ -30,6 +32,7 @@ function parseRoute(hash: string): Route {
   if (segments[0] === 'adventures' && segments[1]) return { page: 'adventure', adventureId: segments[1] }
   if (segments[0] === 'adventures') return { page: 'adventures' }
   if (segments[0] === 'character' && segments[1]) return { page: 'character', sheetId: segments[1] }
+  if (segments[0] === 'sessions' && segments[1] && segments[2] === 'character') return { page: 'character-create', sessionId: segments[1] }
   if (segments[0] === 'sessions' && segments[1]) return { page: 'session', sessionId: segments[1] }
   return { page: 'login' }
 }
@@ -82,7 +85,7 @@ export function AppShell() {
         <p role="status" aria-live="polite">{auth.message}</p>
         <p>{auth.session.playerName}님 환영합니다!</p>
         {route.page === 'login' && <a href="#/setup">자료 설정으로 이동</a>}
-        {route.page === 'setup' && <RulebookSetup api={setupApi} playerId={playerId} />}
+        {route.page === 'setup' && <RulebookSetup api={setupApi} playerId={playerId} sessionApi={sessionApi} onSessionCreated={sessionId => { window.location.hash = `#/sessions/${sessionId}/character` }} />}
         {route.page === 'adventures' && (
           <SavedAdventurePanel playApi={playApi} setupApi={setupApi} playerId={playerId} />
         )}
@@ -99,6 +102,7 @@ export function AppShell() {
           <CharacterSheetView sheetId={route.sheetId} api={playApi} />
         )}
         {route.page === 'session' && <AdventureSessionPanel api={sessionApi} sessionId={route.sessionId} />}
+        {route.page === 'character-create' && <CharacterCreationPage sessionId={route.sessionId} setupApi={setupApi} sessionApi={sessionApi} />}
       </main>
     </>
   )

@@ -6,6 +6,8 @@ import com.dndmaster.adventure.application.scenario.preparation.ScenarioPreparat
 import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
 import java.util.UUID;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -32,4 +34,18 @@ public class ScenarioPreparationController {
     RuntimeOptionsView readRuntimeOptions() {
         return service.runtimeOptions(new OwnerPlayerId(playerResolver.playerId()));
     }
+
+    @PostMapping("/scenario-packages/{scenarioPackageId}/character-blueprint/resolve")
+    com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint resolveBlueprint(
+            @PathVariable UUID scenarioPackageId, @RequestBody BlueprintResolutionRequest request) {
+        return service.resolveBlueprint(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()),
+                request.fieldKey(), request.value());
+    }
+
+    @PostMapping("/scenario-packages/{scenarioPackageId}/character-blueprint/publish")
+    com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint publishBlueprint(@PathVariable UUID scenarioPackageId) {
+        return service.publishBlueprint(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()));
+    }
+
+    record BlueprintResolutionRequest(String fieldKey, String value) {}
 }

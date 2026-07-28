@@ -124,17 +124,19 @@ public final class PostgresCharacterSheetRepository implements CharacterSheetRep
 
     private void insert(CharacterSheet sheet, long persistedVersion, UUID operationKey, String operationFingerprint) {
         String sql = "INSERT INTO " + TABLE
-                + " (character_sheet_id, adventure_id, edition, character_name, character_level, inspiration, race, character_class, background, starting_abilities, operation_key, operation_fingerprint, version)"
-                + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+                + " (character_sheet_id, adventure_id, session_id, owner_player_id, edition, character_name, character_level, inspiration, race, character_class, background, starting_abilities, operation_key, operation_fingerprint, version)"
+                + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         try (Connection connection = dataSource.getConnection()) {
             connection.setAutoCommit(false);
             try (PreparedStatement statement = connection.prepareStatement(sql)) {
                 statement.setObject(1, sheet.id().value());
                 statement.setObject(2, sheet.adventureId().value());
-                bindData(statement, sheet, 3);
-                statement.setObject(11, operationKey);
-                statement.setString(12, operationFingerprint);
-                statement.setLong(13, persistedVersion);
+                statement.setObject(3, sheet.sessionId().value());
+                statement.setObject(4, sheet.ownerPlayerId());
+                bindData(statement, sheet, 5);
+                statement.setObject(13, operationKey);
+                statement.setString(14, operationFingerprint);
+                statement.setLong(15, persistedVersion);
                 statement.executeUpdate();
                 sheet.markPersisted(persistedVersion, operationKey, operationFingerprint);
                 recordHistory(connection, sheet, operationKey, operationFingerprint);
@@ -155,8 +157,8 @@ public final class PostgresCharacterSheetRepository implements CharacterSheetRep
             return;
         }
         String sql = "INSERT INTO " + HISTORY_TABLE
-                + " (command_id, character_sheet_id, adventure_id, edition, character_name, character_level, inspiration, race, character_class, background, starting_abilities, operation_key, operation_fingerprint, version)"
-                + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                + " (command_id, character_sheet_id, adventure_id, session_id, owner_player_id, edition, character_name, character_level, inspiration, race, character_class, background, starting_abilities, operation_key, operation_fingerprint, version)"
+                + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                 + " ON CONFLICT (command_id) DO UPDATE SET"
                 + " character_sheet_id = EXCLUDED.character_sheet_id,"
                 + " adventure_id = EXCLUDED.adventure_id,"
@@ -169,23 +171,25 @@ public final class PostgresCharacterSheetRepository implements CharacterSheetRep
                 + " version = EXCLUDED.version";
         try (PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setObject(1, operationKey);
-            statement.setObject(2, sheet.id().value());
+                statement.setObject(2, sheet.id().value());
             statement.setObject(3, sheet.adventureId().value());
-            statement.setString(4, sheet.edition().name());
-            statement.setString(5, sheet.data().characterName());
-            statement.setInt(6, sheet.data().level());
+            statement.setObject(4, sheet.sessionId().value());
+            statement.setObject(5, sheet.ownerPlayerId());
+            statement.setString(6, sheet.edition().name());
+            statement.setString(7, sheet.data().characterName());
+            statement.setInt(8, sheet.data().level());
             boolean inspiration = switch (sheet.data()) {
                 case CharacterSheetData2014 data -> data.inspiration();
                 case CharacterSheetData2024 data -> data.heroicInspiration();
             };
-            statement.setBoolean(7, inspiration);
-            statement.setString(8, sheet.data().race());
-            statement.setString(9, sheet.data().characterClass());
-            statement.setString(10, sheet.data().background());
-            statement.setString(11, sheet.data().startingAbilities());
-            statement.setObject(12, operationKey);
-            statement.setString(13, operationFingerprint);
-            statement.setLong(14, sheet.version());
+            statement.setBoolean(9, inspiration);
+            statement.setString(10, sheet.data().race());
+            statement.setString(11, sheet.data().characterClass());
+            statement.setString(12, sheet.data().background());
+            statement.setString(13, sheet.data().startingAbilities());
+            statement.setObject(14, operationKey);
+            statement.setString(15, operationFingerprint);
+            statement.setLong(16, sheet.version());
             statement.executeUpdate();
         }
     }
@@ -220,7 +224,7 @@ public final class PostgresCharacterSheetRepository implements CharacterSheetRep
         };
         CharacterSheet sheet = new CharacterSheet(
                 new CharacterSheetId(row.getObject("character_sheet_id", UUID.class)),
-                new AdventureId(row.getObject("adventure_id", UUID.class)), edition, data,
+                new AdventureId(row.getObject("adventure_id", UUID.class)), new SessionId(row.getObject("session_id", UUID.class)), row.getObject("owner_player_id", UUID.class), edition, data,
                 row.getLong("version"),
                 row.getString("operation_key") == null ? null : UUID.fromString(row.getString("operation_key")),
                 row.getString("operation_fingerprint"));

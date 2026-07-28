@@ -35,6 +35,7 @@ import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpResolu
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpScenarioSourceExcerptGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuleIntentClassificationGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetReadGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetOwnershipGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetDeletionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAgentActionCandidateGateway;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -71,8 +72,14 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
             AdventureRepository adventureRepository,
             RuntimeBindingApplicationService runtimeBindingApplicationService,
-            AdventureSessionStartOutboxRepository startOutboxRepository) {
-        return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository, runtimeBindingApplicationService, startOutboxRepository);
+            AdventureSessionStartOutboxRepository startOutboxRepository,
+            CharacterSheetOwnershipPort ownershipPort) {
+        return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository, runtimeBindingApplicationService, startOutboxRepository, ownershipPort);
+    }
+
+    @Bean
+    CharacterSheetOwnershipPort characterSheetOwnershipPort(ObjectMapper objectMapper, @Value("${adventure.integration.character-management.base-url:http://127.0.0.1:8080/}") String baseUrl, @Value("${adventure.integration.internal-token:local-dev-internal-token}") String token) {
+        return new CrossContextHttpCharacterSheetOwnershipGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(10), objectMapper, token);
     }
 
     @Bean

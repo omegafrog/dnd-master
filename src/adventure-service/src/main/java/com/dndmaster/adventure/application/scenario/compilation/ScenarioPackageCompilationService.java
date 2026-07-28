@@ -14,6 +14,10 @@ import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
 import com.dndmaster.adventure.domain.scenario.CharacterLimit;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
+import com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler;
+import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
+import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -21,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Matcher;
@@ -33,6 +38,7 @@ public final class ScenarioPackageCompilationService {
             "(?i)(?:최대|up\\s+to|maximum(?:\\s+of)?|max)\\s*(\\d+)\\s*(?:명|players?|users?)");
     private final ScenarioPackageRepository repository;
     private final ResolutionOverrideRepository overrideRepository;
+    private final CharacterCreationBlueprintCompiler blueprintCompiler = new CharacterCreationBlueprintCompiler();
 
     public ScenarioPackageCompilationService(ScenarioPackageRepository repository) {
         this(repository, new NoopResolutionOverrideRepository());
@@ -112,9 +118,63 @@ public final class ScenarioPackageCompilationService {
                 bundle.id(), bundle.currentRevision().revision(), fingerprint,
                 bundle.currentRevision().documents(), units,
                 new ScenarioCompilationReport(reportStatus, warnings),
-                characterLimit(bundle, availableExcerpts));
+                characterLimit(bundle, availableExcerpts),
+                blueprintCompiler.compile(bundle.currentRevision().revision(), blueprintCandidates(bundle, availableExcerpts)));
         repository.save(scenarioPackage);
         return scenarioPackage;
+    }
+
+    private static List<CharacterCreationBlueprintCompiler.FieldCandidate> blueprintCandidates(
+            ScenarioSourceBundle bundle, List<ResolutionExtractionPort.SourceExcerpt> excerpts) {
+        boolean hasHandout = bundle.currentRevision().documents().stream()
+                .anyMatch(document -> document.role() == ScenarioBundleDocumentRole.HANDOUT);
+        String sourceType = hasHandout ? "HANDOUT" : "RULEBOOK";
+        List<CharacterCreationBlueprintCompiler.FieldCandidate> candidates = new ArrayList<>();
+        for (String key : List.of("name", "race", "class", "background", "starting_ability_scores", "level")) {
+            boolean extracted = false;
+            List<String> options = List.of();
+            ResolutionExtractionPort.SourceExcerpt evidence = null;
+            String evidenceSourceType = null;
+            for (ResolutionExtractionPort.SourceExcerpt excerpt : excerpts) {
+                String label = switch (key) {
+                    case "starting_ability_scores" -> "(?:starting\\s+ability\\s+scores|능력치)";
+                    default -> key;
+                };
+                java.util.regex.Matcher matcher = java.util.regex.Pattern.compile(
+                        "(?i)" + label + "\\s*[:：-]\\s*([^\\n\\r.;]+)").matcher(excerpt.text() == null ? "" : excerpt.text());
+                if (matcher.find()) {
+                    options = java.util.Arrays.stream(matcher.group(1).split("[,/|]"))
+                            .map(String::trim).filter(value -> !value.isBlank()).distinct().toList();
+                    extracted = !options.isEmpty();
+                    evidence = excerpt;
+                    evidenceSourceType = isHandoutExcerpt(bundle, excerpt) ? "HANDOUT" : "RULEBOOK";
+                    break;
+                }
+            }
+            if (evidence == null) {
+                var document = bundle.currentRevision().documents().stream()
+                        .filter(candidate -> sourceType.equalsIgnoreCase(candidate.documentType())
+                                || (sourceType.equals("HANDOUT") && candidate.role() == ScenarioBundleDocumentRole.HANDOUT))
+                        .findFirst().orElse(null);
+                if (document != null) evidence = new ResolutionExtractionPort.SourceExcerpt(
+                        document.knowledgeDocumentId(), document.extractionVersion(), "document", "");
+                evidenceSourceType = sourceType;
+            }
+            if (evidence != null) candidates.add(new CharacterCreationBlueprintCompiler.FieldCandidate(
+                    key, options, extracted, evidenceSourceType,
+                    new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(
+                            evidence.documentId(), evidence.extractionVersion(), evidence.locator()),
+                    evidence.text() == null ? "" : evidence.text()));
+        }
+        return candidates;
+    }
+
+    private static boolean isHandoutExcerpt(
+            ScenarioSourceBundle bundle, ResolutionExtractionPort.SourceExcerpt excerpt) {
+        return bundle.currentRevision().documents().stream().anyMatch(document ->
+                document.role() == ScenarioBundleDocumentRole.HANDOUT
+                        && document.knowledgeDocumentId().equals(excerpt.documentId())
+                        && document.extractionVersion() == excerpt.extractionVersion());
     }
 
     private static CharacterLimit characterLimit(
@@ -144,6 +204,14 @@ public final class ScenarioPackageCompilationService {
                     matcher.group()));
         }
         return limits;
+    }
+
+    private static boolean containsEvidenceQuote(String excerptText, String sourceQuote) {
+        return normalizeEvidenceText(excerptText).contains(normalizeEvidenceText(sourceQuote));
+    }
+
+    private static String normalizeEvidenceText(String value) {
+        return value == null ? "" : value.strip().replaceAll("(?U)\\s+", " ").toLowerCase(Locale.ROOT);
     }
 
     private static ScenarioResolutionUnit validate(
@@ -190,7 +258,7 @@ public final class ScenarioPackageCompilationService {
                                     && ref.extractionVersion() == excerpt.extractionVersion()
                                     && ref.locator().equals(excerpt.locator())
                                     && excerpt.text() != null
-                                    && excerpt.text().toLowerCase().contains(candidate.sourceQuote().toLowerCase())));
+                                    && containsEvidenceQuote(excerpt.text(), candidate.sourceQuote())));
             if (!quoteVerified) invalid.add("source quote cannot be verified against referenced excerpt");
         }
         if (!detail.isEmpty()) {

@@ -8,6 +8,7 @@ import type {
   SourcePreviewView,
 } from './SetupApi'
 import { ScenarioSetup } from '../scenarios/ScenarioSetup'
+import type { AdventureSessionApi } from '../adventure-session/AdventureSessionApi'
 
 const batchStatusText: Record<BatchRulebookView['status'], string> = {
   ACCEPTED: '사용 준비 완료',
@@ -43,10 +44,14 @@ export function RulebookSetup({
   api,
   playerId,
   asMain = true,
+  sessionApi,
+  onSessionCreated,
 }: {
   api: SetupApi
   playerId: string
   asMain?: boolean
+  sessionApi?: Pick<AdventureSessionApi, 'create'>
+  onSessionCreated?: (sessionId: string) => void
 }) {
   const [drafts, setDrafts] = useState<PendingDocument[]>([])
   const [results, setResults] = useState<BatchRulebookView[]>([])
@@ -265,7 +270,7 @@ export function RulebookSetup({
           ) : null}
         </section>
       </section>
-      <ScenarioSetup api={api} playerId={playerId} onError={setMessage} />
+      <ScenarioSetup api={api} playerId={playerId} onError={setMessage} sessionApi={sessionApi} onSessionCreated={onSessionCreated} />
     </Container>
   )
 }
