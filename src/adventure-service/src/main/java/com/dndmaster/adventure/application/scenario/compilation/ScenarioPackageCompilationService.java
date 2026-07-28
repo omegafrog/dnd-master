@@ -136,7 +136,10 @@ public final class ScenarioPackageCompilationService {
             List<String> options = List.of();
             ResolutionExtractionPort.SourceExcerpt evidence = null;
             String evidenceSourceType = null;
-            for (ResolutionExtractionPort.SourceExcerpt excerpt : excerpts) {
+            String sourceQuote = "";
+            for (ResolutionExtractionPort.SourceExcerpt excerpt : excerpts.stream()
+                    .sorted(Comparator.comparing((ResolutionExtractionPort.SourceExcerpt excerpt) -> isStorybook(bundle, excerpt)).reversed())
+                    .toList()) {
                 String label = switch (key) {
                     case "starting_ability_scores" -> "(?:starting\\s+ability\\s+scores|능력치)";
                     default -> key;
@@ -148,7 +151,9 @@ public final class ScenarioPackageCompilationService {
                             .map(String::trim).filter(value -> !value.isBlank()).distinct().toList();
                     extracted = !options.isEmpty();
                     evidence = excerpt;
-                    evidenceSourceType = isHandoutExcerpt(bundle, excerpt) ? "HANDOUT" : "RULEBOOK";
+                    sourceQuote = matcher.group(0);
+                    evidenceSourceType = isStorybook(bundle, excerpt) ? "STORYBOOK"
+                            : isHandoutExcerpt(bundle, excerpt) ? "HANDOUT" : "RULEBOOK";
                     break;
                 }
             }
@@ -165,26 +170,27 @@ public final class ScenarioPackageCompilationService {
                     key, inputOptions(key, options), extracted, evidenceSourceType,
                     new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(
                             evidence.documentId(), evidence.extractionVersion(), evidence.locator()),
-                    evidence.text() == null ? "" : evidence.text(), inputMode(key),
+                    sourceQuote, inputMode(key, options),
                     inputSuggestions(key, options)));
         }
         return candidates;
     }
 
-    private static InputMode inputMode(String key) {
+    private static InputMode inputMode(String key, List<String> values) {
         return switch (key) {
             case "name" -> InputMode.FREE_TEXT;
-            case "starting_ability_scores" -> InputMode.MULTI_SELECT;
-            default -> InputMode.SINGLE_SELECT;
+            case "starting_ability_scores" -> values.isEmpty() ? InputMode.FREE_TEXT : InputMode.MULTI_SELECT;
+            case "background" -> values.isEmpty() ? InputMode.FREE_TEXT : InputMode.SINGLE_SELECT;
+            default -> values.isEmpty() ? InputMode.FREE_TEXT : InputMode.SINGLE_SELECT;
         };
     }
 
     private static List<String> inputOptions(String key, List<String> values) {
-        return inputMode(key) == InputMode.FREE_TEXT ? List.of() : values;
+        return inputMode(key, values) == InputMode.FREE_TEXT ? List.of() : values;
     }
 
     private static List<String> inputSuggestions(String key, List<String> values) {
-        return inputMode(key) == InputMode.FREE_TEXT ? values : List.of();
+        return inputMode(key, values) == InputMode.FREE_TEXT ? values : List.of();
     }
 
     private static boolean isHandoutExcerpt(

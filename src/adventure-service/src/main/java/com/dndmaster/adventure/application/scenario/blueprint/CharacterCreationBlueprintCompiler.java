@@ -59,6 +59,13 @@ public final class CharacterCreationBlueprintCompiler {
             InputMode inputMode = selected.stream().map(FieldCandidate::inputMode).findFirst()
                     .orElse(InputMode.FREE_TEXT);
             List<String> suggestions = selected.stream().flatMap(candidate -> candidate.suggestions().stream()).distinct().toList();
+            boolean modeConflict = selected.stream().map(FieldCandidate::inputMode).distinct().count() > 1;
+            if (modeConflict) {
+                inputMode = InputMode.FREE_TEXT;
+                suggestions = java.util.stream.Stream.concat(suggestions.stream(), options.stream()).distinct().toList();
+                options = new LinkedHashSet<>();
+                fieldDiagnostics.add("conflicting input modes; manual input required");
+            }
             String sourceQuote = selected.stream().map(FieldCandidate::sourceQuote)
                     .filter(quote -> !quote.isBlank()).findFirst().orElse("");
             CharacterCreationBlueprint.Field field = new CharacterCreationBlueprint.Field(
