@@ -13,3 +13,8 @@
 - [027-1 Agent 캐릭터 태그 추출 계약 및 Blueprint 표시](027-1-agent-character-tag-extraction.md)
 - [027-2 동적 Blueprint 검토·게시 및 입력 트리 UI](027-2-dynamic-blueprint-review-ui.md)
 - [027-3 Blueprint 기반 캐릭터 생성 연결 및 Playwright](027-3-character-creation-agent-e2e.md)
+- [028 근거 기반 캐릭터 생성 컨텍스트 RAG](028-character-context-rag.md)
+- [028-1 캐릭터 컨텍스트 RAG 검색](028-1-character-context-rag-search.md)
+- [028-2 캐릭터 컨텍스트 컴파일 오케스트레이션](028-2-character-context-compilation.md)
+- [028-3 Blueprint 입력 모드와 충돌 검토](028-3-blueprint-input-modes-conflicts.md)
+- [028-4 캐릭터 컨텍스트 최종 E2E](028-4-character-context-e2e.md)
