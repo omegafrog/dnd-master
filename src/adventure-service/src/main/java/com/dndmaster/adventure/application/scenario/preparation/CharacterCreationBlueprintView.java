@@ -10,20 +10,22 @@ public record CharacterCreationBlueprintView(
         List<String> diagnostics,
         long revision,
         List<FieldView> fields,
-        String status) {
+        String status,
+        List<NodeView> roots) {
     public CharacterCreationBlueprintView {
         diagnostics = List.copyOf(diagnostics);
         fields = List.copyOf(fields);
         status = status == null ? "DRAFT" : status;
+        roots = List.copyOf(roots);
     }
 
     public CharacterCreationBlueprintView(boolean available, String summary, int rulebookDocumentCount,
                                           int storybookDocumentCount, List<String> diagnostics) {
-        this(available, summary, rulebookDocumentCount, storybookDocumentCount, diagnostics, 1, List.of(), "READY");
+        this(available, summary, rulebookDocumentCount, storybookDocumentCount, diagnostics, 1, List.of(), "READY", List.of());
     }
 
     public static CharacterCreationBlueprintView blocked(List<String> diagnostics) {
-        return new CharacterCreationBlueprintView(false, null, 0, 0, diagnostics, 0, List.of(), "NEEDS_REVIEW");
+        return new CharacterCreationBlueprintView(false, null, 0, 0, diagnostics, 0, List.of(), "NEEDS_REVIEW", List.of());
     }
 
     public record FieldView(String key, List<String> options, boolean required, String sourceType,
@@ -44,6 +46,19 @@ public record CharacterCreationBlueprintView(
             suggestions = List.copyOf(suggestions);
             sourceQuote = sourceQuote == null ? "" : sourceQuote;
             evidence = List.copyOf(evidence);
+        }
+    }
+
+    public record NodeView(String id, String parentId, String key, String label, String inputMode, String value,
+                           List<String> options, List<String> suggestions, String status, boolean allowUserAddChild,
+                           String confidence, String sourceQuote, List<String> diagnostics,
+                           List<FieldView.SourceReferenceView> sourceEvidence, List<NodeView> children) {
+        public NodeView {
+            options = List.copyOf(options);
+            suggestions = List.copyOf(suggestions);
+            diagnostics = List.copyOf(diagnostics);
+            sourceEvidence = List.copyOf(sourceEvidence);
+            children = List.copyOf(children);
         }
     }
 }

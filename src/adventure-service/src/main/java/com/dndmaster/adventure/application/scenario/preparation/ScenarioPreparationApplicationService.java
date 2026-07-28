@@ -11,6 +11,8 @@ import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundleRevision;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
+import com.dndmaster.adventure.domain.scenario.CharacterInputNode;
+import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintRevisionConflictException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -72,7 +74,7 @@ public final class ScenarioPreparationApplicationService {
                         storybookDocuments.size(),
                         diagnostics,
                         scenarioPackage.bundleRevision(),
-                        blueprintFields(hasHandout), "READY")
+                        blueprintFields(hasHandout), "READY", List.of())
                 : CharacterCreationBlueprintView.blocked(diagnostics);
 
         return new PlayPreparationView(
@@ -91,6 +93,11 @@ public final class ScenarioPreparationApplicationService {
 
     public CharacterCreationBlueprint resolveBlueprint(UUID packageId, OwnerPlayerId ownerPlayerId,
                                                        String fieldKey, String value) {
+        return resolveBlueprint(packageId, ownerPlayerId, 0, fieldKey, value);
+    }
+
+    public CharacterCreationBlueprint resolveBlueprint(UUID packageId, OwnerPlayerId ownerPlayerId,
+                                                       long expectedRevision, String fieldKey, String value) {
         ScenarioPackage scenarioPackage = packageRepository.findById(packageId)
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         ScenarioSourceBundle bundle = bundleRepository.findById(scenarioPackage.bundleId())
@@ -98,9 +105,25 @@ public final class ScenarioPreparationApplicationService {
         bundle.authorize(ownerPlayerId);
         requireCurrentBundleRevision(scenarioPackage, bundle);
         CharacterCreationBlueprint blueprint = requireBlueprint(scenarioPackage);
+        requireBlueprintRevision(blueprint, expectedRevision);
         CharacterCreationBlueprint resolved = blueprint.resolve(fieldKey, value);
         packageRepository.saveBlueprint(packageId, resolved);
         return resolved;
+    }
+
+    public CharacterCreationBlueprint addBlueprintChild(UUID packageId, OwnerPlayerId ownerPlayerId,
+                                                         long expectedRevision, String parentId, String key, String label) {
+        ScenarioPackage scenarioPackage = packageRepository.findById(packageId)
+                .orElseThrow(ScenarioBundleNotFoundException::new);
+        ScenarioSourceBundle bundle = bundleRepository.findById(scenarioPackage.bundleId())
+                .orElseThrow(ScenarioBundleNotFoundException::new);
+        bundle.authorize(ownerPlayerId);
+        requireCurrentBundleRevision(scenarioPackage, bundle);
+        CharacterCreationBlueprint blueprint = requireBlueprint(scenarioPackage);
+        requireBlueprintRevision(blueprint, expectedRevision);
+        CharacterCreationBlueprint updated = blueprint.addUserInputChild(parentId, key, label);
+        packageRepository.saveBlueprint(packageId, updated);
+        return updated;
     }
 
     public CharacterCreationBlueprint publishBlueprint(UUID packageId, OwnerPlayerId ownerPlayerId) {
@@ -131,6 +154,12 @@ public final class ScenarioPreparationApplicationService {
         }
     }
 
+    private static void requireBlueprintRevision(CharacterCreationBlueprint blueprint, long expectedRevision) {
+        if (expectedRevision > 0 && blueprint.revision() != expectedRevision) {
+            throw new CharacterCreationBlueprintRevisionConflictException(expectedRevision, blueprint.revision());
+        }
+    }
+
     private static List<CharacterCreationBlueprintView.FieldView> blueprintFields(boolean hasHandout) {
         String source = hasHandout ? "HANDOUT" : "RULEBOOK";
         return List.of("name", "race", "class", "background", "starting_ability_scores", "level").stream()
@@ -152,6 +181,16 @@ public final class ScenarioPreparationApplicationService {
                                 field.suggestions(), field.sourceQuote(), field.evidence().stream()
                                         .map(reference -> new CharacterCreationBlueprintView.FieldView.SourceReferenceView(
                                                 reference.knowledgeDocumentId().value().toString(), reference.extractionVersion(), reference.locator()))
-                                        .toList())).toList(), blueprint.status().name());
+                                        .toList())).toList(), blueprint.status().name(),
+                blueprint.roots().stream().map(ScenarioPreparationApplicationService::toNodeView).toList());
+    }
+
+    private static CharacterCreationBlueprintView.NodeView toNodeView(CharacterInputNode node) {
+        return new CharacterCreationBlueprintView.NodeView(node.id(), node.parentId(), node.key(), node.label(),
+                node.inputMode().name(), node.value(), node.options(), node.suggestions(), node.status().name(),
+                node.allowUserAddChild(), node.confidence(), node.sourceQuote(), node.diagnostics(),
+                node.sourceEvidence().stream().map(reference -> new CharacterCreationBlueprintView.FieldView.SourceReferenceView(
+                        reference.knowledgeDocumentId().value().toString(), reference.extractionVersion(), reference.locator())).toList(),
+                node.children().stream().map(ScenarioPreparationApplicationService::toNodeView).toList());
     }
 }

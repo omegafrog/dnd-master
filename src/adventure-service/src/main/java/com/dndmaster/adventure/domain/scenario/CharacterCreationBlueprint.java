@@ -3,6 +3,8 @@ package com.dndmaster.adventure.domain.scenario;
 import java.util.List;
 import java.util.Objects;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /** Immutable, versioned character-creation contract compiled with a scenario package. */
 public record CharacterCreationBlueprint(
@@ -23,6 +25,86 @@ public record CharacterCreationBlueprint(
                 .orElseThrow(() -> new IllegalArgumentException("unknown blueprint field: " + key));
     }
 
+    /** Returns stable recursive nodes while retaining flat-field persistence compatibility. */
+    public List<CharacterInputNode> roots() {
+        Map<String, NodeDraft> nodes = new LinkedHashMap<>();
+        for (Field field : fields) {
+            String[] parts = field.key().split("\\.");
+            String parentId = null;
+            for (int index = 0; index < parts.length; index++) {
+                String id = parentId == null ? parts[index] : parentId + "." + parts[index];
+                NodeDraft draft = nodes.get(id);
+                if (draft == null) {
+                    draft = NodeDraft.synthetic(id, parentId, parts[index]);
+                    nodes.put(id, draft);
+                }
+                if (index == parts.length - 1) draft.field = field;
+                parentId = id;
+            }
+        }
+        return nodes.values().stream().filter(node -> node.parentId == null).map(node -> node.toNode(nodes)).toList();
+    }
+
+    public CharacterInputNode node(String id) {
+        return flatten(roots()).stream().filter(node -> node.id().equals(id)).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("unknown blueprint node: " + id));
+    }
+
+    public CharacterCreationBlueprint resolveNode(String id, String value) {
+        node(id);
+        return resolve(id, value);
+    }
+
+    public CharacterCreationBlueprint addUserInputChild(String parentId, String key, String label) {
+        CharacterInputNode parent = node(parentId);
+        if (key == null || key.isBlank() || key.contains(".")) throw new IllegalArgumentException("invalid child key");
+        String childKey = parentId + "." + key.trim();
+        if (fields.stream().anyMatch(field -> field.key().equals(childKey))) throw new IllegalArgumentException("child already exists");
+        Field child = new Field(childKey, List.of(), false, "USER", List.of(), "USER_ADDED", List.of(),
+                InputMode.FREE_TEXT, List.of(), "", label);
+        List<Field> next = new ArrayList<>(fields);
+        next.add(child);
+        return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.NEEDS_REVIEW,
+                next, diagnostics);
+    }
+
+    private static List<CharacterInputNode> flatten(List<CharacterInputNode> nodes) {
+        List<CharacterInputNode> result = new ArrayList<>();
+        for (CharacterInputNode node : nodes) { result.add(node); result.addAll(flatten(node.children())); }
+        return result;
+    }
+
+    private static final class NodeDraft {
+        private final String id;
+        private final String parentId;
+        private final String key;
+        private Field field;
+
+        private NodeDraft(String id, String parentId, String key) { this.id = id; this.parentId = parentId; this.key = key; }
+        private static NodeDraft synthetic(String id, String parentId, String key) { return new NodeDraft(id, parentId, key); }
+
+        private CharacterInputNode toNode(Map<String, NodeDraft> nodes) {
+            Field value = field;
+            List<CharacterInputNode> children = nodes.values().stream().filter(node -> id.equals(node.parentId))
+                    .map(node -> node.toNode(nodes)).toList();
+            if (value == null) return new CharacterInputNode(id, parentId, key, key, InputMode.FREE_TEXT, null,
+                    List.of(), List.of(), CharacterInputNodeStatus.PARTIALLY_EXTRACTED, true, List.of(), "LOW", "",
+                    List.of("parent extracted but child definition is missing"), children);
+            CharacterInputNodeStatus status = switch (value.inputStatus()) {
+                case "USER_ADDED" -> CharacterInputNodeStatus.USER_ADDED;
+                case "USER_CONFIRMED" -> CharacterInputNodeStatus.REVIEWED;
+                case "MANUAL_INPUT_REQUIRED" -> CharacterInputNodeStatus.PARTIALLY_EXTRACTED;
+                default -> CharacterInputNodeStatus.EXTRACTED;
+            };
+            String selectedValue = value.inputStatus().equals("USER_CONFIRMED") ? String.join(",", value.options()) : null;
+            List<String> nodeOptions = value.inputMode() == InputMode.FREE_TEXT ? List.of() : value.options();
+            return new CharacterInputNode(id, parentId, key, value.label(), value.inputMode(), selectedValue, nodeOptions,
+                    value.suggestions(), status, status == CharacterInputNodeStatus.PARTIALLY_EXTRACTED,
+                    value.evidence(), status == CharacterInputNodeStatus.PARTIALLY_EXTRACTED ? "LOW" : "HIGH",
+                    value.sourceQuote(), value.diagnostics(), children);
+        }
+    }
+
     public CharacterCreationBlueprint resolve(String key, String value) {
         if (status == CharacterCreationBlueprintStatus.PUBLISHED) {
             throw new IllegalStateException("published blueprint is immutable");
@@ -40,7 +122,7 @@ public record CharacterCreationBlueprint(
                 throw new IllegalArgumentException("value is not a blueprint option: " + value);
             }
             next.add(new Field(field.key(), requestedValues, field.required(), field.sourceType(), field.evidence(),
-                    "USER_CONFIRMED", List.of(), field.inputMode(), field.suggestions(), field.sourceQuote()));
+                    "USER_CONFIRMED", List.of(), field.inputMode(), field.suggestions(), field.sourceQuote(), field.label()));
             found = true;
         }
         if (!found) throw new IllegalArgumentException("unknown blueprint field: " + key);
@@ -62,11 +144,18 @@ public record CharacterCreationBlueprint(
 
     public record Field(String key, List<String> options, boolean required, String sourceType,
                         List<ScenarioSourceReference> evidence, String inputStatus, List<String> diagnostics,
-                        InputMode inputMode, List<String> suggestions, String sourceQuote) {
+                        InputMode inputMode, List<String> suggestions, String sourceQuote, String label) {
         public Field(String key, List<String> options, boolean required, String sourceType,
                      List<ScenarioSourceReference> evidence, String inputStatus, List<String> diagnostics) {
             this(key, options, required, sourceType, evidence, inputStatus, diagnostics,
-                    options.isEmpty() ? InputMode.FREE_TEXT : InputMode.SINGLE_SELECT, List.of(), "");
+                    options.isEmpty() ? InputMode.FREE_TEXT : InputMode.SINGLE_SELECT, List.of(), "", key);
+        }
+
+        public Field(String key, List<String> options, boolean required, String sourceType,
+                     List<ScenarioSourceReference> evidence, String inputStatus, List<String> diagnostics,
+                     InputMode inputMode, List<String> suggestions, String sourceQuote) {
+            this(key, options, required, sourceType, evidence, inputStatus, diagnostics, inputMode, suggestions,
+                    sourceQuote, key);
         }
 
         public Field {
@@ -79,6 +168,7 @@ public record CharacterCreationBlueprint(
             inputMode = inputMode == null ? (options.isEmpty() ? InputMode.FREE_TEXT : InputMode.SINGLE_SELECT) : inputMode;
             suggestions = suggestions == null ? List.of() : List.copyOf(suggestions);
             sourceQuote = sourceQuote == null ? "" : sourceQuote;
+            label = label == null || label.isBlank() ? key : label;
         }
     }
 }

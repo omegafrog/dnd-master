@@ -4,6 +4,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioAccessDeniedException;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleAccessDeniedException;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleNotFoundException;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleValidationException;
+import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintRevisionConflictException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -24,5 +25,10 @@ public final class ScenarioExceptionHandler {
     @ExceptionHandler(ScenarioBundleValidationException.class)
     public ResponseEntity<Void> validation(ScenarioBundleValidationException exception) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+    }
+
+    @ExceptionHandler(CharacterCreationBlueprintRevisionConflictException.class)
+    public ResponseEntity<Void> blueprintRevisionConflict(CharacterCreationBlueprintRevisionConflictException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).build();
     }
 }

@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { AdventureSessionView, SessionControlMode } from '../adventure-session/AdventureSessionApi'
 import type { AdventureSessionApi } from '../adventure-session/AdventureSessionApi'
 import type { CharacterCreationDraft, CreatedCharacterSheetView, PlayPreparationView, SetupApi } from '../rulebooks/SetupApi'
+import { CharacterInputTree } from './CharacterInputTree'
 
 type SessionApi = Pick<AdventureSessionApi, 'read' | 'addMember' | 'start'>
 type CharacterSetupApi = Pick<SetupApi, 'getPlayPreparation' | 'createCharacterSheet'>
@@ -76,7 +77,11 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
     <p>Blueprint revision: {session.blueprintRevision} · {blueprint.summary ?? 'Blueprint'}</p>
     {blueprint.diagnostics.length > 0 && <ul aria-label="Blueprint 진단">{blueprint.diagnostics.map(item => <li key={item}>{item}</li>)}</ul>}
     {blocked && <p role="alert">Blueprint 검토 또는 게시가 완료되지 않아 캐릭터를 생성할 수 없습니다.</p>}
-    <fieldset aria-label="Blueprint 캐릭터 필드">
+    {(blueprint.roots ?? []).length > 0 ? <CharacterInputTree
+      nodes={blueprint.roots ?? []}
+      values={values}
+      onChange={(id, value) => setValues(current => ({ ...current, [id]: value }))}
+    /> : <fieldset aria-label="Blueprint 캐릭터 필드">
       <legend>Blueprint 필드</legend>
       {(blueprint.fields ?? []).map(field => <label key={field.key}>{field.key}
         {(field.inputMode ?? 'FREE_TEXT') === 'SINGLE_SELECT' ? <select aria-label={field.key} required={field.required} value={values[field.key] ?? ''} onChange={event => { const value = event.currentTarget.value; setValues(current => ({ ...current, [field.key]: value })) }}><option value="">선택하세요</option>{field.options.map(option => <option key={option} value={option}>{option}</option>)}</select>
@@ -89,7 +94,7 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
         {(field.evidence ?? []).map(item => <small key={`${item.knowledgeDocumentId}-${item.locator}`}>근거: {item.knowledgeDocumentId} v{item.extractionVersion} · {item.locator}</small>)}
         {field.diagnostics.map(item => <small key={item}>{item}</small>)}
       </label>)}
-    </fieldset>
+    </fieldset>}
     <label>이름 <input aria-label="캐릭터 이름" value={name} onChange={event => setName(event.currentTarget.value)} required /></label>
     <label>레벨 <input aria-label="캐릭터 레벨" type="number" min={1} max={20} value={level} onChange={event => setLevel(Number(event.currentTarget.value))} /></label>
     <label>에디션 <select aria-label="캐릭터 에디션" value={edition} onChange={event => setEdition(event.currentTarget.value as CharacterCreationDraft['edition'])}><option value="DND_5E_2024">DND 5E 2024</option><option value="DND_5E_2014">DND 5E 2014</option></select></label>

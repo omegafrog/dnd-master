@@ -152,6 +152,25 @@ export type CharacterCreationBlueprintView = {
     evidence?: Array<{ knowledgeDocumentId: string; extractionVersion: number; locator: string }>
     sourceQuote?: string
   }>
+  roots?: CharacterInputNodeView[]
+}
+
+export type CharacterInputNodeView = {
+  id: string
+  parentId: string | null
+  key: string
+  label: string
+  inputMode: 'FREE_TEXT' | 'SINGLE_SELECT' | 'MULTI_SELECT'
+  value: string | null
+  options: string[]
+  suggestions: string[]
+  status: 'EXTRACTED' | 'PARTIALLY_EXTRACTED' | 'USER_ADDED' | 'REVIEWED'
+  allowUserAddChild: boolean
+  confidence: string
+  sourceQuote: string
+  diagnostics: string[]
+  sourceEvidence: Array<{ knowledgeDocumentId: string; extractionVersion: number; locator: string }>
+  children: CharacterInputNodeView[]
 }
 
 export type PlayPreparationView = {
@@ -364,7 +383,8 @@ export interface SetupApi {
   getScenarioCompilation?(compilationId: string): Promise<ScenarioCompilationView>
   getScenarioPackage?(packageId: string): Promise<ScenarioPackageView>
   getPlayPreparation?(scenarioPackageId: string): Promise<PlayPreparationView>
-  resolveBlueprint?(scenarioPackageId: string, fieldKey: string, value: string): Promise<unknown>
+  resolveBlueprint?(scenarioPackageId: string, fieldKey: string, value: string, expectedRevision?: number): Promise<unknown>
+  addBlueprintChild?(scenarioPackageId: string, expectedRevision: number, parentId: string, key: string, label: string): Promise<unknown>
   publishBlueprint?(scenarioPackageId: string): Promise<unknown>
   getRuntimeOptions?(): Promise<RuntimeOptionsView>
   createCharacterSheet?(draft: CharacterCreationDraft): Promise<CreatedCharacterSheetView>
@@ -533,10 +553,16 @@ export class HttpSetupApi implements SetupApi {
     }, '플레이 준비 상태를 불러오지 못했습니다.')
   }
 
-  resolveBlueprint(scenarioPackageId: string, fieldKey: string, value: string) {
+  resolveBlueprint(scenarioPackageId: string, fieldKey: string, value: string, expectedRevision = 0) {
     return request<unknown>(`/api/v1/scenario-packages/${scenarioPackageId}/character-blueprint/resolve`, {
-      method: 'POST', headers: { ...this.authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ fieldKey, value }),
+      method: 'POST', headers: { ...this.authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedRevision, fieldKey, value }),
     }, 'Blueprint 검토를 저장하지 못했습니다.')
+  }
+
+  addBlueprintChild(scenarioPackageId: string, expectedRevision: number, parentId: string, key: string, label: string) {
+    return request<unknown>(`/api/v1/scenario-packages/${scenarioPackageId}/character-blueprint/children`, {
+      method: 'POST', headers: { ...this.authHeaders(), 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedRevision, parentId, key, label }),
+    }, 'Blueprint 하위 필드를 추가하지 못했습니다.')
   }
 
   publishBlueprint(scenarioPackageId: string) {
