@@ -1,6 +1,6 @@
 # 028-4 - 캐릭터 컨텍스트 최종 E2E
 
-- Status: approved
+- Status: completed
 - Issue: [#93](https://github.com/omegafrog/dnd-master/issues/93)
 - Parent: 028
 - Dependencies: 028-2, 028-3

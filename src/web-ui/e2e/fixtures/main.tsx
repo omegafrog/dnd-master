@@ -24,7 +24,8 @@ const e2eState = {
   bundle: null as unknown,
   blueprint: null as unknown,
   creationRequest: null as unknown,
-  blueprintStatus: 'NEEDS_REVIEW' as 'NEEDS_REVIEW' | 'PUBLISHED',
+  blueprintStatus: 'NEEDS_REVIEW' as 'NEEDS_REVIEW' | 'READY' | 'PUBLISHED',
+  blueprintValues: { 'node-str': '12' } as Record<string, string>,
   creation: null as unknown,
 }
 
@@ -61,7 +62,7 @@ const setupApi: SetupApi = {
   async uploadScenario(file) { return { id: 'scenario-e2e', name: file.name } },
   async createCharacterSheet(draft) {
     if (e2eState.blueprintStatus !== 'PUBLISHED') throw new Error('Blueprint must be published before character creation')
-    if (draft.blueprintRevision !== 2 || draft.blueprintValues?.['node-str'] !== '12') {
+    if (draft.blueprintRevision !== 2 || draft.blueprintValues?.['node-str'] !== '13') {
       throw new Error('Character creation must use the published blueprint values')
     }
     e2eState.creationRequest = draft
@@ -121,8 +122,11 @@ const setupApi: SetupApi = {
           value: null, options: [], suggestions: [], status: 'EXTRACTED' as const, allowUserAddChild: false, confidence: 'HIGH',
           sourceQuote: '', diagnostics: [], sourceEvidence: [], children: [{
             id: 'node-str', parentId: 'node-scores', key: 'str', label: 'STR', inputMode: 'FREE_TEXT' as const,
-            value: '12', options: [], suggestions: [], status: 'EXTRACTED' as const, allowUserAddChild: false, confidence: 'HIGH',
-            sourceQuote: 'STR from DND 5판', diagnostics: [], sourceEvidence: [{ knowledgeDocumentId: 'storybook.txt-STORYBOOK', extractionVersion: 1, locator: 'page:2' }], children: [],
+            value: e2eState.blueprintValues['node-str'], options: [], suggestions: [], status: e2eState.blueprintStatus === 'NEEDS_REVIEW' ? 'CONFLICT_REVIEW' as const : 'REVIEWED' as const, allowUserAddChild: false, confidence: 'HIGH',
+            sourceQuote: 'STR from DND 5판', diagnostics: e2eState.blueprintStatus === 'NEEDS_REVIEW' ? ['conflicting rulebook/storybook values'] : [], sourceEvidence: [
+              { knowledgeDocumentId: 'rules-2024.txt-RULEBOOK', extractionVersion: 1, locator: 'page:2' },
+              { knowledgeDocumentId: 'storybook.txt-STORYBOOK', extractionVersion: 1, locator: 'page:2' },
+            ], children: [],
           }],
         }],
       },
@@ -132,6 +136,10 @@ const setupApi: SetupApi = {
   },
   async publishBlueprint() {
     e2eState.blueprintStatus = 'PUBLISHED'
+  },
+  async resolveBlueprint(_scenarioPackageId, nodeId, value) {
+    e2eState.blueprintValues[nodeId] = value
+    e2eState.blueprintStatus = 'READY'
   },
   async saveRuleSet() {},
   async listKnowledgeDocuments(ownerId) {
