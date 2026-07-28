@@ -1,6 +1,6 @@
 # 025-R1 - Runtime session scope policy
 
-- Status: ready-for-agent
+- Status: completed
 - Issue: [#76](https://github.com/omegafrog/dnd-master/issues/76)
 - Parent: [025](025-session-knowledge-set-retrieval.md)
 - Original issue: [#25](https://github.com/omegafrog/dnd-master/issues/25)

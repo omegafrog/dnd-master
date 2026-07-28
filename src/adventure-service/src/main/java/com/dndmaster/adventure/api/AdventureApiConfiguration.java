@@ -447,7 +447,7 @@ public class AdventureApiConfiguration {
         return request -> {
             if (request.evidenceType() == RuntimeEvidenceType.STORYBOOK) {
                 ActiveSourceContext active = request.activeSourceContext();
-                if (active == null) return List.of();
+                if (active == null || !request.knowledgeDocumentIds().contains(active.knowledgeDocumentId().value())) return List.of();
                 return List.of(new RuntimeEvidence(
                         RuntimeEvidenceType.STORYBOOK,
                         active.knowledgeDocumentId(),
@@ -456,11 +456,14 @@ public class AdventureApiConfiguration {
                         active.excerpt()));
             }
             if (request.evidenceType() == RuntimeEvidenceType.RULEBOOK) {
-                return request.rulebookIds().stream().map(rulebookId -> new RuntimeEvidence(
+                return request.knowledgeDocumentIds().stream()
+                        .filter(documentId -> request.activeSourceContext() == null
+                                || !documentId.equals(request.activeSourceContext().knowledgeDocumentId().value()))
+                        .map(documentId -> new RuntimeEvidence(
                         RuntimeEvidenceType.RULEBOOK,
-                        new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(rulebookId),
+                        new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(documentId),
                         1L,
-                        "rulebook:" + rulebookId,
+                        "rulebook:" + documentId,
                         "Rulebook evidence for " + request.action()))
                         .toList();
             }
@@ -516,10 +519,11 @@ public class AdventureApiConfiguration {
             RuntimeTurnRepository runtimeTurnRepository,
             RuntimeEvidenceSearchPort runtimeEvidenceSearchPort,
             RuntimePlanningPort runtimePlanningPort,
-            NarrationSafetyPort narrationSafetyPort) {
+            NarrationSafetyPort narrationSafetyPort,
+            SessionKnowledgeSetRepository sessionKnowledgeSetRepository) {
         return new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
-                runtimePlanningPort, narrationSafetyPort);
+                runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository);
     }
 
     @Bean

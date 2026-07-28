@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
+import com.dndmaster.adventure.application.knowledge.SessionKnowledgeSetRepository;
 import com.dndmaster.adventure.application.runtime.EvidencePack;
 import com.dndmaster.adventure.application.runtime.NarrationSafetyAssessment;
 import com.dndmaster.adventure.application.runtime.NarrationSafetyPort;
@@ -39,6 +40,7 @@ import com.dndmaster.adventure.domain.adventure.RuntimeBinding;
 import com.dndmaster.adventure.domain.adventure.ScenarioId;
 import com.dndmaster.adventure.domain.adventure.SessionId;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
+import com.dndmaster.adventure.domain.knowledge.SessionKnowledgeSet;
 import com.dndmaster.adventure.domain.scenario.ResolutionKind;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
@@ -60,6 +62,52 @@ import org.junit.jupiter.api.Test;
 
 class RuntimeTurnApplicationServiceTest {
     @Test
+    void uses_persisted_session_scope_instead_of_binding_rulebooks() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId selected = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId bindingOnly = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(selected, bindingOnly);
+        InMemorySessionKnowledgeSetRepository scopes = new InMemorySessionKnowledgeSetRepository();
+        scopes.save(new SessionKnowledgeSet(adventure.sessionId(), List.of(selected)));
+        RecordingEvidenceSearchPort search = new RecordingEvidenceSearchPort(selected, bindingOnly);
+
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
+                new InMemoryAdventureRepository(adventure),
+                new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId(), bindingOnly)),
+                new InMemoryPackageRepository(scenarioPackage), new InMemoryRuntimeTurnRepository(), search,
+                request -> new RuntimePlan("scene", null, "judgment", "narration", null, List.of(), List.of()),
+                new AllowingSafetyPort(true), scopes);
+
+        RuntimeTurnResult result = service.submitTurn(new SubmitRuntimeTurnCommand(
+                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Open the door"));
+
+        assertEquals(adventure.sessionId(), search.requests.getFirst().sessionId());
+        assertEquals(List.of(selected.value()), search.requests.getFirst().knowledgeDocumentIds());
+        assertEquals(List.of(selected.value()), search.requests.getLast().knowledgeDocumentIds());
+        assertTrue(result.turn().evidencePack().storybook().stream()
+                .noneMatch(evidence -> evidence.knowledgeDocumentId().equals(bindingOnly)));
+        assertTrue(result.turn().evidencePack().rulebook().stream()
+                .noneMatch(evidence -> evidence.knowledgeDocumentId().equals(bindingOnly)));
+    }
+
+    @Test
+    void fails_closed_when_persisted_session_scope_is_missing() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        ScenarioPackage scenarioPackage = scenarioPackage(
+                new KnowledgeDocumentId(UUID.randomUUID()), new KnowledgeDocumentId(UUID.randomUUID()));
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
+                new InMemoryAdventureRepository(adventure),
+                new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId())),
+                new InMemoryPackageRepository(scenarioPackage), new InMemoryRuntimeTurnRepository(),
+                new RecordingEvidenceSearchPort(null, null), request -> { throw new AssertionError("must not plan"); },
+                new AllowingSafetyPort(true), new InMemorySessionKnowledgeSetRepository());
+
+        assertThrows(IllegalStateException.class, () -> service.submitTurn(new SubmitRuntimeTurnCommand(
+                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Open the door")));
+    }
+    @Test
     void rejects_stale_expected_version_before_planning_or_persistence() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
         Adventure adventure = adventure(owner);
@@ -71,7 +119,7 @@ class RuntimeTurnApplicationServiceTest {
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventures, bindings, new InMemoryPackageRepository(scenarioPackage), new InMemoryRuntimeTurnRepository(),
                 new RecordingEvidenceSearchPort(storyId, rulebookId), request -> { throw new AssertionError("must not plan"); },
-                new AllowingSafetyPort(true));
+                new AllowingSafetyPort(true), scope(adventure, storyId, rulebookId));
 
         assertThrows(IllegalStateException.class, () -> service.submitTurn(new SubmitRuntimeTurnCommand(
                 adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Open the door", 99)));
@@ -96,7 +144,7 @@ class RuntimeTurnApplicationServiceTest {
         AllowingSafetyPort safety = new AllowingSafetyPort(true);
 
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
-                adventures, bindings, packages, turns, search, planning, safety);
+                adventures, bindings, packages, turns, search, planning, safety, scope(adventure, storyId, rulebookId));
         RuntimeTurnResult result = service.submitTurn(new SubmitRuntimeTurnCommand(
                 adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Open the door"));
 
@@ -131,7 +179,7 @@ class RuntimeTurnApplicationServiceTest {
         AllowingSafetyPort safety = new AllowingSafetyPort(false);
 
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
-                adventures, bindings, packages, turns, search, planning, safety);
+                adventures, bindings, packages, turns, search, planning, safety, scope(adventure, storyId, rulebookId));
 
         assertThrows(IllegalStateException.class, () -> service.submitTurn(
                 new SubmitRuntimeTurnCommand(adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Open the door")));
@@ -161,7 +209,7 @@ class RuntimeTurnApplicationServiceTest {
         AllowingSafetyPort safety = new AllowingSafetyPort(true);
 
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
-                adventures, bindings, packages, turns, search, planning, safety);
+                adventures, bindings, packages, turns, search, planning, safety, scope(adventure, storyId, rulebookId));
         SubmitRuntimeTurnCommand command = new SubmitRuntimeTurnCommand(adventure.id(), owner, turnId, commandId, "Open the door", 0);
 
         RuntimeTurnResult first = service.submitTurn(command);
@@ -194,7 +242,7 @@ class RuntimeTurnApplicationServiceTest {
         AllowingSafetyPort safety = new AllowingSafetyPort(true);
 
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
-                adventures, bindings, packages, turns, search, planning, safety);
+                adventures, bindings, packages, turns, search, planning, safety, scope(adventure, storyId, rulebookId));
         SubmitRuntimeTurnCommand command = new SubmitRuntimeTurnCommand(adventure.id(), owner, turnId, commandId, "Open the door");
 
         assertThrows(IllegalStateException.class, () -> service.submitTurn(command));
@@ -210,12 +258,16 @@ class RuntimeTurnApplicationServiceTest {
     }
 
     private static RuntimeBinding binding(AdventureId adventureId, OwnerPlayerId owner, UUID packageId) {
+        return binding(adventureId, owner, packageId, new KnowledgeDocumentId(UUID.randomUUID()));
+    }
+
+    private static RuntimeBinding binding(AdventureId adventureId, OwnerPlayerId owner, UUID packageId, KnowledgeDocumentId rulebookId) {
         return RuntimeBinding.create(
                 adventureId,
                 owner,
                 packageId,
                 1,
-                List.of(UUID.randomUUID()),
+                List.of(rulebookId.value()),
                 List.of(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT, true, true, true, true, true, true)),
                 "engine-1",
                 List.of("search"),
@@ -228,6 +280,13 @@ class RuntimeTurnApplicationServiceTest {
                 AdventureId.generate(), new SessionId(UUID.randomUUID()), owner,
                 new ScenarioId(UUID.randomUUID()), new com.dndmaster.adventure.domain.adventure.RuleSetId(UUID.randomUUID()),
                 new CharacterSheetId(UUID.randomUUID()), new AdventureContext("start", null, null, null));
+    }
+
+    private static InMemorySessionKnowledgeSetRepository scope(
+            Adventure adventure, KnowledgeDocumentId storyId, KnowledgeDocumentId rulebookId) {
+        InMemorySessionKnowledgeSetRepository repository = new InMemorySessionKnowledgeSetRepository();
+        repository.save(new SessionKnowledgeSet(adventure.sessionId(), List.of(storyId, rulebookId)));
+        return repository;
     }
 
     private static ScenarioPackage scenarioPackage(KnowledgeDocumentId storyId, KnowledgeDocumentId rulebookId) {
@@ -288,6 +347,20 @@ class RuntimeTurnApplicationServiceTest {
         @Override
         public void save(RuntimeBinding binding) {
             current = binding;
+        }
+    }
+
+    private static final class InMemorySessionKnowledgeSetRepository implements SessionKnowledgeSetRepository {
+        private final Map<SessionId, SessionKnowledgeSet> values = new HashMap<>();
+
+        @Override
+        public Optional<SessionKnowledgeSet> findBySessionId(SessionId sessionId) {
+            return Optional.ofNullable(values.get(sessionId));
+        }
+
+        @Override
+        public void save(SessionKnowledgeSet set) {
+            values.put(set.sessionId(), set);
         }
     }
 
@@ -371,6 +444,7 @@ class RuntimeTurnApplicationServiceTest {
         private final KnowledgeDocumentId storyId;
         private final KnowledgeDocumentId ruleId;
         private final List<RuntimeEvidenceType> requestTypes = new ArrayList<>();
+        private final List<RuntimeEvidenceSearchRequest> requests = new ArrayList<>();
         private int calls;
 
         private RecordingEvidenceSearchPort(KnowledgeDocumentId storyId, KnowledgeDocumentId ruleId) {
@@ -381,11 +455,12 @@ class RuntimeTurnApplicationServiceTest {
         @Override
         public List<RuntimeEvidence> search(RuntimeEvidenceSearchRequest request) {
             calls++;
+            requests.add(request);
             requestTypes.add(request.evidenceType());
-            if (request.evidenceType() == RuntimeEvidenceType.STORYBOOK) {
-                return List.of(new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK, storyId, 1, "page:1:span:1", "Story excerpt"));
-            }
-            return List.of(new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK, ruleId, 1, "rulebook:1", "Rule excerpt"));
+            List<RuntimeEvidence> result = request.evidenceType() == RuntimeEvidenceType.STORYBOOK
+                    ? List.of(new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK, storyId, 1, "page:1:span:1", "Story excerpt"))
+                    : List.of(new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK, ruleId, 1, "rulebook:1", "Rule excerpt"));
+            return result;
         }
     }
 

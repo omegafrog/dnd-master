@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.application.runtime;
 
 import com.dndmaster.adventure.application.saved.AdventureRepository;
+import com.dndmaster.adventure.application.knowledge.SessionKnowledgeSetRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.adventure.Adventure;
@@ -8,6 +9,7 @@ import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.ConversationEntry;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
+import com.dndmaster.adventure.domain.knowledge.SessionKnowledgeSet;
 import com.dndmaster.adventure.domain.adventure.RuntimeBinding;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
@@ -26,6 +28,7 @@ public final class RuntimeTurnApplicationService {
     private final RuntimeEvidenceSearchPort evidenceSearchPort;
     private final RuntimePlanningPort planningPort;
     private final NarrationSafetyPort narrationSafetyPort;
+    private final SessionKnowledgeSetRepository sessionKnowledgeSetRepository;
 
     public RuntimeTurnApplicationService(
             AdventureRepository adventureRepository,
@@ -34,7 +37,8 @@ public final class RuntimeTurnApplicationService {
             RuntimeTurnRepository runtimeTurnRepository,
             RuntimeEvidenceSearchPort evidenceSearchPort,
             RuntimePlanningPort planningPort,
-            NarrationSafetyPort narrationSafetyPort) {
+            NarrationSafetyPort narrationSafetyPort,
+            SessionKnowledgeSetRepository sessionKnowledgeSetRepository) {
         this.adventureRepository = Objects.requireNonNull(adventureRepository, "adventure repository must not be null");
         this.bindingRepository = Objects.requireNonNull(bindingRepository, "binding repository must not be null");
         this.scenarioPackageRepository = Objects.requireNonNull(scenarioPackageRepository, "scenario package repository must not be null");
@@ -42,6 +46,8 @@ public final class RuntimeTurnApplicationService {
         this.evidenceSearchPort = Objects.requireNonNull(evidenceSearchPort, "evidence search port must not be null");
         this.planningPort = Objects.requireNonNull(planningPort, "planning port must not be null");
         this.narrationSafetyPort = Objects.requireNonNull(narrationSafetyPort, "narration safety port must not be null");
+        this.sessionKnowledgeSetRepository = Objects.requireNonNull(
+                sessionKnowledgeSetRepository, "session knowledge set repository must not be null");
     }
 
     public RuntimeTurnResult submitTurn(SubmitRuntimeTurnCommand command) {
@@ -145,16 +151,33 @@ public final class RuntimeTurnApplicationService {
 
     private EvidencePack prefetchEvidence(
             SubmitRuntimeTurnCommand command, Adventure adventure, RuntimeBinding binding, ScenarioPackage scenarioPackage) {
-        List<RuntimeEvidence> storybook = evidenceSearchPort.search(new RuntimeEvidenceSearchRequest(
-                adventure.id(), command.ownerPlayerId(), binding.scenarioPackageId(), binding.rulebookIds(),
+        List<UUID> knowledgeDocumentIds = knowledgeDocumentIds(adventure);
+        List<RuntimeEvidence> storybook = scopedSearch(new RuntimeEvidenceSearchRequest(
+                adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), knowledgeDocumentIds,
                 binding.activeSourceContext(), command.action(), RuntimeEvidenceType.STORYBOOK, 5));
-        List<RuntimeEvidence> rulebook = evidenceSearchPort.search(new RuntimeEvidenceSearchRequest(
-                adventure.id(), command.ownerPlayerId(), binding.scenarioPackageId(), binding.rulebookIds(),
+        List<RuntimeEvidence> rulebook = scopedSearch(new RuntimeEvidenceSearchRequest(
+                adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), knowledgeDocumentIds,
                 binding.activeSourceContext(), command.action(), RuntimeEvidenceType.RULEBOOK, 5));
         List<RuntimeEvidence> resolution = scenarioPackage.runtimeCandidates().stream()
                 .flatMap(unit -> resolutionEvidence(unit).stream())
+                .filter(evidence -> knowledgeDocumentIds.contains(evidence.knowledgeDocumentId().value()))
                 .toList();
         return new EvidencePack(storybook, rulebook, resolution);
+    }
+
+    private List<RuntimeEvidence> scopedSearch(RuntimeEvidenceSearchRequest request) {
+        return evidenceSearchPort.search(request).stream()
+                .filter(evidence -> request.knowledgeDocumentIds().contains(evidence.knowledgeDocumentId().value()))
+                .toList();
+    }
+
+    private List<UUID> knowledgeDocumentIds(Adventure adventure) {
+        SessionKnowledgeSet set = sessionKnowledgeSetRepository.findBySessionId(adventure.sessionId())
+                .orElseThrow(() -> new IllegalStateException("session knowledge set not found"));
+        if (!set.sessionId().equals(adventure.sessionId())) {
+            throw new IllegalStateException("session knowledge set does not match adventure");
+        }
+        return set.knowledgeDocumentIds().stream().map(id -> id.value()).toList();
     }
 
     private static List<RuntimeEvidence> resolutionEvidence(ScenarioResolutionUnit unit) {
