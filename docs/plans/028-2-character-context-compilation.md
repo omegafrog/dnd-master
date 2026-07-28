@@ -1,6 +1,6 @@
 # 028-2 - 캐릭터 컨텍스트 컴파일 오케스트레이션
 
-- Status: approved
+- Status: completed
 - Issue: [#91](https://github.com/omegafrog/dnd-master/issues/91)
 - Parent: 028
 - Dependencies: 028-1

@@ -25,6 +25,7 @@ public final class ScenarioCompilationWorker {
     private final ScenarioBundleRepository bundleRepository;
     private final ResolutionExtractionPort extractionPort;
     private final ScenarioSourceExcerptPort excerptPort;
+    private final CharacterContextSearchPort characterContextSearchPort;
     private final CharacterInputTagExtractionPort characterTagPort;
     private final ScenarioPackageCompilationService compiler;
 
@@ -38,7 +39,30 @@ public final class ScenarioCompilationWorker {
             ScenarioPackageCompilationService compiler,
             ScenarioPackageRepository ignoredPackageRepository) {
         this(processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort,
-                ignored -> List.of(), compiler, ignoredPackageRepository);
+                ignored -> List.of(), ignored -> List.of(), compiler, ignoredPackageRepository);
+    }
+
+    public ScenarioCompilationWorker(
+            ScenarioCompilationProcessManager processManager,
+            ScenarioCompilationRepository compilationRepository,
+            WorkQueuePort queue,
+            ScenarioBundleRepository bundleRepository,
+            ResolutionExtractionPort extractionPort,
+            ScenarioSourceExcerptPort excerptPort,
+            CharacterInputTagExtractionPort characterTagPort,
+            CharacterContextSearchPort characterContextSearchPort,
+            ScenarioPackageCompilationService compiler,
+            ScenarioPackageRepository ignoredPackageRepository) {
+        this.processManager = Objects.requireNonNull(processManager, "process manager must not be null");
+        this.compilationRepository = Objects.requireNonNull(compilationRepository, "compilation repository must not be null");
+        this.queue = Objects.requireNonNull(queue, "queue must not be null");
+        this.bundleRepository = Objects.requireNonNull(bundleRepository, "bundle repository must not be null");
+        this.extractionPort = Objects.requireNonNull(extractionPort, "extraction port must not be null");
+        this.excerptPort = Objects.requireNonNull(excerptPort, "excerpt port must not be null");
+        this.characterContextSearchPort = Objects.requireNonNull(characterContextSearchPort, "character context search port must not be null");
+        this.characterTagPort = Objects.requireNonNull(characterTagPort, "character tag port must not be null");
+        this.compiler = Objects.requireNonNull(compiler, "compiler must not be null");
+        Objects.requireNonNull(ignoredPackageRepository, "package repository must not be null");
     }
 
     public ScenarioCompilationWorker(
@@ -51,15 +75,8 @@ public final class ScenarioCompilationWorker {
             CharacterInputTagExtractionPort characterTagPort,
             ScenarioPackageCompilationService compiler,
             ScenarioPackageRepository ignoredPackageRepository) {
-        this.processManager = Objects.requireNonNull(processManager, "process manager must not be null");
-        this.compilationRepository = Objects.requireNonNull(compilationRepository, "compilation repository must not be null");
-        this.queue = Objects.requireNonNull(queue, "queue must not be null");
-        this.bundleRepository = Objects.requireNonNull(bundleRepository, "bundle repository must not be null");
-        this.extractionPort = Objects.requireNonNull(extractionPort, "extraction port must not be null");
-        this.excerptPort = Objects.requireNonNull(excerptPort, "excerpt port must not be null");
-        this.characterTagPort = Objects.requireNonNull(characterTagPort, "character tag port must not be null");
-        this.compiler = Objects.requireNonNull(compiler, "compiler must not be null");
-        Objects.requireNonNull(ignoredPackageRepository, "package repository must not be null");
+        this(processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort,
+                characterTagPort, ignored -> List.of(), compiler, ignoredPackageRepository);
     }
 
     @Scheduled(fixedDelayString = "${adventure.scenario-compilation.poll-delay-ms:1000}")
@@ -96,17 +113,14 @@ public final class ScenarioCompilationWorker {
                                     .filter(excerpt -> bundleSources.contains(excerpt.documentId().value() + ":" + excerpt.extractionVersion()))
                                     .limit(3).toList(),
                             "resolution-candidate-v1", "resolution-prompt-v1"));
+            List<CharacterContextSearchPort.Evidence> characterContext = searchCharacterContext(bundle);
             List<com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.SourceExcerpt> tagExcerpts =
-                    excerpts == null ? List.of() : excerpts.stream()
-                            .filter(excerpt -> bundleSources.contains(excerpt.documentId().value() + ":" + excerpt.extractionVersion()))
-                            .limit(3)
-                            .map(excerpt -> new com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.SourceExcerpt(
-                                    excerpt.documentId(), excerpt.extractionVersion(), excerpt.locator(), excerpt.text()))
+                    characterContext.stream()
+                            .map(evidence -> new com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.SourceExcerpt(
+                                    evidence.documentId(), evidence.extractionVersion(), evidence.locator(), evidence.excerpt()))
                             .toList();
             List<com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate> characterCandidates =
-                    characterTagPort.extract(new CharacterInputTagExtractionPort.Request(
-                            claimed.id() + ":character-input-tags", tagExcerpts,
-                            "character-input-tag-v1", "character-input-tag-prompt-v1"));
+                    extractCharacterTags(claimed.id().toString(), tagExcerpts);
             ScenarioPackage scenarioPackage = compiler.compileWithCharacterCandidates(bundle, candidates == null ? List.of() : candidates,
                     excerpts == null ? List.of() : excerpts, characterCandidates == null ? List.of() : characterCandidates);
             processManager.publish(claimed, delivery, scenarioPackage.packageId());
@@ -124,6 +138,37 @@ public final class ScenarioCompilationWorker {
             log.warn("scenario compilation worker failed compilationId={} attempt={} reason={}",
                     claimed.id(), claimed.attempt(), reason, exception);
             throw exception;
+        }
+    }
+
+    private List<CharacterContextSearchPort.Evidence> searchCharacterContext(ScenarioSourceBundle bundle) {
+        try {
+            List<CharacterContextSearchPort.DocumentScope> documents = bundle.currentRevision().documents().stream()
+                    .map(document -> new CharacterContextSearchPort.DocumentScope(
+                            document.knowledgeDocumentId(), document.documentType(), document.extractionVersion()))
+                    .filter(document -> List.of("RULEBOOK", "STORYBOOK", "HANDOUT")
+                            .contains(document.documentType().toUpperCase(java.util.Locale.ROOT)))
+                    .toList();
+            if (documents.isEmpty()) return List.of();
+            return characterContextSearchPort.search(new CharacterContextSearchPort.Request(
+                    bundle.ownerPlayerId().value(), documents,
+                    "Extract character creation choices, fixed values, and required input fields.", 2000));
+        } catch (RuntimeException exception) {
+            log.warn("character context search failed; continuing with manual character fallback", exception);
+            return List.of();
+        }
+    }
+
+    private List<com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate> extractCharacterTags(
+            String operationId,
+            List<com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.SourceExcerpt> excerpts) {
+        try {
+            return characterTagPort.extract(new CharacterInputTagExtractionPort.Request(
+                    operationId + ":character-input-tags", excerpts,
+                    "character-input-tag-v1", "character-input-tag-prompt-v1"));
+        } catch (RuntimeException exception) {
+            log.warn("character input extraction failed; continuing with manual character fallback", exception);
+            return List.of();
         }
     }
 }

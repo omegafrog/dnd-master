@@ -34,6 +34,7 @@ import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpInitia
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpResolutionExtractionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterInputTagExtractionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpScenarioSourceExcerptGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterContextSearchGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuleIntentClassificationGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuntimeEvidenceSearchGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetReadGateway;
@@ -337,6 +338,15 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.scenario.compilation.CharacterContextSearchPort characterContextSearchPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.scenario-compilation.timeout:120s}") Duration timeout) {
+        return new CrossContextHttpCharacterContextSearchGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), timeout, objectMapper);
+    }
+
+    @Bean
     com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationWorker scenarioCompilationWorker(
             com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationProcessManager processManager,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationRepository compilationRepository,
@@ -345,11 +355,12 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort extractionPort,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort excerptPort,
             com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort characterInputTagExtractionPort,
+            com.dndmaster.adventure.application.scenario.compilation.CharacterContextSearchPort characterContextSearchPort,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService compiler,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository) {
         return new com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationWorker(
                 processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort,
-                characterInputTagExtractionPort, compiler,
+                characterInputTagExtractionPort, characterContextSearchPort, compiler,
                 packageRepository);
     }
 
