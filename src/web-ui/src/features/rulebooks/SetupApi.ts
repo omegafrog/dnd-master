@@ -145,9 +145,12 @@ export type CharacterCreationBlueprintView = {
     required: boolean
     sourceType: string
     inputStatus: string
+    inputMode?: 'FREE_TEXT' | 'SINGLE_SELECT' | 'MULTI_SELECT'
+    suggestions?: string[]
     diagnostics: string[]
     constraints?: string[]
     evidence?: Array<{ knowledgeDocumentId: string; extractionVersion: number; locator: string }>
+    sourceQuote?: string
   }>
 }
 

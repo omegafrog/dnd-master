@@ -9,6 +9,7 @@
 - [025-R1 Runtime session scope policy](025-r1-runtime-session-scope.md)
 - [025-R2 Rule-knowledge retrieval authorization](025-r2-rule-knowledge-retrieval-authorization.md)
 - [025-R3 Runtime compatibility and migration hardening](025-r3-runtime-compatibility.md)
+- [026 Document-derived character creation input](026-document-derived-character-creation.md)
 - [026-1 4판/5판 기본 캐릭터 태그 추출](026-1-character-tag-extraction.md)
 - [026-2 스토리북 기반 캐릭터 옵션·우선순위](026-2-storybook-character-options.md)
 - [026-3 동적 캐릭터 입력 태그 트리·타입 보존](026-3-character-input-tree.md)

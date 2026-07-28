@@ -4,6 +4,20 @@ import { describe, expect, it, vi } from 'vitest'
 import { CharacterCreationPage } from './CharacterCreationPage'
 
 describe('CharacterCreationPage', () => {
+  it('renders explicit input mode instead of inferring control from options', async () => {
+    const setupApi = {
+      getPlayPreparation: vi.fn().mockResolvedValue({ scenarioPackageId: 'package-1', bundleId: 'bundle-1', bundleRevision: 1, status: 'READY', blockers: [], characterLimit: { maximumCharacters: 2, source: null, sourceQuote: '' }, characterCreationBlueprint: { available: true, summary: 'published blueprint', rulebookDocumentCount: 1, storybookDocumentCount: 0, diagnostics: [], revision: 1, status: 'PUBLISHED', fields: [
+        { key: 'race', options: [], required: true, sourceType: 'RULEBOOK', inputStatus: 'EXTRACTED', inputMode: 'SINGLE_SELECT', suggestions: ['Elf'], diagnostics: [], evidence: [] },
+      ] } }),
+      createCharacterSheet: vi.fn(),
+    }
+    const sessionApi = { read: vi.fn().mockResolvedValue({ sessionId: 'session-1', scenarioPackageId: 'package-1', blueprintRevision: 1, characterLimit: 2, version: 0, status: 'DRAFT', party: [], adventureId: null, runtimeConfiguration: null }), addMember: vi.fn(), start: vi.fn() }
+
+    render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
+
+    expect(await screen.findByRole('combobox', { name: 'race' })).toBeTruthy()
+  })
+
   it('waits for a real session, then posts session id and blueprint revision', async () => {
     const sessionApi = {
       read: vi.fn().mockResolvedValue({ sessionId: 'session-1', scenarioPackageId: 'package-1', blueprintRevision: 4, characterLimit: 2, version: 0, status: 'DRAFT', party: [], adventureId: null, runtimeConfiguration: null }),

@@ -17,6 +17,7 @@ import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
+import com.dndmaster.adventure.domain.scenario.InputMode;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -161,12 +162,29 @@ public final class ScenarioPackageCompilationService {
                 evidenceSourceType = sourceType;
             }
             if (evidence != null) candidates.add(new CharacterCreationBlueprintCompiler.FieldCandidate(
-                    key, options, extracted, evidenceSourceType,
+                    key, inputOptions(key, options), extracted, evidenceSourceType,
                     new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(
                             evidence.documentId(), evidence.extractionVersion(), evidence.locator()),
-                    evidence.text() == null ? "" : evidence.text()));
+                    evidence.text() == null ? "" : evidence.text(), inputMode(key),
+                    inputSuggestions(key, options)));
         }
         return candidates;
+    }
+
+    private static InputMode inputMode(String key) {
+        return switch (key) {
+            case "name" -> InputMode.FREE_TEXT;
+            case "starting_ability_scores" -> InputMode.MULTI_SELECT;
+            default -> InputMode.SINGLE_SELECT;
+        };
+    }
+
+    private static List<String> inputOptions(String key, List<String> values) {
+        return inputMode(key) == InputMode.FREE_TEXT ? List.of() : values;
+    }
+
+    private static List<String> inputSuggestions(String key, List<String> values) {
+        return inputMode(key) == InputMode.FREE_TEXT ? values : List.of();
     }
 
     private static boolean isHandoutExcerpt(

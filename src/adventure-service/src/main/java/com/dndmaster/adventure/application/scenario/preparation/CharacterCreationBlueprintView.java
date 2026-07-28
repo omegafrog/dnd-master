@@ -27,10 +27,21 @@ public record CharacterCreationBlueprintView(
     }
 
     public record FieldView(String key, List<String> options, boolean required, String sourceType,
-                            String inputStatus, List<String> diagnostics) {
+                            String inputStatus, List<String> diagnostics, String inputMode,
+                            List<String> suggestions, String sourceQuote,
+                            List<com.dndmaster.adventure.domain.scenario.ScenarioSourceReference> evidence) {
+        public FieldView(String key, List<String> options, boolean required, String sourceType,
+                         String inputStatus, List<String> diagnostics) {
+            this(key, options, required, sourceType, inputStatus, diagnostics,
+                    options.isEmpty() ? "FREE_TEXT" : "SINGLE_SELECT", List.of(), "", List.of());
+        }
+
         public FieldView {
             options = List.copyOf(options);
             diagnostics = List.copyOf(diagnostics);
+            suggestions = List.copyOf(suggestions);
+            sourceQuote = sourceQuote == null ? "" : sourceQuote;
+            evidence = List.copyOf(evidence);
         }
     }
 }

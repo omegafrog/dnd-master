@@ -1,6 +1,6 @@
 # 026-3 - 동적 캐릭터 입력 태그 트리·타입 보존
 
-- Status: planned
+- Status: ready-for-agent
 - Issue: [#82](https://github.com/omegafrog/dnd-master/issues/82)
 - Parent: [#79](https://github.com/omegafrog/dnd-master/issues/79)
 - Dependencies: [026-1](026-1-character-tag-extraction.md), [026-2](026-2-storybook-character-options.md)

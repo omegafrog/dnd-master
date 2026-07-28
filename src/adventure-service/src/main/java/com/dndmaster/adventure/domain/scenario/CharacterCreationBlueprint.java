@@ -32,11 +32,15 @@ public record CharacterCreationBlueprint(
         boolean found = false;
         for (Field field : fields) {
             if (!field.key().equals(key)) { next.add(field); continue; }
-            if (!field.options().isEmpty() && !field.options().contains(value)) {
+            List<String> requestedValues = field.inputMode() == InputMode.MULTI_SELECT
+                    ? java.util.Arrays.stream(value.split(",")).map(String::trim).filter(item -> !item.isBlank()).toList()
+                    : List.of(value);
+            if (requestedValues.isEmpty()) throw new IllegalArgumentException("blueprint value must not be blank");
+            if (!field.options().isEmpty() && requestedValues.stream().anyMatch(item -> !field.options().contains(item))) {
                 throw new IllegalArgumentException("value is not a blueprint option: " + value);
             }
-            next.add(new Field(field.key(), List.of(value), field.required(), field.sourceType(), field.evidence(),
-                    "USER_CONFIRMED", List.of()));
+            next.add(new Field(field.key(), requestedValues, field.required(), field.sourceType(), field.evidence(),
+                    "USER_CONFIRMED", List.of(), field.inputMode(), field.suggestions(), field.sourceQuote()));
             found = true;
         }
         if (!found) throw new IllegalArgumentException("unknown blueprint field: " + key);
@@ -57,7 +61,14 @@ public record CharacterCreationBlueprint(
     }
 
     public record Field(String key, List<String> options, boolean required, String sourceType,
-                        List<ScenarioSourceReference> evidence, String inputStatus, List<String> diagnostics) {
+                        List<ScenarioSourceReference> evidence, String inputStatus, List<String> diagnostics,
+                        InputMode inputMode, List<String> suggestions, String sourceQuote) {
+        public Field(String key, List<String> options, boolean required, String sourceType,
+                     List<ScenarioSourceReference> evidence, String inputStatus, List<String> diagnostics) {
+            this(key, options, required, sourceType, evidence, inputStatus, diagnostics,
+                    options.isEmpty() ? InputMode.FREE_TEXT : InputMode.SINGLE_SELECT, List.of(), "");
+        }
+
         public Field {
             key = Objects.requireNonNull(key, "field key must not be null");
             options = List.copyOf(Objects.requireNonNull(options, "options must not be null"));
@@ -65,6 +76,12 @@ public record CharacterCreationBlueprint(
             evidence = List.copyOf(Objects.requireNonNull(evidence, "evidence must not be null"));
             inputStatus = Objects.requireNonNull(inputStatus, "input status must not be null");
             diagnostics = List.copyOf(Objects.requireNonNull(diagnostics, "diagnostics must not be null"));
+            inputMode = Objects.requireNonNull(inputMode, "input mode must not be null");
+            suggestions = List.copyOf(Objects.requireNonNull(suggestions, "suggestions must not be null"));
+            sourceQuote = Objects.requireNonNull(sourceQuote, "source quote must not be null");
+            if (inputMode == InputMode.FREE_TEXT && !options.isEmpty()) {
+                throw new IllegalArgumentException("free-text field cannot have options");
+            }
         }
     }
 }

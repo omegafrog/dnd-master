@@ -2,6 +2,7 @@ package com.dndmaster.adventure.application.scenario.blueprint;
 
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus;
+import com.dndmaster.adventure.domain.scenario.InputMode;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -55,10 +56,16 @@ public final class CharacterCreationBlueprintCompiler {
             if (conflict) fieldDiagnostics.add("conflicting handout values");
             if (missing) fieldDiagnostics.add("manual input required");
             String inputStatus = missing ? "MANUAL_INPUT_REQUIRED" : "EXTRACTED";
+            InputMode inputMode = selected.stream().map(FieldCandidate::inputMode).findFirst()
+                    .orElse(InputMode.FREE_TEXT);
+            List<String> suggestions = selected.stream().flatMap(candidate -> candidate.suggestions().stream()).distinct().toList();
+            String sourceQuote = selected.stream().map(FieldCandidate::sourceQuote)
+                    .filter(quote -> !quote.isBlank()).findFirst().orElse("");
             CharacterCreationBlueprint.Field field = new CharacterCreationBlueprint.Field(
                     entry.getKey(), List.copyOf(options), values.stream().anyMatch(FieldCandidate::required),
                     selected.stream().anyMatch(candidate -> candidate.sourceType().equals("HANDOUT"))
-                            ? "HANDOUT" : "RULEBOOK", evidence, inputStatus, fieldDiagnostics);
+                            ? "HANDOUT" : "RULEBOOK", evidence, inputStatus, fieldDiagnostics,
+                    inputMode, suggestions, sourceQuote);
             fields.add(field);
             diagnostics.addAll(fieldDiagnostics.stream().map(message -> entry.getKey() + ": " + message).toList());
         }
@@ -73,7 +80,15 @@ public final class CharacterCreationBlueprintCompiler {
             boolean extracted,
             String sourceType,
             ScenarioSourceReference evidence,
-            String sourceQuote) {
+            String sourceQuote,
+            InputMode inputMode,
+            List<String> suggestions) {
+        public FieldCandidate(String key, List<String> options, boolean extracted, String sourceType,
+                              ScenarioSourceReference evidence, String sourceQuote) {
+            this(key, options, extracted, sourceType, evidence, sourceQuote,
+                    options.isEmpty() ? InputMode.FREE_TEXT : InputMode.SINGLE_SELECT, List.of());
+        }
+
         public FieldCandidate {
             key = Objects.requireNonNull(key, "field key must not be null").trim();
             options = List.copyOf(Objects.requireNonNull(options, "options must not be null"));
@@ -83,6 +98,11 @@ public final class CharacterCreationBlueprintCompiler {
             }
             evidence = Objects.requireNonNull(evidence, "evidence must not be null");
             sourceQuote = Objects.requireNonNull(sourceQuote, "source quote must not be null");
+            inputMode = Objects.requireNonNull(inputMode, "input mode must not be null");
+            suggestions = List.copyOf(Objects.requireNonNull(suggestions, "suggestions must not be null"));
+            if (inputMode == InputMode.FREE_TEXT && !options.isEmpty()) {
+                throw new IllegalArgumentException("free-text candidate cannot have options");
+            }
         }
 
         public boolean required() { return true; }

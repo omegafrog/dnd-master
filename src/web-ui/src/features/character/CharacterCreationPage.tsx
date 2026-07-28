@@ -79,8 +79,10 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
     <fieldset aria-label="Blueprint 캐릭터 필드">
       <legend>Blueprint 필드</legend>
       {(blueprint.fields ?? []).map(field => <label key={field.key}>{field.key}
-        {field.options.length > 0 ? <select aria-label={field.key} required={field.required} value={values[field.key] ?? ''} onChange={event => setValues(current => ({ ...current, [field.key]: event.currentTarget.value }))}><option value="">선택하세요</option>{field.options.map(option => <option key={option} value={option}>{option}</option>)}</select>
-          : <input aria-label={field.key} required={field.required} value={values[field.key] ?? ''} onChange={event => setValues(current => ({ ...current, [field.key]: event.currentTarget.value }))} />}
+        {(field.inputMode ?? 'FREE_TEXT') === 'SINGLE_SELECT' ? <select aria-label={field.key} required={field.required} value={values[field.key] ?? ''} onChange={event => { const value = event.currentTarget.value; setValues(current => ({ ...current, [field.key]: value })) }}><option value="">선택하세요</option>{field.options.map(option => <option key={option} value={option}>{option}</option>)}</select>
+          : (field.inputMode ?? 'FREE_TEXT') === 'MULTI_SELECT' ? <select multiple aria-label={field.key} required={field.required} value={(values[field.key] ?? '').split(',').filter(Boolean)} onChange={event => { const value = Array.from(event.currentTarget.selectedOptions, option => option.value).join(','); setValues(current => ({ ...current, [field.key]: value })) }}>{field.options.map(option => <option key={option} value={option}>{option}</option>)}</select>
+            : <input aria-label={field.key} required={field.required} value={values[field.key] ?? ''} onChange={event => { const value = event.currentTarget.value; setValues(current => ({ ...current, [field.key]: value })) }} />}
+        {(field.suggestions ?? []).length > 0 && <small>추천: {field.suggestions?.join(', ')}</small>}
         {field.inputStatus === 'MANUAL_INPUT_REQUIRED' && <small>수동 입력 필요 · 근거: {field.sourceType}</small>}
         {(field.constraints ?? []).map(item => <small key={item}>제약: {item}</small>)}
         {(field.evidence ?? []).map(item => <small key={`${item.knowledgeDocumentId}-${item.locator}`}>근거: {item.knowledgeDocumentId} v{item.extractionVersion} · {item.locator}</small>)}

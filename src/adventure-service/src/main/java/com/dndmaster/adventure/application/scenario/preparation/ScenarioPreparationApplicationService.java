@@ -148,6 +148,7 @@ public final class ScenarioPreparationApplicationService {
                 "CharacterCreationBlueprint revision " + blueprint.revision(), (int) rulebooks, (int) storybooks,
                 blueprint.diagnostics(), blueprint.revision(), blueprint.fields().stream()
                         .map(field -> new CharacterCreationBlueprintView.FieldView(field.key(), field.options(), field.required(),
-                                field.sourceType(), field.inputStatus(), field.diagnostics())).toList(), blueprint.status().name());
+                                field.sourceType(), field.inputStatus(), field.diagnostics(), field.inputMode().name(),
+                                field.suggestions(), field.sourceQuote(), field.evidence())).toList(), blueprint.status().name());
     }
 }

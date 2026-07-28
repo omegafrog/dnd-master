@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler;
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler.FieldCandidate;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus;
+import com.dndmaster.adventure.domain.scenario.InputMode;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import java.util.List;
@@ -15,6 +16,35 @@ import org.junit.jupiter.api.Test;
 class CharacterCreationBlueprintCompilerTest {
     private static final ScenarioSourceReference HANDOUT = source(1);
     private static final ScenarioSourceReference RULEBOOK = source(2);
+
+    @Test
+    void preservesExplicitInputModeSuggestionsAndSourceQuote() {
+        var blueprint = new CharacterCreationBlueprintCompiler().compile(1, List.of(
+                new FieldCandidate("name", List.of(), true, "RULEBOOK", RULEBOOK, "Name: Aria",
+                        InputMode.FREE_TEXT, List.of("Aria")),
+                new FieldCandidate("race", List.of("Elf", "Dwarf"), true, "RULEBOOK", RULEBOOK, "Race: Elf, Dwarf",
+                        InputMode.SINGLE_SELECT, List.of()),
+                new FieldCandidate("starting_ability_scores", List.of("STR", "DEX"), true, "RULEBOOK", RULEBOOK,
+                        "Scores: STR, DEX", InputMode.MULTI_SELECT, List.of())));
+
+        assertEquals(InputMode.FREE_TEXT, blueprint.field("name").inputMode());
+        assertEquals(List.of("Aria"), blueprint.field("name").suggestions());
+        assertEquals(InputMode.SINGLE_SELECT, blueprint.field("race").inputMode());
+        assertEquals(InputMode.MULTI_SELECT, blueprint.field("starting_ability_scores").inputMode());
+        assertEquals("Name: Aria", blueprint.field("name").sourceQuote());
+    }
+
+    @Test
+    void resolvesMultipleSelectionsWithoutChangingInputMode() {
+        var blueprint = new CharacterCreationBlueprintCompiler().compile(1, List.of(
+                new FieldCandidate("starting_ability_scores", List.of("STR", "DEX"), true, "RULEBOOK", RULEBOOK,
+                        "Scores", InputMode.MULTI_SELECT, List.of())));
+
+        var resolved = blueprint.resolve("starting_ability_scores", "STR,DEX");
+
+        assertEquals(List.of("STR", "DEX"), resolved.field("starting_ability_scores").options());
+        assertEquals(InputMode.MULTI_SELECT, resolved.field("starting_ability_scores").inputMode());
+    }
 
     @Test
     void handoutWinsOverRulebookAndMergesMultipleHandouts() {

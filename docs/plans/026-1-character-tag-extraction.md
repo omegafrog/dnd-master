@@ -1,6 +1,6 @@
 # 026-1 - 4판/5판 기본 캐릭터 태그 추출
 
-- Status: planned
+- Status: completed
 - Issue: [#80](https://github.com/omegafrog/dnd-master/issues/80)
 - Parent: [#79](https://github.com/omegafrog/dnd-master/issues/79)
 - Dependencies: none

@@ -1,6 +1,6 @@
 # 026-4 - 문서 기반 캐릭터 생성 Playwright 회귀 검증
 
-- Status: planned
+- Status: ready-for-agent
 - Issue: [#83](https://github.com/omegafrog/dnd-master/issues/83)
 - Parent: [#79](https://github.com/omegafrog/dnd-master/issues/79)
 - Dependencies: [026-1](026-1-character-tag-extraction.md), [026-2](026-2-storybook-character-options.md), [026-3](026-3-character-input-tree.md)

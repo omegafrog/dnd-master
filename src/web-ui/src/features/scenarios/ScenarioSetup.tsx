@@ -421,7 +421,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
                       {(playPreparation.characterCreationBlueprint.fields ?? []).map(field => (
                         <label key={field.key}>
                           {field.key}
-                          {field.options.length > 0 ? (
+                          {(field.inputMode ?? 'FREE_TEXT') === 'SINGLE_SELECT' ? (
                             <select
                               aria-label={field.key}
                               value={blueprintValues[field.key] ?? ''}
@@ -431,6 +431,18 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
                               }}
                             >
                               <option value="">선택하세요</option>
+                              {field.options.map(option => <option key={option} value={option}>{option}</option>)}
+                            </select>
+                          ) : (field.inputMode ?? 'FREE_TEXT') === 'MULTI_SELECT' ? (
+                            <select
+                              multiple
+                              aria-label={field.key}
+                              value={(blueprintValues[field.key] ?? '').split(',').filter(Boolean)}
+                              onChange={event => {
+                                const value = Array.from(event.currentTarget.selectedOptions, option => option.value).join(',')
+                                setBlueprintValues(current => ({ ...current, [field.key]: value }))
+                              }}
+                            >
                               {field.options.map(option => <option key={option} value={option}>{option}</option>)}
                             </select>
                           ) : (
@@ -443,6 +455,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
                               }}
                             />
                           )}
+                          {(field.suggestions ?? []).length > 0 ? <small>추천: {field.suggestions?.join(', ')}</small> : null}
                           {field.inputStatus === 'MANUAL_INPUT_REQUIRED' ? <small>수동 입력 필요</small> : null}
                           {api.resolveBlueprint && playPreparation.characterCreationBlueprint.status === 'NEEDS_REVIEW' ? <button type="button" onClick={() => void resolveBlueprint(field.key)} disabled={!blueprintValues[field.key]}>검토값 저장</button> : null}
                         </label>
