@@ -11,6 +11,7 @@ import type {
   ScenarioCompilationView,
   ScenarioPackageView,
   SetupApi,
+  CharacterInputNodeView,
   StorySourceEvidenceView,
 } from '../rulebooks/SetupApi'
 import type { AdventureSessionApi } from '../adventure-session/AdventureSessionApi'
@@ -35,6 +36,10 @@ const selectableStatuses = new Set<KnowledgeDocumentView['status']>([
 
 const compilationPollIntervalMs = 250
 const compilationPollLimit = 240
+
+function flattenBlueprintNodes(nodes: CharacterInputNodeView[]): CharacterInputNodeView[] {
+  return nodes.flatMap(node => [node, ...flattenBlueprintNodes(node.children)])
+}
 
 export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCreated }: { api: SetupApi; playerId: string; onError: (message: string) => void; sessionApi?: Pick<AdventureSessionApi, 'create'>; onSessionCreated?: (sessionId: string) => void }) {
   const [documents, setDocuments] = useState<KnowledgeDocumentView[]>([])
@@ -181,14 +186,15 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
     if (!characterName.trim()) return
     setCreatingCharacter(true)
     try {
+      const scoreRoot = playPreparation?.characterCreationBlueprint.roots?.find(node => node.key === 'starting_ability_scores')
       const draft: CharacterCreationDraft = {
         edition: characterEdition,
         characterName: characterName.trim(),
         level: characterLevel,
         inspiration: characterInspiration,
-        startingAbilities: Object.entries(blueprintValues)
-          .filter(([key, value]) => key.startsWith('starting_ability_scores.') && value.trim())
-          .map(([key, value]) => `${key.slice('starting_ability_scores.'.length)}=${value}`)
+        startingAbilities: flattenBlueprintNodes(scoreRoot?.children ?? [])
+          .filter(node => (blueprintValues[node.id] ?? node.value ?? '').trim())
+          .map(node => `${node.key}=${blueprintValues[node.id] ?? node.value ?? ''}`)
           .join(','),
         blueprintRevision: playPreparation?.characterCreationBlueprint.revision,
         blueprintValues,

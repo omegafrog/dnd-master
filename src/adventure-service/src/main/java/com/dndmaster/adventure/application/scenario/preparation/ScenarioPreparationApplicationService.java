@@ -106,7 +106,7 @@ public final class ScenarioPreparationApplicationService {
         requireCurrentBundleRevision(scenarioPackage, bundle);
         CharacterCreationBlueprint blueprint = requireBlueprint(scenarioPackage);
         requireBlueprintRevision(blueprint, expectedRevision);
-        CharacterCreationBlueprint resolved = blueprint.resolve(fieldKey, value);
+        CharacterCreationBlueprint resolved = blueprint.resolveNode(fieldKey, value);
         packageRepository.saveBlueprint(packageId, resolved);
         return resolved;
     }

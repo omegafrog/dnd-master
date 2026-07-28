@@ -43,7 +43,7 @@ class CharacterInputTreeTest {
 
         var added = blueprint.addUserInputChild("starting_ability_scores", "con", "CON");
         var strNodeId = added.node("starting_ability_scores.str").id();
-        var resolved = added.resolveNode("starting_ability_scores.str", "12");
+        var resolved = added.resolveNode(strNodeId, "12");
 
         assertEquals(2, added.revision());
         assertEquals(CharacterInputNodeStatus.USER_ADDED, added.node("starting_ability_scores.con").status());
