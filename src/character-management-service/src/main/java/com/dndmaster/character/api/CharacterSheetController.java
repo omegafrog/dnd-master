@@ -6,6 +6,7 @@ import com.dndmaster.character.domain.*;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.UUID;
+import java.util.Map;
 import com.dndmaster.character.application.CharacterSheetsDeletionConsumer;
 import com.dndmaster.character.application.CharacterSheetsDeletionRequested;
 import com.dndmaster.character.api.ApiRequestGuard;
@@ -40,7 +41,7 @@ public class CharacterSheetController {
                 new SessionId(sessionId),
                 request.ownerPlayerId(),
                 SheetEdition.valueOf(request.edition()),
-                parseData(request.edition(), request.characterName(), request.level(), request.inspiration(), request.race(), request.characterClass(), request.background(), request.startingAbilities())));
+                parseData(request.edition(), request.characterName(), request.level(), request.inspiration(), request.race(), request.characterClass(), request.background(), startingAbilities(request))));
         return CharacterSheetResponse.from(sheet);
     }
 
@@ -66,7 +67,7 @@ public class CharacterSheetController {
             @RequestBody CharacterSheetRequest request) {
         CharacterSheetUpdate update = new CharacterSheetUpdate(
                 SheetEdition.valueOf(request.edition()),
-                parseData(request.edition(), request.characterName(), request.level(), request.inspiration(), request.race(), request.characterClass(), request.background(), request.startingAbilities()),
+                parseData(request.edition(), request.characterName(), request.level(), request.inspiration(), request.race(), request.characterClass(), request.background(), startingAbilities(request)),
                 InputMode.STRUCTURED_SHEET,
                 commandId,
                 expectedVersion);
@@ -82,8 +83,25 @@ public class CharacterSheetController {
         };
     }
 
+    private static String startingAbilities(CharacterSheetRequest request) {
+        if (request.startingAbilities() != null && !request.startingAbilities().isBlank()) return request.startingAbilities();
+        if (request.blueprintValues() == null) return request.startingAbilities();
+        return request.blueprintValues().entrySet().stream()
+                .filter(entry -> entry.getKey().startsWith("starting_ability_scores.") && entry.getValue() != null && !entry.getValue().isBlank())
+                .map(entry -> entry.getKey().substring("starting_ability_scores.".length()) + "=" + entry.getValue())
+                .collect(java.util.stream.Collectors.joining(","));
+    }
+
     public record CharacterSheetRequest(
             UUID adventureId, UUID ownerPlayerId, String edition, String characterName, int level, boolean inspiration,
-            String race, String characterClass, String background, String startingAbilities) {}
+            String race, String characterClass, String background, String startingAbilities,
+            Map<String, String> blueprintValues) {
+        public CharacterSheetRequest(UUID adventureId, UUID ownerPlayerId, String edition, String characterName,
+                                     int level, boolean inspiration, String race, String characterClass,
+                                     String background, String startingAbilities) {
+            this(adventureId, ownerPlayerId, edition, characterName, level, inspiration, race, characterClass,
+                    background, startingAbilities, null);
+        }
+    }
     public record CharacterSheetsDeletionRequest(UUID sessionId, java.util.List<UUID> characterSheetIds) {}
 }

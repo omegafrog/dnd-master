@@ -57,3 +57,14 @@ test('player starts session and party becomes immutable', async ({ page }) => {
   await expect(page.getByText('시작 후 파티와 제어 방식은 변경할 수 없습니다.')).toBeVisible()
   await expect(party.getByRole('button', { name: '제거' })).toHaveCount(0)
 })
+
+test('player submits nested character input through character creation flow', async ({ page }) => {
+  await page.goto('/e2e/fixtures/index.html')
+  await page.getByLabel('이메일').fill('player@example.com')
+  await page.getByLabel('비밀번호').fill('secret-password')
+  await page.getByRole('button', { name: '로그인' }).click()
+  await page.getByLabel('STR').last().fill('12')
+  await page.getByLabel('캐릭터 이름').fill('Aria')
+  await page.getByRole('button', { name: '캐릭터 시트 생성' }).click()
+  await expect(page.getByText('캐릭터 시트 sheet-e2e 생성 완료.')).toBeVisible()
+})

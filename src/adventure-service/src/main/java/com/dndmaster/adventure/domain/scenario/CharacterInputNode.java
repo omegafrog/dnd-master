@@ -33,9 +33,7 @@ public record CharacterInputNode(
         sourceQuote = Objects.requireNonNull(sourceQuote, "source quote must not be null");
         diagnostics = List.copyOf(Objects.requireNonNull(diagnostics, "diagnostics must not be null"));
         children = List.copyOf(Objects.requireNonNull(children, "children must not be null"));
-        if (parentId != null && (parentId.isBlank() || !id.startsWith(parentId + "."))) {
-            throw new IllegalArgumentException("node parent must be the node path prefix");
-        }
+        if (parentId != null && parentId.isBlank()) throw new IllegalArgumentException("node parent must not be blank");
         if (inputMode == InputMode.FREE_TEXT && !options.isEmpty()) {
             throw new IllegalArgumentException("free-text node cannot have options");
         }

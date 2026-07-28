@@ -113,6 +113,19 @@ describe('HttpSetupApi', () => {
     expect(fetchMock).toHaveBeenCalledWith('/api/v1/runtime-options', expect.any(Object))
   })
 
+  it('saves a blueprint node with expected revision and can add a child', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ status: 200, ok: true, headers: new Headers(), json: async () => ({}) } as Response)
+    vi.stubGlobal('fetch', fetchMock)
+    const api = new HttpSetupApi(() => 'owner-token')
+
+    await api.resolveBlueprint?.('package-1', 'node-race', 'Elf', 7)
+    await api.addBlueprintChild?.('package-1', 8, 'node-scores', 'con', 'CON')
+
+    expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/scenario-packages/package-1/character-blueprint/resolve')
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({ expectedRevision: 7, fieldKey: 'node-race', value: 'Elf' })
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ expectedRevision: 8, parentId: 'node-scores', key: 'con', label: 'CON' })
+  })
+
   it('creates a character sheet through the internal character endpoint', async () => {
     const fetchMock = vi.fn(async () => ({
       status: 200,

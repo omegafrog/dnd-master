@@ -186,6 +186,10 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
         characterName: characterName.trim(),
         level: characterLevel,
         inspiration: characterInspiration,
+        startingAbilities: Object.entries(blueprintValues)
+          .filter(([key, value]) => key.startsWith('starting_ability_scores.') && value.trim())
+          .map(([key, value]) => `${key.slice('starting_ability_scores.'.length)}=${value}`)
+          .join(','),
         blueprintRevision: playPreparation?.characterCreationBlueprint.revision,
         blueprintValues,
       }
@@ -252,25 +256,6 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
       if (api.getPlayPreparation) setPlayPreparation(await api.getPlayPreparation(scenarioPackage.packageId))
     } catch (error) { onError(error instanceof Error ? error.message : 'Blueprint 게시에 실패했습니다.') }
     finally { setPublishingBlueprint(false) }
-  }
-
-  async function resolveBlueprint(fieldKey: string) {
-    if (!scenarioPackage || !playPreparation || !api.resolveBlueprint || !api.getPlayPreparation) return
-    try {
-      await api.resolveBlueprint(scenarioPackage.packageId, fieldKey, blueprintValues[fieldKey] ?? '', playPreparation.characterCreationBlueprint.revision ?? 0)
-      setPlayPreparation(await api.getPlayPreparation(scenarioPackage.packageId))
-    } catch (error) { onError(error instanceof Error ? error.message : 'Blueprint 검토를 저장하지 못했습니다.') }
-  }
-
-  async function addBlueprintChild(parentId: string) {
-    if (!scenarioPackage || !api.addBlueprintChild || !api.getPlayPreparation) return
-    const key = window.prompt('하위 필드 key')?.trim()
-    if (!key) return
-    const label = window.prompt('하위 필드 이름', key)?.trim() || key
-    try {
-      await api.addBlueprintChild(scenarioPackage.packageId, playPreparation?.characterCreationBlueprint.revision ?? 0, parentId, key, label)
-      setPlayPreparation(await api.getPlayPreparation(scenarioPackage.packageId))
-    } catch (error) { onError(error instanceof Error ? error.message : '하위 필드를 추가하지 못했습니다.') }
   }
 
   return (
@@ -432,9 +417,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
                       nodes={playPreparation.characterCreationBlueprint.roots ?? []}
                       values={blueprintValues}
                       onChange={(id, value) => setBlueprintValues(current => ({ ...current, [id]: value }))}
-                      onResolve={resolveBlueprint}
-                      onAddChild={addBlueprintChild}
-                      canResolve={Boolean(api.resolveBlueprint && playPreparation.characterCreationBlueprint.status === 'NEEDS_REVIEW')}
+                      canResolve={false}
                     />
                   ) : (playPreparation.characterCreationBlueprint.fields ?? []).length > 0 ? (
                     <fieldset aria-label="Blueprint 캐릭터 필드">
@@ -480,7 +463,6 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
                           {field.sourceQuote ? <small>원문 근거: {field.sourceQuote}</small> : null}
                           {(field.evidence ?? []).map(item => <small key={`${item.knowledgeDocumentId}-${item.locator}`}>근거: {item.knowledgeDocumentId} v{item.extractionVersion} · {item.locator}</small>)}
                           {field.inputStatus === 'MANUAL_INPUT_REQUIRED' ? <small>수동 입력 필요</small> : null}
-                          {api.resolveBlueprint && playPreparation.characterCreationBlueprint.status === 'NEEDS_REVIEW' ? <button type="button" onClick={() => void resolveBlueprint(field.key)} disabled={!blueprintValues[field.key]}>검토값 저장</button> : null}
                         </label>
                       ))}
                     </fieldset>

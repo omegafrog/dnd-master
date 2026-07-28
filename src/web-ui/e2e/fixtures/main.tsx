@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from '../../src/features/auth/AuthContext'
 import { LoginForm } from '../../src/features/auth/LoginForm'
 import type { IdentityApi } from '../../src/features/auth/IdentityApi'
 import { CharacterSheetView } from '../../src/features/character/CharacterSheetView'
+import { CharacterCreationPage } from '../../src/features/character/CharacterCreationPage'
 import { CombatMapView } from '../../src/features/combat-map/CombatMapView'
 import { RoleDiceRoller } from '../../src/features/dice/RoleDiceRoller'
 import { RuleEvidence } from '../../src/features/rule-guidance/RuleEvidence'
@@ -59,6 +60,24 @@ const setupApi: SetupApi = {
       level: 1,
       inspiration: false,
       version: 0,
+    }
+  },
+  async getPlayPreparation() {
+    return {
+      scenarioPackageId: 'package-e2e', bundleId: 'bundle-e2e', bundleRevision: 1, status: 'READY' as const, blockers: [],
+      characterLimit: { maximumCharacters: 1, source: null, sourceQuote: '' },
+      characterCreationBlueprint: {
+        available: true, summary: 'published tree', rulebookDocumentCount: 1, storybookDocumentCount: 1,
+        diagnostics: [], revision: 2, status: 'PUBLISHED' as const, fields: [], roots: [{
+          id: 'node-scores', parentId: null, key: 'starting_ability_scores', label: 'Scores', inputMode: 'FREE_TEXT' as const,
+          value: null, options: [], suggestions: [], status: 'EXTRACTED' as const, allowUserAddChild: false, confidence: 'HIGH',
+          sourceQuote: '', diagnostics: [], sourceEvidence: [], children: [{
+            id: 'node-str', parentId: 'node-scores', key: 'str', label: 'STR', inputMode: 'FREE_TEXT' as const,
+            value: null, options: [], suggestions: [], status: 'EXTRACTED' as const, allowUserAddChild: false, confidence: 'HIGH',
+            sourceQuote: 'STR', diagnostics: [], sourceEvidence: [], children: [],
+          }],
+        }],
+      },
     }
   },
   async saveRuleSet() {},
@@ -132,6 +151,14 @@ const sessionApi = {
   },
 }
 
+const characterSessionApi = {
+  async read() {
+    return { sessionId: 'character-session-e2e', scenarioPackageId: 'package-e2e', blueprintRevision: 2, characterLimit: 1, version: 0, status: 'DRAFT' as const, adventureId: null, runtimeConfiguration: null, party: [] }
+  },
+  async addMember() { return characterSessionApi.read() },
+  async start() { return characterSessionApi.read() },
+}
+
 function Journey() {
   const auth = useAuth()
   if (!auth.session) return <main><h1>D&amp;D Master</h1><LoginForm /></main>
@@ -140,6 +167,7 @@ function Journey() {
       <RulebookSetup api={setupApi} playerId="player-e2e" asMain={false} />
       <AdventureSessionPanel api={sessionApi} sessionId="session-e2e" />
       <ScenarioUploadPanel />
+      <CharacterCreationPage sessionId="character-session-e2e" setupApi={setupApi} sessionApi={characterSessionApi} />
       <div aria-label="모험 플레이">
         <AdventureStream adventureId={adventureId} api={adventureApi} />
         <RuleEvidence adventureId={adventureId} api={guidanceApi} />

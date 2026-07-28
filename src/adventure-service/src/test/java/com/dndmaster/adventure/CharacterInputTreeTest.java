@@ -29,7 +29,8 @@ class CharacterInputTreeTest {
         assertEquals(null, root.parentId());
         assertEquals(CharacterInputNodeStatus.PARTIALLY_EXTRACTED, root.status());
         assertTrue(root.allowUserAddChild());
-        assertEquals("starting_ability_scores", child.parentId());
+        assertTrue(child.parentId() != null);
+        assertTrue(!child.parentId().equals("starting_ability_scores"));
         assertEquals(InputMode.FREE_TEXT, child.inputMode());
         assertEquals(List.of("12"), child.suggestions());
     }
@@ -41,13 +42,15 @@ class CharacterInputTreeTest {
                         "STR", InputMode.FREE_TEXT, List.of())));
 
         var added = blueprint.addUserInputChild("starting_ability_scores", "con", "CON");
+        var strNodeId = added.node("starting_ability_scores.str").id();
         var resolved = added.resolveNode("starting_ability_scores.str", "12");
 
         assertEquals(2, added.revision());
         assertEquals(CharacterInputNodeStatus.USER_ADDED, added.node("starting_ability_scores.con").status());
         assertEquals("CON", added.node("starting_ability_scores.con").label());
         assertEquals(3, resolved.revision());
-        assertEquals("starting_ability_scores", resolved.node("starting_ability_scores.str").parentId());
+        assertEquals(strNodeId, resolved.node("starting_ability_scores.str").id());
+        assertEquals(added.node("starting_ability_scores.str").parentId(), resolved.node("starting_ability_scores.str").parentId());
         assertEquals(InputMode.FREE_TEXT, resolved.node("starting_ability_scores.str").inputMode());
         assertEquals(SOURCE, resolved.node("starting_ability_scores.str").sourceEvidence().getFirst());
         assertEquals("12", resolved.node("starting_ability_scores.str").value());

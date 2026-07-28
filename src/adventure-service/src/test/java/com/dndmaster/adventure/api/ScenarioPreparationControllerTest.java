@@ -5,8 +5,10 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+import static org.springframework.http.MediaType.APPLICATION_JSON;
 
 import com.dndmaster.adventure.application.auth.PlayerSessionLookupPort;
 import com.dndmaster.adventure.application.scenario.preparation.CharacterCreationBlueprintView;
@@ -82,5 +84,21 @@ class ScenarioPreparationControllerTest {
                 .andExpect(jsonPath("$.defaultEngineId").value("ollama"))
                 .andExpect(jsonPath("$.engines[0].id").value("ollama"))
                 .andExpect(jsonPath("$.tools[0].selectedByDefault").value(true));
+    }
+
+    @Test
+    void blueprintReviewRequestCarriesExpectedRevisionAndStableNodeId() throws Exception {
+        UUID ownerId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+        UUID packageId = UUID.fromString("66666666-6666-6666-6666-666666666666");
+        when(playerSessionLookupPort.resolvePlayerId("token")).thenReturn(Optional.of(ownerId));
+        when(service.resolveBlueprint(eq(packageId), any(OwnerPlayerId.class), eq(7L),
+                eq("node-race"), eq("Elf"))).thenReturn(null);
+
+        mockMvc.perform(post("/api/v1/scenario-packages/{scenarioPackageId}/character-blueprint/resolve", packageId)
+                        .header("Authorization", "Bearer token")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"expectedRevision\":7,\"fieldKey\":\"node-race\",\"value\":\"Elf\"}"))
+                .andExpect(status().isOk());
+        verify(service).resolveBlueprint(eq(packageId), any(OwnerPlayerId.class), eq(7L), eq("node-race"), eq("Elf"));
     }
 }

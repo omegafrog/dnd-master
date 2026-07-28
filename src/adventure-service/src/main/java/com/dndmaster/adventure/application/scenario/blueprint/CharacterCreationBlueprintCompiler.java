@@ -20,6 +20,14 @@ public final class CharacterCreationBlueprintCompiler {
             Objects.requireNonNull(candidate, "field candidate must not be null");
             byKey.computeIfAbsent(candidate.key(), ignored -> new ArrayList<>()).add(candidate);
         }
+        Map<String, String> nodeIds = new LinkedHashMap<>();
+        for (String key : byKey.keySet()) {
+            String path = "";
+            for (String part : key.split("\\.")) {
+                path = path.isEmpty() ? part : path + "." + part;
+                nodeIds.computeIfAbsent(path, ignored -> java.util.UUID.randomUUID().toString());
+            }
+        }
 
         List<CharacterCreationBlueprint.Field> fields = new ArrayList<>();
         List<String> diagnostics = new ArrayList<>();
@@ -80,7 +88,8 @@ public final class CharacterCreationBlueprintCompiler {
                     selected.stream().anyMatch(candidate -> candidate.sourceType().equals("STORYBOOK"))
                             ? "STORYBOOK" : selected.stream().anyMatch(candidate -> candidate.sourceType().equals("HANDOUT"))
                                     ? "HANDOUT" : "RULEBOOK", evidence, inputStatus, fieldDiagnostics,
-                    inputMode, suggestions, sourceQuote);
+                    inputMode, suggestions, sourceQuote, entry.getKey(), null, nodeIds.get(entry.getKey()),
+                    parentNodeId(entry.getKey(), nodeIds));
             fields.add(field);
             diagnostics.addAll(fieldDiagnostics.stream().map(message -> entry.getKey() + ": " + message).toList());
         }
@@ -96,6 +105,11 @@ public final class CharacterCreationBlueprintCompiler {
             case "RULEBOOK" -> 1;
             default -> 0;
         };
+    }
+
+    private static String parentNodeId(String key, Map<String, String> nodeIds) {
+        int separator = key.lastIndexOf('.');
+        return separator < 0 ? null : nodeIds.get(key.substring(0, separator));
     }
 
     public record FieldCandidate(

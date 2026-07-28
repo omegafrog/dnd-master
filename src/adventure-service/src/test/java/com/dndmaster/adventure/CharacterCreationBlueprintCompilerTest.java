@@ -44,6 +44,7 @@ class CharacterCreationBlueprintCompilerTest {
         var resolved = blueprint.resolve("starting_ability_scores", "STR,DEX");
 
         assertEquals(List.of("STR", "DEX"), resolved.field("starting_ability_scores").options());
+        assertEquals("STR,DEX", resolved.field("starting_ability_scores").value());
         assertEquals(InputMode.MULTI_SELECT, resolved.field("starting_ability_scores").inputMode());
     }
 
@@ -56,7 +57,8 @@ class CharacterCreationBlueprintCompilerTest {
         var legacy = new com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint.Field(
                 "name", List.of(), true, "RULEBOOK", List.of(RULEBOOK), "EXTRACTED", List.of(), null, null, null);
 
-        assertEquals(List.of("Aria"), resolved.field("name").options());
+        assertEquals(List.of(), resolved.field("name").options());
+        assertEquals("Aria", resolved.field("name").value());
         assertEquals(InputMode.FREE_TEXT, resolved.field("name").inputMode());
         assertEquals(InputMode.FREE_TEXT, legacy.inputMode());
     }
