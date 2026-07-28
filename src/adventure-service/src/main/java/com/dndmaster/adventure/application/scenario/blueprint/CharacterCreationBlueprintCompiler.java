@@ -10,21 +10,14 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 
 /** Compiles extracted, source-grounded character fields into a versioned contract. */
 public final class CharacterCreationBlueprintCompiler {
-    private static final Set<String> SUPPORTED_FIELDS = Set.of(
-            "name", "race", "class", "background", "starting_ability_scores", "level");
-
     public CharacterCreationBlueprint compile(long revision, List<FieldCandidate> candidates) {
         Objects.requireNonNull(candidates, "candidates must not be null");
         Map<String, List<FieldCandidate>> byKey = new LinkedHashMap<>();
         for (FieldCandidate candidate : candidates) {
             Objects.requireNonNull(candidate, "field candidate must not be null");
-            if (!SUPPORTED_FIELDS.contains(candidate.key())) {
-                throw new IllegalArgumentException("custom character field is not supported: " + candidate.key());
-            }
             byKey.computeIfAbsent(candidate.key(), ignored -> new ArrayList<>()).add(candidate);
         }
 
@@ -34,30 +27,32 @@ public final class CharacterCreationBlueprintCompiler {
             List<FieldCandidate> values = entry.getValue();
             boolean hasExtractedHandout = values.stream()
                     .anyMatch(candidate -> candidate.sourceType().equals("HANDOUT") && candidate.extracted());
-            boolean hasHandout = values.stream().anyMatch(candidate -> candidate.sourceType().equals("HANDOUT"));
             boolean hasExtractedStorybook = values.stream()
                     .anyMatch(candidate -> candidate.sourceType().equals("STORYBOOK") && candidate.extracted());
             boolean hasExtractedRulebook = values.stream()
                     .anyMatch(candidate -> candidate.sourceType().equals("RULEBOOK") && candidate.extracted());
+            String selectedSource = hasExtractedStorybook ? "STORYBOOK"
+                    : hasExtractedHandout ? "HANDOUT"
+                    : hasExtractedRulebook ? "RULEBOOK"
+                    : values.stream().max(java.util.Comparator.comparingInt(candidate -> sourcePriority(candidate.sourceType())))
+                            .map(FieldCandidate::sourceType).orElse("RULEBOOK");
             List<FieldCandidate> selected = values.stream()
-                    .filter(candidate -> hasExtractedStorybook
-                            ? candidate.sourceType().equals("STORYBOOK")
-                            : hasExtractedHandout
-                            ? candidate.sourceType().equals("HANDOUT")
-                            : hasExtractedRulebook
-                                    ? candidate.sourceType().equals("RULEBOOK")
-                                    : !hasHandout || candidate.sourceType().equals("HANDOUT"))
-                    .toList();
+                    .filter(candidate -> candidate.sourceType().equals(selectedSource)).toList();
             LinkedHashSet<String> options = new LinkedHashSet<>();
-            List<ScenarioSourceReference> evidence = new ArrayList<>();
             for (FieldCandidate candidate : selected) {
                 options.addAll(candidate.options());
-                evidence.add(candidate.evidence());
             }
+            List<FieldCandidate> extracted = values.stream().filter(FieldCandidate::extracted).toList();
+            boolean storybookConflict = hasExtractedStorybook && extracted.stream()
+                    .map(FieldCandidate::sourceType).distinct().count() > 1
+                    && extracted.stream().map(FieldCandidate::options).distinct().count() > 1;
+            List<ScenarioSourceReference> evidence = (storybookConflict ? extracted : selected).stream()
+                    .map(FieldCandidate::evidence).toList();
             boolean missing = selected.stream().anyMatch(candidate -> !candidate.extracted());
-            boolean conflict = hasExtractedHandout && selected.stream().map(FieldCandidate::options).distinct().count() > 1;
+            boolean conflict = selected.stream().map(FieldCandidate::options).distinct().count() > 1;
             List<String> fieldDiagnostics = new ArrayList<>();
-            if (conflict) fieldDiagnostics.add("conflicting handout values");
+            if (storybookConflict) fieldDiagnostics.add("conflicting storybook/rulebook values");
+            else if (conflict) fieldDiagnostics.add("conflicting " + selectedSource.toLowerCase() + " values");
             if (missing) fieldDiagnostics.add("manual input required");
             String inputStatus = missing ? "MANUAL_INPUT_REQUIRED" : "EXTRACTED";
             InputMode inputMode = selected.stream().map(FieldCandidate::inputMode).findFirst()
@@ -86,6 +81,15 @@ public final class CharacterCreationBlueprintCompiler {
         return new CharacterCreationBlueprint(revision, status, fields, diagnostics);
     }
 
+    private static int sourcePriority(String sourceType) {
+        return switch (sourceType) {
+            case "STORYBOOK" -> 3;
+            case "HANDOUT" -> 2;
+            case "RULEBOOK" -> 1;
+            default -> 0;
+        };
+    }
+
     public record FieldCandidate(
             String key,
             List<String> options,
@@ -103,6 +107,7 @@ public final class CharacterCreationBlueprintCompiler {
 
         public FieldCandidate {
             key = Objects.requireNonNull(key, "field key must not be null").trim();
+            if (key.isBlank()) throw new IllegalArgumentException("field key must not be blank");
             options = List.copyOf(Objects.requireNonNull(options, "options must not be null"));
             sourceType = Objects.requireNonNull(sourceType, "source type must not be null").toUpperCase();
             if (!sourceType.equals("HANDOUT") && !sourceType.equals("STORYBOOK") && !sourceType.equals("RULEBOOK")) {

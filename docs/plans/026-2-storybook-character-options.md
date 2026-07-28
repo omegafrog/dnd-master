@@ -1,6 +1,6 @@
 # 026-2 - 스토리북 기반 캐릭터 옵션·우선순위
 
-- Status: ready-for-agent
+- Status: completed
 - Issue: [#81](https://github.com/omegafrog/dnd-master/issues/81)
 - Parent: [#79](https://github.com/omegafrog/dnd-master/issues/79)
 - Dependencies: [026-1](026-1-character-tag-extraction.md)

@@ -16,6 +16,7 @@ import org.junit.jupiter.api.Test;
 class CharacterCreationBlueprintCompilerTest {
     private static final ScenarioSourceReference HANDOUT = source(1);
     private static final ScenarioSourceReference RULEBOOK = source(2);
+    private static final ScenarioSourceReference STORYBOOK = source(3);
 
     @Test
     void preservesExplicitInputModeSuggestionsAndSourceQuote() {
@@ -69,6 +70,29 @@ class CharacterCreationBlueprintCompilerTest {
     }
 
     @Test
+    void storybookWinsOverRulebookAndRetainsConflictEvidence() {
+        var blueprint = new CharacterCreationBlueprintCompiler().compile(1, List.of(
+                new FieldCandidate("race", List.of("Elf"), true, "RULEBOOK", RULEBOOK, "Race: Elf"),
+                new FieldCandidate("race", List.of("Tiefling"), true, "STORYBOOK", STORYBOOK, "Race: Tiefling")));
+
+        assertEquals(List.of("Tiefling"), blueprint.field("race").options());
+        assertEquals("STORYBOOK", blueprint.field("race").sourceType());
+        assertEquals(CharacterCreationBlueprintStatus.NEEDS_REVIEW, blueprint.status());
+        assertEquals(List.of(RULEBOOK, STORYBOOK), blueprint.field("race").evidence());
+        assertEquals(List.of("conflicting storybook/rulebook values"), blueprint.field("race").diagnostics());
+    }
+
+    @Test
+    void preservesStorybookOnlyDynamicFields() {
+        var blueprint = new CharacterCreationBlueprintCompiler().compile(1, List.of(
+                new FieldCandidate("faction", List.of("Harper"), true, "STORYBOOK", STORYBOOK,
+                        "Faction: Harper")));
+
+        assertEquals(List.of("faction"), blueprint.fields().stream().map(field -> field.key()).toList());
+        assertEquals(List.of("Harper"), blueprint.field("faction").options());
+    }
+
+    @Test
     void handoutWinsOverRulebookAndMergesMultipleHandouts() {
         var blueprint = new CharacterCreationBlueprintCompiler().compile(3, List.of(
                 new FieldCandidate("race", List.of("Elf"), true, "HANDOUT", HANDOUT, "Elf"),
@@ -114,9 +138,9 @@ class CharacterCreationBlueprintCompilerTest {
     }
 
     @Test
-    void customFieldIsRejected() {
+    void blankFieldKeyIsRejected() {
         assertThrows(IllegalArgumentException.class, () -> new CharacterCreationBlueprintCompiler().compile(1, List.of(
-                new FieldCandidate("alignment", List.of("Good"), true, "HANDOUT", HANDOUT, "Good"))));
+                new FieldCandidate(" ", List.of("Good"), true, "HANDOUT", HANDOUT, "Good"))));
     }
 
     @Test
