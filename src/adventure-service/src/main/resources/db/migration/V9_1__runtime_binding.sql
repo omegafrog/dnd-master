@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS adventure_runtime_binding (
     owner_player_id UUID NOT NULL,
     scenario_package_id UUID NOT NULL,
     scenario_package_revision BIGINT NOT NULL CHECK (scenario_package_revision >= 1),
+    -- Kept for legacy binding reads during the SessionKnowledgeSet migration.
     rulebook_ids_json TEXT NOT NULL,
     character_sheet_id UUID NOT NULL,
     engine_id TEXT NOT NULL,

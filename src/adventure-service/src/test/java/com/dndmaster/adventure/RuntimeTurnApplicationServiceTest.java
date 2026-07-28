@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
+import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentLookupPort;
+import com.dndmaster.adventure.application.knowledge.SessionKnowledgeSetApplicationService;
 import com.dndmaster.adventure.application.knowledge.SessionKnowledgeSetRepository;
 import com.dndmaster.adventure.application.runtime.EvidencePack;
 import com.dndmaster.adventure.application.runtime.NarrationSafetyAssessment;
@@ -62,6 +64,40 @@ import org.junit.jupiter.api.Test;
 
 class RuntimeTurnApplicationServiceTest {
     @Test
+    void persisted_document_selection_survives_runtime_restart_and_limits_retrieval() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId selected = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId excluded = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(selected, excluded);
+        InMemoryAdventureRepository adventures = new InMemoryAdventureRepository(adventure);
+        InMemorySessionKnowledgeSetRepository scopes = new InMemorySessionKnowledgeSetRepository();
+        new SessionKnowledgeSetApplicationService(
+                adventures,
+                scopes,
+                ignored -> List.of(
+                        new KnowledgeDocumentLookupPort.KnowledgeDocumentRecord(
+                                selected, KnowledgeDocumentStatus.INDEXED, "selected.pdf", "RULEBOOK", 1),
+                        new KnowledgeDocumentLookupPort.KnowledgeDocumentRecord(
+                                excluded, KnowledgeDocumentStatus.INDEXED, "excluded.pdf", "RULEBOOK", 1)))
+                .updateSessionKnowledgeSet(adventure.id(), owner, List.of(selected));
+        RecordingEvidenceSearchPort search = new RecordingEvidenceSearchPort(selected, excluded);
+
+        RuntimeTurnApplicationService restartedRuntime = new RuntimeTurnApplicationService(
+                adventures,
+                new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId(), excluded)),
+                new InMemoryPackageRepository(scenarioPackage), new InMemoryRuntimeTurnRepository(), search,
+                request -> new RuntimePlan("scene", null, "judgment", "narration", null, List.of(), List.of()),
+                new AllowingSafetyPort(true), scopes);
+
+        restartedRuntime.submitTurn(new SubmitRuntimeTurnCommand(
+                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Open the door"));
+
+        assertEquals(List.of(selected.value()), search.requests.getFirst().knowledgeDocumentIds());
+        assertEquals(List.of(selected.value()), search.requests.getLast().knowledgeDocumentIds());
+    }
+
+    @Test
     void uses_persisted_session_scope_instead_of_binding_rulebooks() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
         Adventure adventure = adventure(owner);
@@ -92,7 +128,7 @@ class RuntimeTurnApplicationServiceTest {
     }
 
     @Test
-    void fails_closed_when_persisted_session_scope_is_missing() {
+    void treats_missing_persisted_session_scope_as_an_empty_authorization_set() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
         Adventure adventure = adventure(owner);
         ScenarioPackage scenarioPackage = scenarioPackage(
@@ -101,11 +137,15 @@ class RuntimeTurnApplicationServiceTest {
                 new InMemoryAdventureRepository(adventure),
                 new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId())),
                 new InMemoryPackageRepository(scenarioPackage), new InMemoryRuntimeTurnRepository(),
-                new RecordingEvidenceSearchPort(null, null), request -> { throw new AssertionError("must not plan"); },
+                request -> List.of(), request -> new RuntimePlan(
+                        "scene", null, "judgment", "narration", null, List.of(), List.of()),
                 new AllowingSafetyPort(true), new InMemorySessionKnowledgeSetRepository());
 
-        assertThrows(IllegalStateException.class, () -> service.submitTurn(new SubmitRuntimeTurnCommand(
-                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Open the door")));
+        RuntimeTurnResult result = service.submitTurn(new SubmitRuntimeTurnCommand(
+                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Open the door"));
+
+        assertTrue(result.turn().evidencePack().storybook().isEmpty());
+        assertTrue(result.turn().evidencePack().rulebook().isEmpty());
     }
     @Test
     void rejects_stale_expected_version_before_planning_or_persistence() {

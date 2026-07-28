@@ -173,7 +173,7 @@ public final class RuntimeTurnApplicationService {
 
     private List<UUID> knowledgeDocumentIds(Adventure adventure) {
         SessionKnowledgeSet set = sessionKnowledgeSetRepository.findBySessionId(adventure.sessionId())
-                .orElseThrow(() -> new IllegalStateException("session knowledge set not found"));
+                .orElseGet(() -> new SessionKnowledgeSet(adventure.sessionId(), List.of()));
         if (!set.sessionId().equals(adventure.sessionId())) {
             throw new IllegalStateException("session knowledge set does not match adventure");
         }

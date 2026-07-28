@@ -1,6 +1,6 @@
 # 025-R3 - Runtime compatibility and migration hardening
 
-- Status: approved
+- Status: completed
 - Issue: [#78](https://github.com/omegafrog/dnd-master/issues/78)
 - Parent: [025](025-session-knowledge-set-retrieval.md)
 - Original issue: [#25](https://github.com/omegafrog/dnd-master/issues/25)
