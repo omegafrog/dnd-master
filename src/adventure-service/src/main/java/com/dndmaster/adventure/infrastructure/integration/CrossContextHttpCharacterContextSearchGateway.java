@@ -30,7 +30,7 @@ public final class CrossContextHttpCharacterContextSearchGateway implements Char
             String body = objectMapper.writeValueAsString(new WireRequest(
                     request.ownerId(), request.documents().stream()
                             .map(document -> new WireDocument(document.documentId().value(), document.documentType(), document.extractionVersion()))
-                            .toList(), request.situation(), request.tokenBudget()));
+                            .toList(), request.situation(), request.thresholds(), request.tokenBudget()));
             HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/v1/character-context/search"))
                     .timeout(timeout)
                     .header("Authorization", "Bearer " + request.ownerId())
@@ -41,18 +41,29 @@ public final class CrossContextHttpCharacterContextSearchGateway implements Char
             if (response.statusCode() / 100 != 2) throw new IllegalStateException("character context search returned " + response.statusCode());
             Response parsed = objectMapper.readValue(response.body(), Response.class);
             if (parsed.evidence() == null) return List.of();
-            return parsed.evidence().stream().filter(Objects::nonNull).map(item -> new Evidence(
-                    new KnowledgeDocumentId(item.knowledgeDocumentId()), item.documentType(), item.extractionVersion(),
-                    item.locator(), item.excerpt(), item.similarity())).toList();
+            Set<String> requested = request.documents().stream()
+                    .map(document -> key(document.documentId().value(), document.documentType(), document.extractionVersion()))
+                    .collect(java.util.stream.Collectors.toSet());
+            return parsed.evidence().stream().filter(Objects::nonNull)
+                    .filter(item -> item.knowledgeDocumentId() != null && item.documentType() != null
+                            && requested.contains(key(item.knowledgeDocumentId(), item.documentType(), item.extractionVersion())))
+                    .map(item -> new Evidence(
+                            new KnowledgeDocumentId(item.knowledgeDocumentId()), item.documentType(), item.extractionVersion(),
+                            item.locator(), item.excerpt(), item.similarity())).toList();
         } catch (IOException exception) {
-            throw new IllegalStateException("character context search failed", exception);
+            throw new CharacterContextSearchPort.CharacterContextSearchException("character context search failed", exception);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new IllegalStateException("character context search interrupted", exception);
+            throw new CharacterContextSearchPort.CharacterContextSearchException("character context search interrupted", exception);
         }
     }
 
-    record WireRequest(UUID ownerId, List<WireDocument> documents, String situation, int tokenBudget) {}
+    private static String key(UUID documentId, String documentType, long extractionVersion) {
+        return documentId + ":" + documentType.toUpperCase(Locale.ROOT) + ":" + extractionVersion;
+    }
+
+    record WireRequest(UUID ownerId, List<WireDocument> documents, String situation,
+                       Map<String, Double> thresholds, int tokenBudget) {}
     record WireDocument(UUID documentId, String documentType, long extractionVersion) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
     record Response(UUID ownerId, List<WireEvidence> evidence) {}

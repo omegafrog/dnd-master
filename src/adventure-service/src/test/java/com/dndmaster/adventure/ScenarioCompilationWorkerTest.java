@@ -50,6 +50,7 @@ class ScenarioCompilationWorkerTest {
         worker.processNext("worker-1", Duration.ofMinutes(1));
 
         assertEquals(2, search.request.documents().size());
+        assertEquals(.35, search.request.thresholds().get("RULEBOOK"));
         assertEquals(2000, search.request.tokenBudget());
         assertEquals(2, tags.request.excerpts().size());
         assertEquals("rule option", tags.request.excerpts().getFirst().text());

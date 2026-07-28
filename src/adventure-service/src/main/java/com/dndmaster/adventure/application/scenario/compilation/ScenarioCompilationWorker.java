@@ -150,10 +150,12 @@ public final class ScenarioCompilationWorker {
                             .contains(document.documentType().toUpperCase(java.util.Locale.ROOT)))
                     .toList();
             if (documents.isEmpty()) return List.of();
-            return characterContextSearchPort.search(new CharacterContextSearchPort.Request(
+            List<CharacterContextSearchPort.Evidence> result = characterContextSearchPort.search(new CharacterContextSearchPort.Request(
                     bundle.ownerPlayerId().value(), documents,
-                    "Extract character creation choices, fixed values, and required input fields.", 2000));
-        } catch (RuntimeException exception) {
+                    "Extract character creation choices, fixed values, and required input fields.",
+                    java.util.Map.of("RULEBOOK", .35, "STORYBOOK", .25, "HANDOUT", .25), 2000));
+            return result == null ? List.of() : List.copyOf(result);
+        } catch (CharacterContextSearchPort.CharacterContextSearchException exception) {
             log.warn("character context search failed; continuing with manual character fallback", exception);
             return List.of();
         }

@@ -9,12 +9,24 @@ import java.util.UUID;
 public interface CharacterContextSearchPort {
     List<Evidence> search(Request request);
 
-    record Request(UUID ownerId, List<DocumentScope> documents, String situation, int tokenBudget) {
+    final class CharacterContextSearchException extends RuntimeException {
+        public CharacterContextSearchException(String message, Throwable cause) { super(message, cause); }
+        public CharacterContextSearchException(String message) { super(message); }
+    }
+
+    record Request(UUID ownerId, List<DocumentScope> documents, String situation,
+                   java.util.Map<String, Double> thresholds, int tokenBudget) {
         public Request {
             Objects.requireNonNull(ownerId, "owner id must not be null");
             documents = List.copyOf(Objects.requireNonNull(documents, "documents must not be null"));
             if (documents.isEmpty()) throw new IllegalArgumentException("documents must not be empty");
             if (situation == null || situation.isBlank()) throw new IllegalArgumentException("situation must not be blank");
+            thresholds = java.util.Map.copyOf(Objects.requireNonNull(thresholds, "thresholds must not be null"));
+            thresholds.forEach((type, value) -> {
+                if (type == null || type.isBlank() || value == null || !Double.isFinite(value) || value < 0 || value > 1) {
+                    throw new IllegalArgumentException("thresholds must contain valid document type values");
+                }
+            });
             if (tokenBudget <= 0) throw new IllegalArgumentException("token budget must be positive");
         }
     }
@@ -22,7 +34,8 @@ public interface CharacterContextSearchPort {
     record DocumentScope(KnowledgeDocumentId documentId, String documentType, long extractionVersion) {
         public DocumentScope {
             Objects.requireNonNull(documentId, "document id must not be null");
-            if (documentType == null || documentType.isBlank()) throw new IllegalArgumentException("document type must not be blank");
+            documentType = Objects.requireNonNull(documentType, "document type must not be null").trim().toUpperCase(java.util.Locale.ROOT);
+            if (documentType.isBlank()) throw new IllegalArgumentException("document type must not be blank");
             if (extractionVersion < 0) throw new IllegalArgumentException("extraction version must not be negative");
         }
     }
