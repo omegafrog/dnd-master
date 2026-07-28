@@ -20,6 +20,12 @@ import type { AdventureSessionView } from '../../src/features/adventure-session/
 
 const adventureId = 'adventure-e2e'
 
+const e2eState = {
+  bundle: null as unknown,
+  blueprintStatus: 'NEEDS_REVIEW' as 'NEEDS_REVIEW' | 'PUBLISHED',
+  creation: null as unknown,
+}
+
 const identityApi: IdentityApi = {
   async login() {
     return { accessToken: 'owner-token', playerName: '테스터', expiresAt: new Date(Date.now() + 3_600_000).toISOString() }
@@ -51,15 +57,39 @@ const setupApi: SetupApi = {
   },
   async getRulebookStatus(rulebookId) { return { rulebookId, status: 'INDEXED' } },
   async uploadScenario(file) { return { id: 'scenario-e2e', name: file.name } },
-  async createCharacterSheet() {
-    return {
+  async createCharacterSheet(draft) {
+    const result = {
       characterSheetId: 'sheet-e2e',
       adventureId: adventureId,
       edition: 'DND_5E_2024',
-      characterName: 'Aria',
+      characterName: draft.characterName,
       level: 1,
       inspiration: false,
       version: 0,
+    }
+    e2eState.creation = { draft, result }
+    return result
+  },
+  async createScenarioBundle(ownerId, documents) {
+    e2eState.bundle = { bundleId: 'bundle-e2e', ownerPlayerId: ownerId, currentRevision: 1, documents }
+    return e2eState.bundle as Awaited<ReturnType<SetupApi['createScenarioBundle']>>
+  },
+  async reviseScenarioBundle(ownerId, documents) {
+    return this.createScenarioBundle(ownerId, documents)
+  },
+  async getScenarioBundle() {
+    return e2eState.bundle as Awaited<ReturnType<SetupApi['getScenarioBundle']>>
+  },
+  async startScenarioCompilation() {
+    return { compilationId: 'compilation-e2e', bundleId: 'bundle-e2e', bundleRevision: 1, status: 'REQUESTED' as const, attempt: 0, packageId: null, failureReason: null }
+  },
+  async getScenarioCompilation() {
+    return { compilationId: 'compilation-e2e', bundleId: 'bundle-e2e', bundleRevision: 1, status: 'PUBLISHED' as const, attempt: 1, packageId: 'package-e2e', failureReason: null }
+  },
+  async getScenarioPackage() {
+    return {
+      packageId: 'package-e2e', bundleId: 'bundle-e2e', bundleRevision: 1, inputFingerprint: 'document-derived', reportStatus: 'COMPLETE' as const, warnings: [],
+      characterLimit: { maximumCharacters: 1, source: null, sourceQuote: '' }, units: [],
     }
   },
   async getPlayPreparation() {
@@ -67,18 +97,21 @@ const setupApi: SetupApi = {
       scenarioPackageId: 'package-e2e', bundleId: 'bundle-e2e', bundleRevision: 1, status: 'READY' as const, blockers: [],
       characterLimit: { maximumCharacters: 1, source: null, sourceQuote: '' },
       characterCreationBlueprint: {
-        available: true, summary: 'published tree', rulebookDocumentCount: 1, storybookDocumentCount: 1,
-        diagnostics: [], revision: 2, status: 'PUBLISHED' as const, fields: [], roots: [{
+        available: true, summary: 'DND 4판 · DND 5판 · Storybook 우선 옵션: Elf', rulebookDocumentCount: 2, storybookDocumentCount: 1,
+        diagnostics: [], revision: 2, status: e2eState.blueprintStatus, fields: [], roots: [{
           id: 'node-scores', parentId: null, key: 'starting_ability_scores', label: 'Scores', inputMode: 'FREE_TEXT' as const,
           value: null, options: [], suggestions: [], status: 'EXTRACTED' as const, allowUserAddChild: false, confidence: 'HIGH',
           sourceQuote: '', diagnostics: [], sourceEvidence: [], children: [{
             id: 'node-str', parentId: 'node-scores', key: 'str', label: 'STR', inputMode: 'FREE_TEXT' as const,
-            value: null, options: [], suggestions: [], status: 'EXTRACTED' as const, allowUserAddChild: false, confidence: 'HIGH',
-            sourceQuote: 'STR', diagnostics: [], sourceEvidence: [], children: [],
+            value: '12', options: [], suggestions: [], status: 'EXTRACTED' as const, allowUserAddChild: false, confidence: 'HIGH',
+            sourceQuote: 'STR from DND 5판', diagnostics: [], sourceEvidence: [{ knowledgeDocumentId: 'storybook.txt-STORYBOOK', extractionVersion: 1, locator: 'page:2' }], children: [],
           }],
         }],
       },
     }
+  },
+  async publishBlueprint() {
+    e2eState.blueprintStatus = 'PUBLISHED'
   },
   async saveRuleSet() {},
   async listKnowledgeDocuments(ownerId) {
@@ -88,7 +121,10 @@ const setupApi: SetupApi = {
         knowledgeDocumentId: document.knowledgeDocumentId,
         documentType: document.documentType,
         originalFilename: document.originalFilename,
-        status: 'QUEUED' as const,
+        status: 'EXTRACTED' as const,
+        format: 'TXT' as const,
+        extractionVersion: 1,
+        warnings: [],
       }))
   },
 }
@@ -159,6 +195,17 @@ const characterSessionApi = {
   async start() { return characterSessionApi.read() },
 }
 
+const characterCreationSetupApi: SetupApi = {
+  ...setupApi,
+  async getPlayPreparation() {
+    const preparation = await setupApi.getPlayPreparation!('package-e2e')
+    return {
+      ...preparation,
+      characterCreationBlueprint: { ...preparation.characterCreationBlueprint, status: 'PUBLISHED' as const },
+    }
+  },
+}
+
 function Journey() {
   const auth = useAuth()
   if (!auth.session) return <main><h1>D&amp;D Master</h1><LoginForm /></main>
@@ -167,7 +214,7 @@ function Journey() {
       <RulebookSetup api={setupApi} playerId="player-e2e" asMain={false} />
       <AdventureSessionPanel api={sessionApi} sessionId="session-e2e" />
       <ScenarioUploadPanel />
-      <CharacterCreationPage sessionId="character-session-e2e" setupApi={setupApi} sessionApi={characterSessionApi} />
+      <CharacterCreationPage sessionId="character-session-e2e" setupApi={characterCreationSetupApi} sessionApi={characterSessionApi} />
       <div aria-label="모험 플레이">
         <AdventureStream adventureId={adventureId} api={adventureApi} />
         <RuleEvidence adventureId={adventureId} api={guidanceApi} />
