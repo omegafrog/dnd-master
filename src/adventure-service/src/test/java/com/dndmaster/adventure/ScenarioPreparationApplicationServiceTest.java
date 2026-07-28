@@ -36,15 +36,17 @@ import org.junit.jupiter.api.Test;
 
 class ScenarioPreparationApplicationServiceTest {
     @Test
-    void blocksPreparationWhenRulebookDocumentIsMissing() {
+    void allowsPreparationWhenRulebookIsSeparateFromScenarioBundle() {
         TestFixture fixture = bundle(withoutRulebookPackage(), bundleWithoutRulebook());
         ScenarioPreparationApplicationService service = service(fixture);
 
         var preparation = service.read(fixture.packageId(), owner());
 
-        assertEquals(PlayPreparationStatus.BLOCKED, preparation.status());
-        assertTrue(preparation.blockers().stream().anyMatch(message -> message.contains("RULEBOOK")));
-        assertFalse(preparation.characterCreationBlueprint().available());
+        assertEquals(PlayPreparationStatus.READY, preparation.status());
+        assertTrue(preparation.blockers().isEmpty());
+        assertTrue(preparation.characterCreationBlueprint().available());
+        assertEquals(0, preparation.characterCreationBlueprint().rulebookDocumentCount());
+        assertEquals(1, preparation.characterCreationBlueprint().storybookDocumentCount());
     }
 
     @Test
@@ -58,8 +60,8 @@ class ScenarioPreparationApplicationServiceTest {
         assertEquals(PlayPreparationStatus.READY, preparation.status());
         CharacterCreationBlueprintView blueprint = preparation.characterCreationBlueprint();
         assertTrue(blueprint.available());
-        assertEquals("STORYBOOK 1개, RULEBOOK 1개", blueprint.summary());
-        assertEquals(1, blueprint.rulebookDocumentCount());
+        assertEquals("STORYBOOK 1개, RULEBOOK 런타임 세트 별도", blueprint.summary());
+        assertEquals(0, blueprint.rulebookDocumentCount());
         assertEquals(1, blueprint.storybookDocumentCount());
         assertTrue(blueprint.diagnostics().isEmpty());
         assertEquals(1, preparation.characterLimit().maximumCharacters());

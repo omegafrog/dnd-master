@@ -31,9 +31,17 @@ public final class CharacterCreationBlueprintCompiler {
         List<String> diagnostics = new ArrayList<>();
         for (Map.Entry<String, List<FieldCandidate>> entry : byKey.entrySet()) {
             List<FieldCandidate> values = entry.getValue();
+            boolean hasExtractedHandout = values.stream()
+                    .anyMatch(candidate -> candidate.sourceType().equals("HANDOUT") && candidate.extracted());
             boolean hasHandout = values.stream().anyMatch(candidate -> candidate.sourceType().equals("HANDOUT"));
+            boolean hasExtractedRulebook = values.stream()
+                    .anyMatch(candidate -> candidate.sourceType().equals("RULEBOOK") && candidate.extracted());
             List<FieldCandidate> selected = values.stream()
-                    .filter(candidate -> !hasHandout || candidate.sourceType().equals("HANDOUT"))
+                    .filter(candidate -> hasExtractedHandout
+                            ? candidate.sourceType().equals("HANDOUT")
+                            : hasExtractedRulebook
+                                    ? candidate.sourceType().equals("RULEBOOK")
+                                    : !hasHandout || candidate.sourceType().equals("HANDOUT"))
                     .toList();
             LinkedHashSet<String> options = new LinkedHashSet<>();
             List<ScenarioSourceReference> evidence = new ArrayList<>();
@@ -42,14 +50,15 @@ public final class CharacterCreationBlueprintCompiler {
                 evidence.add(candidate.evidence());
             }
             boolean missing = selected.stream().anyMatch(candidate -> !candidate.extracted());
-            boolean conflict = hasHandout && selected.stream().map(FieldCandidate::options).distinct().count() > 1;
+            boolean conflict = hasExtractedHandout && selected.stream().map(FieldCandidate::options).distinct().count() > 1;
             List<String> fieldDiagnostics = new ArrayList<>();
             if (conflict) fieldDiagnostics.add("conflicting handout values");
             if (missing) fieldDiagnostics.add("manual input required");
             String inputStatus = missing ? "MANUAL_INPUT_REQUIRED" : "EXTRACTED";
             CharacterCreationBlueprint.Field field = new CharacterCreationBlueprint.Field(
                     entry.getKey(), List.copyOf(options), values.stream().anyMatch(FieldCandidate::required),
-                    hasHandout ? "HANDOUT" : "RULEBOOK", evidence, inputStatus, fieldDiagnostics);
+                    selected.stream().anyMatch(candidate -> candidate.sourceType().equals("HANDOUT"))
+                            ? "HANDOUT" : "RULEBOOK", evidence, inputStatus, fieldDiagnostics);
             fields.add(field);
             diagnostics.addAll(fieldDiagnostics.stream().map(message -> entry.getKey() + ": " + message).toList());
         }

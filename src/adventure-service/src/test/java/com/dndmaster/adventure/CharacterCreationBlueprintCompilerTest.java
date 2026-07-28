@@ -51,6 +51,17 @@ class CharacterCreationBlueprintCompilerTest {
     }
 
     @Test
+    void usesExtractedRulebookValuesWhenHandoutHasNoValue() {
+        var blueprint = new CharacterCreationBlueprintCompiler().compile(1, List.of(
+                new FieldCandidate("race", List.of(), false, "HANDOUT", HANDOUT, ""),
+                new FieldCandidate("race", List.of("Elf"), true, "RULEBOOK", RULEBOOK, "race: Elf")));
+
+        assertEquals(CharacterCreationBlueprintStatus.READY, blueprint.status());
+        assertEquals(List.of("Elf"), blueprint.field("race").options());
+        assertEquals("RULEBOOK", blueprint.field("race").sourceType());
+    }
+
+    @Test
     void customFieldIsRejected() {
         assertThrows(IllegalArgumentException.class, () -> new CharacterCreationBlueprintCompiler().compile(1, List.of(
                 new FieldCandidate("alignment", List.of("Good"), true, "HANDOUT", HANDOUT, "Good"))));

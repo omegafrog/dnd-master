@@ -25,8 +25,7 @@ public final class PgvectorStorySourceSearchRepository implements StorySourceSea
               JOIN rulebook_registration r ON r.rulebook_id = c.rulebook_id
              WHERE c.owner_player_id = ?
                AND r.owner_player_id = c.owner_player_id
-               AND r.document_type = 'STORYBOOK'
-               AND i.index_version = 'v1-' || r.content_hash
+               AND r.document_type IN ('STORYBOOK', 'RULEBOOK')
                AND EXISTS (
                    SELECT 1
                      FROM unnest(?::uuid[], ?::bigint[]) AS scope(document_id, extraction_version)

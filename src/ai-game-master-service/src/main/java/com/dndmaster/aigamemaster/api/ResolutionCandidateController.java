@@ -2,6 +2,7 @@ package com.dndmaster.aigamemaster.api;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.ArrayList;
 import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -29,39 +30,49 @@ public final class ResolutionCandidateController {
                 + "Return JSON array only. Schema: [{kind:'SKILL_ABILITY_CHECK'|'SAVING_THROW'|'PASSIVE_THRESHOLD'|'DICE_ROLL'|'ATTACK_ROLL'|'DAMAGE_ROLL'|'HEALING_ROLL'|'OPPOSED_CHECK'|'INITIATIVE_ROLL'|'RECHARGE_ROLL'|'RANDOM_TABLE'|'SPECIAL_ROLL',"
                 + "abilityOrSkill:string|null,dc:number|null,diceExpression:string|null,visibility:'GM_REFERENCE',"
                 + "sourceQuote:string,sourceRefs:[{documentId:string,extractionVersion:number,locator:string}],"
-                + "detail:{triggerCondition:string|null,actor:string|null,roller:string|null,instructionVisibility:string|null,"
-                + "resultVisibility:string|null,modifiers:string[],advantageState:string|null,reroll:string|null,"
-                + "steps:[{id:string,kind:string,abilityOrSkill:string|null,dc:number|null,diceExpression:string|null,condition:string|null,nextStepIds:string[],successOutcomeIds:string[],failureOutcomeIds:string[],sourceRefs:[...]}],"
-                + "outcomes:[{id:string,label:string,description:string,sourceRefs:[...]}],"
-                + "randomTable:[{range:string,outcome:string,sourceRefs:[...]}],tableCoverage:'COMPLETE'|'PARTIAL'|null}|null,"
-                + "provenance:string}]."
+                + "detail:null,"
+                + "provenance:string}]. Output raw JSON only: no Markdown fences, commentary, or leading/trailing text."
                 + " Do not invent values or references. Excerpts: " + request.excerpts();
         return new Response(adapter.complete(request.operationId(), prompt, this::parseModel));
     }
 
-    private List<Candidate> parseModel(String text) {
+    List<Candidate> parseModel(String text) {
         try {
-            JsonNode root = objectMapper.readTree(text);
+            JsonNode root = objectMapper.readTree(extractJsonArray(text));
             if (!root.isArray()) throw new IllegalArgumentException("AI resolution response must be an array");
-            return java.util.stream.StreamSupport.stream(root.spliterator(), false).map(node -> {
-                String kind = text(node, "kind");
-                if (!List.of("SKILL_ABILITY_CHECK", "SAVING_THROW", "PASSIVE_THRESHOLD", "DICE_ROLL",
-                        "ATTACK_ROLL", "DAMAGE_ROLL", "HEALING_ROLL", "OPPOSED_CHECK",
-                        "INITIATIVE_ROLL", "RECHARGE_ROLL", "RANDOM_TABLE", "SPECIAL_ROLL").contains(kind)) {
-                    throw new IllegalArgumentException("unsupported resolution kind");
+            List<Candidate> candidates = new ArrayList<>();
+            for (JsonNode node : root) {
+                try {
+                    String kind = text(node, "kind");
+                    if (!List.of("SKILL_ABILITY_CHECK", "SAVING_THROW", "PASSIVE_THRESHOLD", "DICE_ROLL",
+                            "ATTACK_ROLL", "DAMAGE_ROLL", "HEALING_ROLL", "OPPOSED_CHECK",
+                            "INITIATIVE_ROLL", "RECHARGE_ROLL", "RANDOM_TABLE", "SPECIAL_ROLL").contains(kind)) {
+                        throw new IllegalArgumentException("unsupported resolution kind");
+                    }
+                    String visibility = nullableText(node, "visibility");
+                    if (visibility == null) visibility = "GM_REFERENCE";
+                    if (!List.of("GM_REFERENCE", "PLAYER_SAFE").contains(visibility)) {
+                        throw new IllegalArgumentException("unsupported visibility");
+                    }
+                    candidates.add(new Candidate(kind, nullableText(node, "abilityOrSkill"), nullableInt(node, "dc"),
+                            nullableText(node, "diceExpression"), visibility, text(node, "sourceQuote"),
+                            parseRefs(node.get("sourceRefs")), node.get("detail"), text(node, "provenance")));
+                } catch (RuntimeException ignored) {
+                    // One malformed model item must not discard valid source-grounded candidates.
                 }
-                String visibility = nullableText(node, "visibility");
-                if (visibility == null) visibility = "GM_REFERENCE";
-                if (!List.of("GM_REFERENCE", "PLAYER_SAFE").contains(visibility)) {
-                    throw new IllegalArgumentException("unsupported visibility");
-                }
-                return new Candidate(kind, nullableText(node, "abilityOrSkill"), nullableInt(node, "dc"),
-                        nullableText(node, "diceExpression"), visibility, text(node, "sourceQuote"),
-                        parseRefs(node.get("sourceRefs")), node.get("detail"), text(node, "provenance"));
-            }).toList();
+            }
+            return List.copyOf(candidates);
         } catch (Exception malformed) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI resolution response was malformed", malformed);
         }
+    }
+
+    private static String extractJsonArray(String response) {
+        String text = response == null ? "" : response.trim();
+        int start = text.indexOf('[');
+        int end = text.lastIndexOf(']');
+        if (start < 0 || end < start) throw new IllegalArgumentException("AI response did not contain a JSON array");
+        return text.substring(start, end + 1);
     }
 
     private static String text(JsonNode node, String field) {

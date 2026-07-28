@@ -237,6 +237,24 @@ class ScenarioPackageCompilationServiceTest {
     }
 
     @Test
+    void verifiesSourceQuoteAcrossPdfExtractionLineBreaks() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(documentId, 2);
+        String extractedText = "A character that searches the room finds a book.\n"
+                + "13 Wisdom (Perception) check\nseems strangely undamaged.";
+        ResolutionCandidate candidate = ResolutionCandidate.skillCheck(
+                documentId, 2, "offset:1-2", "Wisdom (Perception)", 13,
+                "13 Wisdom (Perception) check seems strangely undamaged.");
+        ResolutionExtractionPort.SourceExcerpt excerpt = new ResolutionExtractionPort.SourceExcerpt(
+                documentId, 2, "offset:1-2", extractedText);
+
+        var unit = new ScenarioPackageCompilationService(new InMemoryPackageRepository())
+                .compile(bundle, List.of(candidate), List.of(excerpt)).units().get(0);
+
+        assertEquals("COMPLETE", unit.status().name());
+    }
+
+    @Test
     void compilesGreatestStorybookCharacterLimitWithItsEvidenceAndDefaultsToOne() {
         KnowledgeDocumentId firstStorybook = new KnowledgeDocumentId(UUID.randomUUID());
         KnowledgeDocumentId secondStorybook = new KnowledgeDocumentId(UUID.randomUUID());

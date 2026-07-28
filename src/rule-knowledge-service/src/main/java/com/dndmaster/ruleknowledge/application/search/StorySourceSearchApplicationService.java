@@ -42,7 +42,10 @@ public final class StorySourceSearchApplicationService {
                 .vector();
 
         List<StorySourceEvidence> active = searchPort.search(query, embedding, true);
-        if (active.size() >= query.limit() || query.activeLocators().isEmpty()) {
+        if (query.activeLocators().isEmpty()) {
+            return searchPort.search(query, embedding, false).stream().limit(query.limit()).toList();
+        }
+        if (active.size() >= query.limit()) {
             return active.stream().limit(query.limit()).toList();
         }
         List<StorySourceEvidence> fallback = searchPort.search(query, embedding, false);

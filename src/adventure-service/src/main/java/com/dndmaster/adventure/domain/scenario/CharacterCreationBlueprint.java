@@ -17,6 +17,7 @@ public record CharacterCreationBlueprint(
         diagnostics = List.copyOf(Objects.requireNonNull(diagnostics, "diagnostics must not be null"));
     }
 
+
     public Field field(String key) {
         return fields.stream().filter(field -> field.key().equals(key)).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("unknown blueprint field: " + key));

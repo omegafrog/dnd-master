@@ -53,7 +53,7 @@
       "source": "omegafrog/harness-codex",
       "sourceType": "github",
       "skillPath": ".codex/skills/grill-with-docs/SKILL.md",
-      "computedHash": "ab720a3b0af79305118a07fabfc0ccc1fc0addbb28b6c99ab770d0aeeccf8ce8"
+      "computedHash": "494fd58b05f123396ead072fc7435eb18313f0ffee332b52c40cadf66e79b141"
     },
     "grilling": {
       "source": "omegafrog/harness-codex",
@@ -71,7 +71,7 @@
       "source": "omegafrog/harness-codex",
       "sourceType": "github",
       "skillPath": ".codex/skills/product-spec/SKILL.md",
-      "computedHash": "83ebf76de6ae6bbcc448b0e091be86f59ab6c66f17514ff8c649ea74f5f08536"
+      "computedHash": "6ee491f852b086553e25db407568e27f2eb9fa57038b1ac0c051b11dc4bfddd2"
     },
     "setup": {
       "source": "omegafrog/harness-codex",

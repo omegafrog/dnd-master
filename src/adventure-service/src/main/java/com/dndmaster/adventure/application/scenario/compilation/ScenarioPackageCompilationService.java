@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.regex.Matcher;
@@ -133,6 +134,7 @@ public final class ScenarioPackageCompilationService {
             boolean extracted = false;
             List<String> options = List.of();
             ResolutionExtractionPort.SourceExcerpt evidence = null;
+            String evidenceSourceType = null;
             for (ResolutionExtractionPort.SourceExcerpt excerpt : excerpts) {
                 String label = switch (key) {
                     case "starting_ability_scores" -> "(?:starting\\s+ability\\s+scores|능력치)";
@@ -145,6 +147,7 @@ public final class ScenarioPackageCompilationService {
                             .map(String::trim).filter(value -> !value.isBlank()).distinct().toList();
                     extracted = !options.isEmpty();
                     evidence = excerpt;
+                    evidenceSourceType = isHandoutExcerpt(bundle, excerpt) ? "HANDOUT" : "RULEBOOK";
                     break;
                 }
             }
@@ -155,14 +158,23 @@ public final class ScenarioPackageCompilationService {
                         .findFirst().orElse(null);
                 if (document != null) evidence = new ResolutionExtractionPort.SourceExcerpt(
                         document.knowledgeDocumentId(), document.extractionVersion(), "document", "");
+                evidenceSourceType = sourceType;
             }
             if (evidence != null) candidates.add(new CharacterCreationBlueprintCompiler.FieldCandidate(
-                    key, options, extracted, sourceType,
+                    key, options, extracted, evidenceSourceType,
                     new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(
                             evidence.documentId(), evidence.extractionVersion(), evidence.locator()),
                     evidence.text() == null ? "" : evidence.text()));
         }
         return candidates;
+    }
+
+    private static boolean isHandoutExcerpt(
+            ScenarioSourceBundle bundle, ResolutionExtractionPort.SourceExcerpt excerpt) {
+        return bundle.currentRevision().documents().stream().anyMatch(document ->
+                document.role() == ScenarioBundleDocumentRole.HANDOUT
+                        && document.knowledgeDocumentId().equals(excerpt.documentId())
+                        && document.extractionVersion() == excerpt.extractionVersion());
     }
 
     private static CharacterLimit characterLimit(
@@ -192,6 +204,14 @@ public final class ScenarioPackageCompilationService {
                     matcher.group()));
         }
         return limits;
+    }
+
+    private static boolean containsEvidenceQuote(String excerptText, String sourceQuote) {
+        return normalizeEvidenceText(excerptText).contains(normalizeEvidenceText(sourceQuote));
+    }
+
+    private static String normalizeEvidenceText(String value) {
+        return value == null ? "" : value.strip().replaceAll("(?U)\\s+", " ").toLowerCase(Locale.ROOT);
     }
 
     private static ScenarioResolutionUnit validate(
@@ -238,7 +258,7 @@ public final class ScenarioPackageCompilationService {
                                     && ref.extractionVersion() == excerpt.extractionVersion()
                                     && ref.locator().equals(excerpt.locator())
                                     && excerpt.text() != null
-                                    && excerpt.text().toLowerCase().contains(candidate.sourceQuote().toLowerCase())));
+                                    && containsEvidenceQuote(excerpt.text(), candidate.sourceQuote())));
             if (!quoteVerified) invalid.add("source quote cannot be verified against referenced excerpt");
         }
         if (!detail.isEmpty()) {

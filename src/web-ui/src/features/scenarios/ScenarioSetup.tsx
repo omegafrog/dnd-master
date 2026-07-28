@@ -425,7 +425,10 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
                             <select
                               aria-label={field.key}
                               value={blueprintValues[field.key] ?? ''}
-                              onChange={event => setBlueprintValues(current => ({ ...current, [field.key]: event.currentTarget.value }))}
+                              onChange={event => {
+                                const value = event.currentTarget.value
+                                setBlueprintValues(current => ({ ...current, [field.key]: value }))
+                              }}
                             >
                               <option value="">선택하세요</option>
                               {field.options.map(option => <option key={option} value={option}>{option}</option>)}
@@ -434,7 +437,10 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
                             <input
                               aria-label={field.key}
                               value={blueprintValues[field.key] ?? ''}
-                              onChange={event => setBlueprintValues(current => ({ ...current, [field.key]: event.currentTarget.value }))}
+                              onChange={event => {
+                                const value = event.currentTarget.value
+                                setBlueprintValues(current => ({ ...current, [field.key]: value }))
+                              }}
                             />
                           )}
                           {field.inputStatus === 'MANUAL_INPUT_REQUIRED' ? <small>수동 입력 필요</small> : null}

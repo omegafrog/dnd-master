@@ -132,8 +132,8 @@ class FakeSetupApi implements SetupApi {
   async getPlayPreparation(): Promise<PlayPreparationView> {
     const blueprint: CharacterCreationBlueprintView = {
       available: true,
-      summary: 'CharacterCreationBlueprint: STORYBOOK 1개, RULEBOOK 1개',
-      rulebookDocumentCount: 1,
+      summary: 'CharacterCreationBlueprint: STORYBOOK 1개, RULEBOOK 런타임 세트 별도',
+      rulebookDocumentCount: 0,
       storybookDocumentCount: 1,
       diagnostics: [],
     }
@@ -151,6 +151,7 @@ class FakeSetupApi implements SetupApi {
       },
     }
   }
+  async resolveBlueprint() {}
   async getRuntimeOptions(): Promise<RuntimeOptionsView> {
     return {
       defaultEngineId: 'ollama',
@@ -186,6 +187,40 @@ class FakeSetupApi implements SetupApi {
       attempt: 1,
       packageId: 'package-1',
       failureReason: null,
+    }
+  }
+}
+
+class ReviewBlueprintSetupApi extends FakeSetupApi {
+  async getPlayPreparation(): Promise<PlayPreparationView> {
+    return {
+      scenarioPackageId: 'package-1',
+      bundleId: 'bundle-1',
+      bundleRevision: 1,
+      status: 'READY',
+      blockers: [],
+      characterCreationBlueprint: {
+        available: true,
+        summary: 'CharacterCreationBlueprint: needs review',
+        rulebookDocumentCount: 0,
+        storybookDocumentCount: 1,
+        diagnostics: [],
+        revision: 1,
+        status: 'NEEDS_REVIEW',
+        fields: [{
+          key: 'name',
+          options: [],
+          required: true,
+          sourceType: 'STORYBOOK',
+          inputStatus: 'MANUAL_INPUT_REQUIRED',
+          diagnostics: [],
+        }],
+      },
+      characterLimit: {
+        maximumCharacters: 1,
+        source: null,
+        sourceQuote: '',
+      },
     }
   }
 }
@@ -226,12 +261,13 @@ describe('ScenarioSetup', () => {
     expect(screen.getAllByText('캐릭터 한도: 2명')).toHaveLength(2)
     expect(screen.getAllByText('한도 근거: page:1 · 최대 2명')).toHaveLength(2)
     expect(screen.getByRole('heading', { name: '캐릭터 생성' })).toBeInTheDocument()
-    expect(screen.queryAllByText((_, element) => element?.textContent?.includes('STORYBOOK 1개, RULEBOOK 1개') ?? false).length).toBeGreaterThan(0)
+    expect(screen.queryAllByText((_, element) => element?.textContent?.includes('STORYBOOK 1개, RULEBOOK 런타임 세트 별도') ?? false).length).toBeGreaterThan(0)
     await user.type(screen.getByLabelText('캐릭터 이름'), 'Aria')
     await user.click(screen.getByRole('button', { name: '캐릭터 시트 생성' }))
     expect(await screen.findByText(/캐릭터 시트 sheet-1 생성 완료/)).toBeInTheDocument()
-    expect(screen.getByText('기본 엔진: ollama')).toBeInTheDocument()
-    expect(screen.getByText('기본 도구: search, move')).toBeInTheDocument()
+    expect(screen.getByLabelText('런타임 엔진')).toHaveValue('ollama')
+    expect(screen.getByLabelText('search')).toBeChecked()
+    expect(screen.getByLabelText('move')).toBeChecked()
     expect(screen.queryByLabelText('모험 ID')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('룰북 ID 목록')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('캐릭터 시트 ID')).not.toBeInTheDocument()
@@ -281,4 +317,17 @@ describe('ScenarioSetup', () => {
     expect(await screen.findByText('패키지 package-1 · COMPLETE')).toBeInTheDocument()
     expect(api.getScenarioCompilation).toHaveBeenCalled()
   }, 10000)
+
+  it('keeps manual blueprint input stable while typing', async () => {
+    const user = userEvent.setup()
+    render(<ScenarioSetup api={new ReviewBlueprintSetupApi()} playerId="owner-1" onError={() => {}} />)
+
+    await screen.findByText('main.pdf')
+    await user.click(screen.getByRole('button', { name: '시나리오 번들 저장' }))
+    await user.click(screen.getByRole('button', { name: '시나리오 패키지 컴파일' }))
+    expect(await screen.findByRole('textbox', { name: 'name' })).toBeInTheDocument()
+    await user.type(screen.getByRole('textbox', { name: 'name' }), 'Aria')
+
+    expect(screen.getByRole('textbox', { name: 'name' })).toHaveValue('Aria')
+  })
 })

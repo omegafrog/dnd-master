@@ -42,3 +42,4 @@ docs/plans/plans.md
 
 # Generated Graphify knowledge graph
 /graphify-out/
+/.playwright-cli/

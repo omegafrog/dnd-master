@@ -35,7 +35,14 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
     @Override
     public List<ResolutionCandidate> extract(ResolutionExtractionRequest request) {
         try {
-            String body = objectMapper.writeValueAsString(request);
+            String body = objectMapper.writeValueAsString(new ResolutionExtractionWireRequest(
+                    request.operationId(),
+                    request.excerpts().stream()
+                            .map(excerpt -> new ResolutionExcerpt(
+                                    excerpt.documentId().value(), excerpt.extractionVersion(), excerpt.locator(), excerpt.text()))
+                            .toList(),
+                    request.schemaVersion(),
+                    request.promptVersion()));
             HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/resolution-candidates"))
                     .timeout(timeout)
                     .header("Content-Type", "application/json")
@@ -43,7 +50,11 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
                     .build();
             HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                throw new ResolutionExtractionException("resolution extraction failed with status " + response.statusCode());
+                String detail = response.body() == null ? "" : response.body().trim();
+                if (detail.length() > 500) detail = detail.substring(0, 500);
+                throw new ResolutionExtractionException(
+                        "resolution extraction failed with status " + response.statusCode()
+                                + (detail.isEmpty() ? "" : ": " + detail));
             }
             ExtractionResponse extracted = objectMapper.readValue(response.body(), ExtractionResponse.class);
             return extracted.candidates() == null ? List.of() : extracted.candidates().stream()
@@ -86,4 +97,9 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record SourceReferenceResponse(java.util.UUID documentId, long extractionVersion, String locator) {}
+
+    record ResolutionExtractionWireRequest(
+            String operationId, List<ResolutionExcerpt> excerpts, String schemaVersion, String promptVersion) {}
+
+    record ResolutionExcerpt(java.util.UUID documentId, long extractionVersion, String locator, String text) {}
 }
