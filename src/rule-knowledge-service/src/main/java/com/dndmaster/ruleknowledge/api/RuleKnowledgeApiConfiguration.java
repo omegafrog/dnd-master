@@ -6,6 +6,8 @@ import com.dndmaster.ruleknowledge.application.registration.*;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchPort;
+import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchPort;
+import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchApplicationService;
 import com.dndmaster.ruleknowledge.infrastructure.extraction.*;
 import com.dndmaster.ruleknowledge.infrastructure.ocr.TesseractOcrAdapter;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookIndexRepository;
@@ -13,6 +15,7 @@ import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookRe
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchPort;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorRuleEvidenceSearchRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorStorySourceSearchRepository;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorCharacterContextSearchRepository;
 import com.dndmaster.ruleknowledge.infrastructure.storage.LocalFileSystemRulebookStorage;
 import com.dndmaster.ruleknowledge.infrastructure.storage.RulebookStorageProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -92,6 +95,11 @@ public class RuleKnowledgeApiConfiguration {
     }
 
     @Bean
+    CharacterContextSearchPort characterContextSearchRepository(DataSource dataSource) {
+        return new PgvectorCharacterContextSearchRepository(dataSource);
+    }
+
+    @Bean
     RulebookIndexingApplicationService indexingApplicationService(
             RulebookIndexRepository indexRepository,
             EmbeddingPort embeddingPort,
@@ -137,13 +145,24 @@ public class RuleKnowledgeApiConfiguration {
     }
 
     @Bean
+    CharacterContextSearchApplicationService characterContextSearchService(
+            CharacterContextSearchPort searchPort,
+            EmbeddingPort embeddingPort,
+            @Value("${rule-knowledge.embedding-model:qwen3-embedding:0.6b}") String embeddingModel,
+            @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension) {
+        return new CharacterContextSearchApplicationService(searchPort, embeddingPort, embeddingModel, embeddingDimension);
+    }
+
+    @Bean
     RuleKnowledgeController ruleKnowledgeController(
             RulebookPipelineApplicationService pipelineService,
             RulebookRegistrationRepository registrationRepository,
             RuleEvidenceSearchApplicationService evidenceSearchService,
             StorySourceSearchApplicationService storySourceSearchService,
+            CharacterContextSearchApplicationService characterContextSearchService,
             ObjectMapper objectMapper) {
         return new RuleKnowledgeController(
-                pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService, objectMapper);
+                pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
+                characterContextSearchService, objectMapper);
     }
 }

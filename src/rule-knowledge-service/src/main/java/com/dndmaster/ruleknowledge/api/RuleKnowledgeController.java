@@ -14,6 +14,10 @@ import com.dndmaster.ruleknowledge.application.search.StorySourceEvidence;
 import com.dndmaster.ruleknowledge.application.search.StorySourceScope;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchQuery;
+import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchApplicationService;
+import com.dndmaster.ruleknowledge.application.search.CharacterContextDocumentScope;
+import com.dndmaster.ruleknowledge.application.search.CharacterContextEvidence;
+import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchQuery;
 import com.dndmaster.ruleknowledge.domain.rulebook.*;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,6 +31,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -38,6 +43,7 @@ public class RuleKnowledgeController {
     private final RulebookRegistrationRepository registrationRepository;
     private final RuleEvidenceSearchApplicationService evidenceSearchService;
     private final StorySourceSearchApplicationService storySourceSearchService;
+    private final CharacterContextSearchApplicationService characterContextSearchService;
     private final ObjectMapper objectMapper;
 
     public RuleKnowledgeController(
@@ -45,7 +51,23 @@ public class RuleKnowledgeController {
             RulebookRegistrationRepository registrationRepository,
             RuleEvidenceSearchApplicationService evidenceSearchService,
             ObjectMapper objectMapper) {
-        this(pipelineService, registrationRepository, evidenceSearchService, null, objectMapper);
+        this(pipelineService, registrationRepository, evidenceSearchService, null, null, objectMapper);
+    }
+
+    public RuleKnowledgeController(
+            RulebookPipelineApplicationService pipelineService,
+            RulebookRegistrationRepository registrationRepository,
+            RuleEvidenceSearchApplicationService evidenceSearchService,
+            StorySourceSearchApplicationService storySourceSearchService,
+            CharacterContextSearchApplicationService characterContextSearchService,
+            ObjectMapper objectMapper) {
+        this.pipelineService = pipelineService;
+        this.batchUploadService = new BatchRulebookUploadApplicationService(pipelineService);
+        this.registrationRepository = registrationRepository;
+        this.evidenceSearchService = evidenceSearchService;
+        this.storySourceSearchService = storySourceSearchService;
+        this.characterContextSearchService = characterContextSearchService;
+        this.objectMapper = objectMapper;
     }
 
     public RuleKnowledgeController(
@@ -54,12 +76,7 @@ public class RuleKnowledgeController {
             RuleEvidenceSearchApplicationService evidenceSearchService,
             StorySourceSearchApplicationService storySourceSearchService,
             ObjectMapper objectMapper) {
-        this.pipelineService = pipelineService;
-        this.batchUploadService = new BatchRulebookUploadApplicationService(pipelineService);
-        this.registrationRepository = registrationRepository;
-        this.evidenceSearchService = evidenceSearchService;
-        this.storySourceSearchService = storySourceSearchService;
-        this.objectMapper = objectMapper;
+        this(pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService, null, objectMapper);
     }
 
     @PostMapping("/api/v1/rulebooks")
@@ -257,7 +274,51 @@ public class RuleKnowledgeController {
                         .map(result -> new StorySourceEvidenceItem(
                                 result.documentId().value(), result.extractionVersion(), result.sourceSpanLocator(),
                                 result.excerpt(), result.score()))
-                        .toList());
+                .toList());
+    }
+
+    @PostMapping("/internal/v1/character-context/search")
+    CharacterContextSearchResponse searchCharacterContext(
+            @RequestHeader("Authorization") String authorization,
+            @RequestBody CharacterContextSearchRequest request) {
+        if (characterContextSearchService == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "character context search is not configured");
+        }
+        requireOwner(extractPlayerId(authorization), request.ownerId());
+        if (request.documents() == null || request.documents().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope must not be empty");
+        }
+        Map<DocumentType, List<CharacterContextDocumentScope>> scope = new java.util.EnumMap<>(DocumentType.class);
+        Set<String> seen = new HashSet<>();
+        for (CharacterContextScopeRequest document : request.documents()) {
+            if (!seen.add(document.documentId() + ":" + document.extractionVersion())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope must not contain duplicates");
+            }
+            StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(document.documentId()))
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "document is not registered"));
+            if (!registration.ownerPlayerId().value().equals(request.ownerId())) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "document does not belong to authenticated player");
+            }
+            if (registration.processingStatus() != ProcessingStatus.INDEXED
+                    || registration.version() != document.extractionVersion()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope is not indexed at requested version");
+            }
+            if (registration.documentType() != document.documentType()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document type does not match registration");
+            }
+            scope.computeIfAbsent(document.documentType(), ignored -> new java.util.ArrayList<>())
+                    .add(new CharacterContextDocumentScope(
+                            new KnowledgeDocumentId(document.documentId()), document.extractionVersion()));
+        }
+        Map<DocumentType, Double> thresholds = request.thresholds() == null ? Map.of() : request.thresholds();
+        List<CharacterContextEvidence> evidence = characterContextSearchService.search(new CharacterContextSearchQuery(
+                new OwnerPlayerId(request.ownerId()), scope, thresholds, request.situation(),
+                request.tokenBudget() == null ? 2000 : request.tokenBudget()));
+        return new CharacterContextSearchResponse(request.ownerId(), evidence.stream()
+                .map(result -> new CharacterContextEvidenceItem(
+                        result.documentId().value(), result.documentType(), result.extractionVersion(),
+                        result.locator(), result.excerpt(), result.similarity()))
+                .toList());
     }
 
     @GetMapping("/internal/v1/story-sources/{documentId}/context")
@@ -390,6 +451,14 @@ public class RuleKnowledgeController {
     public record StorySourceSearchResponse(UUID ownerId, List<StorySourceEvidenceItem> evidence) {}
     public record StorySourceEvidenceItem(
             UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt, double score) {}
+    public record CharacterContextSearchRequest(
+            UUID ownerId, List<CharacterContextScopeRequest> documents, String situation,
+            Map<DocumentType, Double> thresholds, Integer tokenBudget) {}
+    public record CharacterContextScopeRequest(UUID documentId, DocumentType documentType, long extractionVersion) {}
+    public record CharacterContextSearchResponse(UUID ownerId, List<CharacterContextEvidenceItem> evidence) {}
+    public record CharacterContextEvidenceItem(
+            UUID knowledgeDocumentId, DocumentType documentType, long extractionVersion,
+            String locator, String excerpt, double similarity) {}
     public record StorySourceContextResponse(
             UUID knowledgeDocumentId, long extractionVersion, String requestedLocator, List<StorySourceSpanItem> spans) {}
     public record StorySourceSpanItem(String locator, String excerpt, Integer pageNumber, String sourceMethod) {}

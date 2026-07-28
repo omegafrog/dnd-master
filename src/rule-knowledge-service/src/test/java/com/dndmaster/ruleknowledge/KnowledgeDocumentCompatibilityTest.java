@@ -22,7 +22,7 @@ class KnowledgeDocumentCompatibilityTest {
     void documentTypeIsRequiredAndOnlySupportsKnownTypes() {
         assertThrows(NullPointerException.class, () -> new KnowledgeDocumentMetadata(
                 KnowledgeDocumentId.generate(), owner(), null, "rules.pdf", RulebookFormat.PDF, 1));
-        assertEquals(List.of(DocumentType.RULEBOOK, DocumentType.STORYBOOK), List.of(DocumentType.values()));
+        assertEquals(List.of(DocumentType.RULEBOOK, DocumentType.STORYBOOK, DocumentType.HANDOUT), List.of(DocumentType.values()));
     }
 
     @Test

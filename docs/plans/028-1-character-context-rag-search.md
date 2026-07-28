@@ -1,6 +1,6 @@
 # 028-1 - 캐릭터 컨텍스트 RAG 검색
 
-- Status: approved
+- Status: completed
 - Issue: [#90](https://github.com/omegafrog/dnd-master/issues/90)
 - Parent: 028
 - Dependencies: none
