@@ -35,10 +35,14 @@ public final class CharacterCreationBlueprintCompiler {
             boolean hasExtractedHandout = values.stream()
                     .anyMatch(candidate -> candidate.sourceType().equals("HANDOUT") && candidate.extracted());
             boolean hasHandout = values.stream().anyMatch(candidate -> candidate.sourceType().equals("HANDOUT"));
+            boolean hasExtractedStorybook = values.stream()
+                    .anyMatch(candidate -> candidate.sourceType().equals("STORYBOOK") && candidate.extracted());
             boolean hasExtractedRulebook = values.stream()
                     .anyMatch(candidate -> candidate.sourceType().equals("RULEBOOK") && candidate.extracted());
             List<FieldCandidate> selected = values.stream()
-                    .filter(candidate -> hasExtractedHandout
+                    .filter(candidate -> hasExtractedStorybook
+                            ? candidate.sourceType().equals("STORYBOOK")
+                            : hasExtractedHandout
                             ? candidate.sourceType().equals("HANDOUT")
                             : hasExtractedRulebook
                                     ? candidate.sourceType().equals("RULEBOOK")
@@ -70,8 +74,9 @@ public final class CharacterCreationBlueprintCompiler {
                     .filter(quote -> !quote.isBlank()).findFirst().orElse("");
             CharacterCreationBlueprint.Field field = new CharacterCreationBlueprint.Field(
                     entry.getKey(), List.copyOf(options), values.stream().anyMatch(FieldCandidate::required),
-                    selected.stream().anyMatch(candidate -> candidate.sourceType().equals("HANDOUT"))
-                            ? "HANDOUT" : "RULEBOOK", evidence, inputStatus, fieldDiagnostics,
+                    selected.stream().anyMatch(candidate -> candidate.sourceType().equals("STORYBOOK"))
+                            ? "STORYBOOK" : selected.stream().anyMatch(candidate -> candidate.sourceType().equals("HANDOUT"))
+                                    ? "HANDOUT" : "RULEBOOK", evidence, inputStatus, fieldDiagnostics,
                     inputMode, suggestions, sourceQuote);
             fields.add(field);
             diagnostics.addAll(fieldDiagnostics.stream().map(message -> entry.getKey() + ": " + message).toList());
@@ -100,7 +105,7 @@ public final class CharacterCreationBlueprintCompiler {
             key = Objects.requireNonNull(key, "field key must not be null").trim();
             options = List.copyOf(Objects.requireNonNull(options, "options must not be null"));
             sourceType = Objects.requireNonNull(sourceType, "source type must not be null").toUpperCase();
-            if (!sourceType.equals("HANDOUT") && !sourceType.equals("RULEBOOK")) {
+            if (!sourceType.equals("HANDOUT") && !sourceType.equals("STORYBOOK") && !sourceType.equals("RULEBOOK")) {
                 throw new IllegalArgumentException("unsupported blueprint source type: " + sourceType);
             }
             evidence = Objects.requireNonNull(evidence, "evidence must not be null");

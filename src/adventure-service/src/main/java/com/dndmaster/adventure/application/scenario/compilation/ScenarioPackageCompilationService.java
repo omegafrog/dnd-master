@@ -179,8 +179,7 @@ public final class ScenarioPackageCompilationService {
     private static InputMode inputMode(String key, List<String> values) {
         return switch (key) {
             case "name" -> InputMode.FREE_TEXT;
-            case "starting_ability_scores" -> values.isEmpty() ? InputMode.FREE_TEXT : InputMode.MULTI_SELECT;
-            case "background" -> values.isEmpty() ? InputMode.FREE_TEXT : InputMode.SINGLE_SELECT;
+            case "starting_ability_scores", "background" -> InputMode.FREE_TEXT;
             default -> values.isEmpty() ? InputMode.FREE_TEXT : InputMode.SINGLE_SELECT;
         };
     }

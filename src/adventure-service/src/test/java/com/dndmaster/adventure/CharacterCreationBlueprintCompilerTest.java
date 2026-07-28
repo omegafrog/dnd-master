@@ -61,6 +61,14 @@ class CharacterCreationBlueprintCompilerTest {
     }
 
     @Test
+    void preservesStorybookSourceType() {
+        var blueprint = new CharacterCreationBlueprintCompiler().compile(1, List.of(
+                new FieldCandidate("race", List.of("Elf"), true, "STORYBOOK", RULEBOOK, "Race: Elf")));
+
+        assertEquals("STORYBOOK", blueprint.field("race").sourceType());
+    }
+
+    @Test
     void handoutWinsOverRulebookAndMergesMultipleHandouts() {
         var blueprint = new CharacterCreationBlueprintCompiler().compile(3, List.of(
                 new FieldCandidate("race", List.of("Elf"), true, "HANDOUT", HANDOUT, "Elf"),
