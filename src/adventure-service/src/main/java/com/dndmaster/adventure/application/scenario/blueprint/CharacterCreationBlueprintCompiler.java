@@ -43,15 +43,23 @@ public final class CharacterCreationBlueprintCompiler {
                 options.addAll(candidate.options());
             }
             List<FieldCandidate> extracted = values.stream().filter(FieldCandidate::extracted).toList();
-            boolean storybookConflict = hasExtractedStorybook && extracted.stream()
+            boolean crossSourceConflict = hasExtractedStorybook && extracted.stream()
                     .map(FieldCandidate::sourceType).distinct().count() > 1
                     && extracted.stream().map(FieldCandidate::options).distinct().count() > 1;
-            List<ScenarioSourceReference> evidence = (storybookConflict ? extracted : selected).stream()
+            List<ScenarioSourceReference> evidence = (crossSourceConflict ? extracted : selected).stream()
                     .map(FieldCandidate::evidence).toList();
             boolean missing = selected.stream().anyMatch(candidate -> !candidate.extracted());
             boolean conflict = selected.stream().map(FieldCandidate::options).distinct().count() > 1;
             List<String> fieldDiagnostics = new ArrayList<>();
-            if (storybookConflict) fieldDiagnostics.add("conflicting storybook/rulebook values");
+            if (crossSourceConflict) {
+                List<String> sourceTypes = java.util.stream.Stream.concat(
+                                java.util.stream.Stream.of(selectedSource),
+                                extracted.stream().map(FieldCandidate::sourceType)
+                                        .filter(source -> !source.equals(selectedSource)))
+                        .distinct().map(String::toLowerCase).toList();
+                String sources = String.join("/", sourceTypes);
+                fieldDiagnostics.add("conflicting " + sources + " values");
+            }
             else if (conflict) fieldDiagnostics.add("conflicting " + selectedSource.toLowerCase() + " values");
             if (missing) fieldDiagnostics.add("manual input required");
             String inputStatus = missing ? "MANUAL_INPUT_REQUIRED" : "EXTRACTED";

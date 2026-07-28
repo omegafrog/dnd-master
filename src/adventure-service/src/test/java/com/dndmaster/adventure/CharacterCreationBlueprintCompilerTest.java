@@ -83,6 +83,16 @@ class CharacterCreationBlueprintCompilerTest {
     }
 
     @Test
+    void identifiesHandoutInStorybookConflict() {
+        var blueprint = new CharacterCreationBlueprintCompiler().compile(1, List.of(
+                new FieldCandidate("race", List.of("Human"), true, "HANDOUT", HANDOUT, "Race: Human"),
+                new FieldCandidate("race", List.of("Tiefling"), true, "STORYBOOK", STORYBOOK, "Race: Tiefling")));
+
+        assertEquals(List.of("conflicting storybook/handout values"), blueprint.field("race").diagnostics());
+        assertEquals(List.of(HANDOUT, STORYBOOK), blueprint.field("race").evidence());
+    }
+
+    @Test
     void preservesStorybookOnlyDynamicFields() {
         var blueprint = new CharacterCreationBlueprintCompiler().compile(1, List.of(
                 new FieldCandidate("faction", List.of("Harper"), true, "STORYBOOK", STORYBOOK,
