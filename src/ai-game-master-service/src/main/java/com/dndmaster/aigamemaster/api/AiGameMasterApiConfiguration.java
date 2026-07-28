@@ -83,6 +83,11 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
+    CharacterInputTagController characterInputTagController(SpringAiChatAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+        return new CharacterInputTagController(adapter, objectMapper);
+    }
+
+    @Bean
     AiGameMasterController aiGameMasterController(
             ScenarioBoundSceneService sceneService,
             AdjudicationModelPort adjudicationPort,

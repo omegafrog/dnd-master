@@ -15,6 +15,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
 import com.dndmaster.adventure.domain.scenario.CharacterLimit;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler;
+import com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import com.dndmaster.adventure.domain.scenario.InputMode;
@@ -62,6 +63,13 @@ public final class ScenarioPackageCompilationService {
         return compileInternal(bundle, candidates, excerpts, true, List.of());
     }
 
+    public ScenarioPackage compileWithCharacterCandidates(
+            ScenarioSourceBundle bundle, List<ResolutionCandidate> candidates,
+            List<ResolutionExtractionPort.SourceExcerpt> excerpts,
+            List<CharacterInputTagCandidate> characterCandidates) {
+        return compileInternal(bundle, candidates, excerpts, true, List.of(), characterCandidates);
+    }
+
     public ScenarioPackage compile(
             ScenarioSourceBundle bundle,
             List<ResolutionCandidate> candidates,
@@ -71,13 +79,20 @@ public final class ScenarioPackageCompilationService {
         if (!requestedOverrides.isEmpty()) {
             overrideRepository.saveAll(requestedOverrides);
         }
-        return compileInternal(bundle, candidates, excerpts, true, requestedOverrides);
+        return compileInternal(bundle, candidates, excerpts, true, requestedOverrides, null);
     }
 
     private ScenarioPackage compileInternal(
             ScenarioSourceBundle bundle, List<ResolutionCandidate> candidates,
             List<ResolutionExtractionPort.SourceExcerpt> excerpts, boolean verifyEvidence,
             List<ResolutionOverride> requestedOverrides) {
+        return compileInternal(bundle, candidates, excerpts, verifyEvidence, requestedOverrides, null);
+    }
+
+    private ScenarioPackage compileInternal(
+            ScenarioSourceBundle bundle, List<ResolutionCandidate> candidates,
+            List<ResolutionExtractionPort.SourceExcerpt> excerpts, boolean verifyEvidence,
+            List<ResolutionOverride> requestedOverrides, List<CharacterInputTagCandidate> characterCandidates) {
         Objects.requireNonNull(bundle, "bundle must not be null");
         List<ResolutionCandidate> requested = new ArrayList<>(Objects.requireNonNull(candidates, "candidates must not be null"));
         List<ResolutionExtractionPort.SourceExcerpt> availableExcerpts =
@@ -86,6 +101,14 @@ public final class ScenarioPackageCompilationService {
         List<ResolutionOverride> allOverrides = mergeOverrides(storedOverrides, requestedOverrides);
         OverrideApplicationResult overrideResult = applyOverrides(requested, allOverrides);
         String fingerprint = fingerprint(bundle, overrideResult.effectiveCandidates(), overrideResult.overrides());
+        if (characterCandidates != null) {
+            fingerprint += ":character:" + characterCandidates.stream().filter(Objects::nonNull)
+                    .map(candidate -> candidate.key() + "|" + candidate.inputMode() + "|" + candidate.options()
+                            + "|" + candidate.label() + "|" + candidate.parentKey() + "|" + candidate.required()
+                            + "|" + candidate.suggestions() + "|" + candidate.confidence() + "|" + candidate.sourceQuote()
+                            + "|" + candidate.sourceType() + "|" + candidate.evidence())
+                    .sorted().collect(java.util.stream.Collectors.joining(";"));
+        }
         var existing = repository.findByInputFingerprint(fingerprint);
         if (existing.isPresent()) {
             return existing.get();
@@ -120,7 +143,9 @@ public final class ScenarioPackageCompilationService {
                 bundle.currentRevision().documents(), units,
                 new ScenarioCompilationReport(reportStatus, warnings),
                 characterLimit(bundle, availableExcerpts),
-                blueprintCompiler.compile(bundle.currentRevision().revision(), blueprintCandidates(bundle, availableExcerpts)));
+                characterCandidates == null
+                        ? blueprintCompiler.compile(bundle.currentRevision().revision(), blueprintCandidates(bundle, availableExcerpts))
+                        : blueprintCompiler.compileAgent(bundle.currentRevision().revision(), characterCandidates));
         repository.save(scenarioPackage);
         return scenarioPackage;
     }

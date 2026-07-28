@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.application.scenario.blueprint;
 
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
+import com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus;
 import com.dndmaster.adventure.domain.scenario.InputMode;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
@@ -13,6 +14,41 @@ import java.util.Objects;
 
 /** Compiles extracted, source-grounded character fields into a versioned contract. */
 public final class CharacterCreationBlueprintCompiler {
+    public CharacterCreationBlueprint compileAgent(long revision, List<CharacterInputTagCandidate> candidates) {
+        Objects.requireNonNull(candidates, "character tag candidates must not be null");
+        List<CharacterInputTagCandidate> grounded = candidates.stream()
+                .filter(candidate -> candidate != null && !candidate.evidence().isEmpty())
+                .toList();
+        CharacterCreationBlueprint compiled = compile(revision, grounded.stream()
+                .map(candidate -> new FieldCandidate(effectiveKey(candidate), candidate.options(), true, candidate.sourceType(),
+                        candidate.evidence().getFirst(), candidate.sourceQuote(), candidate.inputMode(), candidate.suggestions()))
+                .toList());
+        Map<String, CharacterInputTagCandidate> byKey = grounded.stream().collect(java.util.stream.Collectors.toMap(
+                CharacterCreationBlueprintCompiler::effectiveKey, candidate -> candidate,
+                (first, second) -> sourcePriority(first.sourceType()) >= sourcePriority(second.sourceType()) ? first : second));
+        List<CharacterCreationBlueprint.Field> fields = new ArrayList<>(compiled.fields().stream().map(field -> {
+            CharacterInputTagCandidate candidate = byKey.get(field.key());
+            return candidate == null ? field : new CharacterCreationBlueprint.Field(field.key(), field.options(), candidate.required(),
+                    field.sourceType(), candidate.evidence(), field.inputStatus(), field.diagnostics(), field.inputMode(),
+                    field.suggestions(), field.sourceQuote(), candidate.label(), field.value(), field.nodeId(), field.parentNodeId(), candidate.confidence());
+        }).toList());
+        for (String key : List.of("name", "race", "class", "background", "starting_ability_scores", "level")) {
+            if (fields.stream().anyMatch(field -> field.key().equals(key))) continue;
+            fields.add(new CharacterCreationBlueprint.Field(key, List.of(), true, "RULEBOOK", List.of(),
+                    "MANUAL_INPUT_REQUIRED", List.of("agent did not extract this field"), InputMode.FREE_TEXT,
+                    List.of(), "", key, null, null, null, "LOW"));
+        }
+        CharacterCreationBlueprintStatus status = fields.stream().anyMatch(field ->
+                !field.diagnostics().isEmpty() || field.inputStatus().equals("MANUAL_INPUT_REQUIRED"))
+                ? CharacterCreationBlueprintStatus.NEEDS_REVIEW : compiled.status();
+        return new CharacterCreationBlueprint(compiled.revision(), status, fields, compiled.diagnostics());
+    }
+
+    private static String effectiveKey(CharacterInputTagCandidate candidate) {
+        return candidate.parentKey() != null && !candidate.key().contains(".")
+                ? candidate.parentKey() + "." + candidate.key() : candidate.key();
+    }
+
     public CharacterCreationBlueprint compile(long revision, List<FieldCandidate> candidates) {
         Objects.requireNonNull(candidates, "candidates must not be null");
         Map<String, List<FieldCandidate>> byKey = new LinkedHashMap<>();
@@ -89,7 +125,7 @@ public final class CharacterCreationBlueprintCompiler {
                             ? "STORYBOOK" : selected.stream().anyMatch(candidate -> candidate.sourceType().equals("HANDOUT"))
                                     ? "HANDOUT" : "RULEBOOK", evidence, inputStatus, fieldDiagnostics,
                     inputMode, suggestions, sourceQuote, entry.getKey(), null, nodeIds.get(entry.getKey()),
-                    parentNodeId(entry.getKey(), nodeIds));
+                    parentNodeId(entry.getKey(), nodeIds), "HIGH");
             fields.add(field);
             diagnostics.addAll(fieldDiagnostics.stream().map(message -> entry.getKey() + ": " + message).toList());
         }

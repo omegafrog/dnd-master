@@ -80,7 +80,7 @@ public record CharacterCreationBlueprint(
         String childKey = parentFieldKey + "." + key.trim();
         if (fields.stream().anyMatch(field -> field.key().equals(childKey))) throw new IllegalArgumentException("child already exists");
         Field child = new Field(childKey, List.of(), false, "USER", List.of(), "USER_ADDED", List.of(),
-                InputMode.FREE_TEXT, List.of(), "", label, null, UUID.randomUUID().toString(), parent.id());
+                InputMode.FREE_TEXT, List.of(), "", label, null, UUID.randomUUID().toString(), parent.id(), "LOW");
         List<Field> next = new ArrayList<>(fields);
         next.add(child);
         return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.NEEDS_REVIEW,
@@ -129,7 +129,7 @@ public record CharacterCreationBlueprint(
             List<String> nodeOptions = value.inputMode() == InputMode.FREE_TEXT ? List.of() : value.options();
             return new CharacterInputNode(id, parentId, key, value.label(), value.inputMode(), selectedValue, nodeOptions,
                     value.suggestions(), status, status == CharacterInputNodeStatus.PARTIALLY_EXTRACTED,
-                    value.evidence(), status == CharacterInputNodeStatus.PARTIALLY_EXTRACTED ? "LOW" : "HIGH",
+                    value.evidence(), value.confidence(),
                     value.sourceQuote(), value.diagnostics(), children);
         }
     }
@@ -152,7 +152,7 @@ public record CharacterCreationBlueprint(
             }
             next.add(new Field(field.key(), field.options(), field.required(), field.sourceType(), field.evidence(),
                     "USER_CONFIRMED", List.of(), field.inputMode(), field.suggestions(), field.sourceQuote(), field.label(),
-                    String.join(",", requestedValues), field.nodeId(), field.parentNodeId()));
+                    String.join(",", requestedValues), field.nodeId(), field.parentNodeId(), field.confidence()));
             found = true;
         }
         if (!found) throw new IllegalArgumentException("unknown blueprint field: " + key);
@@ -175,26 +175,26 @@ public record CharacterCreationBlueprint(
     public record Field(String key, List<String> options, boolean required, String sourceType,
                         List<ScenarioSourceReference> evidence, String inputStatus, List<String> diagnostics,
                         InputMode inputMode, List<String> suggestions, String sourceQuote, String label, String value,
-                        String nodeId, String parentNodeId) {
+                        String nodeId, String parentNodeId, String confidence) {
         public Field(String key, List<String> options, boolean required, String sourceType,
                      List<ScenarioSourceReference> evidence, String inputStatus, List<String> diagnostics) {
             this(key, options, required, sourceType, evidence, inputStatus, diagnostics,
                     options.isEmpty() ? InputMode.FREE_TEXT : InputMode.SINGLE_SELECT, List.of(), "", key, null,
-                    null, null);
+                    null, null, "LOW");
         }
 
         public Field(String key, List<String> options, boolean required, String sourceType,
                      List<ScenarioSourceReference> evidence, String inputStatus, List<String> diagnostics,
                      InputMode inputMode, List<String> suggestions, String sourceQuote) {
             this(key, options, required, sourceType, evidence, inputStatus, diagnostics, inputMode, suggestions,
-                    sourceQuote, key, null, null, null);
+                    sourceQuote, key, null, null, null, "LOW");
         }
 
         public Field(String key, List<String> options, boolean required, String sourceType,
                      List<ScenarioSourceReference> evidence, String inputStatus, List<String> diagnostics,
                      InputMode inputMode, List<String> suggestions, String sourceQuote, String label) {
             this(key, options, required, sourceType, evidence, inputStatus, diagnostics, inputMode, suggestions,
-                    sourceQuote, label, null, null, null);
+                    sourceQuote, label, null, null, null, "LOW");
         }
 
         public Field {
@@ -207,6 +207,7 @@ public record CharacterCreationBlueprint(
             inputMode = inputMode == null ? (options.isEmpty() ? InputMode.FREE_TEXT : InputMode.SINGLE_SELECT) : inputMode;
             suggestions = suggestions == null ? List.of() : List.copyOf(suggestions);
             sourceQuote = sourceQuote == null ? "" : sourceQuote;
+            confidence = confidence == null || confidence.isBlank() ? "LOW" : confidence.toUpperCase();
             label = label == null || label.isBlank() ? key : label;
             value = value == null || value.isBlank() ? null : value;
             nodeId = nodeId == null || nodeId.isBlank() ? UUID.randomUUID().toString() : nodeId;

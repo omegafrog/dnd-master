@@ -5,7 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler;
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler.FieldCandidate;
+import com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus;
+import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
 import com.dndmaster.adventure.domain.scenario.InputMode;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
@@ -153,6 +155,23 @@ class CharacterCreationBlueprintCompilerTest {
     void blankFieldKeyIsRejected() {
         assertThrows(IllegalArgumentException.class, () -> new CharacterCreationBlueprintCompiler().compile(1, List.of(
                 new FieldCandidate(" ", List.of("Good"), true, "HANDOUT", HANDOUT, "Good"))));
+    }
+
+    @Test
+    void compilesDynamicAgentCandidatesInsteadOfInferringFixedFields() {
+        var blueprint = new CharacterCreationBlueprintCompiler().compileAgent(1, List.of(
+                new CharacterInputTagCandidate("culture.alignment", "Alignment", "culture", false,
+                        InputMode.SINGLE_SELECT, List.of("Neutral"), List.of(), "HIGH",
+                        List.of(STORYBOOK), "Alignment: Neutral", "STORYBOOK")));
+
+        assertEquals(List.of("culture.alignment"), blueprint.fields().stream()
+                .filter(field -> field.key().equals("culture.alignment"))
+                .map(CharacterCreationBlueprint.Field::key).toList());
+        assertEquals(InputMode.SINGLE_SELECT, blueprint.field("culture.alignment").inputMode());
+        assertEquals("Alignment", blueprint.field("culture.alignment").label());
+        assertEquals("STORYBOOK", blueprint.field("culture.alignment").sourceType());
+        assertEquals("HIGH", blueprint.field("culture.alignment").confidence());
+        assertEquals(false, blueprint.field("culture.alignment").required());
     }
 
     @Test

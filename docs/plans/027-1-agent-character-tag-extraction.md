@@ -1,6 +1,6 @@
 # 027-1 - Agent 캐릭터 태그 추출 계약 및 Blueprint 표시
 
-- Status: ready-for-agent
+- Status: completed
 - Issue: [#86](https://github.com/omegafrog/dnd-master/issues/86)
 - Parent: [#85](https://github.com/omegafrog/dnd-master/issues/85)
 - Dependencies: none

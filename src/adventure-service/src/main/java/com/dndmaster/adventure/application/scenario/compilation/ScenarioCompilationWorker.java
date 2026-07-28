@@ -3,6 +3,7 @@ package com.dndmaster.adventure.application.scenario.compilation;
 import com.dndmaster.adventure.application.scenario.ScenarioBundleRepository;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
+import com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
@@ -24,6 +25,7 @@ public final class ScenarioCompilationWorker {
     private final ScenarioBundleRepository bundleRepository;
     private final ResolutionExtractionPort extractionPort;
     private final ScenarioSourceExcerptPort excerptPort;
+    private final CharacterInputTagExtractionPort characterTagPort;
     private final ScenarioPackageCompilationService compiler;
 
     public ScenarioCompilationWorker(
@@ -35,12 +37,27 @@ public final class ScenarioCompilationWorker {
             ScenarioSourceExcerptPort excerptPort,
             ScenarioPackageCompilationService compiler,
             ScenarioPackageRepository ignoredPackageRepository) {
+        this(processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort,
+                ignored -> List.of(), compiler, ignoredPackageRepository);
+    }
+
+    public ScenarioCompilationWorker(
+            ScenarioCompilationProcessManager processManager,
+            ScenarioCompilationRepository compilationRepository,
+            WorkQueuePort queue,
+            ScenarioBundleRepository bundleRepository,
+            ResolutionExtractionPort extractionPort,
+            ScenarioSourceExcerptPort excerptPort,
+            CharacterInputTagExtractionPort characterTagPort,
+            ScenarioPackageCompilationService compiler,
+            ScenarioPackageRepository ignoredPackageRepository) {
         this.processManager = Objects.requireNonNull(processManager, "process manager must not be null");
         this.compilationRepository = Objects.requireNonNull(compilationRepository, "compilation repository must not be null");
         this.queue = Objects.requireNonNull(queue, "queue must not be null");
         this.bundleRepository = Objects.requireNonNull(bundleRepository, "bundle repository must not be null");
         this.extractionPort = Objects.requireNonNull(extractionPort, "extraction port must not be null");
         this.excerptPort = Objects.requireNonNull(excerptPort, "excerpt port must not be null");
+        this.characterTagPort = Objects.requireNonNull(characterTagPort, "character tag port must not be null");
         this.compiler = Objects.requireNonNull(compiler, "compiler must not be null");
         Objects.requireNonNull(ignoredPackageRepository, "package repository must not be null");
     }
@@ -70,16 +87,28 @@ public final class ScenarioCompilationWorker {
             ScenarioSourceBundle bundle = bundleRepository.findById(claimed.bundleId())
                     .orElseThrow(() -> new IllegalStateException("scenario bundle not found"));
             List<ResolutionExtractionPort.SourceExcerpt> excerpts = excerptPort.load(bundle);
-            Set<java.util.UUID> bundleDocumentIds = bundle.currentRevision().documents().stream()
-                    .map(document -> document.knowledgeDocumentId().value()).collect(java.util.stream.Collectors.toSet());
+            Set<String> bundleSources = bundle.currentRevision().documents().stream()
+                    .map(document -> document.knowledgeDocumentId().value() + ":" + document.extractionVersion())
+                    .collect(java.util.stream.Collectors.toSet());
             List<ResolutionCandidate> candidates = extractionPort.extract(
                     new ResolutionExtractionPort.ResolutionExtractionRequest(
                             claimed.id().toString(), excerpts == null ? List.of() : excerpts.stream()
-                                    .filter(excerpt -> bundleDocumentIds.contains(excerpt.documentId().value()))
+                                    .filter(excerpt -> bundleSources.contains(excerpt.documentId().value() + ":" + excerpt.extractionVersion()))
                                     .limit(3).toList(),
                             "resolution-candidate-v1", "resolution-prompt-v1"));
-            ScenarioPackage scenarioPackage = compiler.compile(bundle, candidates == null ? List.of() : candidates,
-                    excerpts == null ? List.of() : excerpts);
+            List<com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.SourceExcerpt> tagExcerpts =
+                    excerpts == null ? List.of() : excerpts.stream()
+                            .filter(excerpt -> bundleSources.contains(excerpt.documentId().value() + ":" + excerpt.extractionVersion()))
+                            .limit(3)
+                            .map(excerpt -> new com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.SourceExcerpt(
+                                    excerpt.documentId(), excerpt.extractionVersion(), excerpt.locator(), excerpt.text()))
+                            .toList();
+            List<com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate> characterCandidates =
+                    characterTagPort.extract(new CharacterInputTagExtractionPort.Request(
+                            claimed.id() + ":character-input-tags", tagExcerpts,
+                            "character-input-tag-v1", "character-input-tag-prompt-v1"));
+            ScenarioPackage scenarioPackage = compiler.compileWithCharacterCandidates(bundle, candidates == null ? List.of() : candidates,
+                    excerpts == null ? List.of() : excerpts, characterCandidates == null ? List.of() : characterCandidates);
             processManager.publish(claimed, delivery, scenarioPackage.packageId());
             log.info("scenario compilation worker published compilationId={} packageId={}",
                     claimed.id(), scenarioPackage.packageId());
