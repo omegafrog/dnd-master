@@ -58,17 +58,6 @@ test('player starts session and party becomes immutable', async ({ page }) => {
   await expect(party.getByRole('button', { name: '제거' })).toHaveCount(0)
 })
 
-test('player submits nested character input through character creation flow', async ({ page }) => {
-  await page.goto('/e2e/fixtures/index.html')
-  await page.getByLabel('이메일').fill('player@example.com')
-  await page.getByLabel('비밀번호').fill('secret-password')
-  await page.getByRole('button', { name: '로그인' }).click()
-  await page.getByLabel('STR').last().fill('12')
-  await page.getByLabel('캐릭터 이름').fill('Aria')
-  await page.getByRole('button', { name: '캐릭터 시트 생성' }).click()
-  await expect(page.getByText('캐릭터 시트 sheet-e2e 생성 완료.')).toBeVisible()
-})
-
 test('document-derived character creation preserves bundle, blueprint and creation artifacts', async ({ page }) => {
   const failedResponses: Array<{ url: string; status: number; body: string }> = []
   page.on('response', async response => {
@@ -104,7 +93,7 @@ test('document-derived character creation preserves bundle, blueprint and creati
     await expect(scenario.getByText('map.txt · MAP')).toBeVisible()
     await expect(scenario.getByText(/printer.txt ·/)).not.toBeVisible()
     await test.info().attach('026-4-bundle.json', {
-      body: Buffer.from(JSON.stringify({ text: await scenario.locator('#bundle-summary-heading').locator('..').innerText() })),
+      body: Buffer.from(await page.evaluate(() => JSON.stringify((window as unknown as { __dndMasterE2E: unknown }).__dndMasterE2E))),
       contentType: 'application/json',
     })
     await scenario.getByRole('button', { name: '시나리오 패키지 컴파일' }).click()
@@ -113,7 +102,7 @@ test('document-derived character creation preserves bundle, blueprint and creati
     await expect(scenario.getByText('Storybook 우선 옵션: Elf')).toBeVisible()
     await expect(scenario.getByText(/근거: storybook.txt/)).toBeVisible()
     await test.info().attach('026-4-blueprint.json', {
-      body: Buffer.from(JSON.stringify({ text: await scenario.locator('#play-preparation-heading').locator('..').innerText() })),
+      body: Buffer.from(await page.evaluate(() => JSON.stringify((window as unknown as { __dndMasterE2E: unknown }).__dndMasterE2E))),
       contentType: 'application/json',
     })
     await page.screenshot({ path: 'test-results/026-4-blueprint.png', fullPage: true })
@@ -124,7 +113,7 @@ test('document-derived character creation preserves bundle, blueprint and creati
     await characterCreation.getByRole('button', { name: '캐릭터 시트 생성' }).click()
     await expect(characterCreation.getByText('캐릭터 시트 sheet-e2e 생성 완료.')).toBeVisible()
     await test.info().attach('026-4-creation.json', {
-      body: Buffer.from(JSON.stringify({ text: await characterCreation.getByText('캐릭터 시트 sheet-e2e 생성 완료.').innerText() })),
+      body: Buffer.from(await page.evaluate(() => JSON.stringify((window as unknown as { __dndMasterE2E: unknown }).__dndMasterE2E))),
       contentType: 'application/json',
     })
     await page.screenshot({ path: 'test-results/026-4-creation.png', fullPage: true })

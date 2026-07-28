@@ -22,6 +22,8 @@ const adventureId = 'adventure-e2e'
 
 const e2eState = {
   bundle: null as unknown,
+  blueprint: null as unknown,
+  creationRequest: null as unknown,
   blueprintStatus: 'NEEDS_REVIEW' as 'NEEDS_REVIEW' | 'PUBLISHED',
   creation: null as unknown,
 }
@@ -58,6 +60,11 @@ const setupApi: SetupApi = {
   async getRulebookStatus(rulebookId) { return { rulebookId, status: 'INDEXED' } },
   async uploadScenario(file) { return { id: 'scenario-e2e', name: file.name } },
   async createCharacterSheet(draft) {
+    if (e2eState.blueprintStatus !== 'PUBLISHED') throw new Error('Blueprint must be published before character creation')
+    if (draft.blueprintRevision !== 2 || draft.blueprintValues?.['node-str'] !== '12') {
+      throw new Error('Character creation must use the published blueprint values')
+    }
+    e2eState.creationRequest = draft
     const result = {
       characterSheetId: 'sheet-e2e',
       adventureId: adventureId,
@@ -93,7 +100,7 @@ const setupApi: SetupApi = {
     }
   },
   async getPlayPreparation() {
-    return {
+    const preparation = {
       scenarioPackageId: 'package-e2e', bundleId: 'bundle-e2e', bundleRevision: 1, status: 'READY' as const, blockers: [],
       characterLimit: { maximumCharacters: 1, source: null, sourceQuote: '' },
       characterCreationBlueprint: {
@@ -109,6 +116,8 @@ const setupApi: SetupApi = {
         }],
       },
     }
+    e2eState.blueprint = preparation.characterCreationBlueprint
+    return preparation
   },
   async publishBlueprint() {
     e2eState.blueprintStatus = 'PUBLISHED'
@@ -128,6 +137,8 @@ const setupApi: SetupApi = {
       }))
   },
 }
+
+Object.assign(window, { __dndMasterE2E: e2eState })
 
 const adventureApi: AdventureApi = {
   async sendMessage() {
@@ -195,17 +206,6 @@ const characterSessionApi = {
   async start() { return characterSessionApi.read() },
 }
 
-const characterCreationSetupApi: SetupApi = {
-  ...setupApi,
-  async getPlayPreparation() {
-    const preparation = await setupApi.getPlayPreparation!('package-e2e')
-    return {
-      ...preparation,
-      characterCreationBlueprint: { ...preparation.characterCreationBlueprint, status: 'PUBLISHED' as const },
-    }
-  },
-}
-
 function Journey() {
   const auth = useAuth()
   if (!auth.session) return <main><h1>D&amp;D Master</h1><LoginForm /></main>
@@ -214,7 +214,7 @@ function Journey() {
       <RulebookSetup api={setupApi} playerId="player-e2e" asMain={false} />
       <AdventureSessionPanel api={sessionApi} sessionId="session-e2e" />
       <ScenarioUploadPanel />
-      <CharacterCreationPage sessionId="character-session-e2e" setupApi={characterCreationSetupApi} sessionApi={characterSessionApi} />
+      <CharacterCreationPage sessionId="character-session-e2e" setupApi={setupApi} sessionApi={characterSessionApi} />
       <div aria-label="모험 플레이">
         <AdventureStream adventureId={adventureId} api={adventureApi} />
         <RuleEvidence adventureId={adventureId} api={guidanceApi} />
