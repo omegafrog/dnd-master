@@ -26,6 +26,10 @@ test('real backend preserves document bundle, blueprint evidence and creation pa
   const bundle = await bundleResponse.json()
   await attachJson('026-4-real-bundle.json', bundle)
   expect(bundle.documents).toEqual(expect.arrayContaining([expect.objectContaining({ role: 'MAP' })]))
+  expect(bundle.documents).toEqual(expect.arrayContaining([
+    expect.objectContaining({ documentType: 'RULEBOOK', status: 'INDEXED' }),
+    expect.objectContaining({ documentType: 'STORYBOOK', status: 'INDEXED' }),
+  ]))
   expect(bundle.documents).not.toEqual(expect.arrayContaining([expect.objectContaining({ originalFilename: expect.stringMatching(/printer/i) })]))
 
   const preparationResponse = await request.get(`${backend}/api/v1/scenario-packages/${scenarioPackageId}/play-preparation`, { headers: headers() })
@@ -37,6 +41,8 @@ test('real backend preserves document bundle, blueprint evidence and creation pa
   const roots = preparation.characterCreationBlueprint.roots ?? []
   const evidenceNodes = JSON.stringify(roots)
   expect(evidenceNodes).toMatch(/sourceEvidence|sourceEvidence/i)
+  expect(evidenceNodes).toMatch(/RULEBOOK/)
+  expect(evidenceNodes).toMatch(/STORYBOOK/)
 
   const publishResponse = await request.post(`${backend}/api/v1/scenario-packages/${scenarioPackageId}/character-blueprint/publish`, { headers: headers() })
   expect(publishResponse.ok()).toBeTruthy()

@@ -25,6 +25,7 @@ const e2eState = {
   blueprint: null as unknown,
   creationRequest: null as unknown,
   blueprintStatus: 'NEEDS_REVIEW' as 'NEEDS_REVIEW' | 'READY' | 'PUBLISHED',
+  blueprintRevision: 2,
   blueprintValues: { 'node-str': '12' } as Record<string, string>,
   creation: null as unknown,
 }
@@ -62,7 +63,7 @@ const setupApi: SetupApi = {
   async uploadScenario(file) { return { id: 'scenario-e2e', name: file.name } },
   async createCharacterSheet(draft) {
     if (e2eState.blueprintStatus !== 'PUBLISHED') throw new Error('Blueprint must be published before character creation')
-    if (draft.blueprintRevision !== 2 || draft.blueprintValues?.['node-str'] !== '13') {
+    if (draft.blueprintRevision !== 4 || draft.blueprintValues?.['node-str'] !== '13') {
       throw new Error('Character creation must use the published blueprint values')
     }
     e2eState.creationRequest = draft
@@ -117,7 +118,7 @@ const setupApi: SetupApi = {
       characterLimit: { maximumCharacters: 1, source: null, sourceQuote: '' },
       characterCreationBlueprint: {
         available: true, summary: 'DND 4판 · DND 5판 · Storybook 우선 옵션: Elf', rulebookDocumentCount: 2, storybookDocumentCount: 1,
-        diagnostics: [], revision: 2, status: e2eState.blueprintStatus, fields: [], roots: [{
+        diagnostics: [], revision: e2eState.blueprintRevision, status: e2eState.blueprintStatus, fields: [], roots: [{
           id: 'node-scores', parentId: null, key: 'starting_ability_scores', label: 'Scores', inputMode: 'FREE_TEXT' as const,
           value: null, options: [], suggestions: [], status: 'EXTRACTED' as const, allowUserAddChild: false, confidence: 'HIGH',
           sourceQuote: '', diagnostics: [], sourceEvidence: [], children: [{
@@ -135,11 +136,14 @@ const setupApi: SetupApi = {
     return preparation
   },
   async publishBlueprint() {
+    if (e2eState.blueprintStatus !== 'READY') throw new Error('Blueprint must be ready before publishing')
     e2eState.blueprintStatus = 'PUBLISHED'
+    e2eState.blueprintRevision += 1
   },
   async resolveBlueprint(_scenarioPackageId, nodeId, value) {
     e2eState.blueprintValues[nodeId] = value
     e2eState.blueprintStatus = 'READY'
+    e2eState.blueprintRevision += 1
   },
   async saveRuleSet() {},
   async listKnowledgeDocuments(ownerId) {
