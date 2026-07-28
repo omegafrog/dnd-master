@@ -200,8 +200,13 @@ public class RuleKnowledgeController {
     }
 
     @PostMapping("/internal/v1/rule-evidence/search")
-    EvidenceSearchResponse searchEvidence(@RequestBody EvidenceSearchRequest request) {
-        List<RulebookId> rulebookIds = request.rulebookIds().stream()
+    EvidenceSearchResponse searchEvidence(
+            @RequestHeader("Authorization") String authorization,
+            @RequestBody EvidenceSearchRequest request) {
+        UUID authenticatedOwner = extractPlayerId(authorization);
+        requireOwner(authenticatedOwner, request.ownerId());
+        List<UUID> authorizedRulebookIds = authorizeDocuments(request.ownerId(), request.rulebookIds(), DocumentType.RULEBOOK);
+        List<RulebookId> rulebookIds = authorizedRulebookIds.stream()
                 .map(RulebookId::new)
                 .toList();
         SearchRuleEvidenceQuery query = new SearchRuleEvidenceQuery(
@@ -233,7 +238,10 @@ public class RuleKnowledgeController {
         }
         UUID authenticatedOwner = extractPlayerId(authorization);
         requireOwner(authenticatedOwner, request.ownerId());
+        List<UUID> authorizedStorybookIds = authorizeDocuments(request.ownerId(), request.documents().stream()
+                .map(StorySourceScopeRequest::documentId).toList(), DocumentType.STORYBOOK);
         List<StorySourceScope> scope = request.documents().stream()
+                .filter(document -> authorizedStorybookIds.contains(document.documentId()))
                 .map(document -> new StorySourceScope(
                         new KnowledgeDocumentId(document.documentId()), document.extractionVersion()))
                 .toList();
@@ -301,13 +309,44 @@ public class RuleKnowledgeController {
         if (authorization == null || !authorization.startsWith("Bearer ")) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is required");
         }
-        return UUID.fromString(authorization.substring("Bearer ".length()));
+        try {
+            return UUID.fromString(authorization.substring("Bearer ".length()));
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is invalid", exception);
+        }
     }
 
     private static void requireOwner(UUID authenticatedOwner, UUID requestedOwner) {
         if (!authenticatedOwner.equals(requestedOwner)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "owner does not match authenticated player");
         }
+    }
+
+    private List<UUID> authorizeDocuments(UUID ownerId, List<UUID> documentIds, DocumentType requiredType) {
+        if (documentIds == null || documentIds.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope must not be empty");
+        }
+        if (new HashSet<>(documentIds).size() != documentIds.size()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope must not contain duplicates");
+        }
+        List<UUID> authorized = new java.util.ArrayList<>();
+        for (UUID documentId : documentIds) {
+            StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(documentId))
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "document is not registered"));
+            if (!registration.ownerPlayerId().value().equals(ownerId)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "document does not belong to authenticated player");
+            }
+            if (registration.processingStatus() != ProcessingStatus.INDEXED) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document is not indexed");
+            }
+            if (requiredType == null || registration.documentType() == requiredType) {
+                authorized.add(documentId);
+            }
+        }
+        if (authorized.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document type is not allowed");
+        }
+        return List.copyOf(authorized);
     }
 
     private static RulebookFormat resolveFormat(String filename) {

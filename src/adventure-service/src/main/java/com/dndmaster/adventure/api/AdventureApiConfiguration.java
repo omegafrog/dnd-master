@@ -34,6 +34,7 @@ import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpInitia
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpResolutionExtractionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpScenarioSourceExcerptGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuleIntentClassificationGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuntimeEvidenceSearchGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetReadGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetOwnershipGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetDeletionGateway;
@@ -443,32 +444,11 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    RuntimeEvidenceSearchPort runtimeEvidenceSearchPort() {
-        return request -> {
-            if (request.evidenceType() == RuntimeEvidenceType.STORYBOOK) {
-                ActiveSourceContext active = request.activeSourceContext();
-                if (active == null || !request.knowledgeDocumentIds().contains(active.knowledgeDocumentId().value())) return List.of();
-                return List.of(new RuntimeEvidence(
-                        RuntimeEvidenceType.STORYBOOK,
-                        active.knowledgeDocumentId(),
-                        active.extractionVersion(),
-                        active.locator(),
-                        active.excerpt()));
-            }
-            if (request.evidenceType() == RuntimeEvidenceType.RULEBOOK) {
-                return request.knowledgeDocumentIds().stream()
-                        .filter(documentId -> request.activeSourceContext() == null
-                                || !documentId.equals(request.activeSourceContext().knowledgeDocumentId().value()))
-                        .map(documentId -> new RuntimeEvidence(
-                        RuntimeEvidenceType.RULEBOOK,
-                        new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(documentId),
-                        1L,
-                        "rulebook:" + documentId,
-                        "Rulebook evidence for " + request.action()))
-                        .toList();
-            }
-            return List.of();
-        };
+    RuntimeEvidenceSearchPort runtimeEvidenceSearchPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl) {
+        return new CrossContextHttpRuntimeEvidenceSearchGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(10), objectMapper);
     }
 
     @Bean

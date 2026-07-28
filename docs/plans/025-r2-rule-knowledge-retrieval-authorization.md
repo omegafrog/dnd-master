@@ -1,6 +1,6 @@
 # 025-R2 - Rule-knowledge retrieval authorization
 
-- Status: approved
+- Status: completed
 - Issue: [#77](https://github.com/omegafrog/dnd-master/issues/77)
 - Parent: [025](025-session-knowledge-set-retrieval.md)
 - Original issue: [#25](https://github.com/omegafrog/dnd-master/issues/25)
