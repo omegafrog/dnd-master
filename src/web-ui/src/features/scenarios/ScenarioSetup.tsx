@@ -37,8 +37,13 @@ const selectableStatuses = new Set<KnowledgeDocumentView['status']>([
 const compilationPollIntervalMs = 250
 const compilationPollLimit = 240
 
-function flattenBlueprintNodes(nodes: CharacterInputNodeView[]): CharacterInputNodeView[] {
-  return nodes.flatMap(node => [node, ...flattenBlueprintNodes(node.children)])
+export function serializeBlueprintValues(nodes: CharacterInputNodeView[], values: Record<string, string>, parentPath = ''): string[] {
+  return nodes.flatMap(node => {
+    const path = parentPath ? `${parentPath}.${node.key}` : node.key
+    const value = values[node.id] ?? node.value ?? ''
+    const current = value.trim() ? [`${path}=${value}`] : []
+    return [...current, ...serializeBlueprintValues(node.children, values, path)]
+  })
 }
 
 export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCreated }: { api: SetupApi; playerId: string; onError: (message: string) => void; sessionApi?: Pick<AdventureSessionApi, 'create'>; onSessionCreated?: (sessionId: string) => void }) {
@@ -192,10 +197,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
         characterName: characterName.trim(),
         level: characterLevel,
         inspiration: characterInspiration,
-        startingAbilities: flattenBlueprintNodes(scoreRoot?.children ?? [])
-          .filter(node => (blueprintValues[node.id] ?? node.value ?? '').trim())
-          .map(node => `${node.key}=${blueprintValues[node.id] ?? node.value ?? ''}`)
-          .join(','),
+        startingAbilities: serializeBlueprintValues(scoreRoot?.children ?? [], blueprintValues).join(','),
         blueprintRevision: playPreparation?.characterCreationBlueprint.revision,
         blueprintValues,
       }

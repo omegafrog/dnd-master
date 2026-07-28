@@ -2,7 +2,8 @@ import '@testing-library/jest-dom/vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ScenarioSetup } from './ScenarioSetup'
+import { ScenarioSetup, serializeBlueprintValues } from './ScenarioSetup'
+import type { CharacterInputNodeView } from '../rulebooks/SetupApi'
 import type {
   CreatedCharacterSheetView,
   CharacterCreationBlueprintView,
@@ -237,6 +238,31 @@ function bundle(id: string, revision: number, documents: ScenarioBundleView['doc
 describe('ScenarioSetup', () => {
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('preserves nested blueprint paths in legacy starting abilities', () => {
+    const node = (id: string, key: string, children: CharacterInputNodeView[] = []): CharacterInputNodeView => ({
+      id,
+      parentId: null,
+      key,
+      label: key,
+      inputMode: 'FREE_TEXT',
+      value: null,
+      options: [],
+      suggestions: [],
+      status: 'EXTRACTED',
+      allowUserAddChild: false,
+      confidence: 'HIGH',
+      sourceQuote: '',
+      diagnostics: [],
+      sourceEvidence: [],
+      children,
+    })
+
+    expect(serializeBlueprintValues([
+      node('str-1', 'str'),
+      node('group-a', 'group', [node('str-2', 'str')]),
+    ], { 'str-1': '12', 'str-2': '14' })).toEqual(['str=12', 'group.str=14'])
   })
 
   it('lets the owner save a bundle, compile it, and inspect play prep without uuid inputs', async () => {
