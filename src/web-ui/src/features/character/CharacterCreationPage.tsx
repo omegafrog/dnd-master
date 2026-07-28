@@ -34,6 +34,9 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
     try {
       const flattenNodes = (nodes: NonNullable<typeof preparation.characterCreationBlueprint.roots>): typeof nodes[number][] => nodes.flatMap(node => [node, ...flattenNodes(node.children)])
       const nodes = flattenNodes(preparation.characterCreationBlueprint.roots ?? [])
+      const resolvedValues = Object.fromEntries(nodes
+        .map(node => [node.id, values[node.id] ?? node.value ?? ''])
+        .filter(([, value]) => value !== ''))
       const nodeValue = (...keys: string[]) => keys.map(key => {
         const direct = values[key]
         if (direct != null) return direct
@@ -56,7 +59,7 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
         background: nodeValue('background'),
         startingAbilities: nodeValue('startingAbilities', 'starting_ability_scores') || nestedStartingAbilities,
         blueprintRevision: session.blueprintRevision,
-        blueprintValues: values,
+        blueprintValues: resolvedValues,
       })
       setCreated(next)
       setMessage(`캐릭터 시트 ${next.characterSheetId} 생성 완료.`)

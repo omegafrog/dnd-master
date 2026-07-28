@@ -88,7 +88,7 @@ test('document-derived character creation preserves bundle, blueprint and creati
     await expect(page.getByLabel('map.txt 역할')).toBeVisible()
     await page.getByLabel('map.txt 역할').selectOption('MAP')
     const scenario = page.locator('section[aria-labelledby="scenario-heading"]')
-    await scenario.getByLabel('printer.txt').uncheck()
+    await scenario.getByLabel('printer.txt', { exact: true }).uncheck()
     await scenario.getByRole('button', { name: '시나리오 번들 저장' }).click()
     await expect(scenario.getByText('map.txt · MAP')).toBeVisible()
     await expect(scenario.getByText(/printer.txt ·/)).not.toBeVisible()
@@ -97,9 +97,9 @@ test('document-derived character creation preserves bundle, blueprint and creati
       contentType: 'application/json',
     })
     await scenario.getByRole('button', { name: '시나리오 패키지 컴파일' }).click()
-    await expect(scenario.getByText('DND 4판')).toBeVisible()
-    await expect(scenario.getByText('DND 5판')).toBeVisible()
-    await expect(scenario.getByText('Storybook 우선 옵션: Elf')).toBeVisible()
+    await expect(scenario.getByText('DND 4판').first()).toBeVisible()
+    await expect(scenario.getByText('DND 5판').first()).toBeVisible()
+    await expect(scenario.getByText('Storybook 우선 옵션: Elf').first()).toBeVisible()
     await expect(scenario.getByText(/근거: storybook.txt/)).toBeVisible()
     await test.info().attach('026-4-blueprint.json', {
       body: Buffer.from(await page.evaluate(() => JSON.stringify((window as unknown as { __dndMasterE2E: unknown }).__dndMasterE2E))),

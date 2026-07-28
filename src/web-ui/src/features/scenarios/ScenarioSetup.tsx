@@ -46,8 +46,15 @@ export function serializeBlueprintValues(nodes: CharacterInputNodeView[], values
   })
 }
 
-export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCreated }: { api: SetupApi; playerId: string; onError: (message: string) => void; sessionApi?: Pick<AdventureSessionApi, 'create'>; onSessionCreated?: (sessionId: string) => void }) {
-  const [documents, setDocuments] = useState<KnowledgeDocumentView[]>([])
+function collectBlueprintValues(nodes: CharacterInputNodeView[], values: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(nodes.flatMap(node => {
+    const value = values[node.id] ?? node.value ?? ''
+    return value ? [[node.id, value], ...Object.entries(collectBlueprintValues(node.children, values))] : Object.entries(collectBlueprintValues(node.children, values))
+  }))
+}
+
+export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCreated, availableDocuments }: { api: SetupApi; playerId: string; onError: (message: string) => void; sessionApi?: Pick<AdventureSessionApi, 'create'>; onSessionCreated?: (sessionId: string) => void; availableDocuments?: KnowledgeDocumentView[] }) {
+  const [documents, setDocuments] = useState<KnowledgeDocumentView[]>(availableDocuments ?? [])
   const [roles, setRoles] = useState<Record<string, ScenarioBundleRole>>({})
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bundle, setBundle] = useState<ScenarioBundleView | null>(null)
@@ -75,6 +82,16 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
   const canCreateCharacter = Boolean(!sessionApi && api.createCharacterSheet && playPreparation?.characterCreationBlueprint?.available)
 
   useEffect(() => {
+    if (availableDocuments) {
+      const selectable = availableDocuments.filter(document => selectableStatuses.has(document.status))
+      setDocuments(availableDocuments)
+      setSelectedIds(new Set(selectable.map(document => document.knowledgeDocumentId)))
+      setRoles(selectable.reduce<Record<string, ScenarioBundleRole>>((acc, document, index) => {
+        acc[document.knowledgeDocumentId] = index === 0 ? 'MAIN_SCENARIO' : 'HANDOUT'
+        return acc
+      }, {}))
+      return
+    }
     let active = true
     void api.listKnowledgeDocuments(playerId)
       .then(items => {
@@ -93,7 +110,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
         onError(error instanceof Error ? error.message : '시나리오 자료를 불러오지 못했습니다.')
       })
     return () => { active = false }
-  }, [api, onError, playerId])
+  }, [api, onError, playerId, availableDocuments])
 
   useEffect(() => {
     if (!api.getRuntimeOptions) return
@@ -192,6 +209,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
     setCreatingCharacter(true)
     try {
       const scoreRoot = playPreparation?.characterCreationBlueprint.roots?.find(node => node.key === 'starting_ability_scores')
+      const resolvedBlueprintValues = collectBlueprintValues(playPreparation?.characterCreationBlueprint.roots ?? [], blueprintValues)
       const draft: CharacterCreationDraft = {
         edition: characterEdition,
         characterName: characterName.trim(),
@@ -199,7 +217,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
         inspiration: characterInspiration,
         startingAbilities: serializeBlueprintValues(scoreRoot?.children ?? [], blueprintValues).join(','),
         blueprintRevision: playPreparation?.characterCreationBlueprint.revision,
-        blueprintValues,
+        blueprintValues: resolvedBlueprintValues,
       }
       setCreatedCharacterSheet(await api.createCharacterSheet(draft))
     } catch (error) {

@@ -78,7 +78,18 @@ const setupApi: SetupApi = {
     return result
   },
   async createScenarioBundle(ownerId, documents) {
-    e2eState.bundle = { bundleId: 'bundle-e2e', ownerPlayerId: ownerId, currentRevision: 1, documents }
+    e2eState.bundle = {
+      bundleId: 'bundle-e2e',
+      ownerPlayerId: ownerId,
+      currentRevision: 1,
+      documents: documents.map(document => ({
+        ...document,
+        originalFilename: privateDocuments.find(item => item.knowledgeDocumentId === document.knowledgeDocumentId)?.originalFilename ?? document.knowledgeDocumentId,
+        documentType: privateDocuments.find(item => item.knowledgeDocumentId === document.knowledgeDocumentId)?.documentType ?? 'STORYBOOK',
+        status: 'EXTRACTED' as const,
+        extractionVersion: 1,
+      })),
+    }
     return e2eState.bundle as Awaited<ReturnType<SetupApi['createScenarioBundle']>>
   },
   async reviseScenarioBundle(ownerId, documents) {
