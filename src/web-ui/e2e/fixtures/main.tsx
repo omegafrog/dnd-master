@@ -223,7 +223,7 @@ const sessionApi = {
 
 const characterSessionApi = {
   async read() {
-    return { sessionId: 'character-session-e2e', scenarioPackageId: 'package-e2e', blueprintRevision: 2, characterLimit: 1, version: 0, status: 'DRAFT' as const, adventureId: null, runtimeConfiguration: null, party: [] }
+    return { sessionId: 'character-session-e2e', scenarioPackageId: 'package-e2e', blueprintRevision: e2eState.blueprintRevision, characterLimit: 1, version: 0, status: 'DRAFT' as const, adventureId: null, runtimeConfiguration: null, party: [] }
   },
   async addMember() { return characterSessionApi.read() },
   async start() { return characterSessionApi.read() },
