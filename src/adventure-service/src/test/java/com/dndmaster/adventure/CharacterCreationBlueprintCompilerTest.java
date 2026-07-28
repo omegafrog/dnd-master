@@ -47,6 +47,20 @@ class CharacterCreationBlueprintCompilerTest {
     }
 
     @Test
+    void resolvesFreeTextAndAcceptsLegacyFieldDefaults() {
+        var blueprint = new CharacterCreationBlueprintCompiler().compile(1, List.of(
+                new FieldCandidate("name", List.of(), false, "RULEBOOK", RULEBOOK, "Name")));
+
+        var resolved = blueprint.resolve("name", "Aria");
+        var legacy = new com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint.Field(
+                "name", List.of(), true, "RULEBOOK", List.of(RULEBOOK), "EXTRACTED", List.of(), null, null, null);
+
+        assertEquals(List.of("Aria"), resolved.field("name").options());
+        assertEquals(InputMode.FREE_TEXT, resolved.field("name").inputMode());
+        assertEquals(InputMode.FREE_TEXT, legacy.inputMode());
+    }
+
+    @Test
     void handoutWinsOverRulebookAndMergesMultipleHandouts() {
         var blueprint = new CharacterCreationBlueprintCompiler().compile(3, List.of(
                 new FieldCandidate("race", List.of("Elf"), true, "HANDOUT", HANDOUT, "Elf"),

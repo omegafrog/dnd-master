@@ -456,6 +456,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
                             />
                           )}
                           {(field.suggestions ?? []).length > 0 ? <small>추천: {field.suggestions?.join(', ')}</small> : null}
+                          {field.sourceQuote ? <small>원문 근거: {field.sourceQuote}</small> : null}
                           {field.inputStatus === 'MANUAL_INPUT_REQUIRED' ? <small>수동 입력 필요</small> : null}
                           {api.resolveBlueprint && playPreparation.characterCreationBlueprint.status === 'NEEDS_REVIEW' ? <button type="button" onClick={() => void resolveBlueprint(field.key)} disabled={!blueprintValues[field.key]}>검토값 저장</button> : null}
                         </label>

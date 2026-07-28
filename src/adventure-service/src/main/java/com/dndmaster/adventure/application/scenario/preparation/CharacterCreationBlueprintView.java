@@ -29,12 +29,14 @@ public record CharacterCreationBlueprintView(
     public record FieldView(String key, List<String> options, boolean required, String sourceType,
                             String inputStatus, List<String> diagnostics, String inputMode,
                             List<String> suggestions, String sourceQuote,
-                            List<com.dndmaster.adventure.domain.scenario.ScenarioSourceReference> evidence) {
+                            List<SourceReferenceView> evidence) {
         public FieldView(String key, List<String> options, boolean required, String sourceType,
                          String inputStatus, List<String> diagnostics) {
             this(key, options, required, sourceType, inputStatus, diagnostics,
                     options.isEmpty() ? "FREE_TEXT" : "SINGLE_SELECT", List.of(), "", List.of());
         }
+
+        public record SourceReferenceView(String knowledgeDocumentId, long extractionVersion, String locator) {}
 
         public FieldView {
             options = List.copyOf(options);

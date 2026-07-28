@@ -76,12 +76,9 @@ public record CharacterCreationBlueprint(
             evidence = List.copyOf(Objects.requireNonNull(evidence, "evidence must not be null"));
             inputStatus = Objects.requireNonNull(inputStatus, "input status must not be null");
             diagnostics = List.copyOf(Objects.requireNonNull(diagnostics, "diagnostics must not be null"));
-            inputMode = Objects.requireNonNull(inputMode, "input mode must not be null");
-            suggestions = List.copyOf(Objects.requireNonNull(suggestions, "suggestions must not be null"));
-            sourceQuote = Objects.requireNonNull(sourceQuote, "source quote must not be null");
-            if (inputMode == InputMode.FREE_TEXT && !options.isEmpty()) {
-                throw new IllegalArgumentException("free-text field cannot have options");
-            }
+            inputMode = inputMode == null ? (options.isEmpty() ? InputMode.FREE_TEXT : InputMode.SINGLE_SELECT) : inputMode;
+            suggestions = suggestions == null ? List.of() : List.copyOf(suggestions);
+            sourceQuote = sourceQuote == null ? "" : sourceQuote;
         }
     }
 }

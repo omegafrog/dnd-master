@@ -83,6 +83,7 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
           : (field.inputMode ?? 'FREE_TEXT') === 'MULTI_SELECT' ? <select multiple aria-label={field.key} required={field.required} value={(values[field.key] ?? '').split(',').filter(Boolean)} onChange={event => { const value = Array.from(event.currentTarget.selectedOptions, option => option.value).join(','); setValues(current => ({ ...current, [field.key]: value })) }}>{field.options.map(option => <option key={option} value={option}>{option}</option>)}</select>
             : <input aria-label={field.key} required={field.required} value={values[field.key] ?? ''} onChange={event => { const value = event.currentTarget.value; setValues(current => ({ ...current, [field.key]: value })) }} />}
         {(field.suggestions ?? []).length > 0 && <small>추천: {field.suggestions?.join(', ')}</small>}
+        {field.sourceQuote && <small>원문 근거: {field.sourceQuote}</small>}
         {field.inputStatus === 'MANUAL_INPUT_REQUIRED' && <small>수동 입력 필요 · 근거: {field.sourceType}</small>}
         {(field.constraints ?? []).map(item => <small key={item}>제약: {item}</small>)}
         {(field.evidence ?? []).map(item => <small key={`${item.knowledgeDocumentId}-${item.locator}`}>근거: {item.knowledgeDocumentId} v{item.extractionVersion} · {item.locator}</small>)}

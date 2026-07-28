@@ -149,6 +149,9 @@ public final class ScenarioPreparationApplicationService {
                 blueprint.diagnostics(), blueprint.revision(), blueprint.fields().stream()
                         .map(field -> new CharacterCreationBlueprintView.FieldView(field.key(), field.options(), field.required(),
                                 field.sourceType(), field.inputStatus(), field.diagnostics(), field.inputMode().name(),
-                                field.suggestions(), field.sourceQuote(), field.evidence())).toList(), blueprint.status().name());
+                                field.suggestions(), field.sourceQuote(), field.evidence().stream()
+                                        .map(reference -> new CharacterCreationBlueprintView.FieldView.SourceReferenceView(
+                                                reference.knowledgeDocumentId().value().toString(), reference.extractionVersion(), reference.locator()))
+                                        .toList())).toList(), blueprint.status().name());
     }
 }
