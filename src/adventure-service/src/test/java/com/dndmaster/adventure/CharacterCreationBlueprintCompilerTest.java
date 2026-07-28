@@ -79,7 +79,7 @@ class CharacterCreationBlueprintCompilerTest {
                 new FieldCandidate("race", List.of("Elf"), true, "RULEBOOK", RULEBOOK, "Race: Elf"),
                 new FieldCandidate("race", List.of("Tiefling"), true, "STORYBOOK", STORYBOOK, "Race: Tiefling")));
 
-        assertEquals(List.of("Tiefling"), blueprint.field("race").options());
+        assertEquals(List.of("Elf", "Tiefling"), blueprint.field("race").options().stream().sorted().toList());
         assertEquals("STORYBOOK", blueprint.field("race").sourceType());
         assertEquals(CharacterCreationBlueprintStatus.NEEDS_REVIEW, blueprint.status());
         assertEquals(List.of(RULEBOOK, STORYBOOK), blueprint.field("race").evidence());
@@ -97,6 +97,17 @@ class CharacterCreationBlueprintCompilerTest {
     }
 
     @Test
+    void detectsRulebookAndHandoutConflictAndRetainsBothChoices() {
+        var blueprint = new CharacterCreationBlueprintCompiler().compile(1, List.of(
+                new FieldCandidate("race", List.of("Human"), true, "HANDOUT", HANDOUT, "Human"),
+                new FieldCandidate("race", List.of("Elf"), true, "RULEBOOK", RULEBOOK, "Elf")));
+
+        assertEquals(CharacterCreationBlueprintStatus.NEEDS_REVIEW, blueprint.status());
+        assertEquals(List.of("Elf", "Human"), blueprint.field("race").options().stream().sorted().toList());
+        assertEquals(CharacterCreationBlueprintStatus.READY, blueprint.resolve("race", "Elf").status());
+    }
+
+    @Test
     void preservesStorybookOnlyDynamicFields() {
         var blueprint = new CharacterCreationBlueprintCompiler().compile(1, List.of(
                 new FieldCandidate("faction", List.of("Harper"), true, "STORYBOOK", STORYBOOK,
@@ -107,15 +118,15 @@ class CharacterCreationBlueprintCompilerTest {
     }
 
     @Test
-    void handoutWinsOverRulebookAndMergesMultipleHandouts() {
+    void handoutWinsOverRulebookAndMarksCrossSourceConflict() {
         var blueprint = new CharacterCreationBlueprintCompiler().compile(3, List.of(
                 new FieldCandidate("race", List.of("Elf"), true, "HANDOUT", HANDOUT, "Elf"),
                 new FieldCandidate("class", List.of("Rogue"), true, "HANDOUT", HANDOUT, "Rogue"),
                 new FieldCandidate("class", List.of("Wizard"), true, "RULEBOOK", RULEBOOK, "Wizard"),
                 new FieldCandidate("background", List.of("Sage"), true, "HANDOUT", RULEBOOK, "Sage")));
 
-        assertEquals(CharacterCreationBlueprintStatus.READY, blueprint.status());
-        assertEquals(List.of("Rogue"), blueprint.field("class").options());
+        assertEquals(CharacterCreationBlueprintStatus.NEEDS_REVIEW, blueprint.status());
+        assertEquals(List.of("Rogue", "Wizard"), blueprint.field("class").options());
         assertEquals("HANDOUT", blueprint.field("class").sourceType());
         assertEquals(List.of("background", "class", "race"), blueprint.fields().stream().map(field -> field.key()).sorted().toList());
     }
@@ -188,6 +199,40 @@ class CharacterCreationBlueprintCompilerTest {
         assertEquals(3, published.revision());
         org.junit.jupiter.api.Assertions.assertThrows(IllegalStateException.class,
                 () -> published.resolve("race", "Elf"));
+    }
+
+    @Test
+    void autoFillsFixedValueAndAllowsUserOverride() {
+        var blueprint = new CharacterCreationBlueprintCompiler().compile(1, List.of(
+                new FieldCandidate("edition", List.of("DND_5E_2024"), true, "RULEBOOK", RULEBOOK,
+                        "Edition: DND 5E 2024", InputMode.FIXED_VALUE, List.of())));
+
+        assertEquals(InputMode.FIXED_VALUE, blueprint.field("edition").inputMode());
+        assertEquals("DND_5E_2024", blueprint.field("edition").value());
+        assertEquals("DND_5E_2014", blueprint.resolve("edition", "DND_5E_2014").field("edition").value());
+    }
+
+    @Test
+    void resolvingConflictClearsReviewDiagnosticAndMakesBlueprintPublishable() {
+        var blueprint = new CharacterCreationBlueprintCompiler().compile(1, List.of(
+                new FieldCandidate("race", List.of("Elf"), true, "RULEBOOK", RULEBOOK, "Elf"),
+                new FieldCandidate("race", List.of("Tiefling"), true, "STORYBOOK", STORYBOOK, "Tiefling")));
+
+        var resolved = blueprint.resolve("race", "Tiefling");
+
+        assertEquals(CharacterCreationBlueprintStatus.READY, resolved.status());
+        assertEquals(List.of(), resolved.field("race").diagnostics());
+        assertEquals(CharacterCreationBlueprintStatus.PUBLISHED, resolved.publish().status());
+    }
+
+    @Test
+    void userAddedRequiredChildNeedsResolutionBeforePublish() {
+        var blueprint = new CharacterCreationBlueprintCompiler().compile(1, List.of(
+                new FieldCandidate("scores.str", List.of(), true, "RULEBOOK", RULEBOOK, "STR")));
+
+        var added = blueprint.addUserInputChild("scores", "dex", "DEX");
+
+        assertThrows(IllegalStateException.class, added::publish);
     }
 
     private static ScenarioSourceReference source(long version) {

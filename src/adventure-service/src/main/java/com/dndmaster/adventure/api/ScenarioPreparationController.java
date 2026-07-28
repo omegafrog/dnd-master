@@ -49,6 +49,13 @@ public class ScenarioPreparationController {
                 request.expectedRevision(), request.parentId(), request.key(), request.label());
     }
 
+    @PostMapping("/scenario-packages/{scenarioPackageId}/character-blueprint/options")
+    com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint addBlueprintOption(
+            @PathVariable UUID scenarioPackageId, @RequestBody AddOptionRequest request) {
+        return service.addBlueprintOption(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()),
+                request.expectedRevision(), request.fieldKey(), request.option());
+    }
+
     @PostMapping("/scenario-packages/{scenarioPackageId}/character-blueprint/publish")
     com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint publishBlueprint(@PathVariable UUID scenarioPackageId) {
         return service.publishBlueprint(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()));
@@ -56,4 +63,5 @@ public class ScenarioPreparationController {
 
     record BlueprintResolutionRequest(long expectedRevision, String fieldKey, String value) {}
     record AddChildRequest(long expectedRevision, String parentId, String key, String label) {}
+    record AddOptionRequest(long expectedRevision, String fieldKey, String option) {}
 }

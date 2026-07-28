@@ -26,7 +26,7 @@ function Node({ node, values, onChange, onResolve, onAddChild, canResolve }: Omi
     {node.sourceEvidence.map(item => <small key={`${item.knowledgeDocumentId}-${item.locator}`}>근거: {item.knowledgeDocumentId} v{item.extractionVersion} · {item.locator}</small>)}
     {node.diagnostics.map(item => <small key={item}>{item}</small>)}
     {node.status === 'PARTIALLY_EXTRACTED' && node.allowUserAddChild && onAddChild ? <button type="button" onClick={() => onAddChild(node.id)}>필드 추가</button> : null}
-    {canResolve && onResolve ? <button type="button" onClick={() => onResolve(node.id)} disabled={!value}>검토값 저장</button> : null}
+    {canResolve && onResolve && !(node.status === 'PARTIALLY_EXTRACTED' && !node.value && node.sourceEvidence.length === 0 && node.children.length > 0) ? <button type="button" onClick={() => onResolve(node.id)} disabled={!value}>검토값 저장</button> : null}
     <CharacterInputTree nodes={node.children} values={values} onChange={onChange} onResolve={onResolve} onAddChild={onAddChild} canResolve={canResolve} />
   </fieldset>
 }

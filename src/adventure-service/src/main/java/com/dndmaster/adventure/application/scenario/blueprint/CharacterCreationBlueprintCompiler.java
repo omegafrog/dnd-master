@@ -87,13 +87,16 @@ public final class CharacterCreationBlueprintCompiler {
                 options.addAll(candidate.options());
             }
             List<FieldCandidate> extracted = values.stream().filter(FieldCandidate::extracted).toList();
-            boolean crossSourceConflict = hasExtractedStorybook && extracted.stream()
+            boolean crossSourceConflict = extracted.stream()
                     .map(FieldCandidate::sourceType).distinct().count() > 1
                     && extracted.stream().map(FieldCandidate::options).distinct().count() > 1;
             List<ScenarioSourceReference> evidence = (crossSourceConflict ? extracted : selected).stream()
                     .map(FieldCandidate::evidence).toList();
             boolean missing = selected.stream().anyMatch(candidate -> !candidate.extracted());
             boolean conflict = selected.stream().map(FieldCandidate::options).distinct().count() > 1;
+            if (crossSourceConflict || conflict) {
+                for (FieldCandidate candidate : extracted) options.addAll(candidate.options());
+            }
             List<String> fieldDiagnostics = new ArrayList<>();
             if (crossSourceConflict) {
                 List<String> sourceTypes = java.util.stream.Stream.concat(
@@ -106,7 +109,6 @@ public final class CharacterCreationBlueprintCompiler {
             }
             else if (conflict) fieldDiagnostics.add("conflicting " + selectedSource.toLowerCase() + " values");
             if (missing) fieldDiagnostics.add("manual input required");
-            String inputStatus = missing ? "MANUAL_INPUT_REQUIRED" : "EXTRACTED";
             InputMode inputMode = selected.stream().map(FieldCandidate::inputMode).findFirst()
                     .orElse(InputMode.FREE_TEXT);
             List<String> suggestions = selected.stream().flatMap(candidate -> candidate.suggestions().stream()).distinct().toList();
@@ -117,14 +119,18 @@ public final class CharacterCreationBlueprintCompiler {
                 options = new LinkedHashSet<>();
                 fieldDiagnostics.add("conflicting input modes; manual input required");
             }
+            String inputStatus = (crossSourceConflict || conflict || modeConflict) ? "CONFLICT_REVIEW"
+                    : missing ? "MANUAL_INPUT_REQUIRED" : "EXTRACTED";
             String sourceQuote = selected.stream().map(FieldCandidate::sourceQuote)
                     .filter(quote -> !quote.isBlank()).findFirst().orElse("");
+            String fixedValue = inputMode == InputMode.FIXED_VALUE && options.size() == 1
+                    ? options.iterator().next() : null;
             CharacterCreationBlueprint.Field field = new CharacterCreationBlueprint.Field(
                     entry.getKey(), List.copyOf(options), values.stream().anyMatch(FieldCandidate::required),
                     selected.stream().anyMatch(candidate -> candidate.sourceType().equals("STORYBOOK"))
                             ? "STORYBOOK" : selected.stream().anyMatch(candidate -> candidate.sourceType().equals("HANDOUT"))
                                     ? "HANDOUT" : "RULEBOOK", evidence, inputStatus, fieldDiagnostics,
-                    inputMode, suggestions, sourceQuote, entry.getKey(), null, nodeIds.get(entry.getKey()),
+                    inputMode, suggestions, sourceQuote, entry.getKey(), fixedValue, nodeIds.get(entry.getKey()),
                     parentNodeId(entry.getKey(), nodeIds), "HIGH");
             fields.add(field);
             diagnostics.addAll(fieldDiagnostics.stream().map(message -> entry.getKey() + ": " + message).toList());

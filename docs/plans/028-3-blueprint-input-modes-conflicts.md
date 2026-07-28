@@ -1,6 +1,6 @@
 # 028-3 - Blueprint 입력 모드와 충돌 검토
 
-- Status: approved
+- Status: completed
 - Issue: [#92](https://github.com/omegafrog/dnd-master/issues/92)
 - Parent: 028
 - Dependencies: 028-1

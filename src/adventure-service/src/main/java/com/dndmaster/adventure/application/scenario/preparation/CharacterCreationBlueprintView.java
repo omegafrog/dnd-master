@@ -29,13 +29,13 @@ public record CharacterCreationBlueprintView(
     }
 
     public record FieldView(String key, List<String> options, boolean required, String sourceType,
-                            String inputStatus, List<String> diagnostics, String inputMode,
+                            String inputStatus, List<String> diagnostics, String inputMode, String value,
                             List<String> suggestions, String sourceQuote,
                             List<SourceReferenceView> evidence) {
         public FieldView(String key, List<String> options, boolean required, String sourceType,
                          String inputStatus, List<String> diagnostics) {
             this(key, options, required, sourceType, inputStatus, diagnostics,
-                    options.isEmpty() ? "FREE_TEXT" : "SINGLE_SELECT", List.of(), "", List.of());
+                    options.isEmpty() ? "FREE_TEXT" : "SINGLE_SELECT", null, List.of(), "", List.of());
         }
 
         public record SourceReferenceView(String knowledgeDocumentId, long extractionVersion, String locator) {}
@@ -46,6 +46,7 @@ public record CharacterCreationBlueprintView(
             suggestions = List.copyOf(suggestions);
             sourceQuote = sourceQuote == null ? "" : sourceQuote;
             evidence = List.copyOf(evidence);
+            value = value == null || value.isBlank() ? null : value;
         }
     }
 

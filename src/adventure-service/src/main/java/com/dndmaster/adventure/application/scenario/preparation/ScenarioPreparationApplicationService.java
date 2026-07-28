@@ -61,10 +61,6 @@ public final class ScenarioPreparationApplicationService {
             blockers.add("CharacterCreationBlueprint를 만들 수 없습니다.");
         }
         CharacterCreationBlueprint compiledBlueprint = scenarioPackage.characterCreationBlueprint();
-        if (compiledBlueprint != null && compiledBlueprint.status().name().equals("NEEDS_REVIEW")) {
-            blockers.add("CharacterCreationBlueprint 검토가 필요합니다.");
-        }
-
         CharacterCreationBlueprintView blueprint = compiledBlueprint != null
                 ? toView(compiledBlueprint, revisionDocuments)
                 : blockers.isEmpty() ? new CharacterCreationBlueprintView(
@@ -126,6 +122,21 @@ public final class ScenarioPreparationApplicationService {
         return updated;
     }
 
+    public CharacterCreationBlueprint addBlueprintOption(UUID packageId, OwnerPlayerId ownerPlayerId,
+                                                          long expectedRevision, String fieldKey, String option) {
+        ScenarioPackage scenarioPackage = packageRepository.findById(packageId)
+                .orElseThrow(ScenarioBundleNotFoundException::new);
+        ScenarioSourceBundle bundle = bundleRepository.findById(scenarioPackage.bundleId())
+                .orElseThrow(ScenarioBundleNotFoundException::new);
+        bundle.authorize(ownerPlayerId);
+        requireCurrentBundleRevision(scenarioPackage, bundle);
+        CharacterCreationBlueprint blueprint = requireBlueprint(scenarioPackage);
+        requireBlueprintRevision(blueprint, expectedRevision);
+        CharacterCreationBlueprint updated = blueprint.addOption(fieldKey, option);
+        packageRepository.saveBlueprint(packageId, updated);
+        return updated;
+    }
+
     public CharacterCreationBlueprint publishBlueprint(UUID packageId, OwnerPlayerId ownerPlayerId) {
         ScenarioPackage scenarioPackage = packageRepository.findById(packageId)
                 .orElseThrow(ScenarioBundleNotFoundException::new);
@@ -177,7 +188,7 @@ public final class ScenarioPreparationApplicationService {
                 "CharacterCreationBlueprint revision " + blueprint.revision(), (int) rulebooks, (int) storybooks,
                 blueprint.diagnostics(), blueprint.revision(), blueprint.fields().stream()
                         .map(field -> new CharacterCreationBlueprintView.FieldView(field.key(), field.options(), field.required(),
-                                field.sourceType(), field.inputStatus(), field.diagnostics(), field.inputMode().name(),
+                                field.sourceType(), field.inputStatus(), field.diagnostics(), field.inputMode().name(), field.value(),
                                 field.suggestions(), field.sourceQuote(), field.evidence().stream()
                                         .map(reference -> new CharacterCreationBlueprintView.FieldView.SourceReferenceView(
                                                 reference.knowledgeDocumentId().value().toString(), reference.extractionVersion(), reference.locator()))

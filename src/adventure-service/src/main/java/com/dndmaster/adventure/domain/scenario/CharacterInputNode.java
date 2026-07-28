@@ -46,7 +46,8 @@ public record CharacterInputNode(
         List<String> requested = inputMode == InputMode.MULTI_SELECT
                 ? java.util.Arrays.stream(nextValue.split(",")).map(String::trim).filter(item -> !item.isBlank()).toList()
                 : List.of(nextValue);
-        if (requested.isEmpty() || (!options.isEmpty() && requested.stream().anyMatch(item -> !options.contains(item)))) {
+        if (requested.isEmpty() || (inputMode != InputMode.FIXED_VALUE && !options.isEmpty()
+                && requested.stream().anyMatch(item -> !options.contains(item)))) {
             throw new IllegalArgumentException("value is not a node option: " + nextValue);
         }
         return new CharacterInputNode(id, parentId, key, label, inputMode, String.join(",", requested), options,

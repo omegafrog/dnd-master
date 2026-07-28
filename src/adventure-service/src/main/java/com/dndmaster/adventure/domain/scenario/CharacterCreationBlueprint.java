@@ -79,7 +79,8 @@ public record CharacterCreationBlueprint(
         if (key == null || key.isBlank() || key.contains(".")) throw new IllegalArgumentException("invalid child key");
         String childKey = parentFieldKey + "." + key.trim();
         if (fields.stream().anyMatch(field -> field.key().equals(childKey))) throw new IllegalArgumentException("child already exists");
-        Field child = new Field(childKey, List.of(), false, "USER", List.of(), "USER_ADDED", List.of(),
+        Field child = new Field(childKey, List.of(), true, "USER", List.of(), "USER_ADDED",
+                List.of("manual input required"),
                 InputMode.FREE_TEXT, List.of(), "", label, null, UUID.randomUUID().toString(), parent.id(), "LOW");
         List<Field> next = new ArrayList<>(fields);
         next.add(child);
@@ -123,6 +124,7 @@ public record CharacterCreationBlueprint(
                 case "USER_ADDED" -> CharacterInputNodeStatus.USER_ADDED;
                 case "USER_CONFIRMED" -> CharacterInputNodeStatus.REVIEWED;
                 case "MANUAL_INPUT_REQUIRED" -> CharacterInputNodeStatus.PARTIALLY_EXTRACTED;
+                case "CONFLICT_REVIEW" -> CharacterInputNodeStatus.CONFLICT_REVIEW;
                 default -> CharacterInputNodeStatus.EXTRACTED;
             };
             String selectedValue = value.value();
@@ -147,7 +149,8 @@ public record CharacterCreationBlueprint(
                     ? java.util.Arrays.stream(value.split(",")).map(String::trim).filter(item -> !item.isBlank()).toList()
                     : List.of(value);
             if (requestedValues.isEmpty()) throw new IllegalArgumentException("blueprint value must not be blank");
-            if (!field.options().isEmpty() && requestedValues.stream().anyMatch(item -> !field.options().contains(item))) {
+            if (field.inputMode() != InputMode.FIXED_VALUE && !field.options().isEmpty()
+                    && requestedValues.stream().anyMatch(item -> !field.options().contains(item))) {
                 throw new IllegalArgumentException("value is not a blueprint option: " + value);
             }
             next.add(new Field(field.key(), field.options(), field.required(), field.sourceType(), field.evidence(),
@@ -157,12 +160,31 @@ public record CharacterCreationBlueprint(
         }
         if (!found) throw new IllegalArgumentException("unknown blueprint field: " + key);
         CharacterCreationBlueprintStatus nextStatus = next.stream().anyMatch(field ->
-                !field.diagnostics().isEmpty() || field.inputStatus().equals("MANUAL_INPUT_REQUIRED"))
+                !field.diagnostics().isEmpty() || field.inputStatus().equals("MANUAL_INPUT_REQUIRED")
+                        || field.inputStatus().equals("CONFLICT_REVIEW") || (field.required() && field.value() == null))
                 ? CharacterCreationBlueprintStatus.NEEDS_REVIEW : CharacterCreationBlueprintStatus.READY;
         List<String> nextDiagnostics = diagnostics.stream()
                 .filter(diagnostic -> !diagnostic.startsWith(key + ":"))
                 .toList();
         return new CharacterCreationBlueprint(revision + 1, nextStatus, next, nextDiagnostics);
+    }
+
+    public CharacterCreationBlueprint addOption(String key, String option) {
+        if (status == CharacterCreationBlueprintStatus.PUBLISHED) throw new IllegalStateException("published blueprint is immutable");
+        if (option == null || option.isBlank()) throw new IllegalArgumentException("blueprint option must not be blank");
+        List<Field> next = fields.stream().map(field -> {
+            if (!field.key().equals(key)) return field;
+            if (field.options().contains(option)) throw new IllegalArgumentException("blueprint option already exists");
+            List<String> options = new ArrayList<>(field.options());
+            options.add(option.trim());
+            if (field.inputMode() == InputMode.FIXED_VALUE) throw new IllegalStateException("fixed value cannot accept options");
+            InputMode mode = field.inputMode() == InputMode.FREE_TEXT ? InputMode.SINGLE_SELECT : field.inputMode();
+            return new Field(field.key(), options, field.required(), field.sourceType(), field.evidence(), field.inputStatus(),
+                    field.diagnostics(), mode, field.suggestions(), field.sourceQuote(), field.label(), field.value(),
+                    field.nodeId(), field.parentNodeId(), field.confidence());
+        }).toList();
+        if (next.equals(fields)) throw new IllegalArgumentException("unknown blueprint field: " + key);
+        return new CharacterCreationBlueprint(revision + 1, status, next, diagnostics);
     }
 
     public CharacterCreationBlueprint publish() {
