@@ -9,6 +9,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.Optional;
+import java.util.ArrayList;
+import java.util.Map;
+import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -121,6 +124,7 @@ public final class ScenarioCompilationWorker {
                             .toList();
             List<com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate> characterCandidates =
                     extractCharacterTags(claimed.id().toString(), tagExcerpts);
+            characterCandidates = refineCharacterTags(claimed.id().toString(), bundle, characterCandidates);
             ScenarioPackage scenarioPackage = compiler.compileWithCharacterCandidates(bundle, candidates == null ? List.of() : candidates,
                     excerpts == null ? List.of() : excerpts, characterCandidates == null ? List.of() : characterCandidates);
             processManager.publish(claimed, delivery, scenarioPackage.packageId());
@@ -174,4 +178,39 @@ public final class ScenarioCompilationWorker {
             return List.of();
         }
     }
+
+    private List<com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate> refineCharacterTags(
+            String operationId, ScenarioSourceBundle bundle,
+            List<com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate> candidates) {
+        if (candidates == null || candidates.isEmpty()) return List.of();
+        List<CharacterContextSearchPort.DocumentScope> scopes = bundle.currentRevision().documents().stream()
+                .map(document -> new CharacterContextSearchPort.DocumentScope(
+                        document.knowledgeDocumentId(), document.documentType(), document.extractionVersion()))
+                .filter(document -> List.of("RULEBOOK", "STORYBOOK", "HANDOUT").contains(document.documentType()))
+                .toList();
+        List<com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate> result = new ArrayList<>();
+        for (var candidate : candidates) {
+            try {
+                List<CharacterContextSearchPort.Evidence> evidence = characterContextSearchPort.search(new CharacterContextSearchPort.Request(
+                        bundle.ownerPlayerId().value(), scopes,
+                        "Find selectable values and input rules for character field '" + candidate.key() + "' (" + candidate.label() + ").",
+                        Map.of("RULEBOOK", .25, "STORYBOOK", .20, "HANDOUT", .20), 700));
+                List<CharacterInputTagExtractionPort.SourceExcerpt> excerpts = (evidence == null ? List.<CharacterContextSearchPort.Evidence>of() : evidence).stream()
+                        .sorted(java.util.Comparator.comparingDouble(CharacterContextSearchPort.Evidence::similarity).reversed())
+                        .map(item -> new CharacterInputTagExtractionPort.SourceExcerpt(item.documentId(), item.extractionVersion(), item.locator(), item.excerpt()))
+                        .toList();
+                if (excerpts.isEmpty()) { result.add(candidate); continue; }
+                List<com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate> refined = characterTagPort.extract(new CharacterInputTagExtractionPort.Request(
+                        operationId + ":character-input-refine:" + candidate.key() + ":" + UUID.randomUUID(), excerpts,
+                        "character-input-tag-v1", "character-input-tag-prompt-v1",
+                        "Refine only field '" + candidate.key() + "'. Keep its key exactly. Decide FREE_TEXT, SINGLE_SELECT, or MULTI_SELECT; return only directly supported options."));
+                result.add(refined == null ? candidate : refined.stream().filter(item -> item.key().equals(candidate.key())).findFirst().orElse(candidate));
+            } catch (RuntimeException exception) {
+                log.warn("character input refinement failed; retaining first-stage candidate key={}", candidate.key(), exception);
+                result.add(candidate);
+            }
+        }
+        return List.copyOf(result);
+    }
+
 }

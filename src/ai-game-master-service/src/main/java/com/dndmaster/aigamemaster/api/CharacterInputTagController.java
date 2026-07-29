@@ -37,7 +37,7 @@ public final class CharacterInputTagController {
                 .collect(Collectors.joining("\n\n"));
         return "/no_think Extract only source-grounded character input tags. Return one JSON array only; do not explain your answer or output reasoning. "
                 + (request.instruction() == null || request.instruction().isBlank() ? "" : "Task-specific instruction: " + request.instruction() + " ")
-                + "Schema: [{key:string,label:string,parentKey:string|null,required:boolean,inputMode:'FREE_TEXT'|'SINGLE_SELECT'|'MULTI_SELECT',options:string[],suggestions:string[],confidence:'HIGH'|'MEDIUM'|'LOW',sourceQuote:string,evidence:[{documentId:string,extractionVersion:number,locator:string}],sourceType:'RULEBOOK'|'STORYBOOK'}]. "
+                + "Schema: [{key:string,label:string,parentKey:string|null,required:boolean,inputMode:'FREE_TEXT'|'SINGLE_SELECT'|'MULTI_SELECT',options:string[],suggestions:string[],confidence:'HIGH'|'MEDIUM'|'LOW',sourceQuote:string,evidence:[{documentId:string,extractionVersion:number,locator:string}],sourceType:'RULEBOOK'|'STORYBOOK'|'HANDOUT'}]. "
                 + "Do not invent fields, values, or evidence. Source excerpts:\n" + excerpts;
     }
 
@@ -71,7 +71,7 @@ public final class CharacterInputTagController {
                     String confidence = node.path("confidence").asText("LOW");
                     if (!List.of("HIGH", "MEDIUM", "LOW").contains(confidence)) throw new IllegalArgumentException("unsupported confidence");
                     String sourceType = node.path("sourceType").asText("RULEBOOK");
-                    if (!List.of("RULEBOOK", "STORYBOOK").contains(sourceType)) throw new IllegalArgumentException("unsupported source type");
+                    if (!List.of("RULEBOOK", "STORYBOOK", "HANDOUT").contains(sourceType)) throw new IllegalArgumentException("unsupported source type");
                     List<SourceRef> evidence = refs(node.get("evidence"));
                     String quote = required(node, "sourceQuote");
                     if (evidence.isEmpty()) {

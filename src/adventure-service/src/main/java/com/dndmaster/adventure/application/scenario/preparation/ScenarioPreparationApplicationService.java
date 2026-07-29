@@ -129,7 +129,6 @@ public final class ScenarioPreparationApplicationService {
         List<CharacterInputTagExtractionPort.SourceExcerpt> excerpts = (evidence == null ? List.<CharacterContextSearchPort.Evidence>of() : evidence)
                 .stream()
                 .sorted(java.util.Comparator.comparingDouble(CharacterContextSearchPort.Evidence::similarity).reversed())
-                .limit(3)
                 .map(item -> new CharacterInputTagExtractionPort.SourceExcerpt(
                         item.documentId(), item.extractionVersion(), item.locator(), item.excerpt())).toList();
         List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> candidates = characterTagExtraction.extract(
@@ -155,17 +154,13 @@ public final class ScenarioPreparationApplicationService {
                 .toList();
         List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> refined = new ArrayList<>();
         for (CharacterInputTagExtractionPort.CharacterInputTagCandidate candidate : candidates) {
-            if (!choiceCapable(candidate)) {
-                refined.add(candidate);
-                continue;
-            }
             try {
                 List<CharacterContextSearchPort.Evidence> evidence = characterContextSearch.search(
                         new CharacterContextSearchPort.Request(ownerPlayerId.value(), scopes,
                                 "Find the authoritative selectable values and input rules for character field '"
                                         + candidate.key() + "' (" + candidate.label() + "). Search the character creation chapter, lists, tables, and examples.",
                                 java.util.Map.of("RULEBOOK", .25, "STORYBOOK", .20, "HANDOUT", .20), 700));
-                List<CharacterInputTagExtractionPort.SourceExcerpt> topicExcerpts = excerptList(evidence, 3);
+                List<CharacterInputTagExtractionPort.SourceExcerpt> topicExcerpts = excerptList(evidence);
                 if (topicExcerpts.isEmpty()) {
                     refined.add(candidate);
                     continue;
@@ -187,19 +182,12 @@ public final class ScenarioPreparationApplicationService {
     }
 
     private static List<CharacterInputTagExtractionPort.SourceExcerpt> excerptList(
-            List<CharacterContextSearchPort.Evidence> evidence, int limit) {
+            List<CharacterContextSearchPort.Evidence> evidence) {
         return (evidence == null ? List.<CharacterContextSearchPort.Evidence>of() : evidence).stream()
                 .sorted(java.util.Comparator.comparingDouble(CharacterContextSearchPort.Evidence::similarity).reversed())
-                .limit(limit)
                 .map(item -> new CharacterInputTagExtractionPort.SourceExcerpt(
                         item.documentId(), item.extractionVersion(), item.locator(), item.excerpt()))
                 .toList();
-    }
-
-    private static boolean choiceCapable(CharacterInputTagExtractionPort.CharacterInputTagCandidate candidate) {
-        String value = (candidate.key() + " " + candidate.label()).toLowerCase(java.util.Locale.ROOT);
-        return !(value.contains("name") || value.contains("이름") || value.contains("abilityscore")
-                || value.contains("ability_score") || value.contains("능력 점수"));
     }
 
     public CharacterCreationBlueprint resolveBlueprint(UUID packageId, OwnerPlayerId ownerPlayerId,
