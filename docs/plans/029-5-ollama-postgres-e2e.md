@@ -1,6 +1,6 @@
 # 029-5 - Ollama·Postgres E2E
 
-- Status: ready-for-agent
+- Status: completed
 - Issue: [#97](https://github.com/omegafrog/dnd-master/issues/97)
 - Parent: [029](029-rulebook-progressive-embedding.md)
 - Dependencies: [029-1](029-1-progressive-embedding.md), [029-2](029-2-checkpoint-resume.md), [029-3](029-3-lease-revision.md), [029-4](029-4-progress-api.md)
