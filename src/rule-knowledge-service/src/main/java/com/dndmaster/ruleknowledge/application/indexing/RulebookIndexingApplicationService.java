@@ -86,7 +86,7 @@ public final class RulebookIndexingApplicationService {
         IndexLease lease = repository.claimLease(index, owner, token, Instant.now(), Duration.ofMinutes(5))
                 .orElseThrow(() -> new IllegalStateException("index is already leased"));
         index.beginAttempt();
-        repository.save(index);
+        repository.save(index, lease);
 
         RulebookIndexingPolicy policy = buildPolicy(command.rulebook());
         var chunks = policy.createChunks(command.rulebook());
@@ -107,16 +107,17 @@ public final class RulebookIndexingApplicationService {
                         index,
                         embeddedBatch,
                         chunks.size(),
-                        completedSequences.size() + embeddedBatch.size());
+                        completedSequences.size() + embeddedBatch.size(),
+                        lease);
                 completedSequences.addAll(pendingBatch.stream().map(RulebookChunk::sequence).toList());
                 embedded.addAll(embeddedBatch);
             }
             index.complete(chunks);
-            repository.saveComplete(index, embedded);
+            repository.saveComplete(index, embedded, lease);
         } catch (RuntimeException exception) {
             boolean retryable = !(exception instanceof IllegalArgumentException);
             index.fail("embedding call failed", retryable);
-            repository.save(index);
+            repository.save(index, lease);
             throw new IndexingFailedException(exception, retryable);
         } finally {
             repository.releaseLease(lease);

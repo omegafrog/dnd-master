@@ -47,10 +47,24 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
             UPDATE rulebook_vector_index SET status = 'READY', version = version + 1
             WHERE index_id = ?
             """;
+    private static final String UPDATE_INDEX_LEASED = """
+            UPDATE rulebook_vector_index
+               SET status = ?, version = ?, attempts = ?, failure_reason = ?
+             WHERE index_id = ? AND version = ? AND lease_owner = ? AND lease_token = ?
+            """;
+    private static final String PUBLISH_INDEX_LEASED = """
+            UPDATE rulebook_vector_index SET status = 'READY', version = version + 1
+             WHERE index_id = ? AND lease_owner = ? AND lease_token = ?
+            """;
     private static final String UPDATE_PROGRESS = """
             UPDATE rulebook_vector_index
                SET total_chunks = ?, completed_chunks = ?, next_chunk_sequence = ?, last_progress_at = now()
              WHERE index_id = ?
+            """;
+    private static final String UPDATE_PROGRESS_LEASED = """
+            UPDATE rulebook_vector_index
+               SET total_chunks = ?, completed_chunks = ?, next_chunk_sequence = ?, last_progress_at = now()
+             WHERE index_id = ? AND lease_owner = ? AND lease_token = ?
             """;
     private static final String SELECT_COMPLETED_SEQUENCES = """
             SELECT sequence
@@ -146,6 +160,21 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
     }
 
     @Override
+    public void save(RulebookIndex index, IndexLease lease) {
+        Objects.requireNonNull(index); Objects.requireNonNull(lease);
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement ps = connection.prepareStatement(UPDATE_INDEX_LEASED)) {
+            ps.setString(1, index.status().name()); ps.setLong(2, index.version());
+            ps.setInt(3, index.attempts()); ps.setString(4, index.failureReason().orElse(null));
+            ps.setObject(5, index.id().value(), Types.OTHER); ps.setLong(6, index.version() - 1);
+            ps.setString(7, lease.owner()); ps.setString(8, lease.token());
+            if (ps.executeUpdate() != 1) throw new IllegalStateException("stale index worker");
+        } catch (SQLException e) {
+            throw new RuntimeException("failed to save leased index", e);
+        }
+    }
+
+    @Override
     public void saveComplete(RulebookIndex index, List<EmbeddedRulebookChunk> chunks) {
         Objects.requireNonNull(index, "index must not be null");
         List<EmbeddedRulebookChunk> immutableChunks = List.copyOf(
@@ -211,6 +240,49 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
         } catch (SQLException e) {
             throw new RuntimeException("could not access database for embedding batch", e);
         }
+    }
+
+    @Override
+    public void saveBatch(
+            RulebookIndex index, List<EmbeddedRulebookChunk> chunks, int totalChunks, int completedChunks, IndexLease lease) {
+        Objects.requireNonNull(lease);
+        List<EmbeddedRulebookChunk> immutableChunks = List.copyOf(chunks);
+        try (Connection connection = dataSource.getConnection()) {
+            boolean autoCommit = connection.getAutoCommit(); connection.setAutoCommit(false);
+            try {
+                insertChunks(connection, index, immutableChunks);
+                try (PreparedStatement ps = connection.prepareStatement(UPDATE_PROGRESS_LEASED)) {
+                    ps.setInt(1, totalChunks); ps.setInt(2, completedChunks); ps.setInt(3, completedChunks);
+                    ps.setObject(4, index.id().value(), Types.OTHER);
+                    ps.setString(5, lease.owner()); ps.setString(6, lease.token());
+                    if (ps.executeUpdate() != 1) throw new IllegalStateException("stale index worker");
+                }
+                connection.commit();
+            } catch (Exception e) {
+                connection.rollback();
+                throw e;
+            } finally { connection.setAutoCommit(autoCommit); }
+        } catch (SQLException e) { throw new RuntimeException("failed to save leased embedding batch", e); }
+    }
+
+    @Override
+    public void saveComplete(RulebookIndex index, List<EmbeddedRulebookChunk> chunks, IndexLease lease) {
+        try (Connection connection = dataSource.getConnection()) {
+            boolean autoCommit = connection.getAutoCommit(); connection.setAutoCommit(false);
+            try {
+                insertChunks(connection, index, List.copyOf(chunks));
+                try (PreparedStatement ps = connection.prepareStatement(PUBLISH_INDEX_LEASED)) {
+                    ps.setObject(1, index.id().value(), Types.OTHER);
+                    ps.setString(2, lease.owner()); ps.setString(3, lease.token());
+                    if (ps.executeUpdate() != 1) throw new IllegalStateException("stale index worker");
+                }
+                connection.commit();
+            } catch (Exception e) {
+                try { connection.rollback(); } catch (SQLException rollback) { e.addSuppressed(rollback); }
+                if (e instanceof RuntimeException runtime) throw runtime;
+                throw new RuntimeException(e);
+            } finally { connection.setAutoCommit(autoCommit); }
+        } catch (SQLException e) { throw new RuntimeException("failed to publish leased index", e); }
     }
 
     @Override

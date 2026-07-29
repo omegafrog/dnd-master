@@ -14,7 +14,12 @@ import java.util.function.Supplier;
 public interface RulebookIndexRepository {
     RulebookIndex loadOrCreate(IndexKey key, Supplier<RulebookIndex> newIndex);
     void save(RulebookIndex index);
+    default void save(RulebookIndex index, IndexLease lease) { save(index); }
     void saveBatch(RulebookIndex index, List<EmbeddedRulebookChunk> chunks, int totalChunks, int completedChunks);
+    default void saveBatch(
+            RulebookIndex index, List<EmbeddedRulebookChunk> chunks, int totalChunks, int completedChunks, IndexLease lease) {
+        saveBatch(index, chunks, totalChunks, completedChunks);
+    }
     Set<Integer> completedSequences(RulebookIndex index);
     default Optional<IndexProgress> progressFor(RulebookId rulebookId) { return Optional.empty(); }
     default Optional<IndexLease> claimLease(IndexKey key, String owner, String token, Instant now, Duration duration) {
@@ -27,4 +32,7 @@ public interface RulebookIndexRepository {
     default boolean renewLease(IndexLease lease, Instant now, Duration duration) { return false; }
     default boolean releaseLease(IndexLease lease) { return false; }
     void saveComplete(RulebookIndex index, List<EmbeddedRulebookChunk> chunks);
+    default void saveComplete(RulebookIndex index, List<EmbeddedRulebookChunk> chunks, IndexLease lease) {
+        saveComplete(index, chunks);
+    }
 }
