@@ -27,6 +27,25 @@ public final class RulebookIndex {
         this.chunks = List.of();
     }
 
+    public static RulebookIndex rehydrate(
+            IndexId id,
+            IndexKey key,
+            OwnerPlayerId ownerPlayerId,
+            int dimension,
+            IndexStatus status,
+            int attempts,
+            long version,
+            String failureReason) {
+        RulebookIndex index = new RulebookIndex(id, key, ownerPlayerId, dimension);
+        index.status = Objects.requireNonNull(status, "status must not be null");
+        if (attempts < 0) throw new IllegalArgumentException("attempts must not be negative");
+        if (version < 0) throw new IllegalArgumentException("version must not be negative");
+        index.attempts = attempts;
+        index.version = version;
+        index.failureReason = failureReason;
+        return index;
+    }
+
     public void beginAttempt() {
         if (status != IndexStatus.PENDING && status != IndexStatus.FAILED) {
             throw new IllegalStateException("only pending or failed index can begin an attempt");

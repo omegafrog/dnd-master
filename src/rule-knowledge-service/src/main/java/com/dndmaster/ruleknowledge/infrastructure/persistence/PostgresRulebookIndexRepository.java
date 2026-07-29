@@ -7,16 +7,24 @@ import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
 import java.sql.*;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.HashSet;
 import java.util.function.Supplier;
 import javax.sql.DataSource;
 
 public final class PostgresRulebookIndexRepository implements RulebookIndexRepository {
     private static final String INSERT_INDEX = """
             INSERT INTO rulebook_vector_index
-                (index_id, rulebook_id, owner_player_id, embedding_model, dimension, index_version, status, version)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                (index_id, rulebook_id, owner_player_id, embedding_model, dimension, index_version, status, version, attempts, failure_reason)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (rulebook_id, owner_player_id, embedding_model, index_version)
-            DO UPDATE SET status = EXCLUDED.status, version = EXCLUDED.version
+            DO UPDATE SET status = EXCLUDED.status, version = EXCLUDED.version,
+                          attempts = EXCLUDED.attempts, failure_reason = EXCLUDED.failure_reason
+            """;
+    private static final String SELECT_INDEX = """
+            SELECT index_id, owner_player_id, dimension, status, version, attempts, failure_reason
+              FROM rulebook_vector_index
+             WHERE rulebook_id = ? AND owner_player_id = ? AND embedding_model = ? AND index_version = ?
             """;
     private static final String INSERT_CHUNK = """
             INSERT INTO rulebook_vector_chunk
@@ -39,6 +47,12 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
                SET total_chunks = ?, completed_chunks = ?, next_chunk_sequence = ?, last_progress_at = now()
              WHERE index_id = ?
             """;
+    private static final String SELECT_COMPLETED_SEQUENCES = """
+            SELECT sequence
+              FROM rulebook_vector_chunk
+             WHERE index_id = ?
+             ORDER BY sequence
+            """;
 
     private final DataSource dataSource;
 
@@ -49,6 +63,28 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
     @Override
     public RulebookIndex loadOrCreate(IndexKey key, Supplier<RulebookIndex> newIndex) {
         RulebookIndex created = newIndex.get();
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement ps = connection.prepareStatement(SELECT_INDEX)) {
+            ps.setObject(1, key.rulebookId().value(), Types.OTHER);
+            ps.setObject(2, created.ownerPlayerId().value(), Types.OTHER);
+            ps.setString(3, key.embeddingModel());
+            ps.setString(4, key.indexVersion());
+            try (ResultSet row = ps.executeQuery()) {
+                if (row.next()) {
+                    return RulebookIndex.rehydrate(
+                            new IndexId(row.getObject("index_id", java.util.UUID.class)),
+                            key,
+                            new OwnerPlayerId(row.getObject("owner_player_id", java.util.UUID.class)),
+                            row.getInt("dimension"),
+                            IndexStatus.valueOf(row.getString("status")),
+                            row.getInt("attempts"),
+                            row.getLong("version"),
+                            row.getString("failure_reason"));
+                }
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("failed to load index", e);
+        }
         save(created);
         return created;
     }
@@ -66,6 +102,8 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
             ps.setString(6, index.key().indexVersion());
             ps.setString(7, index.status().name());
             ps.setLong(8, index.version());
+            ps.setInt(9, index.attempts());
+            ps.setString(10, index.failureReason().orElse(null));
             ps.executeUpdate();
         } catch (SQLException e) {
             throw new RuntimeException("failed to save index", e);
@@ -137,6 +175,22 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
             }
         } catch (SQLException e) {
             throw new RuntimeException("could not access database for embedding batch", e);
+        }
+    }
+
+    @Override
+    public Set<Integer> completedSequences(RulebookIndex index) {
+        Objects.requireNonNull(index, "index must not be null");
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement ps = connection.prepareStatement(SELECT_COMPLETED_SEQUENCES)) {
+            ps.setObject(1, index.id().value(), Types.OTHER);
+            try (ResultSet rows = ps.executeQuery()) {
+                Set<Integer> sequences = new HashSet<>();
+                while (rows.next()) sequences.add(rows.getInt("sequence"));
+                return Set.copyOf(sequences);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("failed to load completed embedding sequences", e);
         }
     }
 

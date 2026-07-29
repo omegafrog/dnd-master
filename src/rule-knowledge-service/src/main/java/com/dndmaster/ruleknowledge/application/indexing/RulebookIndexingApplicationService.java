@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
@@ -84,13 +85,23 @@ public final class RulebookIndexingApplicationService {
         var chunks = policy.createChunks(command.rulebook());
         try {
             List<EmbeddedRulebookChunk> embedded = new ArrayList<>(chunks.size());
+            Set<Integer> completedSequences = new java.util.HashSet<>(repository.completedSequences(index));
             for (int start = 0; start < chunks.size(); start += embeddingBatchSize) {
                 int end = Math.min(start + embeddingBatchSize, chunks.size());
                 List<RulebookChunk> batch = chunks.subList(start, end);
+                List<RulebookChunk> pendingBatch = batch.stream()
+                        .filter(chunk -> !completedSequences.contains(chunk.sequence()))
+                        .toList();
+                if (pendingBatch.isEmpty()) continue;
                 List<ChunkEmbedding> embeddings = embeddingPort.embed(
-                        batch, command.key().embeddingModel(), command.dimension());
-                List<EmbeddedRulebookChunk> embeddedBatch = toEmbeddedChunks(batch, embeddings);
-                repository.saveBatch(index, embeddedBatch, chunks.size(), embedded.size() + embeddedBatch.size());
+                        pendingBatch, command.key().embeddingModel(), command.dimension());
+                List<EmbeddedRulebookChunk> embeddedBatch = toEmbeddedChunks(pendingBatch, embeddings);
+                repository.saveBatch(
+                        index,
+                        embeddedBatch,
+                        chunks.size(),
+                        completedSequences.size() + embeddedBatch.size());
+                completedSequences.addAll(pendingBatch.stream().map(RulebookChunk::sequence).toList());
                 embedded.addAll(embeddedBatch);
             }
             index.complete(chunks);

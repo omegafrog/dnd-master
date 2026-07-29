@@ -172,6 +172,7 @@ class RetryIdempotencyIntegrationTest {
         }
         @Override public void save(RulebookIndex index) { indexes.put(index.key(), index); }
         @Override public void saveBatch(RulebookIndex index, List<EmbeddedRulebookChunk> chunks, int totalChunks, int completedChunks) { indexes.put(index.key(), index); }
+        @Override public java.util.Set<Integer> completedSequences(RulebookIndex index) { return java.util.Set.of(); }
         @Override public void saveComplete(RulebookIndex index, List<EmbeddedRulebookChunk> chunks) { indexes.put(index.key(), index); }
     }
 

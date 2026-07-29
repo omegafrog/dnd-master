@@ -325,6 +325,11 @@ class RulebookPipelineApplicationServiceTest {
         }
 
         @Override
+        public java.util.Set<Integer> completedSequences(RulebookIndex index) {
+            return java.util.Set.of();
+        }
+
+        @Override
         public void saveComplete(RulebookIndex index, List<EmbeddedRulebookChunk> chunks) {
             indexes.put(index.key(), index);
             savedStatuses.add(index.status());

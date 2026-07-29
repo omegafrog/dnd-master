@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 import org.junit.jupiter.api.Test;
@@ -114,6 +115,22 @@ class RulebookIndexingApplicationServiceTest {
         assertEquals(List.of(IndexStatus.EMBEDDING, IndexStatus.READY), repository.savedStatuses);
     }
 
+    @Test
+    void retryResumesAfterCompletedBatchWithoutReembeddingIt() {
+        InMemoryIndexRepository repository = new InMemoryIndexRepository();
+        ResumingEmbeddingPort embeddings = new ResumingEmbeddingPort();
+        RulebookIndexingApplicationService service = service(repository, embeddings, 4, 2);
+        IndexingCommand command = command(oversizedRulebook("abcdefghijkl"));
+
+        assertThrows(IndexingFailedException.class, () -> service.indexContent(command));
+        RulebookIndex completed = service.retryIndexing(command);
+
+        assertEquals(IndexStatus.READY, completed.status());
+        assertEquals(List.of(2, 1), embeddings.successfulBatchSizes);
+        assertEquals(3, embeddings.calls);
+        assertEquals(List.of(0, 1, 2), embeddings.successfulSequences);
+    }
+
     private static RulebookIndexingApplicationService service(
             RulebookIndexRepository repository, EmbeddingPort embeddings, int maximumChunkCharacters) {
         return new RulebookIndexingApplicationService(
@@ -172,10 +189,26 @@ class RulebookIndexingApplicationServiceTest {
         }
     }
 
+    private static final class ResumingEmbeddingPort implements EmbeddingPort {
+        private int calls;
+        private final List<Integer> successfulBatchSizes = new ArrayList<>();
+        private final List<Integer> successfulSequences = new ArrayList<>();
+
+        @Override
+        public List<ChunkEmbedding> embed(List<RulebookChunk> chunks, String embeddingModel, int expectedDimension) {
+            calls++;
+            if (calls == 2) throw new IllegalStateException("failure after first batch");
+            successfulBatchSizes.add(chunks.size());
+            successfulSequences.addAll(chunks.stream().map(RulebookChunk::sequence).toList());
+            return chunks.stream().map(chunk -> new ChunkEmbedding(chunk.chunkId(), new float[]{1f, 0f, 0f})).toList();
+        }
+    }
+
     private static final class InMemoryIndexRepository implements RulebookIndexRepository {
         private final Map<IndexKey, RulebookIndex> indexes = new HashMap<>();
         private final List<IndexStatus> savedStatuses = new ArrayList<>();
         private final List<Integer> savedBatchSizes = new ArrayList<>();
+        private final Map<IndexKey, Set<Integer>> completedSequences = new HashMap<>();
 
         @Override
         public RulebookIndex loadOrCreate(IndexKey key, Supplier<RulebookIndex> newIndex) {
@@ -202,6 +235,13 @@ class RulebookIndexingApplicationServiceTest {
                 int completedChunks) {
             indexes.put(index.key(), index);
             savedBatchSizes.add(chunks.size());
+            completedSequences.computeIfAbsent(index.key(), ignored -> new java.util.HashSet<>())
+                    .addAll(chunks.stream().map(chunk -> chunk.chunk().sequence()).toList());
+        }
+
+        @Override
+        public Set<Integer> completedSequences(RulebookIndex index) {
+            return Set.copyOf(completedSequences.getOrDefault(index.key(), Set.of()));
         }
 
         private RulebookIndex get(IndexKey key) {
