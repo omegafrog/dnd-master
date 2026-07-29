@@ -33,8 +33,8 @@ spring:
         options:
           model: qwen3:8b
           keep-alive: 30m
-          num-ctx: 4096
-          num-predict: 1024
+          num-ctx: 8192
+          num-predict: 4096
       embedding:
         options:
           model: qwen3-embedding:0.6b
