@@ -12,6 +12,9 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
@@ -78,6 +81,10 @@ public final class RulebookIndexingApplicationService {
     }
 
     private RulebookIndex executeAttempt(IndexingCommand command, RulebookIndex index) {
+        String owner = "rulebook-indexing-worker";
+        String token = UUID.randomUUID().toString();
+        IndexLease lease = repository.claimLease(index, owner, token, Instant.now(), Duration.ofMinutes(5))
+                .orElseThrow(() -> new IllegalStateException("index is already leased"));
         index.beginAttempt();
         repository.save(index);
 
@@ -111,6 +118,8 @@ public final class RulebookIndexingApplicationService {
             index.fail("embedding call failed", retryable);
             repository.save(index);
             throw new IndexingFailedException(exception, retryable);
+        } finally {
+            repository.releaseLease(lease);
         }
         return index;
     }

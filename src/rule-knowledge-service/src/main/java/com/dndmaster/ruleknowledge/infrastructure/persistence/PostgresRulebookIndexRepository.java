@@ -72,6 +72,13 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
                AND (lease_until IS NULL OR lease_until < ? OR (lease_owner = ? AND lease_token = ?))
             RETURNING index_id
             """;
+    private static final String CLAIM_LEASE_BY_ID = """
+            UPDATE rulebook_vector_index
+               SET lease_owner = ?, lease_token = ?, lease_until = ?
+             WHERE index_id = ?
+               AND (lease_until IS NULL OR lease_until < ? OR (lease_owner = ? AND lease_token = ?))
+            RETURNING index_id
+            """;
     private static final String RELEASE_LEASE = """
             UPDATE rulebook_vector_index SET lease_owner = NULL, lease_token = NULL, lease_until = NULL
              WHERE index_id = ? AND lease_owner = ? AND lease_token = ?
@@ -257,6 +264,23 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
                 if (!row.next()) return Optional.empty();
                 return Optional.of(new IndexLease(
                         new IndexId(row.getObject("index_id", java.util.UUID.class)), owner, token, until));
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("failed to claim index lease", e);
+        }
+    }
+
+    @Override
+    public Optional<IndexLease> claimLease(
+            RulebookIndex index, String owner, String token, java.time.Instant now, java.time.Duration duration) {
+        java.time.Instant until = now.plus(duration);
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement ps = connection.prepareStatement(CLAIM_LEASE_BY_ID)) {
+            ps.setString(1, owner); ps.setString(2, token); ps.setTimestamp(3, Timestamp.from(until));
+            ps.setObject(4, index.id().value(), Types.OTHER); ps.setTimestamp(5, Timestamp.from(now));
+            ps.setString(6, owner); ps.setString(7, token);
+            try (ResultSet row = ps.executeQuery()) {
+                return row.next() ? Optional.of(new IndexLease(index.id(), owner, token, until)) : Optional.empty();
             }
         } catch (SQLException e) {
             throw new RuntimeException("failed to claim index lease", e);

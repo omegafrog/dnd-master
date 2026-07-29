@@ -20,6 +20,10 @@ public interface RulebookIndexRepository {
     default Optional<IndexLease> claimLease(IndexKey key, String owner, String token, Instant now, Duration duration) {
         return Optional.empty();
     }
+    default Optional<IndexLease> claimLease(
+            RulebookIndex index, String owner, String token, Instant now, Duration duration) {
+        return Optional.of(new IndexLease(index.id(), owner, token, now.plus(duration)));
+    }
     default boolean renewLease(IndexLease lease, Instant now, Duration duration) { return false; }
     default boolean releaseLease(IndexLease lease) { return false; }
     void saveComplete(RulebookIndex index, List<EmbeddedRulebookChunk> chunks);
