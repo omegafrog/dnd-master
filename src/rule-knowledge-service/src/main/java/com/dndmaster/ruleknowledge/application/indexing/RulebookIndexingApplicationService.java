@@ -90,7 +90,7 @@ public final class RulebookIndexingApplicationService {
                 List<ChunkEmbedding> embeddings = embeddingPort.embed(
                         batch, command.key().embeddingModel(), command.dimension());
                 List<EmbeddedRulebookChunk> embeddedBatch = toEmbeddedChunks(batch, embeddings);
-                repository.saveBatch(index, embeddedBatch);
+                repository.saveBatch(index, embeddedBatch, chunks.size(), embedded.size() + embeddedBatch.size());
                 embedded.addAll(embeddedBatch);
             }
             index.complete(chunks);

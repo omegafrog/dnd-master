@@ -320,7 +320,7 @@ class RulebookPipelineApplicationServiceTest {
         }
 
         @Override
-        public void saveBatch(RulebookIndex index, List<EmbeddedRulebookChunk> chunks) {
+        public void saveBatch(RulebookIndex index, List<EmbeddedRulebookChunk> chunks, int totalChunks, int completedChunks) {
             indexes.put(index.key(), index);
         }
 

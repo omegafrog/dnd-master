@@ -34,6 +34,11 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
             UPDATE rulebook_vector_index SET status = 'READY', version = version + 1
             WHERE index_id = ?
             """;
+    private static final String UPDATE_PROGRESS = """
+            UPDATE rulebook_vector_index
+               SET total_chunks = ?, completed_chunks = ?, next_chunk_sequence = ?, last_progress_at = now()
+             WHERE index_id = ?
+            """;
 
     private final DataSource dataSource;
 
@@ -98,16 +103,27 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
     }
 
     @Override
-    public void saveBatch(RulebookIndex index, List<EmbeddedRulebookChunk> chunks) {
+    public void saveBatch(
+            RulebookIndex index, List<EmbeddedRulebookChunk> chunks, int totalChunks, int completedChunks) {
         Objects.requireNonNull(index, "index must not be null");
         List<EmbeddedRulebookChunk> immutableChunks = List.copyOf(
                 Objects.requireNonNull(chunks, "chunks must not be null"));
+        if (totalChunks <= 0 || completedChunks < 0 || completedChunks > totalChunks) {
+            throw new IllegalArgumentException("invalid index progress");
+        }
         if (immutableChunks.isEmpty()) return;
         try (Connection connection = dataSource.getConnection()) {
             boolean previousAutoCommit = connection.getAutoCommit();
             connection.setAutoCommit(false);
             try {
                 insertChunks(connection, index, immutableChunks);
+                try (PreparedStatement ps = connection.prepareStatement(UPDATE_PROGRESS)) {
+                    ps.setInt(1, totalChunks);
+                    ps.setInt(2, completedChunks);
+                    ps.setInt(3, completedChunks);
+                    ps.setObject(4, index.id().value(), Types.OTHER);
+                    ps.executeUpdate();
+                }
                 connection.commit();
             } catch (SQLException exception) {
                 try {

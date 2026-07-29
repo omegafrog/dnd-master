@@ -131,7 +131,7 @@ class ResponseAndIndexingPerformanceTest {
             return indexes.computeIfAbsent(key, ignored -> factory.get());
         }
         @Override public void save(RulebookIndex index) { indexes.put(index.key(), index); }
-        @Override public void saveBatch(RulebookIndex index, List<EmbeddedRulebookChunk> chunks) { indexes.put(index.key(), index); }
+        @Override public void saveBatch(RulebookIndex index, List<EmbeddedRulebookChunk> chunks, int totalChunks, int completedChunks) { indexes.put(index.key(), index); }
         @Override public void saveComplete(RulebookIndex index, List<EmbeddedRulebookChunk> chunks) { indexes.put(index.key(), index); }
     }
 

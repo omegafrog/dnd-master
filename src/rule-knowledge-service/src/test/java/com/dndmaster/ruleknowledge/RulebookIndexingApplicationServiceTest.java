@@ -197,7 +197,9 @@ class RulebookIndexingApplicationServiceTest {
         @Override
         public void saveBatch(
                 RulebookIndex index,
-                List<com.dndmaster.ruleknowledge.domain.index.EmbeddedRulebookChunk> chunks) {
+                List<com.dndmaster.ruleknowledge.domain.index.EmbeddedRulebookChunk> chunks,
+                int totalChunks,
+                int completedChunks) {
             indexes.put(index.key(), index);
             savedBatchSizes.add(chunks.size());
         }
