@@ -15,6 +15,9 @@ import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
 import com.dndmaster.ruleknowledge.domain.rulebook.Rulebook;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
+import com.dndmaster.ruleknowledge.infrastructure.extraction.PdfRulebookContentExtractor;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -35,6 +38,9 @@ import org.testcontainers.utility.DockerImageName;
 @SpringBootTest
 @EnabledIfEnvironmentVariable(named = "OLLAMA_E2E", matches = "true")
 class RulebookOllamaPostgresE2ETest {
+    private static final Path RULEBOOK_PDF = Path.of(System.getenv().getOrDefault(
+            "RULEBOOK_E2E_PDF", "/mnt/c/users/jiwoo/Downloads/dnd5th.pdf"));
+
     static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(
             DockerImageName.parse("pgvector/pgvector:pg16").asCompatibleSubstituteFor("postgres"))
             .withDatabaseName("rule_knowledge")
@@ -68,13 +74,18 @@ class RulebookOllamaPostgresE2ETest {
 
     @Test
     void indexesLargeRulebookWithRealOllamaAndPostgres() throws SQLException {
+        assertTrue(Files.isRegularFile(RULEBOOK_PDF), "missing real PDF fixture: " + RULEBOOK_PDF);
+        byte[] pdf = readPdf();
+        ExtractionResult extraction = new PdfRulebookContentExtractor().extract(pdf);
+        assertTrue(extraction.content().isPresent(), "real PDF extraction failed: " + extraction);
+
         RulebookId rulebookId = RulebookId.generate();
         Rulebook rulebook = Rulebook.acceptUpload(
                 rulebookId,
                 new OwnerPlayerId(UUID.randomUUID()),
                 RulebookFormat.PDF,
-                new FileSize(179_000_000));
-        rulebook.recordExtraction(ExtractionResult.success(largeRulebookText()));
+                new FileSize(pdf.length));
+        rulebook.recordExtraction(extraction);
 
         RulebookIndex result = indexingService.indexContent(new IndexingCommand(
                 rulebook,
@@ -86,11 +97,12 @@ class RulebookOllamaPostgresE2ETest {
         assertEquals(result.chunks().size(), countChunks());
     }
 
-    private static String largeRulebookText() {
-        String page = "Rules page with character creation, ability scores, classes, equipment, and actions. ";
-        return java.util.stream.IntStream.rangeClosed(1, 179)
-                .mapToObj(pageNumber -> "PAGE " + pageNumber + "\n" + page.repeat(12))
-                .collect(java.util.stream.Collectors.joining("\n\n"));
+    private static byte[] readPdf() {
+        try {
+            return Files.readAllBytes(RULEBOOK_PDF);
+        } catch (java.io.IOException exception) {
+            throw new IllegalStateException("cannot read real PDF fixture: " + RULEBOOK_PDF, exception);
+        }
     }
 
     private long countChunks() throws SQLException {
