@@ -36,7 +36,8 @@ public final class CharacterContextSearchApplicationService {
             List<CharacterContextDocumentScope> scope = query.scope().getOrDefault(type, List.of());
             if (scope.isEmpty()) continue;
             double threshold = query.thresholds().getOrDefault(type, 0d);
-            List<CharacterContextEvidence> candidates = searchPort.search(query.owner(), type, scope, embedding).stream()
+            List<String> chapterHints = type == DocumentType.RULEBOOK ? characterCreationChapterHints(query.situation()) : List.of();
+            List<CharacterContextEvidence> candidates = searchPort.search(query.owner(), type, scope, embedding, chapterHints).stream()
                     .filter(hit -> hit.documentType() == type && hit.similarity() >= threshold)
                     .sorted(Comparator.comparingDouble(CharacterContextSearchHit::similarity).reversed())
                     .map(CharacterContextSearchHit::toEvidence)
@@ -44,6 +45,14 @@ public final class CharacterContextSearchApplicationService {
             byType.put(type, candidates);
         }
         return pack(byType, query.tokenBudget());
+    }
+
+    private static List<String> characterCreationChapterHints(String situation) {
+        String normalized = situation.toLowerCase(Locale.ROOT);
+        if (!normalized.contains("character") && !normalized.contains("캐릭터")
+                && !normalized.contains("작성") && !normalized.contains("생성")) return List.of();
+        return List.of("캐릭터 제작 순서", "캐릭터 제작 선택", "능력 점수 사용하기",
+                "종족", "클래스", "개성과 배경");
     }
 
     private static List<CharacterContextEvidence> pack(

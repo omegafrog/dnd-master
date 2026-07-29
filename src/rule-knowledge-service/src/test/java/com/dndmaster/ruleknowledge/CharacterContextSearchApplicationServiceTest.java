@@ -34,10 +34,12 @@ class CharacterContextSearchApplicationServiceTest {
                         DocumentType.STORYBOOK, List.of(new CharacterContextDocumentScope(storybook, 4)),
                         DocumentType.HANDOUT, List.of()),
                 Map.of(DocumentType.RULEBOOK, .5, DocumentType.STORYBOOK, .5, DocumentType.HANDOUT, .5),
-                "choose a class", 4));
+                "character creation: choose a class", 4));
 
         assertEquals(List.of("rules", "story"), results.stream().map(CharacterContextEvidence::excerpt).toList());
         assertEquals(List.of(DocumentType.RULEBOOK, DocumentType.STORYBOOK), repository.searchedTypes);
+        assertEquals(List.of("캐릭터 제작 순서", "캐릭터 제작 선택", "능력 점수 사용하기", "종족", "클래스", "개성과 배경"),
+                repository.rulebookChapterHints);
     }
 
     private static CharacterContextSearchHit hit(
@@ -48,6 +50,7 @@ class CharacterContextSearchApplicationServiceTest {
     private static final class RecordingRepository implements CharacterContextSearchPort {
         private final Map<DocumentType, List<CharacterContextSearchHit>> hits;
         private final List<DocumentType> searchedTypes = new ArrayList<>();
+        private List<String> rulebookChapterHints = List.of();
 
         private RecordingRepository(Map<DocumentType, List<CharacterContextSearchHit>> hits) { this.hits = hits; }
 
@@ -57,6 +60,13 @@ class CharacterContextSearchApplicationServiceTest {
                 float[] embedding) {
             searchedTypes.add(type);
             return hits.getOrDefault(type, List.of());
+        }
+
+        @Override
+        public List<CharacterContextSearchHit> search(OwnerPlayerId owner, DocumentType type,
+                List<CharacterContextDocumentScope> scope, float[] embedding, List<String> chapterHints) {
+            if (type == DocumentType.RULEBOOK) rulebookChapterHints = List.copyOf(chapterHints);
+            return search(owner, type, scope, embedding);
         }
     }
 

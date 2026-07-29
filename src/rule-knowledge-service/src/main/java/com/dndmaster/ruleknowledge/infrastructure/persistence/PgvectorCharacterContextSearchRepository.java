@@ -19,6 +19,7 @@ public final class PgvectorCharacterContextSearchRepository implements Character
                AND EXISTS (
                    SELECT 1 FROM unnest(?::uuid[], ?::bigint[]) AS scope(document_id, extraction_version)
                     WHERE scope.document_id = c.rulebook_id AND scope.extraction_version = r.version)
+               AND (cardinality(?::text[]) = 0 OR c.chapter ILIKE ANY (?::text[]))
              ORDER BY similarity DESC, c.sequence
             """;
 
@@ -31,6 +32,13 @@ public final class PgvectorCharacterContextSearchRepository implements Character
     @Override
     public List<CharacterContextSearchHit> search(
             OwnerPlayerId owner, DocumentType type, List<CharacterContextDocumentScope> scope, float[] embedding) {
+        return search(owner, type, scope, embedding, List.of());
+    }
+
+    @Override
+    public List<CharacterContextSearchHit> search(
+            OwnerPlayerId owner, DocumentType type, List<CharacterContextDocumentScope> scope,
+            float[] embedding, List<String> chapterHints) {
         Objects.requireNonNull(owner);
         Objects.requireNonNull(type);
         if (scope == null || scope.isEmpty()) throw new IllegalArgumentException("scope must not be empty");
@@ -43,6 +51,10 @@ public final class PgvectorCharacterContextSearchRepository implements Character
             statement.setString(3, type.name());
             statement.setArray(4, connection.createArrayOf("uuid", ids));
             statement.setArray(5, connection.createArrayOf("int8", versions));
+            String[] patterns = (chapterHints == null ? List.<String>of() : chapterHints).stream()
+                    .map(hint -> "%" + hint + "%").toArray(String[]::new);
+            statement.setArray(6, connection.createArrayOf("text", patterns));
+            statement.setArray(7, connection.createArrayOf("text", patterns));
             try (ResultSet rows = statement.executeQuery()) {
                 List<CharacterContextSearchHit> hits = new ArrayList<>();
                 while (rows.next()) hits.add(new CharacterContextSearchHit(
