@@ -10,7 +10,7 @@ adventure:
     ai-game-master:
       base-url: ${AI_GAME_MASTER_BASE_URL:http://127.0.0.1:8080/}
     scenario-compilation:
-      timeout: 300s
+      timeout: 900s
 
 spring:
   datasource:
@@ -57,7 +57,7 @@ local-ai:
     allowed-models:
       - qwen3:8b
       - qwen3-embedding:0.6b
-    request-timeout: 300s
+    request-timeout: 900s
     circuit-failure-threshold: 3
     circuit-reset-timeout: 30s
 
