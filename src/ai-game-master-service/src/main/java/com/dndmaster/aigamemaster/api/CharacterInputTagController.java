@@ -4,10 +4,13 @@ import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.stream.Collectors;
-import org.springframework.http.HttpStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -15,6 +18,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 public final class CharacterInputTagController {
+    private static final Logger LOGGER = LoggerFactory.getLogger(CharacterInputTagController.class);
     private final SpringAiChatAdapter adapter;
     private final ObjectMapper objectMapper;
     public CharacterInputTagController(SpringAiChatAdapter adapter, ObjectMapper objectMapper) { this.adapter = adapter; this.objectMapper = objectMapper; }
@@ -23,7 +27,8 @@ public final class CharacterInputTagController {
     Response extract(@RequestBody Request request) {
         if (request == null || request.excerpts() == null) return new Response(List.of());
         String prompt = buildPrompt(request);
-        return new Response(adapter.complete(request.operationId(), prompt, this::parseModel));
+        return new Response(adapter.complete(request.operationId(), prompt,
+                response -> parseModel(request.operationId(), response)));
     }
 
     static String buildPrompt(Request request) {
@@ -44,8 +49,15 @@ public final class CharacterInputTagController {
     }
 
     List<Candidate> parseModel(String text) {
+        return parseModel("test-or-unknown", text);
+    }
+
+    private List<Candidate> parseModel(String operationId, String text) {
+        String response = text == null ? "" : text.trim();
+        Map<String, Integer> rejected = new LinkedHashMap<>();
         try {
-            JsonNode root = objectMapper.readTree(extractJsonArray(text));
+            String json = extractJsonArray(response);
+            JsonNode root = objectMapper.readTree(json);
             if (!root.isArray()) throw new IllegalArgumentException("AI character tag response must be an array");
             List<Candidate> result = new ArrayList<>();
             for (JsonNode node : root) {
@@ -61,16 +73,34 @@ public final class CharacterInputTagController {
                     if (!List.of("RULEBOOK", "STORYBOOK").contains(sourceType)) throw new IllegalArgumentException("unsupported source type");
                     List<SourceRef> evidence = refs(node.get("evidence"));
                     String quote = required(node, "sourceQuote");
-                    if (evidence.isEmpty()) continue;
+                    if (evidence.isEmpty()) {
+                        rejected.merge("evidence_missing", 1, Integer::sum);
+                        continue;
+                    }
                     result.add(new Candidate(key, node.path("label").asText(key), nullable(node, "parentKey"), node.path("required").asBoolean(false), mode, options, strings(node.get("suggestions")), confidence, quote, evidence, sourceType));
-                } catch (RuntimeException ignored) { }
+                } catch (RuntimeException invalidCandidate) {
+                    rejected.merge(reason(invalidCandidate), 1, Integer::sum);
+                }
             }
+            LOGGER.info("character_tag_parse operationId={} responseChars={} firstChar={} jsonRoot={} candidates={} accepted={} rejected={}",
+                    operationId, response.length(), firstChar(response), root.isArray() ? "array" : root.getNodeType(),
+                    root.size(), result.size(), rejected);
             return List.copyOf(result);
         } catch (Exception malformed) {
             // A draft remains useful for review even when the local model emits
             // malformed JSON; the compiler will mark all required fields manual.
+            LOGGER.warn("character_tag_parse_failed operationId={} responseChars={} firstChar={} hasArrayMarkers={} reason={}",
+                    operationId, response.length(), firstChar(response), response.contains("[") && response.contains("]"), reason(malformed));
             return List.of();
         }
+    }
+
+    private static String firstChar(String value) { return value.isEmpty() ? "EMPTY" : String.valueOf(value.charAt(0)); }
+    private static String reason(Throwable exception) {
+        String message = exception.getMessage();
+        if (message == null || message.isBlank()) return exception.getClass().getSimpleName();
+        String normalized = message.replaceAll("\\s+", " ");
+        return normalized.substring(0, Math.min(normalized.length(), 80));
     }
 
     private static String extractJsonArray(String response) {
