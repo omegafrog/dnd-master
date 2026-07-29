@@ -20,15 +20,13 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
             """;
     private static final String INSERT_CHUNK = """
             INSERT INTO rulebook_vector_chunk
-                (chunk_id, index_id, rulebook_id, owner_player_id, sequence, locator, content, embedding, embedding_next, chapter, section)
-            VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS vector), CAST(? AS vector), ?, ?)
-            ON CONFLICT (chunk_id) DO UPDATE SET
-                index_id = EXCLUDED.index_id,
+                (chunk_id, index_id, rulebook_id, owner_player_id, sequence, locator, content, embedding, chapter, section)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS vector), ?, ?)
+            ON CONFLICT (index_id, chunk_id) DO UPDATE SET
                 sequence = EXCLUDED.sequence,
                 locator = EXCLUDED.locator,
                 content = EXCLUDED.content,
                 embedding = EXCLUDED.embedding,
-                embedding_next = EXCLUDED.embedding_next,
                 chapter = EXCLUDED.chapter,
                 section = EXCLUDED.section
             """;
@@ -138,9 +136,8 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
                 ps.setString(6, embedded.locator());
                 ps.setString(7, embedded.chunk().content());
                 ps.setString(8, vectorLiteral(embedded.embedding()));
-                ps.setString(9, vectorLiteral(embedded.embedding()));
-                ps.setString(10, embedded.chunk().chapter());
-                ps.setString(11, embedded.chunk().section());
+                ps.setString(9, embedded.chunk().chapter());
+                ps.setString(10, embedded.chunk().section());
                 ps.addBatch();
             }
             ps.executeBatch();

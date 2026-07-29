@@ -8,6 +8,7 @@ import com.dndmaster.ruleknowledge.domain.index.RulebookIndexingPolicy;
 import com.dndmaster.ruleknowledge.domain.rulebook.Rulebook;
 import com.dndmaster.ruleknowledge.domain.index.EmbeddedRulebookChunk;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.logging.Level;
@@ -108,7 +109,11 @@ public final class RulebookIndexingApplicationService {
             throw new IllegalStateException("embedding result count does not match batch");
         }
         List<EmbeddedRulebookChunk> result = new ArrayList<>(embeddings.size());
+        HashSet<com.dndmaster.ruleknowledge.domain.index.ChunkId> seen = new HashSet<>();
         for (ChunkEmbedding ce : embeddings) {
+            if (!seen.add(ce.chunkId())) {
+                throw new IllegalStateException("embedding result contains duplicate chunk");
+            }
             RulebookChunk chunk = chunks.stream()
                     .filter(c -> c.chunkId().equals(ce.chunkId()))
                     .findFirst()
