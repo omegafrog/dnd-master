@@ -105,7 +105,7 @@ class RulebookPipelineApplicationServiceTest {
         assertEquals(ProcessingStatus.QUEUED, harness.repository.findById(beta.rulebookId()).orElseThrow().processingStatus());
         assertEquals(2, harness.embeddingPort.calls);
         assertEquals(1, harness.embeddingPort.failures);
-        assertEquals(IndexStatus.FAILED, harness.indexingRepository.load(beta.rulebookId()).status());
+        assertEquals(IndexStatus.RETRYABLE_FAILURE, harness.indexingRepository.load(beta.rulebookId()).status());
 
         assertThrows(IllegalStateException.class, () -> harness.service.retry(beta.rulebookId()));
         assertEquals(ProcessingStatus.QUEUED, harness.repository.findById(beta.rulebookId()).orElseThrow().processingStatus());

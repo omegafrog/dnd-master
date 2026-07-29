@@ -75,10 +75,10 @@ class RulebookIndexingApplicationServiceTest {
         assertThrows(IndexingFailedException.class, () -> service.indexContent(command));
 
         RulebookIndex failed = repository.get(command.key());
-        assertEquals(IndexStatus.FAILED, failed.status());
+        assertEquals(IndexStatus.RETRYABLE_FAILURE, failed.status());
         assertEquals(1, failed.attempts());
         assertEquals(List.of(), failed.chunks());
-        assertEquals(List.of(IndexStatus.EMBEDDING, IndexStatus.FAILED), repository.savedStatuses);
+        assertEquals(List.of(IndexStatus.EMBEDDING, IndexStatus.RETRYABLE_FAILURE), repository.savedStatuses);
         assertThrows(IllegalStateException.class, () -> service.indexContent(command));
         assertEquals(1, embeddings.calls);
 
@@ -89,7 +89,7 @@ class RulebookIndexingApplicationServiceTest {
         assertEquals(3, completed.chunks().size());
         assertEquals(List.of(
                         IndexStatus.EMBEDDING,
-                        IndexStatus.FAILED,
+                        IndexStatus.RETRYABLE_FAILURE,
                         IndexStatus.EMBEDDING,
                         IndexStatus.READY),
                 repository.savedStatuses);

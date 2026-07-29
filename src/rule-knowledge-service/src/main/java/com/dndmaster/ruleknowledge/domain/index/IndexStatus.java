@@ -4,5 +4,6 @@ public enum IndexStatus {
     PENDING,
     EMBEDDING,
     READY,
-    FAILED
+    RETRYABLE_FAILURE,
+    PERMANENT_FAILURE
 }

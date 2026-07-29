@@ -51,7 +51,7 @@ public final class RulebookIndexingApplicationService {
     public RulebookIndex indexContent(IndexingCommand command) {
         RulebookIndex index = load(command);
         if (index.status() == IndexStatus.READY) return index;
-        if (index.status() == IndexStatus.FAILED) {
+        if (index.status() == IndexStatus.RETRYABLE_FAILURE || index.status() == IndexStatus.PERMANENT_FAILURE) {
             throw new IllegalStateException("failed index requires explicit retry");
         }
         if (index.status() == IndexStatus.EMBEDDING) {
@@ -63,8 +63,8 @@ public final class RulebookIndexingApplicationService {
     public RulebookIndex retryIndexing(IndexingCommand command) {
         RulebookIndex index = load(command);
         if (index.status() == IndexStatus.READY) return index;
-        if (index.status() != IndexStatus.FAILED) {
-            throw new IllegalStateException("only failed index can be retried");
+        if (index.status() != IndexStatus.RETRYABLE_FAILURE) {
+            throw new IllegalStateException("only retryable failure can be retried");
         }
         return executeAttempt(command, index);
     }
@@ -107,9 +107,10 @@ public final class RulebookIndexingApplicationService {
             index.complete(chunks);
             repository.saveComplete(index, embedded);
         } catch (RuntimeException exception) {
-            index.fail("embedding call failed");
+            boolean retryable = !(exception instanceof IllegalArgumentException);
+            index.fail("embedding call failed", retryable);
             repository.save(index);
-            throw new IndexingFailedException(exception);
+            throw new IndexingFailedException(exception, retryable);
         }
         return index;
     }
