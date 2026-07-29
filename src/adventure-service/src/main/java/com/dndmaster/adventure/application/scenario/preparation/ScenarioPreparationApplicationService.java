@@ -2,6 +2,9 @@ package com.dndmaster.adventure.application.scenario.preparation;
 
 import com.dndmaster.adventure.application.scenario.ScenarioBundleRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
+import com.dndmaster.adventure.application.scenario.compilation.CharacterContextSearchPort;
+import com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler;
+import com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort;
 import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection;
@@ -22,14 +25,31 @@ public final class ScenarioPreparationApplicationService {
     private final ScenarioPackageRepository packageRepository;
     private final ScenarioBundleRepository bundleRepository;
     private final RuntimeOptionCatalogPort runtimeOptionCatalog;
+    private final CharacterContextSearchPort characterContextSearch;
+    private final CharacterInputTagExtractionPort characterTagExtraction;
+    private final CharacterCreationBlueprintCompiler blueprintCompiler;
 
     public ScenarioPreparationApplicationService(
             ScenarioPackageRepository packageRepository,
             ScenarioBundleRepository bundleRepository,
             RuntimeOptionCatalogPort runtimeOptionCatalog) {
+        this(packageRepository, bundleRepository, runtimeOptionCatalog,
+                request -> List.of(), request -> List.of(), new CharacterCreationBlueprintCompiler());
+    }
+
+    public ScenarioPreparationApplicationService(
+            ScenarioPackageRepository packageRepository,
+            ScenarioBundleRepository bundleRepository,
+            RuntimeOptionCatalogPort runtimeOptionCatalog,
+            CharacterContextSearchPort characterContextSearch,
+            CharacterInputTagExtractionPort characterTagExtraction,
+            CharacterCreationBlueprintCompiler blueprintCompiler) {
         this.packageRepository = Objects.requireNonNull(packageRepository, "package repository must not be null");
         this.bundleRepository = Objects.requireNonNull(bundleRepository, "bundle repository must not be null");
         this.runtimeOptionCatalog = Objects.requireNonNull(runtimeOptionCatalog, "runtime option catalog must not be null");
+        this.characterContextSearch = Objects.requireNonNull(characterContextSearch, "character context search must not be null");
+        this.characterTagExtraction = Objects.requireNonNull(characterTagExtraction, "character tag extraction must not be null");
+        this.blueprintCompiler = Objects.requireNonNull(blueprintCompiler, "blueprint compiler must not be null");
     }
 
     public PlayPreparationView read(UUID scenarioPackageId, OwnerPlayerId ownerPlayerId) {
@@ -85,6 +105,37 @@ public final class ScenarioPreparationApplicationService {
 
     public RuntimeOptionsView runtimeOptions(OwnerPlayerId ownerPlayerId) {
         return runtimeOptionCatalog.read(ownerPlayerId);
+    }
+
+    public CharacterCreationBlueprintView generateBlueprintDraft(UUID packageId, OwnerPlayerId ownerPlayerId) {
+        ScenarioPackage scenarioPackage = packageRepository.findById(packageId)
+                .orElseThrow(ScenarioBundleNotFoundException::new);
+        ScenarioSourceBundle bundle = bundleRepository.findById(scenarioPackage.bundleId())
+                .orElseThrow(ScenarioBundleNotFoundException::new);
+        bundle.authorize(ownerPlayerId);
+        requireCurrentBundleRevision(scenarioPackage, bundle);
+        List<ScenarioBundleDocumentSelection> documents = bundle.currentRevision().documents().stream()
+                .filter(document -> List.of("RULEBOOK", "STORYBOOK", "HANDOUT")
+                        .contains(document.documentType().toUpperCase(java.util.Locale.ROOT)))
+                .toList();
+        if (documents.isEmpty()) throw new IllegalStateException("character blueprint requires indexed source documents");
+
+        List<CharacterContextSearchPort.Evidence> evidence = characterContextSearch.search(
+                new CharacterContextSearchPort.Request(ownerPlayerId.value(), documents.stream()
+                        .map(document -> new CharacterContextSearchPort.DocumentScope(
+                                document.knowledgeDocumentId(), document.documentType(), document.extractionVersion()))
+                        .toList(), "Extract character creation choices, fixed values, and required input fields.",
+                        java.util.Map.of("RULEBOOK", .35, "STORYBOOK", .25, "HANDOUT", .25), 2000));
+        List<CharacterInputTagExtractionPort.SourceExcerpt> excerpts = (evidence == null ? List.<CharacterContextSearchPort.Evidence>of() : evidence)
+                .stream().map(item -> new CharacterInputTagExtractionPort.SourceExcerpt(
+                        item.documentId(), item.extractionVersion(), item.locator(), item.excerpt())).toList();
+        List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> candidates = characterTagExtraction.extract(
+                new CharacterInputTagExtractionPort.Request(
+                        packageId + ":character-blueprint-draft:" + UUID.randomUUID(), excerpts,
+                        "character-input-tag-v1", "character-input-tag-prompt-v1"));
+        CharacterCreationBlueprint blueprint = blueprintCompiler.compileAgent(bundle.currentRevision().revision(), candidates);
+        packageRepository.saveBlueprint(packageId, blueprint);
+        return toView(blueprint, documents);
     }
 
     public CharacterCreationBlueprint resolveBlueprint(UUID packageId, OwnerPlayerId ownerPlayerId,

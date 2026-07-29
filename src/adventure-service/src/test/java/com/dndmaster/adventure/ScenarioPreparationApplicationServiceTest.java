@@ -12,6 +12,9 @@ import com.dndmaster.adventure.application.scenario.preparation.PlayPreparationS
 import com.dndmaster.adventure.application.scenario.preparation.RuntimeOptionCatalogPort;
 import com.dndmaster.adventure.application.scenario.preparation.RuntimeOptionsView;
 import com.dndmaster.adventure.application.scenario.preparation.ScenarioPreparationApplicationService;
+import com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort;
+import com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler;
+import com.dndmaster.adventure.application.scenario.compilation.CharacterContextSearchPort;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
 import com.dndmaster.adventure.domain.scenario.ResolutionKind;
@@ -33,8 +36,43 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 class ScenarioPreparationApplicationServiceTest {
+    @Test
+    void generatesCharacterSheetTreeFromIndexedDocumentContextForUserReview() {
+        var packages = mock(ScenarioPackageRepository.class);
+        var bundles = mock(ScenarioBundleRepository.class);
+        var search = mock(CharacterContextSearchPort.class);
+        var tags = mock(CharacterInputTagExtractionPort.class);
+        var scenarioPackage = withRulebookPackage();
+        when(packages.findById(scenarioPackage.packageId())).thenReturn(Optional.of(scenarioPackage));
+        when(bundles.findById(scenarioPackage.bundleId())).thenReturn(Optional.of(bundleWithRulebook()));
+        var rulebook = new KnowledgeDocumentId(rulebookDocumentId());
+        when(search.search(any())).thenReturn(List.of(new CharacterContextSearchPort.Evidence(
+                rulebook, "RULEBOOK", 1, "page:8", "Choose a race and class.", .97)));
+        when(tags.extract(any())).thenReturn(List.of(new CharacterInputTagExtractionPort.CharacterInputTagCandidate(
+                "race", "종족", null, true, com.dndmaster.adventure.domain.scenario.InputMode.SINGLE_SELECT,
+                List.of("Dwarf", "Elf"), List.of(), "HIGH",
+                List.of(new ScenarioSourceReference(rulebook, 1, "page:8")),
+                "Choose a race", "RULEBOOK")));
+
+        var service = new ScenarioPreparationApplicationService(packages, bundles, fixtureRuntimeOptions(), search, tags,
+                new CharacterCreationBlueprintCompiler());
+
+        var draft = service.generateBlueprintDraft(scenarioPackage.packageId(), owner());
+
+        verify(search).search(any());
+        verify(tags).extract(any());
+        verify(packages).saveBlueprint(eq(scenarioPackage.packageId()), any());
+        assertTrue(draft.roots().stream().anyMatch(node -> node.key().equals("race")));
+        assertEquals("NEEDS_REVIEW", draft.status());
+    }
+
     @Test
     void allowsPreparationWhenRulebookIsSeparateFromScenarioBundle() {
         TestFixture fixture = bundle(withoutRulebookPackage(), bundleWithoutRulebook());
@@ -88,6 +126,14 @@ class ScenarioPreparationApplicationServiceTest {
     private static ScenarioPreparationApplicationService service(TestFixture fixture) {
         return new ScenarioPreparationApplicationService(
                 fixture.packages(), fixture.bundles(), fixture.runtimeOptions());
+    }
+
+    private static RuntimeOptionCatalogPort fixtureRuntimeOptions() {
+        return new RuntimeOptionCatalogPort() {
+            @Override public RuntimeOptionsView read(OwnerPlayerId ownerPlayerId) {
+                return new RuntimeOptionsView("ollama", List.of(), List.of(), List.of());
+            }
+        };
     }
 
     private static TestFixture bundle(ScenarioPackage scenarioPackage, ScenarioSourceBundle bundle) {

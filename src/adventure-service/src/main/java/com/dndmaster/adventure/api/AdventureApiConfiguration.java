@@ -229,8 +229,12 @@ public class AdventureApiConfiguration {
     ScenarioPreparationApplicationService scenarioPreparationApplicationService(
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
             ScenarioBundleRepository bundleRepository,
-            RuntimeOptionCatalogPort runtimeOptionCatalogPort) {
-        return new ScenarioPreparationApplicationService(packageRepository, bundleRepository, runtimeOptionCatalogPort);
+            RuntimeOptionCatalogPort runtimeOptionCatalogPort,
+            com.dndmaster.adventure.application.scenario.compilation.CharacterContextSearchPort characterContextSearch,
+            com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort characterTagExtraction) {
+        return new ScenarioPreparationApplicationService(packageRepository, bundleRepository, runtimeOptionCatalogPort,
+                characterContextSearch, characterTagExtraction,
+                new com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler());
     }
 
     @Bean

@@ -1,6 +1,6 @@
 # 027-2 - 동적 Blueprint 검토·게시 및 입력 트리 UI
 
-- Status: ready-for-agent
+- Status: completed
 - Issue: [#87](https://github.com/omegafrog/dnd-master/issues/87)
 - Parent: [#85](https://github.com/omegafrog/dnd-master/issues/85)
 - Dependencies: [027-1](027-1-agent-character-tag-extraction.md)
@@ -8,6 +8,7 @@
 ## Outcome
 
 Agent 결과를 동적 부모·자식 입력 트리로 컴파일하고 사용자가 검토·보완·게시한다.
+인덱스 기반 초안 생성 API는 `characterSheetTree`로 검수 가능한 트리를 반환한다.
 
 ## Scope
 
@@ -15,6 +16,7 @@ Agent 결과를 동적 부모·자식 입력 트리로 컴파일하고 사용자
 - STORYBOOK 우선, conflict, confidence, evidence 보존.
 - deterministic node identity.
 - `CharacterCreationBlueprint` persistence/revision/API.
+- `POST /api/v1/scenario-packages/{id}/character-blueprint/draft`가 RULEBOOK/STORYBOOK/HANDOUT 인덱스 검색과 Agent 태그 추출을 오케스트레이션한다.
 - `CharacterInputTree.tsx` recursive mode-based controls.
 - free text, single select, multi select, add-child, review, publish UI.
 

@@ -101,4 +101,26 @@ class ScenarioPreparationControllerTest {
                 .andExpect(status().isOk());
         verify(service).resolveBlueprint(eq(packageId), any(OwnerPlayerId.class), eq(7L), eq("node-race"), eq("Elf"));
     }
+
+    @Test
+    void blueprintDraftEndpointReturnsCharacterSheetTreeForReview() throws Exception {
+        UUID ownerId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+        UUID packageId = UUID.fromString("66666666-6666-6666-6666-666666666666");
+        when(playerSessionLookupPort.resolvePlayerId("token")).thenReturn(Optional.of(ownerId));
+        var node = new CharacterCreationBlueprintView.NodeView(
+                "node-race", null, "race", "종족", "SINGLE_SELECT", null,
+                List.of("Dwarf", "Elf"), List.of(), "EXTRACTED", true, "HIGH",
+                "Choose a race", List.of(), List.of(), List.of());
+        when(service.generateBlueprintDraft(eq(packageId), any(OwnerPlayerId.class))).thenReturn(
+                new CharacterCreationBlueprintView(true, "draft", 1, 1, List.of(), 2,
+                        List.of(), "NEEDS_REVIEW", List.of(node)));
+
+        mockMvc.perform(post("/api/v1/scenario-packages/{scenarioPackageId}/character-blueprint/draft", packageId)
+                        .header("Authorization", "Bearer token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("NEEDS_REVIEW"))
+                .andExpect(jsonPath("$.characterSheetTree[0].key").value("race"))
+                .andExpect(jsonPath("$.characterSheetTree[0].options[1]").value("Elf"));
+        verify(service).generateBlueprintDraft(eq(packageId), any(OwnerPlayerId.class));
+    }
 }

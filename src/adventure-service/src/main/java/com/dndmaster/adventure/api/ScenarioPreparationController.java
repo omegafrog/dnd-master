@@ -30,6 +30,14 @@ public class ScenarioPreparationController {
         return service.read(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()));
     }
 
+    @PostMapping({
+            "/scenario-packages/{scenarioPackageId}/character-blueprint/draft",
+            "/scenario-packages/{scenarioPackageId}/character-blueprint"})
+    com.dndmaster.adventure.application.scenario.preparation.CharacterCreationBlueprintView generateBlueprintDraft(
+            @PathVariable UUID scenarioPackageId) {
+        return service.generateBlueprintDraft(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()));
+    }
+
     @GetMapping("/runtime-options")
     RuntimeOptionsView readRuntimeOptions() {
         return service.runtimeOptions(new OwnerPlayerId(playerResolver.playerId()));

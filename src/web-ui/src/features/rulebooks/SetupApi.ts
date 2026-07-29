@@ -155,6 +155,7 @@ export type CharacterCreationBlueprintView = {
     sourceQuote?: string
   }>
   roots?: CharacterInputNodeView[]
+  characterSheetTree?: CharacterInputNodeView[]
 }
 
 export type CharacterInputNodeView = {
@@ -385,6 +386,7 @@ export interface SetupApi {
   getScenarioCompilation?(compilationId: string): Promise<ScenarioCompilationView>
   getScenarioPackage?(packageId: string): Promise<ScenarioPackageView>
   getPlayPreparation?(scenarioPackageId: string): Promise<PlayPreparationView>
+  generateBlueprintDraft?(scenarioPackageId: string): Promise<CharacterCreationBlueprintView>
   resolveBlueprint?(scenarioPackageId: string, fieldKey: string, value: string, expectedRevision?: number): Promise<unknown>
   addBlueprintChild?(scenarioPackageId: string, expectedRevision: number, parentId: string, key: string, label: string): Promise<unknown>
   addBlueprintOption?(scenarioPackageId: string, expectedRevision: number, fieldKey: string, option: string): Promise<unknown>
@@ -554,6 +556,12 @@ export class HttpSetupApi implements SetupApi {
     return request<PlayPreparationView>(`/api/v1/scenario-packages/${scenarioPackageId}/play-preparation`, {
       headers: this.authHeaders(),
     }, '플레이 준비 상태를 불러오지 못했습니다.')
+  }
+
+  generateBlueprintDraft(scenarioPackageId: string) {
+    return request<CharacterCreationBlueprintView>(`/api/v1/scenario-packages/${scenarioPackageId}/character-blueprint/draft`, {
+      method: 'POST', headers: this.authHeaders(),
+    }, '인덱스에서 캐릭터 시트 초안을 생성하지 못했습니다.')
   }
 
   resolveBlueprint(scenarioPackageId: string, fieldKey: string, value: string, expectedRevision = 0) {

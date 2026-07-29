@@ -1,5 +1,6 @@
 package com.dndmaster.adventure.application.scenario.preparation;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
 public record CharacterCreationBlueprintView(
@@ -26,6 +27,11 @@ public record CharacterCreationBlueprintView(
 
     public static CharacterCreationBlueprintView blocked(List<String> diagnostics) {
         return new CharacterCreationBlueprintView(false, null, 0, 0, diagnostics, 0, List.of(), "NEEDS_REVIEW", List.of());
+    }
+
+    @JsonProperty("characterSheetTree")
+    public List<NodeView> characterSheetTree() {
+        return roots;
     }
 
     public record FieldView(String key, List<String> options, boolean required, String sourceType,
