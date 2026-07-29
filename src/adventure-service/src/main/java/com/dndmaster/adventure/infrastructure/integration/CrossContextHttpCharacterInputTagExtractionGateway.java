@@ -33,7 +33,7 @@ public final class CrossContextHttpCharacterInputTagExtractionGateway implements
         try {
             String body = objectMapper.writeValueAsString(new WireRequest(request.operationId(), request.excerpts().stream()
                     .map(e -> new Excerpt(e.documentId().value(), e.extractionVersion(), e.locator(), e.text())).toList(),
-                    request.schemaVersion(), request.promptVersion()));
+                    request.schemaVersion(), request.promptVersion(), request.instruction()));
             HttpResponse<String> response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/character-input-tags"))
                     .timeout(timeout).header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
@@ -61,7 +61,8 @@ public final class CrossContextHttpCharacterInputTagExtractionGateway implements
     }
 
     public static final class CharacterInputTagExtractionException extends RuntimeException { public CharacterInputTagExtractionException(String message) { super(message); } public CharacterInputTagExtractionException(String message, Throwable cause) { super(message, cause); } }
-    record WireRequest(String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion) {}
+    record WireRequest(String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion,
+                       String instruction) {}
     record Excerpt(java.util.UUID documentId, long extractionVersion, String locator, String text) {}
     @JsonIgnoreProperties(ignoreUnknown = true) record Response(List<Candidate> candidates) {}
     @JsonIgnoreProperties(ignoreUnknown = true) record Candidate(String key, String label, String parentKey, boolean required, InputMode inputMode, List<String> options, List<String> suggestions, String confidence, List<Evidence> evidence, String sourceQuote, String sourceType) {}

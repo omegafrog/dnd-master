@@ -167,7 +167,8 @@ public final class ScenarioCompilationWorker {
         try {
             return characterTagPort.extract(new CharacterInputTagExtractionPort.Request(
                     operationId + ":character-input-tags", excerpts,
-                    "character-input-tag-v1", "character-input-tag-prompt-v1"));
+                    "character-input-tag-v1", "character-input-tag-prompt-v1",
+                    "Determine each field's input mode and return only source-supported options."));
         } catch (RuntimeException exception) {
             log.warn("character input extraction failed; continuing with manual character fallback", exception);
             return List.of();

@@ -41,6 +41,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.atLeast;
 
 class ScenarioPreparationApplicationServiceTest {
     @Test
@@ -66,11 +67,45 @@ class ScenarioPreparationApplicationServiceTest {
 
         var draft = service.generateBlueprintDraft(scenarioPackage.packageId(), owner());
 
-        verify(search).search(any());
-        verify(tags).extract(any());
+        verify(search, atLeast(1)).search(any());
+        verify(tags, atLeast(1)).extract(any());
         verify(packages).saveBlueprint(eq(scenarioPackage.packageId()), any());
         assertTrue(draft.roots().stream().anyMatch(node -> node.key().equals("race")));
         assertEquals("NEEDS_REVIEW", draft.status());
+    }
+
+    @Test
+    void refinesEachChoiceCapableTagAgainstItsOwnIndexedTopic() {
+        var packages = mock(ScenarioPackageRepository.class);
+        var bundles = mock(ScenarioBundleRepository.class);
+        var search = mock(CharacterContextSearchPort.class);
+        var tags = mock(CharacterInputTagExtractionPort.class);
+        var scenarioPackage = withRulebookPackage();
+        var rulebook = new KnowledgeDocumentId(rulebookDocumentId());
+        when(packages.findById(scenarioPackage.packageId())).thenReturn(Optional.of(scenarioPackage));
+        when(bundles.findById(scenarioPackage.bundleId())).thenReturn(Optional.of(bundleWithRulebook()));
+        when(search.search(any())).thenReturn(List.of(new CharacterContextSearchPort.Evidence(
+                rulebook, "RULEBOOK", 1, "page:8", "Choose a race and class. Dwarves and elves are available races.", .97)));
+        var initial = new CharacterInputTagExtractionPort.CharacterInputTagCandidate(
+                "race", "종족", null, true, com.dndmaster.adventure.domain.scenario.InputMode.FREE_TEXT,
+                List.of(), List.of(), "MEDIUM", List.of(new ScenarioSourceReference(rulebook, 1, "page:8")),
+                "Choose a race", "RULEBOOK");
+        var refined = new CharacterInputTagExtractionPort.CharacterInputTagCandidate(
+                "race", "종족", null, true, com.dndmaster.adventure.domain.scenario.InputMode.SINGLE_SELECT,
+                List.of("Dwarf", "Elf"), List.of(), "HIGH", List.of(new ScenarioSourceReference(rulebook, 1, "page:8")),
+                "Dwarves and elves are available races", "RULEBOOK");
+        when(tags.extract(any())).thenReturn(List.of(initial), List.of(refined));
+
+        var service = new ScenarioPreparationApplicationService(packages, bundles, fixtureRuntimeOptions(), search, tags,
+                new CharacterCreationBlueprintCompiler());
+
+        var draft = service.generateBlueprintDraft(scenarioPackage.packageId(), owner());
+
+        verify(search, atLeast(2)).search(any());
+        verify(tags, atLeast(2)).extract(any());
+        assertEquals(List.of("Dwarf", "Elf"), draft.roots().stream()
+                .filter(node -> node.key().equals("race"))
+                .findFirst().orElseThrow().options());
     }
 
     @Test

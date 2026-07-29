@@ -10,12 +10,17 @@ public interface CharacterInputTagExtractionPort {
     List<CharacterInputTagCandidate> extract(Request request);
 
     record Request(String operationId, List<SourceExcerpt> excerpts,
-                   String schemaVersion, String promptVersion) {
+                   String schemaVersion, String promptVersion, String instruction) {
+        public Request(String operationId, List<SourceExcerpt> excerpts,
+                       String schemaVersion, String promptVersion) {
+            this(operationId, excerpts, schemaVersion, promptVersion, "");
+        }
         public Request {
             if (operationId == null || operationId.isBlank()) throw new IllegalArgumentException("operation id required");
             excerpts = List.copyOf(excerpts == null ? List.of() : excerpts);
             if (schemaVersion == null || schemaVersion.isBlank()) throw new IllegalArgumentException("schema version required");
             if (promptVersion == null || promptVersion.isBlank()) throw new IllegalArgumentException("prompt version required");
+            instruction = instruction == null ? "" : instruction.trim();
         }
     }
 

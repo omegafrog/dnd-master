@@ -36,6 +36,7 @@ public final class CharacterInputTagController {
                 .map(CharacterInputTagController::formatExcerpt)
                 .collect(Collectors.joining("\n\n"));
         return "/no_think Extract only source-grounded character input tags. Return one JSON array only; do not explain your answer or output reasoning. "
+                + (request.instruction() == null || request.instruction().isBlank() ? "" : "Task-specific instruction: " + request.instruction() + " ")
                 + "Schema: [{key:string,label:string,parentKey:string|null,required:boolean,inputMode:'FREE_TEXT'|'SINGLE_SELECT'|'MULTI_SELECT',options:string[],suggestions:string[],confidence:'HIGH'|'MEDIUM'|'LOW',sourceQuote:string,evidence:[{documentId:string,extractionVersion:number,locator:string}],sourceType:'RULEBOOK'|'STORYBOOK'}]. "
                 + "Do not invent fields, values, or evidence. Source excerpts:\n" + excerpts;
     }
@@ -126,7 +127,12 @@ public final class CharacterInputTagController {
     private static String nullable(JsonNode node, String name) { JsonNode value = node.get(name); return value == null || value.isNull() ? null : value.asText(); }
     private static List<String> strings(JsonNode node) { if (node == null || !node.isArray()) return List.of(); List<String> result = new ArrayList<>(); node.forEach(value -> { if (value.isTextual() && !value.asText().isBlank()) result.add(value.asText()); }); return List.copyOf(result); }
     private static List<SourceRef> refs(JsonNode node) { if (node == null || !node.isArray()) return List.of(); List<SourceRef> result = new ArrayList<>(); node.forEach(value -> { try { result.add(new SourceRef(UUID.fromString(required(value, "documentId")), value.path("extractionVersion").asLong(), required(value, "locator"))); } catch (RuntimeException ignored) { } }); return List.copyOf(result); }
-    public record Request(String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion) {}
+    public record Request(String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion,
+                           String instruction) {
+        public Request(String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion) {
+            this(operationId, excerpts, schemaVersion, promptVersion, "");
+        }
+    }
     public record Excerpt(UUID documentId, long extractionVersion, String locator, String text) {}
     public record Response(List<Candidate> candidates) {}
     public record Candidate(String key, String label, String parentKey, boolean required, String inputMode, List<String> options, List<String> suggestions, String confidence, String sourceQuote, List<SourceRef> evidence, String sourceType) {}

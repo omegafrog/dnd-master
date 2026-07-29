@@ -135,12 +135,71 @@ public final class ScenarioPreparationApplicationService {
         List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> candidates = characterTagExtraction.extract(
                 new CharacterInputTagExtractionPort.Request(
                         packageId + ":character-blueprint-draft:" + UUID.randomUUID(), excerpts,
-                        "character-input-tag-v1", "character-input-tag-prompt-v1"));
+                        "character-input-tag-v1", "character-input-tag-prompt-v1",
+                        "Extract the character fields first. For every field, decide whether it is free text or a selectable value. If selectable, return only options directly supported by these excerpts."));
+        candidates = refineChoiceFields(packageId, ownerPlayerId, documents, candidates);
         long nextBlueprintRevision = scenarioPackage.characterCreationBlueprint() == null
                 ? 1 : scenarioPackage.characterCreationBlueprint().revision() + 1;
         CharacterCreationBlueprint blueprint = blueprintCompiler.compileAgent(nextBlueprintRevision, candidates);
         packageRepository.saveBlueprint(packageId, blueprint);
         return toView(blueprint, documents);
+    }
+
+    private List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> refineChoiceFields(
+            UUID packageId, OwnerPlayerId ownerPlayerId, List<ScenarioBundleDocumentSelection> documents,
+            List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> candidates) {
+        if (candidates == null || candidates.isEmpty()) return List.of();
+        List<CharacterContextSearchPort.DocumentScope> scopes = documents.stream()
+                .map(document -> new CharacterContextSearchPort.DocumentScope(
+                        document.knowledgeDocumentId(), document.documentType(), document.extractionVersion()))
+                .toList();
+        List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> refined = new ArrayList<>();
+        for (CharacterInputTagExtractionPort.CharacterInputTagCandidate candidate : candidates) {
+            if (!choiceCapable(candidate)) {
+                refined.add(candidate);
+                continue;
+            }
+            try {
+                List<CharacterContextSearchPort.Evidence> evidence = characterContextSearch.search(
+                        new CharacterContextSearchPort.Request(ownerPlayerId.value(), scopes,
+                                "Find the authoritative selectable values and input rules for character field '"
+                                        + candidate.key() + "' (" + candidate.label() + "). Search the character creation chapter, lists, tables, and examples.",
+                                java.util.Map.of("RULEBOOK", .25, "STORYBOOK", .20, "HANDOUT", .20), 700));
+                List<CharacterInputTagExtractionPort.SourceExcerpt> topicExcerpts = excerptList(evidence, 3);
+                if (topicExcerpts.isEmpty()) {
+                    refined.add(candidate);
+                    continue;
+                }
+                List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> result = characterTagExtraction.extract(
+                        new CharacterInputTagExtractionPort.Request(
+                                packageId + ":character-blueprint-refine:" + candidate.key() + ":" + UUID.randomUUID(),
+                                topicExcerpts, "character-input-tag-v1", "character-input-tag-prompt-v1",
+                                "Refine only field '" + candidate.key() + "'. Keep its key exactly as given. Decide FREE_TEXT, SINGLE_SELECT, or MULTI_SELECT from the excerpts. If selectable, extract only directly supported options; if not, return an empty options array."));
+                refined.add(result == null ? candidate : result.stream()
+                        .filter(item -> item.key().equals(candidate.key()))
+                        .findFirst().orElse(candidate));
+            } catch (RuntimeException ignored) {
+                // A failed topic lookup must not discard the grounded first-stage field.
+                refined.add(candidate);
+            }
+        }
+        return List.copyOf(refined);
+    }
+
+    private static List<CharacterInputTagExtractionPort.SourceExcerpt> excerptList(
+            List<CharacterContextSearchPort.Evidence> evidence, int limit) {
+        return (evidence == null ? List.<CharacterContextSearchPort.Evidence>of() : evidence).stream()
+                .sorted(java.util.Comparator.comparingDouble(CharacterContextSearchPort.Evidence::similarity).reversed())
+                .limit(limit)
+                .map(item -> new CharacterInputTagExtractionPort.SourceExcerpt(
+                        item.documentId(), item.extractionVersion(), item.locator(), item.excerpt()))
+                .toList();
+    }
+
+    private static boolean choiceCapable(CharacterInputTagExtractionPort.CharacterInputTagCandidate candidate) {
+        String value = (candidate.key() + " " + candidate.label()).toLowerCase(java.util.Locale.ROOT);
+        return !(value.contains("name") || value.contains("이름") || value.contains("abilityscore")
+                || value.contains("ability_score") || value.contains("능력 점수"));
     }
 
     public CharacterCreationBlueprint resolveBlueprint(UUID packageId, OwnerPlayerId ownerPlayerId,
