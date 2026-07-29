@@ -19,6 +19,17 @@ class CharacterInputTagControllerTest {
         assertTrue(prompt.contains("locator=page 1"));
         assertTrue(prompt.startsWith("/no_think"));
         assertTrue(prompt.length() < 2500);
+        assertTrue(!prompt.contains("Task-specific instruction:"));
+    }
+
+    @Test
+    void addsTaskInstructionOnlyForFocusedFollowUpRequests() {
+        var excerpt = new CharacterInputTagController.Excerpt(UUID.randomUUID(), 2, "page 1", "source");
+        var prompt = CharacterInputTagController.buildPrompt(new CharacterInputTagController.Request(
+                "operation", List.of(excerpt), "character-input-tag-v1", "character-input-tag-prompt-v1",
+                "Refine only field 'race'."));
+
+        assertTrue(prompt.contains("Task-specific instruction: Refine only field 'race'."));
     }
 
     @Test

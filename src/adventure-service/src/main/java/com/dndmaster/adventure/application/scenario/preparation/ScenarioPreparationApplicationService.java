@@ -134,8 +134,7 @@ public final class ScenarioPreparationApplicationService {
         List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> candidates = characterTagExtraction.extract(
                 new CharacterInputTagExtractionPort.Request(
                         packageId + ":character-blueprint-draft:" + UUID.randomUUID(), excerpts,
-                        "character-input-tag-v1", "character-input-tag-prompt-v1",
-                        "Extract the character fields first. For every field, decide whether it is free text or a selectable value. If selectable, return only options directly supported by these excerpts."));
+                        "character-input-tag-v1", "character-input-tag-prompt-v1"));
         candidates = refineChoiceFields(packageId, ownerPlayerId, documents, candidates);
         long nextBlueprintRevision = scenarioPackage.characterCreationBlueprint() == null
                 ? 1 : scenarioPackage.characterCreationBlueprint().revision() + 1;
