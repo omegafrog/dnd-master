@@ -66,10 +66,32 @@ public final class CharacterInputTagController {
                 } catch (RuntimeException ignored) { }
             }
             return List.copyOf(result);
-        } catch (Exception malformed) { throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI character tag response was malformed", malformed); }
+        } catch (Exception malformed) {
+            // A draft remains useful for review even when the local model emits
+            // malformed JSON; the compiler will mark all required fields manual.
+            return List.of();
+        }
     }
 
-    private static String extractJsonArray(String response) { String value = response == null ? "" : response.trim(); int start = value.indexOf('['), end = value.lastIndexOf(']'); if (start < 0 || end < start) throw new IllegalArgumentException("array missing"); return value.substring(start, end + 1); }
+    private static String extractJsonArray(String response) {
+        String value = response == null ? "" : response.trim();
+        int start = value.indexOf('['), end = value.lastIndexOf(']');
+        if (start >= 0 && end >= start) return value.substring(start, end + 1);
+        if (value.startsWith("{") && value.endsWith("}")) {
+            int objectStart = value.indexOf("\"candidates\"");
+            if (objectStart < 0) objectStart = value.indexOf("\"tags\"");
+            if (objectStart >= 0) {
+                int arrayStart = value.indexOf('[', objectStart), arrayEnd = value.lastIndexOf(']');
+                if (arrayStart >= 0 && arrayEnd >= arrayStart) return value.substring(arrayStart, arrayEnd + 1);
+            }
+            // Ollama JSON mode may serialize a single candidate as an object even
+            // when the prompt requests an array. Treat that object as one item.
+            return "[" + value + "]";
+        }
+        // Keep the blueprint flow reviewable when the local model emits an
+        // unusable completion; the compiler supplies explicit manual fields.
+        return "[]";
+    }
     private static String required(JsonNode node, String name) { String value = node.path(name).asText(""); if (value.isBlank()) throw new IllegalArgumentException(name + " missing"); return value; }
     private static String nullable(JsonNode node, String name) { JsonNode value = node.get(name); return value == null || value.isNull() ? null : value.asText(); }
     private static List<String> strings(JsonNode node) { if (node == null || !node.isArray()) return List.of(); List<String> result = new ArrayList<>(); node.forEach(value -> { if (value.isTextual() && !value.asText().isBlank()) result.add(value.asText()); }); return List.copyOf(result); }
