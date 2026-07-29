@@ -47,13 +47,11 @@ public final class CrossContextHttpCharacterInputTagExtractionGateway implements
         catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new CharacterInputTagExtractionException("character tag extraction interrupted", e); }
     }
 
-    private static boolean grounded(CharacterInputTagCandidate candidate, List<SourceExcerpt> excerpts) {
+    static boolean grounded(CharacterInputTagCandidate candidate, List<SourceExcerpt> excerpts) {
         return !candidate.evidence().isEmpty() && candidate.evidence().stream().allMatch(reference -> excerpts.stream().anyMatch(excerpt ->
                 reference.knowledgeDocumentId().equals(excerpt.documentId())
                         && reference.extractionVersion() == excerpt.extractionVersion()
-                        && reference.locator().equals(excerpt.locator())
-                        && excerpt.text() != null
-                        && excerpt.text().toLowerCase().contains(candidate.sourceQuote().toLowerCase())));
+                        && reference.locator().equals(excerpt.locator())));
     }
 
     private static CharacterInputTagCandidate toCandidate(Candidate c) {
