@@ -132,13 +132,14 @@ public class RuleKnowledgeController {
                         r.originalFilename(),
                         r.failureCode(),
                         r.version(),
-                        warningsFor(r), progressFor(rulebookId)))
+                        warningsFor(r), progressFor(r)))
                 .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null, null, 0L, List.of(), null));
     }
 
-    private IndexProgressView progressFor(UUID rulebookId) {
+    private IndexProgressView progressFor(StoredRulebookRegistration registration) {
         if (indexRepository == null) return null;
-        return indexRepository.progressFor(new RulebookId(rulebookId))
+        return indexRepository.progressFor(
+                        registration.rulebookId(), "v1-" + registration.contentHash())
                 .map(progress -> new IndexProgressView(
                         progress.totalChunks(), progress.completedChunks(), progress.remainingChunks(),
                         progress.status(), progress.lastError(), progress.leaseOwner(), progress.leaseUntil()))

@@ -103,8 +103,10 @@ public class RuleKnowledgeApiConfiguration {
     RulebookIndexingApplicationService indexingApplicationService(
             RulebookIndexRepository indexRepository,
             EmbeddingPort embeddingPort,
-            StructureDetectionPort structureDetectionPort) {
-        return new RulebookIndexingApplicationService(indexRepository, embeddingPort, structureDetectionPort, 4000);
+            StructureDetectionPort structureDetectionPort,
+            @Value("${rule-knowledge.embedding-batch-size:32}") int embeddingBatchSize) {
+        return new RulebookIndexingApplicationService(
+                indexRepository, embeddingPort, structureDetectionPort, 4000, embeddingBatchSize);
     }
 
     @Bean

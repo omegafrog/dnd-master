@@ -88,9 +88,9 @@ public final class RulebookIndexingApplicationService {
         index.beginAttempt();
         repository.save(index, lease);
 
-        RulebookIndexingPolicy policy = buildPolicy(command.rulebook());
-        var chunks = policy.createChunks(command.rulebook());
         try {
+            RulebookIndexingPolicy policy = buildPolicy(command.rulebook());
+            var chunks = policy.createChunks(command.rulebook());
             List<EmbeddedRulebookChunk> embedded = new ArrayList<>(chunks.size());
             Set<Integer> completedSequences = new java.util.HashSet<>(repository.completedSequences(index));
             for (int start = 0; start < chunks.size(); start += embeddingBatchSize) {
@@ -111,6 +111,9 @@ public final class RulebookIndexingApplicationService {
                         lease);
                 completedSequences.addAll(pendingBatch.stream().map(RulebookChunk::sequence).toList());
                 embedded.addAll(embeddedBatch);
+                if (!repository.renewLease(lease, Instant.now(), Duration.ofMinutes(5))) {
+                    throw new IllegalStateException("index lease expired");
+                }
             }
             index.complete(chunks);
             repository.saveComplete(index, embedded, lease);

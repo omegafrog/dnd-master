@@ -51,10 +51,12 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
             UPDATE rulebook_vector_index
                SET status = ?, version = ?, attempts = ?, failure_reason = ?
              WHERE index_id = ? AND version = ? AND lease_owner = ? AND lease_token = ?
+               AND lease_until > now()
             """;
     private static final String PUBLISH_INDEX_LEASED = """
             UPDATE rulebook_vector_index SET status = 'READY', version = version + 1
              WHERE index_id = ? AND lease_owner = ? AND lease_token = ?
+               AND lease_until > now()
             """;
     private static final String UPDATE_PROGRESS = """
             UPDATE rulebook_vector_index
@@ -64,7 +66,7 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
     private static final String UPDATE_PROGRESS_LEASED = """
             UPDATE rulebook_vector_index
                SET total_chunks = ?, completed_chunks = ?, next_chunk_sequence = ?, last_progress_at = now()
-             WHERE index_id = ? AND lease_owner = ? AND lease_token = ?
+            WHERE index_id = ? AND lease_owner = ? AND lease_token = ? AND lease_until > now()
             """;
     private static final String SELECT_COMPLETED_SEQUENCES = """
             SELECT sequence
@@ -78,6 +80,12 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
              WHERE rulebook_id = ?
              ORDER BY version DESC
              LIMIT 1
+            """;
+    private static final String SELECT_PROGRESS_FOR_VERSION = """
+            SELECT status, total_chunks, completed_chunks, failure_reason, lease_owner, lease_until
+              FROM rulebook_vector_index
+             WHERE rulebook_id = ? AND index_version = ?
+             ORDER BY version DESC LIMIT 1
             """;
     private static final String CLAIM_LEASE = """
             UPDATE rulebook_vector_index
@@ -303,10 +311,20 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
 
     @Override
     public Optional<IndexProgress> progressFor(RulebookId rulebookId) {
+        return progressForQuery(rulebookId, null);
+    }
+
+    @Override
+    public Optional<IndexProgress> progressFor(RulebookId rulebookId, String indexVersion) {
+        return progressForQuery(rulebookId, indexVersion);
+    }
+
+    private Optional<IndexProgress> progressForQuery(RulebookId rulebookId, String indexVersion) {
         Objects.requireNonNull(rulebookId, "rulebookId must not be null");
-        try (Connection connection = dataSource.getConnection();
-                PreparedStatement ps = connection.prepareStatement(SELECT_PROGRESS)) {
+        String sql = indexVersion == null ? SELECT_PROGRESS : SELECT_PROGRESS_FOR_VERSION;
+        try (Connection connection = dataSource.getConnection(); PreparedStatement ps = connection.prepareStatement(sql)) {
             ps.setObject(1, rulebookId.value(), Types.OTHER);
+            if (indexVersion != null) ps.setString(2, indexVersion);
             try (ResultSet row = ps.executeQuery()) {
                 if (!row.next()) return Optional.empty();
                 Timestamp leaseUntil = row.getTimestamp("lease_until");

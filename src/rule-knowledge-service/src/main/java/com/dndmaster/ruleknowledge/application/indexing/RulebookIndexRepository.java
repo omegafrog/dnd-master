@@ -22,6 +22,9 @@ public interface RulebookIndexRepository {
     }
     Set<Integer> completedSequences(RulebookIndex index);
     default Optional<IndexProgress> progressFor(RulebookId rulebookId) { return Optional.empty(); }
+    default Optional<IndexProgress> progressFor(RulebookId rulebookId, String indexVersion) {
+        return progressFor(rulebookId);
+    }
     default Optional<IndexLease> claimLease(IndexKey key, String owner, String token, Instant now, Duration duration) {
         return Optional.empty();
     }
@@ -29,8 +32,8 @@ public interface RulebookIndexRepository {
             RulebookIndex index, String owner, String token, Instant now, Duration duration) {
         return Optional.of(new IndexLease(index.id(), owner, token, now.plus(duration)));
     }
-    default boolean renewLease(IndexLease lease, Instant now, Duration duration) { return false; }
-    default boolean releaseLease(IndexLease lease) { return false; }
+    default boolean renewLease(IndexLease lease, Instant now, Duration duration) { return true; }
+    default boolean releaseLease(IndexLease lease) { return true; }
     void saveComplete(RulebookIndex index, List<EmbeddedRulebookChunk> chunks);
     default void saveComplete(RulebookIndex index, List<EmbeddedRulebookChunk> chunks, IndexLease lease) {
         saveComplete(index, chunks);
