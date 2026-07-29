@@ -1,6 +1,10 @@
 ALTER TABLE rulebook_vector_index
     DROP CONSTRAINT IF EXISTS rulebook_vector_index_status_check;
 
+UPDATE rulebook_vector_index
+   SET status = 'RETRYABLE_FAILURE'
+ WHERE status = 'FAILED';
+
 ALTER TABLE rulebook_vector_index
     ADD CONSTRAINT rulebook_vector_index_status_check
     CHECK (status IN ('PENDING', 'EMBEDDING', 'READY', 'RETRYABLE_FAILURE', 'PERMANENT_FAILURE'));
