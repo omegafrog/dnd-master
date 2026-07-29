@@ -160,9 +160,10 @@ public class RuleKnowledgeApiConfiguration {
             RuleEvidenceSearchApplicationService evidenceSearchService,
             StorySourceSearchApplicationService storySourceSearchService,
             CharacterContextSearchApplicationService characterContextSearchService,
+            com.dndmaster.ruleknowledge.application.indexing.RulebookIndexRepository indexRepository,
             ObjectMapper objectMapper) {
         return new RuleKnowledgeController(
                 pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
-                characterContextSearchService, objectMapper);
+                characterContextSearchService, indexRepository, objectMapper);
     }
 }

@@ -9,6 +9,11 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.HashSet;
+import java.time.Instant;
+import java.util.Optional;
+import com.dndmaster.ruleknowledge.application.indexing.IndexProgress;
+import com.dndmaster.ruleknowledge.application.indexing.IndexLease;
+import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
 import java.util.function.Supplier;
 import javax.sql.DataSource;
 
@@ -52,6 +57,29 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
               FROM rulebook_vector_chunk
              WHERE index_id = ?
              ORDER BY sequence
+            """;
+    private static final String SELECT_PROGRESS = """
+            SELECT status, total_chunks, completed_chunks, failure_reason, lease_owner, lease_until
+              FROM rulebook_vector_index
+             WHERE rulebook_id = ?
+             ORDER BY version DESC
+             LIMIT 1
+            """;
+    private static final String CLAIM_LEASE = """
+            UPDATE rulebook_vector_index
+               SET lease_owner = ?, lease_token = ?, lease_until = ?
+             WHERE rulebook_id = ? AND embedding_model = ? AND index_version = ?
+               AND (lease_until IS NULL OR lease_until < ? OR (lease_owner = ? AND lease_token = ?))
+            RETURNING index_id
+            """;
+    private static final String RELEASE_LEASE = """
+            UPDATE rulebook_vector_index SET lease_owner = NULL, lease_token = NULL, lease_until = NULL
+             WHERE index_id = ? AND lease_owner = ? AND lease_token = ?
+            """;
+    private static final String RENEW_LEASE = """
+            UPDATE rulebook_vector_index SET lease_until = ?
+             WHERE index_id = ? AND lease_owner = ? AND lease_token = ?
+               AND lease_until >= ?
             """;
 
     private final DataSource dataSource;
@@ -191,6 +219,73 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
             }
         } catch (SQLException e) {
             throw new RuntimeException("failed to load completed embedding sequences", e);
+        }
+    }
+
+    @Override
+    public Optional<IndexProgress> progressFor(RulebookId rulebookId) {
+        Objects.requireNonNull(rulebookId, "rulebookId must not be null");
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement ps = connection.prepareStatement(SELECT_PROGRESS)) {
+            ps.setObject(1, rulebookId.value(), Types.OTHER);
+            try (ResultSet row = ps.executeQuery()) {
+                if (!row.next()) return Optional.empty();
+                Timestamp leaseUntil = row.getTimestamp("lease_until");
+                return Optional.of(new IndexProgress(
+                        row.getString("status"),
+                        row.getInt("total_chunks"),
+                        row.getInt("completed_chunks"),
+                        row.getString("failure_reason"),
+                        row.getString("lease_owner"),
+                        leaseUntil == null ? null : leaseUntil.toInstant()));
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("failed to load index progress", e);
+        }
+    }
+
+    @Override
+    public Optional<IndexLease> claimLease(IndexKey key, String owner, String token, java.time.Instant now, java.time.Duration duration) {
+        java.time.Instant until = now.plus(duration);
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement ps = connection.prepareStatement(CLAIM_LEASE)) {
+            ps.setString(1, owner); ps.setString(2, token); ps.setTimestamp(3, Timestamp.from(until));
+            ps.setObject(4, key.rulebookId().value(), Types.OTHER); ps.setString(5, key.embeddingModel());
+            ps.setString(6, key.indexVersion()); ps.setTimestamp(7, Timestamp.from(now));
+            ps.setString(8, owner); ps.setString(9, token);
+            try (ResultSet row = ps.executeQuery()) {
+                if (!row.next()) return Optional.empty();
+                return Optional.of(new IndexLease(
+                        new IndexId(row.getObject("index_id", java.util.UUID.class)), owner, token, until));
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("failed to claim index lease", e);
+        }
+    }
+
+    @Override
+    public boolean releaseLease(IndexLease lease) {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement ps = connection.prepareStatement(RELEASE_LEASE)) {
+            ps.setObject(1, lease.indexId().value(), Types.OTHER);
+            ps.setString(2, lease.owner()); ps.setString(3, lease.token());
+            return ps.executeUpdate() == 1;
+        } catch (SQLException e) {
+            throw new RuntimeException("failed to release index lease", e);
+        }
+    }
+
+    @Override
+    public boolean renewLease(IndexLease lease, java.time.Instant now, java.time.Duration duration) {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement ps = connection.prepareStatement(RENEW_LEASE)) {
+            ps.setTimestamp(1, Timestamp.from(now.plus(duration)));
+            ps.setObject(2, lease.indexId().value(), Types.OTHER);
+            ps.setString(3, lease.owner()); ps.setString(4, lease.token());
+            ps.setTimestamp(5, Timestamp.from(now));
+            return ps.executeUpdate() == 1;
+        } catch (SQLException e) {
+            throw new RuntimeException("failed to renew index lease", e);
         }
     }
 

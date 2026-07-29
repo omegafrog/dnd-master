@@ -3,6 +3,8 @@ package com.dndmaster.ruleknowledge.api;
 import com.dndmaster.ruleknowledge.application.pipeline.BatchRulebookUploadApplicationService;
 import com.dndmaster.ruleknowledge.application.pipeline.BatchRulebookUploadApplicationService.BatchUploadItem;
 import com.dndmaster.ruleknowledge.application.pipeline.BatchRulebookUploadApplicationService.BatchUploadResult;
+import com.dndmaster.ruleknowledge.application.indexing.IndexProgress;
+import com.dndmaster.ruleknowledge.application.indexing.RulebookIndexRepository;
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
@@ -44,6 +46,7 @@ public class RuleKnowledgeController {
     private final RuleEvidenceSearchApplicationService evidenceSearchService;
     private final StorySourceSearchApplicationService storySourceSearchService;
     private final CharacterContextSearchApplicationService characterContextSearchService;
+    private final RulebookIndexRepository indexRepository;
     private final ObjectMapper objectMapper;
 
     public RuleKnowledgeController(
@@ -51,7 +54,25 @@ public class RuleKnowledgeController {
             RulebookRegistrationRepository registrationRepository,
             RuleEvidenceSearchApplicationService evidenceSearchService,
             ObjectMapper objectMapper) {
-        this(pipelineService, registrationRepository, evidenceSearchService, null, null, objectMapper);
+        this(pipelineService, registrationRepository, evidenceSearchService, null, null, null, objectMapper);
+    }
+
+    public RuleKnowledgeController(
+            RulebookPipelineApplicationService pipelineService,
+            RulebookRegistrationRepository registrationRepository,
+            RuleEvidenceSearchApplicationService evidenceSearchService,
+            StorySourceSearchApplicationService storySourceSearchService,
+            CharacterContextSearchApplicationService characterContextSearchService,
+            RulebookIndexRepository indexRepository,
+            ObjectMapper objectMapper) {
+        this.pipelineService = pipelineService;
+        this.batchUploadService = new BatchRulebookUploadApplicationService(pipelineService);
+        this.registrationRepository = registrationRepository;
+        this.evidenceSearchService = evidenceSearchService;
+        this.storySourceSearchService = storySourceSearchService;
+        this.characterContextSearchService = characterContextSearchService;
+        this.indexRepository = indexRepository;
+        this.objectMapper = objectMapper;
     }
 
     public RuleKnowledgeController(
@@ -61,13 +82,8 @@ public class RuleKnowledgeController {
             StorySourceSearchApplicationService storySourceSearchService,
             CharacterContextSearchApplicationService characterContextSearchService,
             ObjectMapper objectMapper) {
-        this.pipelineService = pipelineService;
-        this.batchUploadService = new BatchRulebookUploadApplicationService(pipelineService);
-        this.registrationRepository = registrationRepository;
-        this.evidenceSearchService = evidenceSearchService;
-        this.storySourceSearchService = storySourceSearchService;
-        this.characterContextSearchService = characterContextSearchService;
-        this.objectMapper = objectMapper;
+        this(pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
+                characterContextSearchService, null, objectMapper);
     }
 
     public RuleKnowledgeController(
@@ -76,7 +92,7 @@ public class RuleKnowledgeController {
             RuleEvidenceSearchApplicationService evidenceSearchService,
             StorySourceSearchApplicationService storySourceSearchService,
             ObjectMapper objectMapper) {
-        this(pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService, null, objectMapper);
+        this(pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService, null, null, objectMapper);
     }
 
     @PostMapping("/api/v1/rulebooks")
@@ -116,8 +132,17 @@ public class RuleKnowledgeController {
                         r.originalFilename(),
                         r.failureCode(),
                         r.version(),
-                        warningsFor(r)))
-                .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null, null, 0L, List.of()));
+                        warningsFor(r), progressFor(rulebookId)))
+                .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null, null, 0L, List.of(), null));
+    }
+
+    private IndexProgressView progressFor(UUID rulebookId) {
+        if (indexRepository == null) return null;
+        return indexRepository.progressFor(new RulebookId(rulebookId))
+                .map(progress -> new IndexProgressView(
+                        progress.totalChunks(), progress.completedChunks(), progress.remainingChunks(),
+                        progress.status(), progress.lastError(), progress.leaseOwner(), progress.leaseUntil()))
+                .orElse(null);
     }
 
     @GetMapping("/api/v1/rulebooks/{rulebookId}/source-preview")
@@ -426,7 +451,11 @@ public class RuleKnowledgeController {
     public record UploadDocumentRequest(String idempotencyKey, DocumentType documentType, String originalFilename) {}
     public record RulebookStatusResponse(
             UUID rulebookId, UUID knowledgeDocumentId, String status, DocumentType documentType,
-            String originalFilename, String failureReason, long extractionVersion, List<String> warnings) {}
+            String originalFilename, String failureReason, long extractionVersion, List<String> warnings,
+            IndexProgressView progress) {}
+    public record IndexProgressView(
+            int totalChunks, int completedChunks, int remainingChunks, String status,
+            String lastError, String leaseOwner, java.time.Instant leaseUntil) {}
     public record SourcePreviewResponse(
             UUID rulebookId, UUID knowledgeDocumentId, DocumentType documentType, String originalFilename,
             RulebookFormat format, String status, String content, long extractionVersion, List<String> warnings,
