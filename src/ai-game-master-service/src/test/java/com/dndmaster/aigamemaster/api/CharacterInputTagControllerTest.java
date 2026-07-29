@@ -2,10 +2,25 @@ package com.dndmaster.aigamemaster.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import java.util.List;
+import java.util.UUID;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
 class CharacterInputTagControllerTest {
+    @Test
+    void boundsAndLabelsSourceExcerptsBeforeSendingThemToTheModel() {
+        var excerpt = new CharacterInputTagController.Excerpt(
+                UUID.randomUUID(), 2, "page 1", "x".repeat(4000));
+        var prompt = CharacterInputTagController.buildPrompt(new CharacterInputTagController.Request(
+                "operation", List.of(excerpt), "character-input-tag-v1", "character-input-tag-prompt-v1"));
+
+        assertTrue(prompt.contains("documentId=" + excerpt.documentId()));
+        assertTrue(prompt.contains("locator=page 1"));
+        assertTrue(prompt.startsWith("/no_think"));
+        assertTrue(prompt.length() < 2500);
+    }
+
     @Test
     void keepsOnlySourceGroundedDynamicTagsAndDropsMalformedCandidates() {
         var controller = new CharacterInputTagController(null, new ObjectMapper());

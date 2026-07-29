@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.stream.Collectors;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -21,10 +22,25 @@ public final class CharacterInputTagController {
     @PostMapping("/internal/v1/gm/character-input-tags")
     Response extract(@RequestBody Request request) {
         if (request == null || request.excerpts() == null) return new Response(List.of());
-        String prompt = "Extract only source-grounded character input tags. Return JSON array only. "
-                + "Schema: [{key:string,label:string,parentKey:string|null,required:boolean,inputMode:'FREE_TEXT'|'SINGLE_SELECT'|'MULTI_SELECT',options:string[],suggestions:string[],confidence:'HIGH'|'MEDIUM'|'LOW',sourceQuote:string,evidence:[{documentId:string,extractionVersion:number,locator:string}],sourceType:'RULEBOOK'|'STORYBOOK'}]. "
-                + "Do not invent fields, values, or evidence. " + request.excerpts();
+        String prompt = buildPrompt(request);
         return new Response(adapter.complete(request.operationId(), prompt, this::parseModel));
+    }
+
+    static String buildPrompt(Request request) {
+        String excerpts = request.excerpts().stream()
+                .map(CharacterInputTagController::formatExcerpt)
+                .collect(Collectors.joining("\n\n"));
+        return "/no_think Extract only source-grounded character input tags. Return one JSON array only; do not explain your answer or output reasoning. "
+                + "Schema: [{key:string,label:string,parentKey:string|null,required:boolean,inputMode:'FREE_TEXT'|'SINGLE_SELECT'|'MULTI_SELECT',options:string[],suggestions:string[],confidence:'HIGH'|'MEDIUM'|'LOW',sourceQuote:string,evidence:[{documentId:string,extractionVersion:number,locator:string}],sourceType:'RULEBOOK'|'STORYBOOK'}]. "
+                + "Do not invent fields, values, or evidence. Source excerpts:\n" + excerpts;
+    }
+
+    private static String formatExcerpt(Excerpt excerpt) {
+        String text = excerpt.text() == null ? "" : excerpt.text();
+        return "[documentId=" + excerpt.documentId()
+                + ", extractionVersion=" + excerpt.extractionVersion()
+                + ", locator=" + excerpt.locator() + "]\n"
+                + text.substring(0, Math.min(text.length(), 1500));
     }
 
     List<Candidate> parseModel(String text) {
