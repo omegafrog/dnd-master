@@ -20,8 +20,17 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
             """;
     private static final String INSERT_CHUNK = """
             INSERT INTO rulebook_vector_chunk
-                (chunk_id, index_id, rulebook_id, owner_player_id, sequence, locator, content, embedding, chapter, section)
-            VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS vector), ?, ?)
+                (chunk_id, index_id, rulebook_id, owner_player_id, sequence, locator, content, embedding, embedding_next, chapter, section)
+            VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS vector), CAST(? AS vector), ?, ?)
+            ON CONFLICT (chunk_id) DO UPDATE SET
+                index_id = EXCLUDED.index_id,
+                sequence = EXCLUDED.sequence,
+                locator = EXCLUDED.locator,
+                content = EXCLUDED.content,
+                embedding = EXCLUDED.embedding,
+                embedding_next = EXCLUDED.embedding_next,
+                chapter = EXCLUDED.chapter,
+                section = EXCLUDED.section
             """;
     private static final String UPDATE_INDEX_READY = """
             UPDATE rulebook_vector_index SET status = 'READY', version = version + 1
@@ -90,6 +99,33 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
         }
     }
 
+    @Override
+    public void saveBatch(RulebookIndex index, List<EmbeddedRulebookChunk> chunks) {
+        Objects.requireNonNull(index, "index must not be null");
+        List<EmbeddedRulebookChunk> immutableChunks = List.copyOf(
+                Objects.requireNonNull(chunks, "chunks must not be null"));
+        if (immutableChunks.isEmpty()) return;
+        try (Connection connection = dataSource.getConnection()) {
+            boolean previousAutoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            try {
+                insertChunks(connection, index, immutableChunks);
+                connection.commit();
+            } catch (SQLException exception) {
+                try {
+                    connection.rollback();
+                } catch (SQLException rollbackEx) {
+                    exception.addSuppressed(rollbackEx);
+                }
+                throw new RuntimeException("failed to save embedding batch", exception);
+            } finally {
+                connection.setAutoCommit(previousAutoCommit);
+            }
+        } catch (SQLException e) {
+            throw new RuntimeException("could not access database for embedding batch", e);
+        }
+    }
+
     private static void insertChunks(
             Connection connection, RulebookIndex index, List<EmbeddedRulebookChunk> chunks) throws SQLException {
         try (PreparedStatement ps = connection.prepareStatement(INSERT_CHUNK)) {
@@ -102,8 +138,9 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
                 ps.setString(6, embedded.locator());
                 ps.setString(7, embedded.chunk().content());
                 ps.setString(8, vectorLiteral(embedded.embedding()));
-                ps.setString(9, embedded.chunk().chapter());
-                ps.setString(10, embedded.chunk().section());
+                ps.setString(9, vectorLiteral(embedded.embedding()));
+                ps.setString(10, embedded.chunk().chapter());
+                ps.setString(11, embedded.chunk().section());
                 ps.addBatch();
             }
             ps.executeBatch();

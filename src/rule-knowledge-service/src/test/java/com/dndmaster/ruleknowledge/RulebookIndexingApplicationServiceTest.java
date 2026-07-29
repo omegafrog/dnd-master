@@ -50,6 +50,21 @@ class RulebookIndexingApplicationServiceTest {
     }
 
     @Test
+    void embedsAndPersistsChunksInBoundedBatchesBeforeFinalReadyState() {
+        InMemoryIndexRepository repository = new InMemoryIndexRepository();
+        RecordingEmbeddingPort embeddings = new RecordingEmbeddingPort(0);
+        RulebookIndexingApplicationService service = service(repository, embeddings, 4, 2);
+        IndexingCommand command = command(oversizedRulebook("abcdefghijkl"));
+
+        RulebookIndex result = service.indexContent(command);
+
+        assertEquals(IndexStatus.READY, result.status());
+        assertEquals(List.of(2, 1), embeddings.batchSizes);
+        assertEquals(List.of(2, 1), repository.savedBatchSizes);
+        assertEquals(List.of(IndexStatus.EMBEDDING, IndexStatus.READY), repository.savedStatuses);
+    }
+
+    @Test
     void embeddingFailureStaysFailedUntilExplicitRetryAndCannotPublishPartialChunks() {
         InMemoryIndexRepository repository = new InMemoryIndexRepository();
         RecordingEmbeddingPort embeddings = new RecordingEmbeddingPort(1);
@@ -105,6 +120,19 @@ class RulebookIndexingApplicationServiceTest {
                 repository, embeddings, text -> StructureDetectionPort.DetectedStructure.none(), maximumChunkCharacters);
     }
 
+    private static RulebookIndexingApplicationService service(
+            RulebookIndexRepository repository,
+            EmbeddingPort embeddings,
+            int maximumChunkCharacters,
+            int embeddingBatchSize) {
+        return new RulebookIndexingApplicationService(
+                repository,
+                embeddings,
+                text -> StructureDetectionPort.DetectedStructure.none(),
+                maximumChunkCharacters,
+                embeddingBatchSize);
+    }
+
     private static IndexingCommand command(Rulebook rulebook) {
         IndexKey key = new IndexKey(rulebook.id(), "content-hash", "mock-embedding", "v1");
         return new IndexingCommand(rulebook, key, DIMENSION);
@@ -123,6 +151,7 @@ class RulebookIndexingApplicationServiceTest {
     private static final class RecordingEmbeddingPort implements EmbeddingPort {
         private int failuresRemaining;
         private int calls;
+        private final List<Integer> batchSizes = new ArrayList<>();
 
         private RecordingEmbeddingPort(int failuresRemaining) {
             this.failuresRemaining = failuresRemaining;
@@ -131,6 +160,7 @@ class RulebookIndexingApplicationServiceTest {
         @Override
         public List<ChunkEmbedding> embed(List<RulebookChunk> chunks, String embeddingModel, int expectedDimension) {
             calls++;
+            batchSizes.add(chunks.size());
             assertEquals("mock-embedding", embeddingModel);
             assertEquals(DIMENSION, expectedDimension);
             if (failuresRemaining-- > 0) {
@@ -145,6 +175,7 @@ class RulebookIndexingApplicationServiceTest {
     private static final class InMemoryIndexRepository implements RulebookIndexRepository {
         private final Map<IndexKey, RulebookIndex> indexes = new HashMap<>();
         private final List<IndexStatus> savedStatuses = new ArrayList<>();
+        private final List<Integer> savedBatchSizes = new ArrayList<>();
 
         @Override
         public RulebookIndex loadOrCreate(IndexKey key, Supplier<RulebookIndex> newIndex) {
@@ -161,6 +192,14 @@ class RulebookIndexingApplicationServiceTest {
         public void saveComplete(RulebookIndex index, List<com.dndmaster.ruleknowledge.domain.index.EmbeddedRulebookChunk> chunks) {
             indexes.put(index.key(), index);
             savedStatuses.add(index.status());
+        }
+
+        @Override
+        public void saveBatch(
+                RulebookIndex index,
+                List<com.dndmaster.ruleknowledge.domain.index.EmbeddedRulebookChunk> chunks) {
+            indexes.put(index.key(), index);
+            savedBatchSizes.add(chunks.size());
         }
 
         private RulebookIndex get(IndexKey key) {

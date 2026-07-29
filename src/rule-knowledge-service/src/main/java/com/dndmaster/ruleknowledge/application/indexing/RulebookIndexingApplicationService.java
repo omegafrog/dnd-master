@@ -21,17 +21,29 @@ public final class RulebookIndexingApplicationService {
     private final EmbeddingPort embeddingPort;
     private final StructureDetectionPort structureDetectionPort;
     private final int defaultChunkSize;
+    private final int embeddingBatchSize;
 
     public RulebookIndexingApplicationService(
             RulebookIndexRepository repository,
             EmbeddingPort embeddingPort,
             StructureDetectionPort structureDetectionPort,
             int defaultChunkSize) {
+        this(repository, embeddingPort, structureDetectionPort, defaultChunkSize, 32);
+    }
+
+    public RulebookIndexingApplicationService(
+            RulebookIndexRepository repository,
+            EmbeddingPort embeddingPort,
+            StructureDetectionPort structureDetectionPort,
+            int defaultChunkSize,
+            int embeddingBatchSize) {
         this.repository = Objects.requireNonNull(repository, "repository must not be null");
         this.embeddingPort = Objects.requireNonNull(embeddingPort, "embeddingPort must not be null");
         this.structureDetectionPort = Objects.requireNonNull(structureDetectionPort, "structureDetectionPort must not be null");
         if (defaultChunkSize <= 0) throw new IllegalArgumentException("defaultChunkSize must be positive");
+        if (embeddingBatchSize <= 0) throw new IllegalArgumentException("embeddingBatchSize must be positive");
         this.defaultChunkSize = defaultChunkSize;
+        this.embeddingBatchSize = embeddingBatchSize;
     }
 
     public RulebookIndex indexContent(IndexingCommand command) {
@@ -70,14 +82,15 @@ public final class RulebookIndexingApplicationService {
         RulebookIndexingPolicy policy = buildPolicy(command.rulebook());
         var chunks = policy.createChunks(command.rulebook());
         try {
-            List<ChunkEmbedding> embeddings = embeddingPort.embed(chunks, command.key().embeddingModel(), command.dimension());
-            List<EmbeddedRulebookChunk> embedded = new ArrayList<>(embeddings.size());
-            for (ChunkEmbedding ce : embeddings) {
-                RulebookChunk chunk = chunks.stream()
-                        .filter(c -> c.chunkId().equals(ce.chunkId()))
-                        .findFirst()
-                        .orElseThrow(() -> new IllegalStateException("embedding result references unknown chunk"));
-                embedded.add(new EmbeddedRulebookChunk(chunk, formatLocator(chunk), ce.vector()));
+            List<EmbeddedRulebookChunk> embedded = new ArrayList<>(chunks.size());
+            for (int start = 0; start < chunks.size(); start += embeddingBatchSize) {
+                int end = Math.min(start + embeddingBatchSize, chunks.size());
+                List<RulebookChunk> batch = chunks.subList(start, end);
+                List<ChunkEmbedding> embeddings = embeddingPort.embed(
+                        batch, command.key().embeddingModel(), command.dimension());
+                List<EmbeddedRulebookChunk> embeddedBatch = toEmbeddedChunks(batch, embeddings);
+                repository.saveBatch(index, embeddedBatch);
+                embedded.addAll(embeddedBatch);
             }
             index.complete(chunks);
             repository.saveComplete(index, embedded);
@@ -87,6 +100,22 @@ public final class RulebookIndexingApplicationService {
             throw new IndexingFailedException(exception);
         }
         return index;
+    }
+
+    private static List<EmbeddedRulebookChunk> toEmbeddedChunks(
+            List<RulebookChunk> chunks, List<ChunkEmbedding> embeddings) {
+        if (embeddings == null || embeddings.size() != chunks.size()) {
+            throw new IllegalStateException("embedding result count does not match batch");
+        }
+        List<EmbeddedRulebookChunk> result = new ArrayList<>(embeddings.size());
+        for (ChunkEmbedding ce : embeddings) {
+            RulebookChunk chunk = chunks.stream()
+                    .filter(c -> c.chunkId().equals(ce.chunkId()))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException("embedding result references unknown chunk"));
+            result.add(new EmbeddedRulebookChunk(chunk, formatLocator(chunk), ce.vector()));
+        }
+        return List.copyOf(result);
     }
 
     private RulebookIndexingPolicy buildPolicy(Rulebook rulebook) {
