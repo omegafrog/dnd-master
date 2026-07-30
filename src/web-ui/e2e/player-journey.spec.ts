@@ -110,7 +110,7 @@ test('document-derived character creation preserves bundle, blueprint and creati
       contentType: 'application/json',
     })
     await page.screenshot({ path: 'test-results/026-4-blueprint.png', fullPage: true })
-    await scenario.getByRole('textbox', { name: 'STR' }).fill('13')
+    await scenario.getByRole('spinbutton', { name: 'STR' }).fill('13')
     await scenario.getByRole('button', { name: '검토값 저장' }).last().click()
     await expect(scenario.getByText('상태: READY').first()).toBeVisible()
     await expect(scenario.getByText(/revision 3/).first()).toBeVisible()
