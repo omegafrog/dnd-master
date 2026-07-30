@@ -26,12 +26,14 @@ public class AiGameMasterApiConfiguration {
     SceneModelPort sceneModelPort(SpringAiChatAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper mapper) {
         return prompt -> new SceneOutput(prompt.scenarioId(), prompt.ruleSetId(),
                 ScenarioAlignment.WITHIN_SELECTED_SCENARIO,
-                adapter.complete("scene-" + UUID.randomUUID(), prompt.value(), text -> groundedScene(mapper, text)), List.of());
+                adapter.complete("scene-" + UUID.randomUUID(), prompt.value(), text -> groundedScene(mapper, text, evidenceCount(prompt.value()))), List.of());
     }
 
-    private static String groundedScene(com.fasterxml.jackson.databind.ObjectMapper mapper, String text) {
-        try { var root=mapper.readTree(text); var lines=new java.util.ArrayList<String>(); for(var item:root.path("facts")){lines.add("[E"+item.path("evidence").asInt()+"] "+item.path("text").asText());} for(var item:root.path("choices")){lines.add("[E"+item.path("evidence").asInt()+"] "+item.path("number").asInt()+". "+item.path("text").asText());} if(lines.size()!=5)throw new IllegalArgumentException("five grounded lines required"); return String.join("\n",lines); } catch(Exception e){ throw new IllegalArgumentException("invalid grounded scene JSON",e); }
+    private static String groundedScene(com.fasterxml.jackson.databind.ObjectMapper mapper, String text, int evidenceCount) {
+        try { var root=mapper.readTree(text); var lines=new java.util.ArrayList<String>(); for(var item:root.path("facts")){lines.add("[E"+evidence(item,evidenceCount)+"] "+item.path("text").asText());} for(var item:root.path("choices")){lines.add("[E"+evidence(item,evidenceCount)+"] "+item.path("number").asInt()+". "+item.path("text").asText());} if(lines.size()!=5)throw new IllegalArgumentException("five grounded lines required"); return String.join("\n",lines); } catch(Exception e){ throw new IllegalArgumentException("invalid grounded scene JSON",e); }
     }
+    private static int evidence(com.fasterxml.jackson.databind.JsonNode item,int count){String value=item.path("evidence").asText().replaceAll("\\D","");if(value.isBlank()&&count==1)return 1;int number=value.isBlank()?0:Integer.parseInt(value);if(number<1||number>count)throw new IllegalArgumentException("invalid evidence");return number;}
+    private static int evidenceCount(String prompt){java.util.regex.Matcher m=java.util.regex.Pattern.compile("\\[E(\\d+)]").matcher(prompt);int count=0;while(m.find())count=Math.max(count,Integer.parseInt(m.group(1)));return count;}
 
     @Bean
     RuleAnswerModelPort ruleAnswerModelPort(SpringAiChatAdapter adapter) {
