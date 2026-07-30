@@ -1,6 +1,7 @@
 package com.dndmaster.aigamemaster.configuration;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.net.URI;
@@ -9,6 +10,12 @@ import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class LocalOllamaPropertiesTest {
+    @Test
+    void defaultsToTheKoreanCapableGMModel() {
+        assertEquals("exaone3.5:7.8b", LocalOllamaProperties.DEFAULT_CHAT_MODEL);
+        assertEquals("exaone3.5:7.8b", LocalOllamaProperties.QUALITY_CHAT_MODEL);
+    }
+
     @Test
     void acceptsLoopbackDefaultAndQualityModelsOnly() {
         assertDoesNotThrow(() -> properties(URI.create("http://127.0.0.1:11434"), LocalOllamaProperties.DEFAULT_CHAT_MODEL).validate());

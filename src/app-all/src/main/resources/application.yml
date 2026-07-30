@@ -50,7 +50,7 @@ spring:
         pull-model-strategy: never
       chat:
         options:
-          model: qwen3:8b
+          model: exaone3.5:7.8b
           keep-alive: 30m
           num-ctx: 8192
           num-predict: 4096
@@ -70,10 +70,11 @@ rule-knowledge:
 local-ai:
   ollama:
     base-url: http://127.0.0.1:11434
-    chat-model: qwen3:8b
+    chat-model: exaone3.5:7.8b
     embedding-model: qwen3-embedding:0.6b
     allowed-models:
       - qwen3:8b
+      - exaone3.5:7.8b
       - qwen3-embedding:0.6b
     request-timeout: ${LOCAL_AI_OLLAMA_REQUEST_TIMEOUT:45s}
     circuit-failure-threshold: 3
@@ -100,7 +101,7 @@ spring:
     ollama:
       chat:
         options:
-          model: qwen3:8b
+          model: exaone3.5:7.8b
 local-ai:
   ollama:
-    chat-model: qwen3:8b
+    chat-model: exaone3.5:7.8b
