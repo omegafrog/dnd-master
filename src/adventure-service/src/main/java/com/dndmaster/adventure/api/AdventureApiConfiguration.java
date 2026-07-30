@@ -32,8 +32,11 @@ import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpPlayer
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpLegacyScenarioIngestionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpInitialSourceContextProposalGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpResolutionExtractionGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterInputTagExtractionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpScenarioSourceExcerptGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterContextSearchGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuleIntentClassificationGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuntimeEvidenceSearchGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetReadGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetOwnershipGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetDeletionGateway;
@@ -226,8 +229,12 @@ public class AdventureApiConfiguration {
     ScenarioPreparationApplicationService scenarioPreparationApplicationService(
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
             ScenarioBundleRepository bundleRepository,
-            RuntimeOptionCatalogPort runtimeOptionCatalogPort) {
-        return new ScenarioPreparationApplicationService(packageRepository, bundleRepository, runtimeOptionCatalogPort);
+            RuntimeOptionCatalogPort runtimeOptionCatalogPort,
+            com.dndmaster.adventure.application.scenario.compilation.CharacterContextSearchPort characterContextSearch,
+            com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort characterTagExtraction) {
+        return new ScenarioPreparationApplicationService(packageRepository, bundleRepository, runtimeOptionCatalogPort,
+                characterContextSearch, characterTagExtraction,
+                new com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler());
     }
 
     @Bean
@@ -306,6 +313,14 @@ public class AdventureApiConfiguration {
                 objectMapper);
     }
 
+    @Bean
+    com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort characterInputTagExtractionPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.scenario-compilation.timeout:120s}") Duration timeout) {
+        return new CrossContextHttpCharacterInputTagExtractionGateway(HttpClient.newHttpClient(), URI.create(baseUrl), timeout, objectMapper);
+    }
+
     com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort resolutionExtractionPort(
             ObjectMapper objectMapper, String baseUrl) {
         return resolutionExtractionPort(objectMapper, baseUrl, Duration.ofSeconds(120));
@@ -327,6 +342,15 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.scenario.compilation.CharacterContextSearchPort characterContextSearchPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.scenario-compilation.timeout:120s}") Duration timeout) {
+        return new CrossContextHttpCharacterContextSearchGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), timeout, objectMapper);
+    }
+
+    @Bean
     com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationWorker scenarioCompilationWorker(
             com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationProcessManager processManager,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationRepository compilationRepository,
@@ -334,10 +358,13 @@ public class AdventureApiConfiguration {
             ScenarioBundleRepository bundleRepository,
             com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort extractionPort,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort excerptPort,
+            com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort characterInputTagExtractionPort,
+            com.dndmaster.adventure.application.scenario.compilation.CharacterContextSearchPort characterContextSearchPort,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService compiler,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository) {
         return new com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationWorker(
-                processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort, compiler,
+                processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort,
+                characterInputTagExtractionPort, characterContextSearchPort, compiler,
                 packageRepository);
     }
 
@@ -443,29 +470,11 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    RuntimeEvidenceSearchPort runtimeEvidenceSearchPort() {
-        return request -> {
-            if (request.evidenceType() == RuntimeEvidenceType.STORYBOOK) {
-                ActiveSourceContext active = request.activeSourceContext();
-                if (active == null) return List.of();
-                return List.of(new RuntimeEvidence(
-                        RuntimeEvidenceType.STORYBOOK,
-                        active.knowledgeDocumentId(),
-                        active.extractionVersion(),
-                        active.locator(),
-                        active.excerpt()));
-            }
-            if (request.evidenceType() == RuntimeEvidenceType.RULEBOOK) {
-                return request.rulebookIds().stream().map(rulebookId -> new RuntimeEvidence(
-                        RuntimeEvidenceType.RULEBOOK,
-                        new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(rulebookId),
-                        1L,
-                        "rulebook:" + rulebookId,
-                        "Rulebook evidence for " + request.action()))
-                        .toList();
-            }
-            return List.of();
-        };
+    RuntimeEvidenceSearchPort runtimeEvidenceSearchPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl) {
+        return new CrossContextHttpRuntimeEvidenceSearchGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(10), objectMapper);
     }
 
     @Bean
@@ -516,10 +525,11 @@ public class AdventureApiConfiguration {
             RuntimeTurnRepository runtimeTurnRepository,
             RuntimeEvidenceSearchPort runtimeEvidenceSearchPort,
             RuntimePlanningPort runtimePlanningPort,
-            NarrationSafetyPort narrationSafetyPort) {
+            NarrationSafetyPort narrationSafetyPort,
+            SessionKnowledgeSetRepository sessionKnowledgeSetRepository) {
         return new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
-                runtimePlanningPort, narrationSafetyPort);
+                runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository);
     }
 
     @Bean

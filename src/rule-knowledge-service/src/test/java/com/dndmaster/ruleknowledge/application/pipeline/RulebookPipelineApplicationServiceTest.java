@@ -105,7 +105,7 @@ class RulebookPipelineApplicationServiceTest {
         assertEquals(ProcessingStatus.QUEUED, harness.repository.findById(beta.rulebookId()).orElseThrow().processingStatus());
         assertEquals(2, harness.embeddingPort.calls);
         assertEquals(1, harness.embeddingPort.failures);
-        assertEquals(IndexStatus.FAILED, harness.indexingRepository.load(beta.rulebookId()).status());
+        assertEquals(IndexStatus.RETRYABLE_FAILURE, harness.indexingRepository.load(beta.rulebookId()).status());
 
         assertThrows(IllegalStateException.class, () -> harness.service.retry(beta.rulebookId()));
         assertEquals(ProcessingStatus.QUEUED, harness.repository.findById(beta.rulebookId()).orElseThrow().processingStatus());
@@ -317,6 +317,16 @@ class RulebookPipelineApplicationServiceTest {
         public void save(RulebookIndex index) {
             indexes.put(index.key(), index);
             savedStatuses.add(index.status());
+        }
+
+        @Override
+        public void saveBatch(RulebookIndex index, List<EmbeddedRulebookChunk> chunks, int totalChunks, int completedChunks) {
+            indexes.put(index.key(), index);
+        }
+
+        @Override
+        public java.util.Set<Integer> completedSequences(RulebookIndex index) {
+            return java.util.Set.of();
         }
 
         @Override

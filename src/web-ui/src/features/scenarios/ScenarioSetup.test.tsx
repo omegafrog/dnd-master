@@ -2,7 +2,8 @@ import '@testing-library/jest-dom/vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { ScenarioSetup } from './ScenarioSetup'
+import { ScenarioSetup, serializeBlueprintValues } from './ScenarioSetup'
+import type { CharacterInputNodeView } from '../rulebooks/SetupApi'
 import type {
   CreatedCharacterSheetView,
   CharacterCreationBlueprintView,
@@ -70,6 +71,7 @@ class FakeSetupApi implements SetupApi {
     return bundle('bundle-1', 1, [
       { knowledgeDocumentId: 'doc-1', documentType: 'STORYBOOK', originalFilename: 'main.pdf', status: 'EXTRACTED', role: 'MAIN_SCENARIO', extractionVersion: 3 },
       { knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK', originalFilename: 'handout.pdf', status: 'PARTIAL_CONFIRMED', role: 'HANDOUT', extractionVersion: 7 },
+      { knowledgeDocumentId: 'doc-3', documentType: 'RULEBOOK', originalFilename: 'rules.pdf', status: 'EXTRACTED', role: 'RULEBOOK', extractionVersion: 1 },
     ])
   }
   async reviseScenarioBundle() { return bundle('bundle-1', 2, [
@@ -239,13 +241,39 @@ describe('ScenarioSetup', () => {
     vi.useRealTimers()
   })
 
+  it('preserves nested blueprint paths in legacy starting abilities', () => {
+    const node = (id: string, key: string, children: CharacterInputNodeView[] = []): CharacterInputNodeView => ({
+      id,
+      parentId: null,
+      key,
+      label: key,
+      inputMode: 'FREE_TEXT',
+      value: null,
+      options: [],
+      suggestions: [],
+      status: 'EXTRACTED',
+      allowUserAddChild: false,
+      confidence: 'HIGH',
+      sourceQuote: '',
+      diagnostics: [],
+      sourceEvidence: [],
+      children,
+    })
+
+    expect(serializeBlueprintValues([
+      node('str-1', 'str'),
+      node('group-a', 'group', [node('str-2', 'str')]),
+    ], { 'str-1': '12', 'str-2': '14' })).toEqual(['str=12', 'group.str=14'])
+  })
+
   it('lets the owner save a bundle, compile it, and inspect play prep without uuid inputs', async () => {
     const api = new FakeSetupApi()
     const user = userEvent.setup()
     render(<ScenarioSetup api={api} playerId="owner-1" onError={() => {}} />)
 
     expect(await screen.findByText('main.pdf')).toBeInTheDocument()
-    expect(screen.queryByText('rules.pdf')).not.toBeInTheDocument()
+    expect(screen.getByText('rules.pdf')).toBeInTheDocument()
+    expect(screen.getByLabelText('rules.pdf 역할')).toHaveValue('RULEBOOK')
     expect(screen.getByText('handout.pdf: 추출 경고가 있어 컴파일 위험이 있습니다.')).toBeInTheDocument()
     expect(screen.getByText('failed-main.pdf: 컴파일 위험 — document parser stopped')).toBeInTheDocument()
 

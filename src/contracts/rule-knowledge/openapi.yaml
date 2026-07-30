@@ -161,6 +161,20 @@ paths:
           content:
             application/json:
               schema: { $ref: './schemas/story-source-search-response.json' }
+  /internal/v1/character-context/search:
+    post:
+      operationId: searchCharacterContext
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: './schemas/character-context-search-request.json' }
+      responses:
+        '200':
+          description: independently searched, scoped typed character context evidence
+          content:
+            application/json:
+              schema: { $ref: './schemas/character-context-search-response.json' }
   /internal/v1/story-sources/{documentId}/context:
     get:
       operationId: readStorySourceContext

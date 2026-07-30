@@ -29,13 +29,14 @@ public final class PgvectorRuleSearchRepository {
             VALUES (?, ?, ?, ?, ?, ?, ?, CAST(? AS vector), ?, ?)
             """;
     private static final String SEARCH = """
-            SELECT rulebook_id, chunk_id, locator, content,
-                   embedding <=> CAST(? AS vector) AS distance,
-                   chapter, section
-              FROM rulebook_vector_chunk
-             WHERE owner_player_id = ?
-               AND rulebook_id = ANY (?)
-             ORDER BY embedding <=> CAST(? AS vector), sequence
+            SELECT c.rulebook_id, c.chunk_id, c.locator, c.content,
+                   c.embedding <=> CAST(? AS vector) AS distance,
+                   c.chapter, c.section
+              FROM rulebook_vector_chunk c
+              JOIN rulebook_vector_index i ON i.index_id = c.index_id AND i.status = 'READY'
+             WHERE c.owner_player_id = ?
+               AND c.rulebook_id = ANY (?)
+             ORDER BY c.embedding <=> CAST(? AS vector), c.sequence
              LIMIT ?
             """;
 

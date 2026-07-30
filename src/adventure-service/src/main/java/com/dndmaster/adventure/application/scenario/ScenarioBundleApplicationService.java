@@ -84,8 +84,9 @@ public final class ScenarioBundleApplicationService {
         if (record == null) {
             throw new ScenarioBundleValidationException("document is not owned by " + ownerPlayerId.value());
         }
-        if (!"STORYBOOK".equalsIgnoreCase(record.documentType())) {
-            throw new ScenarioBundleValidationException("document must be STORYBOOK");
+        if (!"STORYBOOK".equalsIgnoreCase(record.documentType())
+                && !"RULEBOOK".equalsIgnoreCase(record.documentType())) {
+            throw new ScenarioBundleValidationException("document must be STORYBOOK or RULEBOOK");
         }
         if (!isUsable(record.status())) {
             throw new ScenarioBundleValidationException("document is not ready for bundling");

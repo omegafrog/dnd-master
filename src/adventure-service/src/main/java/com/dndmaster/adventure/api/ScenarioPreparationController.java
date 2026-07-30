@@ -30,6 +30,18 @@ public class ScenarioPreparationController {
         return service.read(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()));
     }
 
+    @PostMapping({
+            "/scenario-packages/{scenarioPackageId}/character-blueprint/draft",
+            "/scenario-packages/{scenarioPackageId}/character-blueprint"})
+    com.dndmaster.adventure.application.scenario.preparation.CharacterCreationBlueprintView generateBlueprintDraft(
+            @PathVariable UUID scenarioPackageId,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "DND_5E") String edition) {
+        if ("DND_5E".equalsIgnoreCase(edition)) {
+            return service.generateBlueprintDraft(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()));
+        }
+        return service.generateBlueprintDraft(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()), edition);
+    }
+
     @GetMapping("/runtime-options")
     RuntimeOptionsView readRuntimeOptions() {
         return service.runtimeOptions(new OwnerPlayerId(playerResolver.playerId()));
@@ -39,7 +51,21 @@ public class ScenarioPreparationController {
     com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint resolveBlueprint(
             @PathVariable UUID scenarioPackageId, @RequestBody BlueprintResolutionRequest request) {
         return service.resolveBlueprint(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()),
-                request.fieldKey(), request.value());
+                request.expectedRevision(), request.fieldKey(), request.value());
+    }
+
+    @PostMapping("/scenario-packages/{scenarioPackageId}/character-blueprint/children")
+    com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint addBlueprintChild(
+            @PathVariable UUID scenarioPackageId, @RequestBody AddChildRequest request) {
+        return service.addBlueprintChild(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()),
+                request.expectedRevision(), request.parentId(), request.key(), request.label());
+    }
+
+    @PostMapping("/scenario-packages/{scenarioPackageId}/character-blueprint/options")
+    com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint addBlueprintOption(
+            @PathVariable UUID scenarioPackageId, @RequestBody AddOptionRequest request) {
+        return service.addBlueprintOption(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()),
+                request.expectedRevision(), request.fieldKey(), request.option());
     }
 
     @PostMapping("/scenario-packages/{scenarioPackageId}/character-blueprint/publish")
@@ -47,5 +73,7 @@ public class ScenarioPreparationController {
         return service.publishBlueprint(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()));
     }
 
-    record BlueprintResolutionRequest(String fieldKey, String value) {}
+    record BlueprintResolutionRequest(long expectedRevision, String fieldKey, String value) {}
+    record AddChildRequest(long expectedRevision, String parentId, String key, String label) {}
+    record AddOptionRequest(long expectedRevision, String fieldKey, String option) {}
 }

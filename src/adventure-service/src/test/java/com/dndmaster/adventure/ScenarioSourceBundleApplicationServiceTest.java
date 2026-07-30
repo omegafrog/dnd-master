@@ -24,26 +24,31 @@ import org.junit.jupiter.api.Test;
 
 class ScenarioSourceBundleApplicationServiceTest {
     @Test
-    void createsAndRevisesAnImmutableBundleFromOwnedStorybookDocuments() {
+    void createsAndRevisesAnImmutableBundleFromOwnedStorybookAndRulebookDocuments() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
         KnowledgeDocumentId main = new KnowledgeDocumentId(UUID.randomUUID());
         KnowledgeDocumentId handout = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId rulebook = new KnowledgeDocumentId(UUID.randomUUID());
         InMemoryBundleRepository repository = new InMemoryBundleRepository();
         ScenarioBundleApplicationService service = new ScenarioBundleApplicationService(repository, new StubLookup(Map.of(
                 main, record(main, "main.pdf", KnowledgeDocumentStatus.INDEXED, "STORYBOOK", 3L),
-                handout, record(handout, "handout.pdf", KnowledgeDocumentStatus.PARTIAL_CONFIRMED, "STORYBOOK", 7L)
+                handout, record(handout, "handout.pdf", KnowledgeDocumentStatus.PARTIAL_CONFIRMED, "STORYBOOK", 7L),
+                rulebook, record(rulebook, "rules.pdf", KnowledgeDocumentStatus.INDEXED, "RULEBOOK", 2L)
         )));
 
         ScenarioSourceBundle created = service.createBundle(owner, List.of(
                 new BundleDocumentDraft(main, ScenarioBundleDocumentRole.MAIN_SCENARIO),
-                new BundleDocumentDraft(handout, ScenarioBundleDocumentRole.HANDOUT)));
+                new BundleDocumentDraft(handout, ScenarioBundleDocumentRole.HANDOUT),
+                new BundleDocumentDraft(rulebook, ScenarioBundleDocumentRole.RULEBOOK)));
 
         assertNotNull(created.id());
         assertEquals(owner, created.ownerPlayerId());
         assertEquals(1L, created.currentRevision().revision());
-        assertEquals(2, created.currentRevision().documents().size());
+        assertEquals(3, created.currentRevision().documents().size());
         assertTrue(created.currentRevision().documents().stream()
                 .anyMatch(document -> document.role() == ScenarioBundleDocumentRole.MAIN_SCENARIO));
+        assertTrue(created.currentRevision().documents().stream()
+                .anyMatch(document -> document.role() == ScenarioBundleDocumentRole.RULEBOOK));
         assertEquals(created, repository.findById(created.id()).orElseThrow());
 
         ScenarioSourceBundle revised = service.reviseBundle(
@@ -58,7 +63,7 @@ class ScenarioSourceBundleApplicationServiceTest {
     }
 
     @Test
-    void rejectsForeignOrUnsupportedStorybookDocuments() {
+    void rejectsForeignOrUnsupportedDocuments() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
         KnowledgeDocumentId foreign = new KnowledgeDocumentId(UUID.randomUUID());
         KnowledgeDocumentId rulebook = new KnowledgeDocumentId(UUID.randomUUID());
@@ -72,8 +77,9 @@ class ScenarioSourceBundleApplicationServiceTest {
         assertThrows(IllegalStateException.class, () -> service.createBundle(owner, List.of()));
         assertThrows(IllegalStateException.class, () -> service.createBundle(owner, List.of(
                 new BundleDocumentDraft(foreign, ScenarioBundleDocumentRole.MAIN_SCENARIO))));
-        assertThrows(IllegalStateException.class, () -> service.createBundle(owner, List.of(
-                new BundleDocumentDraft(rulebook, ScenarioBundleDocumentRole.MAIN_SCENARIO))));
+        assertEquals("RULEBOOK", service.createBundle(owner, List.of(
+                new BundleDocumentDraft(rulebook, ScenarioBundleDocumentRole.RULEBOOK))
+        ).currentRevision().documents().getFirst().documentType());
         assertThrows(IllegalStateException.class, () -> service.createBundle(owner, List.of(
                 new BundleDocumentDraft(unindexed, ScenarioBundleDocumentRole.MAIN_SCENARIO))));
     }

@@ -11,11 +11,14 @@ import type {
   ScenarioCompilationView,
   ScenarioPackageView,
   SetupApi,
+  CharacterInputNodeView,
   StorySourceEvidenceView,
 } from '../rulebooks/SetupApi'
 import type { AdventureSessionApi } from '../adventure-session/AdventureSessionApi'
+import { CharacterInputTree } from '../character/CharacterInputTree'
 
 const roleLabel: Record<ScenarioBundleRole, string> = {
+  RULEBOOK: '룰북',
   MAIN_SCENARIO: '메인 시나리오',
   MAP: '지도',
   HANDOUT: '핸드아웃',
@@ -35,8 +38,25 @@ const selectableStatuses = new Set<KnowledgeDocumentView['status']>([
 const compilationPollIntervalMs = 250
 const compilationPollLimit = 240
 
-export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCreated }: { api: SetupApi; playerId: string; onError: (message: string) => void; sessionApi?: Pick<AdventureSessionApi, 'create'>; onSessionCreated?: (sessionId: string) => void }) {
-  const [documents, setDocuments] = useState<KnowledgeDocumentView[]>([])
+// eslint-disable-next-line react-refresh/only-export-components -- Pure serializer is exercised by ScenarioSetup tests.
+export function serializeBlueprintValues(nodes: CharacterInputNodeView[], values: Record<string, string>, parentPath = ''): string[] {
+  return nodes.flatMap(node => {
+    const path = parentPath ? `${parentPath}.${node.key}` : node.key
+    const value = values[node.id] ?? node.value ?? ''
+    const current = value.trim() ? [`${path}=${value}`] : []
+    return [...current, ...serializeBlueprintValues(node.children, values, path)]
+  })
+}
+
+function collectBlueprintValues(nodes: CharacterInputNodeView[], values: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(nodes.flatMap(node => {
+    const value = values[node.id] ?? node.value ?? ''
+    return value ? [[node.id, value], ...Object.entries(collectBlueprintValues(node.children, values))] : Object.entries(collectBlueprintValues(node.children, values))
+  }))
+}
+
+export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCreated, availableDocuments }: { api: SetupApi; playerId: string; onError: (message: string) => void; sessionApi?: Pick<AdventureSessionApi, 'create'>; onSessionCreated?: (sessionId: string) => void; availableDocuments?: KnowledgeDocumentView[] }) {
+  const [documents, setDocuments] = useState<KnowledgeDocumentView[]>(availableDocuments ?? [])
   const [roles, setRoles] = useState<Record<string, ScenarioBundleRole>>({})
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bundle, setBundle] = useState<ScenarioBundleView | null>(null)
@@ -64,16 +84,29 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
   const canCreateCharacter = Boolean(!sessionApi && api.createCharacterSheet && playPreparation?.characterCreationBlueprint?.available)
 
   useEffect(() => {
+    if (availableDocuments) {
+      const selectable = availableDocuments.filter(document => selectableStatuses.has(document.status))
+      setDocuments(availableDocuments)
+      setSelectedIds(new Set(selectable.map(document => document.knowledgeDocumentId)))
+      setRoles(selectable.reduce<Record<string, ScenarioBundleRole>>((acc, document, index) => {
+        acc[document.knowledgeDocumentId] = document.documentType === 'RULEBOOK'
+          ? 'RULEBOOK'
+          : index === 0 ? 'MAIN_SCENARIO' : 'HANDOUT'
+        return acc
+      }, {}))
+      return
+    }
     let active = true
     void api.listKnowledgeDocuments(playerId)
       .then(items => {
         if (!active) return
-        const storybooks = items.filter(document => document.documentType === 'STORYBOOK')
-        const selectableStorybooks = storybooks.filter(document => selectableStatuses.has(document.status))
-        setDocuments(storybooks)
-        setSelectedIds(new Set(selectableStorybooks.map(document => document.knowledgeDocumentId)))
-        setRoles(selectableStorybooks.reduce<Record<string, ScenarioBundleRole>>((acc, document, index) => {
-          acc[document.knowledgeDocumentId] = index === 0 ? 'MAIN_SCENARIO' : 'HANDOUT'
+        const selectable = items.filter(document => selectableStatuses.has(document.status))
+        setDocuments(items)
+        setSelectedIds(new Set(selectable.map(document => document.knowledgeDocumentId)))
+        setRoles(selectable.reduce<Record<string, ScenarioBundleRole>>((acc, document, index) => {
+          acc[document.knowledgeDocumentId] = document.documentType === 'RULEBOOK'
+            ? 'RULEBOOK'
+            : index === 0 ? 'MAIN_SCENARIO' : 'HANDOUT'
           return acc
         }, {}))
       })
@@ -82,7 +115,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
         onError(error instanceof Error ? error.message : '시나리오 자료를 불러오지 못했습니다.')
       })
     return () => { active = false }
-  }, [api, onError, playerId])
+  }, [api, onError, playerId, availableDocuments])
 
   useEffect(() => {
     if (!api.getRuntimeOptions) return
@@ -180,13 +213,16 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
     if (!characterName.trim()) return
     setCreatingCharacter(true)
     try {
+      const scoreRoot = playPreparation?.characterCreationBlueprint.roots?.find(node => node.key === 'starting_ability_scores')
+      const resolvedBlueprintValues = collectBlueprintValues(playPreparation?.characterCreationBlueprint.roots ?? [], blueprintValues)
       const draft: CharacterCreationDraft = {
         edition: characterEdition,
         characterName: characterName.trim(),
         level: characterLevel,
         inspiration: characterInspiration,
+        startingAbilities: serializeBlueprintValues(scoreRoot?.children ?? [], blueprintValues).join(','),
         blueprintRevision: playPreparation?.characterCreationBlueprint.revision,
-        blueprintValues,
+        blueprintValues: resolvedBlueprintValues,
       }
       setCreatedCharacterSheet(await api.createCharacterSheet(draft))
     } catch (error) {
@@ -253,12 +289,35 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
     finally { setPublishingBlueprint(false) }
   }
 
-  async function resolveBlueprint(fieldKey: string) {
-    if (!scenarioPackage || !api.resolveBlueprint || !api.getPlayPreparation) return
+  async function resolveBlueprintNode(nodeId: string) {
+    if (!scenarioPackage || !playPreparation || !api.resolveBlueprint) return
+    const value = blueprintValues[nodeId]
+    if (!value) return
     try {
-      await api.resolveBlueprint(scenarioPackage.packageId, fieldKey, blueprintValues[fieldKey] ?? '')
-      setPlayPreparation(await api.getPlayPreparation(scenarioPackage.packageId))
+      await api.resolveBlueprint(scenarioPackage.packageId, nodeId, value, playPreparation.characterCreationBlueprint.revision ?? 0)
+      if (api.getPlayPreparation) setPlayPreparation(await api.getPlayPreparation(scenarioPackage.packageId))
     } catch (error) { onError(error instanceof Error ? error.message : 'Blueprint 검토를 저장하지 못했습니다.') }
+  }
+
+  async function addBlueprintChild(parentId: string) {
+    if (!scenarioPackage || !playPreparation || !api.addBlueprintChild) return
+    const key = window.prompt('하위 필드 key')?.trim()
+    if (!key) return
+    const label = window.prompt('하위 필드 이름', key)?.trim() || key
+    try {
+      await api.addBlueprintChild(scenarioPackage.packageId, playPreparation.characterCreationBlueprint.revision ?? 0, parentId, key, label)
+      if (api.getPlayPreparation) setPlayPreparation(await api.getPlayPreparation(scenarioPackage.packageId))
+    } catch (error) { onError(error instanceof Error ? error.message : '하위 필드를 추가하지 못했습니다.') }
+  }
+
+  async function addBlueprintOption(fieldKey: string) {
+    if (!scenarioPackage || !playPreparation || !api.addBlueprintOption) return
+    const option = window.prompt('선택지')?.trim()
+    if (!option) return
+    try {
+      await api.addBlueprintOption(scenarioPackage.packageId, playPreparation.characterCreationBlueprint.revision ?? 0, fieldKey, option)
+      if (api.getPlayPreparation) setPlayPreparation(await api.getPlayPreparation(scenarioPackage.packageId))
+    } catch (error) { onError(error instanceof Error ? error.message : 'Blueprint 선택지를 추가하지 못했습니다.') }
   }
 
   return (
@@ -415,16 +474,25 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
                       ))}
                     </ul>
                   ) : null}
-                  {(playPreparation.characterCreationBlueprint.fields ?? []).length > 0 ? (
+                  {(playPreparation.characterCreationBlueprint.roots ?? []).length > 0 ? (
+                    <CharacterInputTree
+                      nodes={playPreparation.characterCreationBlueprint.roots ?? []}
+                      values={blueprintValues}
+                      onChange={(id, value) => setBlueprintValues(current => ({ ...current, [id]: value }))}
+                      onResolve={resolveBlueprintNode}
+                      onAddChild={addBlueprintChild}
+                      canResolve={Boolean(api.resolveBlueprint)}
+                    />
+                  ) : (playPreparation.characterCreationBlueprint.fields ?? []).length > 0 ? (
                     <fieldset aria-label="Blueprint 캐릭터 필드">
                       <legend>캐릭터 생성 필드</legend>
                       {(playPreparation.characterCreationBlueprint.fields ?? []).map(field => (
                         <label key={field.key}>
                           {field.key}
-                          {field.options.length > 0 ? (
+                          {(field.inputMode ?? 'FREE_TEXT') === 'SINGLE_SELECT' ? (
                             <select
                               aria-label={field.key}
-                              value={blueprintValues[field.key] ?? ''}
+                              value={blueprintValues[field.key] ?? field.value ?? ''}
                               onChange={event => {
                                 const value = event.currentTarget.value
                                 setBlueprintValues(current => ({ ...current, [field.key]: value }))
@@ -433,18 +501,33 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
                               <option value="">선택하세요</option>
                               {field.options.map(option => <option key={option} value={option}>{option}</option>)}
                             </select>
+                          ) : (field.inputMode ?? 'FREE_TEXT') === 'MULTI_SELECT' ? (
+                            <select
+                              multiple
+                              aria-label={field.key}
+                              value={(blueprintValues[field.key] ?? field.value ?? '').split(',').filter(Boolean)}
+                              onChange={event => {
+                                const value = Array.from(event.currentTarget.selectedOptions, option => option.value).join(',')
+                                setBlueprintValues(current => ({ ...current, [field.key]: value }))
+                              }}
+                            >
+                              {field.options.map(option => <option key={option} value={option}>{option}</option>)}
+                            </select>
                           ) : (
                             <input
                               aria-label={field.key}
-                              value={blueprintValues[field.key] ?? ''}
+                              value={blueprintValues[field.key] ?? field.value ?? ''}
                               onChange={event => {
                                 const value = event.currentTarget.value
                                 setBlueprintValues(current => ({ ...current, [field.key]: value }))
                               }}
                             />
                           )}
+                          {(field.suggestions ?? []).length > 0 ? <small>추천: {field.suggestions?.join(', ')}</small> : null}
+                          {field.sourceQuote ? <small>원문 근거: {field.sourceQuote}</small> : null}
+                          {(field.evidence ?? []).map(item => <small key={`${item.knowledgeDocumentId}-${item.locator}`}>근거: {item.knowledgeDocumentId} v{item.extractionVersion} · {item.locator}</small>)}
                           {field.inputStatus === 'MANUAL_INPUT_REQUIRED' ? <small>수동 입력 필요</small> : null}
-                          {api.resolveBlueprint && playPreparation.characterCreationBlueprint.status === 'NEEDS_REVIEW' ? <button type="button" onClick={() => void resolveBlueprint(field.key)} disabled={!blueprintValues[field.key]}>검토값 저장</button> : null}
+                          {api.addBlueprintOption && (field.inputMode === 'SINGLE_SELECT' || field.inputMode === 'MULTI_SELECT') ? <button type="button" onClick={() => void addBlueprintOption(field.key)}>선택지 추가</button> : null}
                         </label>
                       ))}
                     </fieldset>

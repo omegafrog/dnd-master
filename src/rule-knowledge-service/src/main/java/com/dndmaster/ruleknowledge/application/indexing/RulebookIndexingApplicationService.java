@@ -8,8 +8,13 @@ import com.dndmaster.ruleknowledge.domain.index.RulebookIndexingPolicy;
 import com.dndmaster.ruleknowledge.domain.rulebook.Rulebook;
 import com.dndmaster.ruleknowledge.domain.index.EmbeddedRulebookChunk;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.UUID;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import java.util.regex.Pattern;
@@ -21,23 +26,35 @@ public final class RulebookIndexingApplicationService {
     private final EmbeddingPort embeddingPort;
     private final StructureDetectionPort structureDetectionPort;
     private final int defaultChunkSize;
+    private final int embeddingBatchSize;
 
     public RulebookIndexingApplicationService(
             RulebookIndexRepository repository,
             EmbeddingPort embeddingPort,
             StructureDetectionPort structureDetectionPort,
             int defaultChunkSize) {
+        this(repository, embeddingPort, structureDetectionPort, defaultChunkSize, 32);
+    }
+
+    public RulebookIndexingApplicationService(
+            RulebookIndexRepository repository,
+            EmbeddingPort embeddingPort,
+            StructureDetectionPort structureDetectionPort,
+            int defaultChunkSize,
+            int embeddingBatchSize) {
         this.repository = Objects.requireNonNull(repository, "repository must not be null");
         this.embeddingPort = Objects.requireNonNull(embeddingPort, "embeddingPort must not be null");
         this.structureDetectionPort = Objects.requireNonNull(structureDetectionPort, "structureDetectionPort must not be null");
         if (defaultChunkSize <= 0) throw new IllegalArgumentException("defaultChunkSize must be positive");
+        if (embeddingBatchSize <= 0) throw new IllegalArgumentException("embeddingBatchSize must be positive");
         this.defaultChunkSize = defaultChunkSize;
+        this.embeddingBatchSize = embeddingBatchSize;
     }
 
     public RulebookIndex indexContent(IndexingCommand command) {
         RulebookIndex index = load(command);
         if (index.status() == IndexStatus.READY) return index;
-        if (index.status() == IndexStatus.FAILED) {
+        if (index.status() == IndexStatus.RETRYABLE_FAILURE || index.status() == IndexStatus.PERMANENT_FAILURE) {
             throw new IllegalStateException("failed index requires explicit retry");
         }
         if (index.status() == IndexStatus.EMBEDDING) {
@@ -49,8 +66,8 @@ public final class RulebookIndexingApplicationService {
     public RulebookIndex retryIndexing(IndexingCommand command) {
         RulebookIndex index = load(command);
         if (index.status() == IndexStatus.READY) return index;
-        if (index.status() != IndexStatus.FAILED) {
-            throw new IllegalStateException("only failed index can be retried");
+        if (index.status() != IndexStatus.RETRYABLE_FAILURE) {
+            throw new IllegalStateException("only retryable failure can be retried");
         }
         return executeAttempt(command, index);
     }
@@ -64,29 +81,71 @@ public final class RulebookIndexingApplicationService {
     }
 
     private RulebookIndex executeAttempt(IndexingCommand command, RulebookIndex index) {
+        String owner = "rulebook-indexing-worker";
+        String token = UUID.randomUUID().toString();
+        IndexLease lease = repository.claimLease(index, owner, token, Instant.now(), Duration.ofMinutes(5))
+                .orElseThrow(() -> new IllegalStateException("index is already leased"));
         index.beginAttempt();
-        repository.save(index);
+        repository.save(index, lease);
 
-        RulebookIndexingPolicy policy = buildPolicy(command.rulebook());
-        var chunks = policy.createChunks(command.rulebook());
         try {
-            List<ChunkEmbedding> embeddings = embeddingPort.embed(chunks, command.key().embeddingModel(), command.dimension());
-            List<EmbeddedRulebookChunk> embedded = new ArrayList<>(embeddings.size());
-            for (ChunkEmbedding ce : embeddings) {
-                RulebookChunk chunk = chunks.stream()
-                        .filter(c -> c.chunkId().equals(ce.chunkId()))
-                        .findFirst()
-                        .orElseThrow(() -> new IllegalStateException("embedding result references unknown chunk"));
-                embedded.add(new EmbeddedRulebookChunk(chunk, formatLocator(chunk), ce.vector()));
+            RulebookIndexingPolicy policy = buildPolicy(command.rulebook());
+            var chunks = policy.createChunks(command.rulebook());
+            List<EmbeddedRulebookChunk> embedded = new ArrayList<>(chunks.size());
+            Set<Integer> completedSequences = new java.util.HashSet<>(repository.completedSequences(index));
+            for (int start = 0; start < chunks.size(); start += embeddingBatchSize) {
+                int end = Math.min(start + embeddingBatchSize, chunks.size());
+                List<RulebookChunk> batch = chunks.subList(start, end);
+                List<RulebookChunk> pendingBatch = batch.stream()
+                        .filter(chunk -> !completedSequences.contains(chunk.sequence()))
+                        .toList();
+                if (pendingBatch.isEmpty()) continue;
+                List<ChunkEmbedding> embeddings = embeddingPort.embed(
+                        pendingBatch, command.key().embeddingModel(), command.dimension());
+                List<EmbeddedRulebookChunk> embeddedBatch = toEmbeddedChunks(pendingBatch, embeddings);
+                repository.saveBatch(
+                        index,
+                        embeddedBatch,
+                        chunks.size(),
+                        completedSequences.size() + embeddedBatch.size(),
+                        lease);
+                completedSequences.addAll(pendingBatch.stream().map(RulebookChunk::sequence).toList());
+                embedded.addAll(embeddedBatch);
+                if (!repository.renewLease(lease, Instant.now(), Duration.ofMinutes(5))) {
+                    throw new IllegalStateException("index lease expired");
+                }
             }
             index.complete(chunks);
-            repository.saveComplete(index, embedded);
+            repository.saveComplete(index, embedded, lease);
         } catch (RuntimeException exception) {
-            index.fail("embedding call failed");
-            repository.save(index);
-            throw new IndexingFailedException(exception);
+            boolean retryable = !(exception instanceof IllegalArgumentException);
+            index.fail("embedding call failed", retryable);
+            repository.save(index, lease);
+            throw new IndexingFailedException(exception, retryable);
+        } finally {
+            repository.releaseLease(lease);
         }
         return index;
+    }
+
+    private static List<EmbeddedRulebookChunk> toEmbeddedChunks(
+            List<RulebookChunk> chunks, List<ChunkEmbedding> embeddings) {
+        if (embeddings == null || embeddings.size() != chunks.size()) {
+            throw new IllegalStateException("embedding result count does not match batch");
+        }
+        List<EmbeddedRulebookChunk> result = new ArrayList<>(embeddings.size());
+        HashSet<com.dndmaster.ruleknowledge.domain.index.ChunkId> seen = new HashSet<>();
+        for (ChunkEmbedding ce : embeddings) {
+            if (!seen.add(ce.chunkId())) {
+                throw new IllegalStateException("embedding result contains duplicate chunk");
+            }
+            RulebookChunk chunk = chunks.stream()
+                    .filter(c -> c.chunkId().equals(ce.chunkId()))
+                    .findFirst()
+                    .orElseThrow(() -> new IllegalStateException("embedding result references unknown chunk"));
+            result.add(new EmbeddedRulebookChunk(chunk, formatLocator(chunk), ce.vector()));
+        }
+        return List.copyOf(result);
     }
 
     private RulebookIndexingPolicy buildPolicy(Rulebook rulebook) {

@@ -9,6 +9,8 @@ import com.dndmaster.adventure.application.scenario.compilation.ResolutionExtrac
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationWorker;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
+import com.dndmaster.adventure.application.scenario.compilation.CharacterContextSearchPort;
+import com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort;
 import com.dndmaster.adventure.application.scenario.compilation.WorkEnvelope;
 import com.dndmaster.adventure.application.scenario.compilation.WorkQueuePort;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationProcessManager;
@@ -20,6 +22,40 @@ import java.util.*;
 import org.junit.jupiter.api.Test;
 
 class ScenarioCompilationWorkerTest {
+    @Test
+    void character_context_search_has_independent_budget_and_feeds_character_extraction() {
+        ScenarioBundleId bundleId = new ScenarioBundleId(UUID.randomUUID());
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        KnowledgeDocumentId rulebook = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = ScenarioSourceBundle.create(bundleId, owner,
+                new ScenarioSourceBundleRevision(1, List.of(
+                        new ScenarioBundleDocumentSelection(rulebook, ScenarioBundleDocumentRole.RULEBOOK,
+                                com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus.INDEXED,
+                                "rules.pdf", "RULEBOOK", 2),
+                        new ScenarioBundleDocumentSelection(storybook, ScenarioBundleDocumentRole.MAIN_SCENARIO,
+                                com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus.INDEXED,
+                                "story.txt", "STORYBOOK", 4))));
+        InMemoryQueue queue = new InMemoryQueue();
+        InMemoryCompilationRepository compilations = new InMemoryCompilationRepository();
+        InMemoryPackageRepository packages = new InMemoryPackageRepository();
+        ScenarioCompilationProcessManager manager = new ScenarioCompilationProcessManager(compilations, queue);
+        manager.start(bundleId, 1, "character-context-fp");
+        RecordingCharacterContextSearch search = new RecordingCharacterContextSearch(rulebook, storybook);
+        RecordingCharacterTagExtraction tags = new RecordingCharacterTagExtraction();
+        ScenarioCompilationWorker worker = new ScenarioCompilationWorker(
+                manager, compilations, queue, new InMemoryBundleRepository(bundle), request -> List.of(),
+                ignored -> List.of(), tags, search, new ScenarioPackageCompilationService(packages), packages);
+
+        worker.processNext("worker-1", Duration.ofMinutes(1));
+
+        assertEquals(2, search.request.documents().size());
+        assertEquals(.35, search.request.thresholds().get("RULEBOOK"));
+        assertEquals(2000, search.request.tokenBudget());
+        assertEquals(2, tags.request.excerpts().size());
+        assertEquals("rule option", tags.request.excerpts().getFirst().text());
+        assertEquals("story option", tags.request.excerpts().get(1).text());
+    }
     @Test
     void workerPublishesValidatedPackageFromClaimedJob() {
         ScenarioBundleId bundleId = new ScenarioBundleId(UUID.randomUUID());
@@ -123,6 +159,35 @@ class ScenarioCompilationWorkerTest {
         manager.claim(deliveryB);
 
         assertThrows(IllegalStateException.class, () -> manager.publish(compilationA, deliveryA, UUID.randomUUID()));
+    }
+
+    private static final class RecordingCharacterContextSearch implements CharacterContextSearchPort {
+        private final KnowledgeDocumentId rulebook;
+        private final KnowledgeDocumentId storybook;
+        private CharacterContextSearchPort.Request request;
+
+        private RecordingCharacterContextSearch(KnowledgeDocumentId rulebook, KnowledgeDocumentId storybook) {
+            this.rulebook = rulebook;
+            this.storybook = storybook;
+        }
+
+        @Override
+        public List<CharacterContextSearchPort.Evidence> search(CharacterContextSearchPort.Request request) {
+            this.request = request;
+            return List.of(
+                    new CharacterContextSearchPort.Evidence(rulebook, "RULEBOOK", 2, "rule:1", "rule option", .9),
+                    new CharacterContextSearchPort.Evidence(storybook, "STORYBOOK", 4, "story:1", "story option", .8));
+        }
+    }
+
+    private static final class RecordingCharacterTagExtraction implements CharacterInputTagExtractionPort {
+        private Request request;
+
+        @Override
+        public List<CharacterInputTagCandidate> extract(Request request) {
+            this.request = request;
+            return List.of();
+        }
     }
 
     private static final class InMemoryCompilationRepository implements ScenarioCompilationRepository {

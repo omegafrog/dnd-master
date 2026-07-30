@@ -27,8 +27,27 @@ public final class RulebookIndex {
         this.chunks = List.of();
     }
 
+    public static RulebookIndex rehydrate(
+            IndexId id,
+            IndexKey key,
+            OwnerPlayerId ownerPlayerId,
+            int dimension,
+            IndexStatus status,
+            int attempts,
+            long version,
+            String failureReason) {
+        RulebookIndex index = new RulebookIndex(id, key, ownerPlayerId, dimension);
+        index.status = Objects.requireNonNull(status, "status must not be null");
+        if (attempts < 0) throw new IllegalArgumentException("attempts must not be negative");
+        if (version < 0) throw new IllegalArgumentException("version must not be negative");
+        index.attempts = attempts;
+        index.version = version;
+        index.failureReason = failureReason;
+        return index;
+    }
+
     public void beginAttempt() {
-        if (status != IndexStatus.PENDING && status != IndexStatus.FAILED) {
+        if (status != IndexStatus.PENDING && status != IndexStatus.RETRYABLE_FAILURE) {
             throw new IllegalStateException("only pending or failed index can begin an attempt");
         }
         status = IndexStatus.EMBEDDING;
@@ -61,12 +80,12 @@ public final class RulebookIndex {
         version++;
     }
 
-    public void fail(String reason) {
+    public void fail(String reason, boolean retryable) {
         if (status != IndexStatus.EMBEDDING) throw new IllegalStateException("index is not embedding");
         if (reason == null || reason.isBlank()) throw new IllegalArgumentException("failure reason must not be blank");
         failureReason = reason.trim();
         chunks = List.of();
-        status = IndexStatus.FAILED;
+        status = retryable ? IndexStatus.RETRYABLE_FAILURE : IndexStatus.PERMANENT_FAILURE;
         version++;
     }
 

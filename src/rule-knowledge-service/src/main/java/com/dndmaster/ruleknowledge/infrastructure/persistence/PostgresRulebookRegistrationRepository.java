@@ -325,7 +325,7 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
     }
 
     private static void setStringArray(PreparedStatement ps, int index, List<String> values) throws SQLException {
-        if (values == null || values.isEmpty()) {
+        if (values == null) {
             ps.setNull(index, Types.ARRAY);
         } else {
             ps.setArray(index, ps.getConnection().createArrayOf("text", values.toArray(new String[0])));

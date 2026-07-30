@@ -17,6 +17,9 @@ public record CharacterSheetResponse(
         String characterClass,
         String background,
         String startingAbilities,
+        String derivedStatistics,
+        String characterBuild,
+        String characterState,
         long version) {
     public static CharacterSheetResponse from(CharacterSheet sheet) {
         Objects.requireNonNull(sheet, "character sheet must not be null");
@@ -27,6 +30,6 @@ public record CharacterSheetResponse(
         return new CharacterSheetResponse(
                 sheet.id().value(), sheet.sessionId().value(), sheet.ownerPlayerId(), sheet.adventureId().value(), sheet.edition().name(),
                 sheet.data().characterName(), sheet.data().level(), inspiration,
-                sheet.data().race(), sheet.data().characterClass(), sheet.data().background(), sheet.data().startingAbilities(), sheet.version());
+                sheet.data().race(), sheet.data().characterClass(), sheet.data().background(), sheet.data().startingAbilities(), sheet.data().derivedStatistics(), sheet.data().characterBuild(), sheet.data().characterState(), sheet.version());
     }
 }

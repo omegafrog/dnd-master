@@ -3,6 +3,8 @@ package com.dndmaster.ruleknowledge.api;
 import com.dndmaster.ruleknowledge.application.pipeline.BatchRulebookUploadApplicationService;
 import com.dndmaster.ruleknowledge.application.pipeline.BatchRulebookUploadApplicationService.BatchUploadItem;
 import com.dndmaster.ruleknowledge.application.pipeline.BatchRulebookUploadApplicationService.BatchUploadResult;
+import com.dndmaster.ruleknowledge.application.indexing.IndexProgress;
+import com.dndmaster.ruleknowledge.application.indexing.RulebookIndexRepository;
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
@@ -14,6 +16,10 @@ import com.dndmaster.ruleknowledge.application.search.StorySourceEvidence;
 import com.dndmaster.ruleknowledge.application.search.StorySourceScope;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchQuery;
+import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchApplicationService;
+import com.dndmaster.ruleknowledge.application.search.CharacterContextDocumentScope;
+import com.dndmaster.ruleknowledge.application.search.CharacterContextEvidence;
+import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchQuery;
 import com.dndmaster.ruleknowledge.domain.rulebook.*;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -27,6 +33,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 
@@ -38,6 +45,8 @@ public class RuleKnowledgeController {
     private final RulebookRegistrationRepository registrationRepository;
     private final RuleEvidenceSearchApplicationService evidenceSearchService;
     private final StorySourceSearchApplicationService storySourceSearchService;
+    private final CharacterContextSearchApplicationService characterContextSearchService;
+    private final RulebookIndexRepository indexRepository;
     private final ObjectMapper objectMapper;
 
     public RuleKnowledgeController(
@@ -45,7 +54,36 @@ public class RuleKnowledgeController {
             RulebookRegistrationRepository registrationRepository,
             RuleEvidenceSearchApplicationService evidenceSearchService,
             ObjectMapper objectMapper) {
-        this(pipelineService, registrationRepository, evidenceSearchService, null, objectMapper);
+        this(pipelineService, registrationRepository, evidenceSearchService, null, null, null, objectMapper);
+    }
+
+    public RuleKnowledgeController(
+            RulebookPipelineApplicationService pipelineService,
+            RulebookRegistrationRepository registrationRepository,
+            RuleEvidenceSearchApplicationService evidenceSearchService,
+            StorySourceSearchApplicationService storySourceSearchService,
+            CharacterContextSearchApplicationService characterContextSearchService,
+            RulebookIndexRepository indexRepository,
+            ObjectMapper objectMapper) {
+        this.pipelineService = pipelineService;
+        this.batchUploadService = new BatchRulebookUploadApplicationService(pipelineService);
+        this.registrationRepository = registrationRepository;
+        this.evidenceSearchService = evidenceSearchService;
+        this.storySourceSearchService = storySourceSearchService;
+        this.characterContextSearchService = characterContextSearchService;
+        this.indexRepository = indexRepository;
+        this.objectMapper = objectMapper;
+    }
+
+    public RuleKnowledgeController(
+            RulebookPipelineApplicationService pipelineService,
+            RulebookRegistrationRepository registrationRepository,
+            RuleEvidenceSearchApplicationService evidenceSearchService,
+            StorySourceSearchApplicationService storySourceSearchService,
+            CharacterContextSearchApplicationService characterContextSearchService,
+            ObjectMapper objectMapper) {
+        this(pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
+                characterContextSearchService, null, objectMapper);
     }
 
     public RuleKnowledgeController(
@@ -54,12 +92,7 @@ public class RuleKnowledgeController {
             RuleEvidenceSearchApplicationService evidenceSearchService,
             StorySourceSearchApplicationService storySourceSearchService,
             ObjectMapper objectMapper) {
-        this.pipelineService = pipelineService;
-        this.batchUploadService = new BatchRulebookUploadApplicationService(pipelineService);
-        this.registrationRepository = registrationRepository;
-        this.evidenceSearchService = evidenceSearchService;
-        this.storySourceSearchService = storySourceSearchService;
-        this.objectMapper = objectMapper;
+        this(pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService, null, null, objectMapper);
     }
 
     @PostMapping("/api/v1/rulebooks")
@@ -99,8 +132,18 @@ public class RuleKnowledgeController {
                         r.originalFilename(),
                         r.failureCode(),
                         r.version(),
-                        warningsFor(r)))
-                .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null, null, 0L, List.of()));
+                        warningsFor(r), progressFor(r)))
+                .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null, null, 0L, List.of(), null));
+    }
+
+    private IndexProgressView progressFor(StoredRulebookRegistration registration) {
+        if (indexRepository == null) return null;
+        return indexRepository.progressFor(
+                        registration.rulebookId(), "v1-" + registration.contentHash())
+                .map(progress -> new IndexProgressView(
+                        progress.totalChunks(), progress.completedChunks(), progress.remainingChunks(),
+                        progress.status(), progress.lastError(), progress.leaseOwner(), progress.leaseUntil()))
+                .orElse(null);
     }
 
     @GetMapping("/api/v1/rulebooks/{rulebookId}/source-preview")
@@ -200,8 +243,13 @@ public class RuleKnowledgeController {
     }
 
     @PostMapping("/internal/v1/rule-evidence/search")
-    EvidenceSearchResponse searchEvidence(@RequestBody EvidenceSearchRequest request) {
-        List<RulebookId> rulebookIds = request.rulebookIds().stream()
+    EvidenceSearchResponse searchEvidence(
+            @RequestHeader("Authorization") String authorization,
+            @RequestBody EvidenceSearchRequest request) {
+        UUID authenticatedOwner = extractPlayerId(authorization);
+        requireOwner(authenticatedOwner, request.ownerId());
+        List<UUID> authorizedRulebookIds = authorizeDocuments(request.ownerId(), request.rulebookIds(), DocumentType.RULEBOOK);
+        List<RulebookId> rulebookIds = authorizedRulebookIds.stream()
                 .map(RulebookId::new)
                 .toList();
         SearchRuleEvidenceQuery query = new SearchRuleEvidenceQuery(
@@ -233,7 +281,10 @@ public class RuleKnowledgeController {
         }
         UUID authenticatedOwner = extractPlayerId(authorization);
         requireOwner(authenticatedOwner, request.ownerId());
+        List<UUID> authorizedStorybookIds = authorizeDocuments(request.ownerId(), request.documents().stream()
+                .map(StorySourceScopeRequest::documentId).toList(), DocumentType.STORYBOOK);
         List<StorySourceScope> scope = request.documents().stream()
+                .filter(document -> authorizedStorybookIds.contains(document.documentId()))
                 .map(document -> new StorySourceScope(
                         new KnowledgeDocumentId(document.documentId()), document.extractionVersion()))
                 .toList();
@@ -249,7 +300,51 @@ public class RuleKnowledgeController {
                         .map(result -> new StorySourceEvidenceItem(
                                 result.documentId().value(), result.extractionVersion(), result.sourceSpanLocator(),
                                 result.excerpt(), result.score()))
-                        .toList());
+                .toList());
+    }
+
+    @PostMapping("/internal/v1/character-context/search")
+    CharacterContextSearchResponse searchCharacterContext(
+            @RequestHeader("Authorization") String authorization,
+            @RequestBody CharacterContextSearchRequest request) {
+        if (characterContextSearchService == null) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "character context search is not configured");
+        }
+        requireOwner(extractPlayerId(authorization), request.ownerId());
+        if (request.documents() == null || request.documents().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope must not be empty");
+        }
+        Map<DocumentType, List<CharacterContextDocumentScope>> scope = new java.util.EnumMap<>(DocumentType.class);
+        Set<String> seen = new HashSet<>();
+        for (CharacterContextScopeRequest document : request.documents()) {
+            if (!seen.add(document.documentId() + ":" + document.extractionVersion())) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope must not contain duplicates");
+            }
+            StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(document.documentId()))
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "document is not registered"));
+            if (!registration.ownerPlayerId().value().equals(request.ownerId())) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "document does not belong to authenticated player");
+            }
+            if (registration.processingStatus() != ProcessingStatus.INDEXED
+                    || registration.version() != document.extractionVersion()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope is not indexed at requested version");
+            }
+            if (registration.documentType() != document.documentType()) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document type does not match registration");
+            }
+            scope.computeIfAbsent(document.documentType(), ignored -> new java.util.ArrayList<>())
+                    .add(new CharacterContextDocumentScope(
+                            new KnowledgeDocumentId(document.documentId()), document.extractionVersion()));
+        }
+        Map<DocumentType, Double> thresholds = request.thresholds() == null ? Map.of() : request.thresholds();
+        List<CharacterContextEvidence> evidence = characterContextSearchService.search(new CharacterContextSearchQuery(
+                new OwnerPlayerId(request.ownerId()), scope, thresholds, request.situation(),
+                request.tokenBudget() == null ? 2000 : request.tokenBudget()));
+        return new CharacterContextSearchResponse(request.ownerId(), evidence.stream()
+                .map(result -> new CharacterContextEvidenceItem(
+                        result.documentId().value(), result.documentType(), result.extractionVersion(),
+                        result.locator(), result.excerpt(), result.similarity()))
+                .toList());
     }
 
     @GetMapping("/internal/v1/story-sources/{documentId}/context")
@@ -301,13 +396,44 @@ public class RuleKnowledgeController {
         if (authorization == null || !authorization.startsWith("Bearer ")) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is required");
         }
-        return UUID.fromString(authorization.substring("Bearer ".length()));
+        try {
+            return UUID.fromString(authorization.substring("Bearer ".length()));
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Bearer authorization is invalid", exception);
+        }
     }
 
     private static void requireOwner(UUID authenticatedOwner, UUID requestedOwner) {
         if (!authenticatedOwner.equals(requestedOwner)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "owner does not match authenticated player");
         }
+    }
+
+    private List<UUID> authorizeDocuments(UUID ownerId, List<UUID> documentIds, DocumentType requiredType) {
+        if (documentIds == null || documentIds.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope must not be empty");
+        }
+        if (new HashSet<>(documentIds).size() != documentIds.size()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope must not contain duplicates");
+        }
+        List<UUID> authorized = new java.util.ArrayList<>();
+        for (UUID documentId : documentIds) {
+            StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(documentId))
+                    .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "document is not registered"));
+            if (!registration.ownerPlayerId().value().equals(ownerId)) {
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "document does not belong to authenticated player");
+            }
+            if (registration.processingStatus() != ProcessingStatus.INDEXED) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document is not indexed");
+            }
+            if (requiredType == null || registration.documentType() == requiredType) {
+                authorized.add(documentId);
+            }
+        }
+        if (authorized.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document type is not allowed");
+        }
+        return List.copyOf(authorized);
     }
 
     private static RulebookFormat resolveFormat(String filename) {
@@ -326,7 +452,11 @@ public class RuleKnowledgeController {
     public record UploadDocumentRequest(String idempotencyKey, DocumentType documentType, String originalFilename) {}
     public record RulebookStatusResponse(
             UUID rulebookId, UUID knowledgeDocumentId, String status, DocumentType documentType,
-            String originalFilename, String failureReason, long extractionVersion, List<String> warnings) {}
+            String originalFilename, String failureReason, long extractionVersion, List<String> warnings,
+            IndexProgressView progress) {}
+    public record IndexProgressView(
+            int totalChunks, int completedChunks, int remainingChunks, String status,
+            String lastError, String leaseOwner, java.time.Instant leaseUntil) {}
     public record SourcePreviewResponse(
             UUID rulebookId, UUID knowledgeDocumentId, DocumentType documentType, String originalFilename,
             RulebookFormat format, String status, String content, long extractionVersion, List<String> warnings,
@@ -351,6 +481,14 @@ public class RuleKnowledgeController {
     public record StorySourceSearchResponse(UUID ownerId, List<StorySourceEvidenceItem> evidence) {}
     public record StorySourceEvidenceItem(
             UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt, double score) {}
+    public record CharacterContextSearchRequest(
+            UUID ownerId, List<CharacterContextScopeRequest> documents, String situation,
+            Map<DocumentType, Double> thresholds, Integer tokenBudget) {}
+    public record CharacterContextScopeRequest(UUID documentId, DocumentType documentType, long extractionVersion) {}
+    public record CharacterContextSearchResponse(UUID ownerId, List<CharacterContextEvidenceItem> evidence) {}
+    public record CharacterContextEvidenceItem(
+            UUID knowledgeDocumentId, DocumentType documentType, long extractionVersion,
+            String locator, String excerpt, double similarity) {}
     public record StorySourceContextResponse(
             UUID knowledgeDocumentId, long extractionVersion, String requestedLocator, List<StorySourceSpanItem> spans) {}
     public record StorySourceSpanItem(String locator, String excerpt, Integer pageNumber, String sourceMethod) {}

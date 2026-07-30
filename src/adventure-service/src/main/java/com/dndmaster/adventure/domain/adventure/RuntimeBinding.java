@@ -102,6 +102,10 @@ public final class RuntimeBinding {
     public long bindingVersion() { return bindingVersion; }
     public UUID scenarioPackageId() { return scenarioPackageId; }
     public long scenarioPackageRevision() { return scenarioPackageRevision; }
+    /**
+     * Legacy compatibility field. Runtime retrieval uses SessionKnowledgeSet instead.
+     */
+    @Deprecated(forRemoval = false)
     public List<UUID> rulebookIds() { return rulebookIds; }
     public List<AdventurePartyMember> party() { return party; }
     public String engineId() { return engineId; }

@@ -270,7 +270,7 @@ export function RulebookSetup({
           ) : null}
         </section>
       </section>
-      <ScenarioSetup api={api} playerId={playerId} onError={setMessage} sessionApi={sessionApi} onSessionCreated={onSessionCreated} />
+      <ScenarioSetup api={api} playerId={playerId} onError={setMessage} sessionApi={sessionApi} onSessionCreated={onSessionCreated} availableDocuments={documents} />
     </Container>
   )
 }

@@ -68,6 +68,66 @@ class CharacterSheetControllerTest {
     }
 
     @Test
+    void mapsNestedBlueprintValuesIntoStartingAbilities() throws Exception {
+        UUID adventureId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        CharacterSheet sheet = new CharacterSheet(
+                new CharacterSheetId(UUID.fromString("11111111-1111-1111-1111-111111111111")),
+                new AdventureId(adventureId), SheetEdition.DND_5E_2024,
+                new CharacterSheetData2024("Aria", 1, false, "", "", "", ""));
+        when(service.createSheet(any())).thenReturn(sheet);
+
+        mockMvc.perform(post("/internal/v1/adventure-sessions/{sessionId}/character-sheets", adventureId)
+                        .contentType("application/json")
+                        .content("""
+                                {"edition":"DND_5E_2024","characterName":"Aria","level":1,
+                                 "blueprintValues":{"node-str":"12","starting_ability_scores.con":"14"}}
+                                """))
+                .andExpect(status().isOk());
+
+        var captor = org.mockito.ArgumentCaptor.forClass(com.dndmaster.character.application.CreateCharacterSheetCommand.class);
+        verify(service).createSheet(captor.capture());
+        org.junit.jupiter.api.Assertions.assertEquals("con=14", ((CharacterSheetData2024) captor.getValue().data()).startingAbilities());
+    }
+
+    @Test
+    void keepsDerivedStatisticsWithTheCharacterSheet() throws Exception {
+        UUID adventureId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        CharacterSheet sheet = new CharacterSheet(
+                new CharacterSheetId(UUID.fromString("11111111-1111-1111-1111-111111111111")),
+                new AdventureId(adventureId), SheetEdition.DND_5E_2024,
+                new CharacterSheetData2024("Aria", 1, false, "Elf", "Wizard", "Sage", "dexterity=15", "{\"speed\":30}"));
+        when(service.createSheet(any())).thenReturn(sheet);
+
+        mockMvc.perform(post("/internal/v1/adventure-sessions/{sessionId}/character-sheets", adventureId)
+                        .contentType("application/json")
+                        .content("""
+                                {"edition":"DND_5E_2024","characterName":"Aria","level":1,
+                                 "derivedStatistics":"{\\"speed\\":30}"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.derivedStatistics").value("{\"speed\":30}"));
+
+        var captor = org.mockito.ArgumentCaptor.forClass(com.dndmaster.character.application.CreateCharacterSheetCommand.class);
+        verify(service).createSheet(captor.capture());
+        org.junit.jupiter.api.Assertions.assertEquals("{\"speed\":30}", captor.getValue().data().derivedStatistics());
+    }
+
+    @Test
+    void keepsBuildAndMutableStateSeparateFromDerivedStatistics() throws Exception {
+        UUID adventureId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        CharacterSheet sheet = new CharacterSheet(new CharacterSheetId(UUID.fromString("11111111-1111-1111-1111-111111111111")), new AdventureId(adventureId), SheetEdition.DND_5E_2024,
+                new CharacterSheetData2024("Aria", 1, false, "Elf", "Wizard", "Sage", "dexterity=15", "{\"speed\":30}", "{\"subrace\":\"High Elf\"}", "{\"currentHitPoints\":6}"));
+        when(service.createSheet(any())).thenReturn(sheet);
+
+        mockMvc.perform(post("/internal/v1/adventure-sessions/{sessionId}/character-sheets", adventureId).contentType("application/json").content("""
+                {"edition":"DND_5E_2024","characterName":"Aria","level":1,"characterBuild":"{\\"subrace\\":\\"High Elf\\"}","characterState":"{\\"currentHitPoints\\":6}"}
+                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.characterBuild").value("{\"subrace\":\"High Elf\"}"))
+                .andExpect(jsonPath("$.characterState").value("{\"currentHitPoints\":6}"));
+    }
+
+    @Test
     void preservesExistingCharacterSheetById() throws Exception {
         UUID sheetId = UUID.fromString("33333333-3333-3333-3333-333333333333");
         UUID adventureId = UUID.fromString("44444444-4444-4444-4444-444444444444");
