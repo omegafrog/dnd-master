@@ -27,7 +27,7 @@ public class AiGameMasterApiConfiguration {
         return prompt -> adapter.complete(
                 "scene-" + UUID.randomUUID(), prompt.value(), text -> {
                     // TODO: implement real JSON parsing from AI response
-                    return new SceneOutput(UUID.randomUUID(), UUID.randomUUID(),
+                    return new SceneOutput(prompt.scenarioId(), prompt.ruleSetId(),
                             ScenarioAlignment.WITHIN_SELECTED_SCENARIO, text, List.of());
                 });
     }

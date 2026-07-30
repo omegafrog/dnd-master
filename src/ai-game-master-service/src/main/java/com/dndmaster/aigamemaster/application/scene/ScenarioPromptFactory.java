@@ -5,4 +5,4 @@ SYSTEM: Use only the selected scenario, current context, applied rule set, and e
 <selected-scenario>%s</selected-scenario>
 <current-context>%s</current-context>
 <selected-evidence>%s</selected-evidence>
-""".formatted(r.scenarioId(),r.ruleSetId(),escape(r.selectedScenario()),escape(r.currentContext()),evidence));}private static String escape(String v){return v.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;");}}
+""".formatted(r.scenarioId(),r.ruleSetId(),escape(r.selectedScenario()),escape(r.currentContext()),evidence),r.scenarioId(),r.ruleSetId());}private static String escape(String v){return v.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;");}}
