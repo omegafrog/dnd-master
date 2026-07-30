@@ -25,3 +25,7 @@
 - [029-4 진행 상태 API](029-4-progress-api.md)
 - [029-5 Ollama·Postgres E2E](029-5-ollama-postgres-e2e.md)
 - [030 RAG 선택지 검색·검증 강화](030-rag-option-retrieval-validation.md)
+- [025-1 Structured GM Adjudication Proposal](025-1-structured-gm-adjudication.md) — Issue #102 — ready
+- [025-2 Automatic Dice and Transparent Results](025-2-automatic-dice-and-transparent-results.md) — Issue #103 — blocked by #102
+- [025-3 Validated State Effects Runtime Saga](025-3-validated-state-effects-saga.md) — Issue #104 — blocked by #103
+- [025-4 Session Memory Compaction](025-4-session-memory-compaction.md) — Issue #105 — blocked by #102

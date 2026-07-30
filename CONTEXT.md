@@ -18,3 +18,7 @@
 - **Source Span**: 원본 문서의 텍스트나 시각 요소와 그 위치를 보존하는 추적 단위. PDF와 이미지는 페이지·좌표·읽기 순서, DOCX와 TXT는 구조·문자 범위를 사용한다. 시나리오 컴파일 전 과정의 정본이다.
 - **Progressive Scenario Compilation**: Source Span을 정본으로 유지하면서 안전하게 해석할 수 있는 판정과 굴림만 Resolution Unit으로 투영하는 방식. 구조화하지 못한 내용은 버리거나 추측하지 않고 원문 조회로 강등한다.
 - **Resolution Unit**: 시나리오 원문에 명시된 판정 또는 굴림 절차를 실행 가능한 형태로 투영한 단위. 능력치·기술 판정, 내성, 공격, 피해, 회복, 대항, 우선권, 충전, 랜덤 테이블, 특수 굴림, 수동 수치 기준을 포함한다. 원문에 없는 절차나 결과는 생성하지 않는다.
+- **Action Adjudication Proposal**: GM이 제한된 근거와 현재 상태를 바탕으로 제안하는 `NO_CHECK`, `CHECK`, `CLARIFY` 판정 구조. 상태 변경 권한이나 난수 권한은 없다.
+- **Resolved Check**: Dice Roll context가 commandId 기준으로 확정하는 불변 판정 결과. d20, 보정치, 이점/불리, DC, 최종값, 성공 여부를 포함한다.
+- **Session Memory**: Adventure Runtime이 소유하는 장기 세션 메모리. 원문 대화를 삭제하지 않고 오래된 턴 요약과 범위 checkpoint를 보관한다. 캐릭터·지도 등 타 context의 정본 상태를 대체하지 않는다.
+- **Context Compaction**: GM 입력 추정치가 6,000 tokens를 넘을 때 최근 6턴 원문을 남기고 이전 턴을 Session Memory checkpoint로 요약하는 정책. 관련 과거 사실은 정본 상태와 근거 검색으로 복구한다.
