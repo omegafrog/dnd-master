@@ -12,4 +12,10 @@ public interface CharacterContextSearchPort {
             float[] queryEmbedding, List<String> chapterHints) {
         return search(owner, type, scope, queryEmbedding);
     }
+
+    default List<CharacterContextSearchHit> search(OwnerPlayerId owner, DocumentType type,
+            List<CharacterContextDocumentScope> scope, float[] queryEmbedding, List<String> chapterHints,
+            List<String> sectionHints) {
+        return search(owner, type, scope, queryEmbedding, chapterHints);
+    }
 }

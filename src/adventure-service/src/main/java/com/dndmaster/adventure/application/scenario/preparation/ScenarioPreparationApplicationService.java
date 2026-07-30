@@ -4,6 +4,7 @@ import com.dndmaster.adventure.application.scenario.ScenarioBundleRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.scenario.compilation.CharacterContextSearchPort;
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler;
+import com.dndmaster.adventure.application.scenario.blueprint.DndCharacterCreationTemplate;
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort;
 import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
@@ -20,8 +21,21 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class ScenarioPreparationApplicationService {
+    private static final List<CharacterFieldSpec> CHARACTER_FIELD_SPECS = List.of(
+            new CharacterFieldSpec("race", "종족",
+                    "D&D 캐릭터 생성에서 플레이어가 최초로 선택하는 기본 종족 목록.",
+                    "Return exactly one field with key 'race' and label '종족'. Extract only first-choice base races. Exclude subraces, human ethnicities, regional origins, headings, and book titles."),
+            new CharacterFieldSpec("class", "직업",
+                    "D&D 캐릭터 생성에서 플레이어가 선택하는 기본 직업 목록.",
+                    "Return exactly one field with key 'class' and label '직업'. Extract only base classes. Exclude subclasses, class features, headings, and book titles."),
+            new CharacterFieldSpec("background", "배경",
+                    "D&D 캐릭터 생성에서 플레이어가 선택하는 배경 목록.",
+                    "Return exactly one field with key 'background' and label '배경'. Extract only selectable backgrounds. Exclude personality tables, headings, and book titles."));
+    private static final Logger LOGGER = LoggerFactory.getLogger(ScenarioPreparationApplicationService.class);
     private final ScenarioPackageRepository packageRepository;
     private final ScenarioBundleRepository bundleRepository;
     private final RuntimeOptionCatalogPort runtimeOptionCatalog;
@@ -108,59 +122,76 @@ public final class ScenarioPreparationApplicationService {
     }
 
     public CharacterCreationBlueprintView generateBlueprintDraft(UUID packageId, OwnerPlayerId ownerPlayerId) {
+        return generateBlueprintDraft(packageId, ownerPlayerId, "DND_5E");
+    }
+
+    public CharacterCreationBlueprintView generateBlueprintDraft(UUID packageId, OwnerPlayerId ownerPlayerId, String edition) {
         ScenarioPackage scenarioPackage = packageRepository.findById(packageId)
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         ScenarioSourceBundle bundle = bundleRepository.findById(scenarioPackage.bundleId())
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         bundle.authorize(ownerPlayerId);
         requireCurrentBundleRevision(scenarioPackage, bundle);
-        List<ScenarioBundleDocumentSelection> documents = bundle.currentRevision().documents().stream()
-                .filter(document -> List.of("RULEBOOK", "STORYBOOK", "HANDOUT")
-                        .contains(document.documentType().toUpperCase(java.util.Locale.ROOT)))
+        List<ScenarioBundleDocumentSelection> storybooks = bundle.currentRevision().documents().stream()
+                .filter(document -> "STORYBOOK".equalsIgnoreCase(document.documentType()))
                 .toList();
-        if (documents.isEmpty()) throw new IllegalStateException("character blueprint requires indexed source documents");
+        List<ScenarioBundleDocumentSelection> rulebooks = bundle.currentRevision().documents().stream()
+                .filter(document -> "RULEBOOK".equalsIgnoreCase(document.documentType()))
+                .toList();
 
-        List<CharacterContextSearchPort.Evidence> evidence = characterContextSearch.search(
-                new CharacterContextSearchPort.Request(ownerPlayerId.value(), documents.stream()
-                        .map(document -> new CharacterContextSearchPort.DocumentScope(
-                                document.knowledgeDocumentId(), document.documentType(), document.extractionVersion()))
-                        .toList(), "Extract character creation choices, fixed values, and required input fields.",
-                        java.util.Map.of("RULEBOOK", .35, "STORYBOOK", .25, "HANDOUT", .25), 1200));
-        List<CharacterInputTagExtractionPort.SourceExcerpt> excerpts = (evidence == null ? List.<CharacterContextSearchPort.Evidence>of() : evidence)
-                .stream()
-                .sorted(java.util.Comparator.comparingDouble(CharacterContextSearchPort.Evidence::similarity).reversed())
-                .map(item -> new CharacterInputTagExtractionPort.SourceExcerpt(
-                        item.documentId(), item.extractionVersion(), item.locator(), item.excerpt())).toList();
-        List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> candidates = characterTagExtraction.extract(
-                new CharacterInputTagExtractionPort.Request(
-                        packageId + ":character-blueprint-draft:" + UUID.randomUUID(), excerpts,
-                        "character-input-tag-v1", "character-input-tag-prompt-v1"));
-        candidates = refineChoiceFields(packageId, ownerPlayerId, documents, candidates);
+        List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> candidates = new ArrayList<>();
+        // RULEBOOK supplies base-sheet choices. STORYBOOK independently supplies campaign additions
+        // and restrictions, so a long adventure text cannot hide rulebook choices or be ignored.
+        candidates.addAll(discoverCharacterFields(packageId, ownerPlayerId, rulebooks));
+        candidates.addAll(discoverStorybookFields(packageId, ownerPlayerId, storybooks));
+        List<ScenarioBundleDocumentSelection> sourceDocuments = new ArrayList<>(rulebooks);
+        sourceDocuments.addAll(storybooks);
+        List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> directInputs = candidates.stream()
+                .filter(candidate -> candidate.inputMode() == com.dndmaster.adventure.domain.scenario.InputMode.FREE_TEXT
+                        && candidate.options().isEmpty()).toList();
+        List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> refinedChoices = refineChoiceFields(
+                packageId, ownerPlayerId, sourceDocuments, candidates.stream()
+                        .filter(candidate -> candidate.inputMode() != com.dndmaster.adventure.domain.scenario.InputMode.FREE_TEXT
+                                || !candidate.options().isEmpty()).toList());
+        candidates = new ArrayList<>(directInputs);
+        candidates.addAll(refinedChoices);
         long nextBlueprintRevision = scenarioPackage.characterCreationBlueprint() == null
                 ? 1 : scenarioPackage.characterCreationBlueprint().revision() + 1;
-        CharacterCreationBlueprint blueprint = blueprintCompiler.compileAgent(nextBlueprintRevision, candidates);
+        CharacterCreationBlueprint blueprint = DndCharacterCreationTemplate.apply(edition,
+                blueprintCompiler.compileAgent(nextBlueprintRevision, candidates));
         packageRepository.saveBlueprint(packageId, blueprint);
-        return toView(blueprint, documents);
+        return toView(blueprint, storybooks);
     }
 
     private List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> refineChoiceFields(
             UUID packageId, OwnerPlayerId ownerPlayerId, List<ScenarioBundleDocumentSelection> documents,
             List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> candidates) {
         if (candidates == null || candidates.isEmpty()) return List.of();
-        List<CharacterContextSearchPort.DocumentScope> scopes = documents.stream()
-                .map(document -> new CharacterContextSearchPort.DocumentScope(
-                        document.knowledgeDocumentId(), document.documentType(), document.extractionVersion()))
-                .toList();
         List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> refined = new ArrayList<>();
         for (CharacterInputTagExtractionPort.CharacterInputTagCandidate candidate : candidates) {
+            CharacterFieldSpec spec = fieldSpec(candidate.key());
+            List<ScenarioBundleDocumentSelection> candidateDocuments = documents.stream()
+                    .filter(document -> document.documentType().equalsIgnoreCase(candidate.sourceType())).toList();
+            if (candidateDocuments.isEmpty()) candidateDocuments = documents;
+            String sourceType = candidateDocuments.getFirst().documentType().toUpperCase(java.util.Locale.ROOT);
+            List<CharacterContextSearchPort.DocumentScope> scopes = candidateDocuments.stream()
+                    .map(document -> new CharacterContextSearchPort.DocumentScope(
+                            document.knowledgeDocumentId(), document.documentType(), document.extractionVersion()))
+                    .toList();
             try {
+                long startedAt = System.nanoTime();
+                LOGGER.info("character_blueprint_refine_started packageId={} field={} initialMode={} initialOptions={}",
+                        packageId, candidate.key(), candidate.inputMode(), candidate.options().size());
                 List<CharacterContextSearchPort.Evidence> evidence = characterContextSearch.search(
                         new CharacterContextSearchPort.Request(ownerPlayerId.value(), scopes,
-                                "Find the authoritative selectable values and input rules for character field '"
-                                        + candidate.key() + "' (" + candidate.label() + "). Search the character creation chapter, lists, tables, and examples.",
-                                java.util.Map.of("RULEBOOK", .25, "STORYBOOK", .20, "HANDOUT", .20), 700));
+                                spec == null
+                                        ? "Find character-sheet value choices or player-authored input requirements for '" + candidate.label() + "'."
+                                        : spec.retrievalQuery(),
+                                java.util.Map.of(sourceType, .25), 0));
                 List<CharacterInputTagExtractionPort.SourceExcerpt> topicExcerpts = excerptList(evidence);
                 if (topicExcerpts.isEmpty()) {
+                    LOGGER.info("character_blueprint_refine_skipped packageId={} field={} reason=no_topic_excerpts elapsedMs={}",
+                            packageId, candidate.key(), (System.nanoTime() - startedAt) / 1_000_000);
                     refined.add(candidate);
                     continue;
                 }
@@ -168,17 +199,105 @@ public final class ScenarioPreparationApplicationService {
                         new CharacterInputTagExtractionPort.Request(
                                 packageId + ":character-blueprint-refine:" + candidate.key() + ":" + UUID.randomUUID(),
                                 topicExcerpts, "character-input-tag-v1", "character-input-tag-prompt-v1",
-                                "Refine only field '" + candidate.key() + "'. Keep its key exactly as given. Decide FREE_TEXT, SINGLE_SELECT, or MULTI_SELECT from the excerpts. If selectable, extract only directly supported options; if not, return an empty options array."));
-                refined.add(result == null ? candidate : result.stream()
+                                (spec == null
+                                        ? "Keep key exactly '" + candidate.key() + "'."
+                                        : spec.extractionPolicy() + " Keep key exactly '" + spec.key() + "'.")
+                                        + " Decide FREE_TEXT, SINGLE_SELECT, or MULTI_SELECT from excerpts. If selectable, include one optionDetails object per option with description, sourceQuote, and evidence."));
+                var selected = result == null ? candidate : result.stream()
                         .filter(item -> item.key().equals(candidate.key()))
-                        .findFirst().orElse(candidate));
-            } catch (RuntimeException ignored) {
+                        .findFirst().map(item -> withSourceType(item, sourceType)).orElse(candidate);
+                LOGGER.info("character_blueprint_refine_finished packageId={} field={} excerpts={} mode={} options={} optionDetails={} elapsedMs={}",
+                        packageId, candidate.key(), topicExcerpts.size(), selected.inputMode(), selected.options().size(),
+                        selected.optionDetails().size(), (System.nanoTime() - startedAt) / 1_000_000);
+                refined.add(selected);
+            } catch (RuntimeException exception) {
+                LOGGER.warn("character_blueprint_refine_failed packageId={} field={} reason={}",
+                        packageId, candidate.key(), exception.getMessage());
                 // A failed topic lookup must not discard the grounded first-stage field.
                 refined.add(candidate);
             }
         }
         return List.copyOf(refined);
     }
+
+    private static boolean completeSelectableChoice(CharacterInputTagExtractionPort.CharacterInputTagCandidate candidate) {
+        return candidate.inputMode() != com.dndmaster.adventure.domain.scenario.InputMode.FREE_TEXT
+                && !candidate.options().isEmpty()
+                && candidate.optionDetails().size() == candidate.options().size()
+                && candidate.optionDetails().stream().allMatch(detail -> candidate.options().contains(detail.value())
+                        && !detail.evidence().isEmpty());
+    }
+
+    private List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> discoverCharacterFields(
+            UUID packageId, OwnerPlayerId ownerPlayerId, List<ScenarioBundleDocumentSelection> documents) {
+        if (documents.isEmpty()) return List.of();
+        List<CharacterContextSearchPort.DocumentScope> scopes = documents.stream().map(document ->
+                new CharacterContextSearchPort.DocumentScope(document.knowledgeDocumentId(), document.documentType(), document.extractionVersion())).toList();
+        List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> candidates = new ArrayList<>();
+        for (CharacterFieldSpec spec : CHARACTER_FIELD_SPECS) {
+            List<CharacterInputTagExtractionPort.SourceExcerpt> excerpts = excerptList(characterContextSearch.search(
+                    new CharacterContextSearchPort.Request(ownerPlayerId.value(), scopes, spec.retrievalQuery(),
+                            java.util.Map.of("RULEBOOK", .50), 0)));
+            if (excerpts.isEmpty()) continue;
+            List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> extracted = characterTagExtraction.extract(
+                    new CharacterInputTagExtractionPort.Request(
+                            packageId + ":character-blueprint-discovery:" + UUID.randomUUID(), excerpts,
+                            "character-input-tag-v1", "character-input-tag-prompt-v1",
+                            "Discover source-grounded character-creation fields and directly visible selectable values for this retrieval topic: "
+                                    + spec.extractionPolicy() + " A partial list is valid. Treat explicit choose/select language as evidence. "
+                                    + "Do not infer another edition."));
+            if (extracted != null) extracted.stream().findFirst()
+                    .map(candidate -> canonicalize(candidate, spec))
+                    .ifPresent(candidates::add);
+        }
+        return List.copyOf(candidates);
+    }
+
+    private List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> discoverStorybookFields(
+            UUID packageId, OwnerPlayerId ownerPlayerId, List<ScenarioBundleDocumentSelection> storybooks) {
+        if (storybooks.isEmpty()) return List.of();
+        List<CharacterContextSearchPort.DocumentScope> scopes = storybooks.stream().map(document ->
+                new CharacterContextSearchPort.DocumentScope(document.knowledgeDocumentId(), document.documentType(), document.extractionVersion())).toList();
+        List<CharacterInputTagExtractionPort.SourceExcerpt> excerpts = excerptList(characterContextSearch.search(
+                new CharacterContextSearchPort.Request(ownerPlayerId.value(), scopes,
+                        "Find only campaign-specific facts that add, constrain, or prefill a D&D character-sheet field. "
+                                + "Ignore plot lore with no player-character sheet effect.",
+                        java.util.Map.of("STORYBOOK", .20), 0)));
+        if (excerpts.isEmpty()) return List.of();
+        List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> extracted = characterTagExtraction.extract(
+                new CharacterInputTagExtractionPort.Request(
+                        packageId + ":storybook-character-sheet-additions:" + UUID.randomUUID(), excerpts,
+                        "character-input-tag-v1", "character-input-tag-prompt-v1",
+                        "Extract only character-sheet fields affected by this storybook. For a finite list from which player must choose exactly one, emit SINGLE_SELECT with every allowed option. "
+                                + "For a value player must author, emit FREE_TEXT with empty options. Do not emit MULTI_SELECT unless storybook explicitly allows multiple choices. "
+                                + "Return no field when text does not affect character creation."));
+        return (extracted == null ? List.<CharacterInputTagExtractionPort.CharacterInputTagCandidate>of() : extracted).stream()
+                .map(candidate -> withSourceType(candidate, "STORYBOOK")).toList();
+    }
+
+    private static CharacterFieldSpec fieldSpec(String key) {
+        return CHARACTER_FIELD_SPECS.stream().filter(spec -> spec.key().equals(key)).findFirst().orElse(null);
+    }
+
+    // Discovery runs once per known input slot. The model identifies values, not
+    // API keys; bind its grounded result to the slot that initiated the search.
+    private static CharacterInputTagExtractionPort.CharacterInputTagCandidate canonicalize(
+            CharacterInputTagExtractionPort.CharacterInputTagCandidate candidate, CharacterFieldSpec spec) {
+        return new CharacterInputTagExtractionPort.CharacterInputTagCandidate(spec.key(), spec.label(),
+                candidate.parentKey(), candidate.required(), candidate.inputMode(), candidate.options(),
+                candidate.suggestions(), candidate.confidence(), candidate.evidence(), candidate.sourceQuote(),
+                candidate.sourceType(), candidate.optionDetails());
+    }
+
+    private static CharacterInputTagExtractionPort.CharacterInputTagCandidate withSourceType(
+            CharacterInputTagExtractionPort.CharacterInputTagCandidate candidate, String sourceType) {
+        return new CharacterInputTagExtractionPort.CharacterInputTagCandidate(candidate.key(), candidate.label(),
+                candidate.parentKey(), candidate.required(), candidate.inputMode(), candidate.options(),
+                candidate.suggestions(), candidate.confidence(), candidate.evidence(), candidate.sourceQuote(),
+                sourceType, candidate.optionDetails());
+    }
+
+    private record CharacterFieldSpec(String key, String label, String retrievalQuery, String extractionPolicy) {}
 
     private static List<CharacterInputTagExtractionPort.SourceExcerpt> excerptList(
             List<CharacterContextSearchPort.Evidence> evidence) {
@@ -205,8 +324,41 @@ public final class ScenarioPreparationApplicationService {
         CharacterCreationBlueprint blueprint = requireBlueprint(scenarioPackage);
         requireBlueprintRevision(blueprint, expectedRevision);
         CharacterCreationBlueprint resolved = blueprint.resolveNode(fieldKey, value);
+        if ("class".equals(fieldKey)) resolved = enrichStartingEquipment(packageId, ownerPlayerId, bundle, resolved, value);
         packageRepository.saveBlueprint(packageId, resolved);
         return resolved;
+    }
+
+    private CharacterCreationBlueprint enrichStartingEquipment(UUID packageId, OwnerPlayerId ownerPlayerId,
+                                                                ScenarioSourceBundle bundle, CharacterCreationBlueprint blueprint,
+                                                                String selectedClass) {
+        List<ScenarioBundleDocumentSelection> rulebooks = bundle.currentRevision().documents().stream()
+                .filter(document -> "RULEBOOK".equalsIgnoreCase(document.documentType())).toList();
+        if (rulebooks.isEmpty()) return blueprint;
+        List<CharacterContextSearchPort.DocumentScope> scopes = rulebooks.stream().map(document ->
+                new CharacterContextSearchPort.DocumentScope(document.knowledgeDocumentId(), document.documentType(), document.extractionVersion())).toList();
+        List<CharacterInputTagExtractionPort.SourceExcerpt> excerpts = excerptList(characterContextSearch.search(
+                new CharacterContextSearchPort.Request(ownerPlayerId.value(), scopes,
+                        "Character creation class " + selectedClass + " starting equipment selectable choices and choose-one packages.",
+                        java.util.Map.of("RULEBOOK", .50), 0)));
+        if (excerpts.isEmpty()) return blueprint;
+        List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> candidates = characterTagExtraction.extract(
+                new CharacterInputTagExtractionPort.Request(packageId + ":class-equipment:" + UUID.randomUUID(), excerpts,
+                        "character-input-tag-v1", "character-input-tag-prompt-v1",
+                        "Extract only field 'class.startingEquipment' for selected class '" + selectedClass + "'. "
+                                + "Return selectable starting-equipment choices directly supported by excerpts, with one optionDetails item and exact evidence per option."));
+        var candidate = (candidates == null ? List.<CharacterInputTagExtractionPort.CharacterInputTagCandidate>of() : candidates).stream()
+                .filter(ScenarioPreparationApplicationService::completeSelectableChoice)
+                .filter(item -> "RULEBOOK".equalsIgnoreCase(item.sourceType())).findFirst().orElse(null);
+        if (candidate == null) return blueprint;
+        CharacterCreationBlueprint.Field prior = blueprint.fields().stream()
+                .filter(field -> field.key().equals("class.startingEquipment")).findFirst().orElse(null);
+        List<CharacterCreationBlueprint.Field.OptionDetail> details = candidate.optionDetails().stream().map(detail ->
+                new CharacterCreationBlueprint.Field.OptionDetail(detail.value(), detail.label(), detail.description(), detail.sourceQuote(), detail.evidence())).toList();
+        return blueprint.enrichField(new CharacterCreationBlueprint.Field("class.startingEquipment", candidate.options(), true,
+                "RULEBOOK", candidate.evidence(), "EXTRACTED", List.of(), candidate.inputMode(), candidate.suggestions(),
+                candidate.sourceQuote(), prior == null ? "Starting equipment" : prior.label(), null,
+                prior == null ? null : prior.nodeId(), prior == null ? null : prior.parentNodeId(), candidate.confidence(), details));
     }
 
     public CharacterCreationBlueprint addBlueprintChild(UUID packageId, OwnerPlayerId ownerPlayerId,
@@ -294,7 +446,7 @@ public final class ScenarioPreparationApplicationService {
                                 field.suggestions(), field.sourceQuote(), field.evidence().stream()
                                         .map(reference -> new CharacterCreationBlueprintView.FieldView.SourceReferenceView(
                                                 reference.knowledgeDocumentId().value().toString(), reference.extractionVersion(), reference.locator()))
-                                        .toList())).toList(), blueprint.status().name(),
+                                        .toList(), optionDetails(field.optionDetails()))).toList(), blueprint.status().name(),
                 blueprint.roots().stream().map(ScenarioPreparationApplicationService::toNodeView).toList());
     }
 
@@ -304,6 +456,15 @@ public final class ScenarioPreparationApplicationService {
                 node.allowUserAddChild(), node.confidence(), node.sourceQuote(), node.diagnostics(),
                 node.sourceEvidence().stream().map(reference -> new CharacterCreationBlueprintView.FieldView.SourceReferenceView(
                         reference.knowledgeDocumentId().value().toString(), reference.extractionVersion(), reference.locator())).toList(),
-                node.children().stream().map(ScenarioPreparationApplicationService::toNodeView).toList());
+                node.children().stream().map(ScenarioPreparationApplicationService::toNodeView).toList(), optionDetails(node.optionDetails()));
+    }
+
+    private static List<CharacterCreationBlueprintView.FieldView.OptionDetailView> optionDetails(
+            List<CharacterCreationBlueprint.Field.OptionDetail> details) {
+        return details.stream().map(detail -> new CharacterCreationBlueprintView.FieldView.OptionDetailView(
+                detail.value(), detail.label(), detail.description(), detail.sourceQuote(), detail.evidence().stream()
+                        .map(reference -> new CharacterCreationBlueprintView.FieldView.SourceReferenceView(
+                                reference.knowledgeDocumentId().value().toString(), reference.extractionVersion(), reference.locator()))
+                        .toList())).toList();
     }
 }

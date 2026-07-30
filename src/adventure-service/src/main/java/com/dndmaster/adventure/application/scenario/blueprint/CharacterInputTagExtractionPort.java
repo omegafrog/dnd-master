@@ -29,7 +29,14 @@ public interface CharacterInputTagExtractionPort {
     record CharacterInputTagCandidate(String key, String label, String parentKey, boolean required,
                                       InputMode inputMode, List<String> options, List<String> suggestions,
                                       String confidence, List<ScenarioSourceReference> evidence,
-                                      String sourceQuote, String sourceType) {
+                                      String sourceQuote, String sourceType, List<OptionDetail> optionDetails) {
+        public CharacterInputTagCandidate(String key, String label, String parentKey, boolean required,
+                                          InputMode inputMode, List<String> options, List<String> suggestions,
+                                          String confidence, List<ScenarioSourceReference> evidence,
+                                          String sourceQuote, String sourceType) {
+            this(key, label, parentKey, required, inputMode, options, suggestions, confidence, evidence,
+                    sourceQuote, sourceType, List.of());
+        }
         public CharacterInputTagCandidate {
             if (key == null || key.isBlank()) throw new IllegalArgumentException("candidate key required");
             label = label == null || label.isBlank() ? key : label;
@@ -41,8 +48,25 @@ public interface CharacterInputTagExtractionPort {
             evidence = List.copyOf(evidence == null ? List.of() : evidence);
             sourceQuote = sourceQuote == null ? "" : sourceQuote;
             sourceType = sourceType == null || sourceType.isBlank() ? "RULEBOOK" : sourceType.toUpperCase();
+            optionDetails = List.copyOf(optionDetails == null ? List.of() : optionDetails);
             if (inputMode == InputMode.FREE_TEXT && !options.isEmpty()) throw new IllegalArgumentException("free-text candidate cannot have options");
+            if (inputMode == InputMode.FREE_TEXT && !optionDetails.isEmpty()) throw new IllegalArgumentException("free-text candidate cannot have option details");
+            for (OptionDetail detail : optionDetails) {
+                if (!options.contains(detail.value())) throw new IllegalArgumentException("option detail is not a candidate option");
+            }
             if (!evidence.isEmpty() && sourceQuote.isBlank()) throw new IllegalArgumentException("evidence candidate requires source quote");
+        }
+
+        public record OptionDetail(String value, String label, String description, String sourceQuote,
+                                   List<ScenarioSourceReference> evidence) {
+            public OptionDetail {
+                if (value == null || value.isBlank()) throw new IllegalArgumentException("option value required");
+                label = label == null || label.isBlank() ? value : label;
+                description = description == null ? "" : description;
+                sourceQuote = sourceQuote == null ? "" : sourceQuote;
+                evidence = List.copyOf(evidence == null ? List.of() : evidence);
+                if (!evidence.isEmpty() && sourceQuote.isBlank()) throw new IllegalArgumentException("option evidence requires source quote");
+            }
         }
     }
 }

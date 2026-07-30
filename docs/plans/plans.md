@@ -24,3 +24,4 @@
 - [029-3 Lease·Revision Guard](029-3-lease-revision.md)
 - [029-4 진행 상태 API](029-4-progress-api.md)
 - [029-5 Ollama·Postgres E2E](029-5-ollama-postgres-e2e.md)
+- [030 RAG 선택지 검색·검증 강화](030-rag-option-retrieval-validation.md)

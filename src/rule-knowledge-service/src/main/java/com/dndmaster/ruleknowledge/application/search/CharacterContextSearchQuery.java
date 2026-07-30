@@ -14,7 +14,7 @@ public record CharacterContextSearchQuery(
         scope = immutableScope(scope);
         thresholds = immutableThresholds(thresholds);
         if (situation == null || situation.isBlank()) throw new IllegalArgumentException("situation must not be blank");
-        if (tokenBudget <= 0) throw new IllegalArgumentException("token budget must be positive");
+        if (tokenBudget < 0) throw new IllegalArgumentException("token budget must not be negative");
     }
 
     private static Map<DocumentType, List<CharacterContextDocumentScope>> immutableScope(

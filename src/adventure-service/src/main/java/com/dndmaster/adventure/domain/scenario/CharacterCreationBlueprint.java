@@ -80,7 +80,7 @@ public record CharacterCreationBlueprint(
         String childKey = parentFieldKey + "." + key.trim();
         if (fields.stream().anyMatch(field -> field.key().equals(childKey))) throw new IllegalArgumentException("child already exists");
         Field child = new Field(childKey, List.of(), true, "USER", List.of(), "USER_ADDED",
-                List.of("manual input required"),
+                    List.of("manual input required"),
                 InputMode.FREE_TEXT, List.of(), "", label, null, UUID.randomUUID().toString(), parent.id(), "LOW");
         List<Field> next = new ArrayList<>(fields);
         next.add(child);
@@ -132,7 +132,7 @@ public record CharacterCreationBlueprint(
             return new CharacterInputNode(id, parentId, key, value.label(), value.inputMode(), selectedValue, nodeOptions,
                     value.suggestions(), status, status == CharacterInputNodeStatus.PARTIALLY_EXTRACTED,
                     value.evidence(), value.confidence(),
-                    value.sourceQuote(), value.diagnostics(), children);
+                    value.sourceQuote(), value.diagnostics(), children, value.optionDetails());
         }
     }
 
@@ -155,7 +155,7 @@ public record CharacterCreationBlueprint(
             }
             next.add(new Field(field.key(), field.options(), field.required(), field.sourceType(), field.evidence(),
                     "USER_CONFIRMED", List.of(), field.inputMode(), field.suggestions(), field.sourceQuote(), field.label(),
-                    String.join(",", requestedValues), field.nodeId(), field.parentNodeId(), field.confidence()));
+                    String.join(",", requestedValues), field.nodeId(), field.parentNodeId(), field.confidence(), field.optionDetails()));
             found = true;
         }
         if (!found) throw new IllegalArgumentException("unknown blueprint field: " + key);
@@ -181,10 +181,36 @@ public record CharacterCreationBlueprint(
             InputMode mode = field.inputMode() == InputMode.FREE_TEXT ? InputMode.SINGLE_SELECT : field.inputMode();
             return new Field(field.key(), options, field.required(), field.sourceType(), field.evidence(), field.inputStatus(),
                     field.diagnostics(), mode, field.suggestions(), field.sourceQuote(), field.label(), field.value(),
-                    field.nodeId(), field.parentNodeId(), field.confidence());
+                    field.nodeId(), field.parentNodeId(), field.confidence(), field.optionDetails());
         }).toList();
         if (next.equals(fields)) throw new IllegalArgumentException("unknown blueprint field: " + key);
         return new CharacterCreationBlueprint(revision + 1, status, next, diagnostics);
+    }
+
+    public CharacterCreationBlueprint replaceField(Field replacement) {
+        if (status == CharacterCreationBlueprintStatus.PUBLISHED) throw new IllegalStateException("published blueprint is immutable");
+        boolean found = fields.stream().anyMatch(field -> field.key().equals(replacement.key()));
+        if (!found) throw new IllegalArgumentException("unknown blueprint field: " + replacement.key());
+        List<Field> next = fields.stream().map(field -> field.key().equals(replacement.key()) ? replacement : field).toList();
+        return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.NEEDS_REVIEW, next, diagnostics);
+    }
+
+    public CharacterCreationBlueprint upsertField(Field replacement) {
+        if (fields.stream().anyMatch(field -> field.key().equals(replacement.key()))) return replaceField(replacement);
+        if (status == CharacterCreationBlueprintStatus.PUBLISHED) throw new IllegalStateException("published blueprint is immutable");
+        List<Field> next = new ArrayList<>(fields);
+        next.add(replacement);
+        return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.NEEDS_REVIEW, next, diagnostics);
+    }
+
+    /** Composes enrichment into a user resolution that already advanced the revision. */
+    public CharacterCreationBlueprint enrichField(Field replacement) {
+        if (status == CharacterCreationBlueprintStatus.PUBLISHED) throw new IllegalStateException("published blueprint is immutable");
+        List<Field> next = new ArrayList<>(fields);
+        int index = java.util.stream.IntStream.range(0, next.size())
+                .filter(i -> next.get(i).key().equals(replacement.key())).findFirst().orElse(-1);
+        if (index < 0) next.add(replacement); else next.set(index, replacement);
+        return new CharacterCreationBlueprint(revision, CharacterCreationBlueprintStatus.NEEDS_REVIEW, next, diagnostics);
     }
 
     public CharacterCreationBlueprint publish() {
@@ -197,26 +223,33 @@ public record CharacterCreationBlueprint(
     public record Field(String key, List<String> options, boolean required, String sourceType,
                         List<ScenarioSourceReference> evidence, String inputStatus, List<String> diagnostics,
                         InputMode inputMode, List<String> suggestions, String sourceQuote, String label, String value,
-                        String nodeId, String parentNodeId, String confidence) {
+                        String nodeId, String parentNodeId, String confidence, List<OptionDetail> optionDetails) {
+        public Field(String key, List<String> options, boolean required, String sourceType,
+                     List<ScenarioSourceReference> evidence, String inputStatus, List<String> diagnostics,
+                     InputMode inputMode, List<String> suggestions, String sourceQuote, String label, String value,
+                     String nodeId, String parentNodeId, String confidence) {
+            this(key, options, required, sourceType, evidence, inputStatus, diagnostics, inputMode, suggestions,
+                    sourceQuote, label, value, nodeId, parentNodeId, confidence, List.of());
+        }
         public Field(String key, List<String> options, boolean required, String sourceType,
                      List<ScenarioSourceReference> evidence, String inputStatus, List<String> diagnostics) {
             this(key, options, required, sourceType, evidence, inputStatus, diagnostics,
                     options.isEmpty() ? InputMode.FREE_TEXT : InputMode.SINGLE_SELECT, List.of(), "", key, null,
-                    null, null, "LOW");
+                    null, null, "LOW", List.of());
         }
 
         public Field(String key, List<String> options, boolean required, String sourceType,
                      List<ScenarioSourceReference> evidence, String inputStatus, List<String> diagnostics,
                      InputMode inputMode, List<String> suggestions, String sourceQuote) {
             this(key, options, required, sourceType, evidence, inputStatus, diagnostics, inputMode, suggestions,
-                    sourceQuote, key, null, null, null, "LOW");
+                    sourceQuote, key, null, null, null, "LOW", List.of());
         }
 
         public Field(String key, List<String> options, boolean required, String sourceType,
                      List<ScenarioSourceReference> evidence, String inputStatus, List<String> diagnostics,
                      InputMode inputMode, List<String> suggestions, String sourceQuote, String label) {
             this(key, options, required, sourceType, evidence, inputStatus, diagnostics, inputMode, suggestions,
-                    sourceQuote, label, null, null, null, "LOW");
+                    sourceQuote, label, null, null, null, "LOW", List.of());
         }
 
         public Field {
@@ -230,10 +263,25 @@ public record CharacterCreationBlueprint(
             suggestions = suggestions == null ? List.of() : List.copyOf(suggestions);
             sourceQuote = sourceQuote == null ? "" : sourceQuote;
             confidence = confidence == null || confidence.isBlank() ? "LOW" : confidence.toUpperCase();
+            optionDetails = List.copyOf(optionDetails == null ? List.of() : optionDetails);
+            for (OptionDetail detail : optionDetails) {
+                if (!options.contains(detail.value())) throw new IllegalArgumentException("option detail is not a field option");
+            }
             label = label == null || label.isBlank() ? key : label;
             value = value == null || value.isBlank() ? null : value;
             nodeId = nodeId == null || nodeId.isBlank() ? UUID.randomUUID().toString() : nodeId;
             if (parentNodeId != null && parentNodeId.isBlank()) parentNodeId = null;
+        }
+
+        public record OptionDetail(String value, String label, String description, String sourceQuote,
+                                   List<ScenarioSourceReference> evidence) {
+            public OptionDetail {
+                if (value == null || value.isBlank()) throw new IllegalArgumentException("option value must not be blank");
+                label = label == null || label.isBlank() ? value : label;
+                description = description == null ? "" : description;
+                sourceQuote = sourceQuote == null ? "" : sourceQuote;
+                evidence = List.copyOf(evidence == null ? List.of() : evidence);
+            }
         }
     }
 }

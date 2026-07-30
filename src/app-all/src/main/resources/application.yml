@@ -63,6 +63,16 @@ local-ai:
 
     retry-max-attempts: 2
 
+ai:
+  character-tags:
+    provider: ${CHARACTER_TAG_PROVIDER:codex-cli}
+    base-url: ${OPENAI_BASE_URL:https://api.openai.com/}
+    api-key: ${OPENAI_API_KEY:}
+    model: ${CODEX_CHARACTER_TAG_MODEL:gpt-5.4-mini}
+    timeout: ${CODEX_CHARACTER_TAG_TIMEOUT:300s}
+    executable: ${CODEX_EXECUTABLE:codex}
+    work-directory: ${CODEX_WORK_DIRECTORY:/tmp}
+
 ---
 spring:
   config:

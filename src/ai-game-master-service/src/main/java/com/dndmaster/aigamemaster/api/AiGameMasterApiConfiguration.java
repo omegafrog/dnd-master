@@ -7,6 +7,7 @@ import com.dndmaster.aigamemaster.application.intent.IntentClassificationOutput;
 import com.dndmaster.aigamemaster.application.rule.*;
 import com.dndmaster.aigamemaster.application.scene.*;
 import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
+import com.dndmaster.aigamemaster.infrastructure.ai.CharacterTagCompletionPort;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -83,7 +84,7 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
-    CharacterInputTagController characterInputTagController(SpringAiChatAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+    CharacterInputTagController characterInputTagController(CharacterTagCompletionPort adapter, com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         return new CharacterInputTagController(adapter, objectMapper);
     }
 

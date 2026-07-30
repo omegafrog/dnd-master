@@ -37,7 +37,8 @@ public final class CharacterContextSearchApplicationService {
             if (scope.isEmpty()) continue;
             double threshold = query.thresholds().getOrDefault(type, 0d);
             List<String> chapterHints = type == DocumentType.RULEBOOK ? characterCreationChapterHints(query.situation()) : List.of();
-            List<CharacterContextEvidence> candidates = searchPort.search(query.owner(), type, scope, embedding, chapterHints).stream()
+            List<String> sectionHints = type == DocumentType.RULEBOOK ? characterCreationSectionHints(query.situation()) : List.of();
+            List<CharacterContextEvidence> candidates = searchPort.search(query.owner(), type, scope, embedding, chapterHints, sectionHints).stream()
                     .filter(hit -> hit.documentType() == type && hit.similarity() >= threshold)
                     .sorted(Comparator.comparingDouble(CharacterContextSearchHit::similarity).reversed())
                     .map(CharacterContextSearchHit::toEvidence)
@@ -47,16 +48,40 @@ public final class CharacterContextSearchApplicationService {
         return pack(byType, query.tokenBudget());
     }
 
+    private static List<String> characterCreationSectionHints(String situation) {
+        String normalized = situation.toLowerCase(Locale.ROOT);
+        if (normalized.contains("종족") || normalized.contains("race")) return List.of("종족 선택", "하위종족");
+        if (normalized.contains("직업") || normalized.contains("class")) return List.of("직업 선택", "시작 장비");
+        if (normalized.contains("배경") || normalized.contains("신념") || normalized.contains("개성")) return List.of("개성과 배경", "특성");
+        return List.of("선택", "하위종족", "시작 장비");
+    }
+
     private static List<String> characterCreationChapterHints(String situation) {
         String normalized = situation.toLowerCase(Locale.ROOT);
         if (!normalized.contains("character") && !normalized.contains("캐릭터")
                 && !normalized.contains("작성") && !normalized.contains("생성")) return List.of();
+        if (normalized.contains("starting equipment") || normalized.contains("initial equipment")
+                || normalized.contains("초기 장비") || normalized.contains("시작 장비")
+                || normalized.contains("직업") || normalized.contains("class")) return List.of("클래스");
+        if (normalized.contains("race") || normalized.contains("species") || normalized.contains("종족")) return List.of("종족");
+        if (normalized.contains("background") || normalized.contains("ideal") || normalized.contains("belief")
+                || normalized.contains("배경") || normalized.contains("신념") || normalized.contains("개성")) return List.of("개성과 배경");
         return List.of("캐릭터 제작 순서", "캐릭터 제작 선택", "능력 점수 사용하기",
                 "종족", "클래스", "개성과 배경");
     }
 
     private static List<CharacterContextEvidence> pack(
             Map<DocumentType, List<CharacterContextEvidence>> byType, int budget) {
+        if (budget == 0) {
+            return byType.values().stream().flatMap(List::stream)
+                    .filter(candidate -> candidate != null)
+                    .collect(java.util.stream.Collectors.toMap(
+                            CharacterContextSearchApplicationService::key,
+                            candidate -> candidate,
+                            (first, ignored) -> first,
+                            LinkedHashMap::new))
+                    .values().stream().toList();
+        }
         List<CharacterContextEvidence> result = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         int used = 0;

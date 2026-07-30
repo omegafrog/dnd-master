@@ -202,7 +202,7 @@ public final class ScenarioCompilationWorker {
                 List<com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate> refined = characterTagPort.extract(new CharacterInputTagExtractionPort.Request(
                         operationId + ":character-input-refine:" + candidate.key() + ":" + UUID.randomUUID(), excerpts,
                         "character-input-tag-v1", "character-input-tag-prompt-v1",
-                        "Refine only field '" + candidate.key() + "'. Keep its key exactly. Decide FREE_TEXT, SINGLE_SELECT, or MULTI_SELECT; return only directly supported options."));
+                        "Refine only field '" + candidate.key() + "'. Keep its key exactly. Decide FREE_TEXT, SINGLE_SELECT, or MULTI_SELECT. If selectable, return only directly supported options and one optionDetails object per option with a short description, sourceQuote, and evidence. If not selectable, return empty options and optionDetails arrays."));
                 result.add(refined == null ? candidate : refined.stream().filter(item -> item.key().equals(candidate.key())).findFirst().orElse(candidate));
             } catch (RuntimeException exception) {
                 log.warn("character input refinement failed; retaining first-stage candidate key={}", candidate.key(), exception);

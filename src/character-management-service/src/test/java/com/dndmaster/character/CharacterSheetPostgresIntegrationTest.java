@@ -64,6 +64,19 @@ class CharacterSheetPostgresIntegrationTest {
     }
 
     @Test
+    void storesBuildAndMutableStateSeparately() {
+        PostgresCharacterSheetRepository repository = new PostgresCharacterSheetRepository(dataSource);
+        CharacterSheet sheet = sheet(SheetEdition.DND_5E_2024,
+                new CharacterSheetData2024("Aria", 1, false, "Elf", "Wizard", "Sage", "dexterity=15",
+                        "{\"armorClass\":13}", "{\"subrace\":\"High Elf\"}", "{\"currentHitPoints\":6}"));
+        repository.save(sheet);
+
+        CharacterSheet restored = new PostgresCharacterSheetRepository(dataSource).findById(sheet.id()).orElseThrow();
+        assertEquals("{\"subrace\":\"High Elf\"}", restored.data().characterBuild());
+        assertEquals("{\"currentHitPoints\":6}", restored.data().characterState());
+    }
+
+    @Test
     void adventureBoundApiRejectsSheetFromAnotherAdventure() {
         PostgresCharacterSheetRepository repository = new PostgresCharacterSheetRepository(dataSource);
         CharacterSheet sheet = sheet(SheetEdition.DND_5E_2014, new CharacterSheetData2014("Aria", 4, false));

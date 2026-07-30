@@ -55,4 +55,28 @@ describe('CharacterCreationPage', () => {
     await user.click(screen.getByRole('button', { name: '캐릭터 시트 생성' }))
     expect(createCharacterSheet).toHaveBeenCalledWith(expect.objectContaining({ startingAbilities: 'str=12' }))
   })
+
+  it('stores subrace, equipped armor, and level-up HP as build and state', async () => {
+    const createCharacterSheet = vi.fn().mockResolvedValue({ characterSheetId: 'sheet-1', adventureId: 'adventure-1', edition: 'DND_5E_2024', characterName: 'Aria', level: 2, inspiration: false, version: 0 })
+    const setupApi = { getPlayPreparation: vi.fn().mockResolvedValue({ scenarioPackageId: 'package-1', bundleId: 'bundle-1', bundleRevision: 1, status: 'READY', blockers: [], characterLimit: { maximumCharacters: 2, source: null, sourceQuote: '' }, characterCreationBlueprint: { available: true, summary: 'published', rulebookDocumentCount: 1, storybookDocumentCount: 0, diagnostics: [], revision: 1, status: 'PUBLISHED', fields: [
+      { key: 'race', options: ['Elf'], required: true, sourceType: 'RULEBOOK', inputStatus: 'EXTRACTED', inputMode: 'SINGLE_SELECT', suggestions: [], diagnostics: [], evidence: [] },
+      { key: 'class', options: ['Ranger'], required: true, sourceType: 'RULEBOOK', inputStatus: 'EXTRACTED', inputMode: 'SINGLE_SELECT', suggestions: [], diagnostics: [], evidence: [] },
+    ] } }) , createCharacterSheet }
+    const sessionApi = { read: vi.fn().mockResolvedValue({ sessionId: 'session-1', scenarioPackageId: 'package-1', blueprintRevision: 1, characterLimit: 2, version: 0, status: 'DRAFT', party: [], adventureId: null, runtimeConfiguration: null }), addMember: vi.fn(), start: vi.fn() }
+    const user = userEvent.setup()
+    render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
+    await user.selectOptions(await screen.findByRole('combobox', { name: 'race' }), 'Elf')
+    await user.selectOptions(screen.getByRole('combobox', { name: 'class' }), 'Ranger')
+    await user.selectOptions(screen.getByLabelText('하위 종족'), 'Wood Elf')
+    await user.selectOptions(screen.getByLabelText('장착 갑옷'), 'scale mail')
+    await user.click(screen.getByLabelText('방패 장착'))
+    await user.clear(screen.getByLabelText('캐릭터 레벨'))
+    await user.type(screen.getByLabelText('캐릭터 레벨'), '2')
+    await user.selectOptions(await screen.findByLabelText('2레벨 HP 방식'), 'AVERAGE')
+    await user.type(screen.getByLabelText('캐릭터 이름'), 'Aria')
+    await user.click(screen.getByRole('button', { name: '캐릭터 시트 생성' }))
+    expect(createCharacterSheet).toHaveBeenCalledWith(expect.objectContaining({
+      characterBuild: expect.stringContaining('Wood Elf'), characterState: expect.stringContaining('AVERAGE'),
+    }))
+  })
 })

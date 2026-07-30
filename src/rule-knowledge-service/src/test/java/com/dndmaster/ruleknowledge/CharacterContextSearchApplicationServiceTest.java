@@ -38,8 +38,45 @@ class CharacterContextSearchApplicationServiceTest {
 
         assertEquals(List.of("rules", "story"), results.stream().map(CharacterContextEvidence::excerpt).toList());
         assertEquals(List.of(DocumentType.RULEBOOK, DocumentType.STORYBOOK), repository.searchedTypes);
-        assertEquals(List.of("캐릭터 제작 순서", "캐릭터 제작 선택", "능력 점수 사용하기", "종족", "클래스", "개성과 배경"),
-                repository.rulebookChapterHints);
+        assertEquals(List.of("클래스"), repository.rulebookChapterHints);
+    }
+
+    @Test
+    void narrowsRequiredCreationChoicesToTheirAuthoritativeChapter() {
+        KnowledgeDocumentId rulebook = KnowledgeDocumentId.generate();
+        RecordingRepository repository = new RecordingRepository(Map.of(DocumentType.RULEBOOK, List.of()));
+        CharacterContextSearchApplicationService service = new CharacterContextSearchApplicationService(
+                repository, new FixedEmbeddingPort(), 3);
+
+        service.search(query(rulebook, "캐릭터 생성에서 종족(race) 선택지를 찾아라."));
+        assertEquals(List.of("종족"), repository.rulebookChapterHints);
+        service.search(query(rulebook, "캐릭터 생성에서 신념(ideals) 선택지를 찾아라."));
+        assertEquals(List.of("개성과 배경"), repository.rulebookChapterHints);
+        service.search(query(rulebook, "캐릭터 생성에서 직업 초기 장비(starting equipment) 선택지를 찾아라."));
+        assertEquals(List.of("클래스"), repository.rulebookChapterHints);
+    }
+
+    @Test
+    void returnsEveryDeduplicatedRetrievalHitWhenBudgetIsDisabled() {
+        KnowledgeDocumentId rulebook = KnowledgeDocumentId.generate();
+        RecordingRepository repository = new RecordingRepository(Map.of(DocumentType.RULEBOOK, List.of(
+                hit(rulebook, DocumentType.RULEBOOK, 2, "page 1", "first", .91),
+                hit(rulebook, DocumentType.RULEBOOK, 2, "page 1", "duplicate", .90),
+                hit(rulebook, DocumentType.RULEBOOK, 2, "page 2", "second", .80))));
+        CharacterContextSearchApplicationService service = new CharacterContextSearchApplicationService(
+                repository, new FixedEmbeddingPort(), 3);
+
+        List<CharacterContextEvidence> results = service.search(new CharacterContextSearchQuery(
+                OWNER, Map.of(DocumentType.RULEBOOK, List.of(new CharacterContextDocumentScope(rulebook, 2))),
+                Map.of(DocumentType.RULEBOOK, .5), "character creation: choose a race", 0));
+
+        assertEquals(List.of("first", "second"), results.stream().map(CharacterContextEvidence::excerpt).toList());
+    }
+
+    private static CharacterContextSearchQuery query(KnowledgeDocumentId rulebook, String situation) {
+        return new CharacterContextSearchQuery(OWNER,
+                Map.of(DocumentType.RULEBOOK, List.of(new CharacterContextDocumentScope(rulebook, 2))),
+                Map.of(DocumentType.RULEBOOK, .1), situation, 100);
     }
 
     private static CharacterContextSearchHit hit(

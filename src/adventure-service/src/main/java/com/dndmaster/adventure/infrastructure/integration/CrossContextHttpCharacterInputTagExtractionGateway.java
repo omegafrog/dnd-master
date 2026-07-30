@@ -51,13 +51,25 @@ public final class CrossContextHttpCharacterInputTagExtractionGateway implements
         return !candidate.evidence().isEmpty() && candidate.evidence().stream().allMatch(reference -> excerpts.stream().anyMatch(excerpt ->
                 reference.knowledgeDocumentId().equals(excerpt.documentId())
                         && reference.extractionVersion() == excerpt.extractionVersion()
-                        && reference.locator().equals(excerpt.locator())));
+                        && reference.locator().equals(excerpt.locator())))
+                && candidate.optionDetails().stream().allMatch(detail -> !detail.evidence().isEmpty()
+                        && detail.evidence().stream().allMatch(reference -> excerpts.stream().anyMatch(excerpt ->
+                        reference.knowledgeDocumentId().equals(excerpt.documentId())
+                                && reference.extractionVersion() == excerpt.extractionVersion()
+                                && reference.locator().equals(excerpt.locator()))));
     }
 
     private static CharacterInputTagCandidate toCandidate(Candidate c) {
         List<ScenarioSourceReference> evidence = c.evidence() == null ? List.of() : c.evidence().stream()
                 .filter(Objects::nonNull).map(e -> new ScenarioSourceReference(new KnowledgeDocumentId(e.documentId()), e.extractionVersion(), e.locator())).toList();
-        return new CharacterInputTagCandidate(c.key(), c.label(), c.parentKey(), c.required(), c.inputMode(), c.options(), c.suggestions(), c.confidence(), evidence, c.sourceQuote(), c.sourceType());
+        List<CharacterInputTagCandidate.OptionDetail> optionDetails = c.optionDetails() == null ? List.of() : c.optionDetails().stream()
+                .filter(Objects::nonNull).map(detail -> new CharacterInputTagCandidate.OptionDetail(detail.value(), detail.label(),
+                        detail.description(), detail.sourceQuote() == null || detail.sourceQuote().isBlank()
+                                ? (c.sourceQuote() == null || c.sourceQuote().isBlank() ? detail.value() : c.sourceQuote())
+                                : detail.sourceQuote(), detail.evidence() == null ? List.of() : detail.evidence().stream()
+                        .filter(Objects::nonNull).map(e -> new ScenarioSourceReference(new KnowledgeDocumentId(e.documentId()),
+                                e.extractionVersion(), e.locator())).toList())).toList();
+        return new CharacterInputTagCandidate(c.key(), c.label(), c.parentKey(), c.required(), c.inputMode(), c.options(), c.suggestions(), c.confidence(), evidence, c.sourceQuote(), c.sourceType(), optionDetails);
     }
 
     public static final class CharacterInputTagExtractionException extends RuntimeException { public CharacterInputTagExtractionException(String message) { super(message); } public CharacterInputTagExtractionException(String message, Throwable cause) { super(message, cause); } }
@@ -65,6 +77,7 @@ public final class CrossContextHttpCharacterInputTagExtractionGateway implements
                        String instruction) {}
     record Excerpt(java.util.UUID documentId, long extractionVersion, String locator, String text) {}
     @JsonIgnoreProperties(ignoreUnknown = true) record Response(List<Candidate> candidates) {}
-    @JsonIgnoreProperties(ignoreUnknown = true) record Candidate(String key, String label, String parentKey, boolean required, InputMode inputMode, List<String> options, List<String> suggestions, String confidence, List<Evidence> evidence, String sourceQuote, String sourceType) {}
+    @JsonIgnoreProperties(ignoreUnknown = true) record Candidate(String key, String label, String parentKey, boolean required, InputMode inputMode, List<String> options, List<OptionDetail> optionDetails, List<String> suggestions, String confidence, List<Evidence> evidence, String sourceQuote, String sourceType) {}
+    record OptionDetail(String value, String label, String description, String sourceQuote, List<Evidence> evidence) {}
     record Evidence(java.util.UUID documentId, long extractionVersion, String locator) {}
 }

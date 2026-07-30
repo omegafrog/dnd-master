@@ -24,7 +24,7 @@
 - 문서 유형 하나가 비어도 나머지 검색과 컴파일이 계속된다.
 - review/publish 후 생성된 character sheet가 Blueprint 값을 사용한다.
 
-## Tests
+## Testsㄱ
 
 - system/API integration and regression tests.
 - `ui ~ entity` Playwright: upload/indexed documents → bundle → compile → review → publish → character sheet.

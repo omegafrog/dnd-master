@@ -34,8 +34,12 @@ public class ScenarioPreparationController {
             "/scenario-packages/{scenarioPackageId}/character-blueprint/draft",
             "/scenario-packages/{scenarioPackageId}/character-blueprint"})
     com.dndmaster.adventure.application.scenario.preparation.CharacterCreationBlueprintView generateBlueprintDraft(
-            @PathVariable UUID scenarioPackageId) {
-        return service.generateBlueprintDraft(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()));
+            @PathVariable UUID scenarioPackageId,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "DND_5E") String edition) {
+        if ("DND_5E".equalsIgnoreCase(edition)) {
+            return service.generateBlueprintDraft(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()));
+        }
+        return service.generateBlueprintDraft(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()), edition);
     }
 
     @GetMapping("/runtime-options")

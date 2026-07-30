@@ -3,9 +3,16 @@ import type { AdventureSessionView, SessionControlMode } from '../adventure-sess
 import type { AdventureSessionApi } from '../adventure-session/AdventureSessionApi'
 import type { CharacterCreationDraft, CreatedCharacterSheetView, PlayPreparationView, SetupApi } from '../rulebooks/SetupApi'
 import { CharacterInputTree } from './CharacterInputTree'
+import { armorOptions, calculateDnd5eCharacter, subracesFor, type Ability, type AbilityScores, type HitPointIncrease } from './Dnd5eRules'
 
 type SessionApi = Pick<AdventureSessionApi, 'read' | 'addMember' | 'start'>
 type CharacterSetupApi = Pick<SetupApi, 'getPlayPreparation' | 'createCharacterSheet' | 'resolveBlueprint' | 'addBlueprintChild' | 'publishBlueprint'>
+const abilities: Ability[] = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma']
+const aliases: Record<Ability, string[]> = {
+  strength: ['strength', 'str'], dexterity: ['dexterity', 'dex'], constitution: ['constitution', 'con'],
+  intelligence: ['intelligence', 'int'], wisdom: ['wisdom', 'wis'], charisma: ['charisma', 'cha'],
+}
+const flattenNodes = (nodes: NonNullable<PlayPreparationView['characterCreationBlueprint']['roots']>): typeof nodes[number][] => nodes.flatMap(node => [node, ...flattenNodes(node.children)])
 
 export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { sessionId: string; setupApi: CharacterSetupApi; sessionApi: SessionApi }) {
   const [session, setSession] = useState<AdventureSessionView | null>(null)
@@ -17,6 +24,10 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
   const [mode, setMode] = useState<SessionControlMode>('DIRECT')
   const [created, setCreated] = useState<CreatedCharacterSheetView | null>(null)
   const [message, setMessage] = useState('')
+  const [subrace, setSubrace] = useState('')
+  const [equippedArmor, setEquippedArmor] = useState('')
+  const [equippedShield, setEquippedShield] = useState(false)
+  const [hitPointIncreases, setHitPointIncreases] = useState<HitPointIncrease[]>([])
 
   useEffect(() => {
     let active = true
@@ -32,7 +43,6 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
   async function create() {
     if (!session || !preparation || !name.trim() || !setupApi.createCharacterSheet) return
     try {
-      const flattenNodes = (nodes: NonNullable<typeof preparation.characterCreationBlueprint.roots>): typeof nodes[number][] => nodes.flatMap(node => [node, ...flattenNodes(node.children)])
       const nodes = flattenNodes(preparation.characterCreationBlueprint.roots ?? [])
       const resolvedValues = Object.fromEntries(nodes
         .map(node => [node.id, values[node.id] ?? node.value ?? ''])
@@ -48,6 +58,10 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
         .filter(node => (values[node.id] ?? node.value ?? '').trim())
         .map(node => `${node.key}=${values[node.id] ?? node.value ?? ''}`)
         .join(',')
+      const baseAbilities = abilityValues(nodes, values)
+      const derivedStatistics = calculateDnd5eCharacter({
+        race: nodeValue('race'), subrace, characterClass: nodeValue('characterClass', 'class'), level, baseAbilities, equippedArmor, equippedShield, hitPointIncreases,
+      })
       const next = await setupApi.createCharacterSheet({
         sessionId,
         edition,
@@ -58,6 +72,9 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
         characterClass: nodeValue('characterClass', 'class'),
         background: nodeValue('background'),
         startingAbilities: nodeValue('startingAbilities', 'starting_ability_scores') || nestedStartingAbilities,
+        derivedStatistics: JSON.stringify(derivedStatistics),
+        characterBuild: JSON.stringify({ subrace, equippedArmor, abilityScoreMethod: nodeValue('ability_score_method') }),
+        characterState: JSON.stringify({ currentHitPoints: derivedStatistics.hitPointMaximum, temporaryHitPoints: 0, equippedShield, hitPointIncreases }),
         blueprintRevision: session.blueprintRevision,
         blueprintValues: resolvedValues,
       })
@@ -114,6 +131,15 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
 
   if (!session || !preparation) return <p role="status">{message || '캐릭터 생성 준비를 불러오는 중…'}</p>
   const blueprint = preparation.characterCreationBlueprint
+  const nodes = flattenNodes(blueprint.roots ?? [])
+  const valueFor = (...keys: string[]) => keys.map(key => {
+    const node = nodes.find(item => item.id === key || item.key === key)
+    return node ? values[node.id] ?? node.value ?? '' : values[key]
+  }).find(value => value != null) ?? ''
+  const derivedStatistics = calculateDnd5eCharacter({
+    race: valueFor('race'), subrace, characterClass: valueFor('characterClass', 'class'), level, baseAbilities: abilityValues(nodes, values), equippedArmor, equippedShield, hitPointIncreases,
+  })
+  const availableSubraces = subracesFor(valueFor('race'))
   const blocked = preparation.status !== 'READY' || !blueprint.available || blueprint.status !== 'PUBLISHED'
   return <section aria-labelledby="character-creation-heading">
     <h2 id="character-creation-heading">캐릭터 생성</h2>
@@ -142,6 +168,31 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
         {field.diagnostics.map(item => <small key={item}>{item}</small>)}
       </label>)}
     </fieldset>}
+    <fieldset aria-label="종족·장비·HP 선택">
+      <legend>종족·장비·HP 선택</legend>
+      {availableSubraces.length > 0 && <label>하위 종족 <select aria-label="하위 종족" value={subrace} onChange={event => setSubrace(event.currentTarget.value)}><option value="">선택하세요</option>{availableSubraces.map(option => <option key={option} value={option}>{option}</option>)}</select></label>}
+      <label>장착 갑옷 <select aria-label="장착 갑옷" value={equippedArmor} onChange={event => setEquippedArmor(event.currentTarget.value)}><option value="">갑옷 없음</option>{armorOptions().map(option => <option key={option} value={option}>{option}</option>)}</select></label>
+      <label>방패 장착 <input aria-label="방패 장착" type="checkbox" checked={equippedShield} onChange={event => setEquippedShield(event.currentTarget.checked)} /></label>
+      {Array.from({ length: Math.max(0, level - 1) }, (_, index) => {
+        const increase = hitPointIncreases[index]
+        return <fieldset key={index}><legend>{index + 2}레벨 HP 증가</legend>
+          <select aria-label={`${index + 2}레벨 HP 방식`} value={increase?.method ?? ''} onChange={event => { const method = event.currentTarget.value as HitPointIncrease['method']; setHitPointIncreases(current => {
+            const next = [...current]; next[index] = { method }; return next
+          }) }}><option value="">선택하세요</option><option value="AVERAGE">평균</option><option value="ROLL">굴림</option></select>
+          {increase?.method === 'ROLL' && <input aria-label={`${index + 2}레벨 HP 굴림`} type="number" min={1} max={12} value={increase.roll ?? ''} onChange={event => { const roll = Number(event.currentTarget.value); setHitPointIncreases(current => {
+            const next = [...current]; next[index] = { ...increase, roll }; return next
+          }) }} />}
+        </fieldset>
+      })}
+    </fieldset>
+    <section aria-label="계산된 5e 능력치">
+      <h3>계산된 5e 기본값</h3>
+      <p>능력치: {abilities.map(ability => `${ability.slice(0, 3).toUpperCase()} ${derivedStatistics.abilityScores[ability]} (${formatModifier(derivedStatistics.abilityModifiers[ability])})`).join(' · ')}</p>
+      <p>숙련 보너스 +{derivedStatistics.proficiencyBonus} · 이동 {derivedStatistics.speed || '?'}ft · HP 최대 {derivedStatistics.hitPointMaximum || '?'} · HD {derivedStatistics.hitDie || '?'}</p>
+      <p>AC {derivedStatistics.armorClass} · 내성 숙련 {derivedStatistics.savingThrowProficiencies.join(', ') || '?'}</p>
+      {derivedStatistics.conditionalTraits.length > 0 && <ul aria-label="조건부 특성">{derivedStatistics.conditionalTraits.map(trait => <li key={`${trait.name}-${trait.trigger}`}>{trait.name}: {trait.kind} · {trait.trigger}</li>)}</ul>}
+      {derivedStatistics.notes.map(note => <small key={note}>{note}</small>)}
+    </section>
     {setupApi.publishBlueprint && blueprint.status !== 'PUBLISHED' ? <button type="button" onClick={() => void publish()} disabled={preparation.status !== 'READY'}>Blueprint 게시</button> : null}
     <label>이름 <input aria-label="캐릭터 이름" value={name} onChange={event => setName(event.currentTarget.value)} required /></label>
     <label>레벨 <input aria-label="캐릭터 레벨" type="number" min={1} max={20} value={level} onChange={event => setLevel(Number(event.currentTarget.value))} /></label>
@@ -151,3 +202,13 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
     {message && !created && <p role="alert">{message}</p>}
   </section>
 }
+
+function abilityValues(nodes: NonNullable<PlayPreparationView['characterCreationBlueprint']['roots']>, values: Record<string, string>): Partial<AbilityScores> {
+  return Object.fromEntries(abilities.map(ability => {
+    const node = nodes.find(item => aliases[ability].includes(item.key))
+    const raw = node ? values[node.id] ?? node.value ?? '' : ''
+    return [ability, Number(raw) || 0]
+  })) as Partial<AbilityScores>
+}
+
+function formatModifier(value: number) { return value >= 0 ? `+${value}` : String(value) }

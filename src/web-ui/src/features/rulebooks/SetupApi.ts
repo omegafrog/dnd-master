@@ -206,6 +206,9 @@ export type CharacterCreationDraft = {
   characterClass?: string
   background?: string
   startingAbilities?: string
+  derivedStatistics?: string
+  characterBuild?: string
+  characterState?: string
   blueprintRevision?: number
   blueprintValues?: Record<string, string>
 }

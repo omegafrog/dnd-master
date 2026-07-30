@@ -27,7 +27,7 @@ public interface CharacterContextSearchPort {
                     throw new IllegalArgumentException("thresholds must contain valid document type values");
                 }
             });
-            if (tokenBudget <= 0) throw new IllegalArgumentException("token budget must be positive");
+            if (tokenBudget < 0) throw new IllegalArgumentException("token budget must not be negative");
         }
     }
 

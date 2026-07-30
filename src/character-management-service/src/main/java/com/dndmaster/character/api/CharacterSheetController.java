@@ -41,7 +41,7 @@ public class CharacterSheetController {
                 new SessionId(sessionId),
                 request.ownerPlayerId(),
                 SheetEdition.valueOf(request.edition()),
-                parseData(request.edition(), request.characterName(), request.level(), request.inspiration(), request.race(), request.characterClass(), request.background(), startingAbilities(request))));
+                parseData(request.edition(), request.characterName(), request.level(), request.inspiration(), request.race(), request.characterClass(), request.background(), startingAbilities(request), request.derivedStatistics(), request.characterBuild(), request.characterState())));
         return CharacterSheetResponse.from(sheet);
     }
 
@@ -67,7 +67,7 @@ public class CharacterSheetController {
             @RequestBody CharacterSheetRequest request) {
         CharacterSheetUpdate update = new CharacterSheetUpdate(
                 SheetEdition.valueOf(request.edition()),
-                parseData(request.edition(), request.characterName(), request.level(), request.inspiration(), request.race(), request.characterClass(), request.background(), startingAbilities(request)),
+                parseData(request.edition(), request.characterName(), request.level(), request.inspiration(), request.race(), request.characterClass(), request.background(), startingAbilities(request), request.derivedStatistics(), request.characterBuild(), request.characterState()),
                 InputMode.STRUCTURED_SHEET,
                 commandId,
                 expectedVersion);
@@ -76,10 +76,10 @@ public class CharacterSheetController {
     }
 
     private static CharacterSheetData parseData(
-            String edition, String characterName, int level, boolean inspiration, String race, String characterClass, String background, String startingAbilities) {
+            String edition, String characterName, int level, boolean inspiration, String race, String characterClass, String background, String startingAbilities, String derivedStatistics, String characterBuild, String characterState) {
         return switch (SheetEdition.valueOf(edition)) {
-            case DND_5E_2014 -> new CharacterSheetData2014(characterName, level, inspiration, race, characterClass, background, startingAbilities);
-            case DND_5E_2024 -> new CharacterSheetData2024(characterName, level, inspiration, race, characterClass, background, startingAbilities);
+            case DND_5E_2014 -> new CharacterSheetData2014(characterName, level, inspiration, race, characterClass, background, startingAbilities, derivedStatistics, characterBuild, characterState);
+            case DND_5E_2024 -> new CharacterSheetData2024(characterName, level, inspiration, race, characterClass, background, startingAbilities, derivedStatistics, characterBuild, characterState);
         };
     }
 
@@ -94,13 +94,13 @@ public class CharacterSheetController {
 
     public record CharacterSheetRequest(
             UUID adventureId, UUID ownerPlayerId, String edition, String characterName, int level, boolean inspiration,
-            String race, String characterClass, String background, String startingAbilities,
+            String race, String characterClass, String background, String startingAbilities, String derivedStatistics, String characterBuild, String characterState,
             Map<String, String> blueprintValues) {
         public CharacterSheetRequest(UUID adventureId, UUID ownerPlayerId, String edition, String characterName,
                                      int level, boolean inspiration, String race, String characterClass,
                                      String background, String startingAbilities) {
             this(adventureId, ownerPlayerId, edition, characterName, level, inspiration, race, characterClass,
-                    background, startingAbilities, null);
+                    background, startingAbilities, null, null, null, null);
         }
     }
     public record CharacterSheetsDeletionRequest(UUID sessionId, java.util.List<UUID> characterSheetIds) {}

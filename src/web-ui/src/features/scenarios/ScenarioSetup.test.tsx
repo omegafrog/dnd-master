@@ -71,6 +71,7 @@ class FakeSetupApi implements SetupApi {
     return bundle('bundle-1', 1, [
       { knowledgeDocumentId: 'doc-1', documentType: 'STORYBOOK', originalFilename: 'main.pdf', status: 'EXTRACTED', role: 'MAIN_SCENARIO', extractionVersion: 3 },
       { knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK', originalFilename: 'handout.pdf', status: 'PARTIAL_CONFIRMED', role: 'HANDOUT', extractionVersion: 7 },
+      { knowledgeDocumentId: 'doc-3', documentType: 'RULEBOOK', originalFilename: 'rules.pdf', status: 'EXTRACTED', role: 'RULEBOOK', extractionVersion: 1 },
     ])
   }
   async reviseScenarioBundle() { return bundle('bundle-1', 2, [
@@ -271,7 +272,8 @@ describe('ScenarioSetup', () => {
     render(<ScenarioSetup api={api} playerId="owner-1" onError={() => {}} />)
 
     expect(await screen.findByText('main.pdf')).toBeInTheDocument()
-    expect(screen.queryByText('rules.pdf')).not.toBeInTheDocument()
+    expect(screen.getByText('rules.pdf')).toBeInTheDocument()
+    expect(screen.getByLabelText('rules.pdf 역할')).toHaveValue('RULEBOOK')
     expect(screen.getByText('handout.pdf: 추출 경고가 있어 컴파일 위험이 있습니다.')).toBeInTheDocument()
     expect(screen.getByText('failed-main.pdf: 컴파일 위험 — document parser stopped')).toBeInTheDocument()
 

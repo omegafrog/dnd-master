@@ -20,7 +20,8 @@ public final class PgvectorCharacterContextSearchRepository implements Character
                    SELECT 1 FROM unnest(?::uuid[], ?::bigint[]) AS scope(document_id, extraction_version)
                     WHERE scope.document_id = c.rulebook_id AND scope.extraction_version = r.version)
                AND (cardinality(?::text[]) = 0 OR c.chapter ILIKE ANY (?::text[]))
-             ORDER BY similarity DESC, c.sequence
+             ORDER BY CASE WHEN cardinality(?::text[]) > 0 AND c.section ILIKE ANY (?::text[]) THEN 0 ELSE 1 END,
+                      similarity DESC, c.sequence
             """;
 
     private final DataSource dataSource;
@@ -32,13 +33,23 @@ public final class PgvectorCharacterContextSearchRepository implements Character
     @Override
     public List<CharacterContextSearchHit> search(
             OwnerPlayerId owner, DocumentType type, List<CharacterContextDocumentScope> scope, float[] embedding) {
-        return search(owner, type, scope, embedding, List.of());
+        return search(owner, type, scope, embedding, List.of(), List.of());
+    }
+
+    @Override public List<CharacterContextSearchHit> search(OwnerPlayerId owner, DocumentType type,
+            List<CharacterContextDocumentScope> scope, float[] embedding, List<String> chapterHints, List<String> sectionHints) {
+        return searchInternal(owner, type, scope, embedding, chapterHints, sectionHints == null ? List.of() : sectionHints);
     }
 
     @Override
     public List<CharacterContextSearchHit> search(
             OwnerPlayerId owner, DocumentType type, List<CharacterContextDocumentScope> scope,
             float[] embedding, List<String> chapterHints) {
+        return searchInternal(owner, type, scope, embedding, chapterHints, List.of());
+    }
+
+    private List<CharacterContextSearchHit> searchInternal(OwnerPlayerId owner, DocumentType type,
+            List<CharacterContextDocumentScope> scope, float[] embedding, List<String> chapterHints, List<String> sectionHints) {
         Objects.requireNonNull(owner);
         Objects.requireNonNull(type);
         if (scope == null || scope.isEmpty()) throw new IllegalArgumentException("scope must not be empty");
@@ -55,6 +66,9 @@ public final class PgvectorCharacterContextSearchRepository implements Character
                     .map(hint -> "%" + hint + "%").toArray(String[]::new);
             statement.setArray(6, connection.createArrayOf("text", patterns));
             statement.setArray(7, connection.createArrayOf("text", patterns));
+            String[] sectionPatterns = sectionHints.stream().map(hint -> "%" + hint + "%").toArray(String[]::new);
+            statement.setArray(8, connection.createArrayOf("text", sectionPatterns));
+            statement.setArray(9, connection.createArrayOf("text", sectionPatterns));
             try (ResultSet rows = statement.executeQuery()) {
                 List<CharacterContextSearchHit> hits = new ArrayList<>();
                 while (rows.next()) hits.add(new CharacterContextSearchHit(

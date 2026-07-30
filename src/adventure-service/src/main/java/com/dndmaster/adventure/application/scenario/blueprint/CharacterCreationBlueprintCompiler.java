@@ -21,7 +21,8 @@ public final class CharacterCreationBlueprintCompiler {
                 .toList();
         CharacterCreationBlueprint compiled = compile(revision, grounded.stream()
                 .map(candidate -> new FieldCandidate(effectiveKey(candidate), candidate.options(), true, candidate.sourceType(),
-                        candidate.evidence().getFirst(), candidate.sourceQuote(), candidate.inputMode(), candidate.suggestions()))
+                        candidate.evidence().getFirst(), candidate.sourceQuote(), candidate.inputMode(), candidate.suggestions(),
+                        toFieldOptionDetails(candidate.optionDetails())))
                 .toList());
         Map<String, CharacterInputTagCandidate> byKey = grounded.stream().collect(java.util.stream.Collectors.toMap(
                 CharacterCreationBlueprintCompiler::effectiveKey, candidate -> candidate,
@@ -30,14 +31,9 @@ public final class CharacterCreationBlueprintCompiler {
             CharacterInputTagCandidate candidate = byKey.get(field.key());
             return candidate == null ? field : new CharacterCreationBlueprint.Field(field.key(), field.options(), candidate.required(),
                     field.sourceType(), candidate.evidence(), field.inputStatus(), field.diagnostics(), field.inputMode(),
-                    field.suggestions(), field.sourceQuote(), candidate.label(), field.value(), field.nodeId(), field.parentNodeId(), candidate.confidence());
+                    field.suggestions(), field.sourceQuote(), candidate.label(), field.value(), field.nodeId(), field.parentNodeId(), candidate.confidence(),
+                    toFieldOptionDetails(candidate.optionDetails()));
         }).toList());
-        for (String key : List.of("name", "race", "class", "background", "starting_ability_scores", "level")) {
-            if (fields.stream().anyMatch(field -> field.key().equals(key))) continue;
-            fields.add(new CharacterCreationBlueprint.Field(key, List.of(), true, "RULEBOOK", List.of(),
-                    "MANUAL_INPUT_REQUIRED", List.of("agent did not extract this field"), InputMode.FREE_TEXT,
-                    List.of(), "", key, null, null, null, "LOW"));
-        }
         CharacterCreationBlueprintStatus status = fields.stream().anyMatch(field ->
                 !field.diagnostics().isEmpty() || field.inputStatus().equals("MANUAL_INPUT_REQUIRED"))
                 ? CharacterCreationBlueprintStatus.NEEDS_REVIEW : compiled.status();
@@ -86,6 +82,8 @@ public final class CharacterCreationBlueprintCompiler {
             for (FieldCandidate candidate : selected) {
                 options.addAll(candidate.options());
             }
+            List<CharacterCreationBlueprint.Field.OptionDetail> optionDetails = selected.stream()
+                    .flatMap(candidate -> candidate.optionDetails().stream()).distinct().toList();
             List<FieldCandidate> extracted = values.stream().filter(FieldCandidate::extracted).toList();
             boolean crossSourceConflict = extracted.stream()
                     .map(FieldCandidate::sourceType).distinct().count() > 1
@@ -96,6 +94,7 @@ public final class CharacterCreationBlueprintCompiler {
             boolean conflict = selected.stream().map(FieldCandidate::options).distinct().count() > 1;
             if (crossSourceConflict || conflict) {
                 for (FieldCandidate candidate : extracted) options.addAll(candidate.options());
+                optionDetails = extracted.stream().flatMap(candidate -> candidate.optionDetails().stream()).distinct().toList();
             }
             List<String> fieldDiagnostics = new ArrayList<>();
             if (crossSourceConflict) {
@@ -131,7 +130,7 @@ public final class CharacterCreationBlueprintCompiler {
                             ? "STORYBOOK" : selected.stream().anyMatch(candidate -> candidate.sourceType().equals("HANDOUT"))
                                     ? "HANDOUT" : "RULEBOOK", evidence, inputStatus, fieldDiagnostics,
                     inputMode, suggestions, sourceQuote, entry.getKey(), fixedValue, nodeIds.get(entry.getKey()),
-                    parentNodeId(entry.getKey(), nodeIds), "HIGH");
+                    parentNodeId(entry.getKey(), nodeIds), "HIGH", optionDetails);
             fields.add(field);
             diagnostics.addAll(fieldDiagnostics.stream().map(message -> entry.getKey() + ": " + message).toList());
         }
@@ -149,6 +148,13 @@ public final class CharacterCreationBlueprintCompiler {
         };
     }
 
+    private static List<CharacterCreationBlueprint.Field.OptionDetail> toFieldOptionDetails(
+            List<CharacterInputTagCandidate.OptionDetail> details) {
+        return (details == null ? List.<CharacterInputTagCandidate.OptionDetail>of() : details).stream()
+                .map(detail -> new CharacterCreationBlueprint.Field.OptionDetail(detail.value(), detail.label(), detail.description(),
+                        detail.sourceQuote(), detail.evidence())).toList();
+    }
+
     private static String parentNodeId(String key, Map<String, String> nodeIds) {
         int separator = key.lastIndexOf('.');
         return separator < 0 ? null : nodeIds.get(key.substring(0, separator));
@@ -162,11 +168,18 @@ public final class CharacterCreationBlueprintCompiler {
             ScenarioSourceReference evidence,
             String sourceQuote,
             InputMode inputMode,
-            List<String> suggestions) {
+            List<String> suggestions,
+            List<CharacterCreationBlueprint.Field.OptionDetail> optionDetails) {
         public FieldCandidate(String key, List<String> options, boolean extracted, String sourceType,
                               ScenarioSourceReference evidence, String sourceQuote) {
             this(key, options, extracted, sourceType, evidence, sourceQuote,
-                    options.isEmpty() ? InputMode.FREE_TEXT : InputMode.SINGLE_SELECT, List.of());
+                    options.isEmpty() ? InputMode.FREE_TEXT : InputMode.SINGLE_SELECT, List.of(), List.of());
+        }
+
+        public FieldCandidate(String key, List<String> options, boolean extracted, String sourceType,
+                              ScenarioSourceReference evidence, String sourceQuote, InputMode inputMode,
+                              List<String> suggestions) {
+            this(key, options, extracted, sourceType, evidence, sourceQuote, inputMode, suggestions, List.of());
         }
 
         public FieldCandidate {
@@ -181,8 +194,12 @@ public final class CharacterCreationBlueprintCompiler {
             sourceQuote = Objects.requireNonNull(sourceQuote, "source quote must not be null");
             inputMode = Objects.requireNonNull(inputMode, "input mode must not be null");
             suggestions = List.copyOf(Objects.requireNonNull(suggestions, "suggestions must not be null"));
+            optionDetails = List.copyOf(Objects.requireNonNull(optionDetails, "option details must not be null"));
             if (inputMode == InputMode.FREE_TEXT && !options.isEmpty()) {
                 throw new IllegalArgumentException("free-text candidate cannot have options");
+            }
+            for (CharacterCreationBlueprint.Field.OptionDetail detail : optionDetails) {
+                if (!options.contains(detail.value())) throw new IllegalArgumentException("option detail is not a candidate option");
             }
         }
 

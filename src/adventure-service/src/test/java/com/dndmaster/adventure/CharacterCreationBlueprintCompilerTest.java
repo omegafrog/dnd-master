@@ -186,6 +186,21 @@ class CharacterCreationBlueprintCompilerTest {
     }
 
     @Test
+    void preservesSourceGroundedInformationForEachSelectableOption() {
+        var blueprint = new CharacterCreationBlueprintCompiler().compileAgent(1, List.of(
+                new CharacterInputTagCandidate("race", "Race", null, true,
+                        InputMode.SINGLE_SELECT, List.of("Elf"), List.of(), "HIGH",
+                        List.of(RULEBOOK), "Choose a race.", "RULEBOOK", List.of(
+                        new CharacterInputTagCandidate.OptionDetail("Elf", "Elf", "An elf character option.",
+                                "Choose an elf.", List.of(RULEBOOK))))));
+
+        var option = blueprint.field("race").optionDetails().getFirst();
+        assertEquals("Elf", option.value());
+        assertEquals("An elf character option.", option.description());
+        assertEquals(List.of(RULEBOOK), option.evidence());
+    }
+
+    @Test
     void reviewResolutionThenPublishCreatesNewImmutableRevision() {
         var draft = new CharacterCreationBlueprintCompiler().compile(1, List.of(
                 new FieldCandidate("race", List.of("Elf"), true, "HANDOUT", HANDOUT, "Elf")));

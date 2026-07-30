@@ -19,7 +19,15 @@ public record CharacterInputNode(
         String confidence,
         String sourceQuote,
         List<String> diagnostics,
-        List<CharacterInputNode> children) {
+        List<CharacterInputNode> children,
+        List<CharacterCreationBlueprint.Field.OptionDetail> optionDetails) {
+    public CharacterInputNode(String id, String parentId, String key, String label, InputMode inputMode, String value,
+                              List<String> options, List<String> suggestions, CharacterInputNodeStatus status,
+                              boolean allowUserAddChild, List<ScenarioSourceReference> sourceEvidence, String confidence,
+                              String sourceQuote, List<String> diagnostics, List<CharacterInputNode> children) {
+        this(id, parentId, key, label, inputMode, value, options, suggestions, status, allowUserAddChild, sourceEvidence,
+                confidence, sourceQuote, diagnostics, children, List.of());
+    }
     public CharacterInputNode {
         id = requireText(id, "node id");
         key = requireText(key, "node key");
@@ -33,6 +41,7 @@ public record CharacterInputNode(
         sourceQuote = Objects.requireNonNull(sourceQuote, "source quote must not be null");
         diagnostics = List.copyOf(Objects.requireNonNull(diagnostics, "diagnostics must not be null"));
         children = List.copyOf(Objects.requireNonNull(children, "children must not be null"));
+        optionDetails = List.copyOf(Objects.requireNonNull(optionDetails, "option details must not be null"));
         if (parentId != null && parentId.isBlank()) throw new IllegalArgumentException("node parent must not be blank");
         if (inputMode == InputMode.FREE_TEXT && !options.isEmpty()) {
             throw new IllegalArgumentException("free-text node cannot have options");
@@ -52,7 +61,7 @@ public record CharacterInputNode(
         }
         return new CharacterInputNode(id, parentId, key, label, inputMode, String.join(",", requested), options,
                 suggestions, CharacterInputNodeStatus.REVIEWED, allowUserAddChild, sourceEvidence, confidence,
-                sourceQuote, List.of(), children);
+                sourceQuote, List.of(), children, optionDetails);
     }
 
     private static String requireText(String value, String name) {
