@@ -233,12 +233,15 @@ class ScenarioPreparationApplicationServiceTest {
 
         var draft = service.generateBlueprintDraft(scenarioPackage.packageId(), owner());
 
-        for (String key : List.of("name", "race", "class", "level", "background",
+        for (String key : List.of("name", "level",
                 "starting_ability_scores.strength", "starting_ability_scores.charisma")) {
             var field = draft.fields().stream().filter(item -> item.key().equals(key)).findFirst().orElseThrow();
             assertEquals("FREE_TEXT", field.inputMode());
             assertEquals("TEMPLATE", field.sourceType());
         }
+        assertEquals("SINGLE_SELECT", draft.fields().stream().filter(item -> item.key().equals("race")).findFirst().orElseThrow().inputMode());
+        assertEquals("SINGLE_SELECT", draft.fields().stream().filter(item -> item.key().equals("class")).findFirst().orElseThrow().inputMode());
+        assertEquals("SINGLE_SELECT", draft.fields().stream().filter(item -> item.key().equals("background")).findFirst().orElseThrow().inputMode());
         verify(search, atLeast(1)).search(any());
         verify(tags, never()).extract(any());
     }

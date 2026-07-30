@@ -38,6 +38,7 @@ const selectableStatuses = new Set<KnowledgeDocumentView['status']>([
 const compilationPollIntervalMs = 250
 const compilationPollLimit = 240
 
+// eslint-disable-next-line react-refresh/only-export-components -- Pure serializer is exercised by ScenarioSetup tests.
 export function serializeBlueprintValues(nodes: CharacterInputNodeView[], values: Record<string, string>, parentPath = ''): string[] {
   return nodes.flatMap(node => {
     const path = parentPath ? `${parentPath}.${node.key}` : node.key
