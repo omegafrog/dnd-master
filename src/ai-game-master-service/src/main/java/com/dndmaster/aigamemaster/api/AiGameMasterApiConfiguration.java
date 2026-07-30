@@ -23,10 +23,14 @@ import java.util.UUID;
 public class AiGameMasterApiConfiguration {
 
     @Bean
-    SceneModelPort sceneModelPort(SpringAiChatAdapter adapter) {
+    SceneModelPort sceneModelPort(SpringAiChatAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper mapper) {
         return prompt -> new SceneOutput(prompt.scenarioId(), prompt.ruleSetId(),
                 ScenarioAlignment.WITHIN_SELECTED_SCENARIO,
-                adapter.completeNarrative("scene-" + UUID.randomUUID(), prompt.value()), List.of());
+                adapter.complete("scene-" + UUID.randomUUID(), prompt.value(), text -> groundedScene(mapper, text)), List.of());
+    }
+
+    private static String groundedScene(com.fasterxml.jackson.databind.ObjectMapper mapper, String text) {
+        try { var root=mapper.readTree(text); var lines=new java.util.ArrayList<String>(); for(var item:root.path("facts")){lines.add("[E"+item.path("evidence").asInt()+"] "+item.path("text").asText());} for(var item:root.path("choices")){lines.add("[E"+item.path("evidence").asInt()+"] "+item.path("number").asInt()+". "+item.path("text").asText());} if(lines.size()!=5)throw new IllegalArgumentException("five grounded lines required"); return String.join("\n",lines); } catch(Exception e){ throw new IllegalArgumentException("invalid grounded scene JSON",e); }
     }
 
     @Bean
