@@ -33,6 +33,43 @@ export type AdventureSessionView = {
   party: SessionPartyMember[]
 }
 
+export type CampaignPlanDocumentRevision = {
+  knowledgeDocumentId: string
+  extractionVersion: number
+  originalFilename: string
+}
+
+export type CampaignPlanEvidence = {
+  evidenceId: string
+  knowledgeDocumentId: string
+  extractionVersion: number
+  locator: string
+  excerpt: string
+}
+
+export type CampaignPlanStage = {
+  order: number
+  scene: string
+  goal: string
+  conflict: string
+  cluesAndNpcs: string[]
+  transitionCondition: string
+  evidenceIds: string[]
+}
+
+export type CampaignPlanView = {
+  planId: string
+  sessionId: string
+  scenarioPackageId: string
+  scenarioPackageRevision: number
+  revision: number
+  overview: string
+  documents: CampaignPlanDocumentRevision[]
+  characterSheetIds: string[]
+  evidence: CampaignPlanEvidence[]
+  stages: CampaignPlanStage[]
+}
+
 export class AdventureSessionApi {
   private readonly startKeys = new Map<string, string>()
   constructor(private readonly token: string) {}
@@ -40,7 +77,17 @@ export class AdventureSessionApi {
   private headers(extra: HeadersInit = {}): HeadersInit { return { Authorization: `Bearer ${this.token}`, ...extra } }
   private async request<T>(url: string, init: RequestInit = {}): Promise<T> {
     const response = await fetch(url, { ...init, headers: this.headers(init.headers) })
-    if (!response.ok) throw new Error(await response.text() || `HTTP ${response.status}`)
+    if (!response.ok) {
+      const body = await response.text()
+      let message = body
+      try {
+        const parsed = JSON.parse(body) as { code?: string; message?: string }
+        if (parsed.message) message = parsed.code ? `${parsed.code}: ${parsed.message}` : parsed.message
+      } catch {
+        // Keep the original response body for non-JSON errors.
+      }
+      throw new Error(message || `HTTP ${response.status}`)
+    }
     return response.json() as Promise<T>
   }
   read(sessionId: string) { return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}`) }
@@ -56,6 +103,12 @@ export class AdventureSessionApi {
   }
   removeMember(sessionId: string, version: number, characterSheetId: string) {
     return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/party/${characterSheetId}`, { method: 'DELETE', headers: { 'If-Match-Version': String(version) } })
+  }
+  prepareCampaignPlan(sessionId: string) {
+    return this.request<CampaignPlanView>(`/api/v1/adventure-sessions/${sessionId}/campaign-plan`, { method: 'POST' })
+  }
+  readCampaignPlan(sessionId: string) {
+    return this.request<CampaignPlanView>(`/api/v1/adventure-sessions/${sessionId}/campaign-plan`)
   }
   start(sessionId: string, version: number, adventureId: string) {
     const requestId = this.startKeys.get(sessionId) ?? crypto.randomUUID()
