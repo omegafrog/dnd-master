@@ -51,6 +51,12 @@ export function subracesFor(race: string): string[] {
 }
 export function armorOptions(): string[] { return Object.keys(armor) }
 
+/** D&D 5e proficiency bonus is derived only from character level. */
+export function proficiencyBonusForLevel(level: number): number {
+  const normalizedLevel = Math.max(1, Math.min(20, Math.trunc(level) || 1))
+  return 2 + Math.floor((normalizedLevel - 1) / 4)
+}
+
 export function calculateDnd5eCharacter(input: { race: string; subrace?: string; characterClass: string; level: number; baseAbilities: Partial<AbilityScores>; equippedArmor?: string; equippedShield?: boolean; hitPointIncreases?: HitPointIncrease[] }): Dnd5eCharacterStatistics {
   const race = races[normalize(input.race)]
   const subrace = subraces[normalize(input.subrace ?? '')]
@@ -64,7 +70,7 @@ export function calculateDnd5eCharacter(input: { race: string; subrace?: string;
   const equipped = armor[normalize(input.equippedArmor ?? '')]; const dexterityForArmor = equipped ? Math.min(abilityModifiers.dexterity, equipped.dexterityCap ?? abilityModifiers.dexterity) : abilityModifiers.dexterity
   return {
     abilityScores, abilityModifiers, hitDie: hitDie ? `d${hitDie}` : '', hitPointMaximum: hitDie && missingRoll < 0 && hpChoices.length >= level - 1 ? Math.max(1, hitDie + abilityModifiers.constitution + levelUpHp) : 0,
-    proficiencyBonus: 2 + Math.floor((level - 1) / 4), speed: subrace?.speed ?? race?.speed ?? 0,
+    proficiencyBonus: proficiencyBonusForLevel(level), speed: subrace?.speed ?? race?.speed ?? 0,
     armorClass: (equipped?.base ?? 10) + dexterityForArmor + (input.equippedShield ? 2 : 0), savingThrowProficiencies: characterClass?.savingThrows ?? [], conditionalTraits: [...(race?.traits ?? []), ...(subrace?.traits ?? [])],
     notes: [!race ? '선택한 종족 효과를 아직 계산할 수 없습니다.' : '', !characterClass ? '선택한 클래스 효과를 아직 계산할 수 없습니다.' : '', level > 1 && hpChoices.length < level - 1 ? '레벨별 HP 증가 방식을 모두 선택해야 합니다.' : '', missingRoll >= 0 ? `${missingRoll + 2}레벨 HP 굴림 결과를 입력해야 합니다.` : '', !equipped ? '방어도는 장비 미선택 기준(10 + 민첩 수정치)입니다.' : '방패는 장착 중일 때 AC +2입니다.'].filter(Boolean),
   }
