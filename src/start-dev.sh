@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 INFRA="$ROOT/infra"
 UI="$ROOT/web-ui"
+DEMO_USER_INIT_SQL="/docker-entrypoint-initdb.d/02-seed-demo-user.sql"
 
 cleanup() {
     echo ""
@@ -18,6 +19,11 @@ trap cleanup EXIT INT TERM
 # 1. Infra (PostgreSQL)
 echo "==> Starting infra (PostgreSQL)…"
 docker compose -f "$INFRA/compose.yaml" up -d --wait
+
+echo "==> Applying demo user init SQL…"
+docker compose -f "$INFRA/compose.yaml" exec -T postgres \
+    psql --username postgres --dbname postgres --set ON_ERROR_STOP=1 \
+    --file "$DEMO_USER_INIT_SQL"
 echo "    Infra ready."
 
 # 2. Backend (app-all) — runs in background via subshell with exec
