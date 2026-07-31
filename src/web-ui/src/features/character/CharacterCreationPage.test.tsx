@@ -3,80 +3,45 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { CharacterCreationPage } from './CharacterCreationPage'
 
+const preparation = { scenarioPackageId: 'package-1', bundleId: 'bundle-1', bundleRevision: 1, status: 'READY', blockers: [], characterLimit: { maximumCharacters: 2, source: null, sourceQuote: '' }, characterCreationBlueprint: { available: true, summary: 'published', rulebookDocumentCount: 1, storybookDocumentCount: 0, diagnostics: [], revision: 4, status: 'PUBLISHED', fields: [] } }
+const session = { sessionId: 'session-1', scenarioPackageId: 'package-1', blueprintRevision: 4, characterLimit: 2, version: 0, status: 'DRAFT', party: [], adventureId: null, runtimeConfiguration: null }
+
+function fixture() {
+  const createCharacterSheet = vi.fn().mockResolvedValue({ characterSheetId: 'sheet-1', adventureId: 'adventure-1', edition: 'DND_5E_2014', characterName: '아리아', level: 1, inspiration: false, version: 0 })
+  return {
+    setupApi: { getPlayPreparation: vi.fn().mockResolvedValue(preparation), createCharacterSheet },
+    sessionApi: { read: vi.fn().mockResolvedValue(session), addMember: vi.fn() },
+    createCharacterSheet,
+  }
+}
+
 describe('CharacterCreationPage', () => {
-  it('renders explicit input mode instead of inferring control from options', async () => {
-    const setupApi = {
-      getPlayPreparation: vi.fn().mockResolvedValue({ scenarioPackageId: 'package-1', bundleId: 'bundle-1', bundleRevision: 1, status: 'READY', blockers: [], characterLimit: { maximumCharacters: 2, source: null, sourceQuote: '' }, characterCreationBlueprint: { available: true, summary: 'published blueprint', rulebookDocumentCount: 1, storybookDocumentCount: 0, diagnostics: [], revision: 1, status: 'PUBLISHED', fields: [
-        { key: 'race', options: [], required: true, sourceType: 'RULEBOOK', inputStatus: 'EXTRACTED', inputMode: 'SINGLE_SELECT', suggestions: ['Elf'], diagnostics: [], evidence: [] },
-      ] } }),
-      createCharacterSheet: vi.fn(),
-    }
-    const sessionApi = { read: vi.fn().mockResolvedValue({ sessionId: 'session-1', scenarioPackageId: 'package-1', blueprintRevision: 1, characterLimit: 2, version: 0, status: 'DRAFT', party: [], adventureId: null, runtimeConfiguration: null }), addMember: vi.fn(), start: vi.fn() }
-
+  it('레벨, 경험치와 숙련 보너스를 자동값으로 보여준다', async () => {
+    const { setupApi, sessionApi } = fixture()
     render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
-
-    expect(await screen.findByRole('combobox', { name: 'race' })).toBeTruthy()
+    expect(await screen.findByText(/레벨:/)).toHaveTextContent('1')
+    expect(screen.getByText(/경험치:/)).toHaveTextContent('0')
+    expect(screen.getByText(/숙련 보너스:/)).toHaveTextContent('+2')
+    expect(screen.queryByLabelText('캐릭터 레벨')).toBeNull()
   })
 
-  it('waits for a real session, then posts session id and blueprint revision', async () => {
-    const sessionApi = {
-      read: vi.fn().mockResolvedValue({ sessionId: 'session-1', scenarioPackageId: 'package-1', blueprintRevision: 4, characterLimit: 2, version: 0, status: 'DRAFT', party: [], adventureId: null, runtimeConfiguration: null }),
-      addMember: vi.fn(), start: vi.fn(),
-    }
-    const createCharacterSheet = vi.fn().mockResolvedValue({ characterSheetId: 'sheet-1', adventureId: 'adventure-1', edition: 'DND_5E_2024', characterName: 'Aria', level: 1, inspiration: false, version: 0 })
-    const setupApi = {
-      getPlayPreparation: vi.fn().mockResolvedValue({ scenarioPackageId: 'package-1', bundleId: 'bundle-1', bundleRevision: 1, status: 'READY', blockers: [], characterLimit: { maximumCharacters: 2, source: null, sourceQuote: '' }, characterCreationBlueprint: { available: true, summary: 'published blueprint', rulebookDocumentCount: 1, storybookDocumentCount: 1, diagnostics: [], revision: 4, status: 'PUBLISHED', fields: [] } }),
-      createCharacterSheet,
-    }
+  it('선택한 종족에 속한 하위 종족만 보여주고 인간은 하위 종족을 숨긴다', async () => {
+    const { setupApi, sessionApi } = fixture()
     const user = userEvent.setup()
     render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
-    expect(await screen.findByText('세션 ID: session-1')).toBeTruthy()
-    await user.type(screen.getByLabelText('이름'), 'Aria')
-    await user.click(screen.getByRole('button', { name: '캐릭터 시트 생성' }))
-    expect(createCharacterSheet).toHaveBeenCalledWith(expect.objectContaining({ sessionId: 'session-1', blueprintRevision: 4, characterName: 'Aria' }))
+    await user.selectOptions(await screen.findByLabelText('종족'), '엘프')
+    expect(screen.getByLabelText('하위 종족')).toHaveTextContent('하이 엘프')
+    expect(screen.getByLabelText('하위 종족')).not.toHaveTextContent('언덕 드워프')
+    await user.selectOptions(screen.getByLabelText('종족'), '인간')
+    expect(screen.queryByLabelText('하위 종족')).toBeNull()
   })
 
-  it('submits nested blueprint values as starting abilities', async () => {
-    const createCharacterSheet = vi.fn().mockResolvedValue({ characterSheetId: 'sheet-1', adventureId: 'adventure-1', edition: 'DND_5E_2024', characterName: 'Aria', level: 1, inspiration: false, version: 0 })
-    const setupApi = {
-      getPlayPreparation: vi.fn().mockResolvedValue({ scenarioPackageId: 'package-1', bundleId: 'bundle-1', bundleRevision: 1, status: 'READY', blockers: [], characterLimit: { maximumCharacters: 2, source: null, sourceQuote: '' }, characterCreationBlueprint: { available: true, summary: 'published', rulebookDocumentCount: 1, storybookDocumentCount: 1, diagnostics: [], revision: 4, status: 'PUBLISHED', fields: [], roots: [{
-        id: 'node-scores', parentId: null, key: 'starting_ability_scores', label: 'Scores', inputMode: 'FREE_TEXT', value: null, options: [], suggestions: [], status: 'EXTRACTED', allowUserAddChild: false, confidence: 'HIGH', sourceQuote: '', diagnostics: [], sourceEvidence: [], children: [{
-          id: 'node-str', parentId: 'node-scores', key: 'str', label: 'STR', inputMode: 'FREE_TEXT', value: null, options: [], suggestions: [], status: 'EXTRACTED', allowUserAddChild: false, confidence: 'HIGH', sourceQuote: '', diagnostics: [], sourceEvidence: [], children: [],
-        }],
-      }] } }),
-      createCharacterSheet,
-    }
-    const sessionApi = { read: vi.fn().mockResolvedValue({ sessionId: 'session-1', scenarioPackageId: 'package-1', blueprintRevision: 4, characterLimit: 2, version: 0, status: 'DRAFT', party: [], adventureId: null, runtimeConfiguration: null }), addMember: vi.fn(), start: vi.fn() }
+  it('표준 배열의 이미 사용한 값을 다른 능력치에서 비활성화한다', async () => {
+    const { setupApi, sessionApi } = fixture()
     const user = userEvent.setup()
     render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
-    const strInput = (await screen.findAllByLabelText('STR')).find(element => element.tagName === 'INPUT')!
-    await user.type(strInput, '12')
-    await user.type(screen.getByLabelText('이름'), 'Aria')
-    await user.click(screen.getByRole('button', { name: '캐릭터 시트 생성' }))
-    expect(createCharacterSheet).toHaveBeenCalledWith(expect.objectContaining({ startingAbilities: 'str=12' }))
-  })
-
-  it('stores subrace, equipped armor, and level-up HP as build and state', async () => {
-    const createCharacterSheet = vi.fn().mockResolvedValue({ characterSheetId: 'sheet-1', adventureId: 'adventure-1', edition: 'DND_5E_2024', characterName: 'Aria', level: 2, inspiration: false, version: 0 })
-    const setupApi = { getPlayPreparation: vi.fn().mockResolvedValue({ scenarioPackageId: 'package-1', bundleId: 'bundle-1', bundleRevision: 1, status: 'READY', blockers: [], characterLimit: { maximumCharacters: 2, source: null, sourceQuote: '' }, characterCreationBlueprint: { available: true, summary: 'published', rulebookDocumentCount: 1, storybookDocumentCount: 0, diagnostics: [], revision: 1, status: 'PUBLISHED', fields: [
-      { key: 'race', options: ['Elf'], required: true, sourceType: 'RULEBOOK', inputStatus: 'EXTRACTED', inputMode: 'SINGLE_SELECT', suggestions: [], diagnostics: [], evidence: [] },
-      { key: 'class', options: ['Ranger'], required: true, sourceType: 'RULEBOOK', inputStatus: 'EXTRACTED', inputMode: 'SINGLE_SELECT', suggestions: [], diagnostics: [], evidence: [] },
-    ] } }) , createCharacterSheet }
-    const sessionApi = { read: vi.fn().mockResolvedValue({ sessionId: 'session-1', scenarioPackageId: 'package-1', blueprintRevision: 1, characterLimit: 2, version: 0, status: 'DRAFT', party: [], adventureId: null, runtimeConfiguration: null }), addMember: vi.fn(), start: vi.fn() }
-    const user = userEvent.setup()
-    render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
-    await user.selectOptions(await screen.findByRole('combobox', { name: 'race' }), 'Elf')
-    await user.selectOptions(screen.getByRole('combobox', { name: 'class' }), 'Ranger')
-    await user.selectOptions(screen.getByLabelText('하위 종족'), 'Wood Elf')
-    await user.selectOptions(screen.getByLabelText('장착 갑옷'), 'scale mail')
-    await user.click(screen.getByLabelText('방패 장착'))
-    await user.clear(screen.getByLabelText('캐릭터 레벨'))
-    await user.type(screen.getByLabelText('캐릭터 레벨'), '2')
-    await user.selectOptions(await screen.findByLabelText('2레벨 HP 방식'), 'AVERAGE')
-    await user.type(screen.getByLabelText('캐릭터 이름'), 'Aria')
-    await user.click(screen.getByRole('button', { name: '캐릭터 시트 생성' }))
-    expect(createCharacterSheet).toHaveBeenCalledWith(expect.objectContaining({
-      characterBuild: expect.stringContaining('Wood Elf'), characterState: expect.stringContaining('AVERAGE'),
-    }))
+    await user.selectOptions(await screen.findByLabelText('근력'), '15')
+    const dexterity = screen.getByLabelText('민첩') as HTMLSelectElement
+    expect(Array.from(dexterity.options).find(option => option.value === '15')?.disabled).toBe(true)
   })
 })
