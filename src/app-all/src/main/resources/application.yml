@@ -1,6 +1,11 @@
 server:
   port: 8080
 
+logging:
+  level:
+    com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationApplicationService: OFF
+    com.dndmaster.adventure.api.ScenarioCompilationController: OFF
+
 adventure:
   integration:
     identity-access:
