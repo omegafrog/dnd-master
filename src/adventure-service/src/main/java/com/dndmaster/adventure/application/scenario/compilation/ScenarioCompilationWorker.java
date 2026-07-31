@@ -2,7 +2,6 @@ package com.dndmaster.adventure.application.scenario.compilation;
 
 import com.dndmaster.adventure.application.scenario.ScenarioBundleRepository;
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort;
-import com.dndmaster.adventure.application.scenario.blueprint.DndCharacterCreationTemplate;
 import com.dndmaster.adventure.domain.scenario.InputMode;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
@@ -34,7 +33,6 @@ public final class ScenarioCompilationWorker {
     private final CharacterContextSearchPort characterContextSearchPort;
     private final CharacterInputTagExtractionPort characterTagPort;
     private final ScenarioPackageCompilationService compiler;
-    private final ScenarioPackageRepository packageRepository;
 
     public ScenarioCompilationWorker(
             ScenarioCompilationProcessManager processManager,
@@ -44,9 +42,9 @@ public final class ScenarioCompilationWorker {
             ResolutionExtractionPort extractionPort,
             ScenarioSourceExcerptPort excerptPort,
             ScenarioPackageCompilationService compiler,
-            ScenarioPackageRepository packageRepository) {
+            ScenarioPackageRepository ignoredPackageRepository) {
         this(processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort,
-                ignored -> List.of(), ignored -> List.of(), compiler, packageRepository);
+                ignored -> List.of(), ignored -> List.of(), compiler, ignoredPackageRepository);
     }
 
     public ScenarioCompilationWorker(
@@ -59,7 +57,7 @@ public final class ScenarioCompilationWorker {
             CharacterInputTagExtractionPort characterTagPort,
             CharacterContextSearchPort characterContextSearchPort,
             ScenarioPackageCompilationService compiler,
-            ScenarioPackageRepository packageRepository) {
+            ScenarioPackageRepository ignoredPackageRepository) {
         this.processManager = Objects.requireNonNull(processManager, "process manager must not be null");
         this.compilationRepository = Objects.requireNonNull(compilationRepository, "compilation repository must not be null");
         this.queue = Objects.requireNonNull(queue, "queue must not be null");
@@ -69,7 +67,7 @@ public final class ScenarioCompilationWorker {
         this.characterContextSearchPort = Objects.requireNonNull(characterContextSearchPort, "character context search port must not be null");
         this.characterTagPort = Objects.requireNonNull(characterTagPort, "character tag port must not be null");
         this.compiler = Objects.requireNonNull(compiler, "compiler must not be null");
-        this.packageRepository = Objects.requireNonNull(packageRepository, "package repository must not be null");
+        Objects.requireNonNull(ignoredPackageRepository, "package repository must not be null");
     }
 
     public ScenarioCompilationWorker(
@@ -81,9 +79,9 @@ public final class ScenarioCompilationWorker {
             ScenarioSourceExcerptPort excerptPort,
             CharacterInputTagExtractionPort characterTagPort,
             ScenarioPackageCompilationService compiler,
-            ScenarioPackageRepository packageRepository) {
+            ScenarioPackageRepository ignoredPackageRepository) {
         this(processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort,
-                characterTagPort, ignored -> List.of(), compiler, packageRepository);
+                characterTagPort, ignored -> List.of(), compiler, ignoredPackageRepository);
     }
 
     @Scheduled(fixedDelayString = "${adventure.scenario-compilation.poll-delay-ms:1000}")
@@ -131,17 +129,10 @@ public final class ScenarioCompilationWorker {
                     : extractCharacterTags(claimed.id().toString(), tagExcerpts);
             characterCandidates = refineCharacterTags(claimed.id().toString(), bundle, characterCandidates);
 
-            ScenarioPackage extractedPackage = compiler.compileWithCharacterCandidates(
+            ScenarioPackage scenarioPackage = compiler.compileWithCharacterCandidates(
                     bundle, candidates == null ? List.of() : candidates,
                     excerpts == null ? List.of() : excerpts,
                     characterCandidates == null ? List.of() : characterCandidates);
-            var baseBlueprint = DndCharacterCreationTemplate.apply(
-                    "DND_5E_2014", extractedPackage.characterCreationBlueprint());
-            ScenarioPackage scenarioPackage = ScenarioPackage.rehydrate(
-                    extractedPackage.packageId(), extractedPackage.bundleId(), extractedPackage.bundleRevision(),
-                    extractedPackage.inputFingerprint(), extractedPackage.documents(), extractedPackage.units(),
-                    extractedPackage.report(), extractedPackage.characterLimit(), baseBlueprint);
-            packageRepository.save(scenarioPackage);
 
             processManager.publish(claimed, delivery, scenarioPackage.packageId());
             log.info("scenario compilation worker published compilationId={} packageId={}",
