@@ -19,9 +19,10 @@ describe('CharacterCreationPage', () => {
   it('레벨, 경험치와 숙련 보너스를 자동값으로 보여준다', async () => {
     const { setupApi, sessionApi } = fixture()
     render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
-    expect(await screen.findByText(/레벨:/)).toHaveTextContent('1')
-    expect(screen.getByText(/경험치:/)).toHaveTextContent('0')
-    expect(screen.getByText(/숙련 보너스:/)).toHaveTextContent('+2')
+    const automaticValues = await screen.findByText(/레벨:/)
+    expect(automaticValues.textContent).toContain('1')
+    expect(automaticValues.textContent).toContain('경험치: 0')
+    expect(automaticValues.textContent).toContain('숙련 보너스: +2')
     expect(screen.queryByLabelText('캐릭터 레벨')).toBeNull()
   })
 
@@ -30,8 +31,9 @@ describe('CharacterCreationPage', () => {
     const user = userEvent.setup()
     render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
     await user.selectOptions(await screen.findByLabelText('종족'), '엘프')
-    expect(screen.getByLabelText('하위 종족')).toHaveTextContent('하이 엘프')
-    expect(screen.getByLabelText('하위 종족')).not.toHaveTextContent('언덕 드워프')
+    const subrace = screen.getByLabelText('하위 종족') as HTMLSelectElement
+    expect(Array.from(subrace.options).map(option => option.textContent)).toContain('하이 엘프')
+    expect(Array.from(subrace.options).map(option => option.textContent)).not.toContain('언덕 드워프')
     await user.selectOptions(screen.getByLabelText('종족'), '인간')
     expect(screen.queryByLabelText('하위 종족')).toBeNull()
   })
@@ -42,6 +44,7 @@ describe('CharacterCreationPage', () => {
     render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
     await user.selectOptions(await screen.findByLabelText('근력'), '15')
     const dexterity = screen.getByLabelText('민첩') as HTMLSelectElement
-    expect(Array.from(dexterity.options).find(option => option.value === '15')?.disabled).toBe(true)
+    const value15 = Array.from(dexterity.options).find(option => option.value === '15')
+    expect(value15?.disabled).toBe(true)
   })
 })
