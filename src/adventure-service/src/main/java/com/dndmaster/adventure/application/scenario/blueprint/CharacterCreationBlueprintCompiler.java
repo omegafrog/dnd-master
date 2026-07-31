@@ -37,7 +37,9 @@ public final class CharacterCreationBlueprintCompiler {
         CharacterCreationBlueprintStatus status = fields.stream().anyMatch(field ->
                 !field.diagnostics().isEmpty() || field.inputStatus().equals("MANUAL_INPUT_REQUIRED"))
                 ? CharacterCreationBlueprintStatus.NEEDS_REVIEW : compiled.status();
-        return new CharacterCreationBlueprint(compiled.revision(), status, fields, compiled.diagnostics());
+        CharacterCreationBlueprint extracted = new CharacterCreationBlueprint(
+                compiled.revision(), status, fields, compiled.diagnostics());
+        return DndCharacterCreationTemplate.apply("DND_5E_2014", extracted);
     }
 
     private static String effectiveKey(CharacterInputTagCandidate candidate) {
