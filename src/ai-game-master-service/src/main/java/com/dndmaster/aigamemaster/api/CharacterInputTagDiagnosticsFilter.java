@@ -2,6 +2,8 @@ package com.dndmaster.aigamemaster.api;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -17,11 +19,11 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingResponseWrapper;
 
 /**
- * Temporary diagnostics for tracing character tag candidates after grounding.
+ * Temporary diagnostics and response normalization for character tag extraction.
  *
- * <p>The controller already logs the number of candidates accepted by the model parser. This
- * filter records the shape of the HTTP response after grounding so the two stages can be compared
- * without logging source excerpts or full model output.</p>
+ * <p>The model can mistake example character names in a rulebook for selectable name values.
+ * Character names are player-authored values, so every {@code name} candidate is normalized to a
+ * free-text field before the response leaves the AI Game Master boundary.</p>
  */
 @Component
 public final class CharacterInputTagDiagnosticsFilter extends OncePerRequestFilter {
@@ -46,9 +48,46 @@ public final class CharacterInputTagDiagnosticsFilter extends OncePerRequestFilt
         long startedAt = System.nanoTime();
         try {
             filterChain.doFilter(request, wrapped);
+            normalizeNameCandidates(wrapped);
             logResponse(wrapped, startedAt);
         } finally {
             wrapped.copyBodyToResponse();
+        }
+    }
+
+    private void normalizeNameCandidates(ContentCachingResponseWrapper response) {
+        byte[] originalBody = response.getContentAsByteArray();
+        if (originalBody.length == 0) return;
+
+        try {
+            JsonNode root = objectMapper.readTree(new String(originalBody, StandardCharsets.UTF_8));
+            JsonNode candidates = root.path("candidates");
+            if (!candidates.isArray()) return;
+
+            List<String> normalizedKeys = new ArrayList<>();
+            for (JsonNode node : candidates) {
+                if (!(node instanceof ObjectNode candidate)) continue;
+                String key = candidate.path("key").asText("");
+                if (!"name".equalsIgnoreCase(key.strip())) continue;
+
+                int removedOptions = candidate.path("options").isArray() ? candidate.path("options").size() : 0;
+                candidate.put("inputMode", "FREE_TEXT");
+                candidate.set("options", objectMapper.createArrayNode());
+                candidate.set("optionDetails", objectMapper.createArrayNode());
+                normalizedKeys.add(key + "(removedOptions=" + removedOptions + ")");
+            }
+
+            if (normalizedKeys.isEmpty()) return;
+
+            byte[] normalizedBody = objectMapper.writeValueAsBytes(root);
+            response.resetBuffer();
+            response.setContentLength(normalizedBody.length);
+            response.getOutputStream().write(normalizedBody);
+            LOGGER.info("character_tag_name_normalized fields={} responseCharsBefore={} responseCharsAfter={}",
+                    normalizedKeys, originalBody.length, normalizedBody.length);
+        } catch (RuntimeException | IOException exception) {
+            LOGGER.warn("character_tag_name_normalization_failed responseChars={} reason={}",
+                    originalBody.length, reason(exception));
         }
     }
 
