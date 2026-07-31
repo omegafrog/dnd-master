@@ -3,7 +3,9 @@ package com.dndmaster.adventure.application.scenario.compilation;
 import com.dndmaster.adventure.application.scenario.ScenarioBundleRepository;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort;
+import com.dndmaster.adventure.domain.scenario.InputMode;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
@@ -116,17 +118,21 @@ public final class ScenarioCompilationWorker {
                                     .filter(excerpt -> bundleSources.contains(excerpt.documentId().value() + ":" + excerpt.extractionVersion()))
                                     .limit(3).toList(),
                             "resolution-candidate-v1", "resolution-prompt-v1"));
+
             List<CharacterContextSearchPort.Evidence> characterContext = searchCharacterContext(bundle);
-            List<com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.SourceExcerpt> tagExcerpts =
-                    characterContext.stream()
-                            .map(evidence -> new com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.SourceExcerpt(
-                                    evidence.documentId(), evidence.extractionVersion(), evidence.locator(), evidence.excerpt()))
-                            .toList();
-            List<com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate> characterCandidates =
-                    extractCharacterTags(claimed.id().toString(), tagExcerpts);
+            List<CharacterInputTagExtractionPort.SourceExcerpt> tagExcerpts = characterContext.stream()
+                    .map(evidence -> new CharacterInputTagExtractionPort.SourceExcerpt(
+                            evidence.documentId(), evidence.extractionVersion(), evidence.locator(), evidence.excerpt()))
+                    .toList();
+            List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> characterCandidates = tagExcerpts.isEmpty()
+                    ? List.of()
+                    : extractCharacterTags(claimed.id().toString(), tagExcerpts);
             characterCandidates = refineCharacterTags(claimed.id().toString(), bundle, characterCandidates);
-            ScenarioPackage scenarioPackage = compiler.compileWithCharacterCandidates(bundle, candidates == null ? List.of() : candidates,
-                    excerpts == null ? List.of() : excerpts, characterCandidates == null ? List.of() : characterCandidates);
+
+            ScenarioPackage scenarioPackage = compiler.compileWithCharacterCandidates(
+                    bundle, candidates == null ? List.of() : candidates,
+                    excerpts == null ? List.of() : excerpts,
+                    characterCandidates == null ? List.of() : characterCandidates);
             processManager.publish(claimed, delivery, scenarioPackage.packageId());
             log.info("scenario compilation worker published compilationId={} packageId={}",
                     claimed.id(), scenarioPackage.packageId());
@@ -145,71 +151,126 @@ public final class ScenarioCompilationWorker {
         }
     }
 
+    /**
+     * Character creation starts from the edition base schema. Scenario compilation only searches
+     * story-scoped overlays; base RULEBOOK documents are deliberately excluded here.
+     */
     private List<CharacterContextSearchPort.Evidence> searchCharacterContext(ScenarioSourceBundle bundle) {
         try {
-            List<CharacterContextSearchPort.DocumentScope> documents = bundle.currentRevision().documents().stream()
-                    .map(document -> new CharacterContextSearchPort.DocumentScope(
-                            document.knowledgeDocumentId(), document.documentType(), document.extractionVersion()))
-                    .filter(document -> List.of("RULEBOOK", "STORYBOOK", "HANDOUT")
-                            .contains(document.documentType().toUpperCase(java.util.Locale.ROOT)))
+            List<CharacterContextSearchPort.DocumentScope> documents = characterOverlayScopes(bundle);
+            if (documents.isEmpty()) {
+                log.info("character overlay search skipped; no storybook or handout documents bundleId={}", bundle.id());
+                return List.of();
+            }
+            Set<String> allowed = scopeKeys(documents);
+            List<CharacterContextSearchPort.Evidence> result = characterContextSearchPort.search(
+                    new CharacterContextSearchPort.Request(
+                            bundle.ownerPlayerId().value(), documents,
+                            "Extract only scenario-specific character creation constraints, defaults, fixed values, and additional input fields. Do not reconstruct base edition rules.",
+                            Map.of("STORYBOOK", .25, "HANDOUT", .25), 1200));
+            List<CharacterContextSearchPort.Evidence> filtered = (result == null
+                    ? List.<CharacterContextSearchPort.Evidence>of() : result).stream()
+                    .filter(evidence -> allowed.contains(scopeKey(
+                            evidence.documentId(), evidence.extractionVersion())))
                     .toList();
-            if (documents.isEmpty()) return List.of();
-            List<CharacterContextSearchPort.Evidence> result = characterContextSearchPort.search(new CharacterContextSearchPort.Request(
-                    bundle.ownerPlayerId().value(), documents,
-                    "Extract character creation choices, fixed values, and required input fields.",
-                    java.util.Map.of("RULEBOOK", .35, "STORYBOOK", .25, "HANDOUT", .25), 2000));
-            return result == null ? List.of() : List.copyOf(result);
+            log.info("character overlay search completed bundleId={} scopes={} evidence={}",
+                    bundle.id(), documents.size(), filtered.size());
+            return filtered;
         } catch (CharacterContextSearchPort.CharacterContextSearchException exception) {
-            log.warn("character context search failed; continuing with manual character fallback", exception);
+            log.warn("character overlay search failed; continuing with edition base schema", exception);
             return List.of();
         }
     }
 
-    private List<com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate> extractCharacterTags(
-            String operationId,
-            List<com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.SourceExcerpt> excerpts) {
+    private List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> extractCharacterTags(
+            String operationId, List<CharacterInputTagExtractionPort.SourceExcerpt> excerpts) {
         try {
             return characterTagPort.extract(new CharacterInputTagExtractionPort.Request(
-                    operationId + ":character-input-tags", excerpts,
-                    "character-input-tag-v1", "character-input-tag-prompt-v1"));
+                    operationId + ":character-story-overlays", excerpts,
+                    "character-input-tag-v1", "character-story-overlay-prompt-v1",
+                    "Extract only scenario-specific changes to character creation. Return constraints, defaults, fixed values, or additional fields supported by the storybook or handout. Never return base edition fields merely because the rulebook defines them, and never turn example character names into options."));
         } catch (RuntimeException exception) {
-            log.warn("character input extraction failed; continuing with manual character fallback", exception);
+            log.warn("character overlay extraction failed; continuing with edition base schema", exception);
             return List.of();
         }
     }
 
-    private List<com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate> refineCharacterTags(
+    private List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> refineCharacterTags(
             String operationId, ScenarioSourceBundle bundle,
-            List<com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate> candidates) {
+            List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> candidates) {
         if (candidates == null || candidates.isEmpty()) return List.of();
-        List<CharacterContextSearchPort.DocumentScope> scopes = bundle.currentRevision().documents().stream()
-                .map(document -> new CharacterContextSearchPort.DocumentScope(
-                        document.knowledgeDocumentId(), document.documentType(), document.extractionVersion()))
-                .filter(document -> List.of("RULEBOOK", "STORYBOOK", "HANDOUT").contains(document.documentType()))
-                .toList();
-        List<com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate> result = new ArrayList<>();
+        List<CharacterContextSearchPort.DocumentScope> scopes = characterOverlayScopes(bundle);
+        if (scopes.isEmpty()) return List.copyOf(candidates);
+        Set<String> allowed = scopeKeys(scopes);
+        List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> result = new ArrayList<>();
         for (var candidate : candidates) {
+            if (isBaseFreeTextField(candidate)) {
+                result.add(candidate);
+                continue;
+            }
             try {
-                List<CharacterContextSearchPort.Evidence> evidence = characterContextSearchPort.search(new CharacterContextSearchPort.Request(
-                        bundle.ownerPlayerId().value(), scopes,
-                        "Find selectable values and input rules for character field '" + candidate.key() + "' (" + candidate.label() + ").",
-                        Map.of("RULEBOOK", .25, "STORYBOOK", .20, "HANDOUT", .20), 700));
-                List<CharacterInputTagExtractionPort.SourceExcerpt> excerpts = (evidence == null ? List.<CharacterContextSearchPort.Evidence>of() : evidence).stream()
+                List<CharacterContextSearchPort.Evidence> evidence = characterContextSearchPort.search(
+                        new CharacterContextSearchPort.Request(
+                                bundle.ownerPlayerId().value(), scopes,
+                                "Find only scenario-specific values or constraints for character field '"
+                                        + candidate.key() + "' (" + candidate.label() + "). Do not retrieve base rulebook definitions.",
+                                Map.of("STORYBOOK", .20, "HANDOUT", .20), 500));
+                List<CharacterInputTagExtractionPort.SourceExcerpt> excerpts = (evidence == null
+                        ? List.<CharacterContextSearchPort.Evidence>of() : evidence).stream()
+                        .filter(item -> allowed.contains(scopeKey(item.documentId(), item.extractionVersion())))
                         .sorted(java.util.Comparator.comparingDouble(CharacterContextSearchPort.Evidence::similarity).reversed())
-                        .map(item -> new CharacterInputTagExtractionPort.SourceExcerpt(item.documentId(), item.extractionVersion(), item.locator(), item.excerpt()))
+                        .map(item -> new CharacterInputTagExtractionPort.SourceExcerpt(
+                                item.documentId(), item.extractionVersion(), item.locator(), item.excerpt()))
                         .toList();
-                if (excerpts.isEmpty()) { result.add(candidate); continue; }
-                List<com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate> refined = characterTagPort.extract(new CharacterInputTagExtractionPort.Request(
-                        operationId + ":character-input-refine:" + candidate.key() + ":" + UUID.randomUUID(), excerpts,
-                        "character-input-tag-v1", "character-input-tag-prompt-v1",
-                        "Refine only field '" + candidate.key() + "'. Keep its key exactly. Decide FREE_TEXT, SINGLE_SELECT, or MULTI_SELECT. If selectable, return only directly supported options and one optionDetails object per option with a short description, sourceQuote, and evidence. If not selectable, return empty options and optionDetails arrays."));
-                result.add(refined == null ? candidate : refined.stream().filter(item -> item.key().equals(candidate.key())).findFirst().orElse(candidate));
+                if (excerpts.isEmpty()) {
+                    result.add(candidate);
+                    continue;
+                }
+                List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> refined = characterTagPort.extract(
+                        new CharacterInputTagExtractionPort.Request(
+                                operationId + ":character-overlay-refine:" + candidate.key() + ":" + UUID.randomUUID(), excerpts,
+                                "character-input-tag-v1", "character-story-overlay-prompt-v1",
+                                "Refine only scenario-specific changes for field '" + candidate.key()
+                                        + "'. Keep its key exactly. Do not add edition base options. If the story does not change this field, return no candidate."));
+                result.add(refined == null ? candidate : refined.stream()
+                        .filter(item -> item.key().equals(candidate.key()))
+                        .findFirst().orElse(candidate));
             } catch (RuntimeException exception) {
-                log.warn("character input refinement failed; retaining first-stage candidate key={}", candidate.key(), exception);
+                log.warn("character overlay refinement failed; retaining first-stage candidate key={}",
+                        candidate.key(), exception);
                 result.add(candidate);
             }
         }
         return List.copyOf(result);
     }
 
+    private static boolean isBaseFreeTextField(CharacterInputTagExtractionPort.CharacterInputTagCandidate candidate) {
+        if (candidate.inputMode() != InputMode.FREE_TEXT) return false;
+        String key = candidate.key().toLowerCase(java.util.Locale.ROOT);
+        return key.equals("name") || key.startsWith("appearance.")
+                || key.equals("personality_traits") || key.equals("ideals")
+                || key.equals("bonds") || key.equals("flaws");
+    }
+
+    private static List<CharacterContextSearchPort.DocumentScope> characterOverlayScopes(ScenarioSourceBundle bundle) {
+        return bundle.currentRevision().documents().stream()
+                .filter(document -> "STORYBOOK".equalsIgnoreCase(document.documentType())
+                        || document.role() == ScenarioBundleDocumentRole.HANDOUT)
+                .map(document -> new CharacterContextSearchPort.DocumentScope(
+                        document.knowledgeDocumentId(),
+                        document.role() == ScenarioBundleDocumentRole.HANDOUT ? "HANDOUT" : "STORYBOOK",
+                        document.extractionVersion()))
+                .toList();
+    }
+
+    private static Set<String> scopeKeys(List<CharacterContextSearchPort.DocumentScope> scopes) {
+        return scopes.stream().map(scope -> scopeKey(scope.documentId(), scope.extractionVersion()))
+                .collect(java.util.stream.Collectors.toSet());
+    }
+
+    private static String scopeKey(
+            com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId documentId,
+            int extractionVersion) {
+        return documentId.value() + ":" + extractionVersion;
+    }
 }
