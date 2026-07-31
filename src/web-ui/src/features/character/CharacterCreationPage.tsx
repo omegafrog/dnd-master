@@ -4,6 +4,7 @@ import type { AdventureSessionApi } from '../adventure-session/AdventureSessionA
 import type { CreatedCharacterSheetView, PlayPreparationView, SetupApi } from '../rulebooks/SetupApi'
 import { calculateDnd5eCharacter, type Ability, type AbilityScores } from './Dnd5eRules'
 import { backgroundOptions, classOptions, personalityHelp, raceOptions, STANDARD_ARRAY } from './Dnd5eCharacterCatalog'
+import { classCreationRule, resolveEquipment, savingThrowBonuses, spellAttackBonus, spellSaveDc } from './Dnd5eCharacterDerivedRules'
 
 type SessionApi = Pick<AdventureSessionApi, 'read' | 'addMember'>
 type CharacterSetupApi = Pick<SetupApi, 'getPlayPreparation' | 'createCharacterSheet'>
@@ -21,7 +22,7 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
   const [background, setBackground] = useState('')
   const [scores, setScores] = useState<AbilityScores>(emptyScores)
   const [skills, setSkills] = useState<string[]>([])
-  const [equipment, setEquipment] = useState<string[]>([])
+  const [equipmentSelections, setEquipmentSelections] = useState<Record<string, string>>({})
   const [spells, setSpells] = useState<string[]>([])
   const [personality, setPersonality] = useState('')
   const [ideal, setIdeal] = useState('')
@@ -46,12 +47,21 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
   const selectedRace = raceOptions.find(option => option.id === race)
   const selectedClass = classOptions.find(option => option.id === characterClass)
   const selectedBackground = backgroundOptions.find(option => option.id === background)
+  const creationRule = classCreationRule(characterClass)
   const standardArrayValid = useMemo(() => [...Object.values(scores)].sort((a, b) => b - a).join(',') === [...STANDARD_ARRAY].sort((a, b) => b - a).join(','), [scores])
   const statistics = calculateDnd5eCharacter({ race, subrace, characterClass, level: 1, baseAbilities: scores })
+  const classEquipment = resolveEquipment(characterClass, equipmentSelections)
+  const backgroundEquipment = selectedBackground?.equipment ?? []
+  const equipmentComplete = Boolean(creationRule && creationRule.equipmentGroups.every(group => equipmentSelections[group.id]))
+  const spellAttack = spellAttackBonus(characterClass, statistics.abilityModifiers, statistics.proficiencyBonus)
+  const spellDc = spellSaveDc(characterClass, statistics.abilityModifiers, statistics.proficiencyBonus)
+  const savingThrows = savingThrowBonuses(statistics.abilityModifiers, statistics.savingThrowProficiencies, statistics.proficiencyBonus)
+  const spellLimit = creationRule ? creationRule.cantripCount + creationRule.firstLevelSpellCount : 0
+  const spellsComplete = !selectedClass?.canCastSpells || spells.length === Math.min(spellLimit, selectedClass.spellChoices.length)
   const canCreate = Boolean(name.trim() && race && characterClass && background && standardArrayValid
     && selectedClass && skills.length === selectedClass.skillChoiceCount
     && (!selectedRace?.subraces.length || subrace)
-    && (!selectedClass.canCastSpells || spells.length > 0))
+    && equipmentComplete && spellsComplete)
   const blocked = !preparation || preparation.status !== 'READY' || !preparation.characterCreationBlueprint.available
     || preparation.characterCreationBlueprint.status !== 'PUBLISHED'
 
@@ -63,7 +73,7 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
   function chooseClass(nextClass: string) {
     setCharacterClass(nextClass)
     setSkills([])
-    setEquipment([])
+    setEquipmentSelections({})
     setSpells([])
   }
 
@@ -76,6 +86,10 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
     if (!session || !preparation || !setupApi.createCharacterSheet || !canCreate || blocked) return
     try {
       const derivedStatistics = calculateDnd5eCharacter({ race, subrace, characterClass, level: 1, baseAbilities: scores })
+      const finalSavingThrows = savingThrowBonuses(derivedStatistics.abilityModifiers, derivedStatistics.savingThrowProficiencies, derivedStatistics.proficiencyBonus)
+      const finalSpellAttack = spellAttackBonus(characterClass, derivedStatistics.abilityModifiers, derivedStatistics.proficiencyBonus)
+      const finalSpellDc = spellSaveDc(characterClass, derivedStatistics.abilityModifiers, derivedStatistics.proficiencyBonus)
+      const allEquipment = [...classEquipment, ...backgroundEquipment]
       const next = await setupApi.createCharacterSheet({
         sessionId,
         edition: 'DND_5E_2014',
@@ -86,8 +100,13 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
         characterClass,
         background,
         startingAbilities: abilities.map(ability => `${ability}=${scores[ability]}`).join(','),
-        derivedStatistics: JSON.stringify({ ...derivedStatistics, experience: 0 }),
-        characterBuild: JSON.stringify({ subrace, skills, equipment, spells, personality, ideal, bond, flaw, appearance }),
+        derivedStatistics: JSON.stringify({ ...derivedStatistics, experience: 0, savingThrowBonuses: finalSavingThrows, spellAttackBonus: finalSpellAttack, spellSaveDc: finalSpellDc }),
+        characterBuild: JSON.stringify({
+          subrace, classSkills: skills, backgroundSkills: selectedBackground?.skills ?? [],
+          equipmentSelections, equipment: allEquipment, spells, personality, ideal, bond, flaw, appearance,
+          armorProficiencies: creationRule?.armorProficiencies ?? [], weaponProficiencies: creationRule?.weaponProficiencies ?? [],
+          toolProficiencies: creationRule?.toolProficiencies ?? [],
+        }),
         characterState: JSON.stringify({ currentHitPoints: derivedStatistics.hitPointMaximum, temporaryHitPoints: 0, experience: 0 }),
         blueprintRevision: session.blueprintRevision,
         blueprintValues: {},
@@ -119,12 +138,12 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
 
   return <section aria-labelledby="character-creation-heading">
     <h2 id="character-creation-heading">캐릭터 생성</h2>
-    <p>사용자가 선택해야 하는 항목만 입력합니다. 계산되는 시트 값은 자동으로 표시됩니다.</p>
+    <p>선택해야 하는 항목만 입력합니다. 숙련 보너스, 내성, 공격·주문 수치와 시트 결과는 자동 계산됩니다.</p>
     {message && <p role="status">{message}</p>}
 
     <fieldset><legend>기본 정보</legend>
       <label>캐릭터 이름 <input aria-label="캐릭터 이름" value={name} onChange={event => setName(event.currentTarget.value)} required /></label>
-      <p>레벨: <strong>1</strong> · 경험치: <strong>0</strong> · 숙련 보너스: <strong>+2</strong></p>
+      <p>레벨: <strong>1</strong> · 경험치: <strong>0</strong> · 숙련 보너스: <strong>+{statistics.proficiencyBonus}</strong></p>
       <small>신규 캐릭터는 1레벨, 0 XP로 시작하며 숙련 보너스는 레벨에서 자동 계산됩니다.</small>
     </fieldset>
 
@@ -137,18 +156,19 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
     </fieldset>
 
     <fieldset><legend>클래스</legend>
-      <p>클래스는 히트 다이스, 내성 숙련, 기술 선택, 시작 장비, 클래스 특성과 주문 사용 여부를 결정합니다.</p>
+      <p>클래스는 히트 다이스, 내성 숙련, 기술 선택, 시작 장비, 특성과 주문 사용 여부를 결정합니다.</p>
       <label>클래스 <select aria-label="클래스" value={characterClass} onChange={event => chooseClass(event.currentTarget.value)} required><option value="">선택하세요</option>{classOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
       {selectedClass && <section aria-label="클래스 설명"><p>{selectedClass.description}</p><p>히트 다이스 {selectedClass.hitDie} · 내성 숙련 {selectedClass.savingThrows.map(ability => abilityLabels[ability]).join(', ')}</p><p>자동 특성: {selectedClass.features.join(', ')}</p>{selectedClass.subclassLevel > 1 && <p>하위 클래스는 {selectedClass.subclassLevel}레벨에 선택하므로 지금 입력하지 않습니다.</p>}</section>}
+      {creationRule && <section aria-label="클래스 숙련"><p>방어구 숙련: {creationRule.armorProficiencies.join(', ') || '없음'}</p><p>무기 숙련: {creationRule.weaponProficiencies.join(', ') || '없음'}</p><p>도구 숙련: {creationRule.toolProficiencies.join(', ') || '없음'}</p></section>}
       {selectedClass && <fieldset><legend>기술 숙련 {selectedClass.skillChoiceCount}개 선택</legend>{selectedClass.skillChoices.map(skill => <label key={skill}><input type="checkbox" checked={skills.includes(skill)} onChange={() => toggleLimited(skill, skills, selectedClass.skillChoiceCount, setSkills)} disabled={!skills.includes(skill) && skills.length >= selectedClass.skillChoiceCount} />{skill}</label>)}<p>{skills.length} / {selectedClass.skillChoiceCount} 선택</p></fieldset>}
-      {selectedClass && <fieldset><legend>클래스 시작 장비 선택</legend>{selectedClass.equipmentChoices.map(item => <label key={item}><input type="checkbox" checked={equipment.includes(item)} onChange={() => setEquipment(current => current.includes(item) ? current.filter(value => value !== item) : [...current, item])} />{item}</label>)}</fieldset>}
-      {selectedClass?.canCastSpells && <fieldset><legend>1레벨 주문 선택</legend><p>클래스가 사용할 수 있는 목록에서 고릅니다. 주문 공격 보너스와 주문 내성 DC는 자동 계산됩니다.</p>{selectedClass.spellChoices.map(spell => <label key={spell}><input type="checkbox" checked={spells.includes(spell)} onChange={() => setSpells(current => current.includes(spell) ? current.filter(value => value !== spell) : [...current, spell])} />{spell}</label>)}</fieldset>}
+      {creationRule && <fieldset><legend>클래스 시작 장비</legend><p>각 묶음에서 하나씩 고릅니다.</p>{creationRule.equipmentGroups.map(group => <label key={group.id}>{group.label} <select aria-label={`장비 ${group.label}`} value={equipmentSelections[group.id] ?? ''} onChange={event => setEquipmentSelections(current => ({ ...current, [group.id]: event.currentTarget.value }))} required><option value="">선택하세요</option>{group.options.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>)}</fieldset>}
+      {selectedClass?.canCastSpells && creationRule && <fieldset><legend>주문 선택</legend><p>이 클래스의 1레벨 선택 수: {spellLimit}개. 주문 공격 보너스와 주문 내성 DC는 자동 계산됩니다.</p>{selectedClass.spellChoices.map(spell => <label key={spell}><input type="checkbox" checked={spells.includes(spell)} onChange={() => toggleLimited(spell, spells, Math.min(spellLimit, selectedClass.spellChoices.length), setSpells)} disabled={!spells.includes(spell) && spells.length >= Math.min(spellLimit, selectedClass.spellChoices.length)} />{spell}</label>)}<p>{spells.length} / {Math.min(spellLimit, selectedClass.spellChoices.length)} 선택</p></fieldset>}
     </fieldset>
 
     <fieldset><legend>배경</legend>
-      <p>배경은 과거의 삶, 배경 기술 숙련, 시작 장비와 역할극 예시를 제공합니다.</p>
+      <p>배경은 과거의 삶, 기술 숙련, 시작 장비와 역할극 예시를 제공합니다.</p>
       <label>배경 <select aria-label="배경" value={background} onChange={event => setBackground(event.currentTarget.value)} required><option value="">선택하세요</option>{backgroundOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
-      {selectedBackground && <section aria-label="배경 설명"><p>{selectedBackground.description}</p><p>기술 숙련: {selectedBackground.skills.join(', ')}</p><p>자동 시작 장비: {selectedBackground.equipment.join(', ')}</p></section>}
+      {selectedBackground && <section aria-label="배경 설명"><p>{selectedBackground.description}</p><p>자동 기술 숙련: {selectedBackground.skills.join(', ')}</p><p>자동 시작 장비: {selectedBackground.equipment.join(', ')}</p></section>}
     </fieldset>
 
     <fieldset><legend>능력치 — 표준 배열</legend>
@@ -168,14 +188,17 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
 
     <section aria-label="자동 계산 결과"><h3>자동 계산되는 캐릭터 시트 값</h3>
       <p>숙련 보너스 +{statistics.proficiencyBonus} · 이동속도 {statistics.speed || '?'}ft · 최대 HP {statistics.hitPointMaximum || '?'} · 히트 다이스 {statistics.hitDie || '?'}</p>
-      <p>방어도 {statistics.armorClass} · 우선권 {formatModifier(statistics.abilityModifiers.dexterity)} · 내성 숙련 {statistics.savingThrowProficiencies.map(ability => abilityLabels[ability]).join(', ') || '?'}</p>
-      <p>종족/클래스 특성, 공격 및 주문 수치, 숙련과 언어는 선택한 조합으로 저장 시 자동 산출됩니다.</p>
+      <p>방어도 {statistics.armorClass} · 우선권 {formatModifier(statistics.abilityModifiers.dexterity)}</p>
+      <p>내성 굴림: {abilities.map(ability => `${abilityLabels[ability]} ${formatModifier(savingThrows[ability])}`).join(' · ')}</p>
+      {spellAttack != null && <p>주문 공격 보너스 {formatModifier(spellAttack)} · 주문 내성 DC {spellDc}</p>}
+      <p>클래스 장비: {classEquipment.join(', ') || '선택 중'}{backgroundEquipment.length > 0 ? ` · 배경 장비: ${backgroundEquipment.join(', ')}` : ''}</p>
+      <p>기술 숙련: {[...skills, ...(selectedBackground?.skills ?? [])].filter((value, index, all) => all.indexOf(value) === index).join(', ') || '선택 중'}</p>
     </section>
 
     <button type="button" onClick={() => void create()} disabled={!canCreate}>캐릭터 생성</button>
-    {!canCreate && <p>이름, 종족·하위 종족, 클래스 기술, 배경, 표준 배열과 주문 선택을 확인하세요.</p>}
+    {!canCreate && <p>이름, 종족·하위 종족, 클래스 기술, 장비 묶음, 배경, 표준 배열과 주문 선택을 확인하세요.</p>}
 
-    <section aria-label="파티 구성"><h3>일행 추가</h3><p>텍스트 ID를 직접 쓰지 않습니다. 먼저 생성된 캐릭터를 현재 세션의 파티에 추가합니다.</p>
+    <section aria-label="파티 구성"><h3>일행 추가</h3><p>텍스트 ID를 직접 쓰지 않습니다. 생성된 캐릭터를 현재 세션의 파티에 추가합니다.</p>
       {session.party.length > 0 ? <ul>{session.party.map(member => <li key={member.characterSheetId}>{member.characterSheetId} · {member.controlMode}</li>)}</ul> : <p>아직 파티원이 없습니다.</p>}
       {created && <><label>조작 방식 <select aria-label="조작 방식" value={mode} onChange={event => setMode(event.currentTarget.value as SessionControlMode)}><option value="DIRECT">직접 조작</option><option value="AGENT">에이전트 조작</option></select></label><button type="button" onClick={() => void addToParty()}>생성한 캐릭터를 파티에 추가</button></>}
       <small>일행과의 관계는 캐릭터 생성 필수값이 아니며 별도 세션 메모에서 관리합니다.</small>
