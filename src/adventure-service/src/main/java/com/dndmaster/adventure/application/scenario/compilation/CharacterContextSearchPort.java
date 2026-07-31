@@ -28,18 +28,11 @@ public interface CharacterContextSearchPort {
                     throw new IllegalArgumentException("thresholds must contain valid document type values");
                 }
             });
-            java.util.Set<String> documentTypes = documents.stream()
-                    .map(DocumentScope::documentType)
-                    .collect(java.util.stream.Collectors.toSet());
-            thresholds = requestedThresholds.entrySet().stream()
-                    .filter(entry -> documentTypes.contains(entry.getKey().toUpperCase(java.util.Locale.ROOT)))
-                    .collect(java.util.stream.Collectors.toUnmodifiableMap(
-                            entry -> entry.getKey().toUpperCase(java.util.Locale.ROOT),
-                            java.util.Map.Entry::getValue));
-            if (thresholds.isEmpty()) {
-                thresholds = documentTypes.stream().collect(java.util.stream.Collectors.toUnmodifiableMap(
-                        type -> type, ignored -> 0.25d));
-            }
+            java.util.Map<String, Double> normalized = new java.util.LinkedHashMap<>();
+            normalized.put("RULEBOOK", requestedThresholds.getOrDefault("RULEBOOK", 0.35d));
+            normalized.put("STORYBOOK", requestedThresholds.getOrDefault("STORYBOOK", 0.25d));
+            normalized.put("HANDOUT", requestedThresholds.getOrDefault("HANDOUT", 0.25d));
+            thresholds = java.util.Map.copyOf(normalized);
             if (tokenBudget < 0) throw new IllegalArgumentException("token budget must not be negative");
         }
     }
