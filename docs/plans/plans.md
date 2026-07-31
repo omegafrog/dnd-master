@@ -25,3 +25,6 @@
 - [029-4 진행 상태 API](029-4-progress-api.md)
 - [029-5 Ollama·Postgres E2E](029-5-ollama-postgres-e2e.md)
 - [030 RAG 선택지 검색·검증 강화](030-rag-option-retrieval-validation.md)
+- [031-1 스토리북 기반 캠페인 단계 계획](031-1-storybook-campaign-stage-plan.md) — Issue #107 — ready-for-agent
+- [031-2 계획·시트 기반 첫 GM 프롤로그와 재접속 표시](031-2-story-plan-prologue-and-reload.md) — Issue #108 — pending
+- [031-3 현재 단계 인지 GM 턴과 근거 있는 전환](031-3-stage-aware-gm-turns-and-transitions.md) — Issue #109 — pending
