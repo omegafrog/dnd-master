@@ -2,6 +2,7 @@ package com.dndmaster.adventure.application.scenario.compilation;
 
 import com.dndmaster.adventure.application.scenario.ScenarioBundleRepository;
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort;
+import com.dndmaster.adventure.application.scenario.blueprint.DndCharacterCreationTemplate;
 import com.dndmaster.adventure.domain.scenario.InputMode;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
@@ -24,7 +25,6 @@ public final class ScenarioCompilationWorker {
     private static final String WORKER_ID = "scenario-compilation-worker";
     private static final Duration LEASE = Duration.ofMinutes(5);
     private static final Logger log = LoggerFactory.getLogger(ScenarioCompilationWorker.class);
-
     private final ScenarioCompilationProcessManager processManager;
     private final ScenarioCompilationRepository compilationRepository;
     private final WorkQueuePort queue;
@@ -34,6 +34,7 @@ public final class ScenarioCompilationWorker {
     private final CharacterContextSearchPort characterContextSearchPort;
     private final CharacterInputTagExtractionPort characterTagPort;
     private final ScenarioPackageCompilationService compiler;
+    private final ScenarioPackageRepository packageRepository;
 
     public ScenarioCompilationWorker(
             ScenarioCompilationProcessManager processManager,
@@ -43,9 +44,9 @@ public final class ScenarioCompilationWorker {
             ResolutionExtractionPort extractionPort,
             ScenarioSourceExcerptPort excerptPort,
             ScenarioPackageCompilationService compiler,
-            ScenarioPackageRepository ignoredPackageRepository) {
+            ScenarioPackageRepository packageRepository) {
         this(processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort,
-                ignored -> List.of(), ignored -> List.of(), compiler, ignoredPackageRepository);
+                ignored -> List.of(), ignored -> List.of(), compiler, packageRepository);
     }
 
     public ScenarioCompilationWorker(
@@ -58,17 +59,17 @@ public final class ScenarioCompilationWorker {
             CharacterInputTagExtractionPort characterTagPort,
             CharacterContextSearchPort characterContextSearchPort,
             ScenarioPackageCompilationService compiler,
-            ScenarioPackageRepository ignoredPackageRepository) {
-        this.processManager = Objects.requireNonNull(processManager);
-        this.compilationRepository = Objects.requireNonNull(compilationRepository);
-        this.queue = Objects.requireNonNull(queue);
-        this.bundleRepository = Objects.requireNonNull(bundleRepository);
-        this.extractionPort = Objects.requireNonNull(extractionPort);
-        this.excerptPort = Objects.requireNonNull(excerptPort);
-        this.characterTagPort = Objects.requireNonNull(characterTagPort);
-        this.characterContextSearchPort = Objects.requireNonNull(characterContextSearchPort);
-        this.compiler = Objects.requireNonNull(compiler);
-        Objects.requireNonNull(ignoredPackageRepository);
+            ScenarioPackageRepository packageRepository) {
+        this.processManager = Objects.requireNonNull(processManager, "process manager must not be null");
+        this.compilationRepository = Objects.requireNonNull(compilationRepository, "compilation repository must not be null");
+        this.queue = Objects.requireNonNull(queue, "queue must not be null");
+        this.bundleRepository = Objects.requireNonNull(bundleRepository, "bundle repository must not be null");
+        this.extractionPort = Objects.requireNonNull(extractionPort, "extraction port must not be null");
+        this.excerptPort = Objects.requireNonNull(excerptPort, "excerpt port must not be null");
+        this.characterContextSearchPort = Objects.requireNonNull(characterContextSearchPort, "character context search port must not be null");
+        this.characterTagPort = Objects.requireNonNull(characterTagPort, "character tag port must not be null");
+        this.compiler = Objects.requireNonNull(compiler, "compiler must not be null");
+        this.packageRepository = Objects.requireNonNull(packageRepository, "package repository must not be null");
     }
 
     public ScenarioCompilationWorker(
@@ -80,132 +81,169 @@ public final class ScenarioCompilationWorker {
             ScenarioSourceExcerptPort excerptPort,
             CharacterInputTagExtractionPort characterTagPort,
             ScenarioPackageCompilationService compiler,
-            ScenarioPackageRepository ignoredPackageRepository) {
+            ScenarioPackageRepository packageRepository) {
         this(processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort,
-                characterTagPort, ignored -> List.of(), compiler, ignoredPackageRepository);
+                characterTagPort, ignored -> List.of(), compiler, packageRepository);
     }
 
     @Scheduled(fixedDelayString = "${adventure.scenario-compilation.poll-delay-ms:1000}")
     public void processQueuedCompilations() {
-        try { processNext(WORKER_ID, LEASE); }
-        catch (RuntimeException exception) { log.warn("scenario compilation worker delivery failed", exception); }
+        try {
+            processNext(WORKER_ID, LEASE);
+        } catch (RuntimeException exception) {
+            log.warn("scenario compilation worker delivery failed", exception);
+        }
     }
 
     public Optional<ScenarioPackage> processNext(String workerId, Duration lease) {
-        WorkQueuePort.Delivery delivery = queue.claim(Objects.requireNonNull(workerId), Objects.requireNonNull(lease)).orElse(null);
+        WorkQueuePort.Delivery delivery = queue.claim(
+                Objects.requireNonNull(workerId, "worker id must not be null"),
+                Objects.requireNonNull(lease, "lease must not be null"))
+                .orElse(null);
         if (delivery == null) return Optional.empty();
-        var queued = compilationRepository.findById(delivery.work().aggregateId())
+
+        var compilation = compilationRepository.findById(delivery.work().aggregateId())
                 .orElseThrow(() -> new IllegalStateException("compilation not found"));
         log.info("scenario compilation worker claimed work workerId={} compilationId={} attempt={} bundleId={}",
-                workerId, queued.id(), queued.attempt(), queued.bundleId());
+                workerId, compilation.id(), compilation.attempt(), compilation.bundleId());
         var claimed = processManager.claim(delivery);
         try {
             ScenarioSourceBundle bundle = bundleRepository.findById(claimed.bundleId())
                     .orElseThrow(() -> new IllegalStateException("scenario bundle not found"));
-            List<ResolutionExtractionPort.SourceExcerpt> excerpts = safe(excerptPort.load(bundle));
+            List<ResolutionExtractionPort.SourceExcerpt> excerpts = excerptPort.load(bundle);
             Set<String> bundleSources = bundle.currentRevision().documents().stream()
-                    .map(document -> scopeKey(document.knowledgeDocumentId(), document.extractionVersion()))
+                    .map(document -> document.knowledgeDocumentId().value() + ":" + document.extractionVersion())
                     .collect(java.util.stream.Collectors.toSet());
-            List<ResolutionCandidate> resolutionCandidates = safe(extractionPort.extract(
+            List<ResolutionCandidate> candidates = extractionPort.extract(
                     new ResolutionExtractionPort.ResolutionExtractionRequest(
-                            claimed.id().toString(), excerpts.stream()
-                                    .filter(excerpt -> bundleSources.contains(scopeKey(excerpt.documentId(), excerpt.extractionVersion())))
-                                    .limit(3).toList(), "resolution-candidate-v1", "resolution-prompt-v1")));
+                            claimed.id().toString(), excerpts == null ? List.of() : excerpts.stream()
+                                    .filter(excerpt -> bundleSources.contains(excerpt.documentId().value() + ":" + excerpt.extractionVersion()))
+                                    .limit(3).toList(),
+                            "resolution-candidate-v1", "resolution-prompt-v1"));
 
-            List<CharacterContextSearchPort.Evidence> overlayEvidence = searchCharacterOverlays(bundle);
-            List<CharacterInputTagExtractionPort.SourceExcerpt> overlayExcerpts = overlayEvidence.stream()
-                    .map(item -> new CharacterInputTagExtractionPort.SourceExcerpt(
-                            item.documentId(), item.extractionVersion(), item.locator(), item.excerpt()))
+            List<CharacterContextSearchPort.Evidence> characterContext = searchCharacterContext(bundle);
+            List<CharacterInputTagExtractionPort.SourceExcerpt> tagExcerpts = characterContext.stream()
+                    .map(evidence -> new CharacterInputTagExtractionPort.SourceExcerpt(
+                            evidence.documentId(), evidence.extractionVersion(), evidence.locator(), evidence.excerpt()))
                     .toList();
-            List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> overlayCandidates = overlayExcerpts.isEmpty()
-                    ? List.of() : extractCharacterOverlays(claimed.id().toString(), overlayExcerpts);
-            overlayCandidates = refineCharacterOverlays(claimed.id().toString(), bundle, overlayCandidates);
+            List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> characterCandidates = tagExcerpts.isEmpty()
+                    ? List.of()
+                    : extractCharacterTags(claimed.id().toString(), tagExcerpts);
+            characterCandidates = refineCharacterTags(claimed.id().toString(), bundle, characterCandidates);
 
-            ScenarioPackage scenarioPackage = compiler.compileWithCharacterCandidates(
-                    bundle, resolutionCandidates, excerpts, overlayCandidates);
+            ScenarioPackage extractedPackage = compiler.compileWithCharacterCandidates(
+                    bundle, candidates == null ? List.of() : candidates,
+                    excerpts == null ? List.of() : excerpts,
+                    characterCandidates == null ? List.of() : characterCandidates);
+            var baseBlueprint = DndCharacterCreationTemplate.apply(
+                    "DND_5E_2014", extractedPackage.characterCreationBlueprint());
+            ScenarioPackage scenarioPackage = ScenarioPackage.rehydrate(
+                    extractedPackage.packageId(), extractedPackage.bundleId(), extractedPackage.bundleRevision(),
+                    extractedPackage.inputFingerprint(), extractedPackage.documents(), extractedPackage.units(),
+                    extractedPackage.report(), extractedPackage.characterLimit(), baseBlueprint);
+            packageRepository.save(scenarioPackage);
+
             processManager.publish(claimed, delivery, scenarioPackage.packageId());
-            log.info("scenario compilation worker published compilationId={} packageId={}", claimed.id(), scenarioPackage.packageId());
+            log.info("scenario compilation worker published compilationId={} packageId={}",
+                    claimed.id(), scenarioPackage.packageId());
             return Optional.of(scenarioPackage);
         } catch (RuntimeException exception) {
             String reason = exception.getMessage() == null || exception.getMessage().isBlank()
                     ? "scenario compilation failed" : exception.getMessage();
-            if (claimed.attempt() >= MAX_ATTEMPTS) processManager.fail(claimed, delivery, reason);
-            else processManager.retry(claimed, delivery, reason);
+            if (claimed.attempt() >= MAX_ATTEMPTS) {
+                processManager.fail(claimed, delivery, reason);
+            } else {
+                processManager.retry(claimed, delivery, reason);
+            }
             log.warn("scenario compilation worker failed compilationId={} attempt={} reason={}",
                     claimed.id(), claimed.attempt(), reason, exception);
             throw exception;
         }
     }
 
-    private List<CharacterContextSearchPort.Evidence> searchCharacterOverlays(ScenarioSourceBundle bundle) {
-        List<CharacterContextSearchPort.DocumentScope> scopes = overlayScopes(bundle);
-        if (scopes.isEmpty()) {
-            log.info("character overlay search skipped bundleId={} reason=no-story-sources", bundle.id());
-            return List.of();
-        }
+    private List<CharacterContextSearchPort.Evidence> searchCharacterContext(ScenarioSourceBundle bundle) {
         try {
-            Set<String> allowed = scopeKeys(scopes);
-            List<CharacterContextSearchPort.Evidence> found = safe(characterContextSearchPort.search(
-                    new CharacterContextSearchPort.Request(bundle.ownerPlayerId().value(), scopes,
-                            "Extract only scenario-specific character creation constraints, defaults, fixed values, and additional fields. Do not reconstruct base edition rules.",
-                            Map.of("STORYBOOK", .25, "HANDOUT", .25), 1200)));
-            List<CharacterContextSearchPort.Evidence> filtered = found.stream()
-                    .filter(item -> allowed.contains(scopeKey(item.documentId(), item.extractionVersion())))
+            List<CharacterContextSearchPort.DocumentScope> documents = characterOverlayScopes(bundle);
+            if (documents.isEmpty()) {
+                log.info("character overlay search skipped; no storybook or handout documents bundleId={}", bundle.id());
+                return List.of();
+            }
+            Set<String> allowed = scopeKeys(documents);
+            List<CharacterContextSearchPort.Evidence> result = characterContextSearchPort.search(
+                    new CharacterContextSearchPort.Request(
+                            bundle.ownerPlayerId().value(), documents,
+                            "Extract only scenario-specific character creation constraints, defaults, fixed values, and additional input fields. Do not reconstruct base edition rules.",
+                            Map.of("STORYBOOK", .25, "HANDOUT", .25), 1200));
+            List<CharacterContextSearchPort.Evidence> filtered = (result == null
+                    ? List.<CharacterContextSearchPort.Evidence>of() : result).stream()
+                    .filter(evidence -> allowed.contains(scopeKey(
+                            evidence.documentId(), evidence.extractionVersion())))
                     .toList();
             log.info("character overlay search completed bundleId={} scopes={} evidence={}",
-                    bundle.id(), scopes.size(), filtered.size());
+                    bundle.id(), documents.size(), filtered.size());
             return filtered;
         } catch (CharacterContextSearchPort.CharacterContextSearchException exception) {
-            log.warn("character overlay search failed; using edition base schema", exception);
+            log.warn("character overlay search failed; continuing with edition base schema", exception);
             return List.of();
         }
     }
 
-    private List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> extractCharacterOverlays(
+    private List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> extractCharacterTags(
             String operationId, List<CharacterInputTagExtractionPort.SourceExcerpt> excerpts) {
         try {
-            return safe(characterTagPort.extract(new CharacterInputTagExtractionPort.Request(
+            return characterTagPort.extract(new CharacterInputTagExtractionPort.Request(
                     operationId + ":character-story-overlays", excerpts,
                     "character-input-tag-v1", "character-story-overlay-prompt-v1",
-                    "Extract only scenario-specific changes to character creation. Never reconstruct base edition fields or turn example names into options.")));
+                    "Extract only scenario-specific changes to character creation. Return constraints, defaults, fixed values, or additional fields supported by the storybook or handout. Never return base edition fields merely because the rulebook defines them, and never turn example character names into options."));
         } catch (RuntimeException exception) {
-            log.warn("character overlay extraction failed; using edition base schema", exception);
+            log.warn("character overlay extraction failed; continuing with edition base schema", exception);
             return List.of();
         }
     }
 
-    private List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> refineCharacterOverlays(
+    private List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> refineCharacterTags(
             String operationId, ScenarioSourceBundle bundle,
             List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> candidates) {
         if (candidates == null || candidates.isEmpty()) return List.of();
-        List<CharacterContextSearchPort.DocumentScope> scopes = overlayScopes(bundle);
+        List<CharacterContextSearchPort.DocumentScope> scopes = characterOverlayScopes(bundle);
         if (scopes.isEmpty()) return List.copyOf(candidates);
         Set<String> allowed = scopeKeys(scopes);
         List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> result = new ArrayList<>();
         for (var candidate : candidates) {
-            if (isBaseFreeTextField(candidate)) { result.add(candidate); continue; }
+            if (isBaseFreeTextField(candidate)) {
+                result.add(candidate);
+                continue;
+            }
             try {
-                List<CharacterContextSearchPort.Evidence> found = safe(characterContextSearchPort.search(
-                        new CharacterContextSearchPort.Request(bundle.ownerPlayerId().value(), scopes,
-                                "Find only scenario-specific changes for character field '" + candidate.key()
-                                        + "'. Do not retrieve base rulebook definitions.",
-                                Map.of("STORYBOOK", .20, "HANDOUT", .20), 500)));
-                List<CharacterInputTagExtractionPort.SourceExcerpt> excerpts = found.stream()
+                List<CharacterContextSearchPort.Evidence> evidence = characterContextSearchPort.search(
+                        new CharacterContextSearchPort.Request(
+                                bundle.ownerPlayerId().value(), scopes,
+                                "Find only scenario-specific values or constraints for character field '"
+                                        + candidate.key() + "' (" + candidate.label() + "). Do not retrieve base rulebook definitions.",
+                                Map.of("STORYBOOK", .20, "HANDOUT", .20), 500));
+                List<CharacterInputTagExtractionPort.SourceExcerpt> excerpts = (evidence == null
+                        ? List.<CharacterContextSearchPort.Evidence>of() : evidence).stream()
                         .filter(item -> allowed.contains(scopeKey(item.documentId(), item.extractionVersion())))
                         .sorted(java.util.Comparator.comparingDouble(CharacterContextSearchPort.Evidence::similarity).reversed())
                         .map(item -> new CharacterInputTagExtractionPort.SourceExcerpt(
                                 item.documentId(), item.extractionVersion(), item.locator(), item.excerpt()))
                         .toList();
-                if (excerpts.isEmpty()) { result.add(candidate); continue; }
-                List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> refined = safe(characterTagPort.extract(
+                if (excerpts.isEmpty()) {
+                    result.add(candidate);
+                    continue;
+                }
+                List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> refined = characterTagPort.extract(
                         new CharacterInputTagExtractionPort.Request(
-                                operationId + ":character-overlay-refine:" + candidate.key() + ":" + UUID.randomUUID(),
-                                excerpts, "character-input-tag-v1", "character-story-overlay-prompt-v1",
+                                operationId + ":character-overlay-refine:" + candidate.key() + ":" + UUID.randomUUID(), excerpts,
+                                "character-input-tag-v1", "character-story-overlay-prompt-v1",
                                 "Refine only scenario-specific changes for field '" + candidate.key()
-                                        + "'. Keep its key exactly. If the story does not change it, return no candidate.")));
-                result.add(refined.stream().filter(item -> item.key().equals(candidate.key())).findFirst().orElse(candidate));
+                                        + "'. Keep its key exactly. Do not add edition base options. If the story does not change this field, return no candidate."));
+                result.add(refined == null ? candidate : refined.stream()
+                        .filter(item -> item.key().equals(candidate.key()))
+                        .findFirst().orElse(candidate));
             } catch (RuntimeException exception) {
-                log.warn("character overlay refinement failed; retaining candidate key={}", candidate.key(), exception);
+                log.warn("character overlay refinement failed; retaining first-stage candidate key={}",
+                        candidate.key(), exception);
                 result.add(candidate);
             }
         }
@@ -220,7 +258,7 @@ public final class ScenarioCompilationWorker {
                 || key.equals("bonds") || key.equals("flaws");
     }
 
-    private static List<CharacterContextSearchPort.DocumentScope> overlayScopes(ScenarioSourceBundle bundle) {
+    private static List<CharacterContextSearchPort.DocumentScope> characterOverlayScopes(ScenarioSourceBundle bundle) {
         return bundle.currentRevision().documents().stream()
                 .filter(document -> "STORYBOOK".equalsIgnoreCase(document.documentType())
                         || document.role() == ScenarioBundleDocumentRole.HANDOUT)
@@ -237,9 +275,8 @@ public final class ScenarioCompilationWorker {
     }
 
     private static String scopeKey(
-            com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId documentId, long extractionVersion) {
+            com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId documentId,
+            long extractionVersion) {
         return documentId.value() + ":" + extractionVersion;
     }
-
-    private static <T> List<T> safe(List<T> values) { return values == null ? List.of() : List.copyOf(values); }
 }
