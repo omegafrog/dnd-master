@@ -75,6 +75,8 @@ public class ModuleFlywayConfiguration {
                 .defaultSchema("public")
                 .table(module.historyTable())
                 .locations(module.location())
+                .baselineOnMigrate(true)
+                .baselineVersion("0")
                 .outOfOrder(true)
                 .load();
     }
