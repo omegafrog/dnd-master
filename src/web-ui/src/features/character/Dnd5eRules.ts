@@ -43,7 +43,18 @@ const classes: Record<string, ClassEffect> = {
   wizard: { hitDie: 6, savingThrows: ['intelligence', 'wisdom'] }, '위저드': { hitDie: 6, savingThrows: ['intelligence', 'wisdom'] },
 }
 const armor: Record<string, ArmorEffect> = {
-  'padded armor': { base: 11 }, leather: { base: 11 }, 'studded leather': { base: 12 }, hide: { base: 12, dexterityCap: 2 }, 'chain shirt': { base: 13, dexterityCap: 2 }, 'scale mail': { base: 14, dexterityCap: 2 }, breastplate: { base: 14, dexterityCap: 2 }, 'half plate': { base: 15, dexterityCap: 2 }, 'ring mail': { base: 14, dexterityCap: 0 }, chainmail: { base: 16, dexterityCap: 0 }, splint: { base: 17, dexterityCap: 0 }, plate: { base: 18, dexterityCap: 0 },
+  'padded armor': { base: 11 }, '패디드 아머': { base: 11 },
+  leather: { base: 11 }, '가죽 갑옷': { base: 11 },
+  'studded leather': { base: 12 }, '스터디드 레더': { base: 12 },
+  hide: { base: 12, dexterityCap: 2 }, '하이드': { base: 12, dexterityCap: 2 },
+  'chain shirt': { base: 13, dexterityCap: 2 }, '체인 셔츠': { base: 13, dexterityCap: 2 },
+  'scale mail': { base: 14, dexterityCap: 2 }, '스케일 메일': { base: 14, dexterityCap: 2 },
+  breastplate: { base: 14, dexterityCap: 2 }, '브레스트플레이트': { base: 14, dexterityCap: 2 },
+  'half plate': { base: 15, dexterityCap: 2 }, '하프 플레이트': { base: 15, dexterityCap: 2 },
+  'ring mail': { base: 14, dexterityCap: 0 }, '링 메일': { base: 14, dexterityCap: 0 },
+  chainmail: { base: 16, dexterityCap: 0 }, 'chain mail': { base: 16, dexterityCap: 0 }, '체인 메일': { base: 16, dexterityCap: 0 },
+  splint: { base: 17, dexterityCap: 0 }, '스플린트': { base: 17, dexterityCap: 0 },
+  plate: { base: 18, dexterityCap: 0 }, '플레이트': { base: 18, dexterityCap: 0 },
 }
 
 export function subracesFor(race: string): string[] {
