@@ -10,6 +10,7 @@ export type ClassCreationRule = {
   toolProficiencies: string[]
   equipmentGroups: EquipmentGroup[]
 }
+export type ArmorLoadout = { equippedArmor: string; equippedShield: boolean }
 const o = (id: string, label: string, ...items: string[]) => ({ id, label, items })
 const g = (id: string, label: string, ...options: ReturnType<typeof o>[]): EquipmentGroup => ({ id, label, options })
 const one = (id: string, label: string, item: string) => g(id, label, o(item, item, item))
@@ -40,6 +41,13 @@ export function classCreationRule(characterClass: string): ClassCreationRule | u
 export function resolveEquipment(characterClass: string, selections: Record<string, string>): string[] {
   const creation = rules[characterClass]
   return creation ? creation.equipmentGroups.flatMap(group => group.options.find(item => item.id === selections[group.id])?.items ?? []) : []
+}
+export function inferArmorLoadout(equipment: string[]): ArmorLoadout {
+  const armorPriority = ['플레이트', '스플린트', '체인 메일', '링 메일', '하프 플레이트', '브레스트플레이트', '스케일 메일', '체인 셔츠', '하이드', '스터디드 레더', '가죽 갑옷', '패디드 아머']
+  return {
+    equippedArmor: armorPriority.find(item => equipment.includes(item)) ?? '',
+    equippedShield: equipment.some(item => item === '방패' || item === '나무 방패'),
+  }
 }
 export function spellAttackBonus(characterClass: string, modifiers: AbilityScores, proficiencyBonus: number): number | null {
   const ability = rules[characterClass]?.spellcastingAbility
