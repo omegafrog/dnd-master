@@ -5,6 +5,8 @@ import type { CreatedCharacterSheetView, PlayPreparationView, SetupApi } from '.
 import { calculateDnd5eCharacter, type Ability, type AbilityScores } from './Dnd5eRules'
 import { backgroundOptions, classOptions, personalityHelp, raceOptions, STANDARD_ARRAY } from './Dnd5eCharacterCatalog'
 import { classCreationRule, resolveEquipment, savingThrowBonuses, spellAttackBonus, spellSaveDc } from './Dnd5eCharacterDerivedRules'
+import { subclassesFor } from './Dnd5eSubclassCatalog'
+import { calculateAttacks, resolvedWeaponIds, unresolvedWeaponSlots, weaponChoices } from './Dnd5eWeaponRules'
 
 type SessionApi = Pick<AdventureSessionApi, 'read' | 'addMember'>
 type CharacterSetupApi = Pick<SetupApi, 'getPlayPreparation' | 'createCharacterSheet'>
@@ -19,10 +21,12 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
   const [race, setRace] = useState('')
   const [subrace, setSubrace] = useState('')
   const [characterClass, setCharacterClass] = useState('')
+  const [subclass, setSubclass] = useState('')
   const [background, setBackground] = useState('')
   const [scores, setScores] = useState<AbilityScores>(emptyScores)
   const [skills, setSkills] = useState<string[]>([])
   const [equipmentSelections, setEquipmentSelections] = useState<Record<string, string>>({})
+  const [weaponSelections, setWeaponSelections] = useState<Record<string, string[]>>({})
   const [cantrips, setCantrips] = useState<string[]>([])
   const [firstLevelSpells, setFirstLevelSpells] = useState<string[]>([])
   const [personality, setPersonality] = useState('')
@@ -49,12 +53,19 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
   const selectedSubrace = selectedRace?.subraces.find(option => option.id === subrace)
   const selectedClass = classOptions.find(option => option.id === characterClass)
   const selectedBackground = backgroundOptions.find(option => option.id === background)
+  const subclassOptions = subclassesFor(characterClass)
+  const selectedSubclass = subclassOptions.find(option => option.id === subclass)
+  const subclassRequired = selectedClass?.subclassLevel === 1 && subclassOptions.length > 0
   const creationRule = classCreationRule(characterClass)
   const standardArrayValid = useMemo(() => [...Object.values(scores)].sort((a, b) => b - a).join(',') === [...STANDARD_ARRAY].sort((a, b) => b - a).join(','), [scores])
   const statistics = calculateDnd5eCharacter({ race, subrace, characterClass, level: 1, baseAbilities: scores })
   const classEquipment = resolveEquipment(characterClass, equipmentSelections)
   const backgroundEquipment = selectedBackground?.equipment ?? []
   const equipmentComplete = Boolean(creationRule && creationRule.equipmentGroups.every(group => equipmentSelections[group.id]))
+  const weaponSlots = unresolvedWeaponSlots(classEquipment)
+  const weaponsComplete = weaponSlots.every(slot => (weaponSelections[slot.id] ?? []).length === slot.count)
+  const weaponIds = resolvedWeaponIds(classEquipment, weaponSelections)
+  const attacks = calculateAttacks(weaponIds, statistics.abilityModifiers, statistics.proficiencyBonus)
   const requiredCantrips = Math.min(creationRule?.cantripCount ?? 0, selectedClass?.cantrips.length ?? 0)
   const requiredFirstLevel = Math.min(creationRule?.firstLevelSpellCount ?? 0, selectedClass?.firstLevelSpells.length ?? 0)
   const spellsComplete = !selectedClass?.canCastSpells || (cantrips.length === requiredCantrips && firstLevelSpells.length === requiredFirstLevel)
@@ -63,17 +74,30 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
   const savingThrows = savingThrowBonuses(statistics.abilityModifiers, statistics.savingThrowProficiencies, statistics.proficiencyBonus)
   const canCreate = Boolean(name.trim() && race && characterClass && background && standardArrayValid && selectedClass
     && skills.length === selectedClass.skillChoiceCount && (!selectedRace?.subraces.length || subrace)
-    && equipmentComplete && spellsComplete)
+    && (!subclassRequired || subclass) && equipmentComplete && weaponsComplete && spellsComplete)
   const blocked = !preparation || preparation.status !== 'READY' || !preparation.characterCreationBlueprint.available
     || preparation.characterCreationBlueprint.status !== 'PUBLISHED'
 
   function chooseRace(nextRace: string) { setRace(nextRace); setSubrace('') }
   function chooseClass(nextClass: string) {
-    setCharacterClass(nextClass); setSkills([]); setEquipmentSelections({}); setCantrips([]); setFirstLevelSpells([])
+    setCharacterClass(nextClass)
+    setSubclass('')
+    setSkills([])
+    setEquipmentSelections({})
+    setWeaponSelections({})
+    setCantrips([])
+    setFirstLevelSpells([])
   }
   function toggleLimited(value: string, current: string[], limit: number, setter: (next: string[]) => void) {
     if (current.includes(value)) setter(current.filter(item => item !== value))
     else if (current.length < limit) setter([...current, value])
+  }
+  function chooseWeapon(slotId: string, weaponId: string, checked: boolean, count: number) {
+    setWeaponSelections(current => {
+      const selected = current[slotId] ?? []
+      const next = checked ? [...selected, weaponId].slice(0, count) : selected.filter(value => value !== weaponId)
+      return { ...current, [slotId]: next }
+    })
   }
 
   async function create() {
@@ -81,20 +105,25 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
     try {
       const finalStatistics = calculateDnd5eCharacter({ race, subrace, characterClass, level: 1, baseAbilities: scores })
       const finalSavingThrows = savingThrowBonuses(finalStatistics.abilityModifiers, finalStatistics.savingThrowProficiencies, finalStatistics.proficiencyBonus)
-      const allEquipment = [...classEquipment, ...backgroundEquipment]
+      const finalWeaponIds = resolvedWeaponIds(classEquipment, weaponSelections)
+      const finalAttacks = calculateAttacks(finalWeaponIds, finalStatistics.abilityModifiers, finalStatistics.proficiencyBonus)
+      const concreteClassEquipment = classEquipment.filter(item => !/^(군용|단순) (?:근접 )?무기 \d+개$/.test(item))
+      const selectedWeapons = finalWeaponIds.map(id => weaponChoices('SIMPLE').concat(weaponChoices('MARTIAL')).find(option => option.id === id)?.label).filter((value): value is string => Boolean(value))
+      const allEquipment = [...concreteClassEquipment, ...selectedWeapons, ...backgroundEquipment]
       const next = await setupApi.createCharacterSheet({
         sessionId, edition: 'DND_5E_2014', characterName: name.trim(), level: 1, inspiration: false,
         race, characterClass, background,
         startingAbilities: abilities.map(ability => `${ability}=${scores[ability]}`).join(','),
         derivedStatistics: JSON.stringify({
-          ...finalStatistics, experience: 0, savingThrowBonuses: finalSavingThrows,
+          ...finalStatistics, experience: 0, savingThrowBonuses: finalSavingThrows, attacks: finalAttacks,
           spellAttackBonus: spellAttackBonus(characterClass, finalStatistics.abilityModifiers, finalStatistics.proficiencyBonus),
           spellSaveDc: spellSaveDc(characterClass, finalStatistics.abilityModifiers, finalStatistics.proficiencyBonus),
         }),
         characterBuild: JSON.stringify({
-          subrace, raceLanguages: selectedRace?.languages ?? [], raceTraits: [...(selectedRace?.traits ?? []), ...(selectedSubrace?.traits ?? [])],
-          classFeatures: selectedClass?.features ?? [], classSkills: skills, backgroundSkills: selectedBackground?.skills ?? [],
-          equipmentSelections, equipment: allEquipment, cantrips, firstLevelSpells,
+          subrace, subclass, subclassFeatures: selectedSubclass?.features ?? [],
+          raceLanguages: selectedRace?.languages ?? [], raceTraits: [...(selectedRace?.traits ?? []), ...(selectedSubrace?.traits ?? [])],
+          classFeatures: [...(selectedClass?.features ?? []), ...(selectedSubclass?.features ?? [])], classSkills: skills, backgroundSkills: selectedBackground?.skills ?? [],
+          equipmentSelections, weaponSelections, equipment: allEquipment, cantrips, firstLevelSpells,
           personality, ideal, bond, flaw, appearance,
           armorProficiencies: creationRule?.armorProficiencies ?? [], weaponProficiencies: creationRule?.weaponProficiencies ?? [],
           toolProficiencies: creationRule?.toolProficiencies ?? [],
@@ -145,9 +174,11 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
       <p>클래스는 히트 다이스, 내성 숙련, 기술, 시작 장비, 특성과 주문 사용 여부를 결정합니다.</p>
       <label>클래스 <select aria-label="클래스" value={characterClass} onChange={event => chooseClass(event.currentTarget.value)} required><option value="">선택하세요</option>{classOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
       {selectedClass && <section aria-label="클래스 설명"><p>{selectedClass.description}</p><p>히트 다이스 {selectedClass.hitDie} · 내성 숙련 {selectedClass.savingThrows.map(ability => abilityLabels[ability]).join(', ')}</p><p>자동 특성: {selectedClass.features.join(', ')}</p>{selectedClass.subclassLevel > 1 && <p>하위 클래스는 {selectedClass.subclassLevel}레벨에 선택하므로 지금 입력하지 않습니다.</p>}</section>}
+      {subclassRequired && <fieldset><legend>1레벨 하위 클래스</legend><label>하위 클래스 <select aria-label="하위 클래스" value={subclass} onChange={event => setSubclass(event.currentTarget.value)} required><option value="">선택하세요</option>{subclassOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>{selectedSubclass && <section aria-label="하위 클래스 설명"><p>{selectedSubclass.description}</p><p>자동 특성: {selectedSubclass.features.join(', ')}</p></section>}</fieldset>}
       {creationRule && <section aria-label="클래스 숙련"><p>방어구 숙련: {creationRule.armorProficiencies.join(', ') || '없음'}</p><p>무기 숙련: {creationRule.weaponProficiencies.join(', ') || '없음'}</p><p>도구 숙련: {creationRule.toolProficiencies.join(', ') || '없음'}</p></section>}
       {selectedClass && <fieldset><legend>기술 숙련 {selectedClass.skillChoiceCount}개 선택</legend>{selectedClass.skillChoices.map(skill => <label key={skill}><input type="checkbox" checked={skills.includes(skill)} onChange={() => toggleLimited(skill, skills, selectedClass.skillChoiceCount, setSkills)} disabled={!skills.includes(skill) && skills.length >= selectedClass.skillChoiceCount} />{skill}</label>)}<p>{skills.length} / {selectedClass.skillChoiceCount} 선택</p></fieldset>}
-      {creationRule && <fieldset><legend>클래스 시작 장비</legend><p>각 묶음에서 하나씩 고릅니다.</p>{creationRule.equipmentGroups.map(group => <label key={group.id}>{group.label} <select aria-label={`장비 ${group.label}`} value={equipmentSelections[group.id] ?? ''} onChange={event => { const value = event.currentTarget.value; setEquipmentSelections(current => ({ ...current, [group.id]: value })) }} required><option value="">선택하세요</option>{group.options.map(choice => <option key={choice.id} value={choice.id}>{choice.label}</option>)}</select></label>)}</fieldset>}
+      {creationRule && <fieldset><legend>클래스 시작 장비</legend><p>각 묶음에서 하나씩 고릅니다.</p>{creationRule.equipmentGroups.map(group => <label key={group.id}>{group.label} <select aria-label={`장비 ${group.label}`} value={equipmentSelections[group.id] ?? ''} onChange={event => { const value = event.currentTarget.value; setEquipmentSelections(current => ({ ...current, [group.id]: value })); setWeaponSelections({}) }} required><option value="">선택하세요</option>{group.options.map(choice => <option key={choice.id} value={choice.id}>{choice.label}</option>)}</select></label>)}</fieldset>}
+      {weaponSlots.length > 0 && <fieldset><legend>실제 무기 선택</legend><p>일반 무기 슬롯을 실제 무기로 확정합니다. 같은 슬롯에서는 요구 개수까지만 선택할 수 있습니다.</p>{weaponSlots.map(slot => <fieldset key={slot.id}><legend>{slot.label}</legend>{weaponChoices(slot.category, slot.label.includes('근접')).map(weapon => { const selected = weaponSelections[slot.id] ?? []; return <label key={weapon.id}><input type="checkbox" checked={selected.includes(weapon.id)} disabled={!selected.includes(weapon.id) && selected.length >= slot.count} onChange={event => chooseWeapon(slot.id, weapon.id, event.currentTarget.checked, slot.count)} />{weapon.label} — {weapon.damage} {weapon.damageType}</label> })}<p>{(weaponSelections[slot.id] ?? []).length} / {slot.count} 선택</p></fieldset>)}</fieldset>}
       {selectedClass?.canCastSpells && creationRule && <fieldset><legend>주문 선택</legend>
         <p>소마법과 1레벨 주문은 각각 정해진 개수만 선택할 수 있습니다.</p>
         <fieldset><legend>소마법 {requiredCantrips}개</legend>{selectedClass.cantrips.map(spell => <label key={spell}><input type="checkbox" checked={cantrips.includes(spell)} onChange={() => toggleLimited(spell, cantrips, requiredCantrips, setCantrips)} disabled={!cantrips.includes(spell) && cantrips.length >= requiredCantrips} />{spell}</label>)}<p>{cantrips.length} / {requiredCantrips}</p></fieldset>
@@ -183,10 +214,11 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
       {spellAttack != null && <p>주문 공격 보너스 {formatModifier(spellAttack)} · 주문 내성 DC {spellDc}</p>}
       <p>클래스 장비: {classEquipment.join(', ') || '선택 중'}{backgroundEquipment.length > 0 ? ` · 배경 장비: ${backgroundEquipment.join(', ')}` : ''}</p>
       <p>기술 숙련: {[...skills, ...(selectedBackground?.skills ?? [])].filter((value, index, all) => all.indexOf(value) === index).join(', ') || '선택 중'}</p>
+      <h4>공격 및 무기</h4>{attacks.length > 0 ? <ul aria-label="공격 목록">{attacks.map(attack => <li key={attack.weaponId}>{attack.label}: 명중 {formatModifier(attack.attackBonus)}, 피해 {attack.damage} {attack.damageType}{attack.range ? `, 사거리 ${attack.range}` : ''}</li>)}</ul> : <p>무기를 선택하면 공격 수치가 자동 계산됩니다.</p>}
     </section>
 
     <button type="button" onClick={() => void create()} disabled={!canCreate}>캐릭터 생성</button>
-    {!canCreate && <p>이름, 종족·하위 종족, 클래스 기술, 장비 묶음, 배경, 표준 배열과 주문 선택을 확인하세요.</p>}
+    {!canCreate && <p>이름, 종족·하위 종족, 필요한 하위 클래스, 클래스 기술, 장비·무기, 배경, 표준 배열과 주문 선택을 확인하세요.</p>}
 
     <section aria-label="파티 구성"><h3>일행 추가</h3><p>텍스트 ID를 직접 쓰지 않고 생성된 캐릭터를 현재 세션 파티에 추가합니다.</p>
       {session.party.length > 0 ? <ul>{session.party.map(member => <li key={member.characterSheetId}>{member.characterSheetId} · {member.controlMode}</li>)}</ul> : <p>아직 파티원이 없습니다.</p>}
