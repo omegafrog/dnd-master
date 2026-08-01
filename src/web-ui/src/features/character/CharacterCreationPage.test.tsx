@@ -47,4 +47,31 @@ describe('CharacterCreationPage', () => {
     const value15 = Array.from(dexterity.options).find(option => option.value === '15')
     expect(value15?.disabled).toBe(true)
   })
+
+  it('1레벨에 하위 클래스를 정하는 클래스만 하위 클래스 선택을 표시한다', async () => {
+    const { setupApi, sessionApi } = fixture()
+    const user = userEvent.setup()
+    render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
+    await user.selectOptions(await screen.findByLabelText('클래스'), '클레릭')
+    const subclass = screen.getByLabelText('하위 클래스') as HTMLSelectElement
+    expect(Array.from(subclass.options).map(option => option.textContent)).toContain('생명 권역')
+    await user.selectOptions(screen.getByLabelText('클래스'), '파이터')
+    expect(screen.queryByLabelText('하위 클래스')).toBeNull()
+  })
+
+  it('일반 군용 무기 슬롯을 실제 무기로 선택하면 공격 목록을 계산한다', async () => {
+    const { setupApi, sessionApi } = fixture()
+    const user = userEvent.setup()
+    render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
+    await user.selectOptions(await screen.findByLabelText('클래스'), '파이터')
+    await user.selectOptions(screen.getByLabelText('장비 방어구'), 'chain')
+    await user.selectOptions(screen.getByLabelText('장비 주 무장'), 'weapon-shield')
+    await user.selectOptions(screen.getByLabelText('장비 보조 무장'), 'crossbow')
+    await user.selectOptions(screen.getByLabelText('장비 꾸러미'), 'explorer')
+    const rapier = await screen.findByLabelText(/레이피어 — 1d8 관통/)
+    await user.click(rapier)
+    const attackList = screen.getByLabelText('공격 목록')
+    expect(attackList.textContent).toContain('레이피어')
+    expect(attackList.textContent).toContain('명중')
+  })
 })
