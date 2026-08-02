@@ -44,8 +44,7 @@ describe('CharacterCreationPage', () => {
     render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
     await user.selectOptions(await screen.findByLabelText('근력'), '15')
     const dexterity = screen.getByLabelText('민첩') as HTMLSelectElement
-    const value15 = Array.from(dexterity.options).find(option => option.value === '15')
-    expect(value15?.disabled).toBe(true)
+    expect(Array.from(dexterity.options).find(option => option.value === '15')?.disabled).toBe(true)
   })
 
   it('1레벨에 하위 클래스를 정하는 클래스만 하위 클래스 선택을 표시한다', async () => {
@@ -59,7 +58,7 @@ describe('CharacterCreationPage', () => {
     expect(screen.queryByLabelText('하위 클래스')).toBeNull()
   })
 
-  it('일반 군용 무기 슬롯을 실제 무기로 선택하면 공격 목록을 계산한다', async () => {
+  it('실제 무기를 선택하면 장착 상태와 공격 목록을 계산한다', async () => {
     const { setupApi, sessionApi } = fixture()
     const user = userEvent.setup()
     render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
@@ -68,11 +67,12 @@ describe('CharacterCreationPage', () => {
     await user.selectOptions(screen.getByLabelText('장비 주 무장'), 'shield')
     await user.selectOptions(screen.getByLabelText('장비 보조 무장'), 'crossbow')
     await user.selectOptions(screen.getByLabelText('장비 꾸러미'), '탐험가')
-    const rapier = await screen.findByLabelText(/레이피어 — 1d8 관통/)
-    await user.click(rapier)
+    await user.click(await screen.findByLabelText(/레이피어 — 1d8 관통/))
+    expect(await screen.findByLabelText('주손 무기')).not.toBeNull()
+    expect((screen.getByLabelText('방패 장착') as HTMLInputElement).checked).toBe(true)
     const attackList = screen.getByLabelText('공격 목록')
     expect(attackList.textContent).toContain('레이피어')
-    expect(attackList.textContent).toContain('명중')
+    expect(attackList.textContent).toContain('비무장 공격')
   })
 
   it('로그는 숙련 기술 중 두 개의 숙달을 선택한다', async () => {
@@ -97,6 +97,6 @@ describe('CharacterCreationPage', () => {
     await user.selectOptions(await screen.findByLabelText('클래스'), '위저드')
     expect(screen.getByLabelText('기술 보너스').textContent).toContain('지각')
     expect(screen.getByText(/수동 지각/).textContent).toContain('수동 지각')
-    expect(screen.getByText(/주문 슬롯/).textContent).toContain('1레벨 2개')
+    expect(screen.getByText(/1레벨 슬롯/).textContent).toContain('2')
   })
 })
