@@ -7,7 +7,7 @@ Complete the D&D 5e 2014 character creation flow so that users select only rule-
 - Phase 1: implemented in rules, UI, validation, and persisted build data.
 - Phase 2: implemented in rules, UI, and persisted spell model.
 - Phase 3: implemented for current level-1 subclass catalog.
-- Phase 4: combat/equipment rules implemented and tested; equipped-item UI and persistence integration remain.
+- Phase 4: implemented in rules, UI, validation, and persisted equipped-item state.
 - Phase 5: frontend validation contract implemented; backend endpoint integration remains.
 - Phase 6: not complete.
 
@@ -31,12 +31,13 @@ Complete the D&D 5e 2014 character creation flow so that users select only rule-
 - [x] Define owned equipment separately from equipped-item state.
 - [x] Validate shield/two-handed and unowned-weapon conflicts.
 - [x] Add versatile, thrown, ammunition, unarmed, and monk martial-arts attack derivation.
-- [ ] Add equipped-item controls to character creation and persist the resolved state.
-- [ ] Validate armor proficiency and druid metal-armor restrictions.
+- [x] Add equipped-item controls to character creation and persist the resolved state.
+- [x] Validate armor proficiency and druid metal-armor restrictions.
 
 ## Phase 5 — Server-side validation
 - [x] Define stable validation error codes for standard array, skill counts, subclass requirements, spells, equipment groups, choices, and expertise.
-- [ ] Locate the character-sheet creation handler and invoke equivalent validation before persistence.
+- [x] Identify the active session character-sheet route: `/internal/v1/adventure-sessions/{sessionId}/character-sheets`.
+- [ ] Locate the server handler and invoke equivalent validation before persistence.
 - [ ] Reject payloads that violate the selected edition catalog.
 
 ## Phase 6 — Architecture and regression
