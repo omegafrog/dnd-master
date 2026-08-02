@@ -52,6 +52,17 @@ describe('calculateDnd5eCharacter', () => {
     }).armorClass).toBe(16)
   })
 
+  it('applies barbarian and monk unarmored defense', () => {
+    expect(calculateDnd5eCharacter({
+      race: 'Human', characterClass: 'Barbarian', level: 1,
+      baseAbilities: { dexterity: 14, constitution: 16 }, equippedShield: true,
+    }).armorClass).toBe(18)
+    expect(calculateDnd5eCharacter({
+      race: 'Human', characterClass: 'Monk', level: 1,
+      baseAbilities: { dexterity: 14, wisdom: 16 }, equippedShield: false,
+    }).armorClass).toBe(15)
+  })
+
   it('requires an actual rolled HP result instead of inventing it', () => {
     expect(calculateDnd5eCharacter({
       race: 'Human', characterClass: 'Barbarian', level: 2,
