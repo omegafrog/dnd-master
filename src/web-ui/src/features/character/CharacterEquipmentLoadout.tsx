@@ -1,4 +1,4 @@
-import type { ArmorIssue } from './Dnd5eArmorEquipmentRules'
+import type { ArmorEquipmentIssue } from './Dnd5eArmorEquipmentRules'
 import type { EquippedItemState, EquipmentConflict } from './Dnd5eEquipmentStateRules'
 import { weaponOptions } from './Dnd5eWeaponRules'
 
@@ -16,7 +16,7 @@ export function CharacterEquipmentLoadout({
   shieldAvailable: boolean
   state: EquippedItemState
   conflicts: EquipmentConflict[]
-  armorIssues: ArmorIssue[]
+  armorIssues: ArmorEquipmentIssue[]
   onChange: (state: EquippedItemState) => void
 }) {
   const ownedWeapons = ownedWeaponIds
