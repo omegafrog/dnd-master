@@ -5,6 +5,7 @@ import type { CreatedCharacterSheetView, PlayPreparationView, SetupApi } from '.
 import { calculateDnd5eCharacter, type Ability, type AbilityScores } from './Dnd5eRules'
 import { backgroundOptions, classOptions, personalityHelp, raceOptions, STANDARD_ARRAY } from './Dnd5eCharacterCatalog'
 import { classCreationRule, inferArmorLoadout, resolveEquipment, savingThrowBonuses, spellAttackBonus, spellSaveDc } from './Dnd5eCharacterDerivedRules'
+import { expertiseChoiceCount, firstLevelSpellSlots, passivePerception, skillBonuses, uniqueProficiencies } from './Dnd5eSheetDerivedRules'
 import { subclassesFor } from './Dnd5eSubclassCatalog'
 import { calculateAttacks, resolvedWeaponIds, unresolvedWeaponSlots, weaponChoices } from './Dnd5eWeaponRules'
 
@@ -25,6 +26,7 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
   const [background, setBackground] = useState('')
   const [scores, setScores] = useState<AbilityScores>(emptyScores)
   const [skills, setSkills] = useState<string[]>([])
+  const [expertise, setExpertise] = useState<string[]>([])
   const [equipmentSelections, setEquipmentSelections] = useState<Record<string, string>>({})
   const [weaponSelections, setWeaponSelections] = useState<Record<string, string[]>>({})
   const [cantrips, setCantrips] = useState<string[]>([])
@@ -75,20 +77,33 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
   const spellsComplete = !selectedClass?.canCastSpells || (cantrips.length === requiredCantrips && firstLevelSpells.length === requiredFirstLevel)
   const spellAttack = spellAttackBonus(characterClass, statistics.abilityModifiers, statistics.proficiencyBonus)
   const spellDc = spellSaveDc(characterClass, statistics.abilityModifiers, statistics.proficiencyBonus)
+  const spellSlots = firstLevelSpellSlots(characterClass)
   const savingThrows = savingThrowBonuses(statistics.abilityModifiers, statistics.savingThrowProficiencies, statistics.proficiencyBonus)
+  const allSkillProficiencies = uniqueProficiencies(skills, selectedBackground?.skills ?? [])
+  const requiredExpertise = expertiseChoiceCount(characterClass, 1)
+  const validExpertise = expertise.filter(skill => allSkillProficiencies.includes(skill))
+  const expertiseComplete = validExpertise.length === requiredExpertise
+  const calculatedSkills = skillBonuses(statistics.abilityModifiers, statistics.proficiencyBonus, allSkillProficiencies, validExpertise)
+  const calculatedPassivePerception = passivePerception(calculatedSkills)
   const canCreate = Boolean(name.trim() && race && characterClass && background && standardArrayValid && selectedClass
     && skills.length === selectedClass.skillChoiceCount && (!selectedRace?.subraces.length || subrace)
-    && (!subclassRequired || subclass) && equipmentComplete && weaponsComplete && spellsComplete)
+    && (!subclassRequired || subclass) && expertiseComplete && equipmentComplete && weaponsComplete && spellsComplete)
   const blocked = !preparation || preparation.status !== 'READY' || !preparation.characterCreationBlueprint.available
     || preparation.characterCreationBlueprint.status !== 'PUBLISHED'
 
   function chooseRace(nextRace: string) { setRace(nextRace); setSubrace('') }
   function chooseClass(nextClass: string) {
-    setCharacterClass(nextClass); setSubclass(''); setSkills([]); setEquipmentSelections({}); setWeaponSelections({}); setCantrips([]); setFirstLevelSpells([])
+    setCharacterClass(nextClass); setSubclass(''); setSkills([]); setExpertise([]); setEquipmentSelections({}); setWeaponSelections({}); setCantrips([]); setFirstLevelSpells([])
   }
+  function chooseBackground(nextBackground: string) { setBackground(nextBackground); setExpertise([]) }
   function toggleLimited(value: string, current: string[], limit: number, setter: (next: string[]) => void) {
     if (current.includes(value)) setter(current.filter(item => item !== value))
     else if (current.length < limit) setter([...current, value])
+  }
+  function chooseSkill(skill: string) {
+    const next = skills.includes(skill) ? skills.filter(item => item !== skill) : skills.length < (selectedClass?.skillChoiceCount ?? 0) ? [...skills, skill] : skills
+    setSkills(next)
+    setExpertise(current => current.filter(item => next.includes(item) || (selectedBackground?.skills ?? []).includes(item)))
   }
   function chooseWeapon(slotId: string, weaponId: string, checked: boolean, count: number) {
     setWeaponSelections(current => {
@@ -105,6 +120,7 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
         equippedArmor: armorLoadout.equippedArmor, equippedShield: armorLoadout.equippedShield,
       })
       const finalSavingThrows = savingThrowBonuses(finalStatistics.abilityModifiers, finalStatistics.savingThrowProficiencies, finalStatistics.proficiencyBonus)
+      const finalSkillBonuses = skillBonuses(finalStatistics.abilityModifiers, finalStatistics.proficiencyBonus, allSkillProficiencies, validExpertise)
       const finalWeaponIds = resolvedWeaponIds(classEquipment, weaponSelections)
       const finalAttacks = calculateAttacks(finalWeaponIds, finalStatistics.abilityModifiers, finalStatistics.proficiencyBonus)
       const concreteClassEquipment = classEquipment.filter(item => !/^(군용|단순) (?:근접 )?무기 \d+개$/.test(item))
@@ -117,13 +133,15 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
         startingAbilities: abilities.map(ability => `${ability}=${scores[ability]}`).join(','),
         derivedStatistics: JSON.stringify({
           ...finalStatistics, experience: 0, savingThrowBonuses: finalSavingThrows, attacks: finalAttacks,
+          skillBonuses: finalSkillBonuses, passivePerception: passivePerception(finalSkillBonuses), spellSlots,
           spellAttackBonus: spellAttackBonus(characterClass, finalStatistics.abilityModifiers, finalStatistics.proficiencyBonus),
           spellSaveDc: spellSaveDc(characterClass, finalStatistics.abilityModifiers, finalStatistics.proficiencyBonus),
         }),
         characterBuild: JSON.stringify({
           subrace, subclass, subclassFeatures: selectedSubclass?.features ?? [], armorLoadout,
           raceLanguages: selectedRace?.languages ?? [], raceTraits: [...(selectedRace?.traits ?? []), ...(selectedSubrace?.traits ?? [])],
-          classFeatures: [...(selectedClass?.features ?? []), ...(selectedSubclass?.features ?? [])], classSkills: skills, backgroundSkills: selectedBackground?.skills ?? [],
+          classFeatures: [...(selectedClass?.features ?? []), ...(selectedSubclass?.features ?? [])],
+          classSkills: skills, backgroundSkills: selectedBackground?.skills ?? [], skillProficiencies: allSkillProficiencies, expertise: validExpertise,
           equipmentSelections, weaponSelections, equipment: allEquipment, cantrips, firstLevelSpells,
           personality, ideal, bond, flaw, appearance,
           armorProficiencies: creationRule?.armorProficiencies ?? [], weaponProficiencies: creationRule?.weaponProficiencies ?? [],
@@ -132,6 +150,7 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
         characterState: JSON.stringify({
           currentHitPoints: finalStatistics.hitPointMaximum, temporaryHitPoints: 0, experience: 0,
           equippedArmor: armorLoadout.equippedArmor, equippedShield: armorLoadout.equippedShield,
+          spellSlots: spellSlots.map(slot => ({ level: slot.level, maximum: slot.slots, remaining: slot.slots })),
         }),
         blueprintRevision: session.blueprintRevision, blueprintValues: {},
       })
@@ -157,7 +176,7 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
 
   return <section aria-labelledby="character-creation-heading">
     <h2 id="character-creation-heading">캐릭터 생성</h2>
-    <p>선택해야 하는 항목만 입력합니다. 숙련 보너스, 내성, 공격·주문 수치와 시트 결과는 자동 계산됩니다.</p>
+    <p>선택해야 하는 항목만 입력합니다. 숙련 보너스, 내성, 기술, 공격·주문 수치와 시트 결과는 자동 계산됩니다.</p>
     {message && <p role="status">{message}</p>}
 
     <fieldset><legend>기본 정보</legend>
@@ -180,7 +199,8 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
       {selectedClass && <section aria-label="클래스 설명"><p>{selectedClass.description}</p><p>히트 다이스 {selectedClass.hitDie} · 내성 숙련 {selectedClass.savingThrows.map(ability => abilityLabels[ability]).join(', ')}</p><p>자동 특성: {selectedClass.features.join(', ')}</p>{selectedClass.subclassLevel > 1 && <p>하위 클래스는 {selectedClass.subclassLevel}레벨에 선택하므로 지금 입력하지 않습니다.</p>}</section>}
       {subclassRequired && <fieldset><legend>1레벨 하위 클래스</legend><label>하위 클래스 <select aria-label="하위 클래스" value={subclass} onChange={event => setSubclass(event.currentTarget.value)} required><option value="">선택하세요</option>{subclassOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>{selectedSubclass && <section aria-label="하위 클래스 설명"><p>{selectedSubclass.description}</p><p>자동 특성: {selectedSubclass.features.join(', ')}</p></section>}</fieldset>}
       {creationRule && <section aria-label="클래스 숙련"><p>방어구 숙련: {creationRule.armorProficiencies.join(', ') || '없음'}</p><p>무기 숙련: {creationRule.weaponProficiencies.join(', ') || '없음'}</p><p>도구 숙련: {creationRule.toolProficiencies.join(', ') || '없음'}</p></section>}
-      {selectedClass && <fieldset><legend>기술 숙련 {selectedClass.skillChoiceCount}개 선택</legend>{selectedClass.skillChoices.map(skill => <label key={skill}><input type="checkbox" checked={skills.includes(skill)} onChange={() => toggleLimited(skill, skills, selectedClass.skillChoiceCount, setSkills)} disabled={!skills.includes(skill) && skills.length >= selectedClass.skillChoiceCount} />{skill}</label>)}<p>{skills.length} / {selectedClass.skillChoiceCount} 선택</p></fieldset>}
+      {selectedClass && <fieldset><legend>기술 숙련 {selectedClass.skillChoiceCount}개 선택</legend>{selectedClass.skillChoices.map(skill => <label key={skill}><input type="checkbox" checked={skills.includes(skill)} onChange={() => chooseSkill(skill)} disabled={!skills.includes(skill) && skills.length >= selectedClass.skillChoiceCount} />{skill}</label>)}<p>{skills.length} / {selectedClass.skillChoiceCount} 선택</p></fieldset>}
+      {requiredExpertise > 0 && <fieldset><legend>숙달 {requiredExpertise}개 선택</legend><p>숙달은 이미 숙련된 기술에 숙련 보너스를 두 번 적용합니다.</p>{allSkillProficiencies.map(skill => <label key={skill}><input type="checkbox" checked={validExpertise.includes(skill)} onChange={() => toggleLimited(skill, validExpertise, requiredExpertise, setExpertise)} disabled={!validExpertise.includes(skill) && validExpertise.length >= requiredExpertise} />{skill}</label>)}<p>{validExpertise.length} / {requiredExpertise} 선택</p></fieldset>}
       {creationRule && <fieldset><legend>클래스 시작 장비</legend><p>각 묶음에서 하나씩 고릅니다.</p>{creationRule.equipmentGroups.map(group => <label key={group.id}>{group.label} <select aria-label={`장비 ${group.label}`} value={equipmentSelections[group.id] ?? ''} onChange={event => { const value = event.currentTarget.value; setEquipmentSelections(current => ({ ...current, [group.id]: value })); setWeaponSelections({}) }} required><option value="">선택하세요</option>{group.options.map(choice => <option key={choice.id} value={choice.id}>{choice.label}</option>)}</select></label>)}</fieldset>}
       {weaponSlots.length > 0 && <fieldset><legend>실제 무기 선택</legend><p>일반 무기 슬롯을 실제 무기로 확정합니다.</p>{weaponSlots.map(slot => <fieldset key={slot.id}><legend>{slot.label}</legend>{weaponChoices(slot.category, slot.label.includes('근접')).map(weapon => { const selected = weaponSelections[slot.id] ?? []; return <label key={weapon.id}><input type="checkbox" checked={selected.includes(weapon.id)} disabled={!selected.includes(weapon.id) && selected.length >= slot.count} onChange={event => chooseWeapon(slot.id, weapon.id, event.currentTarget.checked, slot.count)} />{weapon.label} — {weapon.damage} {weapon.damageType}</label> })}<p>{(weaponSelections[slot.id] ?? []).length} / {slot.count} 선택</p></fieldset>)}</fieldset>}
       {selectedClass?.canCastSpells && creationRule && <fieldset><legend>주문 선택</legend>
@@ -192,7 +212,7 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
 
     <fieldset><legend>배경</legend>
       <p>배경은 과거의 삶, 기술 숙련, 시작 장비와 역할극 예시를 제공합니다.</p>
-      <label>배경 <select aria-label="배경" value={background} onChange={event => setBackground(event.currentTarget.value)} required><option value="">선택하세요</option>{backgroundOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
+      <label>배경 <select aria-label="배경" value={background} onChange={event => chooseBackground(event.currentTarget.value)} required><option value="">선택하세요</option>{backgroundOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
       {selectedBackground && <section aria-label="배경 설명"><p>{selectedBackground.description}</p><p>자동 기술 숙련: {selectedBackground.skills.join(', ')}</p><p>자동 시작 장비: {selectedBackground.equipment.join(', ')}</p></section>}
     </fieldset>
 
@@ -215,14 +235,16 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
       <p>숙련 보너스 +{statistics.proficiencyBonus} · 이동속도 {statistics.speed || '?'}ft · 최대 HP {statistics.hitPointMaximum || '?'} · 히트 다이스 {statistics.hitDie || '?'}</p>
       <p>방어도 {statistics.armorClass} · 장착 갑옷 {armorLoadout.equippedArmor || '없음'} · 방패 {armorLoadout.equippedShield ? '장착' : '없음'} · 우선권 {formatModifier(statistics.abilityModifiers.dexterity)}</p>
       <p>내성 굴림: {abilities.map(ability => `${abilityLabels[ability]} ${formatModifier(savingThrows[ability])}`).join(' · ')}</p>
-      {spellAttack != null && <p>주문 공격 보너스 {formatModifier(spellAttack)} · 주문 내성 DC {spellDc}</p>}
+      <p>수동 지각 {calculatedPassivePerception}</p>
+      <h4>기술</h4><ul aria-label="기술 보너스">{calculatedSkills.map(skill => <li key={skill.id}>{skill.label} {formatModifier(skill.bonus)}{skill.expertise ? ' · 숙달' : skill.proficient ? ' · 숙련' : ''}</li>)}</ul>
+      {spellAttack != null && <p>주문 공격 보너스 {formatModifier(spellAttack)} · 주문 내성 DC {spellDc} · 주문 슬롯 {spellSlots.map(slot => `${slot.level}레벨 ${slot.slots}개`).join(', ') || '없음'}</p>}
       <p>클래스 장비: {classEquipment.join(', ') || '선택 중'}{backgroundEquipment.length > 0 ? ` · 배경 장비: ${backgroundEquipment.join(', ')}` : ''}</p>
-      <p>기술 숙련: {[...skills, ...(selectedBackground?.skills ?? [])].filter((value, index, all) => all.indexOf(value) === index).join(', ') || '선택 중'}</p>
+      <p>기술 숙련: {allSkillProficiencies.join(', ') || '선택 중'}{validExpertise.length > 0 ? ` · 숙달: ${validExpertise.join(', ')}` : ''}</p>
       <h4>공격 및 무기</h4>{attacks.length > 0 ? <ul aria-label="공격 목록">{attacks.map(attack => <li key={attack.weaponId}>{attack.label}: 명중 {formatModifier(attack.attackBonus)}, 피해 {attack.damage} {attack.damageType}{attack.range ? `, 사거리 ${attack.range}` : ''}</li>)}</ul> : <p>무기를 선택하면 공격 수치가 자동 계산됩니다.</p>}
     </section>
 
     <button type="button" onClick={() => void create()} disabled={!canCreate}>캐릭터 생성</button>
-    {!canCreate && <p>이름, 종족·하위 종족, 필요한 하위 클래스, 클래스 기술, 장비·무기, 배경, 표준 배열과 주문 선택을 확인하세요.</p>}
+    {!canCreate && <p>이름, 종족·하위 종족, 필요한 하위 클래스, 클래스 기술·숙달, 장비·무기, 배경, 표준 배열과 주문 선택을 확인하세요.</p>}
 
     <section aria-label="파티 구성"><h3>일행 추가</h3><p>텍스트 ID를 직접 쓰지 않고 생성된 캐릭터를 현재 세션 파티에 추가합니다.</p>
       {session.party.length > 0 ? <ul>{session.party.map(member => <li key={member.characterSheetId}>{member.characterSheetId} · {member.controlMode}</li>)}</ul> : <p>아직 파티원이 없습니다.</p>}
