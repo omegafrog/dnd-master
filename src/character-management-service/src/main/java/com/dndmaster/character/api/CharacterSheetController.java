@@ -37,6 +37,7 @@ public class CharacterSheetController {
 
     @PostMapping("/internal/v1/adventure-sessions/{sessionId}/character-sheets")
     CharacterSheetResponse createCharacterSheet(@PathVariable UUID sessionId, @RequestBody CharacterSheetRequest request) {
+        Dnd5e2014CharacterCreationValidator.validateCreation(request);
         CharacterSheet sheet = characterSheetService.createSheet(new CreateCharacterSheetCommand(
                 new SessionId(sessionId),
                 request.ownerPlayerId(),
