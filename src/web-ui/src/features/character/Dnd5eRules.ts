@@ -78,7 +78,10 @@ export function calculateDnd5eCharacter(input: { race: string; subrace?: string;
   const level = Math.max(1, Math.min(20, input.level || 1)); const hitDie = characterClass?.hitDie ?? 0
   const hpChoices = input.hitPointIncreases ?? []; const missingRoll = hpChoices.findIndex(choice => choice.method === 'ROLL' && (!choice.roll || choice.roll < 1 || choice.roll > hitDie))
   const levelUpHp = hpChoices.reduce((total, choice) => total + (choice.method === 'AVERAGE' ? Math.floor(hitDie / 2) + 1 : choice.roll ?? 0) + abilityModifiers.constitution, 0)
-  const equipped = armor[normalize(input.equippedArmor ?? '')]; const dexterityForArmor = equipped ? Math.min(abilityModifiers.dexterity, equipped.dexterityCap ?? abilityModifiers.dexterity) : abilityModifiers.dexterity
+  const equipped = armor[normalize(input.equippedArmor ?? '')]
+  const dexterityForArmor = !equipped ? abilityModifiers.dexterity
+    : equipped.dexterityCap === 0 ? 0
+      : Math.min(abilityModifiers.dexterity, equipped.dexterityCap ?? abilityModifiers.dexterity)
   return {
     abilityScores, abilityModifiers, hitDie: hitDie ? `d${hitDie}` : '', hitPointMaximum: hitDie && missingRoll < 0 && hpChoices.length >= level - 1 ? Math.max(1, hitDie + abilityModifiers.constitution + levelUpHp) : 0,
     proficiencyBonus: proficiencyBonusForLevel(level), speed: subrace?.speed ?? race?.speed ?? 0,
