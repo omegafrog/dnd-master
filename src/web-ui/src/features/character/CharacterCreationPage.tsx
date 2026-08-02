@@ -4,7 +4,7 @@ import type { AdventureSessionApi } from '../adventure-session/AdventureSessionA
 import type { CreatedCharacterSheetView, PlayPreparationView, SetupApi } from '../rulebooks/SetupApi'
 import { calculateDnd5eCharacter, type Ability, type AbilityScores } from './Dnd5eRules'
 import { backgroundOptions, classOptions, personalityHelp, raceOptions, STANDARD_ARRAY } from './Dnd5eCharacterCatalog'
-import { classCreationRule, resolveEquipment, savingThrowBonuses, spellAttackBonus, spellSaveDc } from './Dnd5eCharacterDerivedRules'
+import { classCreationRule, inferArmorLoadout, resolveEquipment, savingThrowBonuses, spellAttackBonus, spellSaveDc } from './Dnd5eCharacterDerivedRules'
 import { subclassesFor } from './Dnd5eSubclassCatalog'
 import { calculateAttacks, resolvedWeaponIds, unresolvedWeaponSlots, weaponChoices } from './Dnd5eWeaponRules'
 
@@ -57,9 +57,13 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
   const selectedSubclass = subclassOptions.find(option => option.id === subclass)
   const subclassRequired = selectedClass?.subclassLevel === 1 && subclassOptions.length > 0
   const creationRule = classCreationRule(characterClass)
-  const standardArrayValid = useMemo(() => [...Object.values(scores)].sort((a, b) => b - a).join(',') === [...STANDARD_ARRAY].sort((a, b) => b - a).join(','), [scores])
-  const statistics = calculateDnd5eCharacter({ race, subrace, characterClass, level: 1, baseAbilities: scores })
   const classEquipment = resolveEquipment(characterClass, equipmentSelections)
+  const armorLoadout = inferArmorLoadout(classEquipment)
+  const standardArrayValid = useMemo(() => [...Object.values(scores)].sort((a, b) => b - a).join(',') === [...STANDARD_ARRAY].sort((a, b) => b - a).join(','), [scores])
+  const statistics = calculateDnd5eCharacter({
+    race, subrace, characterClass, level: 1, baseAbilities: scores,
+    equippedArmor: armorLoadout.equippedArmor, equippedShield: armorLoadout.equippedShield,
+  })
   const backgroundEquipment = selectedBackground?.equipment ?? []
   const equipmentComplete = Boolean(creationRule && creationRule.equipmentGroups.every(group => equipmentSelections[group.id]))
   const weaponSlots = unresolvedWeaponSlots(classEquipment)
@@ -80,13 +84,7 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
 
   function chooseRace(nextRace: string) { setRace(nextRace); setSubrace('') }
   function chooseClass(nextClass: string) {
-    setCharacterClass(nextClass)
-    setSubclass('')
-    setSkills([])
-    setEquipmentSelections({})
-    setWeaponSelections({})
-    setCantrips([])
-    setFirstLevelSpells([])
+    setCharacterClass(nextClass); setSubclass(''); setSkills([]); setEquipmentSelections({}); setWeaponSelections({}); setCantrips([]); setFirstLevelSpells([])
   }
   function toggleLimited(value: string, current: string[], limit: number, setter: (next: string[]) => void) {
     if (current.includes(value)) setter(current.filter(item => item !== value))
@@ -95,20 +93,23 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
   function chooseWeapon(slotId: string, weaponId: string, checked: boolean, count: number) {
     setWeaponSelections(current => {
       const selected = current[slotId] ?? []
-      const next = checked ? [...selected, weaponId].slice(0, count) : selected.filter(value => value !== weaponId)
-      return { ...current, [slotId]: next }
+      return { ...current, [slotId]: checked ? [...selected, weaponId].slice(0, count) : selected.filter(value => value !== weaponId) }
     })
   }
 
   async function create() {
     if (!session || !preparation || !setupApi.createCharacterSheet || !canCreate || blocked) return
     try {
-      const finalStatistics = calculateDnd5eCharacter({ race, subrace, characterClass, level: 1, baseAbilities: scores })
+      const finalStatistics = calculateDnd5eCharacter({
+        race, subrace, characterClass, level: 1, baseAbilities: scores,
+        equippedArmor: armorLoadout.equippedArmor, equippedShield: armorLoadout.equippedShield,
+      })
       const finalSavingThrows = savingThrowBonuses(finalStatistics.abilityModifiers, finalStatistics.savingThrowProficiencies, finalStatistics.proficiencyBonus)
       const finalWeaponIds = resolvedWeaponIds(classEquipment, weaponSelections)
       const finalAttacks = calculateAttacks(finalWeaponIds, finalStatistics.abilityModifiers, finalStatistics.proficiencyBonus)
       const concreteClassEquipment = classEquipment.filter(item => !/^(군용|단순) (?:근접 )?무기 \d+개$/.test(item))
-      const selectedWeapons = finalWeaponIds.map(id => weaponChoices('SIMPLE').concat(weaponChoices('MARTIAL')).find(option => option.id === id)?.label).filter((value): value is string => Boolean(value))
+      const allWeapons = weaponChoices('SIMPLE').concat(weaponChoices('MARTIAL'))
+      const selectedWeapons = finalWeaponIds.map(id => allWeapons.find(option => option.id === id)?.label).filter((value): value is string => Boolean(value))
       const allEquipment = [...concreteClassEquipment, ...selectedWeapons, ...backgroundEquipment]
       const next = await setupApi.createCharacterSheet({
         sessionId, edition: 'DND_5E_2014', characterName: name.trim(), level: 1, inspiration: false,
@@ -120,7 +121,7 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
           spellSaveDc: spellSaveDc(characterClass, finalStatistics.abilityModifiers, finalStatistics.proficiencyBonus),
         }),
         characterBuild: JSON.stringify({
-          subrace, subclass, subclassFeatures: selectedSubclass?.features ?? [],
+          subrace, subclass, subclassFeatures: selectedSubclass?.features ?? [], armorLoadout,
           raceLanguages: selectedRace?.languages ?? [], raceTraits: [...(selectedRace?.traits ?? []), ...(selectedSubrace?.traits ?? [])],
           classFeatures: [...(selectedClass?.features ?? []), ...(selectedSubclass?.features ?? [])], classSkills: skills, backgroundSkills: selectedBackground?.skills ?? [],
           equipmentSelections, weaponSelections, equipment: allEquipment, cantrips, firstLevelSpells,
@@ -128,7 +129,10 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
           armorProficiencies: creationRule?.armorProficiencies ?? [], weaponProficiencies: creationRule?.weaponProficiencies ?? [],
           toolProficiencies: creationRule?.toolProficiencies ?? [],
         }),
-        characterState: JSON.stringify({ currentHitPoints: finalStatistics.hitPointMaximum, temporaryHitPoints: 0, experience: 0 }),
+        characterState: JSON.stringify({
+          currentHitPoints: finalStatistics.hitPointMaximum, temporaryHitPoints: 0, experience: 0,
+          equippedArmor: armorLoadout.equippedArmor, equippedShield: armorLoadout.equippedShield,
+        }),
         blueprintRevision: session.blueprintRevision, blueprintValues: {},
       })
       setCreated(next)
@@ -178,7 +182,7 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
       {creationRule && <section aria-label="클래스 숙련"><p>방어구 숙련: {creationRule.armorProficiencies.join(', ') || '없음'}</p><p>무기 숙련: {creationRule.weaponProficiencies.join(', ') || '없음'}</p><p>도구 숙련: {creationRule.toolProficiencies.join(', ') || '없음'}</p></section>}
       {selectedClass && <fieldset><legend>기술 숙련 {selectedClass.skillChoiceCount}개 선택</legend>{selectedClass.skillChoices.map(skill => <label key={skill}><input type="checkbox" checked={skills.includes(skill)} onChange={() => toggleLimited(skill, skills, selectedClass.skillChoiceCount, setSkills)} disabled={!skills.includes(skill) && skills.length >= selectedClass.skillChoiceCount} />{skill}</label>)}<p>{skills.length} / {selectedClass.skillChoiceCount} 선택</p></fieldset>}
       {creationRule && <fieldset><legend>클래스 시작 장비</legend><p>각 묶음에서 하나씩 고릅니다.</p>{creationRule.equipmentGroups.map(group => <label key={group.id}>{group.label} <select aria-label={`장비 ${group.label}`} value={equipmentSelections[group.id] ?? ''} onChange={event => { const value = event.currentTarget.value; setEquipmentSelections(current => ({ ...current, [group.id]: value })); setWeaponSelections({}) }} required><option value="">선택하세요</option>{group.options.map(choice => <option key={choice.id} value={choice.id}>{choice.label}</option>)}</select></label>)}</fieldset>}
-      {weaponSlots.length > 0 && <fieldset><legend>실제 무기 선택</legend><p>일반 무기 슬롯을 실제 무기로 확정합니다. 같은 슬롯에서는 요구 개수까지만 선택할 수 있습니다.</p>{weaponSlots.map(slot => <fieldset key={slot.id}><legend>{slot.label}</legend>{weaponChoices(slot.category, slot.label.includes('근접')).map(weapon => { const selected = weaponSelections[slot.id] ?? []; return <label key={weapon.id}><input type="checkbox" checked={selected.includes(weapon.id)} disabled={!selected.includes(weapon.id) && selected.length >= slot.count} onChange={event => chooseWeapon(slot.id, weapon.id, event.currentTarget.checked, slot.count)} />{weapon.label} — {weapon.damage} {weapon.damageType}</label> })}<p>{(weaponSelections[slot.id] ?? []).length} / {slot.count} 선택</p></fieldset>)}</fieldset>}
+      {weaponSlots.length > 0 && <fieldset><legend>실제 무기 선택</legend><p>일반 무기 슬롯을 실제 무기로 확정합니다.</p>{weaponSlots.map(slot => <fieldset key={slot.id}><legend>{slot.label}</legend>{weaponChoices(slot.category, slot.label.includes('근접')).map(weapon => { const selected = weaponSelections[slot.id] ?? []; return <label key={weapon.id}><input type="checkbox" checked={selected.includes(weapon.id)} disabled={!selected.includes(weapon.id) && selected.length >= slot.count} onChange={event => chooseWeapon(slot.id, weapon.id, event.currentTarget.checked, slot.count)} />{weapon.label} — {weapon.damage} {weapon.damageType}</label> })}<p>{(weaponSelections[slot.id] ?? []).length} / {slot.count} 선택</p></fieldset>)}</fieldset>}
       {selectedClass?.canCastSpells && creationRule && <fieldset><legend>주문 선택</legend>
         <p>소마법과 1레벨 주문은 각각 정해진 개수만 선택할 수 있습니다.</p>
         <fieldset><legend>소마법 {requiredCantrips}개</legend>{selectedClass.cantrips.map(spell => <label key={spell}><input type="checkbox" checked={cantrips.includes(spell)} onChange={() => toggleLimited(spell, cantrips, requiredCantrips, setCantrips)} disabled={!cantrips.includes(spell) && cantrips.length >= requiredCantrips} />{spell}</label>)}<p>{cantrips.length} / {requiredCantrips}</p></fieldset>
@@ -209,7 +213,7 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
 
     <section aria-label="자동 계산 결과"><h3>자동 계산되는 캐릭터 시트 값</h3>
       <p>숙련 보너스 +{statistics.proficiencyBonus} · 이동속도 {statistics.speed || '?'}ft · 최대 HP {statistics.hitPointMaximum || '?'} · 히트 다이스 {statistics.hitDie || '?'}</p>
-      <p>방어도 {statistics.armorClass} · 우선권 {formatModifier(statistics.abilityModifiers.dexterity)}</p>
+      <p>방어도 {statistics.armorClass} · 장착 갑옷 {armorLoadout.equippedArmor || '없음'} · 방패 {armorLoadout.equippedShield ? '장착' : '없음'} · 우선권 {formatModifier(statistics.abilityModifiers.dexterity)}</p>
       <p>내성 굴림: {abilities.map(ability => `${abilityLabels[ability]} ${formatModifier(savingThrows[ability])}`).join(' · ')}</p>
       {spellAttack != null && <p>주문 공격 보너스 {formatModifier(spellAttack)} · 주문 내성 DC {spellDc}</p>}
       <p>클래스 장비: {classEquipment.join(', ') || '선택 중'}{backgroundEquipment.length > 0 ? ` · 배경 장비: ${backgroundEquipment.join(', ')}` : ''}</p>
