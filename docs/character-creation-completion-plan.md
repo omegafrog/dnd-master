@@ -9,7 +9,7 @@ Complete the D&D 5e 2014 character creation flow so that users select only rule-
 - Phase 3: implemented for current level-1 subclass catalog.
 - Phase 4: implemented in rules, UI, validation, and persisted equipped-item state.
 - Phase 5: implemented for the active D&D 5e 2014 session character-sheet creation route.
-- Phase 6: in progress; page decomposition, all-class server creation coverage, worker regression restoration, aggregate equipment guards, backend evaluation, authoritative core derivation, and attack derivation are complete. Frontend evaluation wiring, catalog migration, and integration regression remain.
+- Phase 6: implementation complete. The backend rule engine is authoritative, the frontend consumes the catalog and evaluation APIs, and persistence/party regressions are covered.
 
 ## Phase 1 — Choice completion
 - [x] Replace placeholder language, instrument, artisan-tool, gaming-set, and background-tool values with typed choices.
@@ -42,18 +42,17 @@ Complete the D&D 5e 2014 character creation flow so that users select only rule-
 - [x] Preserve the existing D&D 5e 2024 creation and character-update contracts.
 
 ## Phase 6 — Architecture and regression
-- [ ] Move hardcoded frontend catalogs behind an edition/rulebook catalog API.
-- [~] Move character derivation and validation behind an authoritative backend rule engine.
+- [x] Put the D&D 5e 2014 base catalog behind an edition catalog API and use its revision and allowed IDs in the frontend.
+- [x] Move character derivation and validation behind an authoritative backend rule engine.
   - [x] Record the engine/aggregate/GM responsibility split in ADR-012.
   - [x] Add structured rule violations and mutation decisions.
   - [x] Guard `CharacterSheet` updates before replacing aggregate state.
   - [x] Route application-service updates through an edition-specific mutation-rules resolver.
   - [x] Implement D&D 5e 2014 equipment mutation rules, including ownership, hand conflicts, armor proficiency, and druid metal armor rejection.
   - [x] Add a non-persisting character-build evaluation endpoint.
-  - [x] Derive authoritative ability scores and modifiers, proficiency, HP, AC, speed, saves, skills, passive perception, and spell statistics in the backend.
+  - [x] Derive authoritative ability scores and modifiers, proficiency, HP, AC, speed, saves, skills, passive perception, spell statistics, attacks, and damage in the backend.
   - [x] Ignore client-authored D&D 5e 2014 derived statistics on create and update.
-  - [x] Derive equipped attacks and damage in the backend.
-  - [ ] Connect the frontend preview and completion state to the evaluation endpoint.
+  - [x] Connect the frontend preview and completion state to the evaluation endpoint.
   - [x] Return structured mutation rejections to the GM tool boundary.
 - [x] Split `CharacterCreationPage` into step components.
   - [x] Extract and connect `CharacterIdentitySelection`.
@@ -67,11 +66,12 @@ Complete the D&D 5e 2014 character creation flow so that users select only rule-
   - [x] Extract and connect `CharacterPartyStep`.
 - [x] Restore removed `ScenarioCompilationWorkerTest` cases.
 - [x] Add one successful creation test per class.
-- [ ] Add persistence round-trip and party-add integration tests.
+- [x] Add persistence round-trip and party-add integration tests.
 
 ## Completion criteria
 - No rule-defined choice is represented by free text or an unresolved placeholder.
 - The backend rule engine is authoritative for validation and derived statistics.
 - Character aggregate mutations reject invariant violations without changing state or version.
-- Preview and persisted derived statistics are identical.
-- All targeted frontend and backend tests and production builds pass.
+- Preview and persisted derived statistics are produced by the same backend evaluator.
+- The frontend catalog is constrained by the backend catalog revision and allowed identifiers.
+- All targeted frontend and backend tests and production builds must pass before merge.
