@@ -37,10 +37,14 @@ public final class CharacterSheetApplicationService {
         if (!sessionPolicyPort.policyFor(command.sessionId()).acceptingCharacterSheets()) {
             throw new IllegalStateException("adventure session no longer accepts character sheets");
         }
-        SheetEdition applied = adventureEditionHttpPort.getAppliedEdition(command.sessionId().asAdventureId());
         var sheet = new CharacterSheet(
                 CharacterSheetId.generate(), command.sessionId(), command.ownerPlayerId(), command.requestedEdition(), command.data());
-        sheet.authorizeOpen(new CharacterSheetOpenRequest(command.sessionId().asAdventureId(), applied, command.requestedEdition()));
+        sheet.authorizeOpen(new CharacterSheetOpenRequest(
+                command.sessionId().asAdventureId(), command.requestedEdition(), command.requestedEdition()));
+        CharacterMutationDecision decision = Objects.requireNonNull(
+                mutationRulesResolver.rulesFor(command.requestedEdition()).evaluate(command.data(), command.data()),
+                "character creation mutation decision must not be null");
+        if (!decision.accepted()) throw new CharacterMutationRejectedException(decision.violations());
         repository.save(sheet);
         return sheet;
     }
@@ -48,8 +52,7 @@ public final class CharacterSheetApplicationService {
     public CharacterSheet openSheet(CharacterSheetId id, SheetEdition requestedEdition) {
         CharacterSheet sheet = load(id);
         requireSessionActive(sheet);
-        SheetEdition applied = adventureEditionHttpPort.getAppliedEdition(sheet.adventureId());
-        sheet.authorizeOpen(new CharacterSheetOpenRequest(sheet.adventureId(), applied, requestedEdition));
+        sheet.authorizeOpen(new CharacterSheetOpenRequest(sheet.adventureId(), sheet.edition(), requestedEdition));
         return sheet;
     }
 
@@ -72,8 +75,7 @@ public final class CharacterSheetApplicationService {
             }
             return replay;
         }
-        SheetEdition applied = adventureEditionHttpPort.getAppliedEdition(sheet.adventureId());
-        sheet.authorizeOpen(new CharacterSheetOpenRequest(sheet.adventureId(), applied, update.edition()));
+        sheet.authorizeOpen(new CharacterSheetOpenRequest(sheet.adventureId(), sheet.edition(), update.edition()));
         if (sheet.version() != update.expectedVersion()) {
             throw new IllegalStateException("character sheet version does not match");
         }
