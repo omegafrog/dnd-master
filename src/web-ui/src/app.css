@@ -245,6 +245,22 @@ output {
   margin: 0.75rem 0;
 }
 
+.character-sheet-section {
+  margin: 0.8rem 0;
+  border: 1px solid var(--color-border);
+  border-radius: 0.65rem;
+  background: rgb(255 255 255 / 72%);
+  padding: 0.7rem;
+}
+
+.character-sheet-section > summary {
+  cursor: pointer;
+  color: var(--color-primary);
+  font-size: 1.05rem;
+  font-weight: 700;
+  padding: 0.25rem;
+}
+
 .character-input-selected-detail {
   background: #eef6ff;
   border-left: 3px solid var(--color-primary);

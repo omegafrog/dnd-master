@@ -14,7 +14,25 @@ export function CharacterInputTree({ nodes, values, onChange, onResolve, onAddCh
   const flatten = (items: CharacterInputNodeView[]): CharacterInputNodeView[] => items.flatMap(item => [item, ...flatten(item.children)])
   const method = flatten(nodes).find(node => node.key === 'ability_score_method')
   const abilityScoreMethod = inheritedAbilityScoreMethod ?? (method ? values[method.id] ?? method.value ?? '' : '')
-  return <div aria-label="캐릭터 입력 태그 트리">{nodes.map(node => <Node key={node.id} node={node} values={values} onChange={onChange} onResolve={onResolve} onAddChild={onAddChild} canResolve={canResolve} abilityScoreMethod={abilityScoreMethod} />)}</div>
+  const groups = new Map<string, CharacterInputNodeView[]>()
+  nodes.forEach(node => {
+    const group = inputGroup(node.key)
+    groups.set(group, [...(groups.get(group) ?? []), node])
+  })
+  return <div aria-label="캐릭터 입력 태그 트리" className="character-sheet-sections">{[...groups.entries()].map(([group, groupNodes], index) => (
+    <details key={group} className="character-sheet-section" open={index === 0}>
+      <summary>{group}</summary>
+      {groupNodes.map(node => <Node key={node.id} node={node} values={values} onChange={onChange} onResolve={onResolve} onAddChild={onAddChild} canResolve={canResolve} abilityScoreMethod={abilityScoreMethod} />)}
+    </details>
+  ))}</div>
+}
+
+function inputGroup(key: string) {
+  if (key.startsWith('starting_ability_scores') || key.includes('saving') || key.includes('proficiency') || key.includes('armor') || key.includes('initiative') || key.includes('hit_') || key === 'speed' || key === 'skills') return '능력치·규칙';
+  if (key.startsWith('equipment') || key.startsWith('magic') || key.includes('attacks')) return '장비·마법';
+  if (key === 'background' || key === 'alignment' || key.startsWith('personality') || key === 'ideals' || key === 'bonds' || key === 'flaws') return '배경·성격';
+  if (key === 'proficiency_bonus' || key === 'passive_wisdom' || key === 'features_traits') return '파생 수치';
+  return '기본 정보';
 }
 
 function Node({ node, values, onChange, onResolve, onAddChild, canResolve, abilityScoreMethod }: Omit<Props, 'nodes'> & { node: CharacterInputNodeView, abilityScoreMethod: string }) {
