@@ -7,18 +7,29 @@ public final class CharacterSheetApplicationService {
     private final CharacterSheetRepository repository;
     private final AdventureEditionHttpPort adventureEditionHttpPort;
     private final SessionCharacterPolicyPort sessionPolicyPort;
+    private final CharacterMutationRulesResolver mutationRulesResolver;
 
     public CharacterSheetApplicationService(
             CharacterSheetRepository repository, AdventureEditionHttpPort adventureEditionHttpPort) {
-        this(repository, adventureEditionHttpPort, ignored -> SessionCharacterPolicy.draft());
+        this(repository, adventureEditionHttpPort, ignored -> SessionCharacterPolicy.draft(),
+                CharacterMutationRulesResolver.permissive());
     }
 
     public CharacterSheetApplicationService(
             CharacterSheetRepository repository, AdventureEditionHttpPort adventureEditionHttpPort,
             SessionCharacterPolicyPort sessionPolicyPort) {
+        this(repository, adventureEditionHttpPort, sessionPolicyPort, CharacterMutationRulesResolver.permissive());
+    }
+
+    public CharacterSheetApplicationService(
+            CharacterSheetRepository repository,
+            AdventureEditionHttpPort adventureEditionHttpPort,
+            SessionCharacterPolicyPort sessionPolicyPort,
+            CharacterMutationRulesResolver mutationRulesResolver) {
         this.repository = Objects.requireNonNull(repository, "repository must not be null");
         this.adventureEditionHttpPort = Objects.requireNonNull(adventureEditionHttpPort, "edition HTTP port must not be null");
         this.sessionPolicyPort = Objects.requireNonNull(sessionPolicyPort, "session policy port must not be null");
+        this.mutationRulesResolver = Objects.requireNonNull(mutationRulesResolver, "mutation rules resolver must not be null");
     }
 
     public CharacterSheet createSheet(CreateCharacterSheetCommand command) {
@@ -76,7 +87,7 @@ public final class CharacterSheetApplicationService {
         if (!policy.characterClassMutable() && !sheet.data().characterClass().equals(update.data().characterClass())) throw new IllegalStateException("character class is fixed for this adventure session");
         if (!policy.backgroundMutable() && !sheet.data().background().equals(update.data().background())) throw new IllegalStateException("character background is fixed for this adventure session");
         if (!policy.startingAbilitiesMutable() && !sheet.data().startingAbilities().equals(update.data().startingAbilities())) throw new IllegalStateException("starting abilities are fixed for this adventure session");
-        sheet.applyUpdate(update);
+        sheet.applyUpdate(update, mutationRulesResolver.rulesFor(sheet.edition()));
         repository.save(sheet, update.expectedVersion() + 1, update.commandId(), update.fingerprint());
         sheet.markPersisted(update.expectedVersion() + 1, update.commandId(), update.fingerprint());
         return sheet;
