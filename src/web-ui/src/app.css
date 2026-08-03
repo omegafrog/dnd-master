@@ -248,6 +248,10 @@ main:has(.sheet-creator) { width: 100%; max-width: none; padding-inline: 1rem; }
 .sheet-icon { display:inline-block; width:1rem; height:1rem; margin-right:.2rem; vertical-align:-.2rem; background-image:url('/assets/characters/stat-icons.png'); background-size:500% 300%; background-position:center; filter:saturate(.65); }
 @media (max-width:950px) { .sheet-creator { grid-template-columns:1fr; }.creator-sidebar { grid-column:1; grid-row:auto; flex-direction:row; align-items:center; overflow-x:auto; }.creator-sidebar h3 { display:none; }.creator-compass { width:2.5rem; height:2.5rem; margin:.2rem .5rem; flex:0 0 auto; }.creator-sidebar a { flex:0 0 auto; border-left:0; border-bottom:3px solid transparent; }.creator-sidebar a:hover,.creator-sidebar a:focus { border-bottom-color:#c89e5b; }.sheet-creator-bar, .sheet-creator-grid { grid-column:1; }.sheet-creator-grid { grid-template-columns:1fr; }.sheet-preview { position:static; }.sheet-abilities { grid-template-columns:repeat(3,1fr); } }
 @media (max-width:620px) { .sheet-creator-bar { align-items:start; flex-direction:column; gap:.6rem; }.sheet-fields,.sheet-columns,.sheet-metrics { grid-template-columns:1fr 1fr; }.sheet-abilities { grid-template-columns:repeat(2,1fr); } }
+.blueprint-inline-fields { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.65rem .8rem; margin-top:.75rem; padding-top:.75rem; border-top:1px solid #e4dbce; }
+.blueprint-inline-fields input,.blueprint-inline-fields select { width:100%; min-width:0; }
+.blueprint-inline-fields select[multiple] { min-height:5rem; }
+@media (max-width:950px) { .blueprint-inline-fields { grid-template-columns:repeat(2,minmax(0,1fr)); } }
 
 [role='status'] {
   font-size: 0.875rem;
