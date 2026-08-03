@@ -229,6 +229,9 @@ strong {
 main:has(.sheet-creator) { width: 100%; max-width: none; padding-inline: 1rem; }
 .sheet-creator { width: 100%; max-width: none; }
 .sheet-creator-grid { grid-template-columns: minmax(0, 1fr) 25rem; }
+.sheet-creator { position: relative; isolation: isolate; padding: 1rem; background: linear-gradient(rgba(247,242,232,.93), rgba(247,242,232,.97)), url('/assets/characters/creator-atmosphere.png') center / cover; border: 1px solid rgba(151,126,91,.25); border-radius: 10px; }
+.sheet-preview { overflow: hidden; }
+.sheet-preview::before { content: ''; position: absolute; inset: 0 0 auto auto; width: 7rem; height: 7rem; opacity: .1; background: url('/assets/characters/stat-icons.png') center / cover; pointer-events: none; }
 .sheet-box label { min-width: 0; }
 .sheet-box input, .sheet-box select, .sheet-box textarea { width: 100%; min-width: 0; }
 @media (max-width:950px) { .sheet-creator-grid { grid-template-columns:1fr; }.sheet-preview { position:static; }.sheet-abilities { grid-template-columns:repeat(3,1fr); } }
