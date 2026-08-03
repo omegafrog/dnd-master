@@ -1,10 +1,11 @@
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
+import type { ClassOption } from './Dnd5eCharacterCatalog'
 import { CharacterClassSelection } from './CharacterClassSelection'
 
-const classes = [{
-  id: '클레릭', label: '클레릭', description: '', hitDie: 'd8', savingThrows: ['wisdom', 'charisma'] as const,
+const classes: ClassOption[] = [{
+  id: '클레릭', label: '클레릭', description: '', hitDie: 'd8', savingThrows: ['wisdom', 'charisma'],
   skillChoices: [], skillChoiceCount: 0, features: [], subclassLevel: 1,
   canCastSpells: true, cantrips: [], firstLevelSpells: [],
 }]
