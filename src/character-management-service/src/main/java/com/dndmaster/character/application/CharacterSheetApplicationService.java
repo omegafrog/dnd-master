@@ -12,13 +12,13 @@ public final class CharacterSheetApplicationService {
     public CharacterSheetApplicationService(
             CharacterSheetRepository repository, AdventureEditionHttpPort adventureEditionHttpPort) {
         this(repository, adventureEditionHttpPort, ignored -> SessionCharacterPolicy.draft(),
-                CharacterMutationRulesResolver.permissive());
+                CharacterMutationRulesResolver.standard());
     }
 
     public CharacterSheetApplicationService(
             CharacterSheetRepository repository, AdventureEditionHttpPort adventureEditionHttpPort,
             SessionCharacterPolicyPort sessionPolicyPort) {
-        this(repository, adventureEditionHttpPort, sessionPolicyPort, CharacterMutationRulesResolver.permissive());
+        this(repository, adventureEditionHttpPort, sessionPolicyPort, CharacterMutationRulesResolver.standard());
     }
 
     public CharacterSheetApplicationService(
