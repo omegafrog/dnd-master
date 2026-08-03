@@ -17,6 +17,8 @@ import com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationB
 import com.dndmaster.adventure.application.scenario.compilation.CharacterContextSearchPort;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
+import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
+import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus;
 import com.dndmaster.adventure.domain.scenario.ResolutionKind;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
@@ -338,6 +340,31 @@ class ScenarioPreparationApplicationServiceTest {
         assertEquals(List.of("search", "move"), options.defaultToolIds());
         assertTrue(options.engines().stream().anyMatch(option -> option.id().equals("ollama") && option.selectedByDefault()));
         assertTrue(options.tools().stream().anyMatch(option -> option.id().equals("search") && option.selectedByDefault()));
+    }
+
+    @Test
+    void keepsBaseBlueprintPlayableWhenNoRuntimeCandidatesWereProduced() {
+        var packages = mock(ScenarioPackageRepository.class);
+        var bundles = mock(ScenarioBundleRepository.class);
+        var blueprint = new CharacterCreationBlueprint(1, CharacterCreationBlueprintStatus.READY, List.of(), List.of());
+        var scenarioPackage = ScenarioPackage.publish(
+                new ScenarioBundleId(bundleId()),
+                4,
+                "fp-base-only",
+                bundleWithRulebook().currentRevision().documents(),
+                List.of(),
+                new ScenarioCompilationReport(ResolutionStatus.PARTIAL, List.of("no resolution candidates were produced")),
+                com.dndmaster.adventure.domain.scenario.CharacterLimit.defaultLimit(),
+                blueprint);
+        when(packages.findById(scenarioPackage.packageId())).thenReturn(Optional.of(scenarioPackage));
+        when(bundles.findById(scenarioPackage.bundleId())).thenReturn(Optional.of(bundleWithRulebook()));
+
+        var preparation = new ScenarioPreparationApplicationService(packages, bundles, fixtureRuntimeOptions())
+                .read(scenarioPackage.packageId(), owner());
+
+        assertEquals(PlayPreparationStatus.READY, preparation.status());
+        assertTrue(preparation.blockers().isEmpty());
+        assertTrue(preparation.characterCreationBlueprint().available());
     }
 
     @Test

@@ -72,7 +72,7 @@ class AdventureSessionTest {
     }
 
     @Test
-    void permits_pre_start_party_changes_but_rejects_party_over_storybook_limit() {
+    void permits_ai_companion_beyond_single_player_storybook_limit() {
         AdventureSession session = AdventureSession.create(
                 SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 1, 1);
         AdventurePartyMember first = new AdventurePartyMember(
@@ -81,10 +81,13 @@ class AdventureSessionTest {
         session.addPartyMember(first);
 
         assertEquals(1, session.party().size());
+        session.addPartyMember(new AdventurePartyMember(
+                new CharacterSheetId(UUID.randomUUID()), ControlMode.AGENT, true, true, true, true, true, true));
+        assertEquals(2, session.party().size());
         assertThrows(IllegalStateException.class, () -> session.addPartyMember(new AdventurePartyMember(
-                new CharacterSheetId(UUID.randomUUID()), ControlMode.AGENT, true, true, true, true, true, true)));
+                new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT, true, true, true, true, true, true)));
         session.removePartyMember(first.characterSheetId());
-        assertEquals(0, session.party().size());
+        assertEquals(1, session.party().size());
     }
 
     @Test

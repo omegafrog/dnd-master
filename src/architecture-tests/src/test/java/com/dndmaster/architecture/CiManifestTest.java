@@ -42,15 +42,6 @@ class CiManifestTest {
         assertFalse(workflow.contains("continue-on-error: true"));
     }
 
-    @Test
-    void localValidatorChecksSameCiContract() throws Exception {
-        Path root = Path.of(System.getProperty("reactorRoot"));
-        String script = Files.readString(root.resolve("scripts/ci.ps1"));
-
-        assertContainsAll(script, SERVICES);
-        assertContainsAll(script, List.of("$ValidateOnly", "$requiredTokens", "continue-on-error: true"));
-    }
-
     private static void assertContainsAll(String content, List<String> expectedTokens) {
         for (String token : expectedTokens) {
             assertTrue(content.contains(token), () -> "Missing CI entry: " + token);

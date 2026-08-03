@@ -16,6 +16,7 @@ import com.dndmaster.adventure.domain.scenario.CharacterLimit;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler;
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate;
+import com.dndmaster.adventure.application.scenario.blueprint.DndCharacterCreationTemplate;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import com.dndmaster.adventure.domain.scenario.InputMode;
@@ -145,7 +146,8 @@ public final class ScenarioPackageCompilationService {
                 characterLimit(bundle, availableExcerpts),
                 characterCandidates == null
                         ? blueprintCompiler.compile(bundle.currentRevision().revision(), blueprintCandidates(bundle, availableExcerpts))
-                        : blueprintCompiler.compileAgent(bundle.currentRevision().revision(), characterCandidates));
+                        : DndCharacterCreationTemplate.apply("DND_5E_2014",
+                                blueprintCompiler.compileAgent(bundle.currentRevision().revision(), characterCandidates)));
         repository.save(scenarioPackage);
         return scenarioPackage;
     }

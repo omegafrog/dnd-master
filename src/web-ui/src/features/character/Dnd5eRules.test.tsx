@@ -41,6 +41,28 @@ describe('calculateDnd5eCharacter', () => {
     })
   })
 
+  it('does not apply positive or negative dexterity modifiers to heavy armor', () => {
+    expect(calculateDnd5eCharacter({
+      race: 'Human', characterClass: 'Fighter', level: 1,
+      baseAbilities: { dexterity: 6, constitution: 14 }, equippedArmor: '체인 메일', equippedShield: true,
+    }).armorClass).toBe(18)
+    expect(calculateDnd5eCharacter({
+      race: 'Human', characterClass: 'Fighter', level: 1,
+      baseAbilities: { dexterity: 18, constitution: 14 }, equippedArmor: '체인 메일', equippedShield: false,
+    }).armorClass).toBe(16)
+  })
+
+  it('applies barbarian and monk unarmored defense', () => {
+    expect(calculateDnd5eCharacter({
+      race: 'Human', characterClass: 'Barbarian', level: 1,
+      baseAbilities: { dexterity: 14, constitution: 16 }, equippedShield: true,
+    }).armorClass).toBe(17)
+    expect(calculateDnd5eCharacter({
+      race: 'Human', characterClass: 'Monk', level: 1,
+      baseAbilities: { dexterity: 14, wisdom: 16 }, equippedShield: false,
+    }).armorClass).toBe(15)
+  })
+
   it('requires an actual rolled HP result instead of inventing it', () => {
     expect(calculateDnd5eCharacter({
       race: 'Human', characterClass: 'Barbarian', level: 2,

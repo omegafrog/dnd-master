@@ -7,6 +7,7 @@ import { LoginForm } from '../../src/features/auth/LoginForm'
 import type { IdentityApi } from '../../src/features/auth/IdentityApi'
 import { CharacterSheetView } from '../../src/features/character/CharacterSheetView'
 import { CharacterCreationPage } from '../../src/features/character/CharacterCreationPage'
+import { backgroundOptions, classOptions, raceOptions } from '../../src/features/character/Dnd5eCharacterCatalog'
 import { CombatMapView } from '../../src/features/combat-map/CombatMapView'
 import { RoleDiceRoller } from '../../src/features/dice/RoleDiceRoller'
 import { RuleEvidence } from '../../src/features/rule-guidance/RuleEvidence'
@@ -227,6 +228,25 @@ const characterSessionApi = {
   },
   async addMember() { return characterSessionApi.read() },
   async start() { return characterSessionApi.read() },
+}
+
+const nativeFetch = window.fetch.bind(window)
+window.fetch = async (input, init) => {
+  const url = String(input)
+  if (url.includes('/internal/v1/character-rules/catalogs/DND_5E_2014')) {
+    return new Response(JSON.stringify({
+      edition: 'DND_5E_2014',
+      baseSchema: 'DND_5E_2014',
+      revision: 1,
+      races: raceOptions.map(option => option.id),
+      classes: classOptions.map(option => option.id),
+      backgrounds: backgroundOptions.map(option => option.id),
+    }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
+  if (url.includes('/internal/v1/adventure-sessions/') && url.endsWith('/character-builds/evaluate')) {
+    return new Response(JSON.stringify({ valid: true, derived: {}, violations: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
+  return nativeFetch(input, init)
 }
 
 function Journey() {

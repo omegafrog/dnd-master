@@ -3,10 +3,8 @@ package com.dndmaster.character.api;
 import com.dndmaster.character.application.AdventureEditionHttpPort;
 import com.dndmaster.character.application.CharacterSheetApplicationService;
 import com.dndmaster.character.application.CharacterSheetRepository;
-import com.dndmaster.character.application.SessionCharacterPolicy;
 import com.dndmaster.character.application.SessionCharacterPolicyPort;
 import com.dndmaster.character.application.CharacterSheetsDeletionConsumer;
-import com.dndmaster.character.domain.AdventureId;
 import com.dndmaster.character.domain.SheetEdition;
 import com.dndmaster.character.infrastructure.persistence.PostgresCharacterSheetRepository;
 import com.dndmaster.character.infrastructure.CrossContextHttpSessionCharacterPolicyAdapter;
@@ -32,8 +30,10 @@ public class CharacterManagementApiConfiguration {
     }
 
     @Bean
-    AdventureEditionHttpPort adventureEditionHttpPort() {
-        return adventureId -> SheetEdition.DND_5E_2024;
+    AdventureEditionHttpPort adventureEditionHttpPort(
+            @Value("${character.default-edition:DND_5E_2014}") String edition) {
+        SheetEdition appliedEdition = SheetEdition.valueOf(edition);
+        return adventureId -> appliedEdition;
     }
 
     @Bean

@@ -21,12 +21,18 @@ public interface CharacterContextSearchPort {
             documents = List.copyOf(Objects.requireNonNull(documents, "documents must not be null"));
             if (documents.isEmpty()) throw new IllegalArgumentException("documents must not be empty");
             if (situation == null || situation.isBlank()) throw new IllegalArgumentException("situation must not be blank");
-            thresholds = java.util.Map.copyOf(Objects.requireNonNull(thresholds, "thresholds must not be null"));
-            thresholds.forEach((type, value) -> {
+            java.util.Map<String, Double> requestedThresholds =
+                    java.util.Map.copyOf(Objects.requireNonNull(thresholds, "thresholds must not be null"));
+            requestedThresholds.forEach((type, value) -> {
                 if (type == null || type.isBlank() || value == null || !Double.isFinite(value) || value < 0 || value > 1) {
                     throw new IllegalArgumentException("thresholds must contain valid document type values");
                 }
             });
+            java.util.Map<String, Double> normalized = new java.util.LinkedHashMap<>();
+            normalized.put("RULEBOOK", requestedThresholds.getOrDefault("RULEBOOK", 0.35d));
+            normalized.put("STORYBOOK", requestedThresholds.getOrDefault("STORYBOOK", 0.25d));
+            normalized.put("HANDOUT", requestedThresholds.getOrDefault("HANDOUT", 0.25d));
+            thresholds = java.util.Map.copyOf(normalized);
             if (tokenBudget < 0) throw new IllegalArgumentException("token budget must not be negative");
         }
     }
