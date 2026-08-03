@@ -88,6 +88,8 @@ final class Dnd5e2014CharacterBuildEvaluator {
         derived.put("savingThrowBonuses", savingThrows(request.characterClass(), modifiers, proficiencyBonus));
         derived.put("skillBonuses", skills);
         derived.put("passivePerception", passivePerception);
+        derived.put("attacks", Dnd5e2014AttackCalculator.calculate(
+                request.characterClass(), build, state, modifiers, proficiencyBonus));
         derived.put("spellAttackBonus", spellAttackBonus);
         derived.put("spellSaveDc", spellAttackBonus == null ? null : 8 + spellAttackBonus);
 
