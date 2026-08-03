@@ -119,6 +119,7 @@ public final class DndCharacterCreationTemplate {
         List<String> options = switch (spec.key()) {
             case "race" -> List.of("드워프", "엘프", "인간", "하플링");
             case "subrace" -> List.of("언덕 드워프", "산 드워프", "하이 엘프", "우드 엘프", "라이트풋 하플링", "스타우트 하플링");
+            case "race.option_selections" -> List.of("선택 언어: 공용어", "선택 언어: 드워프어", "선택 언어: 엘프어", "선택 언어: 하플링어", "선택 언어: 드루이드어", "선택 언어: 용언", "선택 언어: 지하 공용어", "인간 능력치 보너스: 힘", "인간 능력치 보너스: 민첩", "인간 능력치 보너스: 건강", "인간 능력치 보너스: 지능", "인간 능력치 보너스: 지혜", "인간 능력치 보너스: 매력");
             case "class" -> List.of("로그", "위저드", "클레릭", "파이터");
             case "background" -> List.of("수행사제", "사기꾼", "범죄자", "연예인", "민중 영웅", "길드 장인", "은둔자", "귀족", "이방인", "현자", "선원", "군인", "부랑아");
             case "class.skill_choices" -> List.of("곡예", "동물 조련", "비전학", "운동", "기만", "역사", "통찰", "위협", "수사", "의학", "자연", "지각", "공연", "설득", "종교", "손재주", "은신", "생존");
@@ -161,6 +162,20 @@ public final class DndCharacterCreationTemplate {
     }
 
     private static String optionDescription(String key, String value) {
+        if ("class".equals(key)) return switch (value) {
+            case "로그" -> "기술과 잠입, 기습 공격에 능한 전문가";
+            case "위저드" -> "주문책을 연구해 폭넓은 비전 마법을 사용하는 학자";
+            case "클레릭" -> "신성한 힘으로 아군을 돕고 적을 물리치는 주문 시전자";
+            case "파이터" -> "무기와 방어구를 폭넓게 다루는 전투 전문가";
+            default -> "클래스 설명";
+        };
+        if ("race".equals(key)) return switch (value) {
+            case "드워프" -> "강인한 체질과 독 저항을 지닌 종족";
+            case "엘프" -> "민첩하고 예리한 감각과 요정 혈통을 지닌 종족";
+            case "인간" -> "다재다능하고 모든 분야에 적응하는 종족";
+            case "하플링" -> "작고 민첩하며 용감하고 운이 좋은 종족";
+            default -> "종족 설명";
+        };
         if ("background".equals(key)) return switch (value) {
             case "수행사제" -> "신전과 종교 공동체에서 봉사하며 신앙을 배운 배경";
             case "사기꾼" -> "거짓 신분과 속임수로 살아온 배경";
@@ -189,7 +204,19 @@ public final class DndCharacterCreationTemplate {
             case "혼돈 악" -> "충동과 파괴를 거리낌 없이 따릅니다.";
             default -> "성향 설명";
         };
+        if ("subrace".equals(key)) return switch (value) {
+            case "언덕 드워프" -> "건강과 지혜가 강점인 드워프 하위 종족입니다.";
+            case "산 드워프" -> "힘과 갑옷 훈련에 강점이 있는 드워프 하위 종족입니다.";
+            case "하이 엘프" -> "지능과 비전 마법, 추가 언어에 강점이 있는 엘프 하위 종족입니다.";
+            case "우드 엘프" -> "지혜와 빠른 이동, 자연 은신에 강점이 있는 엘프 하위 종족입니다.";
+            case "라이트풋 하플링" -> "사교성과 은신에 강점이 있는 하플링 하위 종족입니다.";
+            case "스타우트 하플링" -> "건강과 독 저항에 강점이 있는 하플링 하위 종족입니다.";
+            default -> "하위 종족 설명";
+        };
         if ("class.skill_choices".equals(key)) return "클래스에서 선택 가능한 기술 숙련";
+        if ("race.option_selections".equals(key)) return value.startsWith("선택 언어:")
+                ? "종족 또는 인간 추가 언어 선택"
+                : "인간형 종족의 시작 능력치 선택";
         return "";
     }
 
