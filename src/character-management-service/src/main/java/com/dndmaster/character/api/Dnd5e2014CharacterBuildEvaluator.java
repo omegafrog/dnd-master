@@ -6,6 +6,7 @@ import com.dndmaster.character.domain.CharacterSheetData2014;
 import com.dndmaster.character.domain.RuleViolation;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -207,7 +208,7 @@ final class Dnd5e2014CharacterBuildEvaluator {
 
     record Evaluation(boolean valid, Map<String, Object> derived, List<RuleViolation> violations) {
         Evaluation {
-            derived = Map.copyOf(derived);
+            derived = Collections.unmodifiableMap(new LinkedHashMap<>(derived));
             violations = List.copyOf(violations);
         }
 
