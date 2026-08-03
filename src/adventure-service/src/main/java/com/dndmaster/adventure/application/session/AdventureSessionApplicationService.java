@@ -47,7 +47,12 @@ public final class AdventureSessionApplicationService {
     public AdventureSession create(OwnerPlayerId owner, java.util.UUID scenarioPackageId, java.util.UUID blueprintId, long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration) {
         var scenarioPackage = packageRepository.findById(scenarioPackageId).orElseThrow(() -> new IllegalArgumentException("scenario package not found"));
         var blueprint = scenarioPackage.characterCreationBlueprint();
-        if (blueprint == null || !blueprintId.equals(scenarioPackageId) || blueprint.revision() != blueprintRevision || blueprint.status() != com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.PUBLISHED) throw new IllegalStateException("published blueprint revision is required");
+        if (blueprint == null || !blueprintId.equals(scenarioPackageId) || blueprint.revision() != blueprintRevision
+                || (blueprint.status() != com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.READY
+                && blueprint.status() != com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.NEEDS_REVIEW
+                && blueprint.status() != com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.PUBLISHED)) {
+            throw new IllegalStateException("character creation blueprint revision is unavailable");
+        }
         AdventureSession session = runtimeConfiguration == null
                 ? AdventureSession.create(SessionId.generate(), owner, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), blueprintId, blueprintRevision, scenarioPackage.characterLimit().maximumCharacters())
                 : AdventureSession.create(SessionId.generate(), owner, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), blueprintId, blueprintRevision, scenarioPackage.characterLimit().maximumCharacters(), runtimeConfiguration);
