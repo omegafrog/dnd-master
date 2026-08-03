@@ -1,7 +1,9 @@
+import type { ReactNode } from 'react'
 import type { ClassOption } from './Dnd5eCharacterCatalog'
 import type { EquipmentGroup } from './Dnd5eCharacterDerivedRules'
-import type { WeaponSlot } from './Dnd5eWeaponRules'
 import { weaponChoices } from './Dnd5eWeaponRules'
+
+type WeaponSlot = { id: string; label: string; category: 'SIMPLE' | 'MARTIAL'; count: number }
 
 export function CharacterClassSelection({
   classOptions, characterClass, subclass, subclassOptions, subclassRequired,
@@ -21,7 +23,7 @@ export function CharacterClassSelection({
   onSubclassChange: (value: string) => void
   onEquipmentChange: (groupId: string, value: string) => void
   onWeaponSelectionsChange: (slotId: string, values: string[]) => void
-  children?: React.ReactNode
+  children?: ReactNode
 }) {
   function toggleWeapon(slot: WeaponSlot, weaponId: string, checked: boolean) {
     const selected = weaponSelections[slot.id] ?? []
