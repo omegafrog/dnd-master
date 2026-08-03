@@ -4,7 +4,7 @@ test('solo player completes setup, grounded play, map and saved-adventure deleti
   await page.goto('/e2e/fixtures/index.html')
   await page.getByLabel('이메일').fill('player@example.com')
   await page.getByLabel('비밀번호').fill('secret-password')
-  await page.getByRole('button', { name: '로그인' }).click()
+  await page.getByRole('button', { name: '로그인', exact: true }).click()
   await expect(page.getByRole('heading', { name: '자료와 모험 설정' })).toBeVisible()
 
   await page.getByLabel('자료 파일').setInputFiles([
@@ -47,7 +47,7 @@ test('player starts session and party becomes immutable', async ({ page }) => {
   await page.goto('/e2e/fixtures/index.html')
   await page.getByLabel('이메일').fill('player@example.com')
   await page.getByLabel('비밀번호').fill('secret-password')
-  await page.getByRole('button', { name: '로그인' }).click()
+  await page.getByRole('button', { name: '로그인', exact: true }).click()
   await expect(page.getByRole('heading', { name: '모험 파티' })).toBeVisible()
   const party = page.getByRole('region', { name: '모험 파티' })
   await party.getByLabel('캐릭터 시트 ID').fill('sheet-e2e')
@@ -70,7 +70,7 @@ test('document-derived character creation preserves bundle, blueprint and creati
     await page.goto('/e2e/fixtures/index.html')
     await page.getByLabel('이메일').fill('player@example.com')
     await page.getByLabel('비밀번호').fill('secret-password')
-    await page.getByRole('button', { name: '로그인' }).click()
+    await page.getByRole('button', { name: '로그인', exact: true }).click()
 
     await page.getByLabel('자료 파일').setInputFiles([
       { name: 'rules-2014.txt', mimeType: 'text/plain', buffer: Buffer.from('DND 4판 strength tag') },

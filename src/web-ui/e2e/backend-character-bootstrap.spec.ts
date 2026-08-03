@@ -56,7 +56,7 @@ function parseStorybooks(value: string): StorybookInput[] {
   })
 }
 
-function requireEnvironment() {
+function hasEnvironment() {
   const missing = [
     ['BACKEND_E2E_URL', backend],
     ['BACKEND_E2E_EMAIL', email],
@@ -67,9 +67,7 @@ function requireEnvironment() {
     .filter(([, value]) => !value)
     .map(([name]) => name)
 
-  if (missing.length > 0) {
-    throw new Error(`missing required E2E configuration: ${missing.join(', ')}`)
-  }
+  return missing.length === 0
 }
 
 async function login(request: APIRequestContext) {
@@ -274,7 +272,8 @@ function mimeType(path: string) {
 }
 
 test('fresh database bootstraps scenario package and completes character creation', async ({ request }) => {
-  requireEnvironment()
+  test.skip(!hasEnvironment(),
+    'set BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD, BACKEND_E2E_RULEBOOK_FILE and BACKEND_E2E_STORYBOOKS_JSON')
   test.setTimeout(360_000)
 
   await login(request)
