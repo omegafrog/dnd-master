@@ -7,8 +7,9 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.UUID;
+import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import com.dndmaster.character.application.CharacterSheetsDeletionConsumer;
 import com.dndmaster.character.application.CharacterSheetsDeletionRequested;
 
@@ -36,6 +37,20 @@ public class CharacterSheetController {
         deletionConsumer.consume(new CharacterSheetsDeletionRequested(request.sessionId(), request.characterSheetIds()));
     }
 
+    @GetMapping("/internal/v1/character-rules/catalogs/{edition}")
+    CharacterRulesCatalogResponse getCharacterRulesCatalog(@PathVariable String edition) {
+        if (!"DND_5E_2014".equals(edition)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "CHARACTER_RULES_CATALOG_NOT_FOUND");
+        }
+        return new CharacterRulesCatalogResponse(
+                edition,
+                "DND_5E_2014",
+                1,
+                List.of("드워프", "엘프", "하플링", "인간"),
+                List.of("바바리안", "바드", "클레릭", "드루이드", "파이터", "몽크", "팔라딘", "레인저", "로그", "소서러", "워락", "위저드"),
+                List.of("복사", "범죄자", "시골 영웅", "귀족", "은둔자", "길드 장인", "광대", "선원", "군인", "부랑아", "학자", "민중 영웅", "맞춤 배경"));
+    }
+
     @PostMapping("/internal/v1/adventure-sessions/{sessionId}/character-builds/evaluate")
     Dnd5e2014CharacterBuildEvaluator.Evaluation evaluateCharacterBuild(
             @PathVariable UUID sessionId,
@@ -49,7 +64,13 @@ public class CharacterSheetController {
     @PostMapping("/internal/v1/adventure-sessions/{sessionId}/character-sheets")
     CharacterSheetResponse createCharacterSheet(@PathVariable UUID sessionId, @RequestBody CharacterSheetRequest request) {
         Dnd5e2014CharacterCreationValidator.validateCreation(request);
-        String derivedStatistics = authoritativeDerivedStatistics(request);
+        Dnd5e2014CharacterBuildEvaluator.Evaluation evaluation = "DND_5E_2014".equals(request.edition())
+                ? Dnd5e2014CharacterBuildEvaluator.evaluate(request)
+                : null;
+        if (evaluation != null && !evaluation.valid()) {
+            throw new CharacterMutationRejectedException(evaluation.violations());
+        }
+        String derivedStatistics = evaluation == null ? request.derivedStatistics() : evaluation.serializedDerived();
         CharacterSheet sheet = characterSheetService.createSheet(new CreateCharacterSheetCommand(
                 new SessionId(sessionId),
                 request.ownerPlayerId(),
@@ -59,9 +80,11 @@ public class CharacterSheetController {
     }
 
     @GetMapping("/internal/v1/character-sheets/{sheetId}")
-    CharacterSheetResponse getCharacterSheet(@PathVariable UUID sheetId) {
+    CharacterSheetResponse getCharacterSheet(
+            @PathVariable UUID sheetId,
+            @RequestParam(defaultValue = "DND_5E_2014") String edition) {
         CharacterSheet sheet = characterSheetService.openSheet(
-                new CharacterSheetId(sheetId), SheetEdition.DND_5E_2024);
+                new CharacterSheetId(sheetId), SheetEdition.valueOf(edition));
         return CharacterSheetResponse.from(sheet);
     }
 
@@ -78,7 +101,12 @@ public class CharacterSheetController {
             @RequestHeader("Idempotency-Key") UUID commandId,
             @RequestHeader("If-Match-Version") long expectedVersion,
             @RequestBody CharacterSheetRequest request) {
-        String derivedStatistics = authoritativeDerivedStatistics(request);
+        String derivedStatistics = request.derivedStatistics();
+        if ("DND_5E_2014".equals(request.edition())) {
+            Dnd5e2014CharacterBuildEvaluator.Evaluation evaluation = Dnd5e2014CharacterBuildEvaluator.evaluate(request);
+            if (!evaluation.valid()) throw new CharacterMutationRejectedException(evaluation.violations());
+            derivedStatistics = evaluation.serializedDerived();
+        }
         CharacterSheetUpdate update = new CharacterSheetUpdate(
                 SheetEdition.valueOf(request.edition()),
                 parseData(request.edition(), request.characterName(), request.level(), request.inspiration(), request.race(), request.characterClass(), request.background(), startingAbilities(request), derivedStatistics, request.characterBuild(), request.characterState()),
@@ -87,13 +115,6 @@ public class CharacterSheetController {
                 expectedVersion);
         CharacterSheet sheet = characterSheetService.manageCharacter(new CharacterSheetId(sheetId), update);
         return CharacterSheetResponse.from(sheet);
-    }
-
-    private static String authoritativeDerivedStatistics(CharacterSheetRequest request) {
-        if (!"DND_5E_2014".equals(request.edition())) return request.derivedStatistics();
-        Dnd5e2014CharacterBuildEvaluator.Evaluation evaluation = Dnd5e2014CharacterBuildEvaluator.evaluate(request);
-        if (!evaluation.valid()) throw new CharacterMutationRejectedException(evaluation.violations());
-        return evaluation.serializedDerived();
     }
 
     private static CharacterSheetData parseData(
@@ -124,5 +145,14 @@ public class CharacterSheetController {
                     background, startingAbilities, null, null, null, null);
         }
     }
+
+    public record CharacterRulesCatalogResponse(
+            String edition,
+            String baseSchema,
+            int revision,
+            List<String> races,
+            List<String> classes,
+            List<String> backgrounds) {}
+
     public record CharacterSheetsDeletionRequest(UUID sessionId, java.util.List<UUID> characterSheetIds) {}
 }
