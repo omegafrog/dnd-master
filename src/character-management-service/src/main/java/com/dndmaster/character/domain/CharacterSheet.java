@@ -63,10 +63,20 @@ public final class CharacterSheet {
     }
 
     public void applyUpdate(CharacterSheetUpdate update) {
+        applyUpdate(update, CharacterMutationRules.allowAll());
+    }
+
+    public void applyUpdate(CharacterSheetUpdate update, CharacterMutationRules rules) {
         Objects.requireNonNull(update, "update must not be null");
+        Objects.requireNonNull(rules, "character mutation rules must not be null");
         if (update.inputMode() != InputMode.STRUCTURED_SHEET) throw new StructuredSheetRequiredException();
         if (edition != update.edition()) throw new CharacterSheetEditionMismatchException();
-        data = requireMatchingData(edition, update.data());
+        CharacterSheetData proposed = requireMatchingData(edition, update.data());
+        CharacterMutationDecision decision = Objects.requireNonNull(
+                rules.evaluate(data, proposed),
+                "character mutation decision must not be null");
+        if (!decision.accepted()) throw new CharacterMutationRejectedException(decision.violations());
+        data = proposed;
     }
 
     public void markPersisted(long version, UUID operationKey, String operationFingerprint) {
