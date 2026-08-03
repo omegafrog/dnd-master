@@ -35,7 +35,7 @@ class DndCharacterCreationTemplateTest {
         assertEquals(InputMode.FIXED_VALUE, blueprint.field("level").inputMode());
         assertEquals(List.of("드워프", "엘프", "인간", "하플링"), blueprint.field("race").options());
         assertEquals(List.of("로그", "위저드", "클레릭", "파이터"), blueprint.field("class").options());
-        assertEquals(List.of("복사", "범죄자", "시골 영웅", "귀족", "학자", "군인", "맞춤 배경"),
+        assertEquals(List.of("수행사제", "사기꾼", "범죄자", "연예인", "민중 영웅", "길드 장인", "은둔자", "귀족", "이방인", "현자", "선원", "군인", "부랑아"),
                 blueprint.field("background").options());
         assertEquals(List.of("CLASS_AND_BACKGROUND", "STARTING_GOLD"),
                 blueprint.field("equipment.acquisition_method").options());

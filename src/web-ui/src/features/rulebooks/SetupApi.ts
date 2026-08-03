@@ -166,6 +166,7 @@ export type CharacterInputNodeView = {
   inputMode: 'FREE_TEXT' | 'SINGLE_SELECT' | 'MULTI_SELECT' | 'FIXED_VALUE'
   value: string | null
   options: string[]
+  optionDetails?: Array<{ value: string; label: string; description: string; sourceQuote: string }>
   suggestions: string[]
   status: 'EXTRACTED' | 'PARTIALLY_EXTRACTED' | 'CONFLICT_REVIEW' | 'USER_ADDED' | 'REVIEWED'
   allowUserAddChild: boolean

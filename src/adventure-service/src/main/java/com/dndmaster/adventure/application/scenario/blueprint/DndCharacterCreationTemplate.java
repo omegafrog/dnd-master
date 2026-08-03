@@ -120,7 +120,8 @@ public final class DndCharacterCreationTemplate {
             case "race" -> List.of("드워프", "엘프", "인간", "하플링");
             case "subrace" -> List.of("언덕 드워프", "산 드워프", "하이 엘프", "우드 엘프", "라이트풋 하플링", "스타우트 하플링");
             case "class" -> List.of("로그", "위저드", "클레릭", "파이터");
-            case "background" -> List.of("복사", "범죄자", "시골 영웅", "귀족", "학자", "군인", "맞춤 배경");
+            case "background" -> List.of("수행사제", "사기꾼", "범죄자", "연예인", "민중 영웅", "길드 장인", "은둔자", "귀족", "이방인", "현자", "선원", "군인", "부랑아");
+            case "class.skill_choices" -> List.of("곡예", "동물 조련", "비전학", "운동", "기만", "역사", "통찰", "위협", "수사", "의학", "자연", "지각", "공연", "설득", "종교", "손재주", "은신", "생존");
             case "ability_score_method" -> List.of("STANDARD_ARRAY", "ROLL_4D6_DROP_LOWEST", "POINT_BUY");
             case "starting_ability_scores.strength", "starting_ability_scores.dexterity",
                     "starting_ability_scores.constitution", "starting_ability_scores.intelligence",
@@ -133,9 +134,63 @@ public final class DndCharacterCreationTemplate {
         String inputStatus = "TEMPLATE".equals(spec.origin()) ? "EXTRACTED" : "MANUAL_INPUT_REQUIRED";
         List<String> diagnostics = "MANUAL_INPUT_REQUIRED".equals(inputStatus)
                 ? List.of("user input required") : List.of();
+        List<CharacterCreationBlueprint.Field.OptionDetail> optionDetails = optionDetails(spec.key(), options);
         return new CharacterCreationBlueprint.Field(spec.key(), options, spec.required(), spec.origin(), List.of(),
-                inputStatus, diagnostics, spec.inputMode(), List.of(), "", spec.label(), null, null, null,
-                "HIGH", List.of());
+                inputStatus, diagnostics, spec.inputMode(), List.of(), "", spec.label(), defaultValue(spec.key()), null, null,
+                "HIGH", optionDetails);
+    }
+
+    private static String defaultValue(String key) {
+        return switch (key) {
+            case "level" -> "1";
+            case "experience_points" -> "0";
+            case "proficiency_bonus" -> "+2";
+            case "passive_wisdom" -> "10";
+            case "armor_class" -> "10";
+            case "initiative" -> "0";
+            case "speed" -> "30";
+            case "hit_point_maximum" -> "0";
+            default -> null;
+        };
+    }
+
+    private static List<CharacterCreationBlueprint.Field.OptionDetail> optionDetails(String key, List<String> options) {
+        if (options.isEmpty()) return List.of();
+        return options.stream().map(value -> new CharacterCreationBlueprint.Field.OptionDetail(
+                value, value, optionDescription(key, value), "", List.of())).toList();
+    }
+
+    private static String optionDescription(String key, String value) {
+        if ("background".equals(key)) return switch (value) {
+            case "수행사제" -> "신전과 종교 공동체에서 봉사하며 신앙을 배운 배경";
+            case "사기꾼" -> "거짓 신분과 속임수로 살아온 배경";
+            case "범죄자" -> "범죄 조직과 암시장에서 살아남은 배경";
+            case "연예인" -> "공연과 이야기로 사람들의 관심을 끈 배경";
+            case "민중 영웅" -> "평범한 사람들 사이에서 용기와 행동으로 이름을 알린 배경";
+            case "길드 장인" -> "길드와 장인 사회에서 기술과 거래를 익힌 배경";
+            case "은둔자" -> "외딴곳에서 고독과 성찰의 시간을 보낸 배경";
+            case "귀족" -> "특권과 예법, 가문 정치에 익숙한 배경";
+            case "이방인" -> "문명 밖 황야와 먼 지역에서 살아온 배경";
+            case "현자" -> "학문과 연구로 지식을 축적한 배경";
+            case "선원" -> "배와 항구에서 노동하고 항해한 배경";
+            case "군인" -> "군대나 용병대에서 훈련과 전투를 경험한 배경";
+            case "부랑아" -> "도시의 거리와 뒷골목에서 살아남은 배경";
+            default -> "사용자 정의 배경";
+        };
+        if ("alignment".equals(key)) return switch (value) {
+            case "질서 선" -> "질서와 선행을 중시합니다.";
+            case "중립 선" -> "선행을 우선하지만 질서에는 유연합니다.";
+            case "혼돈 선" -> "자유를 지키며 선행을 추구합니다.";
+            case "질서 중립" -> "질서와 의무를 중시합니다.";
+            case "중립" -> "상황에 따라 균형을 선택합니다.";
+            case "혼돈 중립" -> "개인의 자유와 선택을 중시합니다.";
+            case "질서 악" -> "질서와 통제를 악한 목적에 사용합니다.";
+            case "중립 악" -> "이익과 생존을 위해 악행을 선택합니다.";
+            case "혼돈 악" -> "충동과 파괴를 거리낌 없이 따릅니다.";
+            default -> "성향 설명";
+        };
+        if ("class.skill_choices".equals(key)) return "클래스에서 선택 가능한 기술 숙련";
+        return "";
     }
 
     @SafeVarargs
