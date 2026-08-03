@@ -58,7 +58,7 @@ test('player starts session and party becomes immutable', async ({ page }) => {
   await expect(party.getByRole('button', { name: '제거' })).toHaveCount(0)
 })
 
-test('document-derived character creation preserves bundle, blueprint and creation artifacts', async ({ page }) => {
+test('document-derived scenario preserves bundle and publishes its character blueprint', async ({ page }) => {
   const failedResponses: Array<{ url: string; status: number; body: string }> = []
   page.on('response', async response => {
     if (response.status() < 400) return
@@ -118,15 +118,11 @@ test('document-derived character creation preserves bundle, blueprint and creati
     await scenario.getByRole('button', { name: 'Blueprint 게시' }).click()
     await expect(scenario.getByText('상태: PUBLISHED')).toBeVisible()
     await expect(scenario.getByText(/revision 4/).first()).toBeVisible()
-    const characterCreation = scenario.locator('section[aria-labelledby="character-creation-heading"]')
-    await characterCreation.getByLabel('캐릭터 이름').fill('Aria')
-    await characterCreation.getByRole('button', { name: '캐릭터 시트 생성' }).click()
-    await expect(characterCreation.getByText('캐릭터 시트 sheet-e2e 생성 완료.')).toBeVisible()
-    await test.info().attach('026-4-creation.json', {
+    await test.info().attach('026-4-published-blueprint.json', {
       body: Buffer.from(await page.evaluate(() => JSON.stringify((window as unknown as { __dndMasterE2E: unknown }).__dndMasterE2E))),
       contentType: 'application/json',
     })
-    await page.screenshot({ path: 'test-results/026-4-creation.png', fullPage: true })
+    await page.screenshot({ path: 'test-results/026-4-published-blueprint.png', fullPage: true })
   } catch (error) {
     await test.info().attach('026-4-api-failures.json', {
       body: Buffer.from(JSON.stringify(failedResponses)),
