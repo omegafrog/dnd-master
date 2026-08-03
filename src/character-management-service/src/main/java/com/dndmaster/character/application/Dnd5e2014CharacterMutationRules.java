@@ -39,6 +39,10 @@ public final class Dnd5e2014CharacterMutationRules implements CharacterMutationR
 
     @Override
     public CharacterMutationDecision evaluate(CharacterSheetData current, CharacterSheetData proposed) {
+        if (legacyUnstructured(current) && legacyUnstructured(proposed)) {
+            return CharacterMutationDecision.accept();
+        }
+
         List<RuleViolation> violations = new ArrayList<>();
         JsonNode build = parseObject(proposed.characterBuild(), "characterBuild", violations);
         JsonNode state = parseObject(proposed.characterState(), "characterState", violations);
@@ -66,6 +70,14 @@ public final class Dnd5e2014CharacterMutationRules implements CharacterMutationR
         return violations.isEmpty()
                 ? CharacterMutationDecision.accept()
                 : CharacterMutationDecision.reject(violations);
+    }
+
+    private static boolean legacyUnstructured(CharacterSheetData data) {
+        return blank(data.characterBuild()) && blank(data.characterState());
+    }
+
+    private static boolean blank(String value) {
+        return value == null || value.isBlank();
     }
 
     private static void validateOwnership(
