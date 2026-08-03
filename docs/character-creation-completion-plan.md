@@ -1,7 +1,7 @@
 # Character Creation Completion Plan
 
 ## Goal
-Complete the D&D 5e 2014 character creation flow so that users select only rule-defined choices and all derived sheet values are calculated consistently in the UI and persisted payload.
+Complete the D&D 5e 2014 character creation flow so that users select only rule-defined choices and all derived sheet values are calculated consistently in the backend and persisted payload.
 
 ## Status
 - Phase 1: implemented in rules, UI, validation, and persisted build data.
@@ -9,7 +9,7 @@ Complete the D&D 5e 2014 character creation flow so that users select only rule-
 - Phase 3: implemented for current level-1 subclass catalog.
 - Phase 4: implemented in rules, UI, validation, and persisted equipped-item state.
 - Phase 5: implemented for the active D&D 5e 2014 session character-sheet creation route.
-- Phase 6: in progress; page decomposition, all-class server creation coverage, and worker regression restoration are complete. Catalog migration and integration regression remain.
+- Phase 6: in progress; page decomposition, all-class server creation coverage, and worker regression restoration are complete. Backend rule-engine migration, catalog migration, and integration regression remain.
 
 ## Phase 1 — Choice completion
 - [x] Replace placeholder language, instrument, artisan-tool, gaming-set, and background-tool values with typed choices.
@@ -43,6 +43,15 @@ Complete the D&D 5e 2014 character creation flow so that users select only rule-
 
 ## Phase 6 — Architecture and regression
 - [ ] Move hardcoded frontend catalogs behind an edition/rulebook catalog API.
+- [~] Move character derivation and validation behind an authoritative backend rule engine.
+  - [x] Record the engine/aggregate/GM responsibility split in ADR-012.
+  - [x] Add structured rule violations and mutation decisions.
+  - [x] Guard `CharacterSheet` updates before replacing aggregate state.
+  - [x] Route application-service updates through an edition-specific mutation-rules resolver.
+  - [ ] Implement D&D 5e 2014 equipment mutation rules, including druid metal armor rejection.
+  - [ ] Add a non-persisting character-build evaluation endpoint.
+  - [ ] Stop accepting client-authored derived statistics as authoritative.
+  - [ ] Return structured mutation outcomes to the GM tool boundary.
 - [x] Split `CharacterCreationPage` into step components.
   - [x] Extract and connect `CharacterIdentitySelection`.
   - [x] Extract and connect `CharacterClassSelection`.
@@ -59,6 +68,7 @@ Complete the D&D 5e 2014 character creation flow so that users select only rule-
 
 ## Completion criteria
 - No rule-defined choice is represented by free text or an unresolved placeholder.
-- UI validation and backend validation agree.
+- The backend rule engine is authoritative for validation and derived statistics.
+- Character aggregate mutations reject invariant violations without changing state or version.
 - Preview and persisted derived statistics are identical.
-- All targeted frontend tests and the production build pass.
+- All targeted frontend and backend tests and production builds pass.
