@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CharacterCreationPage } from './CharacterCreationPage'
@@ -51,7 +51,7 @@ describe('CharacterCreationPage', () => {
   it('서버 카탈로그 revision과 자동값을 보여준다', async () => {
     const { setupApi, sessionApi } = fixture()
     render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
-    expect(await screen.findByText(/규칙 카탈로그:/)).toHaveTextContent('revision 1')
+    expect((await screen.findByText(/규칙 카탈로그:/)).textContent).toContain('revision 1')
     const automaticValues = await screen.findByText(/레벨:/)
     expect(automaticValues.textContent).toContain('1')
     expect(automaticValues.textContent).toContain('경험치: 0')
@@ -92,7 +92,7 @@ describe('CharacterCreationPage', () => {
     render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
     await user.selectOptions(await screen.findByLabelText('종족'), '인간')
     await user.selectOptions(screen.getByLabelText('클래스'), '파이터')
-    expect((await screen.findByLabelText('공격 목록')).textContent).toContain('레이피어')
+    await waitFor(() => expect(screen.getByLabelText('공격 목록').textContent).toContain('레이피어'))
     expect(screen.getByText(/방어도/).textContent).toContain('17')
   })
 
@@ -111,8 +111,8 @@ describe('CharacterCreationPage', () => {
     render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
     await user.selectOptions(await screen.findByLabelText('종족'), '인간')
     await user.selectOptions(screen.getByLabelText('클래스'), '위저드')
+    await waitFor(() => expect(screen.getByText(/수동 지각/).textContent).toContain('12'))
     expect(screen.getByLabelText('기술 보너스').textContent).toContain('지각')
-    expect(screen.getByText(/수동 지각/).textContent).toContain('12')
     expect(screen.getByText(/1레벨 슬롯/).textContent).toContain('2')
   })
 })
