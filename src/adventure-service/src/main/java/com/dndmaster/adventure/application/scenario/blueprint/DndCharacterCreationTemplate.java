@@ -116,7 +116,7 @@ public final class DndCharacterCreationTemplate {
         List<String> options = switch (spec.key()) {
             case "race" -> List.of("드워프", "엘프", "인간", "하플링");
             case "subrace" -> List.of("언덕 드워프", "산 드워프", "하이 엘프", "우드 엘프", "라이트풋 하플링", "스타우트 하플링");
-            case "race.option_selections" -> List.of("선택 언어: 공용어", "선택 언어: 드워프어", "선택 언어: 엘프어", "선택 언어: 하플링어", "선택 언어: 드루이드어", "선택 언어: 용언", "선택 언어: 지하 공용어", "인간 능력치 보너스: 힘", "인간 능력치 보너스: 민첩", "인간 능력치 보너스: 건강", "인간 능력치 보너스: 지능", "인간 능력치 보너스: 지혜", "인간 능력치 보너스: 매력");
+            case "race.option_selections" -> List.of("추가 언어: 공용어", "추가 언어: 드워프어", "추가 언어: 엘프어", "추가 언어: 하플링어", "추가 언어: 드루이드어", "추가 언어: 용언", "추가 언어: 지하 공용어", "능력치 보너스: 힘", "능력치 보너스: 민첩", "능력치 보너스: 건강", "능력치 보너스: 지능", "능력치 보너스: 지혜", "능력치 보너스: 매력");
             case "class" -> List.of("로그", "위저드", "클레릭", "파이터");
             case "background" -> List.of("수행사제", "사기꾼", "범죄자", "연예인", "민중 영웅", "길드 장인", "은둔자", "귀족", "이방인", "현자", "선원", "군인", "부랑아");
             case "class.skill_choices" -> List.of("곡예", "동물 조련", "비전학", "운동", "기만", "역사", "통찰", "위협", "수사", "의학", "자연", "지각", "공연", "설득", "종교", "손재주", "은신", "생존");
@@ -211,9 +211,27 @@ public final class DndCharacterCreationTemplate {
             default -> "하위 종족 설명";
         };
         if ("class.skill_choices".equals(key)) return "클래스에서 선택 가능한 기술 숙련";
-        if ("race.option_selections".equals(key)) return value.startsWith("선택 언어:")
-                ? "종족 또는 인간 추가 언어 선택"
-                : "인간형 종족의 시작 능력치 선택";
+        if ("race.option_selections".equals(key)) {
+            if (value.startsWith("추가 언어:")) return switch (value.substring("추가 언어: ".length())) {
+                case "공용어" -> "모든 캐릭터가 기본적으로 사용하는 공용 언어";
+                case "드워프어" -> "드워프 사회에서 사용하는 언어";
+                case "엘프어" -> "엘프 사회에서 사용하는 언어";
+                case "하플링어" -> "하플링 사회에서 사용하는 언어";
+                case "드루이드어" -> "드루이드만 사용하는 비밀 언어";
+                case "용언" -> "드래곤과 관련된 고대 언어";
+                case "지하 공용어" -> "언더다크에서 통용되는 교역 언어";
+                default -> "추가 언어 선택";
+            };
+            return switch (value.substring("능력치 보너스: ".length())) {
+                case "힘" -> "근력 판정과 근력 기반 공격에 영향을 줍니다.";
+                case "민첩" -> "민첩 판정, 방어도, 우선권에 영향을 줍니다.";
+                case "건강" -> "최대 HP와 건강 내성 굴림에 영향을 줍니다.";
+                case "지능" -> "지능 판정과 비전 지식에 영향을 줍니다.";
+                case "지혜" -> "지혜 판정과 감지 능력에 영향을 줍니다.";
+                case "매력" -> "매력 판정과 사회적 상호작용에 영향을 줍니다.";
+                default -> "시작 능력치 보너스 선택";
+            };
+        }
         return "";
     }
 
