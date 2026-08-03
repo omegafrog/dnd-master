@@ -12,6 +12,7 @@ import { RulebookSetup } from '../features/rulebooks/RulebookSetup'
 import { CharacterSheetView } from '../features/character/CharacterSheetView'
 import { CharacterCreationPage } from '../features/character/CharacterCreationPage'
 import { CharacterBlueprintReviewPage } from '../features/character/CharacterBlueprintReviewPage'
+import { PackageBlueprintReviewPage } from '../features/character/PackageBlueprintReviewPage'
 import { RoleDiceRoller } from '../features/dice/RoleDiceRoller'
 import { CombatMapView } from '../features/combat-map/CombatMapView'
 import { AdventureSessionApi } from '../features/adventure-session/AdventureSessionApi'
@@ -25,6 +26,7 @@ type Route =
   | { page: 'session'; sessionId: string }
   | { page: 'character-create'; sessionId: string }
   | { page: 'character-blueprint'; sessionId: string }
+  | { page: 'package-blueprint'; packageId: string }
   | { page: 'login' }
 
 function parseRoute(hash: string): Route {
@@ -34,6 +36,9 @@ function parseRoute(hash: string): Route {
   if (segments[0] === 'adventures' && segments[1]) return { page: 'adventure', adventureId: segments[1] }
   if (segments[0] === 'adventures') return { page: 'adventures' }
   if (segments[0] === 'character' && segments[1]) return { page: 'character', sheetId: segments[1] }
+  if (segments[0] === 'scenario-packages' && segments[1] && segments[2] === 'character-blueprint') {
+    return { page: 'package-blueprint', packageId: segments[1] }
+  }
   if (segments[0] === 'sessions' && segments[1] && segments[2] === 'character-blueprint') return { page: 'character-blueprint', sessionId: segments[1] }
   if (segments[0] === 'sessions' && segments[1] && segments[2] === 'character') return { page: 'character-create', sessionId: segments[1] }
   if (segments[0] === 'sessions' && segments[1]) return { page: 'session', sessionId: segments[1] }
@@ -62,7 +67,7 @@ export function AppShell() {
   const adventureApi = new HttpAdventureApi(getToken, getPlayerId)
   const playApi = new HttpAdventurePlayApi(getToken)
   const guidanceApi = new HttpRuleGuidanceApi(getToken, getPlayerId)
-  const setupApi = new HttpSetupApi(getToken)
+  const setupApi = createNavigatingSetupApi(token)
 
   return <>
     <header><a href="#main">본문으로 건너뛰기</a><h1>D&amp;D Master</h1><nav aria-label="주요 메뉴"><a href="#/setup">자료 설정</a><a href="#/adventures">모험 목록</a><button type="button" onClick={() => void auth.logout()}>로그아웃</button></nav></header>
@@ -75,7 +80,32 @@ export function AppShell() {
       {route.page === 'character' && <CharacterSheetView sheetId={route.sheetId} api={playApi} />}
       {route.page === 'session' && <AdventureSessionPanel api={sessionApi} sessionId={route.sessionId} />}
       {route.page === 'character-blueprint' && <CharacterBlueprintReviewPage sessionId={route.sessionId} setupApi={setupApi} sessionApi={sessionApi} />}
+      {route.page === 'package-blueprint' && <PackageBlueprintReviewPage packageId={route.packageId} setupApi={setupApi} sessionApi={sessionApi} onSessionCreated={sessionId => { window.location.hash = `#/sessions/${sessionId}/character` }} />}
       {route.page === 'character-create' && <CharacterCreationPage sessionId={route.sessionId} setupApi={setupApi} sessionApi={sessionApi} />}
     </main>
   </>
+}
+
+function createNavigatingSetupApi(token: string) {
+  const api = new HttpSetupApi(() => token)
+
+  const getScenarioPackage = api.getScenarioPackage?.bind(api)
+  if (getScenarioPackage) {
+    api.getScenarioPackage = async packageId => {
+      const scenarioPackage = await getScenarioPackage(packageId)
+      window.location.hash = `#/scenario-packages/${scenarioPackage.packageId}/character-blueprint`
+      return scenarioPackage
+    }
+  }
+
+  const compileScenarioBundle = api.compileScenarioBundle?.bind(api)
+  if (compileScenarioBundle) {
+    api.compileScenarioBundle = async (bundleId, ownerId) => {
+      const scenarioPackage = await compileScenarioBundle(bundleId, ownerId)
+      window.location.hash = `#/scenario-packages/${scenarioPackage.packageId}/character-blueprint`
+      return scenarioPackage
+    }
+  }
+
+  return api
 }
