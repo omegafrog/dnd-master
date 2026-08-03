@@ -1,7 +1,5 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import type {
-  CreatedCharacterSheetView,
-  CharacterCreationDraft,
   KnowledgeDocumentView,
   PlayPreparationView,
   RuntimeOptionsView,
@@ -48,14 +46,14 @@ export function serializeBlueprintValues(nodes: CharacterInputNodeView[], values
   })
 }
 
-function collectBlueprintValues(nodes: CharacterInputNodeView[], values: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(nodes.flatMap(node => {
-    const value = values[node.id] ?? node.value ?? ''
-    return value ? [[node.id, value], ...Object.entries(collectBlueprintValues(node.children, values))] : Object.entries(collectBlueprintValues(node.children, values))
-  }))
-}
-
-export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCreated, availableDocuments }: { api: SetupApi; playerId: string; onError: (message: string) => void; sessionApi?: Pick<AdventureSessionApi, 'create'>; onSessionCreated?: (sessionId: string) => void; availableDocuments?: KnowledgeDocumentView[] }) {
+export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCreated, availableDocuments }: {
+  api: SetupApi
+  playerId: string
+  onError: (message: string) => void
+  sessionApi?: Pick<AdventureSessionApi, 'create'>
+  onSessionCreated?: (sessionId: string) => void
+  availableDocuments?: KnowledgeDocumentView[]
+}) {
   const [documents, setDocuments] = useState<KnowledgeDocumentView[]>(availableDocuments ?? [])
   const [roles, setRoles] = useState<Record<string, ScenarioBundleRole>>({})
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -64,24 +62,17 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
   const [compilation, setCompilation] = useState<ScenarioCompilationView | null>(null)
   const [compilationFailure, setCompilationFailure] = useState<string | null>(null)
   const [playPreparation, setPlayPreparation] = useState<PlayPreparationView | null>(null)
-  const [createdCharacterSheet, setCreatedCharacterSheet] = useState<CreatedCharacterSheetView | null>(null)
   const [runtimeOptions, setRuntimeOptions] = useState<RuntimeOptionsView | null>(null)
   const [selectedEngineId, setSelectedEngineId] = useState('')
   const [selectedToolIds, setSelectedToolIds] = useState<string[]>([])
   const [publishingBlueprint, setPublishingBlueprint] = useState(false)
   const [compiling, setCompiling] = useState(false)
   const [saving, setSaving] = useState(false)
-  const [creatingCharacter, setCreatingCharacter] = useState(false)
   const [sourceQuery, setSourceQuery] = useState('')
   const [sourceResults, setSourceResults] = useState<StorySourceEvidenceView[]>([])
   const [searchingSources, setSearchingSources] = useState(false)
-  const [characterEdition, setCharacterEdition] = useState<'DND_5E_2014' | 'DND_5E_2024'>('DND_5E_2024')
-  const [characterName, setCharacterName] = useState('')
-  const [characterLevel, setCharacterLevel] = useState(1)
-  const [characterInspiration, setCharacterInspiration] = useState(false)
   const [blueprintValues, setBlueprintValues] = useState<Record<string, string>>({})
   const canCompile = Boolean(api.compileScenarioBundle || (api.startScenarioCompilation && api.getScenarioCompilation && api.getScenarioPackage))
-  const canCreateCharacter = Boolean(!sessionApi && api.createCharacterSheet && playPreparation?.characterCreationBlueprint?.available)
 
   useEffect(() => {
     if (availableDocuments) {
@@ -207,31 +198,6 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
     }
   }
 
-  async function createCharacter(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!canCreateCharacter || !api.createCharacterSheet) return
-    if (!characterName.trim()) return
-    setCreatingCharacter(true)
-    try {
-      const scoreRoot = playPreparation?.characterCreationBlueprint.roots?.find(node => node.key === 'starting_ability_scores')
-      const resolvedBlueprintValues = collectBlueprintValues(playPreparation?.characterCreationBlueprint.roots ?? [], blueprintValues)
-      const draft: CharacterCreationDraft = {
-        edition: characterEdition,
-        characterName: characterName.trim(),
-        level: characterLevel,
-        inspiration: characterInspiration,
-        startingAbilities: serializeBlueprintValues(scoreRoot?.children ?? [], blueprintValues).join(','),
-        blueprintRevision: playPreparation?.characterCreationBlueprint.revision,
-        blueprintValues: resolvedBlueprintValues,
-      }
-      setCreatedCharacterSheet(await api.createCharacterSheet(draft))
-    } catch (error) {
-      onError(error instanceof Error ? error.message : '캐릭터를 생성하지 못했습니다.')
-    } finally {
-      setCreatingCharacter(false)
-    }
-  }
-
   async function compile() {
     if (!bundle) return
     setCompiling(true)
@@ -249,14 +215,12 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
         const published = await waitForCompilation(api, started, setCompilation)
         setCompilation(published)
         if (!published.packageId) throw new Error('시나리오 패키지 ID가 없습니다.')
-        const nextPackage = await api.getScenarioPackage(published.packageId)
-        setScenarioPackage(nextPackage)
+        setScenarioPackage(await api.getScenarioPackage(published.packageId))
         return
       }
       if (!api.compileScenarioBundle) return
       setCompilation(null)
-      const nextPackage = await api.compileScenarioBundle(bundle.bundleId, playerId)
-      setScenarioPackage(nextPackage)
+      setScenarioPackage(await api.compileScenarioBundle(bundle.bundleId, playerId))
     } catch (error) {
       const message = error instanceof Error ? error.message : '시나리오 패키지 컴파일에 실패했습니다.'
       setCompilationFailure(message)
@@ -276,7 +240,9 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
         blueprintRevision: blueprint.revision,
       })
       onSessionCreated?.(session.sessionId)
-    } catch (error) { onError(error instanceof Error ? error.message : '세션 초안을 생성하지 못했습니다.') }
+    } catch (error) {
+      onError(error instanceof Error ? error.message : '세션 초안을 생성하지 못했습니다.')
+    }
   }
 
   async function publishBlueprint() {
@@ -285,8 +251,11 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
     try {
       await api.publishBlueprint(scenarioPackage.packageId)
       if (api.getPlayPreparation) setPlayPreparation(await api.getPlayPreparation(scenarioPackage.packageId))
-    } catch (error) { onError(error instanceof Error ? error.message : 'Blueprint 게시에 실패했습니다.') }
-    finally { setPublishingBlueprint(false) }
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'Blueprint 게시에 실패했습니다.')
+    } finally {
+      setPublishingBlueprint(false)
+    }
   }
 
   async function resolveBlueprintNode(nodeId: string) {
@@ -296,7 +265,9 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
     try {
       await api.resolveBlueprint(scenarioPackage.packageId, nodeId, value, playPreparation.characterCreationBlueprint.revision ?? 0)
       if (api.getPlayPreparation) setPlayPreparation(await api.getPlayPreparation(scenarioPackage.packageId))
-    } catch (error) { onError(error instanceof Error ? error.message : 'Blueprint 검토를 저장하지 못했습니다.') }
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'Blueprint 검토를 저장하지 못했습니다.')
+    }
   }
 
   async function addBlueprintChild(parentId: string) {
@@ -307,7 +278,9 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
     try {
       await api.addBlueprintChild(scenarioPackage.packageId, playPreparation.characterCreationBlueprint.revision ?? 0, parentId, key, label)
       if (api.getPlayPreparation) setPlayPreparation(await api.getPlayPreparation(scenarioPackage.packageId))
-    } catch (error) { onError(error instanceof Error ? error.message : '하위 필드를 추가하지 못했습니다.') }
+    } catch (error) {
+      onError(error instanceof Error ? error.message : '하위 필드를 추가하지 못했습니다.')
+    }
   }
 
   async function addBlueprintOption(fieldKey: string) {
@@ -317,7 +290,9 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
     try {
       await api.addBlueprintOption(scenarioPackage.packageId, playPreparation.characterCreationBlueprint.revision ?? 0, fieldKey, option)
       if (api.getPlayPreparation) setPlayPreparation(await api.getPlayPreparation(scenarioPackage.packageId))
-    } catch (error) { onError(error instanceof Error ? error.message : 'Blueprint 선택지를 추가하지 못했습니다.') }
+    } catch (error) {
+      onError(error instanceof Error ? error.message : 'Blueprint 선택지를 추가하지 못했습니다.')
+    }
   }
 
   return (
@@ -369,9 +344,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
           <p>번들 저장 완료: {bundle.bundleId} v{bundle.currentRevision}</p>
           <ul>
             {bundle.documents.map(document => (
-              <li key={document.knowledgeDocumentId}>
-                {document.originalFilename} · {document.role}
-              </li>
+              <li key={document.knowledgeDocumentId}>{document.originalFilename} · {document.role}</li>
             ))}
           </ul>
           {canCompile ? (
@@ -379,9 +352,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
               {compiling ? '컴파일 중…' : '시나리오 패키지 컴파일'}
             </button>
           ) : null}
-          {compilation ? (
-            <p>컴파일 상태 {compilation.status} · 시도 {compilation.attempt}</p>
-          ) : null}
+          {compilation ? <p>컴파일 상태 {compilation.status} · 시도 {compilation.attempt}</p> : null}
           {compilationFailure ? <p role="alert">컴파일 실패: {compilationFailure} · 다시 컴파일하세요.</p> : null}
           {scenarioPackage ? (
             <div role="status">
@@ -390,56 +361,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
               {scenarioPackage.characterLimit.source ? (
                 <p>한도 근거: {scenarioPackage.characterLimit.source.locator} · {scenarioPackage.characterLimit.sourceQuote}</p>
               ) : <p>한도 근거: 추출되지 않아 기본값 1명 적용</p>}
-              {scenarioPackage.warnings.length > 0 ? (
-                <ul>
-                  {scenarioPackage.warnings.map(warning => <li key={warning}>{warning}</li>)}
-                </ul>
-              ) : null}
-              <ul aria-label="해석 단위">
-                {scenarioPackage.units.map((unit, index) => (
-                  <li key={`${unit.kind ?? 'unknown'}-${index}`}>
-                    {unit.kind ?? 'UNKNOWN'} · {unit.abilityOrSkill ?? unit.diceExpression ?? '값 없음'}
-                    {unit.dc === null ? '' : ` · DC ${unit.dc}`}
-                    {unit.status !== 'COMPLETE' ? ` · ${unit.status}` : ''}
-                    <div>visibility: {unit.visibility || '없음'} · 근거: {unit.sourceQuote || '없음'} · provenance: {unit.provenance || '없음'}</div>
-                    {unit.runtimeCapabilities.length > 0 ? <div>runtime: {unit.runtimeCapabilities.join(', ')}</div> : null}
-                    {unit.detail.triggerCondition ? <div>trigger: {unit.detail.triggerCondition}</div> : null}
-                    {unit.detail.steps.length > 0 ? (
-                      <ul>
-                        {unit.detail.steps.map(step => <li key={step.id}>
-                          {`step ${step.id}: ${step.kind ?? 'UNKNOWN'}${step.abilityOrSkill ? ` · ${step.abilityOrSkill}` : ''}${step.dc === null ? '' : ` · DC ${step.dc}`}${step.diceExpression ? ` · ${step.diceExpression}` : ''}`}
-                        </li>)}
-                      </ul>
-                    ) : null}
-                    {unit.detail.outcomes.length > 0 ? (
-                      <ul>
-                        {unit.detail.outcomes.map(outcome => <li key={outcome.id}>
-                          {`outcome ${outcome.id}: ${outcome.label ?? 'UNKNOWN'} · ${outcome.description ?? '값 없음'}`}
-                        </li>)}
-                      </ul>
-                    ) : null}
-                    {unit.detail.randomTable.length > 0 ? (
-                      <ul>
-                        {unit.detail.randomTable.map(entry => <li key={`${entry.range}-${entry.outcome}`}>
-                          {`table ${entry.range ?? '?'}: ${entry.outcome ?? '값 없음'}`}
-                        </li>)}
-                      </ul>
-                    ) : null}
-                    {unit.sourceRefs.length > 0 ? (
-                      <ul>
-                        {unit.sourceRefs.map(ref => <li key={`${ref.documentId}-${ref.extractionVersion}-${ref.locator}`}>
-                          source: {ref.documentId} v{ref.extractionVersion} · {ref.locator}
-                        </li>)}
-                      </ul>
-                    ) : null}
-                    {unit.validationMessages.length > 0 ? (
-                      <ul>
-                        {unit.validationMessages.map(message => <li key={message}>{message}</li>)}
-                      </ul>
-                    ) : null}
-                  </li>
-                ))}
-              </ul>
+              {scenarioPackage.warnings.length > 0 ? <ul>{scenarioPackage.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul> : null}
             </div>
           ) : null}
           {playPreparation ? (
@@ -451,147 +373,41 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
                 <p>한도 근거: {playPreparation.characterLimit.source.locator} · {playPreparation.characterLimit.sourceQuote}</p>
               ) : <p>한도 근거: 추출되지 않아 기본값 1명 적용</p>}
               {playPreparation.blockers.length > 0 ? (
-                <ul aria-label="준비 차단 사유">
-                  {playPreparation.blockers.map(blocker => <li key={blocker}>{blocker}</li>)}
-                </ul>
+                <ul aria-label="준비 차단 사유">{playPreparation.blockers.map(blocker => <li key={blocker}>{blocker}</li>)}</ul>
               ) : null}
-              {playPreparation.characterCreationBlueprint ? (
-                <div>
-                  <p>
-                    CharacterCreationBlueprint: {playPreparation.characterCreationBlueprint.summary ?? '없음'}
-                  </p>
-                  <p>상태: {playPreparation.characterCreationBlueprint.status ?? 'READY'} · revision {playPreparation.characterCreationBlueprint.revision ?? 0}</p>
-                  <p>
-                    {playPreparation.characterCreationBlueprint.rulebookDocumentCount > 0
-                      ? `RULEBOOK ${playPreparation.characterCreationBlueprint.rulebookDocumentCount}개 · `
-                      : 'RULEBOOK 런타임 세트 별도 · '}
-                    STORYBOOK {playPreparation.characterCreationBlueprint.storybookDocumentCount}개
-                  </p>
-                  {playPreparation.characterCreationBlueprint.diagnostics.length > 0 ? (
-                    <ul aria-label="Blueprint 진단">
-                      {playPreparation.characterCreationBlueprint.diagnostics.map(diagnostic => (
-                        <li key={diagnostic}>{diagnostic}</li>
-                      ))}
-                    </ul>
-                  ) : null}
-                  {(playPreparation.characterCreationBlueprint.roots ?? []).length > 0 ? (
-                    <CharacterInputTree
-                      nodes={playPreparation.characterCreationBlueprint.roots ?? []}
-                      values={blueprintValues}
-                      onChange={(id, value) => setBlueprintValues(current => ({ ...current, [id]: value }))}
-                      onResolve={resolveBlueprintNode}
-                      onAddChild={addBlueprintChild}
-                      canResolve={Boolean(api.resolveBlueprint)}
-                    />
-                  ) : (playPreparation.characterCreationBlueprint.fields ?? []).length > 0 ? (
-                    <fieldset aria-label="Blueprint 캐릭터 필드">
-                      <legend>캐릭터 생성 필드</legend>
-                      {(playPreparation.characterCreationBlueprint.fields ?? []).map(field => (
-                        <label key={field.key}>
-                          {field.key}
-                          {(field.inputMode ?? 'FREE_TEXT') === 'SINGLE_SELECT' ? (
-                            <select
-                              aria-label={field.key}
-                              value={blueprintValues[field.key] ?? field.value ?? ''}
-                              onChange={event => {
-                                const value = event.currentTarget.value
-                                setBlueprintValues(current => ({ ...current, [field.key]: value }))
-                              }}
-                            >
-                              <option value="">선택하세요</option>
-                              {field.options.map(option => <option key={option} value={option}>{option}</option>)}
-                            </select>
-                          ) : (field.inputMode ?? 'FREE_TEXT') === 'MULTI_SELECT' ? (
-                            <select
-                              multiple
-                              aria-label={field.key}
-                              value={(blueprintValues[field.key] ?? field.value ?? '').split(',').filter(Boolean)}
-                              onChange={event => {
-                                const value = Array.from(event.currentTarget.selectedOptions, option => option.value).join(',')
-                                setBlueprintValues(current => ({ ...current, [field.key]: value }))
-                              }}
-                            >
-                              {field.options.map(option => <option key={option} value={option}>{option}</option>)}
-                            </select>
-                          ) : (
-                            <input
-                              aria-label={field.key}
-                              value={blueprintValues[field.key] ?? field.value ?? ''}
-                              onChange={event => {
-                                const value = event.currentTarget.value
-                                setBlueprintValues(current => ({ ...current, [field.key]: value }))
-                              }}
-                            />
-                          )}
-                          {(field.suggestions ?? []).length > 0 ? <small>추천: {field.suggestions?.join(', ')}</small> : null}
-                          {field.sourceQuote ? <small>원문 근거: {field.sourceQuote}</small> : null}
-                          {(field.evidence ?? []).map(item => <small key={`${item.knowledgeDocumentId}-${item.locator}`}>근거: {item.knowledgeDocumentId} v{item.extractionVersion} · {item.locator}</small>)}
-                          {field.inputStatus === 'MANUAL_INPUT_REQUIRED' ? <small>수동 입력 필요</small> : null}
-                          {api.addBlueprintOption && (field.inputMode === 'SINGLE_SELECT' || field.inputMode === 'MULTI_SELECT') ? <button type="button" onClick={() => void addBlueprintOption(field.key)}>선택지 추가</button> : null}
-                        </label>
-                      ))}
-                    </fieldset>
-                  ) : null}
-                  {api.publishBlueprint && playPreparation.characterCreationBlueprint.status !== 'PUBLISHED' ? <button type="button" disabled={publishingBlueprint || playPreparation.status !== 'READY'} onClick={() => void publishBlueprint()}>{publishingBlueprint ? '게시 중…' : 'Blueprint 게시'}</button> : null}
-                </div>
-              ) : null}
+              <div>
+                <p>CharacterCreationBlueprint: {playPreparation.characterCreationBlueprint.summary ?? '없음'}</p>
+                <p>상태: {playPreparation.characterCreationBlueprint.status ?? 'READY'} · revision {playPreparation.characterCreationBlueprint.revision ?? 0}</p>
+                <p>
+                  {playPreparation.characterCreationBlueprint.rulebookDocumentCount > 0
+                    ? `RULEBOOK ${playPreparation.characterCreationBlueprint.rulebookDocumentCount}개 · `
+                    : 'RULEBOOK 런타임 세트 별도 · '}
+                  STORYBOOK {playPreparation.characterCreationBlueprint.storybookDocumentCount}개
+                </p>
+                {playPreparation.characterCreationBlueprint.diagnostics.length > 0 ? (
+                  <ul aria-label="Blueprint 진단">{playPreparation.characterCreationBlueprint.diagnostics.map(diagnostic => <li key={diagnostic}>{diagnostic}</li>)}</ul>
+                ) : null}
+                {(playPreparation.characterCreationBlueprint.roots ?? []).length > 0 ? (
+                  <CharacterInputTree
+                    nodes={playPreparation.characterCreationBlueprint.roots ?? []}
+                    values={blueprintValues}
+                    onChange={(id, value) => setBlueprintValues(current => ({ ...current, [id]: value }))}
+                    onResolve={resolveBlueprintNode}
+                    onAddChild={addBlueprintChild}
+                    canResolve={Boolean(api.resolveBlueprint)}
+                  />
+                ) : null}
+                {api.publishBlueprint && playPreparation.characterCreationBlueprint.status !== 'PUBLISHED' ? (
+                  <button type="button" disabled={publishingBlueprint || playPreparation.status !== 'READY'} onClick={() => void publishBlueprint()}>
+                    {publishingBlueprint ? '게시 중…' : 'Blueprint 게시'}
+                  </button>
+                ) : null}
+              </div>
               {sessionApi && playPreparation.status === 'READY' && playPreparation.characterCreationBlueprint.available && playPreparation.characterCreationBlueprint.status === 'PUBLISHED' ? (
-                <button type="button" onClick={() => void createSession()}>세션 초안 생성 후 캐릭터 만들기</button>
+                <button type="button" onClick={() => void createSession()}>세션 초안 생성 후 캐릭터 설정 검토로 이동</button>
               ) : null}
-              {canCreateCharacter ? (
-                <section aria-labelledby="character-creation-heading">
-                  <h4 id="character-creation-heading">캐릭터 생성</h4>
-                  <form onSubmit={createCharacter}>
-                    <label>
-                      캐릭터 이름
-                      <input
-                        value={characterName}
-                        onChange={event => setCharacterName(event.currentTarget.value)}
-                        aria-label="캐릭터 이름"
-                      />
-                    </label>
-                    <label>
-                      에디션
-                      <select
-                        aria-label="캐릭터 에디션"
-                        value={characterEdition}
-                        onChange={event => setCharacterEdition(event.currentTarget.value as 'DND_5E_2014' | 'DND_5E_2024')}
-                      >
-                        <option value="DND_5E_2024">DND 5E 2024</option>
-                        <option value="DND_5E_2014">DND 5E 2014</option>
-                      </select>
-                    </label>
-                    <label>
-                      레벨
-                      <input
-                        type="number"
-                        min={1}
-                        max={20}
-                        value={characterLevel}
-                        onChange={event => setCharacterLevel(Number(event.currentTarget.value))}
-                        aria-label="캐릭터 레벨"
-                      />
-                    </label>
-                    <label>
-                      영감
-                      <input
-                        type="checkbox"
-                        checked={characterInspiration}
-                        onChange={event => setCharacterInspiration(event.currentTarget.checked)}
-                        aria-label="영감"
-                      />
-                    </label>
-                    <button type="submit" disabled={creatingCharacter || !characterName.trim() || !canCreateCharacter}>
-                      {creatingCharacter ? '생성 중…' : '캐릭터 시트 생성'}
-                    </button>
-                  </form>
-                  {createdCharacterSheet ? (
-                    <p role="status">
-                      캐릭터 시트 {createdCharacterSheet.characterSheetId} 생성 완료.
-                      <a href={`#/character/${createdCharacterSheet.characterSheetId}`}>캐릭터 보기</a>
-                    </p>
-                  ) : null}
-                </section>
+              {!sessionApi ? (
+                <p>캐릭터 생성은 세션을 만든 뒤 별도 캐릭터 생성 페이지에서 진행합니다.</p>
               ) : null}
             </section>
           ) : null}
@@ -665,9 +481,7 @@ async function waitForCompilation(
   let current = started
   for (let attempts = 0; attempts < compilationPollLimit; attempts += 1) {
     if (current.status === 'PUBLISHED') return current
-    if (current.status === 'FAILED') {
-      throw new Error(current.failureReason || '시나리오 패키지 컴파일에 실패했습니다.')
-    }
+    if (current.status === 'FAILED') throw new Error(current.failureReason || '시나리오 패키지 컴파일에 실패했습니다.')
     await sleep(compilationPollIntervalMs)
     current = await api.getScenarioCompilation(current.compilationId)
     onProgress(current)
