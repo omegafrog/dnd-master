@@ -42,13 +42,13 @@ public final class Dnd5e2014CharacterMutationRules implements CharacterMutationR
         List<RuleViolation> violations = new ArrayList<>();
         JsonNode build = parseObject(proposed.characterBuild(), "characterBuild", violations);
         JsonNode state = parseObject(proposed.characterState(), "characterState", violations);
-        if (build == null || state == null) return CharacterMutationDecision.rejected(violations);
+        if (build == null || state == null) return CharacterMutationDecision.reject(violations);
 
         JsonNode equipped = state.path("equippedItems");
         if (!equipped.isObject()) {
             violations.add(violation("EQUIPPED_ITEMS_REQUIRED", "CHARACTER_STATE",
                     "장착 상태가 필요합니다.", Map.of("path", "characterState.equippedItems")));
-            return CharacterMutationDecision.rejected(violations);
+            return CharacterMutationDecision.reject(violations);
         }
 
         Set<String> ownedEquipment = textSet(build.path("ownedEquipment"));
@@ -64,8 +64,8 @@ public final class Dnd5e2014CharacterMutationRules implements CharacterMutationR
         validateArmorRules(proposed.characterClass(), text(build, "subclass"), armor, violations);
 
         return violations.isEmpty()
-                ? CharacterMutationDecision.accepted()
-                : CharacterMutationDecision.rejected(violations);
+                ? CharacterMutationDecision.accept()
+                : CharacterMutationDecision.reject(violations);
     }
 
     private static void validateOwnership(
@@ -85,7 +85,7 @@ public final class Dnd5e2014CharacterMutationRules implements CharacterMutationR
             violations.add(violation("EQUIPPED_SHIELD_NOT_OWNED", "CHARACTER_RULE",
                     "보유하지 않은 방패는 장착할 수 없습니다.", Map.of()));
         }
-        for (String weaponId : List.of(mainHand, offHand, twoHanded)) {
+        for (String weaponId : new String[] { mainHand, offHand, twoHanded }) {
             if (weaponId != null && !ownedWeaponIds.contains(weaponId)) {
                 violations.add(violation("EQUIPPED_WEAPON_NOT_OWNED", "CHARACTER_RULE",
                         "보유하지 않은 무기는 장착할 수 없습니다.", Map.of("weaponId", weaponId)));
@@ -104,7 +104,7 @@ public final class Dnd5e2014CharacterMutationRules implements CharacterMutationR
                     "양손 무기는 방패나 다른 손의 무기와 동시에 장착할 수 없습니다.", Map.of("weaponId", twoHanded)));
         }
         Set<String> weapons = new HashSet<>();
-        for (String weapon : List.of(mainHand, offHand, twoHanded)) {
+        for (String weapon : new String[] { mainHand, offHand, twoHanded }) {
             if (weapon != null && !weapons.add(weapon)) {
                 violations.add(violation("DUPLICATE_EQUIPPED_WEAPON", "CHARACTER_RULE",
                         "같은 무기를 여러 장착 슬롯에 배치할 수 없습니다.", Map.of("weaponId", weapon)));
