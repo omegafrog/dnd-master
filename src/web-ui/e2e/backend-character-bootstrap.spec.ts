@@ -57,10 +57,19 @@ function parseStorybooks(value: string): StorybookInput[] {
 }
 
 function requireEnvironment() {
-  test.skip(
-    !backend || !email || !password || !rulebookPath || storybooks.length === 0,
-    'set BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD, BACKEND_E2E_RULEBOOK_FILE, and BACKEND_E2E_STORYBOOKS_JSON',
-  )
+  const missing = [
+    ['BACKEND_E2E_URL', backend],
+    ['BACKEND_E2E_EMAIL', email],
+    ['BACKEND_E2E_PASSWORD', password],
+    ['BACKEND_E2E_RULEBOOK_FILE', rulebookPath],
+    ['BACKEND_E2E_STORYBOOKS_JSON', storybooks.length > 0 ? 'configured' : ''],
+  ]
+    .filter(([, value]) => !value)
+    .map(([name]) => name)
+
+  if (missing.length > 0) {
+    throw new Error(`missing required E2E configuration: ${missing.join(', ')}`)
+  }
 }
 
 async function login(request: APIRequestContext) {
