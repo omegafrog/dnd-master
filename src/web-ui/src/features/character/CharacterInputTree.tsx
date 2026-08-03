@@ -25,12 +25,14 @@ function Node({ node, values, onChange, onResolve, onAddChild, canResolve, abili
   const storyProposal = node.diagnostics.some(item => item.includes('스토리북 제안'))
   const ruleExtension = node.diagnostics.some(item => item.includes('추가 룰북 속성 후보'))
   const originLabel = storyProposal ? '스토리북 제안' : ruleExtension ? '룰북 확장 후보' : '5판 베이스 본'
+  const fixedValue = mode === 'FIXED_VALUE'
   return <fieldset aria-label={node.label} data-node-id={node.id} data-origin={storyProposal ? 'STORYBOOK_PROPOSAL' : ruleExtension ? 'RULEBOOK_EXTENSION' : 'BASE'}>
     <legend>{node.label}</legend>
     <small aria-label={`${node.label} 출처`}>{originLabel}</small>
     {storyProposal ? <p>이 항목은 시나리오 전용 제안입니다. 값을 선택하거나 입력해 저장하면 적용되고, 저장하지 않으면 베이스 본을 유지합니다.</p> : null}
     {ruleExtension ? <p>추가 룰북에서 발견한 속성입니다. 검토 후 저장할 때만 캐릭터 생성 본에 포함됩니다.</p> : null}
-    {mode === 'SINGLE_SELECT' ? <select aria-label={node.label} value={value} onChange={event => onChange(node.id, event.currentTarget.value)}><option value="">선택하세요</option>{node.options.map(option => <option key={option} value={option}>{option}</option>)}</select>
+    {fixedValue ? <output aria-label={node.label}>{value || '자동 계산'}</output>
+      : mode === 'SINGLE_SELECT' ? <select aria-label={node.label} value={value} onChange={event => onChange(node.id, event.currentTarget.value)}><option value="">선택하세요</option>{node.options.map(option => <option key={option} value={option}>{option}</option>)}</select>
       : mode === 'MULTI_SELECT' ? <select multiple aria-label={node.label} value={value.split(',').filter(Boolean)} onChange={event => onChange(node.id, Array.from(event.currentTarget.selectedOptions, option => option.value).join(','))}>{node.options.map(option => <option key={option} value={option}>{option}</option>)}</select>
         : isAbilityScore && abilityScoreMethod === 'STANDARD_ARRAY' ? <select aria-label={node.label} value={value} onChange={event => onChange(node.id, event.currentTarget.value)}><option value="">배정</option>{standardArray.map(score => <option key={score} value={score}>{score}</option>)}</select>
           : isAbilityScore ? <input type="number" min={abilityScoreMethod === 'POINT_BUY' ? 8 : 1} max={abilityScoreMethod === 'POINT_BUY' ? 15 : 30} aria-label={node.label} value={value} onChange={event => onChange(node.id, event.currentTarget.value)} />
@@ -41,7 +43,7 @@ function Node({ node, values, onChange, onResolve, onAddChild, canResolve, abili
     {node.sourceEvidence.map(item => <small key={`${item.knowledgeDocumentId}-${item.locator}`}>근거: {item.knowledgeDocumentId} v{item.extractionVersion} · {item.locator}</small>)}
     {node.diagnostics.map(item => <small key={item}>{item}</small>)}
     {node.status === 'PARTIALLY_EXTRACTED' && node.allowUserAddChild && onAddChild ? <button type="button" onClick={() => onAddChild(node.id)}>필드 추가</button> : null}
-    {canResolve && onResolve && !(node.status === 'PARTIALLY_EXTRACTED' && !node.value && node.sourceEvidence.length === 0 && node.children.length > 0) ? <button type="button" onClick={() => onResolve(node.id)} disabled={!value}>{storyProposal || ruleExtension ? '제안 적용' : '검토값 저장'}</button> : null}
+    {canResolve && !fixedValue && onResolve && !(node.status === 'PARTIALLY_EXTRACTED' && !node.value && node.sourceEvidence.length === 0 && node.children.length > 0) ? <button type="button" onClick={() => onResolve(node.id)} disabled={!value}>{storyProposal || ruleExtension ? '제안 적용' : '검토값 저장'}</button> : null}
     <CharacterInputTree nodes={node.children} values={values} onChange={onChange} onResolve={onResolve} onAddChild={onAddChild} canResolve={canResolve} abilityScoreMethod={abilityScoreMethod} />
   </fieldset>
 }

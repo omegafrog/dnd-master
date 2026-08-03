@@ -24,14 +24,15 @@ class DndCharacterCreationTemplateTest {
                 new CharacterCreationBlueprintCompiler().compile(1, List.of()));
 
         assertEquals(CharacterCreationBlueprintStatus.READY, blueprint.status());
-        for (String key : List.of("name", "level",
-                "starting_ability_scores.strength", "starting_ability_scores.dexterity",
+        assertEquals(InputMode.FREE_TEXT, blueprint.field("name").inputMode());
+        for (String key : List.of("starting_ability_scores.strength", "starting_ability_scores.dexterity",
                 "starting_ability_scores.constitution", "starting_ability_scores.intelligence",
                 "starting_ability_scores.wisdom", "starting_ability_scores.charisma")) {
             assertTrue(blueprint.field(key).required(), key);
-            assertEquals(InputMode.FREE_TEXT, blueprint.field(key).inputMode(), key);
+            assertEquals(InputMode.SINGLE_SELECT, blueprint.field(key).inputMode(), key);
             assertEquals("TEMPLATE", blueprint.field(key).sourceType(), key);
         }
+        assertEquals(InputMode.FIXED_VALUE, blueprint.field("level").inputMode());
         assertEquals(List.of("드워프", "엘프", "인간", "하플링"), blueprint.field("race").options());
         assertEquals(List.of("로그", "위저드", "클레릭", "파이터"), blueprint.field("class").options());
         assertEquals(List.of("복사", "범죄자", "시골 영웅", "귀족", "학자", "군인", "맞춤 배경"),
@@ -39,9 +40,11 @@ class DndCharacterCreationTemplateTest {
         assertEquals(List.of("CLASS_AND_BACKGROUND", "STARTING_GOLD"),
                 blueprint.field("equipment.acquisition_method").options());
         for (String key : List.of("subrace", "subclass", "class.skill_choices", "magic.spells",
-                "personality_traits", "ideals", "bonds", "flaws", "party.connection")) {
+                "personality_traits", "ideals", "bonds", "flaws")) {
             assertFalse(blueprint.field(key).required(), key);
         }
+        assertFalse(blueprint.fields().stream().anyMatch(field -> field.key().startsWith("appearance.")));
+        assertEquals(InputMode.FIXED_VALUE, blueprint.field("armor_class").inputMode());
     }
 
     @Test

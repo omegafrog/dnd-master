@@ -42,7 +42,9 @@ public final class DndCharacterCreationTemplate {
         }
 
         for (CharacterCreationBlueprint.Field field : extracted.fields()) {
-            if (template.stream().anyMatch(spec -> spec.key().equals(field.key())) || isLegacyManualFallback(field)) continue;
+            if (template.stream().anyMatch(spec -> spec.key().equals(field.key()))
+                    || field.key().startsWith("appearance.")
+                    || isLegacyManualFallback(field)) continue;
             CharacterCreationBlueprint.Field proposal = proposalField(field);
             fields.add(proposal);
             reviewRequired |= isProposal(proposal);
@@ -120,6 +122,10 @@ public final class DndCharacterCreationTemplate {
             case "class" -> List.of("로그", "위저드", "클레릭", "파이터");
             case "background" -> List.of("복사", "범죄자", "시골 영웅", "귀족", "학자", "군인", "맞춤 배경");
             case "ability_score_method" -> List.of("STANDARD_ARRAY", "ROLL_4D6_DROP_LOWEST", "POINT_BUY");
+            case "starting_ability_scores.strength", "starting_ability_scores.dexterity",
+                    "starting_ability_scores.constitution", "starting_ability_scores.intelligence",
+                    "starting_ability_scores.wisdom", "starting_ability_scores.charisma" ->
+                    List.of("15", "14", "13", "12", "10", "8");
             case "alignment" -> List.of("질서 선", "중립 선", "혼돈 선", "질서 중립", "중립", "혼돈 중립", "질서 악", "중립 악", "혼돈 악");
             case "equipment.acquisition_method" -> List.of("CLASS_AND_BACKGROUND", "STARTING_GOLD");
             default -> List.of();
@@ -157,49 +163,42 @@ public final class DndCharacterCreationTemplate {
             new FieldSpec("name", "이름", InputMode.FREE_TEXT, true),
             new FieldSpec("race", "종족", InputMode.SINGLE_SELECT, true),
             new FieldSpec("subrace", "하위 종족", InputMode.SINGLE_SELECT, false),
-            new FieldSpec("race.option_selections", "종족 추가 선택", InputMode.FREE_TEXT, false),
+            new FieldSpec("race.option_selections", "종족 추가 선택", InputMode.MULTI_SELECT, false),
             new FieldSpec("class", "클래스", InputMode.SINGLE_SELECT, true),
-            new FieldSpec("subclass", "하위 클래스", InputMode.FREE_TEXT, false),
-            new FieldSpec("class.skill_choices", "클래스 기술 선택", InputMode.FREE_TEXT, false),
-            new FieldSpec("class.feature_choices", "클래스 특성 선택", InputMode.FREE_TEXT, false),
-            new FieldSpec("level", "레벨", InputMode.FREE_TEXT, true),
-            new FieldSpec("experience_points", "경험치", InputMode.FREE_TEXT, false),
+            new FieldSpec("subclass", "하위 클래스", InputMode.SINGLE_SELECT, false),
+            new FieldSpec("class.skill_choices", "클래스 기술 선택", InputMode.MULTI_SELECT, false),
+            new FieldSpec("class.feature_choices", "클래스 특성 선택", InputMode.FIXED_VALUE, false),
+            new FieldSpec("level", "레벨", InputMode.FIXED_VALUE, true),
+            new FieldSpec("experience_points", "경험치", InputMode.FIXED_VALUE, false),
             new FieldSpec("background", "배경", InputMode.SINGLE_SELECT, true),
             new FieldSpec("alignment", "성향", InputMode.SINGLE_SELECT, false),
             new FieldSpec("ability_score_method", "능력치 생성 방식", InputMode.SINGLE_SELECT, true),
-            new FieldSpec("starting_ability_scores.strength", "근력 (STR)", InputMode.FREE_TEXT, true),
-            new FieldSpec("starting_ability_scores.dexterity", "민첩 (DEX)", InputMode.FREE_TEXT, true),
-            new FieldSpec("starting_ability_scores.constitution", "건강 (CON)", InputMode.FREE_TEXT, true),
-            new FieldSpec("starting_ability_scores.intelligence", "지능 (INT)", InputMode.FREE_TEXT, true),
-            new FieldSpec("starting_ability_scores.wisdom", "지혜 (WIS)", InputMode.FREE_TEXT, true),
-            new FieldSpec("starting_ability_scores.charisma", "매력 (CHA)", InputMode.FREE_TEXT, true),
+            new FieldSpec("starting_ability_scores.strength", "근력 (STR)", InputMode.SINGLE_SELECT, true),
+            new FieldSpec("starting_ability_scores.dexterity", "민첩 (DEX)", InputMode.SINGLE_SELECT, true),
+            new FieldSpec("starting_ability_scores.constitution", "건강 (CON)", InputMode.SINGLE_SELECT, true),
+            new FieldSpec("starting_ability_scores.intelligence", "지능 (INT)", InputMode.SINGLE_SELECT, true),
+            new FieldSpec("starting_ability_scores.wisdom", "지혜 (WIS)", InputMode.SINGLE_SELECT, true),
+            new FieldSpec("starting_ability_scores.charisma", "매력 (CHA)", InputMode.SINGLE_SELECT, true),
             new FieldSpec("equipment.acquisition_method", "시작 장비 획득 방식", InputMode.SINGLE_SELECT, true),
-            new FieldSpec("equipment.class_choices", "클래스 시작 장비", InputMode.FREE_TEXT, false),
-            new FieldSpec("equipment.background_items", "배경 시작 장비", InputMode.FREE_TEXT, false),
-            new FieldSpec("magic.cantrips", "소마법", InputMode.FREE_TEXT, false),
-            new FieldSpec("magic.spells", "주문", InputMode.FREE_TEXT, false),
-            new FieldSpec("personality_traits", "인격 특성", InputMode.FREE_TEXT, false),
-            new FieldSpec("ideals", "이상", InputMode.FREE_TEXT, false),
-            new FieldSpec("bonds", "유대", InputMode.FREE_TEXT, false),
-            new FieldSpec("flaws", "단점", InputMode.FREE_TEXT, false),
-            new FieldSpec("appearance.age", "나이", InputMode.FREE_TEXT, false),
-            new FieldSpec("appearance.height", "키", InputMode.FREE_TEXT, false),
-            new FieldSpec("appearance.weight", "몸무게", InputMode.FREE_TEXT, false),
-            new FieldSpec("appearance.eyes", "눈", InputMode.FREE_TEXT, false),
-            new FieldSpec("appearance.skin", "피부", InputMode.FREE_TEXT, false),
-            new FieldSpec("appearance.hair", "머리카락", InputMode.FREE_TEXT, false),
-            new FieldSpec("party.connection", "일행과의 관계", InputMode.FREE_TEXT, false),
-            new FieldSpec("proficiency_bonus", "숙련 보너스", InputMode.FREE_TEXT, false),
-            new FieldSpec("saving_throws", "내성 굴림", InputMode.FREE_TEXT, false),
-            new FieldSpec("skills", "기술 숙련", InputMode.FREE_TEXT, false),
-            new FieldSpec("passive_wisdom", "수동 지혜(지각)", InputMode.FREE_TEXT, false),
-            new FieldSpec("armor_class", "방어도 (AC)", InputMode.FREE_TEXT, false),
-            new FieldSpec("initiative", "우선권", InputMode.FREE_TEXT, false),
-            new FieldSpec("speed", "이동속도", InputMode.FREE_TEXT, false),
-            new FieldSpec("hit_point_maximum", "최대 HP", InputMode.FREE_TEXT, false),
-            new FieldSpec("hit_dice", "히트 다이스", InputMode.FREE_TEXT, false),
-            new FieldSpec("attacks_spellcasting", "공격 및 주문시전", InputMode.FREE_TEXT, false),
-            new FieldSpec("equipment", "장비", InputMode.FREE_TEXT, false),
-            new FieldSpec("other_proficiencies_languages", "기타 숙련 및 언어", InputMode.FREE_TEXT, false),
-            new FieldSpec("features_traits", "특성 및 특징", InputMode.FREE_TEXT, false));
+            new FieldSpec("equipment.class_choices", "클래스 시작 장비", InputMode.FIXED_VALUE, false),
+            new FieldSpec("equipment.background_items", "배경 시작 장비", InputMode.FIXED_VALUE, false),
+            new FieldSpec("magic.cantrips", "소마법", InputMode.MULTI_SELECT, false),
+            new FieldSpec("magic.spells", "주문", InputMode.MULTI_SELECT, false),
+            new FieldSpec("personality_traits", "인격 특성", InputMode.SINGLE_SELECT, false),
+            new FieldSpec("ideals", "이상", InputMode.SINGLE_SELECT, false),
+            new FieldSpec("bonds", "유대", InputMode.SINGLE_SELECT, false),
+            new FieldSpec("flaws", "단점", InputMode.SINGLE_SELECT, false),
+            new FieldSpec("proficiency_bonus", "숙련 보너스", InputMode.FIXED_VALUE, false),
+            new FieldSpec("saving_throws", "내성 굴림", InputMode.FIXED_VALUE, false),
+            new FieldSpec("skills", "기술 숙련", InputMode.FIXED_VALUE, false),
+            new FieldSpec("passive_wisdom", "수동 지혜(지각)", InputMode.FIXED_VALUE, false),
+            new FieldSpec("armor_class", "방어도 (AC)", InputMode.FIXED_VALUE, false),
+            new FieldSpec("initiative", "우선권", InputMode.FIXED_VALUE, false),
+            new FieldSpec("speed", "이동속도", InputMode.FIXED_VALUE, false),
+            new FieldSpec("hit_point_maximum", "최대 HP", InputMode.FIXED_VALUE, false),
+            new FieldSpec("hit_dice", "히트 다이스", InputMode.FIXED_VALUE, false),
+            new FieldSpec("attacks_spellcasting", "공격 및 주문시전", InputMode.FIXED_VALUE, false),
+            new FieldSpec("equipment", "장비", InputMode.FIXED_VALUE, false),
+            new FieldSpec("other_proficiencies_languages", "기타 숙련 및 언어", InputMode.FIXED_VALUE, false),
+            new FieldSpec("features_traits", "특성 및 특징", InputMode.FIXED_VALUE, false));
 }
