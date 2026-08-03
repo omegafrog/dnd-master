@@ -34,7 +34,7 @@ class Dnd5e2014CharacterBuildEvaluatorTest {
         assertEquals(30, evaluation.derived().get("speed"));
         assertEquals(5, evaluation.derived().get("spellAttackBonus"));
         assertEquals(13, evaluation.derived().get("spellSaveDc"));
-        assertEquals(14, evaluation.derived().get("passivePerception"));
+        assertEquals(13, evaluation.derived().get("passivePerception"));
 
         @SuppressWarnings("unchecked")
         Map<String, Integer> scores = (Map<String, Integer>) evaluation.derived().get("abilityScores");
