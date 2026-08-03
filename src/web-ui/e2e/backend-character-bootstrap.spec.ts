@@ -6,7 +6,9 @@ const backend = process.env.BACKEND_E2E_URL
 const email = process.env.BACKEND_E2E_EMAIL
 const password = process.env.BACKEND_E2E_PASSWORD
 const rulebookPath = process.env.BACKEND_E2E_RULEBOOK_FILE
-const storybookPath = process.env.BACKEND_E2E_STORYBOOK_FILE
+const storybookPaths = parsePaths(
+  process.env.BACKEND_E2E_STORYBOOK_FILES ?? process.env.BACKEND_E2E_STORYBOOK_FILE ?? '',
+)
 
 let ownerPlayerId = ''
 let authHeaders: Record<string, string> = {}
@@ -14,10 +16,17 @@ let authHeaders: Record<string, string> = {}
 const terminalDocumentStates = new Set(['EXTRACTED', 'INDEXED', 'PARTIAL_CONFIRMED'])
 const failedDocumentStates = new Set(['FAILED', 'REJECTED', 'NEEDS_INPUT', 'PARTIAL_AWAITING_CONFIRMATION'])
 
+function parsePaths(value: string) {
+  return value
+    .split(/[\n,]/)
+    .map(path => path.trim())
+    .filter(Boolean)
+}
+
 function requireEnvironment() {
   test.skip(
-    !backend || !email || !password || !rulebookPath || !storybookPath,
-    'set BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD, BACKEND_E2E_RULEBOOK_FILE, and BACKEND_E2E_STORYBOOK_FILE',
+    !backend || !email || !password || !rulebookPath || storybookPaths.length === 0,
+    'set BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD, BACKEND_E2E_RULEBOOK_FILE, and BACKEND_E2E_STORYBOOK_FILES',
   )
 }
 
@@ -34,12 +43,14 @@ async function login(request: APIRequestContext) {
 }
 
 async function uploadDocuments(request: APIRequestContext) {
-  const rulebook = await readFile(rulebookPath!)
-  const storybook = await readFile(storybookPath!)
-  const metadata = [
-    { idempotencyKey: crypto.randomUUID(), documentType: 'RULEBOOK', originalFilename: basename(rulebookPath!) },
-    { idempotencyKey: crypto.randomUUID(), documentType: 'STORYBOOK', originalFilename: basename(storybookPath!) },
-  ]
+  const paths = [rulebookPath!, ...storybookPaths]
+  const buffers = await Promise.all(paths.map(path => readFile(path)))
+  const metadata = paths.map((path, index) => ({
+    idempotencyKey: crypto.randomUUID(),
+    documentType: index === 0 ? 'RULEBOOK' : 'STORYBOOK',
+    originalFilename: basename(path),
+  }))
+
   const response = await request.post(`${backend}/api/v1/rulebooks?ownerPlayerId=${ownerPlayerId}`, {
     headers: authHeaders,
     multipart: {
@@ -48,20 +59,38 @@ async function uploadDocuments(request: APIRequestContext) {
         mimeType: 'application/json',
         buffer: Buffer.from(JSON.stringify(metadata)),
       },
-      files: [
-        { name: basename(rulebookPath!), mimeType: mimeType(rulebookPath!), buffer: rulebook },
-        { name: basename(storybookPath!), mimeType: mimeType(storybookPath!), buffer: storybook },
-      ],
+      files: paths.map((path, index) => ({
+        name: basename(path),
+        mimeType: mimeType(path),
+        buffer: buffers[index],
+      })),
     },
   })
   expect(response.ok(), await response.text()).toBeTruthy()
-  const body = await response.json() as { documents: Array<{ knowledgeDocumentId: string | null; documentType: string; status: string; failureReason?: string }> }
-  expect(body.documents).toHaveLength(2)
+  const body = await response.json() as {
+    documents: Array<{
+      knowledgeDocumentId: string | null
+      documentType: string
+      originalFilename?: string
+      status: string
+      failureReason?: string
+    }>
+  }
+  expect(body.documents).toHaveLength(paths.length)
   for (const document of body.documents) {
     expect(document.knowledgeDocumentId, JSON.stringify(document)).toBeTruthy()
     expect(document.status, document.failureReason).toBe('ACCEPTED')
   }
-  return body.documents.map(document => document.knowledgeDocumentId!)
+
+  const rulebook = body.documents.find(document => document.documentType === 'RULEBOOK')
+  const storybooks = body.documents.filter(document => document.documentType === 'STORYBOOK')
+  expect(rulebook?.knowledgeDocumentId, 'rulebook upload response was missing').toBeTruthy()
+  expect(storybooks).toHaveLength(storybookPaths.length)
+
+  return {
+    rulebookId: rulebook!.knowledgeDocumentId!,
+    storybookIds: storybooks.map(document => document.knowledgeDocumentId!),
+  }
 }
 
 async function waitForDocuments(request: APIRequestContext, ids: string[]) {
@@ -76,14 +105,17 @@ async function waitForDocuments(request: APIRequestContext, ids: string[]) {
   }, { timeout: 120_000, intervals: [500, 1000, 2000, 5000] }).toBe(true)
 }
 
-async function createBundle(request: APIRequestContext, rulebookId: string, storybookId: string) {
+async function createBundle(request: APIRequestContext, rulebookId: string, storybookIds: string[]) {
   const response = await request.post(`${backend}/api/v1/adventures/scenario-bundles`, {
     headers: { ...authHeaders, 'Content-Type': 'application/json' },
     data: {
       playerId: ownerPlayerId,
       documents: [
         { knowledgeDocumentId: rulebookId, role: 'RULEBOOK' },
-        { knowledgeDocumentId: storybookId, role: 'MAIN_SCENARIO' },
+        ...storybookIds.map((knowledgeDocumentId, index) => ({
+          knowledgeDocumentId,
+          role: index === 0 ? 'MAIN_SCENARIO' : 'REFERENCE',
+        })),
       ],
     },
   })
@@ -197,9 +229,10 @@ test('fresh database bootstraps scenario package and completes character creatio
   test.setTimeout(360_000)
 
   await login(request)
-  const [rulebookId, storybookId] = await uploadDocuments(request)
-  await waitForDocuments(request, [rulebookId, storybookId])
-  const bundle = await createBundle(request, rulebookId, storybookId)
+  const uploaded = await uploadDocuments(request)
+  const allDocumentIds = [uploaded.rulebookId, ...uploaded.storybookIds]
+  await waitForDocuments(request, allDocumentIds)
+  const bundle = await createBundle(request, uploaded.rulebookId, uploaded.storybookIds)
   const packageId = await compilePackage(request, bundle.bundleId)
   const preparation = await prepareBlueprint(request, packageId)
   const session = await createSession(request, packageId, preparation.characterCreationBlueprint.revision ?? 0)
