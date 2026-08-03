@@ -81,7 +81,7 @@ public final class DndCharacterCreationTemplate {
             return new CharacterCreationBlueprint.Field(base.key(), options, base.required(), "TEMPLATE",
                     discovered.evidence(), status, diagnostics, base.inputMode(), base.suggestions(),
                     discovered.sourceQuote(), base.label(), base.value(), base.nodeId(), base.parentNodeId(),
-                    discovered.confidence(), List.of());
+                    discovered.confidence(), discovered.optionDetails());
         }
         return base;
     }

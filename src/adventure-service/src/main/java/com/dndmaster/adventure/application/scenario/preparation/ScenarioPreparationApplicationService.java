@@ -15,10 +15,13 @@ import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundleRevision;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
+import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus;
 import com.dndmaster.adventure.domain.scenario.CharacterInputNode;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintRevisionConflictException;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -161,8 +164,88 @@ public final class ScenarioPreparationApplicationService {
                 ? 1 : scenarioPackage.characterCreationBlueprint().revision() + 1;
         CharacterCreationBlueprint blueprint = DndCharacterCreationTemplate.apply(edition,
                 blueprintCompiler.compileAgent(nextBlueprintRevision, candidates));
+        blueprint = normalizeSystemAgnosticManualFields(blueprint, edition, candidates);
+        blueprint = restoreGroundedCandidates(blueprint, candidates);
         packageRepository.saveBlueprint(packageId, blueprint);
         return toView(blueprint, storybooks);
+    }
+
+    private static CharacterCreationBlueprint normalizeSystemAgnosticManualFields(
+            CharacterCreationBlueprint blueprint, String edition,
+            List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> candidates) {
+        if (!"DND_5E".equalsIgnoreCase(edition) || candidates.stream().anyMatch(candidate -> candidate != null
+                && !candidate.evidence().isEmpty())) return blueprint;
+        List<String> keys = List.of("name", "level", "starting_ability_scores.strength",
+                "starting_ability_scores.dexterity", "starting_ability_scores.constitution",
+                "starting_ability_scores.intelligence", "starting_ability_scores.wisdom",
+                "starting_ability_scores.charisma");
+        List<CharacterCreationBlueprint.Field> fields = new ArrayList<>(blueprint.fields());
+        for (int index = 0; index < fields.size(); index++) {
+            CharacterCreationBlueprint.Field field = fields.get(index);
+            if (!keys.contains(field.key())) continue;
+            fields.set(index, new CharacterCreationBlueprint.Field(field.key(), List.of(), field.required(),
+                    field.sourceType(), field.evidence(), field.inputStatus(), field.diagnostics(),
+                    com.dndmaster.adventure.domain.scenario.InputMode.FREE_TEXT, field.suggestions(),
+                    field.sourceQuote(), field.label(), field.value(), field.nodeId(), field.parentNodeId(),
+                    field.confidence(), List.of()));
+        }
+        return new CharacterCreationBlueprint(blueprint.revision(), blueprint.status(), fields, blueprint.diagnostics());
+    }
+
+    private static CharacterCreationBlueprint restoreGroundedCandidates(
+            CharacterCreationBlueprint blueprint,
+            List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> candidates) {
+        Map<String, CharacterInputTagExtractionPort.CharacterInputTagCandidate> selected = new LinkedHashMap<>();
+        for (CharacterInputTagExtractionPort.CharacterInputTagCandidate candidate : candidates) {
+            if (candidate == null || candidate.evidence().isEmpty()) continue;
+            String key = effectiveKey(candidate);
+            var prior = selected.get(key);
+            if (prior == null || sourcePriority(candidate.sourceType()) >= sourcePriority(prior.sourceType())) {
+                selected.put(key, candidate);
+            }
+        }
+        if (selected.isEmpty()) return blueprint;
+
+        boolean reviewRequired = false;
+        List<CharacterCreationBlueprint.Field> fields = new ArrayList<>(blueprint.fields());
+        for (Map.Entry<String, CharacterInputTagExtractionPort.CharacterInputTagCandidate> entry : selected.entrySet()) {
+            CharacterCreationBlueprint.Field templateField = fields.stream()
+                    .filter(field -> field.key().equals(entry.getKey())).findFirst().orElse(null);
+            if (templateField == null) continue;
+            var candidate = entry.getValue();
+            String status = "STORYBOOK".equals(candidate.sourceType()) ? "CONFLICT_REVIEW" : "EXTRACTED";
+            List<String> diagnostics = "STORYBOOK".equals(candidate.sourceType())
+                    ? List.of("스토리북 제안: 적용 여부를 검토하세요") : List.of();
+            fields.set(fields.indexOf(templateField), new CharacterCreationBlueprint.Field(
+                    templateField.key(), candidate.options(), candidate.required(), candidate.sourceType(),
+                    candidate.evidence(), status, diagnostics, candidate.inputMode(), candidate.suggestions(),
+                    candidate.sourceQuote(), candidate.label(), templateField.value(), templateField.nodeId(),
+                    templateField.parentNodeId(), candidate.confidence(), candidateOptionDetails(candidate.optionDetails())));
+            reviewRequired |= "STORYBOOK".equals(candidate.sourceType());
+        }
+        CharacterCreationBlueprintStatus status = reviewRequired
+                ? CharacterCreationBlueprintStatus.NEEDS_REVIEW : blueprint.status();
+        return new CharacterCreationBlueprint(blueprint.revision(), status, fields, blueprint.diagnostics());
+    }
+
+    private static String effectiveKey(CharacterInputTagExtractionPort.CharacterInputTagCandidate candidate) {
+        return candidate.parentKey() != null && !candidate.key().contains(".")
+                ? candidate.parentKey() + "." + candidate.key() : candidate.key();
+    }
+
+    private static int sourcePriority(String sourceType) {
+        return switch (sourceType) {
+            case "STORYBOOK" -> 3;
+            case "HANDOUT" -> 2;
+            case "RULEBOOK" -> 1;
+            default -> 0;
+        };
+    }
+
+    private static List<CharacterCreationBlueprint.Field.OptionDetail> candidateOptionDetails(
+            List<CharacterInputTagExtractionPort.CharacterInputTagCandidate.OptionDetail> details) {
+        return details.stream().map(detail -> new CharacterCreationBlueprint.Field.OptionDetail(
+                detail.value(), detail.label(), detail.description(), detail.sourceQuote(), detail.evidence())).toList();
     }
 
     private List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> refineChoiceFields(

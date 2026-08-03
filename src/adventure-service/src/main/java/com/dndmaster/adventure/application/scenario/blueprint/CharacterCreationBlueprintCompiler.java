@@ -39,7 +39,7 @@ public final class CharacterCreationBlueprintCompiler {
                 ? CharacterCreationBlueprintStatus.NEEDS_REVIEW : compiled.status();
         CharacterCreationBlueprint extracted = new CharacterCreationBlueprint(
                 compiled.revision(), status, fields, compiled.diagnostics());
-        return DndCharacterCreationTemplate.apply("DND_5E_2014", extracted);
+        return extracted;
     }
 
     private static String effectiveKey(CharacterInputTagCandidate candidate) {
