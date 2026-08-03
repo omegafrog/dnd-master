@@ -74,7 +74,7 @@ export function AppShell() {
     <main id="main">
       <p role="status" aria-live="polite">{auth.message}</p><p>{auth.session.playerName}님 환영합니다!</p>
       {route.page === 'login' && <a href="#/setup">자료 설정으로 이동</a>}
-      {route.page === 'setup' && <RulebookSetup api={setupApi} playerId={playerId} sessionApi={sessionApi} onSessionCreated={sessionId => { window.location.hash = `#/sessions/${sessionId}/character-blueprint` }} />}
+      {route.page === 'setup' && <RulebookSetup api={setupApi} playerId={playerId} sessionApi={sessionApi} onSessionCreated={sessionId => { window.location.hash = `#/sessions/${sessionId}/character` }} />}
       {route.page === 'adventures' && <SavedAdventurePanel playApi={playApi} setupApi={setupApi} playerId={playerId} />}
       {route.page === 'adventure' && <><h2>모험 진행 중</h2><AdventureStream adventureId={route.adventureId} api={adventureApi} /><RoleDiceRoller adventureId={route.adventureId} api={playApi} /><RuleEvidence adventureId={route.adventureId} api={guidanceApi} /><CombatMapView adventureId={route.adventureId} api={playApi} /></>}
       {route.page === 'character' && <CharacterSheetView sheetId={route.sheetId} api={playApi} />}
