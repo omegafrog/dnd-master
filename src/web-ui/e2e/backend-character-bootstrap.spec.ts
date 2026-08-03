@@ -2,6 +2,16 @@ import { expect, test, type APIRequestContext } from '@playwright/test'
 import { basename } from 'node:path'
 import { readFile } from 'node:fs/promises'
 
+const storybookRoles = new Set([
+  'MAIN_SCENARIO',
+  'MAP',
+  'HANDOUT',
+  'APPENDIX',
+  'REFERENCE',
+  'CHARACTER_SHEET',
+  'UNDETERMINED',
+])
+
 const backend = process.env.BACKEND_E2E_URL
 const email = process.env.BACKEND_E2E_EMAIL
 const password = process.env.BACKEND_E2E_PASSWORD
@@ -13,15 +23,6 @@ let authHeaders: Record<string, string> = {}
 
 const terminalDocumentStates = new Set(['EXTRACTED', 'INDEXED', 'PARTIAL_CONFIRMED'])
 const failedDocumentStates = new Set(['FAILED', 'REJECTED', 'NEEDS_INPUT', 'PARTIAL_AWAITING_CONFIRMATION'])
-const storybookRoles = new Set([
-  'MAIN_SCENARIO',
-  'MAP',
-  'HANDOUT',
-  'APPENDIX',
-  'REFERENCE',
-  'CHARACTER_SHEET',
-  'UNDETERMINED',
-])
 
 type StorybookInput = {
   path: string
