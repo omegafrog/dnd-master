@@ -56,7 +56,7 @@ describe('calculateDnd5eCharacter', () => {
     expect(calculateDnd5eCharacter({
       race: 'Human', characterClass: 'Barbarian', level: 1,
       baseAbilities: { dexterity: 14, constitution: 16 }, equippedShield: true,
-    }).armorClass).toBe(18)
+    }).armorClass).toBe(17)
     expect(calculateDnd5eCharacter({
       race: 'Human', characterClass: 'Monk', level: 1,
       baseAbilities: { dexterity: 14, wisdom: 16 }, equippedShield: false,
