@@ -17,7 +17,7 @@ export function CharacterDerivedPreview({ armorClass, hitPointMaximum, passivePe
   armorClass: number
   hitPointMaximum: number
   passivePerception: number
-  savingThrows: Record<Ability, number>
+  savingThrows: Record<string, number>
   skills: PreviewSkill[]
   attacks: PreviewAttack[]
   spell?: { attackBonus: number; saveDc: number | null; firstLevelSlots: number }
@@ -26,7 +26,7 @@ export function CharacterDerivedPreview({ armorClass, hitPointMaximum, passivePe
   const abilities: Ability[] = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma']
   return <section aria-label="자동 계산 결과"><h3>자동 계산 결과</h3>
     <p>방어도 {armorClass} · 최대 HP {hitPointMaximum || '?'} · 수동 지각 {passivePerception}</p>
-    <p>내성 굴림: {abilities.map(ability => `${labels[ability]} ${formatModifier(savingThrows[ability])}`).join(' · ')}</p>
+    <p>내성 굴림: {abilities.map(ability => `${labels[ability]} ${formatModifier(savingThrows[ability] ?? 0)}`).join(' · ')}</p>
     {spell && <p>주문 공격 {formatModifier(spell.attackBonus)} · 주문 DC {spell.saveDc} · 1레벨 슬롯 {spell.firstLevelSlots}</p>}
     <ul aria-label="기술 보너스">{skills.map(skill => <li key={skill.id}>{skill.label} {formatModifier(skill.bonus)}</li>)}</ul>
     <ul aria-label="공격 목록">{attacks.map(attack => <li key={`${attack.weaponId}-${attack.mode}`}>{attack.label}: 명중 {formatModifier(attack.attackBonus)}, 피해 {attack.damage} {attack.damageType}{attack.versatileDamage ? ` · 양손 ${attack.versatileDamage}` : ''}{attack.range ? ` · 사거리 ${attack.range}` : ''}{attack.ammunitionRequired ? ' · 탄약 필요' : ''}</li>)}</ul>
