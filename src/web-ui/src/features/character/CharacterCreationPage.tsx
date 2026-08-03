@@ -2,7 +2,7 @@ import type { AdventureSessionApi } from '../adventure-session/AdventureSessionA
 import type { CharacterCreationDraft, SetupApi } from '../rulebooks/SetupApi'
 import { CharacterSheetCreatorView } from './CharacterSheetCreatorView'
 
-type CharacterSetupApi = Pick<SetupApi, 'getPlayPreparation' | 'createCharacterSheet'>
+type CharacterSetupApi = { getPlayPreparation: NonNullable<SetupApi['getPlayPreparation']>; createCharacterSheet?: SetupApi['createCharacterSheet']; resolveBlueprint?: SetupApi['resolveBlueprint']; addBlueprintChild?: SetupApi['addBlueprintChild']; publishBlueprint?: SetupApi['publishBlueprint'] }
 type SessionApi = Pick<AdventureSessionApi, 'read' | 'addMember'>
 
 export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { sessionId: string; setupApi: CharacterSetupApi; sessionApi: SessionApi }) {
@@ -14,5 +14,5 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
     const created = await setupApi.createCharacterSheet({ ...draft, sessionId })
     window.location.hash = `#/character/${created.characterSheetId}`
   }
-  return <CharacterSheetCreatorView onSave={save} />
+  return <CharacterSheetCreatorView onSave={save} blueprint={{ sessionId, setupApi, sessionApi }} />
 }

@@ -1,10 +1,15 @@
 ﻿import { useState } from 'react'
 import type { CharacterCreationDraft } from '../rulebooks/SetupApi'
+import { CharacterBlueprintReviewPage } from './CharacterBlueprintReviewPage'
+import type { AdventureSessionApi } from '../adventure-session/AdventureSessionApi'
+import type { SetupApi } from '../rulebooks/SetupApi'
 
 const stats = ['근력', '민첩', '건강', '지능', '지혜', '매력']
 const art = { 위저드: '/assets/characters/wizard.png', 팔라딘: '/assets/characters/paladin.png', 로그: '/assets/characters/rogue.png' }
 
-export function CharacterSheetCreatorView({ onSave }: { onSave: (draft: Omit<CharacterCreationDraft, 'sessionId'>) => Promise<void> }) {
+type BlueprintProps = { sessionId: string; setupApi: { getPlayPreparation: NonNullable<SetupApi['getPlayPreparation']>; resolveBlueprint?: SetupApi['resolveBlueprint']; addBlueprintChild?: SetupApi['addBlueprintChild']; publishBlueprint?: SetupApi['publishBlueprint'] }; sessionApi: Pick<AdventureSessionApi, 'read'> }
+
+export function CharacterSheetCreatorView({ onSave, blueprint }: { onSave: (draft: Omit<CharacterCreationDraft, 'sessionId'>) => Promise<void>; blueprint?: BlueprintProps }) {
   const [name, setName] = useState('엘리안')
   const [characterClass, setCharacterClass] = useState('위저드')
   const [scores, setScores] = useState([10, 14, 14, 16, 12, 13])
@@ -18,6 +23,7 @@ export function CharacterSheetCreatorView({ onSave }: { onSave: (draft: Omit<Cha
     <section className="sheet-box"><SheetTitle n="3" title="보조 능력치" /><div className="sheet-metrics"><Metric l="♥ HP" v="32 / 32" /><Metric l="◈ AC" v="15" /><Metric l="♟ 이동속도" v="9m" /><Metric l="★ 숙련 보너스" v="+3" /><Metric l="⚔ 주도권" v="+2" /></div></section>
     <div className="sheet-columns"><SheetTable n="4" title="기술" items={['운동 (Athletics)', '은신 (Stealth)', '지각 (Perception)', '설득 (Persuasion)', '비전 (Arcana)', '생존 (Survival)']} /><SheetTable n="5" title="장비" items={['퀴터스태프 또는 단검', '구성품 및 식별', '마법책 포함', '여행자 배낭']} /><SheetTable n="6" title="주문" items={['매직 미사일', '보호막', '미러리 이미지', '미스틱 스텝']} /></div>
     <section className="sheet-box"><SheetTitle n="7" title="배경 / 성격" /><div className="sheet-fields sheet-personality">{['성격 특성', '이상', '유대', '결점'].map((label, i) => <label key={label}>{label}<input defaultValue={['지식을 얻는 것을 무엇보다 즐긴다.', '진실은 언젠가 밝혀져야 한다.', '스승의 가르침을 널리 전하고 싶다.', '때때로 오만하고 타인을 무시한다.'][i]} /></label>)}</div><label>추가 메모<textarea defaultValue="고대 유적지로 잃어버린 언어에 관심이 많다. 마법 연구를 위해 여정을 떠났다." /></label></section>
+    {blueprint && <section className="sheet-blueprint-panel"><div className="sheet-blueprint-heading"><span>✥</span><div><h3>스토리북 기반 캐릭터 조건</h3><p>스토리북에서 추출된 블루프린트와 추가 캐릭터 조건을 이 화면에서 입력하고 발행합니다.</p></div></div><CharacterBlueprintReviewPage sessionId={blueprint.sessionId} setupApi={blueprint.setupApi} sessionApi={blueprint.sessionApi} /></section>}
   </main><aside className="sheet-preview"><h3>미리보기</h3><div className="sheet-parchment"><img src={art[characterClass as keyof typeof art]} alt={`${characterClass} 일러스트`} /><h2>{name || '이름 없는 모험가'}</h2><h4>{characterClass} · 레벨 5</h4><p>하이 엘프</p><p>학자</p><p>중립 선</p><div className="sheet-metrics"><Metric l="♥ HP" v="32/32" /><Metric l="◈ AC" v="15" /><Metric l="⚔ 주도권" v="+2" /></div><h5>능력치</h5><div className="sheet-preview-stats">{stats.map((stat, i) => <div key={stat}><span>{stat}</span><b>{scores[i]}</b><small>{mod(scores[i])}</small></div>)}</div><h5>기술 (숙련된 표시)</h5><p>은신 +5  지각 +4</p><p>비전 +6  이동속도 9m</p><button className="sheet-save-button" onClick={() => void save()} disabled={saving}>캐릭터 저장하기 →</button></div></aside></div></div>
 }
 function SheetTitle({ n, title }: { n: string; title: string }) { return <div className="sheet-title"><span>✥</span><h3>{n}. {title}</h3></div> }
