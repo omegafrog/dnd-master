@@ -3,20 +3,34 @@ import { basename } from 'node:path'
 import { readFile } from 'node:fs/promises'
 
 const backend = process.env.BACKEND_E2E_URL
-const ownerPlayerId = process.env.BACKEND_E2E_PLAYER_ID
-const token = process.env.BACKEND_E2E_TOKEN ?? ''
+const email = process.env.BACKEND_E2E_EMAIL
+const password = process.env.BACKEND_E2E_PASSWORD
 const rulebookPath = process.env.BACKEND_E2E_RULEBOOK_FILE
 const storybookPath = process.env.BACKEND_E2E_STORYBOOK_FILE
 
-const authHeaders = { Authorization: `Bearer ${token}` }
+let ownerPlayerId = ''
+let authHeaders: Record<string, string> = {}
+
 const terminalDocumentStates = new Set(['EXTRACTED', 'INDEXED', 'PARTIAL_CONFIRMED'])
 const failedDocumentStates = new Set(['FAILED', 'REJECTED', 'NEEDS_INPUT', 'PARTIAL_AWAITING_CONFIRMATION'])
 
 function requireEnvironment() {
   test.skip(
-    !backend || !ownerPlayerId || !rulebookPath || !storybookPath,
-    'set BACKEND_E2E_URL, BACKEND_E2E_PLAYER_ID, BACKEND_E2E_RULEBOOK_FILE, and BACKEND_E2E_STORYBOOK_FILE',
+    !backend || !email || !password || !rulebookPath || !storybookPath,
+    'set BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD, BACKEND_E2E_RULEBOOK_FILE, and BACKEND_E2E_STORYBOOK_FILE',
   )
+}
+
+async function login(request: APIRequestContext) {
+  const response = await request.post(`${backend}/api/v1/auth/login`, {
+    data: { username: email, password },
+  })
+  expect(response.ok(), await response.text()).toBeTruthy()
+  const session = await response.json() as { token?: string; playerId?: string }
+  expect(session.token, 'login response did not include token').toBeTruthy()
+  expect(session.playerId, 'login response did not include playerId').toBeTruthy()
+  ownerPlayerId = session.playerId!
+  authHeaders = { Authorization: `Bearer ${session.token}` }
 }
 
 async function uploadDocuments(request: APIRequestContext) {
@@ -182,6 +196,7 @@ test('fresh database bootstraps scenario package and completes character creatio
   requireEnvironment()
   test.setTimeout(360_000)
 
+  await login(request)
   const [rulebookId, storybookId] = await uploadDocuments(request)
   await waitForDocuments(request, [rulebookId, storybookId])
   const bundle = await createBundle(request, rulebookId, storybookId)
