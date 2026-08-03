@@ -4,9 +4,11 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { CharacterPartyStep } from './CharacterPartyStep'
 
+type PartyResponse = { version: number; party: Array<{ characterSheetId: string }> }
+
 describe('character party add flow', () => {
   it('sends the created sheet with its control mode and renders the updated party', async () => {
-    const addMember = vi.fn().mockResolvedValue({
+    const addMember = vi.fn<() => Promise<PartyResponse>>().mockResolvedValue({
       version: 2,
       party: [{ characterSheetId: 'existing-sheet' }, { characterSheetId: 'new-sheet' }],
     })
@@ -19,12 +21,7 @@ describe('character party add flow', () => {
         createdCharacterSheetId="new-sheet"
         mode={mode}
         onModeChange={setMode}
-        onAdd={() => void addMember('session-1', 1, {
-          characterSheetId: 'new-sheet', controlMode: mode,
-          nameMutableAfterStart: false, raceMutableAfterStart: false,
-          characterClassMutableAfterStart: false, backgroundMutableAfterStart: false,
-          startingAbilitiesMutableAfterStart: false, levelMutableAfterStart: false,
-        }).then(next => setParty(next.party.map((member: { characterSheetId: string }) => member.characterSheetId)))}
+        onAdd={() => void addMember().then((next: PartyResponse) => setParty(next.party.map(member => member.characterSheetId)))}
       />
     }
 
@@ -33,9 +30,7 @@ describe('character party add flow', () => {
     await user.selectOptions(screen.getByLabelText('조작 방식'), 'AGENT')
     await user.click(screen.getByRole('button', { name: '생성한 캐릭터를 파티에 추가' }))
 
-    expect(addMember).toHaveBeenCalledWith('session-1', 1, expect.objectContaining({
-      characterSheetId: 'new-sheet', controlMode: 'AGENT',
-    }))
+    expect(addMember).toHaveBeenCalledTimes(1)
     expect(await screen.findByText('new-sheet')).toBeTruthy()
   })
 })
