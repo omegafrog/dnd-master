@@ -11,7 +11,8 @@
     "test": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:backend": "playwright test e2e/backend-runtime-binding.spec.ts",
-    "test:e2e:character": "playwright test e2e/backend-character-creation.spec.ts"
+    "test:e2e:character": "playwright test e2e/backend-character-creation.spec.ts",
+    "test:e2e:character:fresh": "playwright test e2e/backend-character-bootstrap.spec.ts"
   },
   "dependencies": {
     "react": "19.1.1",
