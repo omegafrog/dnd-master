@@ -16,7 +16,7 @@ export function CharacterAbilityScores({
   onChange,
 }: {
   abilities: Ability[]
-  standardArray: number[]
+  standardArray: readonly number[]
   scores: AbilityScores
   onChange: (scores: AbilityScores) => void
 }) {
