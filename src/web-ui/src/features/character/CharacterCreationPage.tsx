@@ -14,6 +14,7 @@ import { applySubclassArmorClass, subclassEffects } from './Dnd5eSubclassEffects
 import { subclassesFor } from './Dnd5eSubclassCatalog'
 import { resolvedWeaponIds, unresolvedWeaponSlots, weaponChoices, weaponOptions } from './Dnd5eWeaponRules'
 import { CharacterRuleChoices } from './CharacterRuleChoices'
+import { CharacterEquipmentLoadout } from './CharacterEquipmentLoadout'
 
 type SessionApi = Pick<AdventureSessionApi, 'read' | 'addMember'>
 type CharacterSetupApi = Pick<SetupApi, 'getPlayPreparation' | 'createCharacterSheet'>
@@ -131,15 +132,6 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
   function chooseWeapon(slotId: string, weaponId: string, checked: boolean, count: number) {
     setWeaponSelections(current => { const selected = current[slotId] ?? []; return { ...current, [slotId]: checked ? [...selected, weaponId].slice(0, count) : selected.filter(value => value !== weaponId) } })
   }
-  function setHandWeapon(field: 'mainHandWeaponId' | 'offHandWeaponId' | 'twoHandedWeaponId', value: string) {
-    setEquipmentState(current => ({
-      ...current,
-      mainHandWeaponId: field === 'twoHandedWeaponId' && value ? null : field === 'mainHandWeaponId' ? value || null : current.mainHandWeaponId,
-      offHandWeaponId: field === 'twoHandedWeaponId' && value ? null : field === 'offHandWeaponId' ? value || null : current.offHandWeaponId,
-      twoHandedWeaponId: field === 'twoHandedWeaponId' ? value || null : value ? null : current.twoHandedWeaponId,
-      shield: field === 'twoHandedWeaponId' && value ? false : current.shield,
-    }))
-  }
 
   async function create() {
     if (!session || !preparation || !setupApi.createCharacterSheet || !canCreate || blocked) return
@@ -185,9 +177,6 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
   if (!session || !preparation) return <p role="status">{message || '캐릭터 생성 준비를 불러오는 중…'}</p>
   if (blocked) return <section><h2>캐릭터 생성</h2><p role="alert">캐릭터 생성 설정 검토와 게시가 먼저 필요합니다.</p><a href={`#/sessions/${sessionId}/character-blueprint`}>설정 검토 페이지로 이동</a></section>
 
-  const oneHandedWeapons = weaponIds.map(id => weaponOptions.find(option => option.id === id)).filter((weapon): weapon is NonNullable<typeof weapon> => Boolean(weapon && !weapon.twoHanded))
-  const twoHandedWeapons = weaponIds.map(id => weaponOptions.find(option => option.id === id)).filter((weapon): weapon is NonNullable<typeof weapon> => Boolean(weapon?.twoHanded))
-
   return <section aria-labelledby="character-creation-heading">
     <h2 id="character-creation-heading">캐릭터 생성</h2>{message && <p role="status">{message}</p>}
     <fieldset><legend>기본 정보</legend><label>캐릭터 이름 <input aria-label="캐릭터 이름" value={name} onChange={event => setName(event.currentTarget.value)} /></label><p>레벨: <strong>1</strong> · 경험치: <strong>0</strong> · 숙련 보너스: <strong>+{statistics.proficiencyBonus}</strong></p></fieldset>
@@ -198,14 +187,15 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
       {requiredExpertise > 0 && <fieldset><legend>숙달 {requiredExpertise}개 선택</legend>{allSkillProficiencies.map(skill => <label key={skill}><input type="checkbox" checked={validExpertise.includes(skill)} onChange={() => toggleLimited(skill, validExpertise, requiredExpertise, setExpertise)} disabled={!validExpertise.includes(skill) && validExpertise.length >= requiredExpertise} />{skill}</label>)}</fieldset>}
       {creationRule && <fieldset><legend>클래스 시작 장비</legend>{creationRule.equipmentGroups.map(group => <label key={group.id}>{group.label} <select aria-label={`장비 ${group.label}`} value={equipmentSelections[group.id] ?? ''} onChange={event => { const value = event.currentTarget.value; setEquipmentSelections(current => ({ ...current, [group.id]: value })); setWeaponSelections({}) }}><option value="">선택하세요</option>{group.options.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>)}</fieldset>}
       {weaponSlots.map(slot => <fieldset key={slot.id}><legend>{slot.label}</legend>{weaponChoices(slot.category, slot.label.includes('근접')).map(weapon => { const selected = weaponSelections[slot.id] ?? []; return <label key={weapon.id}><input type="checkbox" checked={selected.includes(weapon.id)} disabled={!selected.includes(weapon.id) && selected.length >= slot.count} onChange={event => chooseWeapon(slot.id, weapon.id, event.currentTarget.checked, slot.count)} />{weapon.label} — {weapon.damage} {weapon.damageType}</label> })}</fieldset>)}
-      {(weaponIds.length > 0 || inferredArmor.equippedArmor || inferredArmor.equippedShield) && <fieldset><legend>장착 상태</legend>
-        {inferredArmor.equippedArmor && <label>장착 갑옷 <select aria-label="장착 갑옷" value={equipmentState.armor} onChange={event => setEquipmentState(current => ({ ...current, armor: event.currentTarget.value }))}><option value="">장착하지 않음</option><option value={inferredArmor.equippedArmor}>{inferredArmor.equippedArmor}</option></select></label>}
-        {inferredArmor.equippedShield && <label><input aria-label="방패 장착" type="checkbox" checked={equipmentState.shield} onChange={event => setEquipmentState(current => ({ ...current, shield: event.currentTarget.checked }))} />방패 장착</label>}
-        <label>주손 무기 <select aria-label="주손 무기" value={equipmentState.mainHandWeaponId ?? ''} onChange={event => setHandWeapon('mainHandWeaponId', event.currentTarget.value)}><option value="">없음</option>{oneHandedWeapons.map(weapon => <option key={weapon.id} value={weapon.id}>{weapon.label}</option>)}</select></label>
-        <label>보조손 무기 <select aria-label="보조손 무기" value={equipmentState.offHandWeaponId ?? ''} onChange={event => setHandWeapon('offHandWeaponId', event.currentTarget.value)}><option value="">없음</option>{oneHandedWeapons.map(weapon => <option key={weapon.id} value={weapon.id}>{weapon.label}</option>)}</select></label>
-        <label>양손 무기 <select aria-label="양손 무기" value={equipmentState.twoHandedWeaponId ?? ''} onChange={event => setHandWeapon('twoHandedWeaponId', event.currentTarget.value)}><option value="">없음</option>{twoHandedWeapons.map(weapon => <option key={weapon.id} value={weapon.id}>{weapon.label}</option>)}</select></label>
-        {[...equipmentConflicts, ...armorIssues].map(issue => <p role="alert" key={issue.code}>{issue.message}</p>)}
-      </fieldset>}
+      <CharacterEquipmentLoadout
+        ownedWeaponIds={weaponIds}
+        availableArmor={inferredArmor.equippedArmor}
+        shieldAvailable={inferredArmor.equippedShield}
+        state={equipmentState}
+        conflicts={equipmentConflicts}
+        armorIssues={armorIssues}
+        onChange={setEquipmentState}
+      />
       {spellRule && selectedClass && <fieldset><legend>주문 선택</legend><p>방식: {spellRule.model} · 회복: {spellRule.recovery}</p><fieldset><legend>소마법 {requiredCantrips}개</legend>{selectedClass.cantrips.map(spell => <label key={spell}><input type="checkbox" checked={cantrips.includes(spell)} onChange={() => toggleLimited(spell, cantrips, requiredCantrips, setCantrips)} disabled={!cantrips.includes(spell) && cantrips.length >= requiredCantrips} />{spell}</label>)}</fieldset><fieldset><legend>1레벨 주문 {requiredFirstLevel}개</legend>{selectedClass.firstLevelSpells.map(spell => <label key={spell}><input type="checkbox" checked={firstLevelSpells.includes(spell)} onChange={() => toggleLimited(spell, firstLevelSpells, requiredFirstLevel, setFirstLevelSpells)} disabled={!firstLevelSpells.includes(spell) && firstLevelSpells.length >= requiredFirstLevel} />{spell}</label>)}</fieldset>{automaticDomainSpells.length > 0 && <p>자동 권역 주문: {automaticDomainSpells.join(', ')}</p>}</fieldset>}
     </fieldset>
     <fieldset><legend>배경</legend><label>배경 <select aria-label="배경" value={background} onChange={event => chooseBackground(event.currentTarget.value)}><option value="">선택하세요</option>{backgroundOptions.map(option => <option key={option.id}>{option.id}</option>)}</select></label>{selectedBackgroundRule && <p><strong>{selectedBackgroundRule.feature.name}</strong>: {selectedBackgroundRule.feature.description}</p>}</fieldset>
