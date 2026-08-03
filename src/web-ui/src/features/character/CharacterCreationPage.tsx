@@ -12,13 +12,14 @@ import { expertiseChoiceCount, passivePerception, skillBonuses, uniqueProficienc
 import { domainSpells, selectionCount, spellSelectionRule } from './Dnd5eSpellPreparationRules'
 import { applySubclassArmorClass, subclassEffects } from './Dnd5eSubclassEffects'
 import { subclassesFor } from './Dnd5eSubclassCatalog'
-import { resolvedWeaponIds, unresolvedWeaponSlots, weaponChoices, weaponOptions } from './Dnd5eWeaponRules'
+import { resolvedWeaponIds, unresolvedWeaponSlots, weaponOptions } from './Dnd5eWeaponRules'
 import { CharacterRuleChoices } from './CharacterRuleChoices'
 import { CharacterEquipmentLoadout } from './CharacterEquipmentLoadout'
 import { CharacterSpellSelection } from './CharacterSpellSelection'
 import { CharacterSkillSelection } from './CharacterSkillSelection'
 import { CharacterAbilityScores } from './CharacterAbilityScores'
 import { CharacterIdentitySelection } from './CharacterIdentitySelection'
+import { CharacterClassSelection } from './CharacterClassSelection'
 
 type SessionApi = Pick<AdventureSessionApi, 'read' | 'addMember'>
 type CharacterSetupApi = Pick<SetupApi, 'getPlayPreparation' | 'createCharacterSheet'>
@@ -125,9 +126,6 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
     setCharacterClass(next); setSubclass(''); setSkills([]); setEquipmentSelections({}); setWeaponSelections({}); setEquipmentState(emptyEquipmentState); setCantrips([]); setFirstLevelSpells([]); resetDependentChoices()
   }
   function chooseBackground(next: string) { setBackground(next); resetDependentChoices() }
-  function chooseWeapon(slotId: string, weaponId: string, checked: boolean, count: number) {
-    setWeaponSelections(current => { const selected = current[slotId] ?? []; return { ...current, [slotId]: checked ? [...selected, weaponId].slice(0, count) : selected.filter(value => value !== weaponId) } })
-  }
 
   async function create() {
     if (!session || !preparation || !setupApi.createCharacterSheet || !canCreate || blocked) return
@@ -185,14 +183,28 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
       onRaceChange={next => { setRace(next); resetDependentChoices() }}
       onSubraceChange={next => { setSubrace(next); resetDependentChoices() }}
     />
-    <fieldset><legend>클래스</legend><label>클래스 <select aria-label="클래스" value={characterClass} onChange={event => chooseClass(event.currentTarget.value)}><option value="">선택하세요</option>{classOptions.map(option => <option key={option.id}>{option.id}</option>)}</select></label>
-      {subclassRequired && <label>하위 클래스 <select aria-label="하위 클래스" value={subclass} onChange={event => setSubclass(event.currentTarget.value)}><option value="">선택하세요</option>{subclassOptions.map(option => <option key={option.id}>{option.id}</option>)}</select></label>}
+    <CharacterClassSelection
+      classOptions={classOptions}
+      characterClass={characterClass}
+      subclass={subclass}
+      subclassOptions={subclassOptions}
+      subclassRequired={subclassRequired}
+      equipmentGroups={creationRule?.equipmentGroups ?? []}
+      equipmentSelections={equipmentSelections}
+      weaponSlots={weaponSlots}
+      weaponSelections={weaponSelections}
+      onClassChange={chooseClass}
+      onSubclassChange={setSubclass}
+      onEquipmentChange={(groupId, value) => {
+        setEquipmentSelections(current => ({ ...current, [groupId]: value }))
+        setWeaponSelections({})
+      }}
+      onWeaponSelectionsChange={(slotId, values) => setWeaponSelections(current => ({ ...current, [slotId]: values }))}
+    >
       {selectedClass && <CharacterSkillSelection skillOptions={selectedClass.skillChoices} skillChoiceCount={selectedClass.skillChoiceCount} selectedSkills={skills} proficientSkills={allSkillProficiencies} expertiseChoiceCount={requiredExpertise} selectedExpertise={validExpertise} onSkillsChange={setSkills} onExpertiseChange={setExpertise} />}
-      {creationRule && <fieldset><legend>클래스 시작 장비</legend>{creationRule.equipmentGroups.map(group => <label key={group.id}>{group.label} <select aria-label={`장비 ${group.label}`} value={equipmentSelections[group.id] ?? ''} onChange={event => { const value = event.currentTarget.value; setEquipmentSelections(current => ({ ...current, [group.id]: value })); setWeaponSelections({}) }}><option value="">선택하세요</option>{group.options.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>)}</fieldset>}
-      {weaponSlots.map(slot => <fieldset key={slot.id}><legend>{slot.label}</legend>{weaponChoices(slot.category, slot.label.includes('근접')).map(weapon => { const selected = weaponSelections[slot.id] ?? []; return <label key={weapon.id}><input type="checkbox" checked={selected.includes(weapon.id)} disabled={!selected.includes(weapon.id) && selected.length >= slot.count} onChange={event => chooseWeapon(slot.id, weapon.id, event.currentTarget.checked, slot.count)} />{weapon.label} — {weapon.damage} {weapon.damageType}</label> })}</fieldset>)}
       <CharacterEquipmentLoadout ownedWeaponIds={weaponIds} availableArmor={inferredArmor.equippedArmor} shieldAvailable={inferredArmor.equippedShield} state={equipmentState} conflicts={equipmentConflicts} armorIssues={armorIssues} onChange={setEquipmentState} />
       <CharacterSpellSelection rule={spellRule} cantripOptions={selectedClass?.cantrips ?? []} firstLevelOptions={selectedClass?.firstLevelSpells ?? []} selectedCantrips={cantrips} selectedFirstLevelSpells={firstLevelSpells} requiredCantrips={requiredCantrips} requiredFirstLevelSpells={requiredFirstLevel} automaticSpells={automaticDomainSpells} onCantripsChange={setCantrips} onFirstLevelSpellsChange={setFirstLevelSpells} />
-    </fieldset>
+    </CharacterClassSelection>
     <fieldset><legend>배경</legend><label>배경 <select aria-label="배경" value={background} onChange={event => chooseBackground(event.currentTarget.value)}><option value="">선택하세요</option>{backgroundOptions.map(option => <option key={option.id}>{option.id}</option>)}</select></label>{selectedBackgroundRule && <p><strong>{selectedBackgroundRule.feature.name}</strong>: {selectedBackgroundRule.feature.description}</p>}</fieldset>
     <CharacterRuleChoices requirements={allChoiceRequirements} selections={ruleChoices} onChange={(id, values) => setRuleChoices(current => ({ ...current, [id]: values }))} />
     <CharacterAbilityScores abilities={abilities} standardArray={STANDARD_ARRAY} scores={scores} onChange={setScores} />
