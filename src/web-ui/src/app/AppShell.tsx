@@ -98,7 +98,7 @@ function DirectCharacterCreationRedirect({
 
   useEffect(() => {
     let active = true
-    const getPreparation = setupApi.getPlayPreparation
+    const getPreparation = setupApi.getPlayPreparation?.bind(setupApi)
 
     if (!getPreparation) {
       setError('캐릭터 생성 설정을 불러오지 못했습니다.')
