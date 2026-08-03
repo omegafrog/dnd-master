@@ -96,20 +96,23 @@ async function uploadDocuments(request: APIRequestContext) {
     originalFilename: basename(input.path),
   }))
 
+  const multipart = new FormData()
+  multipart.append(
+    'documents',
+    new Blob([JSON.stringify(metadata)], { type: 'application/json' }),
+    'documents.json',
+  )
+  inputs.forEach((input, index) => {
+    multipart.append(
+      'files',
+      new Blob([buffers[index]], { type: mimeType(input.path) }),
+      basename(input.path),
+    )
+  })
+
   const response = await request.post(`${backend}/api/v1/rulebooks?ownerPlayerId=${ownerPlayerId}`, {
     headers: authHeaders,
-    multipart: {
-      documents: {
-        name: 'documents.json',
-        mimeType: 'application/json',
-        buffer: Buffer.from(JSON.stringify(metadata)),
-      },
-      files: inputs.map((input, index) => ({
-        name: basename(input.path),
-        mimeType: mimeType(input.path),
-        buffer: buffers[index],
-      })),
-    },
+    multipart,
   })
   expect(response.ok(), await response.text()).toBeTruthy()
   const body = await response.json() as {
