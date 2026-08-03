@@ -22,7 +22,7 @@ describe('CharacterSpellSelection', () => {
       onFirstLevelSpellsChange={vi.fn()}
     />)
 
-    expect(screen.getByLabelText('안내')).toBeDisabled()
+    expect((screen.getByLabelText('안내') as HTMLInputElement).disabled).toBe(true)
     await user.click(screen.getByLabelText('빛'))
     expect(onCantripsChange).toHaveBeenCalledWith(['저항'])
 
@@ -38,7 +38,7 @@ describe('CharacterSpellSelection', () => {
       onCantripsChange={onCantripsChange}
       onFirstLevelSpellsChange={vi.fn()}
     />)
-    expect(screen.getByLabelText('안내')).not.toBeDisabled()
+    expect((screen.getByLabelText('안내') as HTMLInputElement).disabled).toBe(false)
   })
 
   it('주문 모델과 자동 권역 주문을 표시한다', () => {
