@@ -18,6 +18,7 @@ import { CharacterEquipmentLoadout } from './CharacterEquipmentLoadout'
 import { CharacterSpellSelection } from './CharacterSpellSelection'
 import { CharacterSkillSelection } from './CharacterSkillSelection'
 import { CharacterAbilityScores } from './CharacterAbilityScores'
+import { CharacterIdentitySelection } from './CharacterIdentitySelection'
 
 type SessionApi = Pick<AdventureSessionApi, 'read' | 'addMember'>
 type CharacterSetupApi = Pick<SetupApi, 'getPlayPreparation' | 'createCharacterSheet'>
@@ -120,7 +121,6 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
   const blocked = !preparation || preparation.status !== 'READY' || !preparation.characterCreationBlueprint.available || preparation.characterCreationBlueprint.status !== 'PUBLISHED'
 
   function resetDependentChoices() { setRuleChoices({}); setExpertise([]) }
-  function chooseRace(next: string) { setRace(next); setSubrace(''); resetDependentChoices() }
   function chooseClass(next: string) {
     setCharacterClass(next); setSubclass(''); setSkills([]); setEquipmentSelections({}); setWeaponSelections({}); setEquipmentState(emptyEquipmentState); setCantrips([]); setFirstLevelSpells([]); resetDependentChoices()
   }
@@ -175,8 +175,16 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
 
   return <section aria-labelledby="character-creation-heading">
     <h2 id="character-creation-heading">캐릭터 생성</h2>{message && <p role="status">{message}</p>}
-    <fieldset><legend>기본 정보</legend><label>캐릭터 이름 <input aria-label="캐릭터 이름" value={name} onChange={event => setName(event.currentTarget.value)} /></label><p>레벨: <strong>1</strong> · 경험치: <strong>0</strong> · 숙련 보너스: <strong>+{statistics.proficiencyBonus}</strong></p></fieldset>
-    <fieldset><legend>종족</legend><label>종족 <select aria-label="종족" value={race} onChange={event => chooseRace(event.currentTarget.value)}><option value="">선택하세요</option>{raceOptions.map(option => <option key={option.id}>{option.id}</option>)}</select></label>{selectedRace?.subraces.length ? <label>하위 종족 <select aria-label="하위 종족" value={subrace} onChange={event => { setSubrace(event.currentTarget.value); resetDependentChoices() }}><option value="">선택하세요</option>{selectedRace.subraces.map(option => <option key={option.id}>{option.id}</option>)}</select></label> : null}</fieldset>
+    <CharacterIdentitySelection
+      name={name}
+      race={race}
+      subrace={subrace}
+      proficiencyBonus={statistics.proficiencyBonus}
+      raceOptions={raceOptions}
+      onNameChange={setName}
+      onRaceChange={next => { setRace(next); resetDependentChoices() }}
+      onSubraceChange={next => { setSubrace(next); resetDependentChoices() }}
+    />
     <fieldset><legend>클래스</legend><label>클래스 <select aria-label="클래스" value={characterClass} onChange={event => chooseClass(event.currentTarget.value)}><option value="">선택하세요</option>{classOptions.map(option => <option key={option.id}>{option.id}</option>)}</select></label>
       {subclassRequired && <label>하위 클래스 <select aria-label="하위 클래스" value={subclass} onChange={event => setSubclass(event.currentTarget.value)}><option value="">선택하세요</option>{subclassOptions.map(option => <option key={option.id}>{option.id}</option>)}</select></label>}
       {selectedClass && <CharacterSkillSelection skillOptions={selectedClass.skillChoices} skillChoiceCount={selectedClass.skillChoiceCount} selectedSkills={skills} proficientSkills={allSkillProficiencies} expertiseChoiceCount={requiredExpertise} selectedExpertise={validExpertise} onSkillsChange={setSkills} onExpertiseChange={setExpertise} />}
