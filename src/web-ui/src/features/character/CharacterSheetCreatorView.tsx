@@ -13,7 +13,7 @@ function raceChoicesFor(value: string): ChoiceOption[] {
   const parent = raceOptions.find(race => race.id === value || race.subraces.some(subrace => subrace.id === value))
   if (!parent) return raceChoices
   return [
-    { id: parent.id, label: parent.label, description: parent.description, details: [...parent.traits, `언어: ${parent.languages.join(', ')}`] },
+    ...raceChoices,
     ...parent.subraces.map(subrace => ({ id: subrace.id, label: subrace.label, description: subrace.description, details: [...subrace.traits, `부모 종족: ${parent.label}`] })),
   ]
 }
