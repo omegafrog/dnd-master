@@ -9,7 +9,7 @@ Complete the D&D 5e 2014 character creation flow so that users select only rule-
 - Phase 3: implemented for current level-1 subclass catalog.
 - Phase 4: implemented in rules, UI, validation, and persisted equipped-item state.
 - Phase 5: implemented for the active D&D 5e 2014 session character-sheet creation route.
-- Phase 6: in progress; page decomposition, all-class server creation coverage, worker regression restoration, and aggregate equipment guards are complete. Backend derivation, catalog migration, and integration regression remain.
+- Phase 6: in progress; page decomposition, all-class server creation coverage, worker regression restoration, aggregate equipment guards, and the first non-persisting backend evaluation endpoint are complete. Full backend derivation, catalog migration, and integration regression remain.
 
 ## Phase 1 — Choice completion
 - [x] Replace placeholder language, instrument, artisan-tool, gaming-set, and background-tool values with typed choices.
@@ -49,7 +49,8 @@ Complete the D&D 5e 2014 character creation flow so that users select only rule-
   - [x] Guard `CharacterSheet` updates before replacing aggregate state.
   - [x] Route application-service updates through an edition-specific mutation-rules resolver.
   - [x] Implement D&D 5e 2014 equipment mutation rules, including ownership, hand conflicts, armor proficiency, and druid metal armor rejection.
-  - [ ] Add a non-persisting character-build evaluation endpoint.
+  - [x] Add a non-persisting character-build evaluation endpoint.
+  - [ ] Extend backend derivation to AC, saves, skills, passive perception, attacks, and spell statistics.
   - [ ] Stop accepting client-authored derived statistics as authoritative.
   - [x] Return structured mutation rejections to the GM tool boundary.
 - [x] Split `CharacterCreationPage` into step components.
