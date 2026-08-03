@@ -283,18 +283,6 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, onSessionCre
     }
   }
 
-  async function addBlueprintOption(fieldKey: string) {
-    if (!scenarioPackage || !playPreparation || !api.addBlueprintOption) return
-    const option = window.prompt('선택지')?.trim()
-    if (!option) return
-    try {
-      await api.addBlueprintOption(scenarioPackage.packageId, playPreparation.characterCreationBlueprint.revision ?? 0, fieldKey, option)
-      if (api.getPlayPreparation) setPlayPreparation(await api.getPlayPreparation(scenarioPackage.packageId))
-    } catch (error) {
-      onError(error instanceof Error ? error.message : 'Blueprint 선택지를 추가하지 못했습니다.')
-    }
-  }
-
   return (
     <section aria-labelledby="scenario-heading">
       <h2 id="scenario-heading">시나리오 번들</h2>

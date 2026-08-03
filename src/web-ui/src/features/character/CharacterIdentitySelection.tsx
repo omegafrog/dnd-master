@@ -1,6 +1,6 @@
 type RaceOption = {
-  id: string
-  subraces: { id: string }[]
+  id: string; label?: string; description?: string; languages?: string[]; traits?: string[]
+  subraces: { id: string; label?: string; description?: string; traits?: string[] }[]
 }
 
 export function CharacterIdentitySelection({
@@ -47,6 +47,10 @@ export function CharacterIdentitySelection({
           {raceOptions.map(option => <option key={option.id} value={option.id}>{option.id}</option>)}
         </select>
       </label>
+      {selectedRace ? <>
+        <p>{selectedRace.description ?? ''}</p>
+        <p>언어: {(selectedRace.languages ?? []).join(', ') || '없음'} · 종족 특성: {(selectedRace.traits ?? []).join(', ') || '없음'}</p>
+      </> : null}
       {selectedRace?.subraces.length ? <label>
         하위 종족
         <select aria-label="하위 종족" value={subrace} onChange={event => onSubraceChange(event.currentTarget.value)}>
@@ -54,6 +58,7 @@ export function CharacterIdentitySelection({
           {selectedRace.subraces.map(option => <option key={option.id} value={option.id}>{option.id}</option>)}
         </select>
       </label> : null}
+      {selectedRace && subrace ? <p>{selectedRace.subraces.find(option => option.id === subrace)?.description ?? ''}</p> : null}
     </fieldset>
   </>
 }

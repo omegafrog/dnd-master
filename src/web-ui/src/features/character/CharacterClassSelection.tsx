@@ -13,7 +13,7 @@ export function CharacterClassSelection({
   classOptions: ClassOption[]
   characterClass: string
   subclass: string
-  subclassOptions: Array<{ id: string; label: string }>
+  subclassOptions: Array<{ id: string; label: string; description?: string; features?: string[] }>
   subclassRequired: boolean
   equipmentGroups: EquipmentGroup[]
   equipmentSelections: Record<string, string>
@@ -34,9 +34,15 @@ export function CharacterClassSelection({
     <label>클래스 <select aria-label="클래스" value={characterClass} onChange={event => onClassChange(event.currentTarget.value)}>
       <option value="">선택하세요</option>{classOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
     </select></label>
+    {classOptions.find(option => option.id === characterClass) ? <div>
+      <p>{classOptions.find(option => option.id === characterClass)?.description}</p>
+      <p>생명력 주사위: {classOptions.find(option => option.id === characterClass)?.hitDie} · 내성 숙련: {classOptions.find(option => option.id === characterClass)?.savingThrows.join(', ')}</p>
+      <p>클래스 특성: {classOptions.find(option => option.id === characterClass)?.features.join(', ')}</p>
+    </div> : null}
     {subclassRequired && <label>하위 클래스 <select aria-label="하위 클래스" value={subclass} onChange={event => onSubclassChange(event.currentTarget.value)}>
       <option value="">선택하세요</option>{subclassOptions.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}
     </select></label>}
+    {subclass ? <p>{subclassOptions.find(option => option.id === subclass)?.description ?? ''} · 특성: {subclassOptions.find(option => option.id === subclass)?.features?.join(', ') ?? '없음'}</p> : null}
     {children}
     {equipmentGroups.length > 0 && <fieldset><legend>클래스 시작 장비</legend>{equipmentGroups.map(group => <label key={group.id}>{group.label} <select aria-label={`장비 ${group.label}`} value={equipmentSelections[group.id] ?? ''} onChange={event => onEquipmentChange(group.id, event.currentTarget.value)}>
       <option value="">선택하세요</option>{group.options.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}

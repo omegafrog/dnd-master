@@ -209,13 +209,22 @@ class ReviewBlueprintSetupApi extends FakeSetupApi {
         diagnostics: [],
         revision: 1,
         status: 'NEEDS_REVIEW',
-        fields: [{
+        roots: [{
+          id: 'name-1',
+          parentId: null,
           key: 'name',
+          label: 'name',
+          inputMode: 'FREE_TEXT',
+          value: null,
           options: [],
-          required: true,
-          sourceType: 'STORYBOOK',
-          inputStatus: 'MANUAL_INPUT_REQUIRED',
+          suggestions: [],
+          status: 'EXTRACTED',
+          allowUserAddChild: false,
+          confidence: 'HIGH',
+          sourceQuote: '',
           diagnostics: [],
+          sourceEvidence: [],
+          children: [],
         }],
       },
       characterLimit: {
@@ -288,11 +297,8 @@ describe('ScenarioSetup', () => {
     expect(await screen.findByText('준비 상태 READY · 패키지 package-1')).toBeInTheDocument()
     expect(screen.getAllByText('캐릭터 한도: 2명')).toHaveLength(2)
     expect(screen.getAllByText('한도 근거: page:1 · 최대 2명')).toHaveLength(2)
-    expect(screen.getByRole('heading', { name: '캐릭터 생성' })).toBeInTheDocument()
+    expect(screen.getByText('캐릭터 생성은 세션을 만든 뒤 별도 캐릭터 생성 페이지에서 진행합니다.')).toBeInTheDocument()
     expect(screen.queryAllByText((_, element) => element?.textContent?.includes('STORYBOOK 1개, RULEBOOK 런타임 세트 별도') ?? false).length).toBeGreaterThan(0)
-    await user.type(screen.getByLabelText('캐릭터 이름'), 'Aria')
-    await user.click(screen.getByRole('button', { name: '캐릭터 시트 생성' }))
-    expect(await screen.findByText(/캐릭터 시트 sheet-1 생성 완료/)).toBeInTheDocument()
     expect(screen.getByLabelText('런타임 엔진')).toHaveValue('ollama')
     expect(screen.getByLabelText('search')).toBeChecked()
     expect(screen.getByLabelText('move')).toBeChecked()

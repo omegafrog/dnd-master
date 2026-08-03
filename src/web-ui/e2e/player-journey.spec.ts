@@ -62,7 +62,8 @@ test('document-derived character creation preserves bundle, blueprint and creati
   const failedResponses: Array<{ url: string; status: number; body: string }> = []
   page.on('response', async response => {
     if (response.status() < 400) return
-    failedResponses.push({ url: response.url(), status: response.status(), body: await response.text().catch(() => '') })
+    const body = await response.text().catch(() => '')
+    failedResponses.push({ url: response.url(), status: response.status(), body: summarizeErrorBody(body) })
   })
 
   try {
@@ -135,3 +136,8 @@ test('document-derived character creation preserves bundle, blueprint and creati
     throw new Error(`${error instanceof Error ? error.message : String(error)}\nAPI failures: ${JSON.stringify(failedResponses)}`)
   }
 })
+
+function summarizeErrorBody(body: string) {
+  const compact = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+  return compact.length > 500 ? `${compact.slice(0, 500)}…` : compact
+}

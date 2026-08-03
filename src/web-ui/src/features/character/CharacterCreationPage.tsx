@@ -33,7 +33,7 @@ type CharacterSetupApi = {
 const abilities: Ability[] = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma']
 const emptyScores = Object.fromEntries(abilities.map(ability => [ability, 0])) as AbilityScores
 const emptyEquipmentState: EquippedItemState = { armor: '', shield: false, mainHandWeaponId: null, offHandWeaponId: null, twoHandedWeaponId: null }
-const emptyRoleplay: RoleplayDetails = { personality: '', ideal: '', bond: '', flaw: '', appearance: '' }
+const emptyRoleplay: RoleplayDetails = { personality: '', ideal: '', bond: '', flaw: '' }
 
 export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { sessionId: string; setupApi: CharacterSetupApi; sessionApi: SessionApi }) {
   const [session, setSession] = useState<AdventureSessionView | null>(null)
@@ -97,6 +97,8 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
 
   useEffect(() => {
     setEquipmentState(defaultEquipmentState(weaponIds, inferredArmor.equippedArmor, inferredArmor.equippedShield))
+    // equipmentSignature is the stable dependency for these derived equipment values.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [equipmentSignature])
 
   const standardArrayValid = useMemo(() => [...Object.values(scores)].sort((a, b) => b - a).join(',') === [...STANDARD_ARRAY].sort((a, b) => b - a).join(','), [scores])
@@ -217,7 +219,7 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
       <CharacterEquipmentLoadout ownedWeaponIds={weaponIds} availableArmor={inferredArmor.equippedArmor} shieldAvailable={inferredArmor.equippedShield} state={equipmentState} conflicts={equipmentConflicts} armorIssues={armorIssues} onChange={setEquipmentState} />
       <CharacterSpellSelection rule={spellRule} cantripOptions={selectedClass?.cantrips ?? []} firstLevelOptions={selectedClass?.firstLevelSpells ?? []} selectedCantrips={cantrips} selectedFirstLevelSpells={firstLevelSpells} requiredCantrips={requiredCantrips} requiredFirstLevelSpells={requiredFirstLevel} automaticSpells={automaticDomainSpells} onCantripsChange={setCantrips} onFirstLevelSpellsChange={setFirstLevelSpells} />
     </CharacterClassSelection>
-    <fieldset><legend>배경</legend><label>배경 <select aria-label="배경" value={background} onChange={event => chooseBackground(event.currentTarget.value)}><option value="">선택하세요</option>{availableBackgroundOptions.map(option => <option key={option.id}>{option.id}</option>)}</select></label>{selectedBackgroundRule && <p><strong>{selectedBackgroundRule.feature.name}</strong>: {selectedBackgroundRule.feature.description}</p>}</fieldset>
+    <fieldset><legend>배경</legend><label>배경 <select aria-label="배경" value={background} onChange={event => chooseBackground(event.currentTarget.value)}><option value="">선택하세요</option>{availableBackgroundOptions.map(option => <option key={option.id}>{option.id}</option>)}</select></label>{selectedBackground && <><p>{selectedBackground.description}</p><p>기술 숙련: {selectedBackground.skills.join(', ')} · 시작 장비: {selectedBackground.equipment.join(', ')}</p></>}{selectedBackgroundRule && <p><strong>{selectedBackgroundRule.feature.name}</strong>: {selectedBackgroundRule.feature.description}</p>}</fieldset>
     <CharacterRuleChoices requirements={allChoiceRequirements} selections={ruleChoices} onChange={(id, values) => setRuleChoices(current => ({ ...current, [id]: values }))} />
     <CharacterAbilityScores abilities={abilities} standardArray={STANDARD_ARRAY} scores={scores} onChange={setScores} />
     <CharacterRoleplayDetails background={selectedBackground} help={personalityHelp} values={roleplay} onChange={setRoleplay} />
