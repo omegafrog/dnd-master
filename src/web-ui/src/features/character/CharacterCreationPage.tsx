@@ -26,7 +26,10 @@ import { CharacterPartyStep } from './CharacterPartyStep'
 import { evaluateCharacterBuild, getCharacterRulesCatalog, type CharacterBuildEvaluationView, type CharacterRulesCatalogView } from './CharacterRulesApi'
 
 type SessionApi = Pick<AdventureSessionApi, 'read' | 'addMember'>
-type CharacterSetupApi = Pick<SetupApi, 'getPlayPreparation' | 'createCharacterSheet'>
+type CharacterSetupApi = {
+  getPlayPreparation: NonNullable<SetupApi['getPlayPreparation']>
+  createCharacterSheet?: SetupApi['createCharacterSheet']
+}
 const abilities: Ability[] = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma']
 const emptyScores = Object.fromEntries(abilities.map(ability => [ability, 0])) as AbilityScores
 const emptyEquipmentState: EquippedItemState = { armor: '', shield: false, mainHandWeaponId: null, offHandWeaponId: null, twoHandedWeaponId: null }
