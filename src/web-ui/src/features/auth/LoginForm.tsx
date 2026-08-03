@@ -18,6 +18,12 @@ export function LoginForm() {
     setSubmitting(false)
   }
 
+  async function loginWithDemoAccount() {
+    setSubmitting(true)
+    await auth.login({ email: 'demo-player@example.com', password: 'secret-password' })
+    setSubmitting(false)
+  }
+
   return (
     <form aria-labelledby="login-heading" onSubmit={submit}>
       <h2 id="login-heading">{isRegister ? '회원가입' : '로그인'}</h2>
@@ -26,6 +32,11 @@ export function LoginForm() {
       <button type="submit" disabled={submitting}>
         {submitting ? (isRegister ? '가입 중…' : '로그인 중…') : (isRegister ? '회원가입' : '로그인')}
       </button>
+      {!isRegister && (
+        <button type="button" disabled={submitting} onClick={() => void loginWithDemoAccount()}>
+          테스트 계정으로 로그인
+        </button>
+      )}
       <button type="button" onClick={() => setIsRegister(!isRegister)}>
         {isRegister ? '로그인으로 돌아가기' : '회원가입'}
       </button>
