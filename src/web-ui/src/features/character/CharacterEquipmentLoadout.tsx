@@ -12,7 +12,7 @@ export function CharacterEquipmentLoadout({
   onChange,
 }: {
   ownedWeaponIds: string[]
-  availableArmor: string
+  availableArmor?: string
   shieldAvailable: boolean
   state: EquippedItemState
   conflicts: EquipmentConflict[]
