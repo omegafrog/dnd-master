@@ -5,7 +5,12 @@ import type { PlayPreparationView, SetupApi } from '../rulebooks/SetupApi'
 import { CharacterInputTree } from './CharacterInputTree'
 
 type SessionApi = Pick<AdventureSessionApi, 'read'>
-type ReviewSetupApi = Pick<SetupApi, 'getPlayPreparation' | 'resolveBlueprint' | 'addBlueprintChild' | 'publishBlueprint'>
+type ReviewSetupApi = {
+  getPlayPreparation: NonNullable<SetupApi['getPlayPreparation']>
+  resolveBlueprint?: SetupApi['resolveBlueprint']
+  addBlueprintChild?: SetupApi['addBlueprintChild']
+  publishBlueprint?: SetupApi['publishBlueprint']
+}
 type SaveState = 'DIRTY' | 'SAVING' | 'SAVED' | 'ERROR'
 
 export function CharacterBlueprintReviewPage({ sessionId, setupApi, sessionApi }: { sessionId: string; setupApi: ReviewSetupApi; sessionApi: SessionApi }) {
