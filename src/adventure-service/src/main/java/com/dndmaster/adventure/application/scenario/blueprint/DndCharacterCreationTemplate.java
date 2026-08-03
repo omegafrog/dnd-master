@@ -51,9 +51,6 @@ public final class DndCharacterCreationTemplate {
         }
 
         List<String> diagnostics = new ArrayList<>(extracted.diagnostics());
-        diagnostics.add(supportsDnd5e(edition)
-                ? "base skeleton: D&D 5e character creation"
-                : "base skeleton: core character identity");
         if (fields.stream().anyMatch(field -> field.diagnostics().contains(STORY_PROPOSAL))) {
             diagnostics.add("storybook overlays require explicit user review");
         }

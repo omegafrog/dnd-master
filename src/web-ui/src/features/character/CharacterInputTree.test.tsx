@@ -17,7 +17,7 @@ describe('CharacterInputTree', () => {
     expect(screen.getByRole('combobox', { name: '종족' })).toBeTruthy()
     expect(screen.getByRole('option', { name: '엘프' })).toBeTruthy()
     expect(screen.getByRole('textbox', { name: '캠페인 칭호' })).toBeTruthy()
-    expect(screen.getAllByText('5판 베이스 본').length).toBeGreaterThan(0)
+    expect(screen.queryByText('5판 베이스 본')).toBeNull()
   })
 
   it('shows storybook values as an optional proposal and applies only after review', () => {

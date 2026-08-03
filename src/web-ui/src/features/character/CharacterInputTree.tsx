@@ -24,11 +24,11 @@ function Node({ node, values, onChange, onResolve, onAddChild, canResolve, abili
   const standardArray = ['15', '14', '13', '12', '10', '8']
   const storyProposal = node.diagnostics.some(item => item.includes('스토리북 제안'))
   const ruleExtension = node.diagnostics.some(item => item.includes('추가 룰북 속성 후보'))
-  const originLabel = storyProposal ? '스토리북 제안' : ruleExtension ? '룰북 확장 후보' : '5판 베이스 본'
+  const originLabel = storyProposal ? '스토리북 제안' : ruleExtension ? '룰북 확장 후보' : ''
   const fixedValue = mode === 'FIXED_VALUE'
   return <fieldset aria-label={node.label} data-node-id={node.id} data-origin={storyProposal ? 'STORYBOOK_PROPOSAL' : ruleExtension ? 'RULEBOOK_EXTENSION' : 'BASE'}>
     <legend>{node.label}</legend>
-    <small aria-label={`${node.label} 출처`}>{originLabel}</small>
+    {originLabel ? <small aria-label={`${node.label} 출처`}>{originLabel}</small> : null}
     {storyProposal ? <p>이 항목은 시나리오 전용 제안입니다. 값을 선택하거나 입력해 저장하면 적용되고, 저장하지 않으면 베이스 본을 유지합니다.</p> : null}
     {ruleExtension ? <p>추가 룰북에서 발견한 속성입니다. 검토 후 저장할 때만 캐릭터 생성 본에 포함됩니다.</p> : null}
     {fixedValue ? <output aria-label={node.label}>{value || '—'}</output>
