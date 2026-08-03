@@ -2,6 +2,7 @@ export function CharacterSkillSelection({
   skillOptions,
   skillChoiceCount,
   selectedSkills,
+  fixedProficientSkills,
   proficientSkills,
   expertiseChoiceCount,
   selectedExpertise,
@@ -11,6 +12,7 @@ export function CharacterSkillSelection({
   skillOptions: string[]
   skillChoiceCount: number
   selectedSkills: string[]
+  fixedProficientSkills: string[]
   proficientSkills: string[]
   expertiseChoiceCount: number
   selectedExpertise: string[]
@@ -24,7 +26,7 @@ export function CharacterSkillSelection({
         ? [...selectedSkills, skill]
         : selectedSkills
     onSkillsChange(next)
-    onExpertiseChange(selectedExpertise.filter(item => next.includes(item) || proficientSkills.includes(item)))
+    onExpertiseChange(selectedExpertise.filter(item => next.includes(item) || fixedProficientSkills.includes(item)))
   }
 
   function toggleExpertise(skill: string) {
