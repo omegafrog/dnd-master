@@ -16,6 +16,7 @@ import { resolvedWeaponIds, unresolvedWeaponSlots, weaponChoices, weaponOptions 
 import { CharacterRuleChoices } from './CharacterRuleChoices'
 import { CharacterEquipmentLoadout } from './CharacterEquipmentLoadout'
 import { CharacterSpellSelection } from './CharacterSpellSelection'
+import { CharacterSkillSelection } from './CharacterSkillSelection'
 
 type SessionApi = Pick<AdventureSessionApi, 'read' | 'addMember'>
 type CharacterSetupApi = Pick<SetupApi, 'getPlayPreparation' | 'createCharacterSheet'>
@@ -123,13 +124,6 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
     setCharacterClass(next); setSubclass(''); setSkills([]); setEquipmentSelections({}); setWeaponSelections({}); setEquipmentState(emptyEquipmentState); setCantrips([]); setFirstLevelSpells([]); resetDependentChoices()
   }
   function chooseBackground(next: string) { setBackground(next); resetDependentChoices() }
-  function toggleLimited(value: string, current: string[], limit: number, setter: (next: string[]) => void) {
-    if (current.includes(value)) setter(current.filter(item => item !== value)); else if (current.length < limit) setter([...current, value])
-  }
-  function chooseSkill(skill: string) {
-    const next = skills.includes(skill) ? skills.filter(item => item !== skill) : skills.length < (selectedClass?.skillChoiceCount ?? 0) ? [...skills, skill] : skills
-    setSkills(next); setExpertise(current => current.filter(item => next.includes(item) || (selectedBackground?.skills ?? []).includes(item)))
-  }
   function chooseWeapon(slotId: string, weaponId: string, checked: boolean, count: number) {
     setWeaponSelections(current => { const selected = current[slotId] ?? []; return { ...current, [slotId]: checked ? [...selected, weaponId].slice(0, count) : selected.filter(value => value !== weaponId) } })
   }
@@ -184,31 +178,20 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
     <fieldset><legend>종족</legend><label>종족 <select aria-label="종족" value={race} onChange={event => chooseRace(event.currentTarget.value)}><option value="">선택하세요</option>{raceOptions.map(option => <option key={option.id}>{option.id}</option>)}</select></label>{selectedRace?.subraces.length ? <label>하위 종족 <select aria-label="하위 종족" value={subrace} onChange={event => { setSubrace(event.currentTarget.value); resetDependentChoices() }}><option value="">선택하세요</option>{selectedRace.subraces.map(option => <option key={option.id}>{option.id}</option>)}</select></label> : null}</fieldset>
     <fieldset><legend>클래스</legend><label>클래스 <select aria-label="클래스" value={characterClass} onChange={event => chooseClass(event.currentTarget.value)}><option value="">선택하세요</option>{classOptions.map(option => <option key={option.id}>{option.id}</option>)}</select></label>
       {subclassRequired && <label>하위 클래스 <select aria-label="하위 클래스" value={subclass} onChange={event => setSubclass(event.currentTarget.value)}><option value="">선택하세요</option>{subclassOptions.map(option => <option key={option.id}>{option.id}</option>)}</select></label>}
-      {selectedClass && <fieldset><legend>기술 숙련 {selectedClass.skillChoiceCount}개 선택</legend>{selectedClass.skillChoices.map(skill => <label key={skill}><input type="checkbox" checked={skills.includes(skill)} onChange={() => chooseSkill(skill)} disabled={!skills.includes(skill) && skills.length >= selectedClass.skillChoiceCount} />{skill}</label>)}</fieldset>}
-      {requiredExpertise > 0 && <fieldset><legend>숙달 {requiredExpertise}개 선택</legend>{allSkillProficiencies.map(skill => <label key={skill}><input type="checkbox" checked={validExpertise.includes(skill)} onChange={() => toggleLimited(skill, validExpertise, requiredExpertise, setExpertise)} disabled={!validExpertise.includes(skill) && validExpertise.length >= requiredExpertise} />{skill}</label>)}</fieldset>}
+      {selectedClass && <CharacterSkillSelection
+        skillOptions={selectedClass.skillChoices}
+        skillChoiceCount={selectedClass.skillChoiceCount}
+        selectedSkills={skills}
+        proficientSkills={allSkillProficiencies}
+        expertiseChoiceCount={requiredExpertise}
+        selectedExpertise={validExpertise}
+        onSkillsChange={setSkills}
+        onExpertiseChange={setExpertise}
+      />}
       {creationRule && <fieldset><legend>클래스 시작 장비</legend>{creationRule.equipmentGroups.map(group => <label key={group.id}>{group.label} <select aria-label={`장비 ${group.label}`} value={equipmentSelections[group.id] ?? ''} onChange={event => { const value = event.currentTarget.value; setEquipmentSelections(current => ({ ...current, [group.id]: value })); setWeaponSelections({}) }}><option value="">선택하세요</option>{group.options.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>)}</fieldset>}
       {weaponSlots.map(slot => <fieldset key={slot.id}><legend>{slot.label}</legend>{weaponChoices(slot.category, slot.label.includes('근접')).map(weapon => { const selected = weaponSelections[slot.id] ?? []; return <label key={weapon.id}><input type="checkbox" checked={selected.includes(weapon.id)} disabled={!selected.includes(weapon.id) && selected.length >= slot.count} onChange={event => chooseWeapon(slot.id, weapon.id, event.currentTarget.checked, slot.count)} />{weapon.label} — {weapon.damage} {weapon.damageType}</label> })}</fieldset>)}
-      <CharacterEquipmentLoadout
-        ownedWeaponIds={weaponIds}
-        availableArmor={inferredArmor.equippedArmor}
-        shieldAvailable={inferredArmor.equippedShield}
-        state={equipmentState}
-        conflicts={equipmentConflicts}
-        armorIssues={armorIssues}
-        onChange={setEquipmentState}
-      />
-      <CharacterSpellSelection
-        rule={spellRule}
-        cantripOptions={selectedClass?.cantrips ?? []}
-        firstLevelOptions={selectedClass?.firstLevelSpells ?? []}
-        selectedCantrips={cantrips}
-        selectedFirstLevelSpells={firstLevelSpells}
-        requiredCantrips={requiredCantrips}
-        requiredFirstLevelSpells={requiredFirstLevel}
-        automaticSpells={automaticDomainSpells}
-        onCantripsChange={setCantrips}
-        onFirstLevelSpellsChange={setFirstLevelSpells}
-      />
+      <CharacterEquipmentLoadout ownedWeaponIds={weaponIds} availableArmor={inferredArmor.equippedArmor} shieldAvailable={inferredArmor.equippedShield} state={equipmentState} conflicts={equipmentConflicts} armorIssues={armorIssues} onChange={setEquipmentState} />
+      <CharacterSpellSelection rule={spellRule} cantripOptions={selectedClass?.cantrips ?? []} firstLevelOptions={selectedClass?.firstLevelSpells ?? []} selectedCantrips={cantrips} selectedFirstLevelSpells={firstLevelSpells} requiredCantrips={requiredCantrips} requiredFirstLevelSpells={requiredFirstLevel} automaticSpells={automaticDomainSpells} onCantripsChange={setCantrips} onFirstLevelSpellsChange={setFirstLevelSpells} />
     </fieldset>
     <fieldset><legend>배경</legend><label>배경 <select aria-label="배경" value={background} onChange={event => chooseBackground(event.currentTarget.value)}><option value="">선택하세요</option>{backgroundOptions.map(option => <option key={option.id}>{option.id}</option>)}</select></label>{selectedBackgroundRule && <p><strong>{selectedBackgroundRule.feature.name}</strong>: {selectedBackgroundRule.feature.description}</p>}</fieldset>
     <CharacterRuleChoices requirements={allChoiceRequirements} selections={ruleChoices} onChange={(id, values) => setRuleChoices(current => ({ ...current, [id]: values }))} />
