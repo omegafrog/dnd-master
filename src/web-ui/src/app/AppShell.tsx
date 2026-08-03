@@ -68,9 +68,10 @@ export function AppShell() {
   const guidanceApi = new HttpRuleGuidanceApi(getToken, getPlayerId)
   const setupApi = createNavigatingSetupApi(token)
 
+  const creatorRoute = route.page === 'character-blueprint' || route.page === 'character-create'
   return <>
     <header><a href="#main">본문으로 건너뛰기</a><h1>D&amp;D Master</h1><nav aria-label="주요 메뉴"><a href="#/setup">자료 설정</a><a href="#/adventures">모험 목록</a><button type="button" onClick={() => void auth.logout()}>로그아웃</button></nav></header>
-    <main id="main">
+    <main id="main" className={creatorRoute ? 'creator-main' : undefined}>
       <p role="status" aria-live="polite">{auth.message}</p><p>{auth.session.playerName}님 환영합니다!</p>
       {route.page === 'login' && <a href="#/setup">자료 설정으로 이동</a>}
       {route.page === 'setup' && <RulebookSetup api={setupApi} playerId={playerId} sessionApi={sessionApi} onSessionCreated={sessionId => { window.location.hash = `#/sessions/${sessionId}/character-blueprint` }} />}
