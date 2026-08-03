@@ -7,18 +7,7 @@ describe('CharacterSkillSelection', () => {
   it('클래스 기술 선택 수를 제한하고 기존 선택은 해제할 수 있다', async () => {
     const user = userEvent.setup()
     const onSkillsChange = vi.fn()
-    render(<CharacterSkillSelection
-      skillOptions={['곡예', '은신', '지각']}
-      skillChoiceCount={2}
-      selectedSkills={['곡예', '은신']}
-      fixedProficientSkills={[]}
-      proficientSkills={['곡예', '은신']}
-      expertiseChoiceCount={0}
-      selectedExpertise={[]}
-      onSkillsChange={onSkillsChange}
-      onExpertiseChange={vi.fn()}
-    />)
-
+    render(<CharacterSkillSelection skillOptions={['곡예', '은신', '지각']} skillChoiceCount={2} selectedSkills={['곡예', '은신']} proficientSkills={['곡예', '은신']} expertiseChoiceCount={0} selectedExpertise={[]} onSkillsChange={onSkillsChange} onExpertiseChange={vi.fn()} />)
     expect(screen.getByLabelText('지각')).toBeDisabled()
     await user.click(screen.getByLabelText('곡예'))
     expect(onSkillsChange).toHaveBeenCalledWith(['은신'])
@@ -27,18 +16,7 @@ describe('CharacterSkillSelection', () => {
   it('숙달은 숙련 기술 중에서만 고르고 요구 개수를 제한한다', async () => {
     const user = userEvent.setup()
     const onExpertiseChange = vi.fn()
-    render(<CharacterSkillSelection
-      skillOptions={['곡예', '은신', '지각']}
-      skillChoiceCount={2}
-      selectedSkills={['곡예', '은신']}
-      fixedProficientSkills={['지각']}
-      proficientSkills={['곡예', '은신', '지각']}
-      expertiseChoiceCount={2}
-      selectedExpertise={['곡예', '은신']}
-      onSkillsChange={vi.fn()}
-      onExpertiseChange={onExpertiseChange}
-    />)
-
+    render(<CharacterSkillSelection skillOptions={['곡예', '은신']} skillChoiceCount={2} selectedSkills={['곡예', '은신']} proficientSkills={['곡예', '은신', '지각']} expertiseChoiceCount={2} selectedExpertise={['곡예', '은신']} onSkillsChange={vi.fn()} onExpertiseChange={onExpertiseChange} />)
     const expertiseGroup = screen.getByText('숙달 2개 선택').closest('fieldset')
     expect(expertiseGroup?.textContent).toContain('지각')
     const expertisePerception = expertiseGroup?.querySelector('input[type="checkbox"]:not(:checked)') as HTMLInputElement
@@ -50,38 +28,16 @@ describe('CharacterSkillSelection', () => {
   it('클래스 기술 해제 시 더 이상 유효하지 않은 숙달을 제거한다', async () => {
     const user = userEvent.setup()
     const onExpertiseChange = vi.fn()
-    render(<CharacterSkillSelection
-      skillOptions={['곡예', '은신']}
-      skillChoiceCount={2}
-      selectedSkills={['곡예', '은신']}
-      fixedProficientSkills={[]}
-      proficientSkills={['곡예', '은신']}
-      expertiseChoiceCount={2}
-      selectedExpertise={['곡예', '은신']}
-      onSkillsChange={vi.fn()}
-      onExpertiseChange={onExpertiseChange}
-    />)
-
+    render(<CharacterSkillSelection skillOptions={['곡예', '은신']} skillChoiceCount={2} selectedSkills={['곡예', '은신']} proficientSkills={['곡예', '은신']} expertiseChoiceCount={2} selectedExpertise={['곡예', '은신']} onSkillsChange={vi.fn()} onExpertiseChange={onExpertiseChange} />)
     await user.click(screen.getAllByLabelText('곡예')[0])
     expect(onExpertiseChange).toHaveBeenCalledWith(['은신'])
   })
 
-  it('배경으로 고정된 기술은 클래스 선택에서 빠져도 숙달을 유지한다', async () => {
+  it('배경으로 추가된 기술은 클래스 기술 해제 후에도 숙달을 유지한다', async () => {
     const user = userEvent.setup()
     const onExpertiseChange = vi.fn()
-    render(<CharacterSkillSelection
-      skillOptions={['지각', '은신']}
-      skillChoiceCount={2}
-      selectedSkills={['지각', '은신']}
-      fixedProficientSkills={['지각']}
-      proficientSkills={['지각', '은신']}
-      expertiseChoiceCount={2}
-      selectedExpertise={['지각', '은신']}
-      onSkillsChange={vi.fn()}
-      onExpertiseChange={onExpertiseChange}
-    />)
-
-    await user.click(screen.getAllByLabelText('지각')[0])
-    expect(onExpertiseChange).toHaveBeenCalledWith(['지각', '은신'])
+    render(<CharacterSkillSelection skillOptions={['은신']} skillChoiceCount={1} selectedSkills={['은신']} proficientSkills={['은신', '지각']} expertiseChoiceCount={2} selectedExpertise={['은신', '지각']} onSkillsChange={vi.fn()} onExpertiseChange={onExpertiseChange} />)
+    await user.click(screen.getAllByLabelText('은신')[0])
+    expect(onExpertiseChange).toHaveBeenCalledWith(['지각'])
   })
 })
