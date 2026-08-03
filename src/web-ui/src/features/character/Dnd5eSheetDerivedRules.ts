@@ -34,8 +34,8 @@ export function skillBonuses(
   const proficientSet = new Set(proficiencies)
   const expertiseSet = new Set(expertise)
   return skillDefinitions.map(skill => {
-    const isExpert = expertiseSet.has(skill.label)
-    const isProficient = isExpert || proficientSet.has(skill.label)
+    const isProficient = proficientSet.has(skill.label)
+    const isExpert = isProficient && expertiseSet.has(skill.label)
     const multiplier = isExpert ? 2 : isProficient ? 1 : 0
     return { ...skill, proficient: isProficient, expertise: isExpert, bonus: modifiers[skill.ability] + proficiencyBonus * multiplier }
   })
