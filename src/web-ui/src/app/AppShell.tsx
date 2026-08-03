@@ -11,7 +11,6 @@ import { HttpSetupApi } from '../features/rulebooks/SetupApi'
 import { RulebookSetup } from '../features/rulebooks/RulebookSetup'
 import { CharacterSheetView } from '../features/character/CharacterSheetView'
 import { CharacterCreationPage } from '../features/character/CharacterCreationPage'
-import { CharacterBlueprintReviewPage } from '../features/character/CharacterBlueprintReviewPage'
 import { PackageBlueprintReviewPage } from '../features/character/PackageBlueprintReviewPage'
 import { RoleDiceRoller } from '../features/dice/RoleDiceRoller'
 import { CombatMapView } from '../features/combat-map/CombatMapView'
@@ -79,7 +78,7 @@ export function AppShell() {
       {route.page === 'adventure' && <><h2>모험 진행 중</h2><AdventureStream adventureId={route.adventureId} api={adventureApi} /><RoleDiceRoller adventureId={route.adventureId} api={playApi} /><RuleEvidence adventureId={route.adventureId} api={guidanceApi} /><CombatMapView adventureId={route.adventureId} api={playApi} /></>}
       {route.page === 'character' && <CharacterSheetView sheetId={route.sheetId} api={playApi} />}
       {route.page === 'session' && <AdventureSessionPanel api={sessionApi} sessionId={route.sessionId} />}
-      {route.page === 'character-blueprint' && <CharacterBlueprintReviewPage sessionId={route.sessionId} setupApi={setupApi} sessionApi={sessionApi} />}
+      {route.page === 'character-blueprint' && <CharacterCreationPage sessionId={route.sessionId} setupApi={setupApi} sessionApi={sessionApi} />}
       {route.page === 'package-blueprint' && <PackageBlueprintReviewPage packageId={route.packageId} setupApi={setupApi} sessionApi={sessionApi} onSessionCreated={sessionId => { window.location.hash = `#/sessions/${sessionId}/character` }} />}
       {route.page === 'character-create' && <CharacterCreationPage sessionId={route.sessionId} setupApi={setupApi} sessionApi={sessionApi} />}
     </main>
