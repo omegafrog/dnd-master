@@ -9,7 +9,7 @@ Complete the D&D 5e 2014 character creation flow so that users select only rule-
 - Phase 3: implemented for current level-1 subclass catalog.
 - Phase 4: implemented in rules, UI, validation, and persisted equipped-item state.
 - Phase 5: implemented for the active D&D 5e 2014 session character-sheet creation route.
-- Phase 6: in progress; page decomposition and all-class server creation coverage are complete. Catalog migration and integration regression remain.
+- Phase 6: in progress; page decomposition, all-class server creation coverage, and worker regression restoration are complete. Catalog migration and integration regression remain.
 
 ## Phase 1 — Choice completion
 - [x] Replace placeholder language, instrument, artisan-tool, gaming-set, and background-tool values with typed choices.
@@ -53,7 +53,7 @@ Complete the D&D 5e 2014 character creation flow so that users select only rule-
   - [x] Extract and connect `CharacterRoleplayDetails`.
   - [x] Extract and connect `CharacterDerivedPreview`.
   - [x] Extract and connect `CharacterPartyStep`.
-- [ ] Restore removed `ScenarioCompilationWorkerTest` cases.
+- [x] Restore removed `ScenarioCompilationWorkerTest` cases.
 - [x] Add one successful creation test per class.
 - [ ] Add persistence round-trip and party-add integration tests.
 
