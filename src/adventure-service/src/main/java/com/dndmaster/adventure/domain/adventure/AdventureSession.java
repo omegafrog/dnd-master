@@ -35,7 +35,7 @@ public final class AdventureSession {
         if (characterLimit < 1) throw new IllegalArgumentException("character limit must be positive");
         this.characterLimit = characterLimit;
         this.party = new ArrayList<>(Objects.requireNonNull(party, "party must not be null"));
-        if (this.party.size() > characterLimit) throw new IllegalArgumentException("party exceeds character limit");
+        if (directPartySize() > characterLimit) throw new IllegalArgumentException("party exceeds character limit");
         this.runtimeConfiguration = runtimeConfiguration;
         this.status = Objects.requireNonNull(status, "session status must not be null");
         this.startedAdventureId = startedAdventureId;
@@ -82,7 +82,9 @@ public final class AdventureSession {
     public void addPartyMember(AdventurePartyMember member) {
         requireDraft();
         Objects.requireNonNull(member, "party member must not be null");
-        if (party.size() >= characterLimit) throw new IllegalStateException("party exceeds storybook character limit");
+        if (member.controlMode() == ControlMode.DIRECT && directPartySize() >= characterLimit) {
+            throw new IllegalStateException("party exceeds storybook character limit");
+        }
         if (party.stream().anyMatch(existing -> existing.characterSheetId().equals(member.characterSheetId()))) {
             throw new IllegalArgumentException("character sheet is already in party");
         }
@@ -90,11 +92,21 @@ public final class AdventureSession {
         version++;
     }
 
+    private int directPartySize() {
+        return (int) party.stream().filter(member -> member.controlMode() == ControlMode.DIRECT).count();
+    }
+
     public void replacePartyMember(AdventurePartyMember member) {
         requireDraft();
         Objects.requireNonNull(member, "party member must not be null");
         int index = indexOf(member.characterSheetId());
         if (index < 0) throw new IllegalArgumentException("character sheet is not in party");
+        AdventurePartyMember current = party.get(index);
+        if (member.controlMode() == ControlMode.DIRECT
+                && current.controlMode() != ControlMode.DIRECT
+                && directPartySize() >= characterLimit) {
+            throw new IllegalStateException("party exceeds storybook character limit");
+        }
         party.set(index, member);
         version++;
     }

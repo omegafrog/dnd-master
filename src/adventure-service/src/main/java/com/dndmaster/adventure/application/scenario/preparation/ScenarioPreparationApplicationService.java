@@ -91,7 +91,9 @@ public final class ScenarioPreparationApplicationService {
         if (storybookDocuments.isEmpty()) {
             blockers.add("STORYBOOK 문서가 없습니다.");
         }
-        if (scenarioPackage.report().status() != ResolutionStatus.COMPLETE || scenarioPackage.runtimeCandidates().isEmpty()) {
+        if (scenarioPackage.report().status() == ResolutionStatus.INVALID
+                || (scenarioPackage.characterCreationBlueprint() == null
+                && scenarioPackage.runtimeCandidates().isEmpty())) {
             blockers.add("CharacterCreationBlueprint를 만들 수 없습니다.");
         }
         CharacterCreationBlueprint compiledBlueprint = scenarioPackage.characterCreationBlueprint();
@@ -398,7 +400,9 @@ public final class ScenarioPreparationApplicationService {
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         bundle.authorize(ownerPlayerId);
         requireCurrentBundleRevision(scenarioPackage, bundle);
-        if (scenarioPackage.report().status() != ResolutionStatus.COMPLETE || scenarioPackage.runtimeCandidates().isEmpty()) {
+        if (scenarioPackage.report().status() == ResolutionStatus.INVALID
+                || (scenarioPackage.characterCreationBlueprint() == null
+                && scenarioPackage.runtimeCandidates().isEmpty())) {
             throw new IllegalStateException("scenario package is not ready for blueprint publication");
         }
         CharacterCreationBlueprint published = requireBlueprint(scenarioPackage).publish();

@@ -185,20 +185,29 @@ async function getPreparation(request: APIRequestContext, packageId: string) {
   return response.json() as Promise<{
     status: string
     characterCreationBlueprint: { available: boolean; revision?: number; status?: string }
-  }>
+  }> 
+}
+
+async function waitForPreparationReady(request: APIRequestContext, packageId: string) {
+  let latest: Awaited<ReturnType<typeof getPreparation>> | undefined
+  await expect.poll(async () => {
+    latest = await getPreparation(request, packageId)
+    return latest.status
+  }, { timeout: 180_000, intervals: [1000, 2000, 5000] }).toBe('READY')
+  return latest!
 }
 
 async function prepareBlueprint(request: APIRequestContext, packageId: string) {
-  let preparation = await getPreparation(request, packageId)
+  let preparation = await waitForPreparationReady(request, packageId)
   if (!preparation.characterCreationBlueprint.available) {
     const draft = await request.post(`${backend}/api/v1/scenario-packages/${packageId}/character-blueprint/draft`, { headers: authHeaders })
     expect(draft.ok(), await draft.text()).toBeTruthy()
-    preparation = await getPreparation(request, packageId)
+    preparation = await waitForPreparationReady(request, packageId)
   }
   if (preparation.characterCreationBlueprint.status !== 'PUBLISHED') {
     const publish = await request.post(`${backend}/api/v1/scenario-packages/${packageId}/character-blueprint/publish`, { headers: authHeaders })
     expect(publish.ok(), await publish.text()).toBeTruthy()
-    preparation = await getPreparation(request, packageId)
+    preparation = await waitForPreparationReady(request, packageId)
   }
   expect(preparation.status).toBe('READY')
   expect(preparation.characterCreationBlueprint.status).toBe('PUBLISHED')
@@ -244,6 +253,14 @@ function fighterDraft() {
     }),
     characterState: JSON.stringify({ currentHitPoints: 1, temporaryHitPoints: 0, experience: 0, equippedItems, ammunition: {}, spellSlots: [] }),
     blueprintValues: {},
+  }
+}
+
+function companionDraft() {
+  const draft = fighterDraft()
+  return {
+    ...draft,
+    characterName: `AI 동료 ${Date.now()}`,
   }
 }
 
@@ -300,4 +317,31 @@ test('fresh database bootstraps scenario package and completes character creatio
   expect(partyResponse.ok(), await partyResponse.text()).toBeTruthy()
   const updated = await partyResponse.json()
   expect(updated.party).toEqual(expect.arrayContaining([expect.objectContaining({ characterSheetId: created.characterSheetId })]))
+
+  const companionResponse = await request.post(`${backend}/internal/v1/adventure-sessions/${session.sessionId}/character-sheets`, {
+    headers: authHeaders,
+    data: companionDraft(),
+  })
+  expect(companionResponse.ok(), await companionResponse.text()).toBeTruthy()
+  const companion = await companionResponse.json() as { characterSheetId: string }
+
+  const companionPartyResponse = await request.post(`${backend}/api/v1/adventure-sessions/${session.sessionId}/party`, {
+    headers: { ...authHeaders, 'If-Match-Version': String(updated.version) },
+    data: {
+      characterSheetId: companion.characterSheetId,
+      controlMode: 'AGENT',
+      nameMutableAfterStart: false,
+      raceMutableAfterStart: false,
+      characterClassMutableAfterStart: false,
+      backgroundMutableAfterStart: false,
+      startingAbilitiesMutableAfterStart: false,
+      levelMutableAfterStart: false,
+    },
+  })
+  expect(companionPartyResponse.ok(), await companionPartyResponse.text()).toBeTruthy()
+  const partyWithCompanion = await companionPartyResponse.json()
+  expect(partyWithCompanion.party).toEqual(expect.arrayContaining([
+    expect.objectContaining({ characterSheetId: created.characterSheetId, controlMode: 'DIRECT' }),
+    expect.objectContaining({ characterSheetId: companion.characterSheetId, controlMode: 'AGENT' }),
+  ]))
 })
