@@ -20,6 +20,14 @@ export const raceOptions: RaceOption[] = [
     { id: '스타우트 하플링', label: '스타우트 하플링', description: '체력과 독 저항에 강점이 있습니다.', traits: ['스타우트 회복력'] },
   ] },
   { id: '인간', label: '인간', description: '모든 능력치에 고르게 보너스를 받는 다재다능한 종족입니다.', languages: ['공용어', '선택 언어 1개'], traits: [], subraces: [] },
+  { id: '드래곤본', label: '드래곤본', description: '강력한 드래곤 혈통과 숨결 무기를 지닌 자랑스러운 종족입니다.', languages: ['공용어', '드래곤어'], traits: ['혈통', '숨결 무기', '피해 저항'], subraces: [] },
+  { id: '노움', label: '노움', description: '작은 몸집과 뛰어난 지능, 마법에 대한 타고난 친화력을 지닌 종족입니다.', languages: ['공용어', '노움어'], traits: ['암시야', '노움의 교활함'], subraces: [
+    { id: '숲 노움', label: '숲 노움', description: '자연과 작은 동물, 환영 마법에 친숙합니다.', traits: ['자연의 환영', '작은 동물과의 대화'] },
+    { id: '바위 노움', label: '바위 노움', description: '장치와 공학, 튼튼한 신체에 강점이 있습니다.', traits: ['기계공 지식', '시계태엽 장인'] },
+  ] },
+  { id: '하프 엘프', label: '하프 엘프', description: '인간의 호기심과 엘프의 감각을 함께 지닌 적응력 높은 종족입니다.', languages: ['공용어', '엘프어', '선택 언어 1개'], traits: ['암시야', '요정 혈통', '다재다능함'], subraces: [] },
+  { id: '하프 오크', label: '하프 오크', description: '인간과 오크의 혈통을 이어받아 강인함과 끈질긴 생명력을 지닌 종족입니다.', languages: ['공용어', '오크어'], traits: ['암시야', '위협적', '끈질긴 생명력', '야만적 공격'], subraces: [] },
+  { id: '티플링', label: '티플링', description: '악마적 혈통과 불꽃의 힘을 지닌 종족으로, 그 혈통을 스스로 선택할 수 있습니다.', languages: ['공용어', '지옥어'], traits: ['암시야', '지옥 저항', '지옥의 유산'], subraces: [] },
 ]
 
 export type ClassOption = {
