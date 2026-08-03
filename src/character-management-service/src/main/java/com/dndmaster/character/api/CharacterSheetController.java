@@ -3,13 +3,14 @@ package com.dndmaster.character.api;
 import com.dndmaster.character.application.CharacterSheetApplicationService;
 import com.dndmaster.character.application.CreateCharacterSheetCommand;
 import com.dndmaster.character.domain.*;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.UUID;
 import java.util.Map;
 import com.dndmaster.character.application.CharacterSheetsDeletionConsumer;
 import com.dndmaster.character.application.CharacterSheetsDeletionRequested;
-import com.dndmaster.character.api.ApiRequestGuard;
 
 @RestController
 @RequestMapping
@@ -33,6 +34,16 @@ public class CharacterSheetController {
         requestGuard.internal(token);
         if (deletionConsumer == null) throw new IllegalStateException("deletion consumer is not configured");
         deletionConsumer.consume(new CharacterSheetsDeletionRequested(request.sessionId(), request.characterSheetIds()));
+    }
+
+    @PostMapping("/internal/v1/adventure-sessions/{sessionId}/character-builds/evaluate")
+    Dnd5e2014CharacterBuildEvaluator.Evaluation evaluateCharacterBuild(
+            @PathVariable UUID sessionId,
+            @RequestBody CharacterSheetRequest request) {
+        if (!"DND_5E_2014".equals(request.edition())) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "UNSUPPORTED_CHARACTER_BUILD_EVALUATION_EDITION");
+        }
+        return Dnd5e2014CharacterBuildEvaluator.evaluate(request);
     }
 
     @PostMapping("/internal/v1/adventure-sessions/{sessionId}/character-sheets")
