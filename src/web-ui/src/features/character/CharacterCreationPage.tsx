@@ -15,6 +15,7 @@ import { subclassesFor } from './Dnd5eSubclassCatalog'
 import { resolvedWeaponIds, unresolvedWeaponSlots, weaponChoices, weaponOptions } from './Dnd5eWeaponRules'
 import { CharacterRuleChoices } from './CharacterRuleChoices'
 import { CharacterEquipmentLoadout } from './CharacterEquipmentLoadout'
+import { CharacterSpellSelection } from './CharacterSpellSelection'
 
 type SessionApi = Pick<AdventureSessionApi, 'read' | 'addMember'>
 type CharacterSetupApi = Pick<SetupApi, 'getPlayPreparation' | 'createCharacterSheet'>
@@ -196,7 +197,18 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
         armorIssues={armorIssues}
         onChange={setEquipmentState}
       />
-      {spellRule && selectedClass && <fieldset><legend>주문 선택</legend><p>방식: {spellRule.model} · 회복: {spellRule.recovery}</p><fieldset><legend>소마법 {requiredCantrips}개</legend>{selectedClass.cantrips.map(spell => <label key={spell}><input type="checkbox" checked={cantrips.includes(spell)} onChange={() => toggleLimited(spell, cantrips, requiredCantrips, setCantrips)} disabled={!cantrips.includes(spell) && cantrips.length >= requiredCantrips} />{spell}</label>)}</fieldset><fieldset><legend>1레벨 주문 {requiredFirstLevel}개</legend>{selectedClass.firstLevelSpells.map(spell => <label key={spell}><input type="checkbox" checked={firstLevelSpells.includes(spell)} onChange={() => toggleLimited(spell, firstLevelSpells, requiredFirstLevel, setFirstLevelSpells)} disabled={!firstLevelSpells.includes(spell) && firstLevelSpells.length >= requiredFirstLevel} />{spell}</label>)}</fieldset>{automaticDomainSpells.length > 0 && <p>자동 권역 주문: {automaticDomainSpells.join(', ')}</p>}</fieldset>}
+      <CharacterSpellSelection
+        rule={spellRule}
+        cantripOptions={selectedClass?.cantrips ?? []}
+        firstLevelOptions={selectedClass?.firstLevelSpells ?? []}
+        selectedCantrips={cantrips}
+        selectedFirstLevelSpells={firstLevelSpells}
+        requiredCantrips={requiredCantrips}
+        requiredFirstLevelSpells={requiredFirstLevel}
+        automaticSpells={automaticDomainSpells}
+        onCantripsChange={setCantrips}
+        onFirstLevelSpellsChange={setFirstLevelSpells}
+      />
     </fieldset>
     <fieldset><legend>배경</legend><label>배경 <select aria-label="배경" value={background} onChange={event => chooseBackground(event.currentTarget.value)}><option value="">선택하세요</option>{backgroundOptions.map(option => <option key={option.id}>{option.id}</option>)}</select></label>{selectedBackgroundRule && <p><strong>{selectedBackgroundRule.feature.name}</strong>: {selectedBackgroundRule.feature.description}</p>}</fieldset>
     <CharacterRuleChoices requirements={allChoiceRequirements} selections={ruleChoices} onChange={(id, values) => setRuleChoices(current => ({ ...current, [id]: values }))} />
