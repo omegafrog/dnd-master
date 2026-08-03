@@ -26,7 +26,10 @@ function Node({ node, values, onChange, onResolve, onAddChild, canResolve, abili
   const ruleExtension = node.diagnostics.some(item => item.includes('추가 룰북 속성 후보'))
   const originLabel = storyProposal ? '스토리북 제안' : ruleExtension ? '룰북 확장 후보' : ''
   const fixedValue = mode === 'FIXED_VALUE'
-  return <fieldset aria-label={node.label} data-node-id={node.id} data-origin={storyProposal ? 'STORYBOOK_PROPOSAL' : ruleExtension ? 'RULEBOOK_EXTENSION' : 'BASE'}>
+  const optionDetails = node.optionDetails ?? []
+  const selectedValues = value.split(',').filter(Boolean)
+  const selectedDetails = optionDetails.filter(detail => selectedValues.includes(detail.value))
+  return <fieldset className="character-input-card" aria-label={node.label} data-node-id={node.id} data-origin={storyProposal ? 'STORYBOOK_PROPOSAL' : ruleExtension ? 'RULEBOOK_EXTENSION' : 'BASE'}>
     <legend>{node.label}</legend>
     {originLabel ? <small aria-label={`${node.label} 출처`}>{originLabel}</small> : null}
     {storyProposal ? <p>이 항목은 시나리오 전용 제안입니다. 값을 선택하거나 입력해 저장하면 적용되고, 저장하지 않으면 베이스 본을 유지합니다.</p> : null}
@@ -37,7 +40,8 @@ function Node({ node, values, onChange, onResolve, onAddChild, canResolve, abili
         : isAbilityScore && abilityScoreMethod === 'STANDARD_ARRAY' ? <select aria-label={node.label} value={value} onChange={event => onChange(node.id, event.currentTarget.value)}><option value="">배정</option>{standardArray.map(score => <option key={score} value={score}>{score}</option>)}</select>
           : isAbilityScore ? <input type="number" min={abilityScoreMethod === 'POINT_BUY' ? 8 : 1} max={abilityScoreMethod === 'POINT_BUY' ? 15 : 30} aria-label={node.label} value={value} onChange={event => onChange(node.id, event.currentTarget.value)} />
             : <input type="text" aria-label={node.label} value={value} onChange={event => onChange(node.id, event.currentTarget.value)} />}
-    {(node.optionDetails ?? []).length > 0 ? <ul aria-label={`${node.label} 설명`}>{(node.optionDetails ?? []).map(detail => <li key={detail.value}><strong>{detail.label || detail.value}</strong>{detail.description ? `: ${detail.description}` : ''}</li>)}</ul> : null}
+    {selectedDetails.length > 0 ? <div className="character-input-selected-detail" aria-label="선택한 항목 설명">{selectedDetails.map(detail => <p key={detail.value}><strong>{detail.label || detail.value}</strong>{detail.description ? ` · ${detail.description}` : ''}</p>)}</div> : null}
+    {optionDetails.length > 0 ? <details className="character-input-help"><summary>선택지 설명 보기 ({optionDetails.length})</summary><div className="character-option-grid">{optionDetails.map(detail => <article key={detail.value}><strong>{detail.label || detail.value}</strong><p>{detail.description || '설명 없음'}</p></article>)}</div></details> : null}
     {node.key === 'ability_score_method' ? <small>표준 배열: 15, 14, 13, 12, 10, 8 · 포인트바이: 27점 · 주사위: 4d6 중 최저값 제외</small> : null}
     {node.suggestions.length > 0 ? <small>추천 또는 제안 값: {node.suggestions.join(', ')}</small> : null}
     {node.sourceQuote ? <small>원문 근거: {node.sourceQuote}</small> : null}

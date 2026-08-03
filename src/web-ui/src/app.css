@@ -239,6 +239,28 @@ output {
   color: var(--color-primary);
 }
 
+.character-input-card {
+  background: linear-gradient(145deg, #fff, #f7f9fc);
+  box-shadow: 0 3px 12px rgb(30 45 70 / 8%);
+  margin: 0.75rem 0;
+}
+
+.character-input-selected-detail {
+  background: #eef6ff;
+  border-left: 3px solid var(--color-primary);
+  border-radius: 0.35rem;
+  padding: 0.45rem 0.7rem;
+  margin-top: 0.5rem;
+}
+
+.character-input-selected-detail p { margin: 0.15rem 0; }
+
+.character-input-help { margin-top: 0.65rem; }
+.character-input-help summary { cursor: pointer; color: var(--color-primary); font-weight: 600; }
+.character-option-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr)); gap: 0.5rem; margin-top: 0.5rem; }
+.character-option-grid article { border: 1px solid var(--color-border); border-radius: 0.45rem; padding: 0.55rem; background: #fff; }
+.character-option-grid article p { margin: 0.25rem 0 0; font-size: 0.85rem; color: var(--color-muted); }
+
 p {
   margin-bottom: 0.5rem;
 }
