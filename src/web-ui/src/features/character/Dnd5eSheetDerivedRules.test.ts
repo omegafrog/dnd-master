@@ -12,6 +12,12 @@ describe('Dnd5eSheetDerivedRules', () => {
     expect(skills.find(skill => skill.label === '운동')?.bonus).toBe(2)
   })
 
+  it('does not grant expertise or proficiency to an untrained skill', () => {
+    const skills = skillBonuses(modifiers, 2, ['지각'], ['은신'])
+    const stealth = skills.find(skill => skill.label === '은신')
+    expect(stealth).toMatchObject({ proficient: false, expertise: false, bonus: 3 })
+  })
+
   it('derives passive perception from the final perception bonus', () => {
     const skills = skillBonuses(modifiers, 2, ['지각'])
     expect(passivePerception(skills)).toBe(14)
