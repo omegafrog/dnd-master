@@ -11,6 +11,7 @@ describe('CharacterSkillSelection', () => {
       skillOptions={['곡예', '은신', '지각']}
       skillChoiceCount={2}
       selectedSkills={['곡예', '은신']}
+      fixedProficientSkills={[]}
       proficientSkills={['곡예', '은신']}
       expertiseChoiceCount={0}
       selectedExpertise={[]}
@@ -30,6 +31,7 @@ describe('CharacterSkillSelection', () => {
       skillOptions={['곡예', '은신', '지각']}
       skillChoiceCount={2}
       selectedSkills={['곡예', '은신']}
+      fixedProficientSkills={['지각']}
       proficientSkills={['곡예', '은신', '지각']}
       expertiseChoiceCount={2}
       selectedExpertise={['곡예', '은신']}
@@ -45,13 +47,14 @@ describe('CharacterSkillSelection', () => {
     expect(onExpertiseChange).toHaveBeenCalledWith(['은신'])
   })
 
-  it('기술 숙련 해제 시 더 이상 유효하지 않은 숙달도 제거한다', async () => {
+  it('클래스 기술 해제 시 더 이상 유효하지 않은 숙달을 제거한다', async () => {
     const user = userEvent.setup()
     const onExpertiseChange = vi.fn()
     render(<CharacterSkillSelection
       skillOptions={['곡예', '은신']}
       skillChoiceCount={2}
       selectedSkills={['곡예', '은신']}
+      fixedProficientSkills={[]}
       proficientSkills={['곡예', '은신']}
       expertiseChoiceCount={2}
       selectedExpertise={['곡예', '은신']}
@@ -61,5 +64,24 @@ describe('CharacterSkillSelection', () => {
 
     await user.click(screen.getAllByLabelText('곡예')[0])
     expect(onExpertiseChange).toHaveBeenCalledWith(['은신'])
+  })
+
+  it('배경으로 고정된 기술은 클래스 선택에서 빠져도 숙달을 유지한다', async () => {
+    const user = userEvent.setup()
+    const onExpertiseChange = vi.fn()
+    render(<CharacterSkillSelection
+      skillOptions={['지각', '은신']}
+      skillChoiceCount={2}
+      selectedSkills={['지각', '은신']}
+      fixedProficientSkills={['지각']}
+      proficientSkills={['지각', '은신']}
+      expertiseChoiceCount={2}
+      selectedExpertise={['지각', '은신']}
+      onSkillsChange={vi.fn()}
+      onExpertiseChange={onExpertiseChange}
+    />)
+
+    await user.click(screen.getAllByLabelText('지각')[0])
+    expect(onExpertiseChange).toHaveBeenCalledWith(['지각', '은신'])
   })
 })
