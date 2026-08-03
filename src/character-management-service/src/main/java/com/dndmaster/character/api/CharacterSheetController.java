@@ -48,7 +48,7 @@ public class CharacterSheetController {
                 1,
                 List.of("드워프", "엘프", "하플링", "인간"),
                 List.of("바바리안", "바드", "클레릭", "드루이드", "파이터", "몽크", "팔라딘", "레인저", "로그", "소서러", "워락", "위저드"),
-                List.of("복사", "범죄자", "시골 영웅", "귀족", "은둔자", "길드 장인", "광대", "선원", "군인", "부랑아", "학자", "민중 영웅", "맞춤 배경"));
+                List.of("수행사제", "사기꾼", "범죄자", "연예인", "민중 영웅", "길드 장인", "은둔자", "귀족", "이방인", "현자", "선원", "군인", "부랑아"));
     }
 
     @PostMapping("/internal/v1/adventure-sessions/{sessionId}/character-builds/evaluate")
