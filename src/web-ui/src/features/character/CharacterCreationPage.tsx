@@ -20,13 +20,16 @@ import { CharacterSkillSelection } from './CharacterSkillSelection'
 import { CharacterAbilityScores } from './CharacterAbilityScores'
 import { CharacterIdentitySelection } from './CharacterIdentitySelection'
 import { CharacterClassSelection } from './CharacterClassSelection'
+import { CharacterRoleplayDetails, type RoleplayDetails } from './CharacterRoleplayDetails'
+import { CharacterDerivedPreview } from './CharacterDerivedPreview'
+import { CharacterPartyStep } from './CharacterPartyStep'
 
 type SessionApi = Pick<AdventureSessionApi, 'read' | 'addMember'>
 type CharacterSetupApi = Pick<SetupApi, 'getPlayPreparation' | 'createCharacterSheet'>
 const abilities: Ability[] = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma']
-const abilityLabels: Record<Ability, string> = { strength: '근력', dexterity: '민첩', constitution: '건강', intelligence: '지능', wisdom: '지혜', charisma: '매력' }
 const emptyScores = Object.fromEntries(abilities.map(ability => [ability, 0])) as AbilityScores
 const emptyEquipmentState: EquippedItemState = { armor: '', shield: false, mainHandWeaponId: null, offHandWeaponId: null, twoHandedWeaponId: null }
+const emptyRoleplay: RoleplayDetails = { personality: '', ideal: '', bond: '', flaw: '', appearance: '' }
 
 export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { sessionId: string; setupApi: CharacterSetupApi; sessionApi: SessionApi }) {
   const [session, setSession] = useState<AdventureSessionView | null>(null)
@@ -46,11 +49,7 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
   const [equipmentState, setEquipmentState] = useState<EquippedItemState>(emptyEquipmentState)
   const [cantrips, setCantrips] = useState<string[]>([])
   const [firstLevelSpells, setFirstLevelSpells] = useState<string[]>([])
-  const [personality, setPersonality] = useState('')
-  const [ideal, setIdeal] = useState('')
-  const [bond, setBond] = useState('')
-  const [flaw, setFlaw] = useState('')
-  const [appearance, setAppearance] = useState('')
+  const [roleplay, setRoleplay] = useState<RoleplayDetails>(emptyRoleplay)
   const [mode, setMode] = useState<SessionControlMode>('DIRECT')
   const [created, setCreated] = useState<CreatedCharacterSheetView | null>(null)
   const [message, setMessage] = useState('')
@@ -151,7 +150,7 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
           cantrips: uniqueProficiencies(cantrips, activeSubclassEffects.bonusCantrips), spellModel: spellRule?.model ?? null,
           learnedOrPreparedSpells: preparedSpells, domainSpells: automaticDomainSpells,
           armorProficiencies: finalArmorProficiencies, weaponProficiencies: finalWeaponProficiencies,
-          personality, ideal, bond, flaw, appearance,
+          ...roleplay,
         }),
         characterState: JSON.stringify({ currentHitPoints: statistics.hitPointMaximum, temporaryHitPoints: 0, experience: 0, equippedItems: equipmentState, ammunition: {}, spellSlots: spellRule ? [{ level: 1, maximum: spellRule.firstLevelSlots, remaining: spellRule.firstLevelSlots, recovery: spellRule.recovery }] : [] }),
         blueprintRevision: session.blueprintRevision, blueprintValues: {},
@@ -173,34 +172,8 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
 
   return <section aria-labelledby="character-creation-heading">
     <h2 id="character-creation-heading">캐릭터 생성</h2>{message && <p role="status">{message}</p>}
-    <CharacterIdentitySelection
-      name={name}
-      race={race}
-      subrace={subrace}
-      proficiencyBonus={statistics.proficiencyBonus}
-      raceOptions={raceOptions}
-      onNameChange={setName}
-      onRaceChange={next => { setRace(next); resetDependentChoices() }}
-      onSubraceChange={next => { setSubrace(next); resetDependentChoices() }}
-    />
-    <CharacterClassSelection
-      classOptions={classOptions}
-      characterClass={characterClass}
-      subclass={subclass}
-      subclassOptions={subclassOptions}
-      subclassRequired={subclassRequired}
-      equipmentGroups={creationRule?.equipmentGroups ?? []}
-      equipmentSelections={equipmentSelections}
-      weaponSlots={weaponSlots}
-      weaponSelections={weaponSelections}
-      onClassChange={chooseClass}
-      onSubclassChange={setSubclass}
-      onEquipmentChange={(groupId, value) => {
-        setEquipmentSelections(current => ({ ...current, [groupId]: value }))
-        setWeaponSelections({})
-      }}
-      onWeaponSelectionsChange={(slotId, values) => setWeaponSelections(current => ({ ...current, [slotId]: values }))}
-    >
+    <CharacterIdentitySelection name={name} race={race} subrace={subrace} proficiencyBonus={statistics.proficiencyBonus} raceOptions={raceOptions} onNameChange={setName} onRaceChange={next => { setRace(next); resetDependentChoices() }} onSubraceChange={next => { setSubrace(next); resetDependentChoices() }} />
+    <CharacterClassSelection classOptions={classOptions} characterClass={characterClass} subclass={subclass} subclassOptions={subclassOptions} subclassRequired={subclassRequired} equipmentGroups={creationRule?.equipmentGroups ?? []} equipmentSelections={equipmentSelections} weaponSlots={weaponSlots} weaponSelections={weaponSelections} onClassChange={chooseClass} onSubclassChange={setSubclass} onEquipmentChange={(groupId, value) => { setEquipmentSelections(current => ({ ...current, [groupId]: value })); setWeaponSelections({}) }} onWeaponSelectionsChange={(slotId, values) => setWeaponSelections(current => ({ ...current, [slotId]: values }))}>
       {selectedClass && <CharacterSkillSelection skillOptions={selectedClass.skillChoices} skillChoiceCount={selectedClass.skillChoiceCount} selectedSkills={skills} proficientSkills={allSkillProficiencies} expertiseChoiceCount={requiredExpertise} selectedExpertise={validExpertise} onSkillsChange={setSkills} onExpertiseChange={setExpertise} />}
       <CharacterEquipmentLoadout ownedWeaponIds={weaponIds} availableArmor={inferredArmor.equippedArmor} shieldAvailable={inferredArmor.equippedShield} state={equipmentState} conflicts={equipmentConflicts} armorIssues={armorIssues} onChange={setEquipmentState} />
       <CharacterSpellSelection rule={spellRule} cantripOptions={selectedClass?.cantrips ?? []} firstLevelOptions={selectedClass?.firstLevelSpells ?? []} selectedCantrips={cantrips} selectedFirstLevelSpells={firstLevelSpells} requiredCantrips={requiredCantrips} requiredFirstLevelSpells={requiredFirstLevel} automaticSpells={automaticDomainSpells} onCantripsChange={setCantrips} onFirstLevelSpellsChange={setFirstLevelSpells} />
@@ -208,15 +181,9 @@ export function CharacterCreationPage({ sessionId, setupApi, sessionApi }: { ses
     <fieldset><legend>배경</legend><label>배경 <select aria-label="배경" value={background} onChange={event => chooseBackground(event.currentTarget.value)}><option value="">선택하세요</option>{backgroundOptions.map(option => <option key={option.id}>{option.id}</option>)}</select></label>{selectedBackgroundRule && <p><strong>{selectedBackgroundRule.feature.name}</strong>: {selectedBackgroundRule.feature.description}</p>}</fieldset>
     <CharacterRuleChoices requirements={allChoiceRequirements} selections={ruleChoices} onChange={(id, values) => setRuleChoices(current => ({ ...current, [id]: values }))} />
     <CharacterAbilityScores abilities={abilities} standardArray={STANDARD_ARRAY} scores={scores} onChange={setScores} />
-    {selectedBackground && <fieldset><legend>성격과 동기 — 선택 사항</legend><LabeledSuggestion label="인격 특성" help={personalityHelp.personality} value={personality} setValue={setPersonality} suggestions={selectedBackground.personality} /><LabeledSuggestion label="이상" help={personalityHelp.ideal} value={ideal} setValue={setIdeal} suggestions={selectedBackground.ideals} /><LabeledSuggestion label="유대" help={personalityHelp.bond} value={bond} setValue={setBond} suggestions={selectedBackground.bonds} /><LabeledSuggestion label="단점" help={personalityHelp.flaw} value={flaw} setValue={setFlaw} suggestions={selectedBackground.flaws} /></fieldset>}
-    <fieldset><legend>외형 — 선택 사항</legend><textarea aria-label="외형 묘사" value={appearance} onChange={event => setAppearance(event.currentTarget.value)} /></fieldset>
-    <section aria-label="자동 계산 결과"><h3>자동 계산 결과</h3><p>방어도 {statistics.armorClass} · 최대 HP {statistics.hitPointMaximum || '?'} · 수동 지각 {passivePerception(calculatedSkills)}</p><p>내성 굴림: {abilities.map(ability => `${abilityLabels[ability]} ${formatModifier(savingThrows[ability])}`).join(' · ')}</p>{spellRule && <p>주문 공격 {formatModifier(spellAttack ?? 0)} · 주문 DC {spellDc} · 1레벨 슬롯 {spellRule.firstLevelSlots}</p>}<ul aria-label="기술 보너스">{calculatedSkills.map(skill => <li key={skill.id}>{skill.label} {formatModifier(skill.bonus)}</li>)}</ul><ul aria-label="공격 목록">{attacks.map(attack => <li key={`${attack.weaponId}-${attack.mode}`}>{attack.label}: 명중 {formatModifier(attack.attackBonus)}, 피해 {attack.damage} {attack.damageType}{attack.versatileDamage ? ` · 양손 ${attack.versatileDamage}` : ''}{attack.range ? ` · 사거리 ${attack.range}` : ''}{attack.ammunitionRequired ? ' · 탄약 필요' : ''}</li>)}</ul></section>
+    <CharacterRoleplayDetails background={selectedBackground} help={personalityHelp} values={roleplay} onChange={setRoleplay} />
+    <CharacterDerivedPreview armorClass={statistics.armorClass} hitPointMaximum={statistics.hitPointMaximum} passivePerception={passivePerception(calculatedSkills)} savingThrows={savingThrows} skills={calculatedSkills} attacks={attacks} spell={spellRule ? { attackBonus: spellAttack ?? 0, saveDc: spellDc, firstLevelSlots: spellRule.firstLevelSlots } : undefined} />
     <button type="button" onClick={() => void create()} disabled={!canCreate}>캐릭터 생성</button>{!canCreate && <p>필수 선택과 장착 상태를 모두 확인하세요.</p>}
-    <section aria-label="파티 구성"><h3>일행 추가</h3>{session.party.map(member => <p key={member.characterSheetId}>{member.characterSheetId}</p>)}{created && <><select aria-label="조작 방식" value={mode} onChange={event => setMode(event.currentTarget.value as SessionControlMode)}><option value="DIRECT">직접 조작</option><option value="AGENT">에이전트 조작</option></select><button type="button" onClick={() => void addToParty()}>생성한 캐릭터를 파티에 추가</button></>}</section>
+    <CharacterPartyStep partyMemberIds={session.party.map(member => member.characterSheetId)} createdCharacterSheetId={created?.characterSheetId} mode={mode} onModeChange={setMode} onAdd={() => void addToParty()} />
   </section>
 }
-
-function LabeledSuggestion({ label, help, value, setValue, suggestions }: { label: string; help: string; value: string; setValue: (value: string) => void; suggestions: string[] }) {
-  return <section><h4>{label}</h4><p>{help}</p><select aria-label={`${label} 예시`} value={suggestions.includes(value) ? value : ''} onChange={event => setValue(event.currentTarget.value)}><option value="">예시에서 선택하지 않음</option>{suggestions.map(item => <option key={item}>{item}</option>)}</select><textarea aria-label={`${label} 직접 작성`} value={value} onChange={event => setValue(event.currentTarget.value)} /></section>
-}
-function formatModifier(value: number) { return value >= 0 ? `+${value}` : String(value) }
