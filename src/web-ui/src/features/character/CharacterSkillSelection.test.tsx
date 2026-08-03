@@ -8,7 +8,7 @@ describe('CharacterSkillSelection', () => {
     const user = userEvent.setup()
     const onSkillsChange = vi.fn()
     render(<CharacterSkillSelection skillOptions={['곡예', '은신', '지각']} skillChoiceCount={2} selectedSkills={['곡예', '은신']} proficientSkills={['곡예', '은신']} expertiseChoiceCount={0} selectedExpertise={[]} onSkillsChange={onSkillsChange} onExpertiseChange={vi.fn()} />)
-    expect(screen.getByLabelText('지각')).toBeDisabled()
+    expect((screen.getByLabelText('지각') as HTMLInputElement).disabled).toBe(true)
     await user.click(screen.getByLabelText('곡예'))
     expect(onSkillsChange).toHaveBeenCalledWith(['은신'])
   })
