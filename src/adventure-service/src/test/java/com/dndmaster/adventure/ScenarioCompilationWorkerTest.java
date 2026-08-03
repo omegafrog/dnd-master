@@ -2,6 +2,7 @@ package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.scenario.ScenarioBundleRepository;
@@ -50,6 +51,89 @@ class ScenarioCompilationWorkerTest {
         assertNull(fixture.tags.request);
         assertTrue(result.characterCreationBlueprint().fields().stream()
                 .anyMatch(field -> field.key().equals("race") && field.sourceType().equals("TEMPLATE")));
+    }
+
+    @Test
+    void workerPublishesValidatedPackageFromClaimedJob() {
+        ScenarioSourceBundle bundle = bundle(List.of(document(
+                new KnowledgeDocumentId(UUID.randomUUID()),
+                ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 1)));
+        Fixture fixture = new Fixture(bundle);
+        String fingerprint = fixture.compilations.values.values().iterator().next().inputFingerprint();
+
+        ScenarioPackage published = fixture.worker().processNext("worker", Duration.ofMinutes(1)).orElseThrow();
+
+        assertEquals("PARTIAL", published.report().status().name());
+        assertEquals("PUBLISHED", fixture.compilations.findByInputFingerprint(fingerprint).orElseThrow().status().name());
+        assertTrue(fixture.packages.values.containsKey(published.inputFingerprint()));
+    }
+
+    @Test
+    void scheduledWorkerProcessesRequestedJob() {
+        ScenarioSourceBundle bundle = bundle(List.of(document(
+                new KnowledgeDocumentId(UUID.randomUUID()),
+                ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 1)));
+        Fixture fixture = new Fixture(bundle);
+        String fingerprint = fixture.compilations.values.values().iterator().next().inputFingerprint();
+
+        fixture.worker().processQueuedCompilations();
+
+        assertEquals("PUBLISHED", fixture.compilations.findByInputFingerprint(fingerprint).orElseThrow().status().name());
+    }
+
+    @Test
+    void workerMarksPermanentFailureAfterThirdAttempt() {
+        ScenarioSourceBundle bundle = bundle(List.of(document(
+                new KnowledgeDocumentId(UUID.randomUUID()),
+                ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 1)));
+        Fixture fixture = new Fixture(bundle);
+        ScenarioCompilation requested = ScenarioCompilation.rehydrate(
+                UUID.randomUUID(), bundle.id(), bundle.currentRevision().revision(), "fp-failure",
+                ScenarioCompilationStatus.RUNNING, 2, UUID.randomUUID(), null, null);
+        fixture.compilations.save(requested);
+        fixture.queue.pending.clear();
+        fixture.queue.pending.add(new WorkEnvelope(UUID.randomUUID(), "retry", requested.id(),
+                bundle.currentRevision().revision(), "fp-failure", 2));
+        ScenarioCompilationWorker worker = new ScenarioCompilationWorker(
+                fixture.manager, fixture.compilations, fixture.queue, new Bundles(bundle),
+                request -> { throw new IllegalStateException("AI unavailable"); }, ignored -> List.of(),
+                fixture.tags, fixture.search, new ScenarioPackageCompilationService(fixture.packages), fixture.packages);
+
+        assertThrows(IllegalStateException.class, () -> worker.processNext("worker", Duration.ofMinutes(1)));
+
+        assertEquals("FAILED", fixture.compilations.findByInputFingerprint("fp-failure").orElseThrow().status().name());
+        assertEquals(0, fixture.queue.pending.size());
+    }
+
+    @Test
+    void staleDeliveryCannotReplaceReclaimedLease() {
+        ScenarioBundleId bundleId = new ScenarioBundleId(UUID.randomUUID());
+        UUID activeLease = UUID.randomUUID();
+        ScenarioCompilation compilation = ScenarioCompilation.rehydrate(
+                UUID.randomUUID(), bundleId, 1, "fp-lease", ScenarioCompilationStatus.RUNNING,
+                1, activeLease, null, null);
+
+        assertThrows(IllegalStateException.class, () -> compilation.claim(activeLease));
+        assertEquals("RUNNING", compilation.claim(UUID.randomUUID()).status().name());
+    }
+
+    @Test
+    void staleWorkerCannotPublishAfterAnotherWorkerReclaimsLease() {
+        ScenarioBundleId bundleId = new ScenarioBundleId(UUID.randomUUID());
+        UUID leaseA = UUID.randomUUID();
+        ScenarioCompilation compilationA = ScenarioCompilation.rehydrate(
+                UUID.randomUUID(), bundleId, 1, "fp-race", ScenarioCompilationStatus.RUNNING,
+                1, leaseA, null, null);
+        Compilations compilations = new Compilations();
+        Queue queue = new Queue();
+        ScenarioCompilationProcessManager manager = new ScenarioCompilationProcessManager(compilations, queue);
+        compilations.save(compilationA);
+        WorkEnvelope work = new WorkEnvelope(UUID.randomUUID(), "retry", compilationA.id(), 1, "fp-race", 1);
+        WorkQueuePort.Delivery deliveryA = new WorkQueuePort.Delivery(work, leaseA, "worker-a");
+        WorkQueuePort.Delivery deliveryB = new WorkQueuePort.Delivery(work, UUID.randomUUID(), "worker-b");
+        manager.claim(deliveryB);
+
+        assertThrows(IllegalStateException.class, () -> manager.publish(compilationA, deliveryA, UUID.randomUUID()));
     }
 
     private static ScenarioSourceBundle bundle(List<ScenarioBundleDocumentSelection> documents) {
