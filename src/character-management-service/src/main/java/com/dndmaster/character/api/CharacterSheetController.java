@@ -82,7 +82,7 @@ public class CharacterSheetController {
     @GetMapping("/internal/v1/character-sheets/{sheetId}")
     CharacterSheetResponse getCharacterSheet(
             @PathVariable UUID sheetId,
-            @RequestParam(defaultValue = "DND_5E_2014") String edition) {
+            @RequestParam(defaultValue = "DND_5E_2024") String edition) {
         CharacterSheet sheet = characterSheetService.openSheet(
                 new CharacterSheetId(sheetId), SheetEdition.valueOf(edition));
         return CharacterSheetResponse.from(sheet);
@@ -102,7 +102,7 @@ public class CharacterSheetController {
             @RequestHeader("If-Match-Version") long expectedVersion,
             @RequestBody CharacterSheetRequest request) {
         String derivedStatistics = request.derivedStatistics();
-        if ("DND_5E_2014".equals(request.edition())) {
+        if ("DND_5E_2014".equals(request.edition()) && structuredPayload(request)) {
             Dnd5e2014CharacterBuildEvaluator.Evaluation evaluation = Dnd5e2014CharacterBuildEvaluator.evaluate(request);
             if (!evaluation.valid()) throw new CharacterMutationRejectedException(evaluation.violations());
             derivedStatistics = evaluation.serializedDerived();
@@ -115,6 +115,11 @@ public class CharacterSheetController {
                 expectedVersion);
         CharacterSheet sheet = characterSheetService.manageCharacter(new CharacterSheetId(sheetId), update);
         return CharacterSheetResponse.from(sheet);
+    }
+
+    private static boolean structuredPayload(CharacterSheetRequest request) {
+        return request.characterBuild() != null && !request.characterBuild().isBlank()
+                || request.characterState() != null && !request.characterState().isBlank();
     }
 
     private static CharacterSheetData parseData(
