@@ -27,7 +27,7 @@ class CharacterSheetPersistenceRoundTripTest {
                 "아리아", 1, false, "인간", "파이터", "군인",
                 "strength=15,dexterity=14,constitution=13,intelligence=10,wisdom=12,charisma=8",
                 "{\"armorClass\":18,\"hitPointMaximum\":12}",
-                "{\"schemaVersion\":2,\"ownedEquipment\":[\"체인 메일\"],\"ownedWeaponIds\":[]}",
+                "{\"schemaVersion\":2,\"ownedEquipment\":[\"체인 메일\",\"방패\"],\"ownedWeaponIds\":[]}",
                 "{\"currentHitPoints\":12,\"equippedItems\":{\"armor\":\"체인 메일\",\"shield\":true,\"mainHandWeaponId\":null,\"offHandWeaponId\":null,\"twoHandedWeaponId\":null}}");
 
         CharacterSheet created = service.createSheet(new CreateCharacterSheetCommand(
