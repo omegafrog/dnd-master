@@ -115,6 +115,7 @@ export function PackageBlueprintReviewPage({
     <section aria-labelledby="package-blueprint-review-heading">
       <h2 id="package-blueprint-review-heading">캐릭터 생성 설정 검토</h2>
       <p>시나리오 패키지 {packageId}</p>
+      <p><a href="#/setup">새 패키지 만들기</a></p>
       <p>스토리북 제안과 추가 필드를 검토합니다. 실제 캐릭터 선택은 다음 캐릭터 생성 페이지에서 진행합니다.</p>
       {message && <p role="status">{message}</p>}
       {preparation.blockers.length > 0 && (
