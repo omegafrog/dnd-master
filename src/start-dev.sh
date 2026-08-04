@@ -6,6 +6,26 @@ INFRA="$ROOT/infra"
 UI="$ROOT/web-ui"
 DEMO_USER_INIT_SQL="/docker-entrypoint-initdb.d/02-seed-demo-user.sql"
 GRADLEW_TMP=""
+if [ "$(uname -s)" != "Linux" ]; then
+    echo "ERROR: start-dev.sh must be run inside WSL/Linux." >&2
+    exit 1
+fi
+
+NODE_BIN="${WSL_NODE_BIN:-$HOME/.local/bin/node}"
+NPM_CLI="${WSL_NPM_CLI:-/mnt/d/node_modules/npm/bin/npm-cli.js}"
+if [ ! -x "$NODE_BIN" ]; then
+    echo "ERROR: Linux Node was not found at $NODE_BIN." >&2
+    exit 1
+fi
+if [ ! -f "$NPM_CLI" ]; then
+    echo "ERROR: Linux npm CLI was not found at $NPM_CLI." >&2
+    exit 1
+fi
+
+run_node() { "$NODE_BIN" "$@"; }
+run_npm() {
+    run_node "$NPM_CLI" "$@"
+}
 
 cleanup() {
     echo ""
@@ -39,11 +59,12 @@ BACKEND_PID=$!
 echo "    Backend PID: $BACKEND_PID"
 
 echo "==> Starting frontend (web-ui)..."
-if [ ! -d "$UI/node_modules" ]; then
-    echo "    Installing frontend dependencies..."
-    (cd "$UI" && npm install)
+if [ ! -d "$UI/node_modules" ] || ! (cd "$UI" && run_node -e "require.resolve('@rollup/rollup-linux-x64-gnu')" >/dev/null 2>&1); then
+    echo "    Installing Linux frontend dependencies..."
+    rm -rf "$UI/node_modules"
+    (cd "$UI" && run_npm install --include=optional)
 fi
-(cd "$UI" && exec npm run dev) &
+(cd "$UI" && run_npm run dev) &
 FRONTEND_PID=$!
 echo "    Frontend PID: $FRONTEND_PID"
 
