@@ -68,17 +68,25 @@ public class ScenarioCompilationController {
         return PackageResponse.from(service.read(packageId, new OwnerPlayerId(playerResolver.playerId())));
     }
 
+    @GetMapping("/scenario-bundles/{bundleId}/packages")
+    List<PackageResponse> listByBundle(@PathVariable UUID bundleId) {
+        return service.listByBundleId(new ScenarioBundleId(bundleId), new OwnerPlayerId(playerResolver.playerId()))
+                .stream().map(PackageResponse::from).toList();
+    }
+
     @PostMapping("/scenario-bundles/{bundleId}/compilation-jobs")
     CompilationResponse startJob(
             @PathVariable UUID bundleId,
-            @RequestBody CompilationJobRequest request) {
+            @RequestBody CompilationJobRequest request,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey) {
         OwnerPlayerId owner = new OwnerPlayerId(playerResolver.playerId());
         log.info("scenario compilation start request bundleId={} owner={} inputFingerprint={}",
                 bundleId, owner.value(), request.inputFingerprint());
         if (!owner.value().equals(request.playerId())) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "playerId must match Authorization");
         }
-        return CompilationResponse.from(service.start(new ScenarioBundleId(bundleId), owner, request.inputFingerprint()));
+        String key = idempotencyKey == null || idempotencyKey.isBlank() ? request.inputFingerprint() : idempotencyKey;
+        return CompilationResponse.from(service.start(new ScenarioBundleId(bundleId), owner, request.inputFingerprint(), key));
     }
 
     @GetMapping("/compilations/{compilationId}")
@@ -150,11 +158,11 @@ public class ScenarioCompilationController {
 
     public record CompilationRequest(UUID playerId, List<CandidateRequest> candidates, List<OverrideRequest> overrides) {}
     public record CompilationJobRequest(UUID playerId, String inputFingerprint) {}
-    public record CompilationResponse(UUID compilationId, UUID bundleId, long bundleRevision, String status, int attempt,
+    public record CompilationResponse(UUID compilationId, UUID bundleId, long bundleRevision, String idempotencyKey, String status, int attempt,
                                       UUID packageId, String failureReason) {
-        static CompilationResponse from(com.dndmaster.adventure.domain.scenario.ScenarioCompilation compilation) {
-            return new CompilationResponse(compilation.id(), compilation.bundleId().value(), compilation.bundleRevision(),
-                    compilation.status().name(), compilation.attempt(), compilation.packageId(), compilation.failureReason());
+            static CompilationResponse from(com.dndmaster.adventure.domain.scenario.ScenarioCompilation compilation) {
+                return new CompilationResponse(compilation.id(), compilation.bundleId().value(), compilation.bundleRevision(),
+                        compilation.idempotencyKey(), compilation.status().name(), compilation.attempt(), compilation.packageId(), compilation.failureReason());
         }
     }
     public record CandidateRequest(

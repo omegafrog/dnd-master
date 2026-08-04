@@ -23,6 +23,13 @@ public final class PostgresAdventureSessionRepository implements AdventureSessio
             s.setObject(1, id.value()); try (ResultSet row = s.executeQuery()) { return row.next() ? Optional.of(map(c, row)) : Optional.empty(); }
         } catch (SQLException e) { throw new AdventurePersistenceException("could not load adventure session", e); }
     }
+    @Override public List<AdventureSession> findByScenarioPackageId(UUID scenarioPackageId) {
+        try (Connection c = dataSource.getConnection(); PreparedStatement s = c.prepareStatement("SELECT session_id FROM adventure_session WHERE scenario_package_id=? ORDER BY session_id")) {
+            s.setObject(1, scenarioPackageId); List<AdventureSession> sessions = new ArrayList<>();
+            try (ResultSet rows = s.executeQuery()) { while (rows.next()) findById(new SessionId(rows.getObject("session_id", UUID.class))).ifPresent(sessions::add); }
+            return sessions;
+        } catch (SQLException e) { throw new AdventurePersistenceException("could not list adventure sessions", e); }
+    }
     @Override public void save(AdventureSession session, long expectedVersion) {
         try (Connection c = dataSource.getConnection()) {
             boolean autoCommit = c.getAutoCommit(); c.setAutoCommit(false);

@@ -48,6 +48,22 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
         return find("package_id", packageId);
     }
 
+    @Override
+    public List<ScenarioPackage> findByBundleId(UUID bundleId) {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT package_id FROM scenario_package WHERE bundle_id = ? ORDER BY bundle_revision DESC, package_id DESC")) {
+            statement.setObject(1, bundleId);
+            List<ScenarioPackage> packages = new ArrayList<>();
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) findById(rows.getObject("package_id", UUID.class)).ifPresent(packages::add);
+            }
+            return packages;
+        } catch (SQLException exception) {
+            throw new ScenarioPackagePersistenceException("could not list scenario packages", exception);
+        }
+    }
+
     private Optional<ScenarioPackage> find(String column, Object value) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(

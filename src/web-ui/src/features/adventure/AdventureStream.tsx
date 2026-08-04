@@ -51,7 +51,7 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
   }
 
   return (
-    <section aria-labelledby="conversation-heading">
+    <section className="adventure-stream" aria-labelledby="conversation-heading">
       <h2 id="conversation-heading">모험 대화</h2>
       <p role="status">{activeControlMode === 'AGENT' ? '에이전트 캐릭터 차례 — 자동 진행 중' : '직접 플레이 입력 대기 중'}</p>
       <ol aria-label="대화 기록">

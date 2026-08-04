@@ -66,6 +66,11 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
+    AdventureStoryPlanController aiAdventureStoryPlanController(SpringAiChatAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+        return new AdventureStoryPlanController(adapter, objectMapper);
+    }
+
+    @Bean
     ScenarioBoundSceneService scenarioBoundSceneService(
             ScenarioPromptFactory prompts, SceneModelPort model) {
         return new ScenarioBoundSceneService(prompts, model);

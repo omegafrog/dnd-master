@@ -112,11 +112,13 @@ public final class ScenarioCompilationWorker {
             Set<String> bundleSources = bundle.currentRevision().documents().stream()
                     .map(document -> document.knowledgeDocumentId().value() + ":" + document.extractionVersion())
                     .collect(java.util.stream.Collectors.toSet());
+            List<ResolutionExtractionPort.SourceExcerpt> resolutionExcerpts = selectResolutionExcerpts(excerpts, bundleSources);
             List<ResolutionCandidate> candidates = extractionPort.extract(
                     new ResolutionExtractionPort.ResolutionExtractionRequest(
                             claimed.id().toString(), excerpts == null ? List.of() : excerpts.stream()
                                     .filter(excerpt -> bundleSources.contains(excerpt.documentId().value() + ":" + excerpt.extractionVersion()))
-                                    .limit(3).toList(),
+                                    .filter(excerpt -> resolutionExcerpts.contains(excerpt))
+                                    .toList(),
                             "resolution-candidate-v1", "resolution-prompt-v1"));
 
             List<CharacterContextSearchPort.Evidence> characterContext = searchCharacterContext(bundle);
@@ -150,6 +152,20 @@ public final class ScenarioCompilationWorker {
                     claimed.id(), claimed.attempt(), reason, exception);
             throw exception;
         }
+    }
+
+    private static List<ResolutionExtractionPort.SourceExcerpt> selectResolutionExcerpts(
+            List<ResolutionExtractionPort.SourceExcerpt> excerpts, Set<String> bundleSources) {
+        List<ResolutionExtractionPort.SourceExcerpt> scoped = excerpts == null ? List.of() : excerpts.stream()
+                .filter(Objects::nonNull)
+                .filter(excerpt -> bundleSources.contains(excerpt.documentId().value() + ":" + excerpt.extractionVersion()))
+                .toList();
+        List<ResolutionExtractionPort.SourceExcerpt> relevant = scoped.stream()
+                .filter(excerpt -> excerpt.text() != null && excerpt.text().matches("(?is).*\\b(?:DC|check|saving throw|attack|damage|roll|recharge)\\b.*"))
+                .limit(6).toList();
+        if (relevant.size() >= 6) return relevant;
+        return java.util.stream.Stream.concat(relevant.stream(), scoped.stream().filter(excerpt -> !relevant.contains(excerpt)))
+                .limit(6).toList();
     }
 
     private List<CharacterContextSearchPort.Evidence> searchCharacterContext(ScenarioSourceBundle bundle) {

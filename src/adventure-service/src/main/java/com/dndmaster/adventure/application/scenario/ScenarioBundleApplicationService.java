@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 
 public final class ScenarioBundleApplicationService {
     private final ScenarioBundleRepository repository;
@@ -46,6 +47,17 @@ public final class ScenarioBundleApplicationService {
         ScenarioSourceBundle bundle = loadOwned(bundleId, ownerPlayerId);
         bundle.authorize(ownerPlayerId);
         return bundle;
+    }
+
+    public List<ScenarioSourceBundle> listBundles(OwnerPlayerId ownerPlayerId) {
+        return repository.findByOwnerId(ownerPlayerId.value()).stream()
+                .filter(bundle -> bundle.ownerPlayerId().value().equals(ownerPlayerId.value()))
+                .toList();
+    }
+
+    public void deleteBundle(ScenarioBundleId bundleId, OwnerPlayerId ownerPlayerId) {
+        ScenarioSourceBundle bundle = loadOwned(bundleId, ownerPlayerId);
+        repository.deleteById(bundle.id());
     }
 
     private ScenarioSourceBundle loadOwned(ScenarioBundleId bundleId, OwnerPlayerId ownerPlayerId) {

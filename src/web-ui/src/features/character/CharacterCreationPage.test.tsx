@@ -1,118 +1,192 @@
-import { render, screen, waitFor } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { CharacterCreationPage } from './CharacterCreationPage'
+import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { CharacterCreationPage } from "./CharacterCreationPage";
 
-const preparation = { scenarioPackageId: 'package-1', bundleId: 'bundle-1', bundleRevision: 1, status: 'READY', blockers: [], characterLimit: { maximumCharacters: 2, source: null, sourceQuote: '' }, characterCreationBlueprint: { available: true, summary: 'published', rulebookDocumentCount: 1, storybookDocumentCount: 0, diagnostics: [], revision: 4, status: 'PUBLISHED', fields: [] } }
-const session = { sessionId: 'session-1', scenarioPackageId: 'package-1', blueprintRevision: 4, characterLimit: 2, version: 0, status: 'DRAFT', party: [], adventureId: null, runtimeConfiguration: null }
-
-const catalog = {
-  edition: 'DND_5E_2014', baseSchema: 'DND_5E_2014', revision: 1,
-  races: ['드워프', '엘프', '하플링', '인간'],
-  classes: ['바바리안', '바드', '클레릭', '드루이드', '파이터', '몽크', '팔라딘', '레인저', '로그', '소서러', '워락', '위저드'],
-  backgrounds: ['수행사제', '사기꾼', '범죄자', '연예인', '민중 영웅', '길드 장인', '은둔자', '귀족', '이방인', '현자', '선원', '군인', '부랑아'],
-}
-
-const evaluation = {
-  valid: true,
-  derived: {
-    proficiencyBonus: 2, armorClass: 17, hitPointMaximum: 10, passivePerception: 12,
-    savingThrowBonuses: { strength: 4, dexterity: 2, constitution: 3, intelligence: 0, wisdom: 1, charisma: 0 },
-    skillBonuses: { 지각: { proficient: true, expertise: false, bonus: 2 } },
-    attacks: [
-      { weaponId: 'rapier', label: '레이피어', attackBonus: 4, damage: '1d8+2', damageType: '관통', mode: 'MELEE', ammunitionRequired: false },
-      { weaponId: 'unarmed', label: '비무장 공격', attackBonus: 3, damage: '1+1', damageType: '타격', mode: 'UNARMED', ammunitionRequired: false },
-    ],
-    spellAttackBonus: 4, spellSaveDc: 12,
+const preparation = {
+  scenarioPackageId: "package-1",
+  bundleId: "bundle-1",
+  bundleRevision: 1,
+  status: "READY",
+  blockers: [],
+  characterLimit: { maximumCharacters: 2, source: null, sourceQuote: "" },
+  characterCreationBlueprint: {
+    available: true,
+    summary: "published",
+    rulebookDocumentCount: 1,
+    storybookDocumentCount: 0,
+    diagnostics: [],
+    revision: 4,
+    status: "PUBLISHED",
+    fields: [],
   },
-  violations: [],
-}
+};
 
-function fixture() {
-  const createCharacterSheet = vi.fn().mockResolvedValue({ characterSheetId: 'sheet-1', adventureId: 'adventure-1', edition: 'DND_5E_2014', characterName: '아리아', level: 1, inspiration: false, version: 0 })
-  return {
-    setupApi: { getPlayPreparation: vi.fn().mockResolvedValue(preparation), createCharacterSheet },
-    sessionApi: { read: vi.fn().mockResolvedValue(session), addMember: vi.fn().mockResolvedValue({ ...session, version: 1, party: [{ characterSheetId: 'sheet-1' }] }) },
+const session = {
+  sessionId: "session-1",
+  scenarioPackageId: "package-1",
+  blueprintRevision: 4,
+  characterLimit: 2,
+  version: 0,
+  status: "DRAFT",
+  party: [],
+  adventureId: null,
+  runtimeConfiguration: null,
+};
+
+function renderPage() {
+  const createCharacterSheet = vi.fn().mockResolvedValue({
+    characterSheetId: "sheet-1",
+    adventureId: "adventure-1",
+    edition: "DND_5E_2014",
+    characterName: "아리아",
+    level: 1,
+    inspiration: false,
+    version: 0,
+  });
+  const setupApi = {
+    getPlayPreparation: vi.fn().mockResolvedValue(preparation),
     createCharacterSheet,
-  }
+  };
+  const sessionApi = {
+    read: vi.fn().mockResolvedValue(session),
+    addMember: vi.fn(),
+  };
+  const view = render(
+      <CharacterCreationPage
+        sessionId="session-1"
+        ownerPlayerId="player-1"
+        setupApi={setupApi}
+      sessionApi={sessionApi}
+    />,
+  );
+  return { createCharacterSheet, addMember: sessionApi.addMember, unmount: view.unmount };
 }
 
 beforeEach(() => {
-  vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
-    const url = String(input)
-    const body = url.includes('/character-rules/catalogs/') ? catalog : evaluation
-    return new Response(JSON.stringify(body), { status: 200, headers: { 'Content-Type': 'application/json' } })
-  }))
-})
+  window.localStorage.clear();
+});
 
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
-describe('CharacterCreationPage', () => {
-  it('서버 카탈로그 revision과 자동값을 보여준다', async () => {
-    const { setupApi, sessionApi } = fixture()
-    render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
-    expect((await screen.findByText(/규칙 카탈로그:/)).textContent).toContain('revision 1')
-    const automaticValues = await screen.findByText(/레벨:/)
-    expect(automaticValues.textContent).toContain('1')
-    expect(automaticValues.textContent).toContain('경험치: 0')
-    expect(automaticValues.textContent).toContain('숙련 보너스: +2')
-    expect(screen.queryByLabelText('캐릭터 레벨')).toBeNull()
-  })
+describe("CharacterCreationPage", () => {
+  it("uses the four classes and four races from the bundled Basic Rules", async () => {
+    renderPage();
+    const classSelect = await screen.findByLabelText("직업");
+    const raceSelect = screen.getByLabelText("종족");
 
-  it('선택한 종족에 속한 하위 종족만 보여주고 인간은 하위 종족을 숨긴다', async () => {
-    const { setupApi, sessionApi } = fixture(); const user = userEvent.setup()
-    render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
-    await user.selectOptions(await screen.findByLabelText('종족'), '엘프')
-    const subrace = screen.getByLabelText('하위 종족') as HTMLSelectElement
-    expect(Array.from(subrace.options).map(option => option.textContent)).toContain('하이 엘프')
-    expect(Array.from(subrace.options).map(option => option.textContent)).not.toContain('언덕 드워프')
-    await user.selectOptions(screen.getByLabelText('종족'), '인간')
-    expect(screen.queryByLabelText('하위 종족')).toBeNull()
-  })
+    expect(Array.from(classSelect.querySelectorAll("option")).map((option) => option.value).sort()).toEqual([
+      "",
+      "로그",
+      "위저드",
+      "클레릭",
+      "파이터",
+    ].sort());
+    expect(Array.from(raceSelect.querySelectorAll("option")).map((option) => option.value)).toEqual([
+      "",
+      "드워프",
+      "엘프",
+      "하플링",
+      "인간",
+    ]);
+    expect(screen.queryByLabelText("캐릭터 레벨")).toBeNull();
+    expect(screen.queryByLabelText("키")).toBeNull();
+    expect(screen.queryByLabelText("몸무게")).toBeNull();
+    expect(screen.queryByLabelText("눈")).toBeNull();
+    expect(screen.queryByLabelText("피부")).toBeNull();
+    expect(screen.queryByLabelText("머리카락")).toBeNull();
+    expect(screen.queryByLabelText("party")).toBeNull();
+    expect(screen.queryByLabelText("일행과의 관계")).toBeNull();
+  });
 
-  it('표준 배열의 이미 사용한 값을 다른 능력치에서 비활성화한다', async () => {
-    const { setupApi, sessionApi } = fixture(); const user = userEvent.setup()
-    render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
-    await user.selectOptions(await screen.findByLabelText('근력'), '15')
-    const dexterity = screen.getByLabelText('민첩') as HTMLSelectElement
-    expect(Array.from(dexterity.options).find(option => option.value === '15')?.disabled).toBe(true)
-  })
+  it("limits subraces to the selected race and disables them for humans", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    const race = await screen.findByLabelText("종족");
+    const subrace = screen.getByLabelText("하위 종족") as HTMLSelectElement;
 
-  it('1레벨에 하위 클래스를 정하는 클래스만 하위 클래스 선택을 표시한다', async () => {
-    const { setupApi, sessionApi } = fixture(); const user = userEvent.setup()
-    render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
-    await user.selectOptions(await screen.findByLabelText('클래스'), '클레릭')
-    expect(Array.from((screen.getByLabelText('하위 클래스') as HTMLSelectElement).options).map(option => option.textContent)).toContain('생명 권역')
-    await user.selectOptions(screen.getByLabelText('클래스'), '파이터')
-    expect(screen.queryByLabelText('하위 클래스')).toBeNull()
-  })
+    await user.selectOptions(race, "엘프");
+    expect(Array.from(subrace.options).map((option) => option.value)).toContain("하이 엘프");
+    expect(Array.from(subrace.options).map((option) => option.value)).not.toContain("언덕 드워프");
+    await user.selectOptions(race, "인간");
+    expect(subrace.disabled).toBe(true);
+  });
 
-  it('서버 평가 결과를 공격 및 파생 미리보기에 우선 적용한다', async () => {
-    const { setupApi, sessionApi } = fixture(); const user = userEvent.setup()
-    render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
-    await user.selectOptions(await screen.findByLabelText('종족'), '인간')
-    await user.selectOptions(screen.getByLabelText('클래스'), '파이터')
-    await waitFor(() => expect(screen.getByLabelText('공격 목록').textContent).toContain('레이피어'))
-    expect(screen.getByText(/방어도/).textContent).toContain('17')
-  })
+  it("uses the standard array without allowing duplicate values", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "능력치" }));
+    await user.selectOptions(screen.getByLabelText("근력 능력치"), "15");
+    expect(screen.getByLabelText("민첩 능력치").querySelector('option[value="15"]')).toBeNull();
+  });
 
-  it('로그는 숙련 기술 중 두 개의 숙달을 선택한다', async () => {
-    const { setupApi, sessionApi } = fixture(); const user = userEvent.setup()
-    render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
-    await user.selectOptions(await screen.findByLabelText('클래스'), '로그')
-    await user.click(screen.getByLabelText('곡예')); await user.click(screen.getByLabelText('은신')); await user.click(screen.getByLabelText('지각')); await user.click(screen.getByLabelText('수사'))
-    const expertiseGroup = screen.getByText('숙달 2개 선택').closest('fieldset')
-    expect(expertiseGroup?.textContent).toContain('곡예')
-    expect(expertiseGroup?.textContent).not.toContain('종교')
-  })
+  it("replaces the owned equipment when a different bundle is selected", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "장비" }));
+    await user.click(screen.getByRole("button", { name: /로그 시작 장비/ }));
+    expect(screen.getByText("숏소드")).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /던전 탐험가 꾸러미/ }));
+    expect(screen.queryByText("숏소드")).toBeNull();
+    expect(screen.getByText("횃불 10개")).toBeTruthy();
+  });
 
-  it('기술 보너스와 수동 지각 및 주문 슬롯을 표시한다', async () => {
-    const { setupApi, sessionApi } = fixture(); const user = userEvent.setup()
-    render(<CharacterCreationPage sessionId="session-1" setupApi={setupApi} sessionApi={sessionApi} />)
-    await user.selectOptions(await screen.findByLabelText('종족'), '인간')
-    await user.selectOptions(screen.getByLabelText('클래스'), '위저드')
-    await waitFor(() => expect(screen.getByText(/수동 지각/).textContent).toContain('12'))
-    expect(screen.getByLabelText('기술 보너스').textContent).toContain('지각')
-    expect(screen.getByText(/1레벨 슬롯/).textContent).toContain('2')
-  })
-})
+  it("shows creation-time spell choices and computed spell metadata", async () => {
+    const user = userEvent.setup();
+    renderPage();
+    await user.selectOptions(await screen.findByLabelText("직업"), "위저드");
+    await user.click(screen.getByRole("button", { name: "주문" }));
+    expect(screen.getByText("선택 가능한 주문")).toBeTruthy();
+    expect(screen.getByText("마법 갑주")).toBeTruthy();
+    expect(screen.getByText("선택 가능한 소마법")).toBeTruthy();
+    expect(screen.getByText("생성 후 플레이에서 사용")).toBeTruthy();
+  });
+
+  it("restores the in-progress selections after a provider remount", async () => {
+    const user = userEvent.setup();
+    const first = renderPage();
+    await user.selectOptions(await screen.findByLabelText("종족"), "엘프");
+    await user.selectOptions(screen.getByLabelText("직업"), "로그");
+
+    first.unmount();
+    renderPage();
+
+    expect((await screen.findByLabelText("종족") as HTMLSelectElement).value).toBe("엘프");
+    expect((screen.getByLabelText("직업") as HTMLSelectElement).value).toBe("로그");
+  });
+
+  it("saves final ability scores and rule-derived generation data", async () => {
+    const user = userEvent.setup();
+    const { createCharacterSheet, addMember } = renderPage();
+    await user.type(await screen.findByPlaceholderText("이름을 입력하세요"), "아리아");
+    await user.selectOptions(screen.getByLabelText("종족"), "인간");
+    await user.selectOptions(screen.getByLabelText("직업"), "위저드");
+    await user.click(screen.getByRole("button", { name: "능력치" }));
+    for (const [label, value] of [
+      ["근력 능력치", "15"],
+      ["민첩 능력치", "14"],
+      ["건강 능력치", "13"],
+      ["지능 능력치", "12"],
+      ["지혜 능력치", "10"],
+      ["매력 능력치", "8"],
+    ]) {
+      await user.selectOptions(screen.getByLabelText(label), value);
+    }
+    await user.click(screen.getByRole("button", { name: "캐릭터 저장하기 →" }));
+
+    const draft = createCharacterSheet.mock.calls[0][0];
+    expect(draft.ownerPlayerId).toBe("player-1");
+    expect(addMember).toHaveBeenCalledWith("session-1", 0, expect.objectContaining({ characterSheetId: "sheet-1", controlMode: "DIRECT" }));
+    const build = JSON.parse(draft.characterBuild) as { baseStats: number[]; stats: number[]; raceBonus: number[]; learnedSpells: string[]; schemaVersion: number; skillProficiencies: string[]; equipmentSelections: Record<string, string>; equippedItems: { armor: string; shield: boolean } };
+    expect(build.baseStats).toEqual([15, 14, 13, 12, 10, 8]);
+    expect(build.stats).toEqual([16, 15, 14, 13, 11, 9]);
+    expect(build.raceBonus).toEqual([1, 1, 1, 1, 1, 1]);
+    expect(build.schemaVersion).toBe(1);
+    expect(build.skillProficiencies.length).toBeGreaterThanOrEqual(2);
+    expect(build.equipmentSelections).toEqual({ equipmentBundle: "dungeon-explorer" });
+    expect(build.equippedItems).toEqual({ armor: "가죽 갑옷", shield: false });
+    expect(build.learnedSpells).toHaveLength(6);
+  });
+});

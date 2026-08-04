@@ -49,7 +49,7 @@ echo "    Infra ready."
 
 # WSL bash cannot execute the repository's CRLF gradle wrapper directly.
 # Normalize only a temporary copy so the source wrapper remains untouched.
-GRADLEW_TMP="$(mktemp)"
+GRADLEW_TMP="$(mktemp "$ROOT/gradlew.linux.XXXXXX")"
 tr -d '\r' < "$ROOT/gradlew" > "$GRADLEW_TMP"
 chmod +x "$GRADLEW_TMP"
 

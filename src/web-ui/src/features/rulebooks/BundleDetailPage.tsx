@@ -1,0 +1,154 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Button } from '../../components/ui/button'
+import { Card, CardContent } from '../../components/ui/card'
+import { Checkbox } from '../../components/ui/checkbox'
+import { Select } from '../../components/ui/select'
+import type { KnowledgeDocumentView, ScenarioBundleRole, ScenarioBundleView, ScenarioPackageView, SetupApi } from './SetupApi'
+import type { AdventureSessionApi, AdventureSessionView } from '../adventure-session/AdventureSessionApi'
+
+const roles: Array<[ScenarioBundleRole, string]> = [
+  ['RULEBOOK', '룰북'],
+  ['MAIN_SCENARIO', '메인 시나리오'],
+  ['MAP', '지도'],
+  ['HANDOUT', '핸드아웃'],
+  ['APPENDIX', '부록'],
+  ['REFERENCE', '참고 자료'],
+  ['CHARACTER_SHEET', '캐릭터 시트'],
+  ['UNDETERMINED', '미확정'],
+]
+
+export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bundleId: string; api: SetupApi; playerId: string; sessionApi: Pick<AdventureSessionApi, 'create' | 'listByScenarioPackage'> }) {
+  const [bundle, setBundle] = useState<ScenarioBundleView | null>(null)
+  const [documents, setDocuments] = useState<KnowledgeDocumentView[]>([])
+  const [packages, setPackages] = useState<ScenarioPackageView[]>([])
+  const [sessions, setSessions] = useState<AdventureSessionView[]>([])
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [rolesByDocument, setRolesByDocument] = useState<Record<string, ScenarioBundleRole>>({})
+  const [message, setMessage] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [creatingSessionFor, setCreatingSessionFor] = useState<string | null>(null)
+
+  useEffect(() => {
+    window.localStorage.setItem('dnd-selected-bundle-id', bundleId)
+    window.dispatchEvent(new Event('dnd-selected-bundle-change'))
+  }, [bundleId])
+
+  useEffect(() => {
+    let active = true
+    void Promise.all([
+      api.getScenarioBundle?.(bundleId),
+      api.listKnowledgeDocuments(playerId),
+      api.listScenarioPackages?.(bundleId) ?? Promise.resolve([]),
+    ]).then(async ([loadedBundle, loadedDocuments, loadedPackages]) => {
+      if (!active || !loadedBundle) return
+      setBundle(loadedBundle)
+      setDocuments(loadedDocuments)
+      setPackages(loadedPackages)
+      const currentPackage = loadedPackages.find(item => item.bundleRevision === loadedBundle.currentRevision)
+      setSessions(currentPackage ? await sessionApi.listByScenarioPackage(currentPackage.packageId) : [])
+      setSelectedIds(new Set(loadedBundle.documents.map(document => document.knowledgeDocumentId)))
+      setRolesByDocument(Object.fromEntries(loadedBundle.documents.map(document => [document.knowledgeDocumentId, document.role])))
+    }).catch(error => {
+      if (active) setMessage(error instanceof Error ? error.message : '번들 정보를 불러오지 못했습니다.')
+    })
+    return () => { active = false }
+  }, [api, bundleId, playerId, sessionApi])
+
+  const selectedDocuments = useMemo(() => documents.filter(document => selectedIds.has(document.knowledgeDocumentId)), [documents, selectedIds])
+
+  function toggleDocument(documentId: string) {
+    setSelectedIds(current => {
+      const next = new Set(current)
+      if (next.has(documentId)) next.delete(documentId)
+      else next.add(documentId)
+      return next
+    })
+  }
+
+  async function save() {
+    if (!api.reviseScenarioBundle || !bundle || selectedDocuments.length === 0) return
+    setSaving(true)
+    setMessage('')
+    try {
+      const saved = await api.reviseScenarioBundle(bundle.bundleId, playerId, selectedDocuments.map(document => ({
+        knowledgeDocumentId: document.knowledgeDocumentId,
+        role: rolesByDocument[document.knowledgeDocumentId] ?? 'UNDETERMINED',
+      })))
+      setBundle(saved)
+      setPackages(api.listScenarioPackages ? await api.listScenarioPackages(saved.bundleId) : [])
+      setMessage(`번들을 v${saved.currentRevision}로 저장했습니다.`)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '번들을 저장하지 못했습니다.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function createAdventure(packageId: string) {
+    if (!api.getPlayPreparation) return
+    setCreatingSessionFor(packageId)
+    setMessage('모험 세션을 준비하고 있습니다.')
+    try {
+      const preparation = await api.getPlayPreparation(packageId)
+      const session = await sessionApi.create({
+        scenarioPackageId: packageId,
+        blueprintId: packageId,
+        blueprintRevision: preparation.characterCreationBlueprint.revision ?? 0,
+      })
+      window.location.hash = `#/sessions/${session.sessionId}/party`
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '모험 세션을 만들지 못했습니다.')
+    } finally {
+      setCreatingSessionFor(null)
+    }
+  }
+
+  if (!bundle) return <section aria-labelledby="bundle-detail-title"><h2 id="bundle-detail-title">번들 불러오는 중…</h2>{message && <p role="alert">{message}</p>}</section>
+
+  return <section aria-labelledby="bundle-detail-title" className="bundle-detail-page">
+    <div className="bundle-detail-heading">
+      <div>
+        <p className="eyebrow">SCENARIO BUNDLE</p>
+        <h2 id="bundle-detail-title">번들 구성요소</h2>
+        <p>{bundle.bundleId} · 현재 리비전 v{bundle.currentRevision}</p>
+      </div>
+      <Button type="button" onClick={() => void save()} disabled={saving || selectedDocuments.length === 0}>
+        {saving ? '저장 중…' : '번들 변경사항 저장'}
+      </Button>
+    </div>
+    {message && <p role="status">{message}</p>}
+      <Card>
+      <div className="bundle-card-heading"><h3>문서 구성요소 ({selectedDocuments.length})</h3></div>
+      <CardContent>
+        <ul className="bundle-component-list" aria-label="번들 구성요소 목록">
+          {documents.map(document => <li key={document.knowledgeDocumentId}>
+            <Checkbox aria-label={`${document.originalFilename} 포함`} checked={selectedIds.has(document.knowledgeDocumentId)} onCheckedChange={() => toggleDocument(document.knowledgeDocumentId)} />
+            <div className="bundle-component-info">
+              <strong>{document.originalFilename}</strong>
+              <small>{document.documentType} · {document.status}</small>
+            </div>
+            <Select aria-label={`${document.originalFilename} 역할`} value={rolesByDocument[document.knowledgeDocumentId] ?? 'UNDETERMINED'} disabled={!selectedIds.has(document.knowledgeDocumentId)} onChange={event => setRolesByDocument(current => ({ ...current, [document.knowledgeDocumentId]: event.target.value as ScenarioBundleRole }))}>
+              {roles.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </Select>
+          </li>)}
+        </ul>
+      </CardContent>
+      </Card>
+    <Card>
+      <div className="bundle-card-heading"><h3>연결된 모험 세션 ({sessions.length})</h3></div>
+      <CardContent>
+        {sessions.length === 0 ? <p>이 번들로 생성된 모험 세션이 없습니다.</p> : <ul aria-label="번들 연결 모험 세션 목록">{sessions.map(session => <li key={session.sessionId}>
+          <strong>{session.sessionId}</strong> · {session.status} · 캐릭터 {session.party.length}/{session.characterLimit}
+          {session.party.length > 0 && <ul>{session.party.map(member => <li key={member.characterSheetId}><a href={`#/character/${member.characterSheetId}`}>{member.characterSheetId}</a> · {member.controlMode}</li>)}</ul>}
+          <Button type="button" variant="outline" onClick={() => { window.location.hash = `#/sessions/${session.sessionId}/party` }}>파티 구성 열기</Button>
+        </li>)}</ul>}
+      </CardContent>
+    </Card>
+    <Card>
+      <div className="bundle-card-heading"><h3>컴파일 패키지</h3></div>
+      <CardContent>
+          {packages.length === 0 ? <p>이 번들로 컴파일된 패키지가 없습니다.</p> : <ul aria-label="번들 컴파일 패키지 목록">{packages.map(item => <li key={item.packageId}>v{item.bundleRevision} · {item.packageId} · {item.reportStatus} <Button type="button" onClick={() => void createAdventure(item.packageId)} disabled={item.reportStatus !== 'COMPLETE' || creatingSessionFor !== null}>{creatingSessionFor === item.packageId ? '세션 준비 중…' : '이 번들로 모험 만들기'}</Button> <Button type="button" variant="outline" onClick={() => { window.location.hash = `#/scenario-packages/${item.packageId}/character-blueprint` }}>캐릭터 생성 시작</Button></li>)}</ul>}
+      </CardContent>
+    </Card>
+  </section>
+}

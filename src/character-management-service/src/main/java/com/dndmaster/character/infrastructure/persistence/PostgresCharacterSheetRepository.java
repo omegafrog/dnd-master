@@ -5,6 +5,7 @@ import com.dndmaster.character.domain.*;
 import java.sql.*;
 import java.util.Map;
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import javax.sql.DataSource;
@@ -22,6 +23,21 @@ public final class PostgresCharacterSheetRepository implements CharacterSheetRep
     @Override
     public Optional<CharacterSheet> findById(CharacterSheetId id) {
         return findVersionedById(id).map(VersionedCharacterSheet::sheet);
+    }
+
+    @Override
+    public List<CharacterSheet> findByOwnerPlayerId(UUID ownerPlayerId) {
+        String sql = "SELECT * FROM " + TABLE + " WHERE owner_player_id = ? ORDER BY updated_at DESC, character_sheet_id";
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, ownerPlayerId);
+            try (ResultSet rows = statement.executeQuery()) {
+                List<CharacterSheet> sheets = new java.util.ArrayList<>();
+                while (rows.next()) sheets.add(map(rows).sheet());
+                return sheets;
+            }
+        } catch (SQLException exception) {
+            throw failure("could not list character sheets", exception);
+        }
     }
 
     @Override

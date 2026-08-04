@@ -31,49 +31,6 @@ it('lists, resumes, deletes and configures session knowledge sets', async () => 
     async getRulebookStatus() { return { rulebookId: 'rulebook-1', status: 'INDEXED' as const } },
     async retryKnowledgeDocument(knowledgeDocumentId: string) { return { rulebookId: knowledgeDocumentId, status: 'INDEXED' as const } },
     async getSourcePreview() { throw new Error() },
-    async uploadScenario(file) {
-      return {
-        id: 'scenario',
-        name: file.name,
-        deprecated: true,
-        deprecationMessage: 'bundle/package flows로 전환하세요.',
-        legacyScenarioId: 'scenario',
-        sunset: 'Fri, 31 Dec 2027 00:00:00 GMT',
-      }
-    },
-    async migrateLegacyScenario() { return { scenarioId: 'legacy', bundleId: null, packageId: null, knowledgeDocumentId: null, requiresReupload: true, reupload: false, sourceFilename: 'legacy.pdf', message: 'legacy source is missing; reupload required' } },
-    async reuploadLegacyScenario() { return { scenarioId: 'legacy', bundleId: 'bundle-legacy', packageId: 'package-legacy', knowledgeDocumentId: 'doc-legacy', requiresReupload: false, reupload: true, sourceFilename: 'legacy.pdf', message: 'legacy scenario reupload migrated' } },
-    async getRuntimeBinding() {
-      return {
-        adventureId: 'old',
-        bindingVersion: 3,
-        scenarioPackageId: 'package-old',
-        scenarioPackageRevision: 1,
-        rulebookIds: ['doc-1'],
-        characterSheetId: 'sheet-1',
-        party: [],
-        engineId: 'engine-1',
-        toolIds: ['search'],
-        playabilityReport: { status: 'PLAYABLE' as const, warnings: [], blockers: [], limits: [], candidates: [] },
-        activeSourceContext: null,
-      }
-    },
-    async switchRuntimePackage(adventureId, _ownerId, bindingVersion, scenarioPackageId) {
-      calls.push(`switch:${adventureId}:${bindingVersion}:${scenarioPackageId}`)
-      return {
-        adventureId,
-        bindingVersion: bindingVersion + 1,
-        scenarioPackageId,
-        scenarioPackageRevision: 2,
-        rulebookIds: ['doc-1'],
-        characterSheetId: 'sheet-1',
-        party: [],
-        engineId: 'engine-1',
-        toolIds: ['search'],
-        playabilityReport: { status: 'PLAYABLE' as const, warnings: [], blockers: [], limits: [], candidates: [] },
-        activeSourceContext: null,
-      }
-    },
     async createScenarioBundle() { return { bundleId: 'bundle', ownerPlayerId: 'p1', currentRevision: 1, documents: [] } },
     async reviseScenarioBundle() { return { bundleId: 'bundle', ownerPlayerId: 'p1', currentRevision: 2, documents: [] } },
     async getScenarioBundle() { return { bundleId: 'bundle', ownerPlayerId: 'p1', currentRevision: 1, documents: [] } },
@@ -99,16 +56,9 @@ it('lists, resumes, deletes and configures session knowledge sets', async () => 
   const user = userEvent.setup()
   render(<SavedAdventurePanel playApi={api} setupApi={setupApi} playerId="p1" />)
   expect(await screen.findByText('Old Keep')).toBeInTheDocument()
-  await user.type(screen.getByLabelText('레거시 시나리오 ID'), 'legacy-scenario-1')
-  await user.click(screen.getByRole('button', { name: '레거시 시나리오 마이그레이션' }))
-  expect(await screen.findByText(/레거시 소스 누락: legacy\.pdf/)).toBeInTheDocument()
-  await user.upload(screen.getByLabelText('재업로드 파일'), new File(['legacy'], 'legacy.pdf', { type: 'application/pdf' }))
-  await user.click(screen.getByRole('button', { name: '레거시 재업로드' }))
-  expect(await screen.findByText(/legacy scenario reupload migrated: legacy\.pdf · 번들 bundle-legacy · 패키지 package-legacy · 문서 doc-legacy/)).toBeInTheDocument()
+  expect(screen.queryByText('레거시 시나리오 마이그레이션')).not.toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: '자료 설정' }))
   expect(await screen.findByRole('checkbox', { name: /phb\.pdf/ })).toBeChecked()
-  await user.click(screen.getByRole('button', { name: '현재 모험에 패키지 전환' }))
-  expect(await screen.findByText('레거시 패키지를 전환했습니다.')).toBeInTheDocument()
   const old = screen.getByText('Old Keep').closest('li')!
   await user.click(old.querySelectorAll('button')[0])
   expect(screen.getByText('모험을 재개했습니다.')).toBeInTheDocument()
@@ -119,5 +69,4 @@ it('lists, resumes, deletes and configures session knowledge sets', async () => 
   expect(calls).toContain('resume:old')
   expect(calls).toContain('delete:old')
   expect(calls).toContain('session:old:doc-1')
-  expect(calls).toContain('switch:old:3:package-legacy')
 })

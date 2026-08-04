@@ -257,7 +257,7 @@ function Journey() {
       <RulebookSetup api={setupApi} playerId="player-e2e" asMain={false} />
       <AdventureSessionPanel api={sessionApi} sessionId="session-e2e" />
       <ScenarioUploadPanel />
-      <CharacterCreationPage sessionId="character-session-e2e" setupApi={setupApi} sessionApi={characterSessionApi} />
+      <CharacterCreationPage sessionId="character-session-e2e" ownerPlayerId="player-e2e" setupApi={setupApi} sessionApi={characterSessionApi} />
       <div aria-label="모험 플레이">
         <AdventureStream adventureId={adventureId} api={adventureApi} />
         <RuleEvidence adventureId={adventureId} api={guidanceApi} />

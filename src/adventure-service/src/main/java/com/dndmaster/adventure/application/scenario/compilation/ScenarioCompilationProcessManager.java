@@ -20,13 +20,16 @@ public final class ScenarioCompilationProcessManager {
     }
 
     public ScenarioCompilation start(ScenarioBundleId bundleId, long bundleRevision, String inputFingerprint) {
-        var existing = repository.findByInputFingerprint(inputFingerprint);
+        return start(bundleId, bundleRevision, inputFingerprint, inputFingerprint);
+    }
+    public ScenarioCompilation start(ScenarioBundleId bundleId, long bundleRevision, String inputFingerprint, String idempotencyKey) {
+        var existing = repository.findByIdempotencyKey(idempotencyKey).or(() -> repository.findByInputFingerprint(inputFingerprint));
         if (existing.isPresent()) {
             log.info("scenario compilation reuse bundleId={} revision={} inputFingerprint={} compilationId={}",
                     bundleId.value(), bundleRevision, inputFingerprint, existing.get().id());
             return existing.get();
         }
-        ScenarioCompilation compilation = ScenarioCompilation.request(bundleId, bundleRevision, inputFingerprint);
+        ScenarioCompilation compilation = ScenarioCompilation.request(bundleId, bundleRevision, inputFingerprint, idempotencyKey);
         repository.save(compilation);
         queue.enqueue(new WorkEnvelope(
                 UUID.randomUUID(), WORK_TYPE, compilation.id(), bundleRevision, inputFingerprint, 0));

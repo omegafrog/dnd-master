@@ -13,6 +13,22 @@ import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.adventure.SessionId;
 import com.dndmaster.adventure.domain.adventure.ScenarioId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
+import com.dndmaster.adventure.application.runtime.RuntimeBindingApplicationService;
+import com.dndmaster.adventure.application.saved.AdventureRepository;
+import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
+import com.dndmaster.adventure.application.session.AdventureSessionApplicationService;
+import com.dndmaster.adventure.application.session.AdventureSessionRepository;
+import com.dndmaster.adventure.application.session.AdventureSessionStartCoordinator;
+import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
+import com.dndmaster.adventure.domain.scenario.CharacterLimit;
+import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
+import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
+import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
+import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
+import static org.mockito.Mockito.*;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -29,6 +45,28 @@ class AdventureSessionTest {
                 SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 1, 1, configuration);
 
         assertEquals(configuration, session.runtimeConfiguration());
+    }
+
+    @Test
+    void creates_default_runtime_configuration_from_compiled_package() {
+        var packages = mock(ScenarioPackageRepository.class);
+        var bundleId = ScenarioBundleId.generate();
+        var rulebookId = UUID.randomUUID();
+        var scenarioPackage = ScenarioPackage.publish(bundleId, 1, "fingerprint", List.of(
+                new ScenarioBundleDocumentSelection(new KnowledgeDocumentId(rulebookId), ScenarioBundleDocumentRole.RULEBOOK,
+                        KnowledgeDocumentStatus.INDEXED, "rules.pdf", "RULEBOOK", 1)), List.of(),
+                new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()), CharacterLimit.defaultLimit());
+        when(packages.findById(scenarioPackage.packageId())).thenReturn(java.util.Optional.of(scenarioPackage));
+        var sessions = mock(AdventureSessionRepository.class);
+        var service = new AdventureSessionApplicationService(sessions, packages, mock(AdventureRepository.class),
+                mock(RuntimeBindingApplicationService.class), mock(AdventureSessionStartCoordinator.class));
+
+        var session = service.create(new OwnerPlayerId(UUID.randomUUID()), scenarioPackage.packageId(), (AdventureSessionRuntimeConfiguration) null);
+
+        assertEquals(scenarioPackage.packageId(), session.runtimeConfiguration().scenarioId().value());
+        assertEquals(bundleId.value(), session.runtimeConfiguration().ruleSetId().value());
+        assertEquals(List.of(rulebookId), session.runtimeConfiguration().rulebookIds());
+        assertEquals("opening", session.runtimeConfiguration().initialScene());
     }
 
     @Test

@@ -11,6 +11,13 @@ export type CharacterSheet = {
   charisma: number
 }
 
+type CharacterSheetResponse = {
+  characterSheetId: string
+  characterName: string
+  edition: string
+  derivedStatistics: string
+}
+
 export type SavedAdventure = { id: string; title: string; updatedAt: string }
 
 export type SessionKnowledgeSet = {
@@ -56,8 +63,28 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
   }
 
   getCharacter(sheetId: string) {
-    return request<CharacterSheet>(`/internal/v1/character-sheets/${sheetId}`, {
+    return request<CharacterSheetResponse>(`/internal/v1/character-sheets/${sheetId}?edition=DND_5E_2014`, {
       headers: this.authHeaders(),
+    }).then(sheet => {
+      let derived: { armorClass?: number; abilityScores?: Record<string, number> } = {}
+      try {
+        derived = JSON.parse(sheet.derivedStatistics) as typeof derived
+      } catch {
+        // Keep the detail view usable even when an older sheet has no derived JSON.
+      }
+      const scores = derived.abilityScores ?? {}
+      return {
+        characterSheetId: sheet.characterSheetId,
+        name: sheet.characterName,
+        edition: sheet.edition,
+        armorClass: derived.armorClass ?? 0,
+        strength: scores.strength ?? 0,
+        dexterity: scores.dexterity ?? 0,
+        constitution: scores.constitution ?? 0,
+        intelligence: scores.intelligence ?? 0,
+        wisdom: scores.wisdom ?? 0,
+        charisma: scores.charisma ?? 0,
+      }
     })
   }
 

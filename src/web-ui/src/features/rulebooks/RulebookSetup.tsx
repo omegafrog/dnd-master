@@ -4,11 +4,17 @@ import type {
   DocumentType,
   KnowledgeDocumentView,
   RulebookUploadDraft,
+  ScenarioBundleView,
   SetupApi,
   SourcePreviewView,
 } from './SetupApi'
 import { ScenarioSetup } from '../scenarios/ScenarioSetup'
 import type { AdventureSessionApi } from '../adventure-session/AdventureSessionApi'
+import { Button } from '../../components/ui/button'
+import { Card, CardContent } from '../../components/ui/card'
+import { Checkbox } from '../../components/ui/checkbox'
+import { Input } from '../../components/ui/input'
+import { Select } from '../../components/ui/select'
 
 const batchStatusText: Record<BatchRulebookView['status'], string> = {
   ACCEPTED: '사용 준비 완료',
@@ -45,13 +51,11 @@ export function RulebookSetup({
   playerId,
   asMain = true,
   sessionApi,
-  onSessionCreated,
 }: {
   api: SetupApi
   playerId: string
   asMain?: boolean
-  sessionApi?: Pick<AdventureSessionApi, 'create'>
-  onSessionCreated?: (sessionId: string) => void
+  sessionApi?: Pick<AdventureSessionApi, 'create' | 'listByScenarioPackage'>
 }) {
   const [drafts, setDrafts] = useState<PendingDocument[]>([])
   const [results, setResults] = useState<BatchRulebookView[]>([])
@@ -61,6 +65,11 @@ export function RulebookSetup({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [ruleSetMessage, setRuleSetMessage] = useState('')
   const [sourcePreview, setSourcePreview] = useState<SourcePreviewView | null>(null)
+  const [bundles, setBundles] = useState<ScenarioBundleView[]>([])
+  const [selectedBundleIds, setSelectedBundleIds] = useState<Set<string>>(new Set())
+  const [selectedBundle, setSelectedBundle] = useState<ScenarioBundleView | null>(null)
+  const [deletingBundleId, setDeletingBundleId] = useState<string | null>(null)
+  const [deletingBundles, setDeletingBundles] = useState(false)
 
   const refreshDocuments = useCallback(async () => {
     try {
@@ -73,6 +82,83 @@ export function RulebookSetup({
   useEffect(() => {
     void refreshDocuments()
   }, [refreshDocuments])
+
+  const refreshBundles = useCallback(async () => {
+    if (!api.listScenarioBundles) return
+    try {
+      const loadedBundles = await api.listScenarioBundles()
+      setBundles(loadedBundles)
+      setSelectedBundleIds(current => new Set([...current].filter(id => loadedBundles.some(bundle => bundle.bundleId === id))))
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '시나리오 번들 목록을 불러오지 못했습니다.')
+    }
+  }, [api])
+
+  useEffect(() => {
+    void refreshBundles()
+  }, [refreshBundles])
+
+  async function openBundle(bundleId: string) {
+    try {
+      if (!api.getScenarioBundle) return
+      window.localStorage.setItem('dnd-selected-bundle-id', bundleId)
+      window.dispatchEvent(new Event('dnd-selected-bundle-change'))
+      setSelectedBundle(await api.getScenarioBundle(bundleId))
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '시나리오 번들을 불러오지 못했습니다.')
+    }
+  }
+
+  async function deleteBundle(bundleId: string) {
+    if (!api.deleteScenarioBundle || !window.confirm('이 번들과 연결된 컴파일 패키지도 삭제합니다. 계속할까요?')) return
+    setDeletingBundleId(bundleId)
+    try {
+      await api.deleteScenarioBundle(bundleId)
+      setBundles(current => current.filter(bundle => bundle.bundleId !== bundleId))
+      setSelectedBundleIds(current => {
+        const next = new Set(current)
+        next.delete(bundleId)
+        return next
+      })
+      setSelectedBundle(current => current?.bundleId === bundleId ? null : current)
+      setMessage('시나리오 번들을 삭제했습니다.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '시나리오 번들을 삭제하지 못했습니다.')
+    } finally {
+      setDeletingBundleId(null)
+    }
+  }
+
+  function toggleBundleSelection(bundleId: string) {
+    setSelectedBundleIds(current => {
+      const next = new Set(current)
+      if (next.has(bundleId)) next.delete(bundleId)
+      else next.add(bundleId)
+      return next
+    })
+  }
+
+  function toggleAllBundles() {
+    setSelectedBundleIds(current => current.size === bundles.length
+      ? new Set()
+      : new Set(bundles.map(bundle => bundle.bundleId)))
+  }
+
+  async function deleteSelectedBundles() {
+    if (!api.deleteScenarioBundle || selectedBundleIds.size === 0) return
+    if (!window.confirm(`선택한 ${selectedBundleIds.size}개 번들과 연결된 컴파일 패키지를 모두 삭제할까요?`)) return
+
+    setDeletingBundles(true)
+    const bundleIds = [...selectedBundleIds]
+    const outcomes = await Promise.allSettled(bundleIds.map(bundleId => api.deleteScenarioBundle!(bundleId)))
+    const deletedIds = bundleIds.filter((_, index) => outcomes[index].status === 'fulfilled')
+    const failedIds = bundleIds.filter((_, index) => outcomes[index].status === 'rejected')
+    setBundles(current => current.filter(bundle => !deletedIds.includes(bundle.bundleId)))
+    setSelectedBundleIds(new Set(failedIds))
+    setSelectedBundle(current => current && deletedIds.includes(current.bundleId) ? null : current)
+    setMessage(failedIds.length ? `${deletedIds.length}개 삭제, ${failedIds.length}개 삭제 실패` : `${deletedIds.length}개 번들을 삭제했습니다.`)
+    setDeletingBundles(false)
+  }
 
   function updateDraftType(index: number, documentType: DocumentType) {
     setDrafts(current => current.map((draft, draftIndex) => draftIndex === index ? { ...draft, documentType } : draft))
@@ -143,15 +229,15 @@ export function RulebookSetup({
   const Container = asMain ? 'main' : 'section'
 
   return (
-    <Container>
-      <h1>자료와 모험 설정</h1>
+    <Container className="setup-page">
+      <div className="page-heading"><div><p className="eyebrow">ADVENTURE WORKSHOP</p><h1>자료와 모험 설정</h1><p>룰북과 시나리오 자료를 준비하고 플레이 가능한 번들을 만드세요.</p></div></div>
       <p role="status" aria-live="polite">{message}</p>
-      <section aria-labelledby="rulebook-heading">
+      <section className="setup-panel setup-upload-panel" aria-labelledby="rulebook-heading">
         <h2 id="rulebook-heading">자료 업로드</h2>
         <form onSubmit={upload}>
           <label>
             자료 파일
-            <input
+            <Input
               name="rulebooks"
               type="file"
               accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff,.bmp"
@@ -167,7 +253,7 @@ export function RulebookSetup({
               }}
             />
           </label>
-          <button type="submit" disabled={uploading || drafts.length === 0}>{uploading ? '업로드 중…' : '자료 업로드'}</button>
+          <Button type="submit" disabled={uploading || drafts.length === 0}>{uploading ? '업로드 중…' : '자료 업로드'}</Button>
         </form>
         {drafts.length > 0 && (
           <ul aria-label="자료 유형 선택">
@@ -175,14 +261,14 @@ export function RulebookSetup({
               <li key={draft.idempotencyKey}>
                 <label>
                   {draft.originalFilename} 유형
-                  <select
+                  <Select
                     aria-label={`${draft.originalFilename} 유형`}
                     value={draft.documentType}
                     onChange={event => updateDraftType(index, event.currentTarget.value as DocumentType)}
                   >
                     <option value="RULEBOOK">{documentTypeLabel.RULEBOOK}</option>
                     <option value="STORYBOOK">{documentTypeLabel.STORYBOOK}</option>
-                  </select>
+                  </Select>
                 </label>
               </li>
             ))}
@@ -193,7 +279,7 @@ export function RulebookSetup({
             <li key={result.knowledgeDocumentId ?? `${result.originalFilename}-${result.status}`}>
               {result.knowledgeDocumentId ? (
                 <label>
-                  <input
+                  <Input
                     type="checkbox"
                     checked={selectedIds.has(result.knowledgeDocumentId)}
                     onChange={() => toggleSelected(result.knowledgeDocumentId!)}
@@ -209,10 +295,10 @@ export function RulebookSetup({
           ))}
         </ul>
         {results.some(result => result.status === 'ACCEPTED') && (
-          <button onClick={() => void saveRuleSet()}>룰 세트 저장</button>
+          <Button onClick={() => void saveRuleSet()}>룰 세트 저장</Button>
         )}
         {ruleSetMessage && <p role="status">{ruleSetMessage}</p>}
-        <section aria-labelledby="document-status-heading">
+        <section className="setup-subpanel" aria-labelledby="document-status-heading">
           <h3 id="document-status-heading">문서 상태</h3>
           <ul aria-label="문서 상태 목록">
             {documents.map(document => (
@@ -223,14 +309,14 @@ export function RulebookSetup({
                 {document.failureReason ? <span> ({document.failureReason})</span> : null}
                 {document.warnings?.length ? <span> [경고: {document.warnings.join(', ')}]</span> : null}
                 {(document.status === 'EXTRACTED' || document.status === 'PARTIAL_CONFIRMED') ? (
-                  <button type="button" onClick={() => void previewDocument(document.knowledgeDocumentId)}>
+                  <Button type="button" variant="outline" onClick={() => void previewDocument(document.knowledgeDocumentId)}>
                     미리보기
-                  </button>
+                  </Button>
                 ) : null}
                 {document.status === 'FAILED' ? (
-                  <button type="button" onClick={() => void retryDocument(document.knowledgeDocumentId)}>
+                  <Button type="button" variant="outline" onClick={() => void retryDocument(document.knowledgeDocumentId)}>
                     다시 처리
-                  </button>
+                  </Button>
                 ) : null}
               </li>
             ))}
@@ -270,7 +356,54 @@ export function RulebookSetup({
           ) : null}
         </section>
       </section>
-      <ScenarioSetup api={api} playerId={playerId} onError={setMessage} sessionApi={sessionApi} onSessionCreated={onSessionCreated} availableDocuments={documents} />
+      <Card className="setup-panel setup-bundle-list" aria-labelledby="saved-bundles-heading">
+        <CardContent>
+        <div className="bundle-list-heading">
+          <h2 id="saved-bundles-heading">생성한 번들</h2>
+          <Button type="button" variant="outline" onClick={() => void refreshBundles()}>번들 목록 새로고침</Button>
+        </div>
+        {bundles.length === 0 ? <p>생성한 번들이 없습니다.</p> : (
+          <>
+            <div className="bundle-list-toolbar">
+              <div className="bundle-select-all">
+                <Checkbox aria-label="전체 번들 선택" checked={selectedBundleIds.size === bundles.length} onCheckedChange={toggleAllBundles} />
+                <span>전체 선택</span>
+              </div>
+              <Button type="button" variant="destructive" disabled={selectedBundleIds.size === 0 || deletingBundles} onClick={() => void deleteSelectedBundles()}>
+                {deletingBundles ? '삭제 중…' : `선택 삭제 (${selectedBundleIds.size})`}
+              </Button>
+            </div>
+            <ul aria-label="생성한 번들 목록">
+            {bundles.map(bundle => (
+              <li key={bundle.bundleId}>
+                <Checkbox aria-label={`${bundle.bundleId} 선택`} checked={selectedBundleIds.has(bundle.bundleId)} onCheckedChange={() => toggleBundleSelection(bundle.bundleId)} />
+                <span>{bundle.bundleId} · v{bundle.currentRevision} · 문서 {bundle.documents.length}개</span>
+                <Button type="button" variant="outline" onClick={() => void openBundle(bundle.bundleId)}>번들 열기</Button>
+                <Button type="button" variant="outline" onClick={() => { window.localStorage.setItem('dnd-selected-bundle-id', bundle.bundleId); window.dispatchEvent(new Event('dnd-selected-bundle-change')); window.location.hash = `#/bundles/${bundle.bundleId}` }}>번들 화면</Button>
+                <Button type="button" variant="destructive" disabled={deletingBundleId === bundle.bundleId} onClick={() => void deleteBundle(bundle.bundleId)}>
+                  {deletingBundleId === bundle.bundleId ? '삭제 중…' : '삭제'}
+                </Button>
+              </li>
+            ))}
+            </ul>
+          </>
+        )}
+        </CardContent>
+      </Card>
+      <ScenarioSetup
+        api={api}
+        playerId={playerId}
+        onError={setMessage}
+        sessionApi={sessionApi}
+        availableDocuments={documents}
+        initialBundle={selectedBundle}
+        onBundleSaved={savedBundle => {
+          window.localStorage.setItem('dnd-selected-bundle-id', savedBundle.bundleId)
+          window.dispatchEvent(new Event('dnd-selected-bundle-change'))
+          setSelectedBundle(savedBundle)
+          setBundles(current => [savedBundle, ...current.filter(item => item.bundleId !== savedBundle.bundleId)])
+        }}
+      />
     </Container>
   )
 }

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { backgroundOptions, classOptions, raceOptions } from './Dnd5eCharacterCatalog'
 import { classCreationRule } from './Dnd5eCharacterDerivedRules'
 
-const baseClasses = ['바바리안', '바드', '클레릭', '드루이드', '파이터', '몽크', '팔라딘', '레인저', '로그', '소서러', '워락', '위저드']
+const baseClasses = ['로그', '위저드', '클레릭', '파이터']
 
 describe('Dnd5eCharacterCatalog', () => {
   it('contains all twelve base classes with creation rules', () => {

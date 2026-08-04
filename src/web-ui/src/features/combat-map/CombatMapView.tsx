@@ -15,7 +15,7 @@ export function CombatMapView({ adventureId, api }: { adventureId: string; api: 
   }
 
   return (
-    <section aria-labelledby="map-heading">
+    <section className="adventure-tool map-panel" aria-labelledby="map-heading">
       <h2 id="map-heading">플레이어 전투 맵</h2>
       <p>모험 ID: {adventureId}</p>
       <p role="status">{map ? `현재 맵 상태: ${map.status}` : '전투 맵을 불러오는 중…'}</p>

@@ -52,6 +52,51 @@ public final class PostgresScenarioBundleRepository implements ScenarioBundleRep
     }
 
     @Override
+    public List<ScenarioSourceBundle> findByOwnerId(UUID ownerPlayerId) {
+        List<UUID> bundleIds = new ArrayList<>();
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT bundle_id FROM scenario_source_bundle WHERE owner_player_id = ? ORDER BY bundle_id")) {
+            statement.setObject(1, ownerPlayerId);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) bundleIds.add(rows.getObject("bundle_id", UUID.class));
+            }
+        } catch (SQLException exception) {
+            throw new ScenarioBundlePersistenceException("could not list scenario bundles", exception);
+        }
+        return bundleIds.stream().map(id -> findById(new ScenarioBundleId(id)).orElseThrow()).toList();
+    }
+
+    @Override
+    public void deleteById(ScenarioBundleId bundleId) {
+        try (Connection connection = dataSource.getConnection()) {
+            boolean autoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            try {
+                execute(connection, "DELETE FROM scenario_compilation WHERE bundle_id = ?", bundleId.value());
+                execute(connection, "DELETE FROM scenario_package WHERE bundle_id = ?", bundleId.value());
+                execute(connection, "DELETE FROM scenario_source_bundle WHERE bundle_id = ?", bundleId.value());
+                connection.commit();
+            } catch (SQLException | RuntimeException exception) {
+                rollback(connection, exception);
+                throw exception instanceof RuntimeException runtime ? runtime
+                        : new ScenarioBundlePersistenceException("could not delete scenario bundle", exception);
+            } finally {
+                connection.setAutoCommit(autoCommit);
+            }
+        } catch (SQLException exception) {
+            throw new ScenarioBundlePersistenceException("could not access scenario bundle storage", exception);
+        }
+    }
+
+    private static void execute(Connection connection, String sql, UUID bundleId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, bundleId);
+            statement.executeUpdate();
+        }
+    }
+
+    @Override
     public void save(ScenarioSourceBundle bundle) {
         try (Connection connection = dataSource.getConnection()) {
             boolean previousAutoCommit = connection.getAutoCommit();

@@ -11,6 +11,8 @@ import com.dndmaster.adventure.application.scenario.preparation.ScenarioPreparat
 import com.dndmaster.adventure.application.scenario.preparation.StaticRuntimeOptionCatalog;
 import com.dndmaster.adventure.application.saved.*;
 import com.dndmaster.adventure.application.session.*;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanApplicationService;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository;
 import com.dndmaster.adventure.application.scenario.*;
 import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
@@ -27,6 +29,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresWorkQueueAdapt
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureSessionRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureSessionStartOutboxRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureStoryPlanRepository;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpKnowledgeDocumentLookupGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpPlayerSessionLookupGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpLegacyScenarioIngestionGateway;
@@ -55,6 +58,8 @@ import org.springframework.context.annotation.Configuration;
 
 import javax.sql.DataSource;
 import java.util.List;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAdventureStoryPlanGenerationGateway;
 
 @Configuration(proxyBeanMethods = false)
 public class AdventureApiConfiguration {
@@ -76,8 +81,26 @@ public class AdventureApiConfiguration {
             AdventureRepository adventureRepository,
             RuntimeBindingApplicationService runtimeBindingApplicationService,
             AdventureSessionStartOutboxRepository startOutboxRepository,
-            CharacterSheetOwnershipPort ownershipPort) {
-        return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository, runtimeBindingApplicationService, startOutboxRepository, ownershipPort);
+            CharacterSheetOwnershipPort ownershipPort,
+            AdventureStoryPlanRepository storyPlanRepository) {
+        return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository, runtimeBindingApplicationService, startOutboxRepository, ownershipPort, storyPlanRepository);
+    }
+
+    @Bean
+    AdventureStoryPlanRepository adventureStoryPlanRepository(DataSource dataSource) {
+        return new PostgresAdventureStoryPlanRepository(dataSource);
+    }
+
+    @Bean
+    AdventureStoryPlanApplicationService adventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packages, AdventureStoryPlanGenerationPort generator) {
+        return new AdventureStoryPlanApplicationService(plans, sessions, packages, generator);
+    }
+
+    @Bean
+    AdventureStoryPlanGenerationPort adventureStoryPlanGenerationPort(ObjectMapper mapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl) {
+        return new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(60), mapper);
     }
 
     @Bean

@@ -1,8 +1,10 @@
 package com.dndmaster.aigamemaster.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class ResolutionCandidateControllerTest {
@@ -18,5 +20,34 @@ class ResolutionCandidateControllerTest {
 
         assertEquals(1, candidates.size());
         assertEquals("SKILL_ABILITY_CHECK", candidates.getFirst().kind());
+    }
+
+    @Test
+    void normalizesOllamaJsonWrapperAndCommonEnumAliasesInsteadOfDroppingCandidate() {
+        var controller = new ResolutionCandidateController(null, new ObjectMapper());
+
+        var candidates = controller.parseModel("{\"config\":{},\"response\":\"["
+                + "{\\\"kind\\\":\\\"saving throw\\\",\\\"abilityOrSkill\\\":\\\"Dexterity\\\","
+                + "\\\"dc\\\":12,\\\"diceExpression\\\":\\\"1d10\\\",\\\"visibility\\\":\\\"public\\\","
+                + "\\\"sourceQuote\\\":\\\"DC 12 Dexterity saving throw\\\",\\\"sourceRefs\\\":[\\\"unstructured source\\\"],"
+                + "\\\"detail\\\":\\\"half damage on success\\\",\\\"provenance\\\":\\\"source text\\\"}"
+                + "]\"}");
+
+        assertEquals(1, candidates.size());
+        assertEquals("SAVING_THROW", candidates.getFirst().kind());
+        assertEquals("GM_REFERENCE", candidates.getFirst().visibility());
+        assertEquals(12, candidates.getFirst().dc());
+    }
+
+    @Test
+    void extractsGroundedFallbackWhenModelReturnsEmptyArray() {
+        var candidates = ResolutionCandidateController.fallbackCandidates(List.of(
+                new ResolutionCandidateController.Excerpt(
+                        java.util.UUID.randomUUID(), 2, "offset 10-100",
+                        "The mosaic requires a DC 12 Dexterity saving throw, taking 5 (1d10) damage.")));
+
+        assertFalse(candidates.isEmpty());
+        assertEquals("SAVING_THROW", candidates.getFirst().kind());
+        assertEquals(12, candidates.getFirst().dc());
     }
 }
