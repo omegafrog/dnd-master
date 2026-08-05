@@ -3,6 +3,7 @@ package com.dndmaster.adventure.infrastructure.integration;
 import com.dndmaster.adventure.application.runtime.GameSystemTimeDefinitionAdapter;
 import com.dndmaster.adventure.application.runtime.GameSystemDefinitionPort;
 import com.dndmaster.adventure.application.session.AdventureSessionRepository;
+import com.dndmaster.adventure.application.runtime.RuntimeBindingRepository;
 import com.dndmaster.adventure.domain.adventure.SessionId;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -18,18 +19,27 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 /** Reads the locked session rulebook source. GM input never participates. */
 public final class CrossContextHttpRulebookTimeDefinitionGateway implements Function<UUID, OptionalInt>, GameSystemDefinitionPort {
     private final AdventureSessionRepository sessions;
+    private final RuntimeBindingRepository bindings;
     private final HttpClient httpClient;
     private final URI baseUri;
     private final Duration timeout;
     private final ObjectMapper mapper;
+    private final String internalToken;
 
-    public CrossContextHttpRulebookTimeDefinitionGateway(AdventureSessionRepository sessions, HttpClient httpClient,
-            URI baseUri, Duration timeout, ObjectMapper mapper) {
+    public CrossContextHttpRulebookTimeDefinitionGateway(AdventureSessionRepository sessions, RuntimeBindingRepository bindings,
+            HttpClient httpClient, URI baseUri, Duration timeout, ObjectMapper mapper) {
+        this(sessions, bindings, httpClient, baseUri, timeout, mapper, "");
+    }
+
+    public CrossContextHttpRulebookTimeDefinitionGateway(AdventureSessionRepository sessions, RuntimeBindingRepository bindings,
+            HttpClient httpClient, URI baseUri, Duration timeout, ObjectMapper mapper, String internalToken) {
         this.sessions = Objects.requireNonNull(sessions);
+        this.bindings = Objects.requireNonNull(bindings);
         this.httpClient = Objects.requireNonNull(httpClient);
         this.baseUri = Objects.requireNonNull(baseUri);
         this.timeout = Objects.requireNonNull(timeout);
         this.mapper = Objects.requireNonNull(mapper);
+        this.internalToken = internalToken == null ? "" : internalToken;
     }
 
     @Override
@@ -44,23 +54,40 @@ public final class CrossContextHttpRulebookTimeDefinitionGateway implements Func
             var session = sessions.findById(new SessionId(sessionId)).orElseThrow();
             var configuration = session.runtimeConfiguration();
             if (configuration == null) return java.util.Optional.empty();
+            var adventureId = session.startedAdventureId();
+            var binding = adventureId == null ? null : bindings.findCurrentByAdventureId(adventureId).orElse(null);
+            long lockedVersion = binding == null ? 0 : binding.gameSystemDefinitionVersion();
             for (UUID rulebookId : configuration.rulebookIds()) {
-                try {
-                    HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/rulebooks/" + rulebookId + "/game-system-definition"))
-                            .timeout(timeout).GET().build();
-                    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                    if (response.statusCode() / 100 != 2) continue;
-                    PublishedDefinition source = mapper.readValue(response.body(), PublishedDefinition.class);
-                    if (GameSystemTimeDefinitionAdapter.secondsPerTurn(source.definitionJson()).isPresent())
-                        return java.util.Optional.of(new GameSystemDefinitionPort.Definition(source.version(), source.definitionJson()));
-                } catch (Exception ignored) {
-                    // One unavailable rulebook must not hide a later locked rulebook.
-                }
+                var found = findByRulebook(rulebookId, lockedVersion);
+                if (found.isPresent()) return found;
             }
             return java.util.Optional.empty();
         } catch (Exception ignored) {
             return java.util.Optional.empty();
         }
+    }
+
+    @Override
+    public java.util.Optional<GameSystemDefinitionPort.Definition> findByRulebook(UUID rulebookId) {
+        return findByRulebook(rulebookId, 0);
+    }
+
+    private java.util.Optional<GameSystemDefinitionPort.Definition> findByRulebook(UUID rulebookId, long lockedVersion) {
+        try {
+            String suffix = lockedVersion > 0 ? "?version=" + lockedVersion : "";
+            var requestBuilder = HttpRequest.newBuilder(baseUri.resolve("internal/v1/rulebooks/" + rulebookId + "/game-system-definition" + suffix))
+                    .timeout(timeout).GET();
+            if (!internalToken.isBlank()) requestBuilder.header("X-Internal-Token", internalToken);
+            HttpRequest request = requestBuilder.build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() / 100 != 2) return java.util.Optional.empty();
+            PublishedDefinition source = mapper.readValue(response.body(), PublishedDefinition.class);
+            if (GameSystemTimeDefinitionAdapter.secondsPerTurn(source.definitionJson()).isPresent())
+                return java.util.Optional.of(new GameSystemDefinitionPort.Definition(source.version(), source.definitionJson()));
+        } catch (Exception ignored) {
+            // One unavailable rulebook must not hide a later locked rulebook.
+        }
+        return java.util.Optional.empty();
     }
 
     private record PublishedDefinition(UUID rulebookId, long version, String definitionJson) {}

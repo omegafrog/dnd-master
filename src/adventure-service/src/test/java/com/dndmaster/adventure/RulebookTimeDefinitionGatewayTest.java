@@ -43,7 +43,12 @@ class RulebookTimeDefinitionGatewayTest {
         });
         server.start();
         try {
-            OptionalInt result = new CrossContextHttpRulebookTimeDefinitionGateway(sessions, HttpClient.newHttpClient(),
+            var bindings = new com.dndmaster.adventure.application.runtime.RuntimeBindingRepository() {
+                public Optional<com.dndmaster.adventure.domain.adventure.RuntimeBinding> findCurrentByAdventureId(com.dndmaster.adventure.domain.adventure.AdventureId id) { return Optional.empty(); }
+                public List<com.dndmaster.adventure.domain.adventure.RuntimeBinding> findAllByAdventureId(com.dndmaster.adventure.domain.adventure.AdventureId id) { return List.of(); }
+                public void save(com.dndmaster.adventure.domain.adventure.RuntimeBinding binding) {}
+            };
+            OptionalInt result = new CrossContextHttpRulebookTimeDefinitionGateway(sessions, bindings, HttpClient.newHttpClient(),
                     java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"), Duration.ofSeconds(2), new ObjectMapper()).apply(sessionId);
             assertEquals(7, result.orElseThrow());
         } finally {

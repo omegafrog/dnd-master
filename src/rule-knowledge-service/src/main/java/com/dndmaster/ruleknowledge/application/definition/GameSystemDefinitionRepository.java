@@ -7,6 +7,7 @@ import java.util.UUID;
 
 public interface GameSystemDefinitionRepository {
     Optional<GameSystemDefinitionRevision> findPublished(UUID rulebookId);
+    Optional<GameSystemDefinitionRevision> findPublished(UUID rulebookId, long version);
     List<GameSystemDefinitionRevision> history(UUID rulebookId);
     void save(GameSystemDefinitionRevision revision);
 }

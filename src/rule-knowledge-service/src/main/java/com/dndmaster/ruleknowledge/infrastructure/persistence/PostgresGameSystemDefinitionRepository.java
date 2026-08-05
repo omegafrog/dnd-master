@@ -21,6 +21,13 @@ public final class PostgresGameSystemDefinitionRepository implements GameSystemD
         } catch (SQLException e) { throw new RuntimeException("could not load game system definition", e); }
     }
 
+    public Optional<GameSystemDefinitionRevision> findPublished(UUID rulebookId, long version) {
+        try (var c = dataSource.getConnection(); var s = c.prepareStatement("SELECT definition_id,rulebook_id,definition_version,status,definition_json,published_at FROM game_system_definition_revision WHERE rulebook_id=? AND definition_version=? AND status='PUBLISHED'")) {
+            s.setObject(1, rulebookId); s.setLong(2, version);
+            try (var rows = s.executeQuery()) { return rows.next() ? Optional.of(read(rows)) : Optional.empty(); }
+        } catch (SQLException e) { throw new RuntimeException("could not load game system definition", e); }
+    }
+
     public List<GameSystemDefinitionRevision> history(UUID rulebookId) {
         try (var c = dataSource.getConnection(); var s = c.prepareStatement("SELECT definition_id,rulebook_id,definition_version,status,definition_json,published_at FROM game_system_definition_revision WHERE rulebook_id=? ORDER BY definition_version")) {
             s.setObject(1, rulebookId); var result = new ArrayList<GameSystemDefinitionRevision>();

@@ -51,6 +51,7 @@ public class RuleKnowledgeController {
     private final RulebookIndexRepository indexRepository;
     private final ObjectMapper objectMapper;
     private final GameSystemDefinitionRepository definitionRepository;
+    private final String internalToken;
 
     public RuleKnowledgeController(
             RulebookPipelineApplicationService pipelineService,
@@ -77,6 +78,7 @@ public class RuleKnowledgeController {
         this.indexRepository = indexRepository;
         this.objectMapper = objectMapper;
         this.definitionRepository = null;
+        this.internalToken = "";
     }
 
     public RuleKnowledgeController(
@@ -87,7 +89,8 @@ public class RuleKnowledgeController {
             CharacterContextSearchApplicationService characterContextSearchService,
             RulebookIndexRepository indexRepository,
             ObjectMapper objectMapper,
-            GameSystemDefinitionRepository definitionRepository) {
+            GameSystemDefinitionRepository definitionRepository,
+            String internalToken) {
         this.pipelineService = pipelineService;
         this.batchUploadService = new BatchRulebookUploadApplicationService(pipelineService);
         this.registrationRepository = registrationRepository;
@@ -97,6 +100,7 @@ public class RuleKnowledgeController {
         this.indexRepository = indexRepository;
         this.objectMapper = objectMapper;
         this.definitionRepository = definitionRepository;
+        this.internalToken = internalToken == null ? "" : internalToken;
     }
 
     public RuleKnowledgeController(
@@ -210,16 +214,21 @@ public class RuleKnowledgeController {
     }
 
     @GetMapping("/internal/v1/rulebooks/{rulebookId}/game-system-definition")
-    GameSystemDefinitionResponse gameSystemDefinition(@PathVariable UUID rulebookId) {
+    GameSystemDefinitionResponse gameSystemDefinition(@PathVariable UUID rulebookId,
+            @RequestParam(required = false) Long version,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requireInternalToken(token);
         if (definitionRepository == null) throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED);
-        return definitionRepository.findPublished(rulebookId)
+        return (version == null ? definitionRepository.findPublished(rulebookId) : definitionRepository.findPublished(rulebookId, version))
                 .map(revision -> new GameSystemDefinitionResponse(revision.rulebookId(), revision.version(), revision.definitionJson()))
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "published game system definition not found"));
     }
 
     @PostMapping("/internal/v1/rulebooks/{rulebookId}/game-system-definition")
     GameSystemDefinitionResponse publishGameSystemDefinition(@PathVariable UUID rulebookId,
-            @RequestBody GameSystemDefinitionRequest request) {
+            @RequestBody GameSystemDefinitionRequest request,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requireInternalToken(token);
         if (definitionRepository == null) throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED);
         if (registrationRepository.findById(new RulebookId(rulebookId)).isEmpty()) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "rulebook not found");
@@ -228,6 +237,12 @@ public class RuleKnowledgeController {
                 rulebookId, request.version(), request.definitionJson()).publish();
         definitionRepository.save(revision);
         return new GameSystemDefinitionResponse(rulebookId, revision.version(), revision.definitionJson());
+    }
+
+    private void requireInternalToken(String token) {
+        if (!internalToken.isBlank() && !internalToken.equals(token)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "invalid internal token");
+        }
     }
 
     @PostMapping("/api/v1/rulebooks/{rulebookId}/retry")

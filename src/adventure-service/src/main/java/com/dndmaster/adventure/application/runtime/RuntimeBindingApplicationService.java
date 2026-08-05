@@ -20,6 +20,7 @@ public final class RuntimeBindingApplicationService {
     private final InitialSourceContextProposalPort proposalPort;
     private final KnowledgeDocumentLookupPort knowledgeDocumentLookupPort;
     private final GameSystemDefinitionPort gameSystemDefinitionPort;
+    private final boolean requirePublishedReferences;
 
     public RuntimeBindingApplicationService(
             AdventureRepository adventureRepository,
@@ -29,7 +30,7 @@ public final class RuntimeBindingApplicationService {
             InitialSourceContextProposalPort proposalPort,
             KnowledgeDocumentLookupPort knowledgeDocumentLookupPort) {
         this(adventureRepository, bundleRepository, scenarioPackageRepository, bindingRepository, proposalPort,
-                knowledgeDocumentLookupPort, sessionId -> java.util.Optional.empty());
+                knowledgeDocumentLookupPort, sessionId -> java.util.Optional.empty(), false);
     }
 
     public RuntimeBindingApplicationService(
@@ -37,6 +38,15 @@ public final class RuntimeBindingApplicationService {
             ScenarioPackageRepository scenarioPackageRepository, RuntimeBindingRepository bindingRepository,
             InitialSourceContextProposalPort proposalPort, KnowledgeDocumentLookupPort knowledgeDocumentLookupPort,
             GameSystemDefinitionPort gameSystemDefinitionPort) {
+        this(adventureRepository, bundleRepository, scenarioPackageRepository, bindingRepository, proposalPort,
+                knowledgeDocumentLookupPort, gameSystemDefinitionPort, true);
+    }
+
+    private RuntimeBindingApplicationService(
+            AdventureRepository adventureRepository, ScenarioBundleRepository bundleRepository,
+            ScenarioPackageRepository scenarioPackageRepository, RuntimeBindingRepository bindingRepository,
+            InitialSourceContextProposalPort proposalPort, KnowledgeDocumentLookupPort knowledgeDocumentLookupPort,
+            GameSystemDefinitionPort gameSystemDefinitionPort, boolean requirePublishedReferences) {
         this.adventureRepository = Objects.requireNonNull(adventureRepository, "adventure repository must not be null");
         this.bundleRepository = Objects.requireNonNull(bundleRepository, "bundle repository must not be null");
         this.scenarioPackageRepository = Objects.requireNonNull(scenarioPackageRepository, "scenario package repository must not be null");
@@ -44,6 +54,7 @@ public final class RuntimeBindingApplicationService {
         this.proposalPort = Objects.requireNonNull(proposalPort, "proposal port must not be null");
         this.knowledgeDocumentLookupPort = Objects.requireNonNull(knowledgeDocumentLookupPort, "knowledge document lookup port must not be null");
         this.gameSystemDefinitionPort = Objects.requireNonNull(gameSystemDefinitionPort, "game system definition port must not be null");
+        this.requirePublishedReferences = requirePublishedReferences;
     }
 
     public RuntimeBinding bind(BindRuntimeBindingCommand command) {
@@ -133,6 +144,9 @@ public final class RuntimeBindingApplicationService {
                 .map(GameSystemDefinitionPort.Definition::version).orElse(0L);
         long blueprintVersion = scenarioPackage.characterCreationBlueprint() == null
                 ? 0L : scenarioPackage.characterCreationBlueprint().revision();
+        if (requirePublishedReferences && (definitionVersion < 1 || blueprintVersion < 1)) {
+            throw new IllegalStateException("published game system definition and character blueprint are required");
+        }
         RuntimeBinding binding = previousBindingVersion == null
                 ? RuntimeBinding.create(adventure.id(), ownerPlayerId, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), rulebookIds, adventure.party(), engineId, toolIds, definitionVersion, blueprintVersion, report, selected)
                 : RuntimeBinding.rehydrate(adventure.id(), ownerPlayerId, previousBindingVersion + 1, scenarioPackage.packageId(),

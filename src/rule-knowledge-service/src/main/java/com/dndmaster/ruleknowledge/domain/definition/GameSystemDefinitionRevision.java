@@ -34,6 +34,12 @@ public record GameSystemDefinitionRevision(UUID definitionId, UUID rulebookId, l
         try {
             JsonNode node = MAPPER.readTree(value);
             if (!node.isObject()) throw new IllegalArgumentException("definition JSON must be an object");
+            JsonNode time = node.get("time");
+            if (time != null && !time.isObject()) throw new IllegalArgumentException("time definition must be an object");
+            if (time != null && time.has("secondsPerTurn")
+                    && (!time.get("secondsPerTurn").canConvertToInt() || time.get("secondsPerTurn").asInt() <= 0)) {
+                throw new IllegalArgumentException("secondsPerTurn must be positive");
+            }
             return MAPPER.writeValueAsString(node);
         } catch (IllegalArgumentException e) { throw e; }
         catch (Exception e) { throw new IllegalArgumentException("definition JSON is invalid", e); }

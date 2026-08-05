@@ -364,10 +364,11 @@ public class AdventureApiConfiguration {
             ScenarioBundleRepository bundleRepository,
             RuntimeOptionCatalogPort runtimeOptionCatalogPort,
             com.dndmaster.adventure.application.scenario.compilation.CharacterContextSearchPort characterContextSearch,
-            com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort characterTagExtraction) {
+            com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort characterTagExtraction,
+            GameSystemDefinitionPort gameSystemDefinitionPort) {
         return new ScenarioPreparationApplicationService(packageRepository, bundleRepository, runtimeOptionCatalogPort,
                 characterContextSearch, characterTagExtraction,
-                new com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler());
+                new com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler(), gameSystemDefinitionPort);
     }
 
     @Bean
@@ -605,11 +606,12 @@ public class AdventureApiConfiguration {
 
     @Bean
     GameSystemDefinitionPort gameSystemDefinitionPort(
-            AdventureSessionRepository sessions, ObjectMapper objectMapper,
+            AdventureSessionRepository sessions, RuntimeBindingRepository bindings, ObjectMapper objectMapper,
             @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long timeoutSeconds) {
+            @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long timeoutSeconds,
+            @Value("${adventure.integration.internal-token:}") String internalToken) {
         return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRulebookTimeDefinitionGateway(
-                sessions, HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper);
+                sessions, bindings, HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken);
     }
 
     @Bean

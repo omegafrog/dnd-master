@@ -170,9 +170,10 @@ public class RuleKnowledgeApiConfiguration {
             CharacterContextSearchApplicationService characterContextSearchService,
             com.dndmaster.ruleknowledge.application.indexing.RulebookIndexRepository indexRepository,
             ObjectMapper objectMapper,
-            com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository definitionRepository) {
+            com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository definitionRepository,
+            @Value("${rule-knowledge.internal-token:}") String internalToken) {
         return new RuleKnowledgeController(
                 pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
-                characterContextSearchService, indexRepository, objectMapper, definitionRepository);
+                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken);
     }
 }
