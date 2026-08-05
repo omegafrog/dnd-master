@@ -198,16 +198,24 @@ public class AdventureApiConfiguration {
 
     @Bean
     AuthoritativeSnapshotResolver authoritativeSnapshotResolver(RuntimeTurnRepository turns,
-            StoryContinuityContextProvider continuity) {
+            StoryContinuityContextProvider continuity, AdventureRepository adventures,
+            CharacterSheetReadPort characterSheets, CombatMapViewPort maps) {
         return sessionId -> turns.findAllBySessionId(sessionId).stream()
                 .reduce((first, second) -> second)
                 .map(turn -> {
+                    var adventure = adventures.findById(turn.adventureId()).orElseThrow(() -> new IllegalStateException("adventure not found"));
+                    var characters = adventure.party().stream().map(member -> characterSheets.read(member.characterSheetId())).toList();
+                    long characterVersion = characters.stream().mapToLong(CharacterSheetReadPort.CharacterSheet::version).max().orElse(0);
+                    String characterSnapshot = characters.stream().map(sheet -> sheet.id().value() + ":" + sheet.name() + ":level=" + sheet.level() + ":version=" + sheet.version()).reduce((a, b) -> a + "|" + b).orElse("characters=none");
+                    var map = maps.playerView(turn.adventureId().value(), adventure.ownerPlayerId().value());
                     String facts = continuity.load(sessionId).map(context -> context.promptText()).orElse("facts=none");
                     String clock = continuity.load(sessionId).map(context -> "clockVersion=" + context.clock().version()
                             + "; elapsedTurns=" + context.clock().turnsElapsed() + "; elapsedSeconds=" + context.clock().secondsElapsed()).orElse("clock=none");
                     return new VersionedRuntimeSnapshots(
-                            "scene=" + turn.context().currentScene() + "; npc=" + turn.context().npcStateValue().orElse("none"), turn.version(),
-                            "scene=" + turn.context().currentScene(), turn.version(), facts, turn.version(), clock, turn.version());
+                            characterSnapshot, characterVersion,
+                            map.map(Object::toString).orElse("map=none"), map.map(CombatMapViewPort.View::version).orElse(0L),
+                            facts, continuity.load(sessionId).map(context -> context.facts().stream().mapToLong(fact -> fact.version()).max().orElse(0)).orElse(0L),
+                            clock, continuity.load(sessionId).map(context -> context.clock().version()).orElse(0L));
                 })
                 .orElse(new VersionedRuntimeSnapshots("", 0, "", 0, "", 0, "", 0));
     }

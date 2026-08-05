@@ -25,8 +25,8 @@ public final class RuntimeTurnCompactionCoordinator {
                 .map(entry -> entry.content())
                 .orElse(turn.context().currentScene());
         var tail = new ExactTail(turn.action(), precedingScene, turn.plan().narration(), "turn:" + turn.turnId(),
-                "round:" + turn.version(), turn.context().currentScene(), turn.context().currentScene(),
-                String.join("|", turn.warnings()), turn.context().pendingActionValue().orElse("choice:none"));
+                "clockVersion:" + current.clockVersion(), turn.context().currentScene(), current.mapSnapshot(),
+                current.mapSnapshot(), turn.context().pendingActionValue().orElse("choice:none"));
         var prompt = String.join("\n", turn.conversation().stream().map(Object::toString).toList())
                 + "\n" + turn.context() + "\n" + turn.evidencePack() + "\n" + turn.plan();
         var usage = estimator.usage(turn.plan().provider(), prompt);

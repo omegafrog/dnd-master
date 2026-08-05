@@ -35,7 +35,7 @@ public final class CrossContextHttpCharacterSheetReadGateway implements Characte
                 throw new IllegalStateException("character sheet read failed with status " + response.statusCode());
             }
             SheetResponse sheet = objectMapper.readValue(response.body(), SheetResponse.class);
-            return new CharacterSheet(characterSheetId, sheet.characterName(), sheet.level());
+            return new CharacterSheet(characterSheetId, sheet.characterName(), sheet.level(), sheet.version());
         } catch (IOException exception) {
             throw new IllegalStateException("character sheet read failed", exception);
         } catch (InterruptedException exception) {
@@ -45,5 +45,5 @@ public final class CrossContextHttpCharacterSheetReadGateway implements Characte
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record SheetResponse(String characterName, int level) {}
+    record SheetResponse(String characterName, int level, long version) {}
 }
