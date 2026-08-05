@@ -54,14 +54,16 @@ public final class GmAgentController {
                 Every rule claim needs a citation from supplied evidence.
                 adventureId=%s packageId=%s bindingVersion=%s action=%s
                 currentScene=%s npcState=%s pendingAction=%s latestJudgment=%s
-                storybook=%s rulebook=%s resolution=%s recentTurns=%s
+                storybook=%s rulebook=%s resolution=%s recentTurns=%s characters=%s storyPlan=%s
                 """.formatted(r.adventureId(), r.scenarioPackageId(), r.bindingVersion(), r.action(), r.currentScene(),
-                r.npcState(), r.pendingAction(), r.latestJudgment(), r.storybook(), r.rulebook(), r.resolution(), r.recentTurns());
+                r.npcState(), r.pendingAction(), r.latestJudgment(), r.storybook(), r.rulebook(), r.resolution(), r.recentTurns(),
+                r.characterSnapshots(), r.storyPlanContext());
     }
 
     public record Request(String operationKey, UUID adventureId, UUID ownerPlayerId, UUID scenarioPackageId, long bindingVersion, String action,
                           String currentScene, String npcState, String pendingAction, String latestJudgment,
-                          List<?> storybook, List<?> rulebook, List<?> resolution, List<String> recentTurns) {}
+                          List<?> storybook, List<?> rulebook, List<?> resolution, List<String> recentTurns,
+                          List<String> characterSnapshots, String storyPlanContext) {}
 
     public record Response(String scene, String npcState, String judgment, String narration, Object proposedActiveSourceContext,
                            List<?> citedEvidence, List<String> warnings, String provider, String model, String reasoning,

@@ -15,7 +15,8 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
     @Override
     public RuntimePlan plan(RuntimePlanningRequest request) {
         GmContextEnvelope context = new GmContextEnvelope(request.adventureId(), request.ownerPlayerId(), request.scenarioPackageId(),
-                request.bindingVersion(), request.currentContext(), request.activeSourceContext(), request.action(), request.evidencePack(), List.of());
+                request.bindingVersion(), request.currentContext(), request.activeSourceContext(), request.action(), request.evidencePack(),
+                request.recentTurns(), request.characterSnapshots(), request.storyPlanContext());
         GmPlanResult result = validator.validate(agentPort.plan(context), request.evidencePack(), request.currentContext(), java.util.Set.of());
         return result.plan();
     }

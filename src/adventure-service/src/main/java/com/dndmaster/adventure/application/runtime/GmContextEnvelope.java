@@ -18,7 +18,9 @@ public record GmContextEnvelope(
         ActiveSourceContext activeSourceContext,
         String action,
         EvidencePack evidencePack,
-        List<String> recentTurns) {
+        List<String> recentTurns,
+        List<String> characterSnapshots,
+        String storyPlanContext) {
     public GmContextEnvelope {
         adventureId = Objects.requireNonNull(adventureId);
         ownerPlayerId = Objects.requireNonNull(ownerPlayerId);
@@ -27,7 +29,17 @@ public record GmContextEnvelope(
         action = required(action);
         evidencePack = Objects.requireNonNull(evidencePack);
         recentTurns = List.copyOf(Objects.requireNonNull(recentTurns));
+        characterSnapshots = List.copyOf(Objects.requireNonNull(characterSnapshots));
+        storyPlanContext = storyPlanContext == null ? "" : storyPlanContext.trim();
         if (bindingVersion < 0) throw new IllegalArgumentException("binding version must not be negative");
+    }
+
+    public GmContextEnvelope(com.dndmaster.adventure.domain.adventure.AdventureId adventureId,
+                             com.dndmaster.adventure.domain.adventure.OwnerPlayerId ownerPlayerId, UUID scenarioPackageId,
+                             long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
+                             String action, EvidencePack evidencePack, List<String> recentTurns) {
+        this(adventureId, ownerPlayerId, scenarioPackageId, bindingVersion, currentContext, activeSourceContext, action,
+                evidencePack, recentTurns, List.of(), "");
     }
 
     public String operationKey() {

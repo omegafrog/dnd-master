@@ -3,6 +3,7 @@ package com.dndmaster.adventure.application.runtime;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.knowledge.SessionKnowledgeSetRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
@@ -29,6 +30,7 @@ public final class RuntimeTurnApplicationService {
     private final RuntimePlanningPort planningPort;
     private final NarrationSafetyPort narrationSafetyPort;
     private final SessionKnowledgeSetRepository sessionKnowledgeSetRepository;
+    private final AdventureStoryPlanRepository storyPlanRepository;
 
     public RuntimeTurnApplicationService(
             AdventureRepository adventureRepository,
@@ -39,6 +41,16 @@ public final class RuntimeTurnApplicationService {
             RuntimePlanningPort planningPort,
             NarrationSafetyPort narrationSafetyPort,
             SessionKnowledgeSetRepository sessionKnowledgeSetRepository) {
+        this(adventureRepository, bindingRepository, scenarioPackageRepository, runtimeTurnRepository, evidenceSearchPort,
+                planningPort, narrationSafetyPort, sessionKnowledgeSetRepository, null);
+    }
+
+    public RuntimeTurnApplicationService(
+            AdventureRepository adventureRepository, RuntimeBindingRepository bindingRepository,
+            ScenarioPackageRepository scenarioPackageRepository, RuntimeTurnRepository runtimeTurnRepository,
+            RuntimeEvidenceSearchPort evidenceSearchPort, RuntimePlanningPort planningPort,
+            NarrationSafetyPort narrationSafetyPort, SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
+            AdventureStoryPlanRepository storyPlanRepository) {
         this.adventureRepository = Objects.requireNonNull(adventureRepository, "adventure repository must not be null");
         this.bindingRepository = Objects.requireNonNull(bindingRepository, "binding repository must not be null");
         this.scenarioPackageRepository = Objects.requireNonNull(scenarioPackageRepository, "scenario package repository must not be null");
@@ -48,6 +60,7 @@ public final class RuntimeTurnApplicationService {
         this.narrationSafetyPort = Objects.requireNonNull(narrationSafetyPort, "narration safety port must not be null");
         this.sessionKnowledgeSetRepository = Objects.requireNonNull(
                 sessionKnowledgeSetRepository, "session knowledge set repository must not be null");
+        this.storyPlanRepository = storyPlanRepository;
     }
 
     public RuntimeTurnResult submitTurn(SubmitRuntimeTurnCommand command) {
@@ -76,10 +89,25 @@ public final class RuntimeTurnApplicationService {
         ScenarioPackage scenarioPackage = scenarioPackageRepository.findById(binding.scenarioPackageId())
                 .orElseThrow(() -> new IllegalStateException("scenario package not found"));
 
+        if (!command.advancesState()) {
+            RuntimePlan metaPlan = new RuntimePlan(adventure.currentContext().currentScene(), adventure.currentContext().npcState(),
+                    adventure.currentContext().latestJudgmentValue().orElse("meta question"),
+                    "Meta question answered without advancing game state.", binding.activeSourceContext(), List.of(), List.of(),
+                    "system", "read-only", "meta question");
+            RuntimeTurn metaTurn = new RuntimeTurn(command.turnId(), command.commandId(), adventure.id(), adventure.sessionId().value(),
+                    binding.scenarioPackageId(), binding.bindingVersion(), command.action(), new EvidencePack(List.of(), List.of(), List.of()),
+                    metaPlan, binding.activeSourceContext(), adventure.currentContext(), adventure.conversation(), adventure.version(), List.of(), List.of())
+                    .markCommitted();
+            return new RuntimeTurnResult(metaTurn, adventure.currentContext(), adventure.conversation(), adventure.version());
+        }
+
         EvidencePack evidencePack = prefetchEvidence(command, adventure, binding, scenarioPackage);
         RuntimePlan plan = planningPort.plan(new RuntimePlanningRequest(
                 command.adventureId(), command.ownerPlayerId(), binding.scenarioPackageId(), binding.bindingVersion(),
-                adventure.currentContext(), binding.activeSourceContext(), command.action(), evidencePack));
+                adventure.currentContext(), binding.activeSourceContext(), command.action(), evidencePack,
+                adventure.conversation().stream().map(entry -> entry.speaker() + ": " + entry.content()).toList(),
+                adventure.party().stream().map(member -> member.characterSheetId().value() + " control=" + member.controlMode()).toList(),
+                storyPlanContext(adventure)));
         NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
                 plan.narration(), evidencePack, adventure.currentContext(), command.action()));
         if (!safety.approved()) {
@@ -163,6 +191,17 @@ public final class RuntimeTurnApplicationService {
                 .filter(evidence -> knowledgeDocumentIds.contains(evidence.knowledgeDocumentId().value()))
                 .toList();
         return new EvidencePack(storybook, rulebook, resolution);
+    }
+
+    private String storyPlanContext(Adventure adventure) {
+        if (storyPlanRepository == null) return "";
+        return storyPlanRepository.findBySessionId(adventure.sessionId()).map(plan -> {
+            if (plan.stages().isEmpty()) return "status=" + plan.status();
+            var stage = plan.stages().get(plan.currentStage());
+            return "status=" + plan.status() + "; stage=" + stage.position() + ":" + stage.title()
+                    + "; goal=" + stage.goal() + "; conflict=" + stage.conflict()
+                    + "; transition=" + stage.transitionCondition();
+        }).orElse("");
     }
 
     private List<RuntimeEvidence> scopedSearch(RuntimeEvidenceSearchRequest request) {

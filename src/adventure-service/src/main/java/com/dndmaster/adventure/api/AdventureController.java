@@ -129,7 +129,8 @@ public class AdventureController {
             gmTurnRepository.save(turn.process(), adventureId);
             result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
                     new AdventureId(adventureId), new OwnerPlayerId(owner), request.turnId(), commandId,
-                    input.actionText(), expectedVersion));
+                    input.actionText(), expectedVersion,
+                    !(input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput)));
         } catch (RuntimeException exception) {
             gmTurnFailureRecorder.record(turn, adventureId, adventure.sessionId().value(), exception.getMessage(), expectedVersion);
             throw exception;

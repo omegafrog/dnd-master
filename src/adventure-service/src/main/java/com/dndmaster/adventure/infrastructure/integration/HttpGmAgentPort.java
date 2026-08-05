@@ -53,14 +53,16 @@ public final class HttpGmAgentPort implements GmAgentPort {
 
     record Request(String operationKey, UUID adventureId, UUID ownerPlayerId, UUID scenarioPackageId, long bindingVersion,
                    String action, String currentScene, String npcState, String pendingAction, String latestJudgment,
-                   List<Evidence> storybook, List<Evidence> rulebook, List<Evidence> resolution, List<String> recentTurns) {
+                   List<Evidence> storybook, List<Evidence> rulebook, List<Evidence> resolution, List<String> recentTurns,
+                   List<String> characterSnapshots, String storyPlanContext) {
         static Request from(GmContextEnvelope c) {
             var context = c.currentContext();
             return new Request(c.operationKey(), c.adventureId().value(), c.ownerPlayerId().value(), c.scenarioPackageId(), c.bindingVersion(),
                     c.action(), context.currentScene(), context.npcState(), context.pendingAction(), context.latestJudgment(),
                     c.evidencePack().storybook().stream().map(Evidence::from).toList(),
                     c.evidencePack().rulebook().stream().map(Evidence::from).toList(),
-                    c.evidencePack().resolution().stream().map(Evidence::from).toList(), c.recentTurns());
+                    c.evidencePack().resolution().stream().map(Evidence::from).toList(), c.recentTurns(),
+                    c.characterSnapshots(), c.storyPlanContext());
         }
     }
 

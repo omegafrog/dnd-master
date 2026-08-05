@@ -64,6 +64,29 @@ import org.junit.jupiter.api.Test;
 
 class RuntimeTurnApplicationServiceTest {
     @Test
+    void meta_question_returns_read_only_result_without_advancing_or_persisting() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        ScenarioPackage scenarioPackage = scenarioPackage(new KnowledgeDocumentId(UUID.randomUUID()), new KnowledgeDocumentId(UUID.randomUUID()));
+        InMemoryRuntimeTurnRepository turns = new InMemoryRuntimeTurnRepository();
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
+                new InMemoryAdventureRepository(adventure),
+                new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId())),
+                new InMemoryPackageRepository(scenarioPackage), turns,
+                request -> { throw new AssertionError("meta question must not call provider"); },
+                request -> { throw new AssertionError("meta question must not call safety port"); },
+                request -> { throw new AssertionError("meta question must not call planner"); },
+                new InMemorySessionKnowledgeSetRepository());
+
+        RuntimeTurnResult result = service.submitTurn(new SubmitRuntimeTurnCommand(
+                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "What rules are active?", 0, false));
+
+        assertEquals(0, result.version());
+        assertEquals(0, turns.saved.size());
+        assertEquals(adventure.currentContext(), result.context());
+    }
+
+    @Test
     void persisted_document_selection_survives_runtime_restart_and_limits_retrieval() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
         Adventure adventure = adventure(owner);

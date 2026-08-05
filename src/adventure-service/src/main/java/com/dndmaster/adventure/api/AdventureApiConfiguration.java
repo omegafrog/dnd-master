@@ -581,10 +581,11 @@ public class AdventureApiConfiguration {
             RuntimeEvidenceSearchPort runtimeEvidenceSearchPort,
             RuntimePlanningPort runtimePlanningPort,
             NarrationSafetyPort narrationSafetyPort,
-            SessionKnowledgeSetRepository sessionKnowledgeSetRepository) {
+            SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
+            AdventureStoryPlanRepository storyPlanRepository) {
         return new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
-                runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository);
+                runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository);
     }
 
     @Bean

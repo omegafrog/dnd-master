@@ -16,7 +16,10 @@ public record RuntimePlanningRequest(
         AdventureContext currentContext,
         ActiveSourceContext activeSourceContext,
         String action,
-        EvidencePack evidencePack) {
+        EvidencePack evidencePack,
+        java.util.List<String> recentTurns,
+        java.util.List<String> characterSnapshots,
+        String storyPlanContext) {
     public RuntimePlanningRequest {
         adventureId = Objects.requireNonNull(adventureId, "adventure id must not be null");
         ownerPlayerId = Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
@@ -24,6 +27,16 @@ public record RuntimePlanningRequest(
         currentContext = Objects.requireNonNull(currentContext, "current context must not be null");
         action = required(action, "action");
         evidencePack = Objects.requireNonNull(evidencePack, "evidence pack must not be null");
+        recentTurns = java.util.List.copyOf(Objects.requireNonNull(recentTurns));
+        characterSnapshots = java.util.List.copyOf(Objects.requireNonNull(characterSnapshots));
+        storyPlanContext = storyPlanContext == null ? "" : storyPlanContext.trim();
+    }
+
+    public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId,
+                                  long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
+                                  String action, EvidencePack evidencePack) {
+        this(adventureId, ownerPlayerId, scenarioPackageId, bindingVersion, currentContext, activeSourceContext, action,
+                evidencePack, java.util.List.of(), java.util.List.of(), "");
     }
 
     private static String required(String value, String name) {
