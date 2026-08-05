@@ -19,8 +19,14 @@ public final class PostgresGmTurnRepository implements GmTurnRepository {
     private final ObjectMapper mapper;
 
     public PostgresGmTurnRepository(DataSource dataSource, ObjectMapper mapper) {
-        this.dataSource = dataSource;
+        this.dataSource = new org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy(dataSource);
         this.mapper = mapper;
+    }
+
+    @Override public void lockAdventure(UUID adventureId) {
+        try (var c = dataSource.getConnection(); var s = c.prepareStatement("SELECT pg_advisory_xact_lock(hashtextextended(?::text, 0))")) {
+            s.setObject(1, adventureId); s.executeQuery();
+        } catch (SQLException e) { throw new GmTurnPersistenceException("could not lock adventure turn", e); }
     }
 
     @Override

@@ -59,6 +59,8 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import javax.sql.DataSource;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.PlatformTransactionManager;
 import java.util.List;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAdventureStoryPlanGenerationGateway;
@@ -67,6 +69,11 @@ import com.dndmaster.adventure.application.prologue.AdventurePrologueGenerationP
 
 @Configuration(proxyBeanMethods = false)
 public class AdventureApiConfiguration {
+
+    @Bean
+    PlatformTransactionManager transactionManager(DataSource dataSource) {
+        return new DataSourceTransactionManager(dataSource);
+    }
 
     @Bean
     AdventureRepository adventureRepository(DataSource dataSource) {
@@ -81,6 +88,11 @@ public class AdventureApiConfiguration {
     @Bean
     SessionEventRepository sessionEventRepository(DataSource dataSource) {
         return new PostgresSessionEventRepository(dataSource);
+    }
+
+    @Bean
+    GmTurnFailureRecorder gmTurnFailureRecorder(GmTurnRepository turns, SessionEventRepository events) {
+        return new GmTurnFailureRecorder(turns, events);
     }
 
     @Bean
@@ -749,6 +761,8 @@ public class AdventureApiConfiguration {
     AdventureController adventureController(
             SavedAdventureApplicationService savedAdventureService,
             RuntimeTurnApplicationService runtimeTurnService,
+            AdventureRepository adventureRepository,
+            GmTurnFailureRecorder gmTurnFailureRecorder,
             GmTurnRepository gmTurnRepository,
             RuntimeTurnRepository runtimeTurnRepository,
             SessionEventRepository sessionEventRepository,
@@ -757,7 +771,7 @@ public class AdventureApiConfiguration {
             AdventureScenarioApplicationService scenarioService,
             AuthenticatedPlayerResolver playerResolver) {
         return new AdventureController(
-                savedAdventureService, runtimeTurnService, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, scenarioService, playerResolver);
+                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, scenarioService, playerResolver);
     }
 
     @Bean

@@ -21,6 +21,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.UUID;
@@ -32,6 +33,8 @@ public class AdventureController {
     private static final String LEGACY_SCENARIO_UPLOAD_SUNSET = "Fri, 31 Dec 2027 00:00:00 GMT";
     private final SavedAdventureApplicationService savedAdventureService;
     private final RuntimeTurnApplicationService runtimeTurnService;
+    private final com.dndmaster.adventure.application.saved.AdventureRepository adventureRepository;
+    private final com.dndmaster.adventure.application.runtime.GmTurnFailureRecorder gmTurnFailureRecorder;
     private final GmTurnRepository gmTurnRepository;
     private final com.dndmaster.adventure.application.runtime.RuntimeTurnRepository runtimeTurnRepository;
     private final com.dndmaster.adventure.application.runtime.SessionEventRepository sessionEventRepository;
@@ -43,6 +46,8 @@ public class AdventureController {
     public AdventureController(
             SavedAdventureApplicationService savedAdventureService,
             RuntimeTurnApplicationService runtimeTurnService,
+            com.dndmaster.adventure.application.saved.AdventureRepository adventureRepository,
+            com.dndmaster.adventure.application.runtime.GmTurnFailureRecorder gmTurnFailureRecorder,
             GmTurnRepository gmTurnRepository,
             com.dndmaster.adventure.application.runtime.RuntimeTurnRepository runtimeTurnRepository,
             com.dndmaster.adventure.application.runtime.SessionEventRepository sessionEventRepository,
@@ -52,6 +57,8 @@ public class AdventureController {
             AuthenticatedPlayerResolver playerResolver) {
         this.savedAdventureService = savedAdventureService;
         this.runtimeTurnService = runtimeTurnService;
+        this.adventureRepository = adventureRepository;
+        this.gmTurnFailureRecorder = gmTurnFailureRecorder;
         this.gmTurnRepository = gmTurnRepository;
         this.runtimeTurnRepository = runtimeTurnRepository;
         this.sessionEventRepository = sessionEventRepository;
@@ -96,12 +103,16 @@ public class AdventureController {
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/turns")
-    ResponseEntity<RuntimeTurnResponse> submitTypedTurn(
+    @Transactional
+    public ResponseEntity<RuntimeTurnResponse> submitTypedTurn(
             @PathVariable UUID adventureId,
             @RequestHeader("Idempotency-Key") UUID commandId,
             @RequestHeader("If-Match-Version") long expectedVersion,
             @RequestBody GmTurnRequest request) {
         UUID owner = playerResolver.playerId();
+        gmTurnRepository.lockAdventure(adventureId);
+        var adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        adventure.reopen(new OwnerPlayerId(owner));
         var input = request.input().toDomain();
         var existing = gmTurnRepository.findByCommandId(commandId);
         if (existing.isPresent()) {
@@ -120,10 +131,11 @@ public class AdventureController {
                     new AdventureId(adventureId), new OwnerPlayerId(owner), request.turnId(), commandId,
                     input.actionText(), expectedVersion));
         } catch (RuntimeException exception) {
-            gmTurnRepository.save(turn.process().fail(exception.getMessage()), adventureId);
+            gmTurnFailureRecorder.record(turn, adventureId, adventure.sessionId().value(), exception.getMessage(), expectedVersion);
             throw exception;
         }
         gmTurnRepository.save(turn.process().commit("legacy-runtime"), adventureId);
+        com.dndmaster.adventure.application.runtime.GmTurnCommitPolicy.requirePublishable(turn.process().commit("legacy-runtime"), result.version());
         sessionEventRepository.append(new com.dndmaster.adventure.application.runtime.SessionEvent(
                 result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
         return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));

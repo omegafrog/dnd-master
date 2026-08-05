@@ -10,7 +10,7 @@ import javax.sql.DataSource;
 
 public final class PostgresSessionEventRepository implements SessionEventRepository {
     private final DataSource dataSource;
-    public PostgresSessionEventRepository(DataSource dataSource) { this.dataSource = dataSource; }
+    public PostgresSessionEventRepository(DataSource dataSource) { this.dataSource = new org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy(dataSource); }
 
     @Override public void append(SessionEvent event) {
         try (var c = dataSource.getConnection(); var s = c.prepareStatement("""

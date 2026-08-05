@@ -15,6 +15,8 @@ import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService
 import com.dndmaster.adventure.application.runtime.GmTurnRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnRepository;
 import com.dndmaster.adventure.application.runtime.SessionEventRepository;
+import com.dndmaster.adventure.application.runtime.GmTurnFailureRecorder;
+import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.saved.SavedAdventureApplicationService;
 import com.dndmaster.adventure.application.scenario.AdventureScenarioApplicationService;
 import com.dndmaster.adventure.domain.scenario.AdventureScenario;
@@ -42,6 +44,8 @@ class AdventureControllerTest {
 
     @MockBean SavedAdventureApplicationService savedAdventureService;
     @MockBean RuntimeTurnApplicationService runtimeTurnService;
+    @MockBean AdventureRepository adventureRepository;
+    @MockBean GmTurnFailureRecorder gmTurnFailureRecorder;
     @MockBean GmTurnRepository gmTurnRepository;
     @MockBean RuntimeTurnRepository runtimeTurnRepository;
     @MockBean SessionEventRepository sessionEventRepository;

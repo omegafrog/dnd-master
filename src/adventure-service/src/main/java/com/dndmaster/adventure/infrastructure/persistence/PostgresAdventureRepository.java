@@ -15,7 +15,7 @@ public final class PostgresAdventureRepository implements AdventureRepository {
     private final DataSource dataSource;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public PostgresAdventureRepository(DataSource dataSource) { this.dataSource = java.util.Objects.requireNonNull(dataSource); }
+    public PostgresAdventureRepository(DataSource dataSource) { this.dataSource = new org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy(java.util.Objects.requireNonNull(dataSource)); }
 
     @Override
     public Optional<Adventure> findById(AdventureId adventureId) {
@@ -45,18 +45,19 @@ public final class PostgresAdventureRepository implements AdventureRepository {
     @Override
     public void save(Adventure adventure) {
         try (Connection connection = dataSource.getConnection()) {
+            boolean managed = org.springframework.jdbc.datasource.DataSourceUtils.isConnectionTransactional(connection, dataSource);
             boolean priorAutoCommit = connection.getAutoCommit();
-            connection.setAutoCommit(false);
+            if (!managed) connection.setAutoCommit(false);
             try {
                 if (adventure.version() == 0) insert(connection, adventure);
                 else update(connection, adventure);
                 replaceConversation(connection, adventure);
-                connection.commit();
+                if (!managed) connection.commit();
             } catch (SQLException | RuntimeException exception) {
-                rollback(connection, exception);
+                if (!managed) rollback(connection, exception);
                 if (exception instanceof OptimisticAdventureLockException optimistic) throw optimistic;
                 throw failure("could not save adventure", exception);
-            } finally { connection.setAutoCommit(priorAutoCommit); }
+            } finally { if (!managed) connection.setAutoCommit(priorAutoCommit); }
         } catch (SQLException exception) { throw failure("could not access adventure storage", exception); }
     }
 

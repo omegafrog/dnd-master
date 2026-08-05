@@ -35,11 +35,31 @@ export class HttpAdventureApi implements AdventureApi {
   }
 
   subscribeEvents(adventureId: string, afterVersion: number, onEvent: (event: AdventureSessionEvent) => void, onError?: () => void): () => void {
-    const source = new EventSource(`/api/v1/adventures/${adventureId}/events?afterVersion=${afterVersion}`, { withCredentials: false })
-    const handler = (event: MessageEvent<string>) => onEvent({ version: Number(event.lastEventId), type: event.type, payload: event.data })
-    source.addEventListener('GM_TURN_COMMITTED', handler)
-    source.onerror = () => onError?.()
-    return () => { source.removeEventListener('GM_TURN_COMMITTED', handler); source.close() }
+    const controller = new AbortController()
+    void (async () => {
+      try {
+        const response = await fetch(`/api/v1/adventures/${adventureId}/events?afterVersion=${afterVersion}`, {
+          headers: { Authorization: `Bearer ${this.getToken()}` }, signal: controller.signal,
+        })
+        if (!response.ok || !response.body) throw new Error('event stream failed')
+        const reader = response.body.getReader()
+        const decoder = new TextDecoder()
+        let buffer = ''
+        let eventType = 'message'; let eventId = ''; let data = ''
+        while (!controller.signal.aborted) {
+          const chunk = await reader.read(); if (chunk.done) break
+          buffer += decoder.decode(chunk.value, { stream: true })
+          const lines = buffer.split('\n'); buffer = lines.pop() ?? ''
+          for (const line of lines) {
+            if (line.startsWith('id:')) eventId = line.slice(3).trim()
+            else if (line.startsWith('event:')) eventType = line.slice(6).trim()
+            else if (line.startsWith('data:')) data += `${line.slice(5).trim()}\n`
+            else if (line === '') { if (data) onEvent({ version: Number(eventId), type: eventType, payload: data.trimEnd() }); eventType = 'message'; eventId = ''; data = '' }
+          }
+        }
+      } catch { if (!controller.signal.aborted) onError?.() }
+    })()
+    return () => controller.abort()
   }
 
   async readConversation(adventureId: string): Promise<AdventureConversationResponse> {

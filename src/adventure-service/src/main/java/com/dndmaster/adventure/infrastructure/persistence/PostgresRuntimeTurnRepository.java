@@ -19,7 +19,7 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
     private final ObjectMapper objectMapper;
 
     public PostgresRuntimeTurnRepository(DataSource dataSource, ObjectMapper objectMapper) {
-        this.dataSource = java.util.Objects.requireNonNull(dataSource, "data source must not be null");
+        this.dataSource = new org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy(java.util.Objects.requireNonNull(dataSource, "data source must not be null"));
         this.objectMapper = java.util.Objects.requireNonNull(objectMapper, "object mapper must not be null");
     }
 
