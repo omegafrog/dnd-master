@@ -2,6 +2,7 @@ package com.dndmaster.adventure.application.runtime;
 
 import java.util.Objects;
 import java.util.List;
+import java.util.Set;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
 
@@ -31,12 +32,13 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         java.util.Set<String> hiddenData = context.storyPlanContext().isBlank()
                 ? java.util.Set.of()
                 : java.util.Set.of(context.storyPlanContext());
-        GmPlanResult result = validator.validate(agentPort.plan(context), request.evidencePack(), request.currentContext(), hiddenData);
+        TurnCapability capability = gateway == null || saga == null ? null : TurnCapability.issue(
+                request.sessionId(), request.turnId(), request.ownerPlayerId().value(), Set.of("dice.roll", "character.update"),
+                java.time.Instant.now().plusSeconds(60), UUID.nameUUIDFromBytes((request.sessionId() + ":" + request.turnId()).getBytes(StandardCharsets.UTF_8)));
+        GmPlanResult result = validator.validate(capability == null ? agentPort.plan(context) : agentPort.plan(context, capability),
+                request.evidencePack(), request.currentContext(), hiddenData);
         if (!result.toolCalls().isEmpty()) {
             if (gateway == null || saga == null) throw new IllegalStateException("GM tool gateway is not configured");
-            TurnCapability capability = TurnCapability.issue(request.sessionId(), request.turnId(), request.ownerPlayerId().value(),
-                    result.toolCalls().stream().map(GmToolCall::toolName).collect(java.util.stream.Collectors.toSet()),
-                    java.time.Instant.now().plusSeconds(60), UUID.nameUUIDFromBytes((request.sessionId() + ":" + request.turnId()).getBytes(StandardCharsets.UTF_8)));
             GmToolGateway saggedGateway = (cap, invocation) -> {
                 RuntimeCommandRequest command = new RuntimeCommandRequest(invocation.invocationId(), invocation.sessionId(), invocation.turnId(), invocation.ownerPlayerId(), invocation.toolName(), invocation.argumentsJson());
                 RuntimeCommandOutcome outcome = saga.execute(command, ignored -> {
@@ -86,6 +88,8 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
             } finally {
                 gateway.revoke(capability);
             }
+        } else if (capability != null) {
+            gateway.revoke(capability);
         }
         GmPlanResult validated = validator.validate(result, request.evidencePack(), request.currentContext(), hiddenData);
         return validated.plan();

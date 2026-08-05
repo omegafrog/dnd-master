@@ -35,8 +35,13 @@ public final class HttpGmAgentPort implements GmAgentPort {
 
     @Override
     public GmPlanResult plan(GmContextEnvelope context) {
+        return plan(context, null);
+    }
+
+    @Override
+    public GmPlanResult plan(GmContextEnvelope context, com.dndmaster.adventure.application.runtime.TurnCapability capability) {
         try {
-            String body = mapper.writeValueAsString(Request.from(context));
+            String body = mapper.writeValueAsString(Request.from(context, capability));
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/agent-turns"))
                     .timeout(timeout).header("Content-Type", "application/json")
                     .header("Authorization", "Bearer " + context.ownerPlayerId().value())
@@ -52,13 +57,13 @@ public final class HttpGmAgentPort implements GmAgentPort {
         }
     }
 
-    record Request(String operationKey, UUID adventureId, UUID ownerPlayerId, UUID sessionId, UUID turnId, UUID scenarioPackageId, long bindingVersion,
+    record Request(String operationKey, UUID adventureId, UUID ownerPlayerId, UUID sessionId, UUID turnId, UUID scenarioPackageId, long bindingVersion, String turnCapability,
                    String action, String currentScene, String npcState, String pendingAction, String latestJudgment,
                    List<Evidence> storybook, List<Evidence> rulebook, List<Evidence> resolution, List<String> recentTurns,
                    List<String> characterSnapshots, String storyPlanContext) {
-        static Request from(GmContextEnvelope c) {
+        static Request from(GmContextEnvelope c, com.dndmaster.adventure.application.runtime.TurnCapability capability) {
             var context = c.currentContext();
-            return new Request(c.operationKey(), c.adventureId().value(), c.ownerPlayerId().value(), c.sessionId(), c.turnId(), c.scenarioPackageId(), c.bindingVersion(),
+            return new Request(c.operationKey(), c.adventureId().value(), c.ownerPlayerId().value(), c.sessionId(), c.turnId(), c.scenarioPackageId(), c.bindingVersion(), capability == null ? null : capability.token(),
                     c.action(), context.currentScene(), context.npcState(), context.pendingAction(), context.latestJudgment(),
                     c.evidencePack().storybook().stream().map(Evidence::from).toList(),
                     c.evidencePack().rulebook().stream().map(Evidence::from).toList(),

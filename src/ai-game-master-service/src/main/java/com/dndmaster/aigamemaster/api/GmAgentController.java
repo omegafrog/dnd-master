@@ -57,7 +57,7 @@ public final class GmAgentController {
                 r.characterSnapshots(), r.storyPlanContext());
     }
 
-    public record Request(String operationKey, UUID adventureId, UUID ownerPlayerId, UUID scenarioPackageId, long bindingVersion, String action,
+    public record Request(String operationKey, UUID adventureId, UUID ownerPlayerId, UUID sessionId, UUID turnId, UUID scenarioPackageId, long bindingVersion, String turnCapability, String action,
                           String currentScene, String npcState, String pendingAction, String latestJudgment,
                           List<?> storybook, List<?> rulebook, List<?> resolution, List<String> recentTurns,
                           List<String> characterSnapshots, String storyPlanContext) {}
