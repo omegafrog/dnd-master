@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useAuth } from '../features/auth/AuthContext'
 import { LoginForm } from '../features/auth/LoginForm'
 import { HttpAdventureApi } from '../features/adventure/AdventureApi'
@@ -12,12 +12,12 @@ import { RulebookSetup } from '../features/rulebooks/RulebookSetup'
 import { BundleDetailPage } from '../features/rulebooks/BundleDetailPage'
 import { CharacterSheetView } from '../features/character/CharacterSheetView'
 import { CharacterCreationPage } from '../features/character/CharacterCreationPage'
+import { PackageBlueprintReviewPage } from '../features/character/PackageBlueprintReviewPage'
 import { RoleDiceRoller } from '../features/dice/RoleDiceRoller'
 import { CombatMapView } from '../features/combat-map/CombatMapView'
 import { AdventureSessionApi } from '../features/adventure-session/AdventureSessionApi'
 import { AdventureSessionPanel } from '../features/adventure-session/AdventureSessionPanel'
 import { AdventureStoryPlanPage } from '../features/adventure-session/AdventureStoryPlanPage'
-import type { SetupApi } from '../features/rulebooks/SetupApi'
 import { parseRoute, type Route } from './route'
 
 export function AppShell() {
@@ -112,7 +112,7 @@ export function AppShell() {
       {(route.page === 'session' || route.page === 'party') && <AdventureSessionPanel api={sessionApi} ownerPlayerId={playerId} sessionId={route.sessionId} />}
       {route.page === 'story-plan' && <AdventureStoryPlanPage api={sessionApi} sessionId={route.sessionId} />}
       {route.page === 'character-blueprint' && <CharacterCreationPage sessionId={route.sessionId} ownerPlayerId={playerId} setupApi={setupApi} sessionApi={sessionApi} />}
-      {route.page === 'package-blueprint' && <DirectCharacterCreationRedirect packageId={route.packageId} setupApi={setupApi} sessionApi={sessionApi} />}
+      {route.page === 'package-blueprint' && <PackageBlueprintReviewPage packageId={route.packageId} setupApi={setupApi} sessionApi={sessionApi} onSessionCreated={sessionId => { window.location.hash = `#/sessions/${sessionId}/character-blueprint` }} />}
       {route.page === 'character-create' && <CharacterCreationPage sessionId={route.sessionId} ownerPlayerId={playerId} setupApi={setupApi} sessionApi={sessionApi} />}
     </main>
   </div>
@@ -128,56 +128,4 @@ function shortId(value: string) {
 
 function ProfilePage({ session }: { session: NonNullable<ReturnType<typeof useAuth>['session']> }) {
   return <section aria-labelledby="profile-title" className="profile-page"><p className="eyebrow">PLAYER PROFILE</p><h1 id="profile-title">내 정보</h1><dl><dt>이름</dt><dd>{session.playerName}</dd><dt>플레이어 ID</dt><dd>{session.playerId}</dd><dt>인증 만료</dt><dd>{new Date(session.expiresAt).toLocaleString('ko-KR')}</dd></dl></section>
-}
-
-function DirectCharacterCreationRedirect({
-  packageId,
-  setupApi,
-  sessionApi,
-}: {
-  packageId: string
-  setupApi: Pick<SetupApi, 'getPlayPreparation'>
-  sessionApi: Pick<AdventureSessionApi, 'create'>
-}) {
-  const [error, setError] = useState<string | null>(null)
-  const sessionCreationStarted = useRef(false)
-
-  useEffect(() => {
-    let active = true
-    const getPreparation = setupApi.getPlayPreparation?.bind(setupApi)
-
-    if (!getPreparation) {
-      setError('캐릭터 생성 설정을 불러오지 못했습니다.')
-      return () => { active = false }
-    }
-
-    void getPreparation(packageId)
-      .then(preparation => {
-        if (!preparation) throw new Error('캐릭터 생성 설정을 불러오지 못했습니다.')
-        if (!active || sessionCreationStarted.current) return null
-        sessionCreationStarted.current = true
-        return sessionApi.create({
-          scenarioPackageId: packageId,
-          blueprintId: packageId,
-          blueprintRevision: preparation.characterCreationBlueprint.revision ?? 0,
-        })
-      })
-      .then(session => {
-        if (active && session) window.location.hash = `#/sessions/${session.sessionId}/character-blueprint`
-      })
-      .catch(reason => {
-        if (active) setError(reason instanceof Error ? reason.message : '캐릭터 생성 화면을 열지 못했습니다.')
-      })
-
-    return () => { active = false }
-  }, [packageId, setupApi, sessionApi])
-
-  return (
-    <section aria-labelledby="character-creation-redirect-title">
-      <h2 id="character-creation-redirect-title">캐릭터 생성 화면 준비 중</h2>
-      <p role="status" aria-live="polite">
-        {error ?? '캐릭터 생성 화면으로 이동하고 있습니다.'}
-      </p>
-    </section>
-  )
 }

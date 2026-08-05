@@ -2,6 +2,8 @@ package com.dndmaster.aigamemaster.api;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.ArrayList;
@@ -21,7 +23,7 @@ import org.springframework.web.bind.annotation.RestController;
 public final class ResolutionCandidateController {
     private static final Logger log = LoggerFactory.getLogger(ResolutionCandidateController.class);
     private static final Pattern EXPLICIT_DC = Pattern.compile(
-            "(?i)\\bDC\\s*(\\d+)\\s+([A-Za-z]+(?:\\s*\\([^)]*\\))?)\\s+(sa\\s*ving\\s+throw|check)");
+            "(?i)\\bDC\\s*(\\d+)\\s+([A-Za-z]+(?:\\s*\\([^)]*\\))?)\\s+(sa\\s*ving\\s+throw(?:s)?|check(?:s)?)");
     private static final Pattern DICE = Pattern.compile("(?i)\\b(\\d+d\\d+(?:\\s*[+-]\\s*\\d+)?)\\b");
     private final SpringAiChatAdapter adapter;
     private final ObjectMapper objectMapper;
@@ -42,10 +44,11 @@ public final class ResolutionCandidateController {
                 + "Do not invent values or references. Output JSON only. Excerpts: " + request.excerpts();
         List<Candidate> candidates = adapter.complete(request.operationId(), prompt, this::parseModel);
         if (!candidates.isEmpty()) {
-            log.info("resolution_candidate_ai_result operationId={} aiCandidates={} excerpts={}", request.operationId(), candidates.size(), request.excerpts().size());
-            return new Response(candidates);
+            List<Candidate> deduplicated = deduplicate(candidates);
+            log.info("resolution_candidate_ai_result operationId={} aiCandidates={} deduplicated={} excerpts={}", request.operationId(), candidates.size(), deduplicated.size(), request.excerpts().size());
+            return new Response(deduplicated);
         }
-        List<Candidate> fallback = fallbackCandidates(request.excerpts());
+        List<Candidate> fallback = deduplicate(fallbackCandidates(request.excerpts()));
         log.warn("resolution_candidate_ai_empty operationId={} fallbackCandidates={} excerpts={} excerptSummaries={}", request.operationId(), fallback.size(), request.excerpts().size(), request.excerpts().stream().map(e -> e.locator() + ":" + (e.text() == null ? 0 : e.text().length()) + ":" + (e.text() == null ? "" : e.text().substring(0, Math.min(100, e.text().length())).replaceAll("\\s+", " "))).toList());
         return new Response(fallback);
     }
@@ -88,8 +91,7 @@ public final class ResolutionCandidateController {
             Matcher matcher = EXPLICIT_DC.matcher(excerpt.text());
             while (matcher.find()) {
                 String quote = normalizeWhitespace(matcher.group());
-                Matcher dice = DICE.matcher(excerpt.text().substring(matcher.start()));
-                String expression = dice.find() ? dice.group(1) : null;
+                String expression = diceExpression(excerpt.text(), matcher.end());
                 String kind = matcher.group(3).replaceAll("\\s+", "").toLowerCase().startsWith("saving")
                         ? "SAVING_THROW" : "SKILL_ABILITY_CHECK";
                 candidates.add(new Candidate(kind, normalizeWhitespace(matcher.group(2)), Integer.valueOf(matcher.group(1)), expression,
@@ -99,6 +101,40 @@ public final class ResolutionCandidateController {
             }
         }
         return List.copyOf(candidates);
+    }
+
+    static List<Candidate> deduplicate(List<Candidate> candidates) {
+        LinkedHashMap<String, Candidate> unique = new LinkedHashMap<>();
+        for (Candidate candidate : candidates) {
+            if (candidate == null) continue;
+            unique.putIfAbsent(candidateKey(candidate), candidate);
+        }
+        return List.copyOf(unique.values());
+    }
+
+    private static String candidateKey(Candidate candidate) {
+        return String.join("|", normalized(candidate.kind()), normalized(candidate.abilityOrSkill()),
+                normalized(candidate.dc()), normalized(candidate.diceExpression()), normalized(candidate.sourceQuote()));
+    }
+
+    private static String normalized(Object value) {
+        return value == null ? "" : value.toString().replaceAll("\\s+", " ").trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static String diceExpression(String text, int from) {
+        int end = text.length();
+        Matcher nextResolution = EXPLICIT_DC.matcher(text);
+        nextResolution.region(Math.min(from, text.length()), text.length());
+        if (nextResolution.find()) end = Math.min(end, nextResolution.start());
+        for (int index = from; index < text.length() && index < from + 220; index++) {
+            char current = text.charAt(index);
+            if (current == '.' || current == '!' || current == '?') {
+                end = index + 1;
+                break;
+            }
+        }
+        Matcher dice = DICE.matcher(text.substring(Math.min(from, text.length()), Math.min(end, text.length())));
+        return dice.find() ? dice.group(1).replaceAll("\\s+", "") : null;
     }
 
     private static String normalizeWhitespace(String value) {

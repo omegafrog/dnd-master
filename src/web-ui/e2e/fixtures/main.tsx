@@ -211,6 +211,8 @@ let sessionView: AdventureSessionView = {
 }
 const sessionApi = {
   async read() { return sessionView },
+  async listOwnedCharacters() { return [] },
+  async copyOwnedCharacter(_sessionId: string, characterSheetId: string) { return { characterSheetId } },
   async addMember(_sessionId: string, version: number, member: AdventureSessionView['party'][number]) {
     sessionView = { ...sessionView, version: version + 1, party: [member] }
     return sessionView
@@ -218,6 +220,14 @@ const sessionApi = {
   async removeMember() { return sessionView },
   async start(_sessionId: string, version: number, adventureId: string) {
     sessionView = { ...sessionView, version: version + 2, status: 'STARTED', adventureId }
+    return sessionView
+  },
+  async complete(_sessionId: string, version: number) {
+    sessionView = { ...sessionView, version: version + 1, status: 'COMPLETED' }
+    return sessionView
+  },
+  async delete(_sessionId: string, version: number) {
+    sessionView = { ...sessionView, version: version + 1, status: 'DELETED' }
     return sessionView
   },
 }
@@ -255,7 +265,7 @@ function Journey() {
   return (
     <main>
       <RulebookSetup api={setupApi} playerId="player-e2e" asMain={false} />
-      <AdventureSessionPanel api={sessionApi} sessionId="session-e2e" />
+      <AdventureSessionPanel api={sessionApi} ownerPlayerId="player-e2e" sessionId="session-e2e" />
       <ScenarioUploadPanel />
       <CharacterCreationPage sessionId="character-session-e2e" ownerPlayerId="player-e2e" setupApi={setupApi} sessionApi={characterSessionApi} />
       <div aria-label="모험 플레이">

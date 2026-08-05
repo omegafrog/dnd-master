@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 class ResolutionCandidateControllerTest {
@@ -72,5 +74,30 @@ class ResolutionCandidateControllerTest {
         assertEquals(1, candidates.size());
         assertEquals("SAVING_THROW", candidates.getFirst().kind());
         assertEquals(12, candidates.getFirst().dc());
+    }
+
+    @Test
+    void goldenCorpusExtractsExpectedUnitsDeduplicatesOverlapAndScopesDiceToSentence() {
+        var id = java.util.UUID.randomUUID();
+        String corpus = ""
+                + "Eight rats require a DC 10 Wisdom (Perception) check before combat. "
+                + "A trap requires a DC 12 Dexterity sa\nving throw, taking 5 (1d10) damage. "
+                + "The storeroom requires a DC13 Wisdom (Perception) check. "
+                + "The spider requires a DC 11 Constitution saving throw, taking 7 (2d6) fire damage. ";
+        var excerpts = List.of(
+                new ResolutionCandidateController.Excerpt(id, 6, "offset 0-200", corpus),
+                new ResolutionCandidateController.Excerpt(id, 6, "offset 100-300", corpus));
+
+        var candidates = ResolutionCandidateController.deduplicate(
+                ResolutionCandidateController.fallbackCandidates(excerpts));
+        var unique = candidates.stream().collect(Collectors.toMap(
+                candidate -> candidate.kind() + ":" + candidate.abilityOrSkill() + ":" + candidate.dc(),
+                Function.identity(), (first, ignored) -> first));
+
+        assertEquals(4, unique.size());
+        assertEquals(null, unique.get("SKILL_ABILITY_CHECK:Wisdom (Perception):10").diceExpression());
+        assertEquals("1d10", unique.get("SAVING_THROW:Dexterity:12").diceExpression());
+        assertEquals("2d6", unique.get("SAVING_THROW:Constitution:11").diceExpression());
+        assertEquals(null, unique.get("SKILL_ABILITY_CHECK:Wisdom (Perception):13").diceExpression());
     }
 }

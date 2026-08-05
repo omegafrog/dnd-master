@@ -20,12 +20,13 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class CrossContextHttpScenarioSourceExcerptGateway implements ScenarioSourceExcerptPort {
-    private static final int MAX_EXCERPTS_FOR_RESOLUTION_EXTRACTION = 3;
+    private static final int MAX_EXCERPTS_FOR_RESOLUTION_EXTRACTION = 12;
     private static final int MAX_EXCERPTS_FOR_BLUEPRINT_EXTRACTION = 12;
     private static final int MAX_EXCERPT_CHARACTERS = 900;
     private static final Pattern RESOLUTION_ANCHOR = Pattern.compile(
-            "(?is)\\b(?:dc\\s*\\d+\\s+[a-z]+(?:\\s*\\([^)]*\\))?\\s+(?:sa\\s*ving\\s+throw|check)|"
-                    + "(?:saving\\s+throw|attack|damage|recharge|roll))\\b");
+            "(?is)\\b(?:dc\\s*\\d+\\s+[a-z]+(?:\\s*\\([^)]*\\))?\\s+"
+                    + "(?:sa\\s*ving\\s+throw(?:s)?|check(?:s)?)|"
+                    + "(?:saving\\s+throw(?:s)?|attack(?:s)?|damage(?:s)?|recharge|roll(?:s)?))\\b");
 
     private final HttpClient client;
     private final URI baseUri;
@@ -124,7 +125,7 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
         }
     }
 
-    private static String abbreviate(String excerpt) {
+    static String abbreviate(String excerpt) {
         if (excerpt == null || excerpt.length() <= MAX_EXCERPT_CHARACTERS) return excerpt;
         String resolutionWindow = resolutionWindow(excerpt);
         if (resolutionWindow != null) return resolutionWindow;
@@ -139,9 +140,11 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
         List<AnchorWindow> windows = new ArrayList<>();
         while (matcher.find()) {
             windows.add(new AnchorWindow(
-                    matcher.start(), matcher.end(), matcher.group().toLowerCase(java.util.Locale.ROOT).contains("saving")));
+                    matcher.start(), matcher.end(), matcher.group().toLowerCase(java.util.Locale.ROOT).matches(".*\\bdc\\s*\\d+.*"),
+                    matcher.group().toLowerCase(java.util.Locale.ROOT).contains("saving")));
         }
-        windows.sort(Comparator.comparing(AnchorWindow::savingThrow).reversed()
+        windows.sort(Comparator.comparing(AnchorWindow::explicitDc).reversed()
+                .thenComparing(Comparator.comparing(AnchorWindow::savingThrow).reversed())
                 .thenComparingInt(AnchorWindow::start));
         StringBuilder result = new StringBuilder();
         for (AnchorWindow window : windows.stream().limit(2).toList()) {
@@ -154,7 +157,7 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
                 : result.substring(0, Math.min(result.length(), MAX_EXCERPT_CHARACTERS));
     }
 
-    private record AnchorWindow(int start, int end, boolean savingThrow) {}
+    private record AnchorWindow(int start, int end, boolean explicitDc, boolean savingThrow) {}
 
     private static int firstRuleAnchor(String excerpt) {
         String lower = excerpt.toLowerCase(java.util.Locale.ROOT);

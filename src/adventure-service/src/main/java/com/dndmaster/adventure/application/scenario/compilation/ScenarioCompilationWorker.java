@@ -161,11 +161,11 @@ public final class ScenarioCompilationWorker {
                 .filter(excerpt -> bundleSources.contains(excerpt.documentId().value() + ":" + excerpt.extractionVersion()))
                 .toList();
         List<ResolutionExtractionPort.SourceExcerpt> relevant = scoped.stream()
-                .filter(excerpt -> excerpt.text() != null && excerpt.text().matches("(?is).*\\b(?:DC|check|saving throw|attack|damage|roll|recharge)\\b.*"))
-                .limit(6).toList();
-        if (relevant.size() >= 6) return relevant;
+                .filter(excerpt -> excerpt.text() != null && excerpt.text().matches("(?is).*\\b(?:DC|check(?:s)?|saving throw(?:s)?|attack(?:s)?|damage(?:s)?|roll(?:s)?|recharge)\\b.*"))
+                .limit(12).toList();
+        if (relevant.size() >= 12) return relevant;
         return java.util.stream.Stream.concat(relevant.stream(), scoped.stream().filter(excerpt -> !relevant.contains(excerpt)))
-                .limit(6).toList();
+                .limit(12).toList();
     }
 
     private List<CharacterContextSearchPort.Evidence> searchCharacterContext(ScenarioSourceBundle bundle) {

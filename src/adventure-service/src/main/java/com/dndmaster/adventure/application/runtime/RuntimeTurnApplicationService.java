@@ -151,7 +151,7 @@ public final class RuntimeTurnApplicationService {
 
     private EvidencePack prefetchEvidence(
             SubmitRuntimeTurnCommand command, Adventure adventure, RuntimeBinding binding, ScenarioPackage scenarioPackage) {
-        List<UUID> knowledgeDocumentIds = knowledgeDocumentIds(adventure);
+        List<UUID> knowledgeDocumentIds = knowledgeDocumentIds(adventure, scenarioPackage);
         List<RuntimeEvidence> storybook = scopedSearch(new RuntimeEvidenceSearchRequest(
                 adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), knowledgeDocumentIds,
                 binding.activeSourceContext(), command.action(), RuntimeEvidenceType.STORYBOOK, 5));
@@ -171,13 +171,19 @@ public final class RuntimeTurnApplicationService {
                 .toList();
     }
 
-    private List<UUID> knowledgeDocumentIds(Adventure adventure) {
+    private List<UUID> knowledgeDocumentIds(Adventure adventure, ScenarioPackage scenarioPackage) {
         SessionKnowledgeSet set = sessionKnowledgeSetRepository.findBySessionId(adventure.sessionId())
                 .orElseGet(() -> new SessionKnowledgeSet(adventure.sessionId(), List.of()));
         if (!set.sessionId().equals(adventure.sessionId())) {
             throw new IllegalStateException("session knowledge set does not match adventure");
         }
-        return set.knowledgeDocumentIds().stream().map(id -> id.value()).toList();
+        if (!set.knowledgeDocumentIds().isEmpty()) {
+            return set.knowledgeDocumentIds().stream().map(id -> id.value()).toList();
+        }
+        return scenarioPackage.documents().stream()
+                .map(document -> document.knowledgeDocumentId().value())
+                .distinct()
+                .toList();
     }
 
     private static List<RuntimeEvidence> resolutionEvidence(ScenarioResolutionUnit unit) {

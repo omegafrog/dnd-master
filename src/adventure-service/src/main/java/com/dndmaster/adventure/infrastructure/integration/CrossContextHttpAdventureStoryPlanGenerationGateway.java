@@ -6,6 +6,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
 import java.net.URI;
+import java.net.http.HttpTimeoutException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
@@ -27,7 +28,8 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             var parsed = mapper.readValue(response.body(), Response.class);
             if (parsed.stages() == null || parsed.stages().size() < 2) throw new IllegalStateException("AI returned too few story stages");
             return parsed.stages().stream().map(stage -> new AdventureStoryPlanStage(stage.position(), stage.title(), stage.goal(), stage.conflict(), stage.transitionCondition(), stage.npcOrClues(), stage.endingIds())).toList();
-        } catch (IOException e) { throw new IllegalStateException("story plan AI response malformed", e); }
+        } catch (HttpTimeoutException e) { throw new IllegalStateException("story plan AI timed out after " + timeout, e); }
+        catch (IOException e) { throw new IllegalStateException("story plan AI response malformed", e); }
         catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("story plan AI interrupted", e); }
     }
     @JsonIgnoreProperties(ignoreUnknown = true) record Response(List<Stage> stages) {}

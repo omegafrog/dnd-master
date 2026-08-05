@@ -14,6 +14,7 @@ adventure:
       base-url: ${RULE_KNOWLEDGE_BASE_URL:http://127.0.0.1:8080/}
     ai-game-master:
       base-url: ${AI_GAME_MASTER_BASE_URL:http://127.0.0.1:8080/}
+      story-plan-timeout: ${AI_GAME_MASTER_STORY_PLAN_TIMEOUT:1800s}
     scenario-compilation:
       timeout: 900s
 

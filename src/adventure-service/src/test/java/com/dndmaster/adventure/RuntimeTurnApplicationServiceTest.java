@@ -128,24 +128,26 @@ class RuntimeTurnApplicationServiceTest {
     }
 
     @Test
-    void treats_missing_persisted_session_scope_as_an_empty_authorization_set() {
+    void uses_scenario_package_documents_when_session_scope_is_empty() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
         Adventure adventure = adventure(owner);
         ScenarioPackage scenarioPackage = scenarioPackage(
                 new KnowledgeDocumentId(UUID.randomUUID()), new KnowledgeDocumentId(UUID.randomUUID()));
+        KnowledgeDocumentId story = scenarioPackage.documents().getFirst().knowledgeDocumentId();
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 new InMemoryAdventureRepository(adventure),
                 new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId())),
                 new InMemoryPackageRepository(scenarioPackage), new InMemoryRuntimeTurnRepository(),
-                request -> List.of(), request -> new RuntimePlan(
+                request -> List.of(new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK, story, 1, "page:1", "Story")), request -> new RuntimePlan(
                         "scene", null, "judgment", "narration", null, List.of(), List.of()),
                 new AllowingSafetyPort(true), new InMemorySessionKnowledgeSetRepository());
 
         RuntimeTurnResult result = service.submitTurn(new SubmitRuntimeTurnCommand(
                 adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Open the door"));
 
-        assertTrue(result.turn().evidencePack().storybook().isEmpty());
-        assertTrue(result.turn().evidencePack().rulebook().isEmpty());
+        assertEquals(List.of(story.value()), result.turn().evidencePack().storybook().stream()
+                .map(evidence -> evidence.knowledgeDocumentId().value()).toList());
+
     }
     @Test
     void rejects_stale_expected_version_before_planning_or_persistence() {
