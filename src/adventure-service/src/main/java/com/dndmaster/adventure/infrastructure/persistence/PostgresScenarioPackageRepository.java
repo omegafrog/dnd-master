@@ -15,6 +15,8 @@ import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionDetail;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
+import com.dndmaster.adventure.domain.scenario.MapDefinition;
+import com.dndmaster.adventure.domain.scenario.StoryMapBinding;
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -67,12 +69,12 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     private Optional<ScenarioPackage> find(String column, Object value) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(
-                        "SELECT package_id, bundle_id, bundle_revision, input_fingerprint, report_status, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json FROM scenario_package WHERE " + column + " = ?")) {
+                        "SELECT package_id, bundle_id, bundle_revision, input_fingerprint, report_status, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json, map_definitions_json, story_map_bindings_json FROM scenario_package WHERE " + column + " = ?")) {
             statement.setObject(1, value);
             try (ResultSet row = statement.executeQuery()) {
                 if (!row.next()) return Optional.empty();
                 UUID packageId = row.getObject("package_id", UUID.class);
-                return Optional.of(ScenarioPackage.rehydrate(
+                return Optional.of(ScenarioPackage.rehydrateWithMaps(
                         packageId,
                         new ScenarioBundleId(row.getObject("bundle_id", UUID.class)),
                         row.getLong("bundle_revision"),
@@ -82,7 +84,9 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
                         new ScenarioCompilationReport(
                                 ResolutionStatus.valueOf(row.getString("report_status")),
                                 readArray(row.getArray("report_warnings"))),
-                        readCharacterLimit(row), readBlueprint(row.getString("character_creation_blueprint_json"))));
+                        readCharacterLimit(row), readBlueprint(row.getString("character_creation_blueprint_json")),
+                        readJson(row.getString("map_definitions_json"), new com.fasterxml.jackson.core.type.TypeReference<List<MapDefinition>>() {}),
+                        readJson(row.getString("story_map_bindings_json"), new com.fasterxml.jackson.core.type.TypeReference<List<StoryMapBinding>>() {})));
             }
         } catch (SQLException exception) {
             throw new ScenarioPackagePersistenceException("could not load scenario package", exception);
@@ -134,7 +138,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
 
     private static void insertHeader(Connection connection, ScenarioPackage packageVersion) throws SQLException {
         try (PreparedStatement insert = connection.prepareStatement(
-                "INSERT INTO scenario_package(package_id, bundle_id, bundle_revision, input_fingerprint, report_status, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
+                "INSERT INTO scenario_package(package_id, bundle_id, bundle_revision, input_fingerprint, report_status, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json, map_definitions_json, story_map_bindings_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
             insert.setObject(1, packageVersion.packageId());
             insert.setObject(2, packageVersion.bundleId().value());
             insert.setLong(3, packageVersion.bundleRevision());
@@ -150,6 +154,8 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
             }
             insert.setString(11, packageVersion.characterLimit().sourceQuote());
             insert.setString(12, writeBlueprint(packageVersion.characterCreationBlueprint()));
+            insert.setString(13, writeJson(packageVersion.mapDefinitions()));
+            insert.setString(14, writeJson(packageVersion.storyMapBindings()));
             insert.executeUpdate();
         }
     }
@@ -265,6 +271,12 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
         Object value = array.getArray();
         if (!(value instanceof Object[] values)) return List.of();
         return java.util.Arrays.stream(values).map(String::valueOf).toList();
+    }
+
+    private static String writeJson(Object value) { try { return JSON.writeValueAsString(value); } catch (JsonProcessingException e) { throw new ScenarioPackagePersistenceException("could not serialize map data", e); } }
+    private static <T> List<T> readJson(String value, com.fasterxml.jackson.core.type.TypeReference<List<T>> type) {
+        if (value == null || value.isBlank()) return List.of();
+        try { return JSON.readValue(value, type); } catch (JsonProcessingException e) { throw new ScenarioPackagePersistenceException("could not deserialize map data", e); }
     }
 
     private static CharacterLimit readCharacterLimit(ResultSet row) throws SQLException {
