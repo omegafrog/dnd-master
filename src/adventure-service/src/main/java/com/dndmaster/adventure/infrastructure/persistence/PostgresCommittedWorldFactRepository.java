@@ -10,7 +10,7 @@ import javax.sql.DataSource;
 
 public final class PostgresCommittedWorldFactRepository implements CommittedWorldFactRepository {
     private final DataSource dataSource;
-    public PostgresCommittedWorldFactRepository(DataSource dataSource) { this.dataSource = dataSource; }
+    public PostgresCommittedWorldFactRepository(DataSource dataSource) { this.dataSource = new org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy(dataSource); }
     public CommittedWorldFactLedger findBySessionId(UUID sessionId) {
         var result = CommittedWorldFactLedger.empty();
         try (var c = dataSource.getConnection(); var s = c.prepareStatement("SELECT fact_id,fact_version,subject,predicate,object_value,visibility,provenance,cause_turn_id FROM committed_world_fact WHERE session_id=? ORDER BY fact_version")) {

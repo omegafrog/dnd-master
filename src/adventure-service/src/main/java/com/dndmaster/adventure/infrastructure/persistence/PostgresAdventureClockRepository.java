@@ -9,7 +9,7 @@ import javax.sql.DataSource;
 
 public final class PostgresAdventureClockRepository implements AdventureClockRepository {
     private final DataSource dataSource;
-    public PostgresAdventureClockRepository(DataSource dataSource) { this.dataSource = dataSource; }
+    public PostgresAdventureClockRepository(DataSource dataSource) { this.dataSource = new org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy(dataSource); }
     public Optional<AdventureClock> findBySessionId(UUID sessionId) {
         try (var c = dataSource.getConnection(); var s = c.prepareStatement("SELECT clock_version, turns_elapsed, seconds_elapsed, last_cause_turn_id FROM adventure_clock WHERE session_id=?")) {
             s.setObject(1, sessionId);
