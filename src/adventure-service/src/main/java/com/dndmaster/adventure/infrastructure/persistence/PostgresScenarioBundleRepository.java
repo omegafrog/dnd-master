@@ -102,8 +102,8 @@ public final class PostgresScenarioBundleRepository implements ScenarioBundleRep
             boolean previousAutoCommit = connection.getAutoCommit();
             connection.setAutoCommit(false);
             try {
-                delete(connection, bundle.id().value());
-                insertBundle(connection, bundle);
+                upsertBundle(connection, bundle);
+                deleteRevisions(connection, bundle.id().value());
                 for (ScenarioSourceBundleRevision revision : bundle.revisions()) {
                     insertRevision(connection, bundle.id().value(), revision);
                 }
@@ -120,20 +120,23 @@ public final class PostgresScenarioBundleRepository implements ScenarioBundleRep
         }
     }
 
-    private static void delete(Connection connection, UUID bundleId) throws SQLException {
-        try (PreparedStatement delete = connection.prepareStatement("DELETE FROM scenario_source_bundle WHERE bundle_id = ?")) {
-            delete.setObject(1, bundleId);
-            delete.executeUpdate();
+    private static void upsertBundle(Connection connection, ScenarioSourceBundle bundle) throws SQLException {
+        try (PreparedStatement upsert = connection.prepareStatement(
+                "INSERT INTO scenario_source_bundle(bundle_id, owner_player_id, current_revision) VALUES (?, ?, ?) "
+                        + "ON CONFLICT (bundle_id) DO UPDATE SET owner_player_id = EXCLUDED.owner_player_id, "
+                        + "current_revision = EXCLUDED.current_revision")) {
+            upsert.setObject(1, bundle.id().value());
+            upsert.setObject(2, bundle.ownerPlayerId().value());
+            upsert.setLong(3, bundle.currentRevision().revision());
+            upsert.executeUpdate();
         }
     }
 
-    private static void insertBundle(Connection connection, ScenarioSourceBundle bundle) throws SQLException {
-        try (PreparedStatement insert = connection.prepareStatement(
-                "INSERT INTO scenario_source_bundle(bundle_id, owner_player_id, current_revision) VALUES (?, ?, ?)")) {
-            insert.setObject(1, bundle.id().value());
-            insert.setObject(2, bundle.ownerPlayerId().value());
-            insert.setLong(3, bundle.currentRevision().revision());
-            insert.executeUpdate();
+    private static void deleteRevisions(Connection connection, UUID bundleId) throws SQLException {
+        try (PreparedStatement delete = connection.prepareStatement(
+                "DELETE FROM scenario_source_bundle_revision WHERE bundle_id = ?")) {
+            delete.setObject(1, bundleId);
+            delete.executeUpdate();
         }
     }
 

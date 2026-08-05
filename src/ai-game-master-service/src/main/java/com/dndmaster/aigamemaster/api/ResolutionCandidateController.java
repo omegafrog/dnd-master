@@ -21,7 +21,7 @@ import org.springframework.web.bind.annotation.RestController;
 public final class ResolutionCandidateController {
     private static final Logger log = LoggerFactory.getLogger(ResolutionCandidateController.class);
     private static final Pattern EXPLICIT_DC = Pattern.compile(
-            "(?i)\\bDC\\s*(\\d+)\\s+([A-Za-z]+(?:\\s*\\([^)]*\\))?)\\s+(saving throw|sa|check)");
+            "(?i)\\bDC\\s*(\\d+)\\s+([A-Za-z]+(?:\\s*\\([^)]*\\))?)\\s+(sa\\s*ving\\s+throw|check)");
     private static final Pattern DICE = Pattern.compile("(?i)\\b(\\d+d\\d+(?:\\s*[+-]\\s*\\d+)?)\\b");
     private final SpringAiChatAdapter adapter;
     private final ObjectMapper objectMapper;
@@ -87,18 +87,22 @@ public final class ResolutionCandidateController {
             if (excerpt == null || excerpt.text() == null) continue;
             Matcher matcher = EXPLICIT_DC.matcher(excerpt.text());
             while (matcher.find()) {
-                String quote = matcher.group();
+                String quote = normalizeWhitespace(matcher.group());
                 Matcher dice = DICE.matcher(excerpt.text().substring(matcher.start()));
                 String expression = dice.find() ? dice.group(1) : null;
-                String kind = matcher.group(3).toLowerCase().startsWith("sa")
+                String kind = matcher.group(3).replaceAll("\\s+", "").toLowerCase().startsWith("saving")
                         ? "SAVING_THROW" : "SKILL_ABILITY_CHECK";
-                candidates.add(new Candidate(kind, matcher.group(2), Integer.valueOf(matcher.group(1)), expression,
+                candidates.add(new Candidate(kind, normalizeWhitespace(matcher.group(2)), Integer.valueOf(matcher.group(1)), expression,
                         "GM_REFERENCE", quote,
                         List.of(new SourceRef(excerpt.documentId(), excerpt.extractionVersion(), excerpt.locator())),
                         null, "deterministic-source-pattern-v1"));
             }
         }
         return List.copyOf(candidates);
+    }
+
+    private static String normalizeWhitespace(String value) {
+        return value == null ? null : value.replaceAll("\\s+", " ").trim();
     }
 
     private String extractJsonArray(String response) {

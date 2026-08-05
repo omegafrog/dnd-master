@@ -178,7 +178,8 @@ public final class RulebookIndexingPolicy {
 
         for (int i = startIdx + 1; i < segments.size(); i++) {
             StructuralSegment next = segments.get(i);
-            if (totalLength + next.text.length() + 1 > maxChunkSize) {
+            if (totalLength + next.text.length() + 1 > maxChunkSize
+                    && !continuesWord(merged.getLast().text, next.text)) {
                 break;
             }
             merged.add(next);
@@ -186,6 +187,12 @@ public final class RulebookIndexingPolicy {
         }
 
         return merged;
+    }
+
+    private boolean continuesWord(String previous, String next) {
+        return !previous.isEmpty() && !next.isEmpty()
+                && Character.isLetterOrDigit(previous.charAt(previous.length() - 1))
+                && Character.isLetterOrDigit(next.charAt(0));
     }
 
     private String buildMergedText(List<StructuralSegment> segments) {
@@ -243,13 +250,23 @@ public final class RulebookIndexingPolicy {
         }
 
         int lastParagraph = text.lastIndexOf("\n\n", offset + maxLen);
-        if (lastParagraph > offset) {
+        if (lastParagraph > offset && !splitsWord(text, lastParagraph + 2)) {
             return lastParagraph - offset;
         }
 
         int lastNewline = text.lastIndexOf('\n', offset + maxLen);
+        while (lastNewline > offset && joinsWord(text, lastNewline)) {
+            lastNewline = text.lastIndexOf('\n', lastNewline - 1);
+        }
         if (lastNewline > offset) {
             return lastNewline - offset;
+        }
+
+        // PDF extraction can place a newline inside a word. Carry that whole word
+        // into the chunk rather than publishing a fragment such as "sa".
+        if (end < text.length() && joinsWord(text, end)) {
+            int nextBoundary = text.indexOf('\n', end + 1);
+            if (nextBoundary > end) return nextBoundary - offset;
         }
 
         int lastSpace = text.lastIndexOf(' ', offset + maxLen);
@@ -258,6 +275,22 @@ public final class RulebookIndexingPolicy {
         }
 
         return maxLen;
+    }
+
+    /** PDF extraction can insert a newline in the middle of a word. Never use that as a chunk boundary. */
+    private boolean splitsWord(String text, int boundary) {
+        return boundary > 0 && boundary < text.length()
+                && Character.isLetterOrDigit(text.charAt(boundary - 1))
+                && Character.isLetterOrDigit(text.charAt(boundary));
+    }
+
+    private boolean joinsWord(String text, int newline) {
+        if (newline < 0 || newline >= text.length() || text.charAt(newline) != '\n') return false;
+        int next = newline + 1;
+        while (next < text.length() && Character.isWhitespace(text.charAt(next))) next++;
+        return newline > 0 && next < text.length()
+                && Character.isLetterOrDigit(text.charAt(newline - 1))
+                && Character.isLetterOrDigit(text.charAt(next));
     }
 
     private static void requireEligible(Rulebook rulebook) {

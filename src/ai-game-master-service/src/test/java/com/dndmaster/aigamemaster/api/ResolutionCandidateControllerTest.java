@@ -2,6 +2,7 @@ package com.dndmaster.aigamemaster.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
@@ -47,6 +48,28 @@ class ResolutionCandidateControllerTest {
                         "The mosaic requires a DC 12 Dexterity saving throw, taking 5 (1d10) damage.")));
 
         assertFalse(candidates.isEmpty());
+        assertEquals("SAVING_THROW", candidates.getFirst().kind());
+        assertEquals(12, candidates.getFirst().dc());
+    }
+
+    @Test
+    void rejectsTruncatedPdfTokenInsteadOfCreatingFalseCandidate() {
+        var candidates = ResolutionCandidateController.fallbackCandidates(List.of(
+                new ResolutionCandidateController.Excerpt(
+                        java.util.UUID.randomUUID(), 2, "offset 10-100",
+                        "The creature must make a DC 12 Dexterity sa")));
+
+        assertTrue(candidates.isEmpty());
+    }
+
+    @Test
+    void acceptsPdfLineBreakInsideSavingThrowWord() {
+        var candidates = ResolutionCandidateController.fallbackCandidates(List.of(
+                new ResolutionCandidateController.Excerpt(
+                        java.util.UUID.randomUUID(), 4, "offset 4858-9445",
+                        "Any creature must make a DC 12 Dexterity sa\nving throw, taking 5 damage.")));
+
+        assertEquals(1, candidates.size());
         assertEquals("SAVING_THROW", candidates.getFirst().kind());
         assertEquals(12, candidates.getFirst().dc());
     }
