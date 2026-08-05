@@ -49,24 +49,27 @@ public final class CombatMapViewService {
     public PlayerCombatMapView displayForPlayer(MapId id, MapOwnerId owner) { VersionedOwnedCombatMap state = owned(id, owner); return projection(state.map(), state.version()); }
     public Optional<PlayerCombatMapView> displayForAdventure(AdventureId adventureId, MapOwnerId owner) { return store.findByAdventureId(adventureId).filter(state -> state.owner().equals(owner)).map(state -> projection(state.map(), state.version())); }
     public CombatMap revealToken(MapId id, MapOwnerId owner, long expectedVersion, UUID commandId, TokenId tokenId) {
-        CombatMap replay=replay(commandId,"REVEAL|"+tokenId); if(replay!=null)return replay;
-        VersionedOwnedCombatMap state=owned(id, owner); if(state.version()!=expectedVersion) throw new IllegalStateException("version mismatch");
+        VersionedOwnedCombatMap state=owned(id, owner);
+        String fingerprint=id+"|"+owner+"|REVEAL|"+tokenId; CombatMap replay=replay(id,owner,commandId,fingerprint); if(replay!=null)return replay;
+        if(state.version()!=expectedVersion) throw new IllegalStateException("version mismatch");
         CombatMap map=state.map(); map.tokens().stream().filter(token->token.id().equals(tokenId)).findFirst().orElseThrow(CombatMapAccessDeniedException::new).reveal();
         map.refreshVisibility(map.visibilitySnapshot()==null?0:map.visibilitySnapshot().ruleTurn());
-        store.update(owner,map,expectedVersion,expectedVersion+1,commandId,"REVEAL|"+tokenId); return map;
+        store.update(owner,map,expectedVersion,expectedVersion+1,commandId,fingerprint); return map;
     }
     public CombatMap changeDoor(MapId id, MapOwnerId owner, long expectedVersion, UUID commandId, GridPosition position, boolean open) {
-        CombatMap replay=replay(commandId,"DOOR|"+position+"|"+open); if(replay!=null)return replay;
-        VersionedOwnedCombatMap state=owned(id, owner); if(state.version()!=expectedVersion) throw new IllegalStateException("version mismatch");
+        VersionedOwnedCombatMap state=owned(id, owner);
+        String fingerprint=id+"|"+owner+"|DOOR|"+position+"|"+open; CombatMap replay=replay(id,owner,commandId,fingerprint); if(replay!=null)return replay;
+        if(state.version()!=expectedVersion) throw new IllegalStateException("version mismatch");
         Set<Door> doors=new HashSet<>(state.map().doors()); doors.removeIf(door->door.position().equals(position)); doors.add(new Door(position,open)); state.map().replaceDoors(doors); state.map().refreshVisibility(state.map().visibilitySnapshot()==null?0:state.map().visibilitySnapshot().ruleTurn());
-        store.update(owner,state.map(),expectedVersion,expectedVersion+1,commandId,"DOOR|"+position+"|"+open); return state.map();
+        store.update(owner,state.map(),expectedVersion,expectedVersion+1,commandId,fingerprint); return state.map();
     }
     public CombatMap onGameTimeAdvanced(MapId id, MapOwnerId owner, long expectedVersion, GameTimeAdvanced event) {
-        CombatMap replay=replay(event.causeId(),"TIME|"+event.ruleTurn()); if(replay!=null)return replay;
-        VersionedOwnedCombatMap state=owned(id, owner); if(state.version()!=expectedVersion) throw new IllegalStateException("version mismatch");
+        VersionedOwnedCombatMap state=owned(id, owner);
         if(!state.map().adventureId().value().equals(event.adventureId())) throw new IllegalArgumentException("game time event belongs to another adventure");
+        String fingerprint=id+"|"+owner+"|TIME|"+event.adventureId()+"|"+event.ruleTurn(); CombatMap replay=replay(id,owner,event.causeId(),fingerprint); if(replay!=null)return replay;
+        if(state.version()!=expectedVersion) throw new IllegalStateException("version mismatch");
         if(state.map().visibilitySnapshot()!=null && event.ruleTurn()<state.map().visibilitySnapshot().ruleTurn()) throw new IllegalArgumentException("game time must be monotonic");
-        state.map().refreshVisibility(event.ruleTurn()); store.update(owner,state.map(),expectedVersion,expectedVersion+1,event.causeId(),"TIME|"+event.ruleTurn()); return state.map();
+        state.map().refreshVisibility(event.ruleTurn()); store.update(owner,state.map(),expectedVersion,expectedVersion+1,event.causeId(),fingerprint); return state.map();
     }
     private PlayerCombatMapView projection(CombatMap map, long version) {
         VisibilitySnapshot visibility = map.visibilitySnapshot();
@@ -76,7 +79,7 @@ public final class CombatMapViewService {
         Set<GridPosition> explored = visibility.explored();
         return new PlayerCombatMapView(map.id(), map.grid(), exposed, map.obstacles().stream().filter(explored::contains).collect(Collectors.toSet()), map.doors().stream().filter(door->explored.contains(door.position())).toList(), map.layers().stream().filter(l -> l.visibility() == LayerVisibility.PLAYER_VISIBLE).toList(), visibility.current(), explored, lastSeenIds, version);
     }
-    private CombatMap replay(UUID commandId,String fingerprint){VersionedOwnedCombatMap replay=store.findByCommandId(commandId).orElse(null);if(replay==null)return null;if(!fingerprint.equals(replay.map().operationFingerprint()))throw new IllegalStateException("command id reused with different payload");return replay.map();}
+    private CombatMap replay(MapId id,MapOwnerId owner,UUID commandId,String fingerprint){VersionedOwnedCombatMap replay=store.findByCommandId(commandId).orElse(null);if(replay==null)return null;if(!replay.map().id().equals(id)||!replay.owner().equals(owner)||!fingerprint.equals(replay.map().operationFingerprint()))throw new IllegalStateException("command id reused with different payload or owner");return replay.map();}
     private static Set<GridPosition> playerOrigins(CombatMap map) { return map.tokens().stream().filter(t -> t.type() == TokenType.PLAYER).map(CombatToken::position).collect(Collectors.toSet()); }
     private VersionedOwnedCombatMap owned(MapId id, MapOwnerId owner) { VersionedOwnedCombatMap state = store.find(id).orElseThrow(CombatMapAccessDeniedException::new); if (!state.owner().equals(owner)) throw new CombatMapAccessDeniedException(); return state; }
     private static CombatToken copy(CombatToken t, GridPosition p) { return new CombatToken(t.id(), t.type(), p, t.controller(), t.ownerPlayerId().orElse(null), t.discovery()); }
