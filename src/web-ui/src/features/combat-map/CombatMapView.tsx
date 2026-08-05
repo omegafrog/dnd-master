@@ -60,10 +60,11 @@ export function CombatMapView({ adventureId, api }: { adventureId: string; api: 
               const cell = { x: index % grid.width, y: Math.floor(index / grid.width) }
               const token = map.tokens?.find(item => item.x === cell.x && item.y === cell.y)
               const blocked = map.obstacles?.some(obstacle => obstacle.x === cell.x && obstacle.y === cell.y)
+              const door = map.doors?.find(item => item.x === cell.x && item.y === cell.y)
               const visible = map.current?.some(item => item.x === cell.x && item.y === cell.y) ?? true
               const explored = map.explored?.some(item => item.x === cell.x && item.y === cell.y) ?? visible
               return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={visible && token ? `${token.type} ${token.x},${token.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={visible ? 'current' : explored ? 'explored' : 'hidden'} data-last-seen={token?.lastSeen ? 'true' : 'false'} disabled={blocked || !visible} draggable={token?.type === 'PLAYER'} onDragStart={() => { if (token?.type === 'PLAYER') setSelectedToken(token.id) }} onClick={() => { if (token?.type === 'PLAYER') setSelectedToken(token.id); else chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => chooseCell(cell)}>
-                {visible && token ? `${token.type} (${token.x},${token.y})` : blocked ? '장애물' : visible ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
+                {visible && token ? `${token.type} (${token.x},${token.y})` : door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '장애물' : visible ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
               </button>
             })}
           </div>
