@@ -170,10 +170,17 @@ public class AdventureApiConfiguration {
     @Bean
     StoryContinuityCommandService storyContinuityCommandService(StoryPlanRevisionRepository plans,
             AdventureClockRepository clocks, CommittedWorldFactRepository facts,
-            PlatformTransactionManager transactionManager) {
+            PlatformTransactionManager transactionManager,
+            AdventureSessionRepository sessions,
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String ruleKnowledgeBaseUrl,
+            @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long ruleKnowledgeTimeoutSeconds) {
         return new StoryContinuityCommandService(plans, clocks, facts,
                 new com.dndmaster.adventure.domain.runtime.plan.StoryPlanRevisionValidator(),
-                new org.springframework.transaction.support.TransactionTemplate(transactionManager));
+                new org.springframework.transaction.support.TransactionTemplate(transactionManager),
+                new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRulebookTimeDefinitionGateway(
+                        sessions, HttpClient.newHttpClient(), URI.create(ruleKnowledgeBaseUrl),
+                        Duration.ofSeconds(ruleKnowledgeTimeoutSeconds), objectMapper));
     }
 
     @Bean
