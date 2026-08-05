@@ -168,6 +168,11 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    GmContextCheckpointRepository gmContextCheckpointRepository(DataSource dataSource, ObjectMapper mapper) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresGmContextCheckpointRepository(dataSource, mapper);
+    }
+
+    @Bean
     StoryContinuityCommandService storyContinuityCommandService(StoryPlanRevisionRepository plans,
             AdventureClockRepository clocks, CommittedWorldFactRepository facts,
             PlatformTransactionManager transactionManager,
