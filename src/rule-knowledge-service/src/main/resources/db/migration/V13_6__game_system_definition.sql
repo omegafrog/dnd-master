@@ -7,3 +7,5 @@ CREATE TABLE IF NOT EXISTS game_system_definition_revision (
     published_at TIMESTAMPTZ,
     UNIQUE (rulebook_id, definition_version)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS game_system_definition_published_uq
+    ON game_system_definition_revision(rulebook_id) WHERE status = 'PUBLISHED';

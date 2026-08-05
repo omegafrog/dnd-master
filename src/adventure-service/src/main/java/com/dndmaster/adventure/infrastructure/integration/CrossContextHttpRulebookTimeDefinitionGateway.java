@@ -29,11 +29,16 @@ public final class CrossContextHttpRulebookTimeDefinitionGateway implements Func
 
     public CrossContextHttpRulebookTimeDefinitionGateway(AdventureSessionRepository sessions, RuntimeBindingRepository bindings,
             HttpClient httpClient, URI baseUri, Duration timeout, ObjectMapper mapper) {
-        this(sessions, bindings, httpClient, baseUri, timeout, mapper, "");
+        this(sessions, bindings, httpClient, baseUri, timeout, mapper, "", false);
     }
 
     public CrossContextHttpRulebookTimeDefinitionGateway(AdventureSessionRepository sessions, RuntimeBindingRepository bindings,
             HttpClient httpClient, URI baseUri, Duration timeout, ObjectMapper mapper, String internalToken) {
+        this(sessions, bindings, httpClient, baseUri, timeout, mapper, internalToken, true);
+    }
+
+    private CrossContextHttpRulebookTimeDefinitionGateway(AdventureSessionRepository sessions, RuntimeBindingRepository bindings,
+            HttpClient httpClient, URI baseUri, Duration timeout, ObjectMapper mapper, String internalToken, boolean requireLock) {
         this.sessions = Objects.requireNonNull(sessions);
         this.bindings = Objects.requireNonNull(bindings);
         this.httpClient = Objects.requireNonNull(httpClient);
@@ -41,7 +46,7 @@ public final class CrossContextHttpRulebookTimeDefinitionGateway implements Func
         this.timeout = Objects.requireNonNull(timeout);
         this.mapper = Objects.requireNonNull(mapper);
         this.internalToken = internalToken == null ? "" : internalToken;
-        this.requireLock = !this.internalToken.isBlank();
+        this.requireLock = requireLock;
     }
 
     @Override
@@ -61,7 +66,7 @@ public final class CrossContextHttpRulebookTimeDefinitionGateway implements Func
             if (requireLock && (binding == null || binding.gameSystemDefinitionVersion() < 1)) return java.util.Optional.empty();
             long lockedVersion = binding == null ? 0 : binding.gameSystemDefinitionVersion();
             for (UUID rulebookId : configuration.rulebookIds()) {
-                var found = findByRulebook(rulebookId, lockedVersion);
+                var found = fetchDefinition(rulebookId, lockedVersion, true);
                 if (found.isPresent()) return found;
             }
             return java.util.Optional.empty();
@@ -72,10 +77,15 @@ public final class CrossContextHttpRulebookTimeDefinitionGateway implements Func
 
     @Override
     public java.util.Optional<GameSystemDefinitionPort.Definition> findByRulebook(UUID rulebookId) {
-        return findByRulebook(rulebookId, 0);
+        return fetchDefinition(rulebookId, 0, false);
     }
 
-    private java.util.Optional<GameSystemDefinitionPort.Definition> findByRulebook(UUID rulebookId, long lockedVersion) {
+    @Override
+    public java.util.Optional<GameSystemDefinitionPort.Definition> findByRulebook(UUID rulebookId, long version) {
+        return fetchDefinition(rulebookId, version, false);
+    }
+
+    private java.util.Optional<GameSystemDefinitionPort.Definition> fetchDefinition(UUID rulebookId, long lockedVersion, boolean requireTime) {
         try {
             String suffix = lockedVersion > 0 ? "?version=" + lockedVersion : "";
             var requestBuilder = HttpRequest.newBuilder(baseUri.resolve("internal/v1/rulebooks/" + rulebookId + "/game-system-definition" + suffix))
@@ -85,7 +95,7 @@ public final class CrossContextHttpRulebookTimeDefinitionGateway implements Func
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() / 100 != 2) return java.util.Optional.empty();
             PublishedDefinition source = mapper.readValue(response.body(), PublishedDefinition.class);
-            if (GameSystemTimeDefinitionAdapter.secondsPerTurn(source.definitionJson()).isPresent())
+            if (!requireTime || mapper.readTree(source.definitionJson()).isObject())
                 return java.util.Optional.of(new GameSystemDefinitionPort.Definition(source.version(), source.definitionJson()));
         } catch (Exception ignored) {
             // One unavailable rulebook must not hide a later locked rulebook.

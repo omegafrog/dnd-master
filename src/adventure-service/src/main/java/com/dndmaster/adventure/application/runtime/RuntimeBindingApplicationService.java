@@ -140,12 +140,19 @@ public final class RuntimeBindingApplicationService {
                 scenarioPackage.report().status().name(), scenarioPackage.report().warnings(), candidates, proposal,
                 rulebookIds, engineId, toolIds);
         ActiveSourceContext selected = selectSourceContext(report, proposal);
+        var blueprint = scenarioPackage.characterCreationBlueprint();
+        if (requirePublishedReferences && (blueprint == null
+                || blueprint.status() != com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.PUBLISHED
+                || blueprint.provenance().gameSystemDefinitionVersion() < 1)) {
+            throw new IllegalStateException("published character blueprint with definition provenance is required");
+        }
+        long expectedDefinitionVersion = blueprint == null ? 0 : blueprint.provenance().gameSystemDefinitionVersion();
         long definitionVersion = rulebookIds.stream()
-                .map(gameSystemDefinitionPort::findByRulebook)
+                .map(rulebookId -> gameSystemDefinitionPort.findByRulebook(rulebookId, expectedDefinitionVersion))
                 .flatMap(java.util.Optional::stream)
                 .mapToLong(GameSystemDefinitionPort.Definition::version)
                 .findFirst().orElse(0L);
-        long blueprintVersion = scenarioPackage.characterCreationBlueprint() == null
+        long blueprintVersion = blueprint == null
                 ? 0L : scenarioPackage.characterCreationBlueprint().revision();
         if (requirePublishedReferences && (definitionVersion < 1 || blueprintVersion < 1)) {
             throw new IllegalStateException("published game system definition and character blueprint are required");

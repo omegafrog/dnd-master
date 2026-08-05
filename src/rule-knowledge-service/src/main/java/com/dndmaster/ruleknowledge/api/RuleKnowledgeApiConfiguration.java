@@ -171,7 +171,7 @@ public class RuleKnowledgeApiConfiguration {
             com.dndmaster.ruleknowledge.application.indexing.RulebookIndexRepository indexRepository,
             ObjectMapper objectMapper,
             com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository definitionRepository,
-            @Value("${rule-knowledge.internal-token:local-dev-internal-token}") String internalToken) {
+            @Value("${rule-knowledge.internal-token:}") String internalToken) {
         return new RuleKnowledgeController(
                 pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
                 characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken);
