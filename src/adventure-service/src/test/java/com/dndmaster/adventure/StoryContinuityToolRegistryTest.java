@@ -14,6 +14,6 @@ class StoryContinuityToolRegistryTest {
         assertTrue(tools.stream().anyMatch(tool -> tool.name().equals("advance_game_time")
                 && tool.inputSchema().contains("expectedClockVersion")
                 && tool.inputSchema().contains("commandId")
-                && tool.inputSchema().contains("ruleSecondsPerTurn")));
+                && !tool.inputSchema().contains("ruleSecondsPerTurn")));
     }
 }

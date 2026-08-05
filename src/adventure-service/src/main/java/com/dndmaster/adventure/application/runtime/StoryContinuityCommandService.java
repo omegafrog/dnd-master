@@ -9,6 +9,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.OptionalInt;
 import java.util.UUID;
+import java.util.function.Function;
 import org.springframework.transaction.support.TransactionTemplate;
 
 /** Owns continuity mutations. Each command is one local transaction and one cause turn. */
@@ -18,11 +19,21 @@ public final class StoryContinuityCommandService {
     private final CommittedWorldFactRepository facts;
     private final StoryPlanRevisionValidator validator;
     private final TransactionTemplate transaction;
+    private final Function<UUID, OptionalInt> ruleSecondsPerTurn;
 
     public StoryContinuityCommandService(StoryPlanRevisionRepository plans, AdventureClockRepository clocks,
             CommittedWorldFactRepository facts, StoryPlanRevisionValidator validator, TransactionTemplate transaction) {
         this.plans = Objects.requireNonNull(plans); this.clocks = Objects.requireNonNull(clocks); this.facts = Objects.requireNonNull(facts);
         this.validator = Objects.requireNonNull(validator); this.transaction = Objects.requireNonNull(transaction);
+        this.ruleSecondsPerTurn = ignored -> OptionalInt.empty();
+    }
+
+    public StoryContinuityCommandService(StoryPlanRevisionRepository plans, AdventureClockRepository clocks,
+            CommittedWorldFactRepository facts, StoryPlanRevisionValidator validator, TransactionTemplate transaction,
+            Function<UUID, OptionalInt> ruleSecondsPerTurn) {
+        this.plans = Objects.requireNonNull(plans); this.clocks = Objects.requireNonNull(clocks); this.facts = Objects.requireNonNull(facts);
+        this.validator = Objects.requireNonNull(validator); this.transaction = Objects.requireNonNull(transaction);
+        this.ruleSecondsPerTurn = Objects.requireNonNull(ruleSecondsPerTurn);
     }
 
     public ContinuityCommandResult revise(UUID sessionId, UUID commandId, UUID turnId, List<String> stages, long expectedPlanVersion) {
@@ -46,5 +57,10 @@ public final class StoryContinuityCommandService {
             String planId = plans.current(sessionId).map(p -> p.revisionId().toString()).orElse("");
             return new ContinuityCommandResult("game time advanced", next.version(), planId, next.version());
         });
+    }
+
+    public ContinuityCommandResult advance(UUID sessionId, UUID commandId, UUID turnId, long turns,
+            long expectedClockVersion) {
+        return advance(sessionId, commandId, turnId, turns, expectedClockVersion, ruleSecondsPerTurn.apply(sessionId));
     }
 }
