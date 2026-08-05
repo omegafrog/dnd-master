@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, it } from 'vitest'
 import { AdventureStream } from './AdventureStream'
@@ -27,6 +27,15 @@ it('renders sent conversation and acknowledges delivery', async () => {
   expect(sent).toEqual(['Open it'])
   expect(await screen.findByText((_, node) => node?.textContent === '플레이어: Open it')).toBeInTheDocument()
   expect(await screen.findByText((_, node) => node?.textContent === 'AI 게임 마스터: 근거를 바탕으로 응답한다.')).toBeInTheDocument()
+})
+
+it('hydrates persisted conversation on mount', async () => {
+  const api: AdventureApi = {
+    async readConversation() { return { adventureId: 'a1', version: 1, entries: [{ sequence: 0, speaker: 'AI_GAME_MASTER', content: '저장된 프롤로그' }] } },
+    async sendMessage() { throw new Error('not used') },
+  }
+  render(<AdventureStream adventureId="a1" api={api} />)
+  await waitFor(() => expect(screen.getAllByRole('listitem').some(item => item.textContent?.includes('저장된 프롤로그'))).toBe(true))
 })
 
 it('announces failure when message send fails', async () => {

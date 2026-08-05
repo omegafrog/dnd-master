@@ -7,6 +7,16 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
   const [sending, setSending] = useState(false)
   const [agentVersion, setAgentVersion] = useState(expectedVersion)
   const [activeControlMode, setActiveControlMode] = useState(controlMode)
+  useEffect(() => {
+    if (!api.readConversation) return
+    let cancelled = false
+    void api.readConversation(adventureId).then(response => {
+      if (!cancelled) setMessages(current => current.length === 0
+        ? response.entries.map(entry => ({ speaker: speakerLabel(entry.speaker), text: entry.content }))
+        : current)
+    }).catch(() => { if (!cancelled) setNotice('대화 기록을 불러오지 못했습니다.') })
+    return () => { cancelled = true }
+  }, [adventureId, api])
   const previousControlMode = useRef(controlMode)
 
   useEffect(() => {
@@ -68,6 +78,12 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
       </form>
     </section>
   )
+}
+
+function speakerLabel(speaker: string) {
+  if (speaker === 'AI_GAME_MASTER') return 'AI 게임 마스터'
+  if (speaker === 'PLAYER') return '플레이어'
+  return speaker
 }
 
 function createRuntimeCommandIdentity() {

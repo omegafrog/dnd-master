@@ -60,6 +60,8 @@ import javax.sql.DataSource;
 import java.util.List;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAdventureStoryPlanGenerationGateway;
+import com.dndmaster.adventure.application.prologue.AdventurePrologueApplicationService;
+import com.dndmaster.adventure.application.prologue.AdventurePrologueGenerationPort;
 
 @Configuration(proxyBeanMethods = false)
 public class AdventureApiConfiguration {
@@ -82,8 +84,25 @@ public class AdventureApiConfiguration {
             RuntimeBindingApplicationService runtimeBindingApplicationService,
             AdventureSessionStartOutboxRepository startOutboxRepository,
             CharacterSheetOwnershipPort ownershipPort,
-            AdventureStoryPlanRepository storyPlanRepository) {
-        return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository, runtimeBindingApplicationService, startOutboxRepository, ownershipPort, storyPlanRepository);
+            AdventureStoryPlanRepository storyPlanRepository,
+            SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
+            AdventurePrologueApplicationService prologueService) {
+        return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository, runtimeBindingApplicationService, new AdventureSessionStartCoordinator(startOutboxRepository), ownershipPort, storyPlanRepository, sessionKnowledgeSetRepository, prologueService);
+    }
+
+    @Bean
+    AdventurePrologueApplicationService adventurePrologueApplicationService(AdventureRepository adventures,
+            AdventureStoryPlanRepository plans, CharacterSheetReadPort sheets, AdventurePrologueGenerationPort generator) {
+        return new AdventurePrologueApplicationService(adventures, plans, sheets, generator);
+    }
+
+    @Bean
+    AdventurePrologueGenerationPort adventurePrologueGenerationPort() {
+        return request -> {
+            var names = request.party().stream().map(snapshot -> snapshot.name() + " (레벨 " + snapshot.level() + ")").toList();
+            var stage = request.stage();
+            return String.format("%s. %s. %s. 함께한 모험가: %s. 근거: %s.", stage.title(), stage.goal(), stage.conflict(), String.join(", ", names), String.join(", ", request.evidence()));
+        };
     }
 
     @Bean
@@ -99,8 +118,9 @@ public class AdventureApiConfiguration {
 
     @Bean
     AdventureStoryPlanGenerationPort adventureStoryPlanGenerationPort(ObjectMapper mapper,
-            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl) {
-        return new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(60), mapper);
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.ai-game-master.story-plan-timeout:1800s}") Duration timeout) {
+        return new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(), URI.create(baseUrl), timeout, mapper);
     }
 
     @Bean
@@ -495,9 +515,10 @@ public class AdventureApiConfiguration {
     @Bean
     RuntimeEvidenceSearchPort runtimeEvidenceSearchPort(
             ObjectMapper objectMapper,
-            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl) {
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long timeoutSeconds) {
         return new CrossContextHttpRuntimeEvidenceSearchGateway(
-                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(10), objectMapper);
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper);
     }
 
     @Bean

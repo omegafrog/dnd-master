@@ -1,4 +1,5 @@
 export interface AdventureApi {
+  readConversation?(adventureId: string): Promise<AdventureConversationResponse>
   sendMessage(
     adventureId: string,
     message: string,
@@ -6,6 +7,9 @@ export interface AdventureApi {
   ): Promise<AdventureMessageResponse>
   runAgentTurn?(adventureId: string, expectedVersion: number): Promise<AdventureMessageResponse>
 }
+
+export type AdventureConversationEntry = { sequence: number; speaker: string; content: string }
+export type AdventureConversationResponse = { adventureId: string; version: number; entries: AdventureConversationEntry[] }
 
 export interface AdventureMessageResponse {
   narration: string
@@ -25,6 +29,12 @@ export class HttpAdventureApi implements AdventureApi {
   constructor(getToken: () => string, getPlayerId: () => string) {
     this.getToken = getToken
     this.getPlayerId = getPlayerId
+  }
+
+  async readConversation(adventureId: string): Promise<AdventureConversationResponse> {
+    const response = await fetch(`/api/v1/adventures/${adventureId}/conversation`, { headers: { Authorization: `Bearer ${this.getToken()}` } })
+    if (!response.ok) throw new Error('대화 기록을 불러오지 못했습니다.')
+    return response.json() as Promise<AdventureConversationResponse>
   }
 
   async sendMessage(
