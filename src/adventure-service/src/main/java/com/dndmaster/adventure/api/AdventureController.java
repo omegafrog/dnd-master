@@ -135,8 +135,12 @@ public class AdventureController {
             gmTurnFailureRecorder.record(turn, adventureId, adventure.sessionId().value(), exception.getMessage(), expectedVersion);
             throw exception;
         }
-        gmTurnRepository.save(turn.process().commit("legacy-runtime"), adventureId);
-        com.dndmaster.adventure.application.runtime.GmTurnCommitPolicy.requirePublishable(turn.process().commit("legacy-runtime"), result.version());
+        String providerMetadata = "provider=" + result.turn().plan().provider()
+                + ";model=" + result.turn().plan().model()
+                + ";reasoning=" + result.turn().plan().reasoning()
+                + ";validation=accepted";
+        gmTurnRepository.save(turn.process().commit(providerMetadata), adventureId);
+        com.dndmaster.adventure.application.runtime.GmTurnCommitPolicy.requirePublishable(turn.process().commit(providerMetadata), result.version());
         sessionEventRepository.append(new com.dndmaster.adventure.application.runtime.SessionEvent(
                 result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
         return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));

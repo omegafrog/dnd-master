@@ -33,11 +33,7 @@ public final class GmAgentController {
                 if (response.scene() == null || response.judgment() == null || response.narration() == null) {
                     throw new IllegalArgumentException("scene, judgment and narration required");
                 }
-                if (response.citedEvidence() == null || response.warnings() == null || response.provider() == null
-                        || response.model() == null || response.reasoning() == null || response.stateDelta() == null) {
-                    throw new IllegalArgumentException("all structured GM fields are required");
-                }
-                return response;
+                return requireComplete(response);
             } catch (Exception exception) {
                 throw new com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException(
                         "GM structured response invalid: " + exception.getMessage());
@@ -64,6 +60,16 @@ public final class GmAgentController {
                           String currentScene, String npcState, String pendingAction, String latestJudgment,
                           List<?> storybook, List<?> rulebook, List<?> resolution, List<String> recentTurns,
                           List<String> characterSnapshots, String storyPlanContext) {}
+
+    static Response requireComplete(Response response) {
+        if (response == null || response.scene() == null || response.judgment() == null || response.narration() == null
+                || response.citedEvidence() == null || response.warnings() == null || response.provider() == null
+                || response.model() == null || response.reasoning() == null || response.stateDelta() == null) {
+            throw new IllegalArgumentException("all structured GM fields are required");
+        }
+        if (!response.stateDelta().isEmpty()) throw new IllegalArgumentException("read-only GM state delta must be empty");
+        return response;
+    }
 
     public record Response(String scene, String npcState, String judgment, String narration, Object proposedActiveSourceContext,
                            List<?> citedEvidence, List<String> warnings, String provider, String model, String reasoning,

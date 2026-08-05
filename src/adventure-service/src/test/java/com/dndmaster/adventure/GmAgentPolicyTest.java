@@ -43,4 +43,12 @@ class GmAgentPolicyTest {
         assertThrows(IllegalStateException.class, () -> new GmFinalValidator().validate(
                 new GmPlanResult(plan, "ollama", "qwen3:8b", "reasoning", List.of()), pack, context, Set.of("secret treasure")));
     }
+
+    @Test
+    void rejects_gm_only_story_plan_context_in_player_narration() {
+        RuntimePlan plan = new RuntimePlan("scene", "npc", "judgment", "stage=secret ending", null, List.of(evidence), List.of());
+        assertThrows(IllegalStateException.class, () -> new GmFinalValidator().validate(
+                new GmPlanResult(plan, "ollama", "qwen3:8b", "reasoning", List.of()), pack, context,
+                Set.of("stage=secret ending")));
+    }
 }

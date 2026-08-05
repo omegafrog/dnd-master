@@ -1,6 +1,6 @@
 # 032-3 — Provider-Neutral GM Agent Loop
 
-- Status: `in-progress`
+- Status: `completed`
 - Issue: [#117](https://github.com/omegafrog/dnd-master/issues/117)
 - Parent: [#114](https://github.com/omegafrog/dnd-master/issues/114)
 - Dependencies: [032-2](032-2-atomic-commit-and-sse-projection.md)
