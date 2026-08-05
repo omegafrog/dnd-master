@@ -8,7 +8,7 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
   const [agentVersion, setAgentVersion] = useState(expectedVersion)
   const [activeControlMode, setActiveControlMode] = useState(controlMode)
   const [projectionStatus, setProjectionStatus] = useState<'idle' | 'processing' | 'failed'>('idle')
-  const [projectionVersion, setProjectionVersion] = useState(expectedVersion)
+  const projectionVersion = useRef(expectedVersion)
   useEffect(() => {
     if (!api.readConversation) return
     let cancelled = false
@@ -22,13 +22,13 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
 
   useEffect(() => {
     if (!api.subscribeEvents) return
-    return api.subscribeEvents(adventureId, projectionVersion, event => {
-      setProjectionVersion(event.version)
+    return api.subscribeEvents(adventureId, projectionVersion.current, event => {
+      projectionVersion.current = Math.max(projectionVersion.current, event.version)
       setSending(false)
       setProjectionStatus(event.type === 'GM_TURN_FAILED' ? 'failed' : 'idle')
       if (event.type === 'GM_TURN_FAILED') setNotice('턴 처리가 실패했습니다.')
-    }, () => setNotice('실시간 모험 이벤트 연결이 끊겼습니다.'))
-  }, [adventureId, api, projectionVersion])
+    }, () => { setSending(false); setProjectionStatus('failed'); setNotice('실시간 모험 이벤트 연결이 끊겼습니다.') })
+  }, [adventureId, api])
   const previousControlMode = useRef(controlMode)
 
   useEffect(() => {
@@ -64,9 +64,10 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
     setProjectionStatus('processing')
     setMessages(current => [...current, { speaker: '플레이어', text }])
     try {
-      const response = await api.sendMessage(adventureId, text, command)
+      const response = await api.sendMessage(adventureId, text, command, projectionVersion.current)
       setMessages(current => [...current, { speaker: 'AI 게임 마스터', text: response.narration }])
     } catch {
+      setProjectionStatus('failed')
       setNotice('메시지를 전송하지 못했습니다.')
     } finally {
       setSending(false)

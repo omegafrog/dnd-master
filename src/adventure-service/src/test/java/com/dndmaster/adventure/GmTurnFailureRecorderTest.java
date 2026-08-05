@@ -26,7 +26,7 @@ class GmTurnFailureRecorderTest {
         assertEquals("FAILED", turns.saved.status().name());
         assertEquals("GM_TURN_FAILED", events.saved.type());
         assertEquals("provider failed", events.saved.payload());
-        assertEquals(4, events.saved.version());
+        assertEquals(5, events.saved.version());
     }
 
     private static final class RecordingTurns implements GmTurnRepository {

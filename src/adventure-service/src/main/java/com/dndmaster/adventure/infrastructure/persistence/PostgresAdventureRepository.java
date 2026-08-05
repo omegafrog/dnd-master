@@ -13,9 +13,13 @@ import javax.sql.DataSource;
 
 public final class PostgresAdventureRepository implements AdventureRepository {
     private final DataSource dataSource;
+    private final DataSource transactionDataSource;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public PostgresAdventureRepository(DataSource dataSource) { this.dataSource = new org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy(java.util.Objects.requireNonNull(dataSource)); }
+    public PostgresAdventureRepository(DataSource dataSource) {
+        this.transactionDataSource = java.util.Objects.requireNonNull(dataSource);
+        this.dataSource = new org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy(transactionDataSource);
+    }
 
     @Override
     public Optional<Adventure> findById(AdventureId adventureId) {
@@ -45,6 +49,7 @@ public final class PostgresAdventureRepository implements AdventureRepository {
     @Override
     public void save(Adventure adventure) {
         try (Connection connection = dataSource.getConnection()) {
+            // Adventure writes are owned by the configured DataSourceTransactionManager.
             boolean managed = org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive();
             boolean priorAutoCommit = connection.getAutoCommit();
             if (!managed) connection.setAutoCommit(false);

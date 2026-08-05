@@ -25,7 +25,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 class AdventureEventControllerTest {
     @Test
-    void resolves_session_cursor_and_replays_only_owned_adventure() {
+    void resolves_session_cursor_and_replays_only_owned_adventure() throws InterruptedException {
         UUID owner = UUID.randomUUID();
         Adventure adventure = adventure(owner);
         RecordingEvents events = new RecordingEvents();
@@ -35,6 +35,7 @@ class AdventureEventControllerTest {
 
         SseEmitter emitter = new AdventureEventController(events, resolver, adventures)
                 .events(adventure.id().value(), 3, null);
+        for (int attempt = 0; attempt < 20 && events.sessionId == null; attempt++) Thread.sleep(25);
         emitter.complete();
 
         assertEquals(adventure.sessionId().value(), events.sessionId);

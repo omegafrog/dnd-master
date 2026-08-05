@@ -47,6 +47,7 @@ it('announces failure when message send fails', async () => {
   await user.type(screen.getByLabelText('행동 또는 대화'), 'Kick the door')
   await user.click(screen.getByRole('button', { name: '보내기' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('메시지를 전송하지 못했습니다')
+  expect(screen.getByRole('status')).toHaveTextContent('턴 처리 실패')
 })
 
 it('waits for direct input while agent turns progress automatically', () => {

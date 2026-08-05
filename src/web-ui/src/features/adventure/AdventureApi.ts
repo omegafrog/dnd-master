@@ -5,6 +5,7 @@ export interface AdventureApi {
     adventureId: string,
     message: string,
     command?: { turnId: string; commandId: string },
+    expectedVersion?: number,
   ): Promise<AdventureMessageResponse>
   runAgentTurn?(adventureId: string, expectedVersion: number): Promise<AdventureMessageResponse>
 }
@@ -72,19 +73,20 @@ export class HttpAdventureApi implements AdventureApi {
     adventureId: string,
     message: string,
     command?: { turnId: string; commandId: string },
+    expectedVersion = 0,
   ): Promise<AdventureMessageResponse> {
     const identity = command ?? createRuntimeCommandIdentity()
-    const response = await fetch(`/api/v1/adventures/${adventureId}/messages`, {
+    const response = await fetch(`/api/v1/adventures/${adventureId}/turns`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${this.getToken()}`,
+        'Idempotency-Key': identity.commandId,
+        'If-Match-Version': String(expectedVersion),
       },
       body: JSON.stringify({
-        playerId: this.getPlayerId(),
         turnId: identity.turnId,
-        commandId: identity.commandId,
-        action: message,
+        input: { type: 'TEXT', text: message },
       }),
     })
     if (!response.ok) throw new Error('모험 메시지를 전송하지 못했습니다.')

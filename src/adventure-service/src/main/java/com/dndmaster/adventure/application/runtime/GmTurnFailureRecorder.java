@@ -16,6 +16,6 @@ public final class GmTurnFailureRecorder {
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void record(GmTurn turn, UUID adventureId, UUID sessionId, String message, long version) {
         turns.save(turn.process().fail(message == null ? "turn failed" : message), adventureId);
-        events.append(new SessionEvent(sessionId, UUID.randomUUID(), version, "GM_TURN_FAILED", message == null ? "turn failed" : message));
+        events.append(new SessionEvent(sessionId, UUID.randomUUID(), version + 1, "GM_TURN_FAILED", message == null ? "turn failed" : message));
     }
 }
