@@ -26,6 +26,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioCompil
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeBindingRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresGmTurnRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionEventRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresWorkQueueAdapter;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureSessionRepository;
@@ -75,6 +76,11 @@ public class AdventureApiConfiguration {
     @Bean
     GmTurnRepository gmTurnRepository(DataSource dataSource, ObjectMapper objectMapper) {
         return new PostgresGmTurnRepository(dataSource, objectMapper);
+    }
+
+    @Bean
+    SessionEventRepository sessionEventRepository(DataSource dataSource) {
+        return new PostgresSessionEventRepository(dataSource);
     }
 
     @Bean
@@ -573,6 +579,7 @@ public class AdventureApiConfiguration {
             RuntimeBindingRepository runtimeBindingRepository,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
             RuntimeTurnRepository runtimeTurnRepository,
+            SessionEventRepository sessionEventRepository,
             RuntimeEvidenceSearchPort runtimeEvidenceSearchPort,
             RuntimePlanningPort runtimePlanningPort,
             NarrationSafetyPort narrationSafetyPort,
@@ -744,12 +751,13 @@ public class AdventureApiConfiguration {
             RuntimeTurnApplicationService runtimeTurnService,
             GmTurnRepository gmTurnRepository,
             RuntimeTurnRepository runtimeTurnRepository,
+            SessionEventRepository sessionEventRepository,
             RuleGuidanceApplicationService guidanceService,
             AdventureCombatApplicationService combatService,
             AdventureScenarioApplicationService scenarioService,
             AuthenticatedPlayerResolver playerResolver) {
         return new AdventureController(
-                savedAdventureService, runtimeTurnService, gmTurnRepository, runtimeTurnRepository, guidanceService, combatService, scenarioService, playerResolver);
+                savedAdventureService, runtimeTurnService, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, scenarioService, playerResolver);
     }
 
     @Bean

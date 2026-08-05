@@ -9,7 +9,7 @@ Status vocabulary: `pending` → `ready-for-agent` → `in-progress` → `comple
 ## 032 — AI GM Runtime
 
 1. [032-1 Typed GM Turn lifecycle](032-1-typed-gm-turn-lifecycle.md) — [#115](https://github.com/omegafrog/dnd-master/issues/115) — `completed`
-2. [032-2 Atomic commit and SSE projection](032-2-atomic-commit-and-sse-projection.md) — [#116](https://github.com/omegafrog/dnd-master/issues/116) — `pending`
+2. [032-2 Atomic commit and SSE projection](032-2-atomic-commit-and-sse-projection.md) — [#116](https://github.com/omegafrog/dnd-master/issues/116) — `in-progress`
 3. [032-3 Provider-neutral GM agent loop](032-3-provider-neutral-gm-agent-loop.md) — [#117](https://github.com/omegafrog/dnd-master/issues/117) — `pending`
 4. [032-4 Capability-scoped tool Saga](032-4-capability-scoped-tool-saga.md) — [#118](https://github.com/omegafrog/dnd-master/issues/118) — `pending`
 5. [032-5 Story continuity, facts, and game clock](032-5-story-continuity-facts-and-game-clock.md) — [#119](https://github.com/omegafrog/dnd-master/issues/119) — `pending`

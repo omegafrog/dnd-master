@@ -34,6 +34,7 @@ public class AdventureController {
     private final RuntimeTurnApplicationService runtimeTurnService;
     private final GmTurnRepository gmTurnRepository;
     private final com.dndmaster.adventure.application.runtime.RuntimeTurnRepository runtimeTurnRepository;
+    private final com.dndmaster.adventure.application.runtime.SessionEventRepository sessionEventRepository;
     private final RuleGuidanceApplicationService guidanceService;
     private final AdventureCombatApplicationService combatService;
     private final AdventureScenarioApplicationService scenarioService;
@@ -44,6 +45,7 @@ public class AdventureController {
             RuntimeTurnApplicationService runtimeTurnService,
             GmTurnRepository gmTurnRepository,
             com.dndmaster.adventure.application.runtime.RuntimeTurnRepository runtimeTurnRepository,
+            com.dndmaster.adventure.application.runtime.SessionEventRepository sessionEventRepository,
             RuleGuidanceApplicationService guidanceService,
             AdventureCombatApplicationService combatService,
             AdventureScenarioApplicationService scenarioService,
@@ -52,6 +54,7 @@ public class AdventureController {
         this.runtimeTurnService = runtimeTurnService;
         this.gmTurnRepository = gmTurnRepository;
         this.runtimeTurnRepository = runtimeTurnRepository;
+        this.sessionEventRepository = sessionEventRepository;
         this.guidanceService = guidanceService;
         this.combatService = combatService;
         this.scenarioService = scenarioService;
@@ -110,18 +113,20 @@ public class AdventureController {
         }
         GmTurn turn = GmTurn.start(request.turnId(), commandId, expectedVersion, input);
         gmTurnRepository.save(turn, adventureId);
+        RuntimeTurnResult result;
         try {
             gmTurnRepository.save(turn.process(), adventureId);
-            RuntimeTurnResult result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
+            result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
                     new AdventureId(adventureId), new OwnerPlayerId(owner), request.turnId(), commandId,
                     input.actionText(), expectedVersion));
-            ResponseEntity<RuntimeTurnResponse> response = ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
-            gmTurnRepository.save(turn.process().commit("legacy-runtime"), adventureId);
-            return response;
         } catch (RuntimeException exception) {
             gmTurnRepository.save(turn.process().fail(exception.getMessage()), adventureId);
             throw exception;
         }
+        gmTurnRepository.save(turn.process().commit("legacy-runtime"), adventureId);
+        sessionEventRepository.append(new com.dndmaster.adventure.application.runtime.SessionEvent(
+                result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
+        return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/rule-inquiries")

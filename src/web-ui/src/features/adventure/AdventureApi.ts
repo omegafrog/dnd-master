@@ -1,4 +1,5 @@
 export interface AdventureApi {
+  subscribeEvents?(adventureId: string, afterVersion: number, onEvent: (event: AdventureSessionEvent) => void, onError?: () => void): () => void
   readConversation?(adventureId: string): Promise<AdventureConversationResponse>
   sendMessage(
     adventureId: string,
@@ -7,6 +8,8 @@ export interface AdventureApi {
   ): Promise<AdventureMessageResponse>
   runAgentTurn?(adventureId: string, expectedVersion: number): Promise<AdventureMessageResponse>
 }
+
+export type AdventureSessionEvent = { version: number; type: string; payload: string }
 
 export type AdventureConversationEntry = { sequence: number; speaker: string; content: string }
 export type AdventureConversationResponse = { adventureId: string; version: number; entries: AdventureConversationEntry[] }
@@ -29,6 +32,14 @@ export class HttpAdventureApi implements AdventureApi {
   constructor(getToken: () => string, getPlayerId: () => string) {
     this.getToken = getToken
     this.getPlayerId = getPlayerId
+  }
+
+  subscribeEvents(adventureId: string, afterVersion: number, onEvent: (event: AdventureSessionEvent) => void, onError?: () => void): () => void {
+    const source = new EventSource(`/api/v1/adventures/${adventureId}/events?afterVersion=${afterVersion}`, { withCredentials: false })
+    const handler = (event: MessageEvent<string>) => onEvent({ version: Number(event.lastEventId), type: event.type, payload: event.data })
+    source.addEventListener('GM_TURN_COMMITTED', handler)
+    source.onerror = () => onError?.()
+    return () => { source.removeEventListener('GM_TURN_COMMITTED', handler); source.close() }
   }
 
   async readConversation(adventureId: string): Promise<AdventureConversationResponse> {

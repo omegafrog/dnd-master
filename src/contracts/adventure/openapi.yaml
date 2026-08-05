@@ -1,6 +1,14 @@
 openapi: 3.1.0
 info: { title: Adventure API, version: 1.0.0 }
 paths:
+  /api/v1/adventures/{adventureId}/events:
+    get:
+      operationId: streamAdventureEvents
+      parameters:
+        - { name: afterVersion, in: query, schema: { type: integer, format: int64, default: -1 } }
+        - { name: Last-Event-ID, in: header, schema: { type: string } }
+      responses:
+        '200': { description: ordered committed session events, content: { text/event-stream: { schema: { type: string } } } }
   /api/v1/adventures/{adventureId}/turns:
     post:
       operationId: submitGmTurn
