@@ -20,7 +20,9 @@ public final class RuntimeTurnCompactionCoordinator {
         var planId = java.util.UUID.nameUUIDFromBytes((turn.sessionId() + ":plan").getBytes(StandardCharsets.UTF_8));
         var refs = new SnapshotReferences(planId, current.factVersion(), current.clockVersion(), current.characterVersion(), current.mapVersion(), current.mapVersion());
         var tail = new ExactTail(turn.action(), turn.context().currentScene(), turn.plan().narration(), "turn:" + turn.turnId(), "round:unknown", "location:unknown", "map:authoritative", "fog:authoritative", "choice:none");
-        var usage = estimator.usage(turn.plan().provider(), turn.action() + "\n" + turn.plan().narration());
+        var prompt = String.join("\n", turn.conversation().stream().map(Object::toString).toList())
+                + "\n" + turn.context() + "\n" + turn.evidencePack() + "\n" + turn.plan();
+        var usage = estimator.usage(turn.plan().provider(), prompt);
         scheduler.scheduleAfterCommit(turn.sessionId(), usage, CompactionBarrier.clear(), () -> checkpoints.compact(turn.sessionId(), turn.turnId(), turn.version(), usage, CompactionBarrier.clear(), turn.plan().narration(), tail, refs).isPresent());
     }
 }

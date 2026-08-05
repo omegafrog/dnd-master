@@ -184,8 +184,8 @@ public class AdventureApiConfiguration {
 
     @Bean
     ContextCompactionPort contextCompactionPort() {
-        return request -> new com.dndmaster.adventure.domain.runtime.checkpoint.ContextSummaryCandidate(
-                request.context(), List.of(), request.snapshotReferences().planRevisionId(), 1);
+        return new ValidatingContextCompactionPort(request -> new com.dndmaster.adventure.domain.runtime.checkpoint.ContextSummaryCandidate(
+                request.context(), List.of(), request.snapshotReferences().planRevisionId(), 1));
     }
 
     @Bean

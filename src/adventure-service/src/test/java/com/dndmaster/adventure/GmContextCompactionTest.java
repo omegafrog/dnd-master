@@ -92,6 +92,17 @@ class GmContextCompactionTest {
                 new AuthoritativeRuntimeSnapshots("character", "map", "facts", "clock", 99, 1, 1, 1)));
     }
 
+    @Test
+    void provider_contract_rejects_candidate_for_wrong_plan() {
+        UUID plan = UUID.randomUUID();
+        ContextCompactionPort port = new ValidatingContextCompactionPort(request ->
+                new com.dndmaster.adventure.domain.runtime.checkpoint.ContextSummaryCandidate("summary", List.of(), UUID.randomUUID(), 1));
+        ContextCompactionRequest request = new ContextCompactionRequest(UUID.randomUUID(), UUID.randomUUID(), "context",
+                new ExactTail("input", "scene", "response", "turn", "round", "location", "map", "fog", "choice"),
+                new SnapshotReferences(plan, 1, 1, 1, 1, 1));
+        assertThrows(IllegalArgumentException.class, () -> port.summarize(request));
+    }
+
     private static GmContextCheckpoint checkpoint(UUID session, long version) {
         UUID planRevision = UUID.randomUUID();
         return GmContextCheckpoint.create(session, UUID.randomUUID(), version,

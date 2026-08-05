@@ -20,6 +20,8 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 // 근거 수집 -> 계획 -> 안전 검사 -> 세션 저장 순서로 런타임 턴을 처리한다.
 public class RuntimeTurnApplicationService {
@@ -182,7 +184,15 @@ public class RuntimeTurnApplicationService {
 
         RuntimeTurn committed = turn.markCommitted();
         runtimeTurnRepository.save(committed);
-        if (compactionCoordinator != null) compactionCoordinator.afterCommit(committed);
+        if (compactionCoordinator != null) {
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override public void afterCommit() { compactionCoordinator.afterCommit(committed); }
+                });
+            } else {
+                compactionCoordinator.afterCommit(committed);
+            }
+        }
         return new RuntimeTurnResult(committed, progressed.currentContext(), progressed.conversation(), progressed.version());
     }
 
@@ -204,6 +214,15 @@ public class RuntimeTurnApplicationService {
         }
         RuntimeTurn committed = existing.markCommitted();
         runtimeTurnRepository.save(committed);
+        if (compactionCoordinator != null && committed.committed()) {
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override public void afterCommit() { compactionCoordinator.afterCommit(committed); }
+                });
+            } else {
+                compactionCoordinator.afterCommit(committed);
+            }
+        }
         return committed;
     }
 
