@@ -32,6 +32,8 @@ export type CombatMapView = {
   mapId?: string
   tokens?: Array<{ id: string; type: string; x: number; y: number }>
   layers?: Array<{ type: string; value: string }>
+  current?: Array<{ x: number; y: number }>
+  explored?: Array<{ x: number; y: number }>
   version?: number
   sessionVersion?: number
   grid?: { width: number; height: number }

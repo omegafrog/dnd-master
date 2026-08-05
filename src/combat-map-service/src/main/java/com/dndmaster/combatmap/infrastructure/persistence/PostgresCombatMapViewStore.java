@@ -7,6 +7,7 @@ import com.dndmaster.combatmap.domain.AdventureId;
 import com.dndmaster.combatmap.domain.CombatMap;
 import com.dndmaster.combatmap.domain.CombatToken;
 import com.dndmaster.combatmap.domain.GridPosition;
+import com.dndmaster.combatmap.domain.LastSeenState;
 import com.dndmaster.combatmap.domain.GridSpec;
 import com.dndmaster.combatmap.domain.LayerVisibility;
 import com.dndmaster.combatmap.domain.MapId;
@@ -16,11 +17,13 @@ import com.dndmaster.combatmap.domain.RuleSetId;
 import com.dndmaster.combatmap.domain.TokenController;
 import com.dndmaster.combatmap.domain.TokenId;
 import com.dndmaster.combatmap.domain.TokenType;
+import com.dndmaster.combatmap.domain.VisibilitySnapshot;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
@@ -136,6 +139,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                     updateMap(connection, owner, map, expected, persistedVersion, operationKey, operationFingerprint);
                 }
                 replaceCurrentChildren(connection, map);
+                writeVisibility(connection, map);
                 recordHistory(connection, owner, map, persistedVersion, operationKey, operationFingerprint);
                 connection.commit();
             } catch (SQLException | RuntimeException exception) {
@@ -350,6 +354,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                 row.getLong("version"),
                 row.getString("operation_key") == null ? null : UUID.fromString(row.getString("operation_key")),
                 row.getString("operation_fingerprint"));
+        readVisibility(row, map);
         return new VersionedOwnedCombatMap(map, new MapOwnerId(ownerId), row.getLong("version"));
     }
 
@@ -464,4 +469,24 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                 TokenController.valueOf(row.getString("controller")),
                 row.getObject("owner_player_id") == null ? null : new PlayerId(row.getObject("owner_player_id", UUID.class)));
     }
+
+    private static void writeVisibility(Connection connection, CombatMap map) throws SQLException {
+        VisibilitySnapshot snapshot = map.visibilitySnapshot();
+        if (snapshot == null) return;
+        try (PreparedStatement statement = connection.prepareStatement("UPDATE combat_map SET visibility_current=?, visibility_explored=?, visibility_last_seen=?, visibility_rule_turn=? WHERE map_id=?")) {
+            statement.setString(1, encodePositions(snapshot.current()));
+            statement.setString(2, encodePositions(snapshot.explored()));
+            statement.setString(3, snapshot.lastSeen().stream().map(last -> last.tokenId().value()+"|"+last.type()+"|"+last.position().x()+"|"+last.position().y()+"|"+last.expiresAtTurn()).collect(java.util.stream.Collectors.joining(";")));
+            statement.setLong(4, snapshot.ruleTurn()); statement.setObject(5, map.id().value()); statement.executeUpdate();
+        }
+    }
+    private static String encodePositions(Collection<GridPosition> positions) { return positions.stream().map(p -> p.x()+","+p.y()).collect(java.util.stream.Collectors.joining(";")); }
+    private static void readVisibility(ResultSet row, CombatMap map) throws SQLException {
+        String current = row.getString("visibility_current"), explored = row.getString("visibility_explored"), encodedLastSeen = row.getString("visibility_last_seen");
+        if (current == null || explored == null) return;
+        Set<GridPosition> currentPositions = decodePositions(current), exploredPositions = decodePositions(explored); List<LastSeenState> states = new ArrayList<>();
+        if (encodedLastSeen != null && !encodedLastSeen.isBlank()) for (String encoded : encodedLastSeen.split(";")) { String[] p = encoded.split("\\|"); if (p.length == 5) states.add(new LastSeenState(new TokenId(UUID.fromString(p[0])), TokenType.valueOf(p[1]), new GridPosition(Integer.parseInt(p[2]), Integer.parseInt(p[3])), Long.parseLong(p[4]))); }
+        map.replaceVisibility(new VisibilitySnapshot(currentPositions, exploredPositions, map.tokens().stream().filter(t -> currentPositions.contains(t.position())).map(CombatToken::id).collect(java.util.stream.Collectors.toSet()), states, row.getLong("visibility_rule_turn")));
+    }
+    private static Set<GridPosition> decodePositions(String value) { Set<GridPosition> result = new HashSet<>(); if (value == null || value.isBlank()) return result; for (String encoded : value.split(";")) { String[] p = encoded.split(","); if (p.length == 2) result.add(new GridPosition(Integer.parseInt(p[0]), Integer.parseInt(p[1]))); } return result; }
 }
