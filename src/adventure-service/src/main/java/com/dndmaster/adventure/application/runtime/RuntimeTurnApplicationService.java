@@ -19,9 +19,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import org.springframework.transaction.annotation.Transactional;
 
 // 근거 수집 -> 계획 -> 안전 검사 -> 세션 저장 순서로 런타임 턴을 처리한다.
-public final class RuntimeTurnApplicationService {
+public class RuntimeTurnApplicationService {
     private final AdventureRepository adventureRepository;
     private final RuntimeBindingRepository bindingRepository;
     private final ScenarioPackageRepository scenarioPackageRepository;
@@ -75,6 +76,7 @@ public final class RuntimeTurnApplicationService {
         this.continuityContextProvider = continuityContextProvider;
     }
 
+    @Transactional
     public RuntimeTurnResult submitTurn(SubmitRuntimeTurnCommand command) {
         Objects.requireNonNull(command, "command must not be null");
         Adventure adventure = adventureRepository.findById(command.adventureId())

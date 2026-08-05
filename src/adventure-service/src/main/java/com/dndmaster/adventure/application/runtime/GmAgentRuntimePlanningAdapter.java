@@ -33,7 +33,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
                 ? java.util.Set.of()
                 : java.util.Set.of(context.storyPlanContext());
         TurnCapability capability = gateway == null || saga == null ? null : TurnCapability.issue(
-                request.sessionId(), request.turnId(), request.ownerPlayerId().value(), Set.of("dice.roll", "character.update"),
+                request.sessionId(), request.turnId(), request.ownerPlayerId().value(), Set.of("dice.roll", "character.update", "revise_story_plan", "advance_game_time"),
                 java.time.Instant.now().plusSeconds(60), UUID.nameUUIDFromBytes((request.sessionId() + ":" + request.turnId()).getBytes(StandardCharsets.UTF_8)));
         GmPlanResult result = validator.validate(capability == null ? agentPort.plan(context) : agentPort.plan(context, capability),
                 request.evidencePack(), request.currentContext(), hiddenData);
@@ -44,7 +44,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
                 RuntimeCommandOutcome outcome = saga.execute(command, ignored -> {
                     GmToolOutcome tool = gateway.invoke(cap, invocation);
                     return tool.status() == GmToolOutcome.Status.COMPLETED
-                            ? RuntimeCommandOutcome.applied(tool.value(), 0)
+                            ? RuntimeCommandOutcome.applied(tool.value(), tool.version(), tool.reference())
                             : RuntimeCommandOutcome.rejected(tool.value());
                 });
                 return switch (outcome.status()) {

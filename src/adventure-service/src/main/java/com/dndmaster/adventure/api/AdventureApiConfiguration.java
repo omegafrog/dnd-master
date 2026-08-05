@@ -150,15 +150,40 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    StoryContinuityContextProvider storyContinuityContextProvider(AdventureStoryPlanRepository plans,
-            AdventureClockRepository clocks, CommittedWorldFactRepository facts) {
-        return sessionId -> plans.findBySessionId(new com.dndmaster.adventure.domain.adventure.SessionId(sessionId)).map(plan -> {
+    StoryContinuityContextProvider storyContinuityContextProvider(StoryPlanRevisionRepository revisions,
+            AdventureStoryPlanRepository legacyPlans, AdventureClockRepository clocks, CommittedWorldFactRepository facts) {
+        return sessionId -> revisions.current(sessionId).or(() -> legacyPlans.findBySessionId(new com.dndmaster.adventure.domain.adventure.SessionId(sessionId)).map(plan -> {
             var stages = plan.stages().stream().map(stage -> stage.title() + ":" + stage.goal() + ":" + stage.conflict()).toList();
-            var revision = new com.dndmaster.adventure.domain.runtime.plan.AdventureStoryPlanRevision(
+            return new com.dndmaster.adventure.domain.runtime.plan.AdventureStoryPlanRevision(
                     plan.planId(), sessionId, plan.version(), null, plan.planId(), stages);
+        })).map(revision -> {
             var clock = clocks.findBySessionId(sessionId).orElseGet(() -> com.dndmaster.adventure.domain.runtime.clock.AdventureClock.initial(sessionId));
             return new StoryContinuityContext(revision, facts.findBySessionId(sessionId).facts(), clock);
         });
+    }
+
+    @Bean
+    StoryPlanRevisionRepository storyPlanRevisionRepository(DataSource dataSource, ObjectMapper mapper) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresStoryPlanRevisionRepository(dataSource, mapper);
+    }
+
+    @Bean
+    StoryContinuityCommandService storyContinuityCommandService(StoryPlanRevisionRepository plans,
+            AdventureClockRepository clocks, CommittedWorldFactRepository facts,
+            PlatformTransactionManager transactionManager) {
+        return new StoryContinuityCommandService(plans, clocks, facts,
+                new com.dndmaster.adventure.domain.runtime.plan.StoryPlanRevisionValidator(),
+                new org.springframework.transaction.support.TransactionTemplate(transactionManager));
+    }
+
+    @Bean
+    OfficialToolPort reviseStoryPlanToolPort(ObjectMapper mapper, StoryContinuityCommandService service) {
+        return ContinuityToolHandlers.revise(mapper, service);
+    }
+
+    @Bean
+    OfficialToolPort advanceGameTimeToolPort(ObjectMapper mapper, StoryContinuityCommandService service) {
+        return ContinuityToolHandlers.advance(mapper, service);
     }
 
     @Bean
@@ -608,8 +633,13 @@ public class AdventureApiConfiguration {
 
     @Bean
     GmToolGateway gmToolGateway(@Qualifier("diceToolPort") OfficialToolPort diceToolPort,
-                                @Qualifier("characterToolPort") OfficialToolPort characterToolPort, ObjectMapper objectMapper) {
-        return new GmToolGatewayService(OfficialGmToolRegistry.definitions(diceToolPort, characterToolPort), java.time.Clock.systemUTC(), objectMapper);
+                                @Qualifier("characterToolPort") OfficialToolPort characterToolPort,
+                                @Qualifier("reviseStoryPlanToolPort") OfficialToolPort reviseStoryPlanToolPort,
+                                @Qualifier("advanceGameTimeToolPort") OfficialToolPort advanceGameTimeToolPort,
+                                ObjectMapper objectMapper) {
+        var definitions = new java.util.HashSet<>(OfficialGmToolRegistry.definitions(diceToolPort, characterToolPort));
+        definitions.addAll(StoryContinuityToolRegistry.definitions(reviseStoryPlanToolPort, advanceGameTimeToolPort));
+        return new GmToolGatewayService(definitions, java.time.Clock.systemUTC(), objectMapper);
     }
 
     @Bean
