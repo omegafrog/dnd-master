@@ -1,0 +1,6 @@
+package com.dndmaster.adventure.application.runtime;
+
+public record RuntimeCommandOutcome(RuntimeCommandStatus status, String value, long version) {
+    public static RuntimeCommandOutcome applied(String value, long version) { return new RuntimeCommandOutcome(RuntimeCommandStatus.APPLIED, value, version); }
+    public static RuntimeCommandOutcome rejected(String value) { return new RuntimeCommandOutcome(RuntimeCommandStatus.REJECTED, value, 0); }
+}

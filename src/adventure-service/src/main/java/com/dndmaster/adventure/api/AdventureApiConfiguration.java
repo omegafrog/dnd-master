@@ -25,6 +25,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresResolutionOver
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioCompilationRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeBindingRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeCommandJournal;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresGmTurnRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionEventRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresWorkQueueAdapter;
@@ -252,6 +253,16 @@ public class AdventureApiConfiguration {
     @Bean
     RuntimeTurnRepository runtimeTurnRepository(DataSource dataSource, ObjectMapper objectMapper) {
         return new PostgresRuntimeTurnRepository(dataSource, objectMapper);
+    }
+
+    @Bean
+    RuntimeCommandJournal runtimeCommandJournal(DataSource dataSource, ObjectMapper objectMapper) {
+        return new PostgresRuntimeCommandJournal(dataSource, objectMapper);
+    }
+
+    @Bean
+    RuntimeCommandSagaApplicationService runtimeCommandSagaApplicationService(RuntimeCommandJournal journal) {
+        return new RuntimeCommandSagaApplicationService(journal);
     }
 
     @Bean
