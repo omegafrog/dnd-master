@@ -12,6 +12,7 @@ import com.dndmaster.ruleknowledge.infrastructure.extraction.*;
 import com.dndmaster.ruleknowledge.infrastructure.ocr.TesseractOcrAdapter;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookIndexRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookRegistrationRepository;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresGameSystemDefinitionRepository;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchPort;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorRuleEvidenceSearchRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorStorySourceSearchRepository;
@@ -76,6 +77,11 @@ public class RuleKnowledgeApiConfiguration {
     @Bean
     RulebookIndexRepository indexRepository(DataSource dataSource) {
         return new PostgresRulebookIndexRepository(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository gameSystemDefinitionRepository(DataSource dataSource) {
+        return new PostgresGameSystemDefinitionRepository(dataSource);
     }
 
     @Bean
@@ -163,9 +169,10 @@ public class RuleKnowledgeApiConfiguration {
             StorySourceSearchApplicationService storySourceSearchService,
             CharacterContextSearchApplicationService characterContextSearchService,
             com.dndmaster.ruleknowledge.application.indexing.RulebookIndexRepository indexRepository,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository definitionRepository) {
         return new RuleKnowledgeController(
                 pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
-                characterContextSearchService, indexRepository, objectMapper);
+                characterContextSearchService, indexRepository, objectMapper, definitionRepository);
     }
 }

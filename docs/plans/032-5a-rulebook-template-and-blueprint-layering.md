@@ -1,6 +1,6 @@
 # 032-5a — Rulebook Template and Blueprint Layering
 
-- Status: `pending`
+- Status: `completed`
 - Parent: [032-5](032-5-story-continuity-facts-and-game-clock.md)
 - Dependencies: [032-1](032-1-typed-gm-turn-lifecycle.md), [032-2](032-2-atomic-commit-and-sse-projection.md), [032-4](032-4-capability-scoped-tool-saga.md)
 - Spec: Product BR-001/004/017/018/021; Architecture §§3.2, 3.5, 3.6; ADR-013

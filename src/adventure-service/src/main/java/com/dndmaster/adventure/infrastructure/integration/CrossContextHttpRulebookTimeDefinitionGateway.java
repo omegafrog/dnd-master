@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.infrastructure.integration;
 
 import com.dndmaster.adventure.application.runtime.GameSystemTimeDefinitionAdapter;
+import com.dndmaster.adventure.application.runtime.GameSystemDefinitionPort;
 import com.dndmaster.adventure.application.session.AdventureSessionRepository;
 import com.dndmaster.adventure.domain.adventure.SessionId;
 import java.net.URI;
@@ -15,7 +16,7 @@ import java.util.Objects;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 /** Reads the locked session rulebook source. GM input never participates. */
-public final class CrossContextHttpRulebookTimeDefinitionGateway implements Function<UUID, OptionalInt> {
+public final class CrossContextHttpRulebookTimeDefinitionGateway implements Function<UUID, OptionalInt>, GameSystemDefinitionPort {
     private final AdventureSessionRepository sessions;
     private final HttpClient httpClient;
     private final URI baseUri;
@@ -33,28 +34,34 @@ public final class CrossContextHttpRulebookTimeDefinitionGateway implements Func
 
     @Override
     public OptionalInt apply(UUID sessionId) {
+        return find(sessionId).map(definition -> GameSystemTimeDefinitionAdapter.secondsPerTurn(definition.definitionJson()))
+                .filter(OptionalInt::isPresent).orElse(OptionalInt.empty());
+    }
+
+    @Override
+    public java.util.Optional<GameSystemDefinitionPort.Definition> find(UUID sessionId) {
         try {
             var session = sessions.findById(new SessionId(sessionId)).orElseThrow();
             var configuration = session.runtimeConfiguration();
-            if (configuration == null) return OptionalInt.empty();
+            if (configuration == null) return java.util.Optional.empty();
             for (UUID rulebookId : configuration.rulebookIds()) {
                 try {
-                    HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("api/v1/rulebooks/" + rulebookId + "/source-preview"))
+                    HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/rulebooks/" + rulebookId + "/game-system-definition"))
                             .timeout(timeout).GET().build();
                     HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
                     if (response.statusCode() / 100 != 2) continue;
-                    SourcePreview source = mapper.readValue(response.body(), SourcePreview.class);
-                    OptionalInt seconds = GameSystemTimeDefinitionAdapter.secondsPerTurn(source.content());
-                    if (seconds.isPresent()) return seconds;
+                    PublishedDefinition source = mapper.readValue(response.body(), PublishedDefinition.class);
+                    if (GameSystemTimeDefinitionAdapter.secondsPerTurn(source.definitionJson()).isPresent())
+                        return java.util.Optional.of(new GameSystemDefinitionPort.Definition(source.version(), source.definitionJson()));
                 } catch (Exception ignored) {
                     // One unavailable rulebook must not hide a later locked rulebook.
                 }
             }
-            return OptionalInt.empty();
+            return java.util.Optional.empty();
         } catch (Exception ignored) {
-            return OptionalInt.empty();
+            return java.util.Optional.empty();
         }
     }
 
-    private record SourcePreview(String content) {}
+    private record PublishedDefinition(UUID rulebookId, long version, String definitionJson) {}
 }

@@ -88,6 +88,8 @@ public class RuntimeBindingController {
             UUID scenarioPackageId,
             long scenarioPackageRevision,
             List<UUID> rulebookIds,
+            long gameSystemDefinitionVersion,
+            long characterBlueprintVersion,
             List<PartyMemberResponse> party,
             String engineId,
             List<String> toolIds,
@@ -100,6 +102,8 @@ public class RuntimeBindingController {
                     binding.scenarioPackageId(),
                     binding.scenarioPackageRevision(),
                     binding.rulebookIds(),
+                    binding.gameSystemDefinitionVersion(),
+                    binding.characterBlueprintVersion(),
                     binding.party().stream().map(member -> new PartyMemberResponse(
                             member.characterSheetId().value(), member.controlMode().name(),
                             member.nameMutableAfterStart(), member.raceMutableAfterStart(),

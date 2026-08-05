@@ -36,8 +36,8 @@ class RulebookTimeDefinitionGatewayTest {
             public void save(AdventureSession value, long expectedVersion) {}
         };
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
-        server.createContext("/api/v1/rulebooks/" + rulebookId + "/source-preview", exchange -> {
-            byte[] body = "{\"content\":\"{\\\"time\\\":{\\\"secondsPerTurn\\\":7}}\"}".getBytes();
+        server.createContext("/internal/v1/rulebooks/" + rulebookId + "/game-system-definition", exchange -> {
+            byte[] body = ("{\"rulebookId\":\"" + rulebookId + "\",\"version\":2,\"definitionJson\":\"{\\\"time\\\":{\\\"secondsPerTurn\\\":7}}\"}").getBytes();
             exchange.sendResponseHeaders(200, body.length);
             try (var output = exchange.getResponseBody()) { output.write(body); }
         });

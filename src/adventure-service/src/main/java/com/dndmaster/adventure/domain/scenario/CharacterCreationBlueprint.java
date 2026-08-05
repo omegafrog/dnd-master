@@ -12,12 +12,22 @@ public record CharacterCreationBlueprint(
         long revision,
         CharacterCreationBlueprintStatus status,
         List<Field> fields,
-        List<String> diagnostics) {
+        List<String> diagnostics,
+        BlueprintProvenance provenance) {
+    public CharacterCreationBlueprint(long revision, CharacterCreationBlueprintStatus status,
+            List<Field> fields, List<String> diagnostics) {
+        this(revision, status, fields, diagnostics, BlueprintProvenance.empty());
+    }
     public CharacterCreationBlueprint {
         if (revision <= 0) throw new IllegalArgumentException("blueprint revision must be positive");
         status = Objects.requireNonNull(status, "status must not be null");
         fields = List.copyOf(Objects.requireNonNull(fields, "fields must not be null"));
         diagnostics = List.copyOf(Objects.requireNonNull(diagnostics, "diagnostics must not be null"));
+        provenance = Objects.requireNonNull(provenance, "provenance must not be null");
+    }
+
+    public CharacterCreationBlueprint withProvenance(BlueprintProvenance next) {
+        return new CharacterCreationBlueprint(revision, status, fields, diagnostics, next);
     }
 
 

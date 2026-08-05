@@ -15,6 +15,8 @@ public final class RuntimeBinding {
     private final List<AdventurePartyMember> party;
     private final String engineId;
     private final List<String> toolIds;
+    private final long gameSystemDefinitionVersion;
+    private final long characterBlueprintVersion;
     private final PlayabilityReport playabilityReport;
     private final ActiveSourceContext activeSourceContext;
 
@@ -28,6 +30,8 @@ public final class RuntimeBinding {
             List<AdventurePartyMember> party,
             String engineId,
             List<String> toolIds,
+            long gameSystemDefinitionVersion,
+            long characterBlueprintVersion,
             PlayabilityReport playabilityReport,
             ActiveSourceContext activeSourceContext) {
         this.adventureId = Objects.requireNonNull(adventureId, "adventure id must not be null");
@@ -46,6 +50,9 @@ public final class RuntimeBinding {
         if (this.party.isEmpty()) throw new IllegalArgumentException("party must not be empty");
         this.engineId = required(engineId, "engine id");
         this.toolIds = List.copyOf(Objects.requireNonNull(toolIds, "tool ids must not be null"));
+        if (gameSystemDefinitionVersion < 0 || characterBlueprintVersion < 0) throw new IllegalArgumentException("binding references must not be negative");
+        this.gameSystemDefinitionVersion = gameSystemDefinitionVersion;
+        this.characterBlueprintVersion = characterBlueprintVersion;
         this.playabilityReport = Objects.requireNonNull(playabilityReport, "playability report must not be null");
         this.activeSourceContext = activeSourceContext;
     }
@@ -63,7 +70,14 @@ public final class RuntimeBinding {
             ActiveSourceContext activeSourceContext) {
         return new RuntimeBinding(
                 adventureId, ownerPlayerId, 1, scenarioPackageId, scenarioPackageRevision, rulebookIds,
-                party, engineId, toolIds, playabilityReport, activeSourceContext);
+                party, engineId, toolIds, 0, 0, playabilityReport, activeSourceContext);
+    }
+    public static RuntimeBinding create(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId,
+            long scenarioPackageRevision, List<UUID> rulebookIds, List<AdventurePartyMember> party, String engineId,
+            List<String> toolIds, long definitionVersion, long blueprintVersion, PlayabilityReport playabilityReport,
+            ActiveSourceContext activeSourceContext) {
+        return new RuntimeBinding(adventureId, ownerPlayerId, 1, scenarioPackageId, scenarioPackageRevision, rulebookIds,
+                party, engineId, toolIds, definitionVersion, blueprintVersion, playabilityReport, activeSourceContext);
     }
     public static RuntimeBinding rehydrate(
             AdventureId adventureId,
@@ -79,7 +93,14 @@ public final class RuntimeBinding {
             ActiveSourceContext activeSourceContext) {
         return new RuntimeBinding(
                 adventureId, ownerPlayerId, bindingVersion, scenarioPackageId, scenarioPackageRevision, rulebookIds,
-                party, engineId, toolIds, playabilityReport, activeSourceContext);
+                party, engineId, toolIds, 0, 0, playabilityReport, activeSourceContext);
+    }
+    public static RuntimeBinding rehydrate(AdventureId adventureId, OwnerPlayerId ownerPlayerId, long bindingVersion,
+            UUID scenarioPackageId, long scenarioPackageRevision, List<UUID> rulebookIds, List<AdventurePartyMember> party,
+            String engineId, List<String> toolIds, long definitionVersion, long blueprintVersion,
+            PlayabilityReport playabilityReport, ActiveSourceContext activeSourceContext) {
+        return new RuntimeBinding(adventureId, ownerPlayerId, bindingVersion, scenarioPackageId, scenarioPackageRevision,
+                rulebookIds, party, engineId, toolIds, definitionVersion, blueprintVersion, playabilityReport, activeSourceContext);
     }
     public RuntimeBinding withNewPackage(
             UUID scenarioPackageId,
@@ -88,13 +109,13 @@ public final class RuntimeBinding {
             ActiveSourceContext activeSourceContext) {
         return new RuntimeBinding(
                 adventureId, ownerPlayerId, bindingVersion + 1, scenarioPackageId, scenarioPackageRevision,
-                rulebookIds, party, engineId, toolIds, playabilityReport, activeSourceContext);
+                rulebookIds, party, engineId, toolIds, gameSystemDefinitionVersion, characterBlueprintVersion, playabilityReport, activeSourceContext);
     }
 
     public RuntimeBinding withActiveSourceContext(PlayabilityReport playabilityReport, ActiveSourceContext activeSourceContext) {
         return new RuntimeBinding(
                 adventureId, ownerPlayerId, bindingVersion, scenarioPackageId, scenarioPackageRevision,
-                rulebookIds, party, engineId, toolIds, playabilityReport, activeSourceContext);
+                rulebookIds, party, engineId, toolIds, gameSystemDefinitionVersion, characterBlueprintVersion, playabilityReport, activeSourceContext);
     }
 
     public AdventureId adventureId() { return adventureId; }
@@ -110,13 +131,15 @@ public final class RuntimeBinding {
     public List<AdventurePartyMember> party() { return party; }
     public String engineId() { return engineId; }
     public List<String> toolIds() { return toolIds; }
+    public long gameSystemDefinitionVersion() { return gameSystemDefinitionVersion; }
+    public long characterBlueprintVersion() { return characterBlueprintVersion; }
     public PlayabilityReport playabilityReport() { return playabilityReport; }
     public ActiveSourceContext activeSourceContext() { return activeSourceContext; }
 
     public RuntimeBinding withSelection(ActiveSourceContext selected, PlayabilityReport playabilityReport) {
         return new RuntimeBinding(
                 adventureId, ownerPlayerId, bindingVersion, scenarioPackageId, scenarioPackageRevision,
-                rulebookIds, party, engineId, toolIds, playabilityReport, selected);
+                rulebookIds, party, engineId, toolIds, gameSystemDefinitionVersion, characterBlueprintVersion, playabilityReport, selected);
     }
 
     private static String required(String value, String name) {

@@ -18,6 +18,7 @@ import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus;
 import com.dndmaster.adventure.domain.scenario.CharacterInputNode;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintRevisionConflictException;
+import com.dndmaster.adventure.domain.scenario.BlueprintProvenance;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -166,6 +167,8 @@ public final class ScenarioPreparationApplicationService {
                 blueprintCompiler.compileAgent(nextBlueprintRevision, candidates));
         blueprint = normalizeSystemAgnosticManualFields(blueprint, edition, candidates);
         blueprint = restoreGroundedCandidates(blueprint, candidates);
+        blueprint = blueprint.withProvenance(new BlueprintProvenance(0, bundle.currentRevision().revision(),
+                sourceDocuments.stream().map(document -> document.documentType().toUpperCase()).distinct().toList()));
         packageRepository.saveBlueprint(packageId, blueprint);
         return toView(blueprint, storybooks);
     }
@@ -189,7 +192,7 @@ public final class ScenarioPreparationApplicationService {
                     field.sourceQuote(), field.label(), field.value(), field.nodeId(), field.parentNodeId(),
                     field.confidence(), List.of()));
         }
-        return new CharacterCreationBlueprint(blueprint.revision(), blueprint.status(), fields, blueprint.diagnostics());
+        return new CharacterCreationBlueprint(blueprint.revision(), blueprint.status(), fields, blueprint.diagnostics(), blueprint.provenance());
     }
 
     private static CharacterCreationBlueprint restoreGroundedCandidates(
@@ -225,7 +228,7 @@ public final class ScenarioPreparationApplicationService {
         }
         CharacterCreationBlueprintStatus status = reviewRequired
                 ? CharacterCreationBlueprintStatus.NEEDS_REVIEW : blueprint.status();
-        return new CharacterCreationBlueprint(blueprint.revision(), status, fields, blueprint.diagnostics());
+        return new CharacterCreationBlueprint(blueprint.revision(), status, fields, blueprint.diagnostics(), blueprint.provenance());
     }
 
     private static String effectiveKey(CharacterInputTagExtractionPort.CharacterInputTagCandidate candidate) {

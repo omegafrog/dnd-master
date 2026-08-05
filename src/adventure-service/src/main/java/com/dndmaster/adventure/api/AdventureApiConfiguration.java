@@ -171,16 +171,13 @@ public class AdventureApiConfiguration {
     StoryContinuityCommandService storyContinuityCommandService(StoryPlanRevisionRepository plans,
             AdventureClockRepository clocks, CommittedWorldFactRepository facts,
             PlatformTransactionManager transactionManager,
-            AdventureSessionRepository sessions,
-            ObjectMapper objectMapper,
-            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String ruleKnowledgeBaseUrl,
-            @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long ruleKnowledgeTimeoutSeconds) {
+            GameSystemDefinitionPort gameSystemDefinitionPort) {
         return new StoryContinuityCommandService(plans, clocks, facts,
                 new com.dndmaster.adventure.domain.runtime.plan.StoryPlanRevisionValidator(),
                 new org.springframework.transaction.support.TransactionTemplate(transactionManager),
-                new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRulebookTimeDefinitionGateway(
-                        sessions, HttpClient.newHttpClient(), URI.create(ruleKnowledgeBaseUrl),
-                        Duration.ofSeconds(ruleKnowledgeTimeoutSeconds), objectMapper));
+                sessionId -> gameSystemDefinitionPort.find(sessionId)
+                        .map(definition -> GameSystemTimeDefinitionAdapter.secondsPerTurn(definition.definitionJson()))
+                        .filter(java.util.OptionalInt::isPresent).orElse(java.util.OptionalInt.empty()));
     }
 
     @Bean
@@ -599,10 +596,20 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
             RuntimeBindingRepository runtimeBindingRepository,
             InitialSourceContextProposalPort proposalPort,
-            KnowledgeDocumentLookupPort lookupPort) {
+            KnowledgeDocumentLookupPort lookupPort,
+            GameSystemDefinitionPort gameSystemDefinitionPort) {
         return new RuntimeBindingApplicationService(
                 adventureRepository, bundleRepository, packageRepository, runtimeBindingRepository, proposalPort,
-                lookupPort);
+                lookupPort, gameSystemDefinitionPort);
+    }
+
+    @Bean
+    GameSystemDefinitionPort gameSystemDefinitionPort(
+            AdventureSessionRepository sessions, ObjectMapper objectMapper,
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long timeoutSeconds) {
+        return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRulebookTimeDefinitionGateway(
+                sessions, HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper);
     }
 
     @Bean

@@ -1,9 +1,9 @@
 # 032-5 — Story Continuity, Facts, and Game Clock
 
-- Status: `in-progress`
+- Status: `completed`
 - Issue: [#119](https://github.com/omegafrog/dnd-master/issues/119)
 - Parent: [#114](https://github.com/omegafrog/dnd-master/issues/114)
-- Dependencies: [032-4](032-4-capability-scoped-tool-saga.md)
+- Dependencies: [032-4](032-4-capability-scoped-tool-saga.md), [032-5a](032-5a-rulebook-template-and-blueprint-layering.md)
 - Spec: Product UC-002/007, BR-001/004/017/018/021; Architecture §§3.3–3.6
 
 ## Outcome
