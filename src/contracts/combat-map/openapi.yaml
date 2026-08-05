@@ -1,6 +1,20 @@
 openapi: 3.1.0
 info: { title: Combat Map API, version: 1.0.0 }
 paths:
+  /internal/v1/adventures/{adventureId}/combat-map/player-view:
+    get:
+      operationId: playerAdventureView
+      parameters:
+        - name: ownerId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: latest owner-scoped tactical projection
+          content:
+            application/json:
+              schema: { $ref: './schemas/player-map-view.json' }
   /internal/v1/combat-maps/{mapId}/player-view:
     get:
       operationId: playerView

@@ -91,6 +91,19 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
     }
 
     @Override
+    public Optional<VersionedOwnedCombatMap> findByAdventureId(AdventureId adventureId) {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement("SELECT * FROM " + TABLE + " WHERE adventure_id=? ORDER BY updated_at DESC LIMIT 1")) {
+            statement.setObject(1, adventureId.value());
+            try (ResultSet row = statement.executeQuery()) {
+                return row.next() ? Optional.of(readCurrent(connection, row)) : Optional.empty();
+            }
+        } catch (SQLException exception) {
+            throw new CombatMapPersistenceException("map load by adventure failed", exception);
+        }
+    }
+
+    @Override
     public Optional<VersionedOwnedCombatMap> findByCommandId(UUID commandId) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement("SELECT * FROM " + HISTORY_TABLE + " WHERE command_id=?")) {

@@ -67,3 +67,4 @@ Fog/LOS, hidden monsters/traps, last-seen semantics.
 - Map command IDs now remain UUIDs; current session version is forwarded and the committed map projection reloads after confirmation.
 - Confirmation is single-flight; Adventure validates the typed payload and routes movement through the versioned Combat Map gateway before committing the turn.
 - Added adjacent path expansion plus target, location, and object-interaction candidate controls.
+- Replaced Adventure map read stub with owner-scoped latest projection gateway and adventure-keyed Combat Map read endpoint.

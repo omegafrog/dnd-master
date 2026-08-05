@@ -783,6 +783,13 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    CombatMapViewPort combatMapViewPort(
+            @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            ObjectMapper objectMapper) {
+        return new HttpCombatMapViewGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), objectMapper);
+    }
+
+    @Bean
     AiCombatPort aiCombatPort() {
         return new AiCombatPort() {
             @Override
@@ -867,9 +874,10 @@ public class AdventureApiConfiguration {
             AdventureScenarioApplicationService scenarioService,
             AuthenticatedPlayerResolver playerResolver,
             org.springframework.beans.factory.ObjectProvider<CombatMapPort> combatMapPort,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            org.springframework.beans.factory.ObjectProvider<CombatMapViewPort> combatMapViewPort) {
         return new AdventureController(
-                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, scenarioService, playerResolver, combatMapPort, objectMapper);
+                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, scenarioService, playerResolver, combatMapPort, objectMapper, combatMapViewPort);
     }
 
     @Bean

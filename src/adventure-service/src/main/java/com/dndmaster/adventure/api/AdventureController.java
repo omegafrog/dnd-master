@@ -46,6 +46,7 @@ public class AdventureController {
     private final AdventureScenarioApplicationService scenarioService;
     private final AuthenticatedPlayerResolver playerResolver;
     private final CombatMapPort combatMapPort;
+    private final com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort;
     private final ObjectMapper objectMapper;
 
     public AdventureController(
@@ -61,7 +62,8 @@ public class AdventureController {
             AdventureScenarioApplicationService scenarioService,
             AuthenticatedPlayerResolver playerResolver,
             ObjectProvider<CombatMapPort> combatMapPort,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapViewPort> combatMapViewPort) {
         this.savedAdventureService = savedAdventureService;
         this.runtimeTurnService = runtimeTurnService;
         this.adventureRepository = adventureRepository;
@@ -76,6 +78,7 @@ public class AdventureController {
         this.combatMapPort = combatMapPort.getIfAvailable(() -> command -> {
             throw new IllegalStateException("combat map gateway unavailable");
         });
+        this.combatMapViewPort = combatMapViewPort.getIfAvailable(() -> (adventureId1, ownerId) -> java.util.Optional.empty());
         this.objectMapper = objectMapper;
     }
 
@@ -179,7 +182,9 @@ public class AdventureController {
         if (!adventure.ownerPlayerId().value().equals(playerResolver.playerId())) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
         }
-        return new CombatMapResponse(adventureId, "map-view", adventure.version());
+        var projection = combatMapViewPort.playerView(adventureId, playerResolver.playerId());
+        return projection.map(view -> CombatMapResponse.from(adventureId, adventure.version(), view))
+                .orElseGet(() -> new CombatMapResponse(adventureId, "map-view", adventure.version(), null, null, List.of(), List.of(), List.of(), null));
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/dice-rolls")
@@ -331,7 +336,15 @@ public class AdventureController {
     public record MapActionPayload(UUID mapId, long mapVersion, UUID tokenId, String action,
             List<PositionPayload> path, UUID targetId, PositionPayload location) {}
     public record PositionPayload(int x, int y) {}
-    public record CombatMapResponse(UUID adventureId, String status, long sessionVersion) {}
+    public record CombatMapResponse(UUID adventureId, String status, long sessionVersion, UUID mapId,
+            com.dndmaster.adventure.application.combat.CombatMapViewPort.Grid grid,
+            List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Token> tokens,
+            List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Obstacle> obstacles,
+            List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Layer> layers, Long version) {
+        static CombatMapResponse from(UUID adventureId, long sessionVersion, com.dndmaster.adventure.application.combat.CombatMapViewPort.View view) {
+            return new CombatMapResponse(adventureId, "authoritative-map", sessionVersion, view.mapId(), view.grid(), view.tokens(), view.obstacles(), view.layers(), view.version());
+        }
+    }
     public record DiceRollRequest(
             UUID ruleSetId,
             UUID characterSheetId,

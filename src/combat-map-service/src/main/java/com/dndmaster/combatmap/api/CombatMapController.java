@@ -5,6 +5,7 @@ import com.dndmaster.combatmap.application.movement.MovePlayerTokenCommand;
 import com.dndmaster.combatmap.application.view.CombatMapViewService;
 import com.dndmaster.combatmap.application.view.MapOwnerId;
 import com.dndmaster.combatmap.application.view.PlayerCombatMapView;
+import com.dndmaster.combatmap.application.view.CombatMapAccessDeniedException;
 import com.dndmaster.combatmap.domain.*;
 import org.springframework.web.bind.annotation.*;
 
@@ -26,6 +27,13 @@ public class CombatMapController {
     PlayerCombatMapResponse playerView(
             @PathVariable UUID mapId, @RequestParam UUID ownerId) {
         PlayerCombatMapView view = mapViewService.displayForPlayer(new MapId(mapId), new MapOwnerId(ownerId));
+        return PlayerCombatMapResponse.from(view);
+    }
+
+    @GetMapping("/internal/v1/adventures/{adventureId}/combat-map/player-view")
+    PlayerCombatMapResponse playerAdventureView(@PathVariable UUID adventureId, @RequestParam UUID ownerId) {
+        PlayerCombatMapView view = mapViewService.displayForAdventure(new AdventureId(adventureId), new MapOwnerId(ownerId))
+                .orElseThrow(CombatMapAccessDeniedException::new);
         return PlayerCombatMapResponse.from(view);
     }
 
