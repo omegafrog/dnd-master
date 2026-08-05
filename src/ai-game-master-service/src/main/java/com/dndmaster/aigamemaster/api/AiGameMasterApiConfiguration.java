@@ -106,7 +106,7 @@ public class AiGameMasterApiConfiguration {
 
     @Bean
     GmAgentController gmAgentController(SpringAiChatAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper objectMapper,
-                                        @Value("${ai-game-master.integration.internal-token:local-dev-internal-token}") String internalToken) {
+                                        @Value("${ai-game-master.integration.internal-token:}") String internalToken) {
         return new GmAgentController(adapter, objectMapper, new ApiRequestGuard(internalToken));
     }
 }

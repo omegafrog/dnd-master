@@ -22,11 +22,15 @@ public final class RuntimeTurnCompactionCoordinator {
         var plan = plans.current(turn.sessionId()).orElse(null);
         if (plan == null) return;
         var refs = new SnapshotReferences(plan.revisionId(), current.factVersion(), current.clockVersion(), current.characterVersion(), current.mapVersion(), current.mapVersion());
-        var precedingScene = turn.conversation().stream()
-                .filter(entry -> "AI_GAME_MASTER".equals(entry.speaker()))
-                .reduce((first, second) -> second)
-                .map(entry -> entry.content())
-                .orElse(turn.context().currentScene());
+        int playerIndex = -1;
+        for (int i = turn.conversation().size() - 1; i >= 0; i--) {
+            if ("PLAYER".equals(turn.conversation().get(i).speaker())) { playerIndex = i; break; }
+        }
+        String precedingScene = playerIndex > 0
+                ? turn.conversation().subList(0, playerIndex).stream()
+                    .filter(entry -> "AI_GAME_MASTER".equals(entry.speaker()))
+                    .reduce((first, second) -> second).map(entry -> entry.content()).orElse(turn.context().currentScene())
+                : turn.context().currentScene();
         var tail = new ExactTail(turn.action(), precedingScene, turn.plan().narration(), turn.turnId().toString(),
                 current.clockSnapshot(), turn.context().currentScene(), current.mapSnapshot(),
                 current.mapSnapshot(), turn.context().pendingActionValue().orElse("choice:none"));

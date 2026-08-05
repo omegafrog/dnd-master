@@ -7,16 +7,19 @@ import com.dndmaster.adventure.domain.runtime.checkpoint.SnapshotReferences;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
+import com.dndmaster.adventure.domain.runtime.plan.AdventureStoryPlanRevision;
 
 public final class GmContextCheckpointApplicationService {
     private final CompactionPolicy policy;
     private final ContextCompactionPort compactionPort;
     private final GmContextCheckpointRepository repository;
+    private final StoryPlanRevisionRepository plans;
 
     public GmContextCheckpointApplicationService(CompactionPolicy policy, ContextCompactionPort compactionPort,
-                                                  GmContextCheckpointRepository repository) {
+                                                  GmContextCheckpointRepository repository, StoryPlanRevisionRepository plans) {
         this.policy = Objects.requireNonNull(policy); this.compactionPort = Objects.requireNonNull(compactionPort);
         this.repository = Objects.requireNonNull(repository);
+        this.plans = Objects.requireNonNull(plans);
     }
 
     public Optional<GmContextCheckpoint> compact(UUID sessionId, UUID sourceTurnId, long version,
@@ -26,6 +29,10 @@ public final class GmContextCheckpointApplicationService {
         try {
             ContextSummaryCandidate candidate = Objects.requireNonNull(compactionPort.summarize(
                     new ContextCompactionRequest(sessionId, sourceTurnId, context, exactTail, references)));
+            AdventureStoryPlanRevision currentPlan = plans.current(sessionId).orElseThrow(() -> new IllegalStateException("story plan unavailable"));
+            if (!currentPlan.revisionId().equals(candidate.planRevisionId()) || currentPlan.version() != candidate.planVersion()) {
+                throw new IllegalStateException("compaction plan is stale");
+            }
             long checkpointVersion = repository.current(sessionId).map(current -> current.version() + 1).orElse(1L);
             GmContextCheckpoint checkpoint = GmContextCheckpoint.create(sessionId, sourceTurnId, checkpointVersion,
                     candidate, exactTail, references);

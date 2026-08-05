@@ -1,0 +1,3 @@
+adventure:
+  integration:
+    internal-token: ${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}

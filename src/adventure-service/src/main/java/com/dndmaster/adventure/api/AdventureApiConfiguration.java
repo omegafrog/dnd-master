@@ -187,15 +187,15 @@ public class AdventureApiConfiguration {
     ContextCompactionPort contextCompactionPort(
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
             ObjectMapper objectMapper,
-            @Value("${adventure.integration.internal-token:local-dev-internal-token}") String internalToken) {
+            @Value("${adventure.integration.internal-token:}") String internalToken) {
         return new ValidatingContextCompactionPort(new com.dndmaster.adventure.infrastructure.integration.HttpGmContextCompactionPort(
                 HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(30), objectMapper, internalToken));
     }
 
     @Bean
     GmContextCheckpointApplicationService gmContextCheckpointApplicationService(
-            ContextCompactionPort port, GmContextCheckpointRepository repository) {
-        return new GmContextCheckpointApplicationService(new CompactionPolicy(0.70), port, repository);
+            ContextCompactionPort port, GmContextCheckpointRepository repository, StoryPlanRevisionRepository plans) {
+        return new GmContextCheckpointApplicationService(new CompactionPolicy(0.70), port, repository, plans);
     }
 
     @Bean
@@ -711,7 +711,7 @@ public class AdventureApiConfiguration {
             ObjectMapper objectMapper,
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.ai-game-master.timeout-seconds:30}") long timeoutSeconds,
-            @Value("${adventure.integration.internal-token:local-dev-internal-token}") String internalToken) {
+            @Value("${adventure.integration.internal-token:}") String internalToken) {
         return new HttpGmAgentPort(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken);
     }
 

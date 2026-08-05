@@ -113,8 +113,18 @@ class GmContextCompactionTest {
         UUID session = UUID.randomUUID();
         InMemoryGmContextCheckpointRepository repository = new InMemoryGmContextCheckpointRepository();
         repository.append(checkpoint(session, 1));
+        GmContextCheckpoint existing = checkpoint(session, 1);
+        StoryPlanRevisionRepository plans = new StoryPlanRevisionRepository() {
+            public java.util.Optional<com.dndmaster.adventure.domain.runtime.plan.AdventureStoryPlanRevision> current(UUID ignored) {
+                return java.util.Optional.of(new com.dndmaster.adventure.domain.runtime.plan.AdventureStoryPlanRevision(
+                        existing.snapshotReferences().planRevisionId(), session, existing.planVersion(), null,
+                        existing.sourceTurnId(), List.of("stage")));
+            }
+            public List<com.dndmaster.adventure.domain.runtime.plan.AdventureStoryPlanRevision> history(UUID ignored) { return List.of(); }
+            public void append(com.dndmaster.adventure.domain.runtime.plan.AdventureStoryPlanRevision ignored) { }
+        };
         GmContextCheckpointApplicationService service = new GmContextCheckpointApplicationService(
-                new CompactionPolicy(0.70), request -> { throw new IllegalStateException("provider down"); }, repository);
+                new CompactionPolicy(0.70), request -> { throw new IllegalStateException("provider down"); }, repository, plans);
 
         assertTrue(service.compact(session, UUID.randomUUID(), 2, new ContextUsage(800, 1_000),
                 CompactionBarrier.clear(), "context", checkpoint(session, 1).exactTail(),
