@@ -196,9 +196,9 @@ public final class RuntimeTurnApplicationService {
     private String storyPlanContext(Adventure adventure) {
         if (storyPlanRepository == null) return "";
         return storyPlanRepository.findBySessionId(adventure.sessionId()).map(plan -> {
-            if (plan.stages().isEmpty()) return "status=" + plan.status();
+            if (plan.stages().isEmpty()) return "planVersion=" + plan.version() + "; status=" + plan.status();
             var stage = plan.stages().get(plan.currentStage());
-            return "status=" + plan.status() + "; stage=" + stage.position() + ":" + stage.title()
+            return "planVersion=" + plan.version() + "; status=" + plan.status() + "; stage=" + stage.position() + ":" + stage.title()
                     + "; goal=" + stage.goal() + "; conflict=" + stage.conflict()
                     + "; transition=" + stage.transitionCondition();
         }).orElse("");
