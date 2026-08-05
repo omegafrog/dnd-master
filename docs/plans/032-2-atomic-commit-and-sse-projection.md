@@ -1,6 +1,6 @@
 # 032-2 — Atomic Commit and SSE Projection
 
-- Status: `in-progress`
+- Status: `completed`
 - Issue: [#116](https://github.com/omegafrog/dnd-master/issues/116)
 - Parent: [#114](https://github.com/omegafrog/dnd-master/issues/114)
 - Dependencies: [032-1](032-1-typed-gm-turn-lifecycle.md)

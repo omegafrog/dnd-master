@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, it } from 'vitest'
 import { AdventureStream } from './AdventureStream'
@@ -57,4 +57,19 @@ it('waits for direct input while agent turns progress automatically', () => {
   rerender(<AdventureStream adventureId="a1" api={api} controlMode="AGENT" />)
   expect(screen.getByRole('status')).toHaveTextContent('에이전트 캐릭터 차례')
   expect(screen.getByRole('button', { name: '보내기' })).toBeDisabled()
+})
+
+it('shows processing and failed projection states from the event stream', async () => {
+  let publish: ((event: { version: number; type: string; payload: string }) => void) | undefined
+  const api: AdventureApi = {
+    subscribeEvents(_id, _version, onEvent) { publish = onEvent; return () => {} },
+    async sendMessage() { return { narration: 'ok', judgment: '', currentScene: '', sourceRefs: [], warnings: [], version: 2 } },
+  }
+  const user = userEvent.setup()
+  render(<AdventureStream adventureId="a1" api={api} />)
+  await user.type(screen.getByLabelText('행동 또는 대화'), 'Open')
+  await user.click(screen.getByRole('button', { name: '보내기' }))
+  expect(screen.getByRole('status')).toHaveTextContent('턴 처리 중')
+  await act(async () => { publish?.({ version: 2, type: 'GM_TURN_FAILED', payload: 'failure' }) })
+  expect(await screen.findByRole('status')).toHaveTextContent('턴 처리 실패')
 })

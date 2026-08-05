@@ -7,6 +7,8 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
   const [sending, setSending] = useState(false)
   const [agentVersion, setAgentVersion] = useState(expectedVersion)
   const [activeControlMode, setActiveControlMode] = useState(controlMode)
+  const [projectionStatus, setProjectionStatus] = useState<'idle' | 'processing' | 'failed'>('idle')
+  const [projectionVersion, setProjectionVersion] = useState(expectedVersion)
   useEffect(() => {
     if (!api.readConversation) return
     let cancelled = false
@@ -17,6 +19,16 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
     }).catch(() => { if (!cancelled) setNotice('대화 기록을 불러오지 못했습니다.') })
     return () => { cancelled = true }
   }, [adventureId, api])
+
+  useEffect(() => {
+    if (!api.subscribeEvents) return
+    return api.subscribeEvents(adventureId, projectionVersion, event => {
+      setProjectionVersion(event.version)
+      setSending(false)
+      setProjectionStatus(event.type === 'GM_TURN_FAILED' ? 'failed' : 'idle')
+      if (event.type === 'GM_TURN_FAILED') setNotice('턴 처리가 실패했습니다.')
+    }, () => setNotice('실시간 모험 이벤트 연결이 끊겼습니다.'))
+  }, [adventureId, api, projectionVersion])
   const previousControlMode = useRef(controlMode)
 
   useEffect(() => {
@@ -49,6 +61,7 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
     const command = createRuntimeCommandIdentity()
     setNotice('')
     setSending(true)
+    setProjectionStatus('processing')
     setMessages(current => [...current, { speaker: '플레이어', text }])
     try {
       const response = await api.sendMessage(adventureId, text, command)
@@ -63,7 +76,7 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
   return (
     <section className="adventure-stream" aria-labelledby="conversation-heading">
       <h2 id="conversation-heading">모험 대화</h2>
-      <p role="status">{activeControlMode === 'AGENT' ? '에이전트 캐릭터 차례 — 자동 진행 중' : '직접 플레이 입력 대기 중'}</p>
+      <p role="status">{projectionStatus === 'processing' ? '턴 처리 중' : projectionStatus === 'failed' ? '턴 처리 실패' : activeControlMode === 'AGENT' ? '에이전트 캐릭터 차례 — 자동 진행 중' : '직접 플레이 입력 대기 중'}</p>
       <ol aria-label="대화 기록">
         {messages.map((message, index) => (
           <li key={index}>

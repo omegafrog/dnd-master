@@ -45,7 +45,7 @@ public final class PostgresAdventureRepository implements AdventureRepository {
     @Override
     public void save(Adventure adventure) {
         try (Connection connection = dataSource.getConnection()) {
-            boolean managed = org.springframework.jdbc.datasource.DataSourceUtils.isConnectionTransactional(connection, dataSource);
+            boolean managed = org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive();
             boolean priorAutoCommit = connection.getAutoCommit();
             if (!managed) connection.setAutoCommit(false);
             try {
