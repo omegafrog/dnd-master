@@ -102,4 +102,9 @@ public class AiGameMasterApiConfiguration {
             IntentClassificationModelPort intentClassificationPort) {
         return new AiGameMasterController(sceneService, adjudicationPort, ruleAnswerService, mapPort, intentClassificationPort);
     }
+
+    @Bean
+    GmAgentController gmAgentController(SpringAiChatAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+        return new GmAgentController(adapter, objectMapper);
+    }
 }

@@ -46,6 +46,7 @@ import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharac
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetOwnershipGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetDeletionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAgentActionCandidateGateway;
+import com.dndmaster.adventure.infrastructure.integration.HttpGmAgentPort;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -546,31 +547,16 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    RuntimePlanningPort runtimePlanningPort() {
-        return request -> {
-            RuntimeEvidence primaryEvidence = request.evidencePack().storybook().isEmpty()
-                    ? (request.evidencePack().rulebook().isEmpty() ? null : request.evidencePack().rulebook().getFirst())
-                    : request.evidencePack().storybook().getFirst();
-            String scene = primaryEvidence == null
-                    ? "서버가 현재 문맥을 바탕으로 장면을 정리했다."
-                    : primaryEvidence.excerpt();
-            String judgment = "서버가 '" + request.action() + "' 행동을 근거와 함께 정리했다.";
-            String narration = primaryEvidence == null
-                    ? "근거를 확인한 뒤 응답한다."
-                    : "근거를 바탕으로 '" + request.action() + "'에 응답한다.";
-            return new RuntimePlan(
-                    scene,
-                    request.currentContext().npcStateValue().orElse(null),
-                    judgment,
-                    narration,
-                    primaryEvidence == null ? request.activeSourceContext() : new ActiveSourceContext(
-                            primaryEvidence.knowledgeDocumentId(), primaryEvidence.extractionVersion(),
-                            primaryEvidence.locator(), primaryEvidence.excerpt()),
-                    primaryEvidence == null ? List.of() : List.of(primaryEvidence),
-                    request.evidencePack().resolution().isEmpty()
-                            ? List.of("resolution evidence not prefetched")
-                            : List.of());
-        };
+    GmAgentPort gmAgentPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.ai-game-master.timeout-seconds:30}") long timeoutSeconds) {
+        return new HttpGmAgentPort(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper);
+    }
+
+    @Bean
+    RuntimePlanningPort runtimePlanningPort(GmAgentPort gmAgentPort) {
+        return new GmAgentRuntimePlanningAdapter(gmAgentPort, new GmFinalValidator());
     }
 
     @Bean
