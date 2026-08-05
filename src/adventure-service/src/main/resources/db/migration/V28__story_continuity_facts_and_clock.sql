@@ -31,10 +31,13 @@ CREATE TABLE IF NOT EXISTS adventure_story_plan_revision (
     cause_turn_id UUID NOT NULL,
     stages_json TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-    UNIQUE (session_id, plan_version)
+    UNIQUE (session_id, plan_version),
+    UNIQUE (session_id, revision_id),
+    FOREIGN KEY (session_id, predecessor_revision_id) REFERENCES adventure_story_plan_revision(session_id, revision_id)
 );
 CREATE TABLE IF NOT EXISTS adventure_story_plan_current (
     session_id UUID PRIMARY KEY REFERENCES adventure_session(session_id) ON DELETE CASCADE,
-    revision_id UUID NOT NULL REFERENCES adventure_story_plan_revision(revision_id),
+    revision_id UUID NOT NULL,
+    FOREIGN KEY (session_id, revision_id) REFERENCES adventure_story_plan_revision(session_id, revision_id),
     updated_at TIMESTAMP WITH TIME ZONE NOT NULL
 );

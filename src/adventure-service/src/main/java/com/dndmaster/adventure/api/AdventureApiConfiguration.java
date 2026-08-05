@@ -140,6 +140,28 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    AdventureClockRepository adventureClockRepository(DataSource dataSource) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureClockRepository(dataSource);
+    }
+
+    @Bean
+    CommittedWorldFactRepository committedWorldFactRepository(DataSource dataSource) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresCommittedWorldFactRepository(dataSource);
+    }
+
+    @Bean
+    StoryContinuityContextProvider storyContinuityContextProvider(AdventureStoryPlanRepository plans,
+            AdventureClockRepository clocks, CommittedWorldFactRepository facts) {
+        return sessionId -> plans.findBySessionId(new com.dndmaster.adventure.domain.adventure.SessionId(sessionId)).map(plan -> {
+            var stages = plan.stages().stream().map(stage -> stage.title() + ":" + stage.goal() + ":" + stage.conflict()).toList();
+            var revision = new com.dndmaster.adventure.domain.runtime.plan.AdventureStoryPlanRevision(
+                    plan.planId(), sessionId, plan.version(), null, plan.planId(), stages);
+            var clock = clocks.findBySessionId(sessionId).orElseGet(() -> com.dndmaster.adventure.domain.runtime.clock.AdventureClock.initial(sessionId));
+            return new StoryContinuityContext(revision, facts.findBySessionId(sessionId).facts(), clock);
+        });
+    }
+
+    @Bean
     AdventureStoryPlanApplicationService adventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packages, AdventureStoryPlanGenerationPort generator) {
         return new AdventureStoryPlanApplicationService(plans, sessions, packages, generator);
@@ -619,10 +641,11 @@ public class AdventureApiConfiguration {
             RuntimePlanningPort runtimePlanningPort,
             NarrationSafetyPort narrationSafetyPort,
             SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
-            AdventureStoryPlanRepository storyPlanRepository) {
+            AdventureStoryPlanRepository storyPlanRepository,
+            StoryContinuityContextProvider continuityContextProvider) {
         return new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
-                runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository);
+                runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider);
     }
 
     @Bean

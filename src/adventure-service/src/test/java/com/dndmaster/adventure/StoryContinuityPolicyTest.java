@@ -35,6 +35,20 @@ class StoryContinuityPolicyTest {
     }
 
     @Test
+    void gm_only_committed_fact_and_structured_source_lock_are_also_immutable() {
+        UUID turn = UUID.randomUUID();
+        var ledger = CommittedWorldFactLedger.empty().append(new CommittedWorldFact(
+                UUID.randomUUID(), "villain", "alive", "yes", FactVisibility.GM_ONLY,
+                "gm-turn", turn, 1));
+        var current = AdventureStoryPlanRevision.initial(UUID.randomUUID(), List.of("find villain"), turn);
+        var validator = new StoryPlanRevisionValidator();
+        assertThrows(IllegalArgumentException.class, () -> validator.revise(current,
+                List.of("villain alive no"), ledger, List.of(), List.of(), UUID.randomUUID()));
+        assertThrows(IllegalArgumentException.class, () -> validator.revise(current,
+                List.of("gate state closed"), CommittedWorldFactLedger.empty(), List.of("gate|state|open"), List.of(), UUID.randomUUID()));
+    }
+
+    @Test
     void plan_history_and_clock_are_immutable_and_clock_does_not_follow_response_count() {
         UUID session = UUID.randomUUID();
         var clock = AdventureClock.initial(session);
@@ -50,5 +64,11 @@ class StoryContinuityPolicyTest {
     void rule_time_wins_and_missing_rule_uses_five_turns_per_minute() {
         assertEquals(30, GameTimePolicy.durationForTurns(3, OptionalInt.of(10)).seconds());
         assertEquals(60, GameTimePolicy.durationForTurns(5, OptionalInt.empty()).seconds());
+    }
+
+    @Test
+    void published_rule_definition_supplies_turn_duration() {
+        assertEquals(7, com.dndmaster.adventure.application.runtime.GameSystemTimeDefinitionAdapter
+                .secondsPerTurn("{\"time\":{\"secondsPerTurn\":7}}").orElseThrow());
     }
 }

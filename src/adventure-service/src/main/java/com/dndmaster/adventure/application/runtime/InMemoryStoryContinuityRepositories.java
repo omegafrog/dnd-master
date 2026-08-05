@@ -33,6 +33,8 @@ public final class InMemoryStoryContinuityRepositories {
         public List<AdventureStoryPlanRevision> history(UUID id) { return List.copyOf(values.getOrDefault(id, List.of())); }
         public synchronized void append(AdventureStoryPlanRevision revision) {
             List<AdventureStoryPlanRevision> history = new ArrayList<>(values.getOrDefault(revision.sessionId(), List.of()));
+            if (history.stream().anyMatch(existing -> existing.revisionId().equals(revision.revisionId())
+                    || existing.causeTurnId().equals(revision.causeTurnId()))) return;
             if (!history.isEmpty() && !history.get(history.size() - 1).revisionId().equals(revision.predecessorRevisionId())) throw new IllegalStateException("story plan predecessor conflict");
             if (!history.isEmpty() && revision.version() != history.get(history.size() - 1).version() + 1) throw new IllegalStateException("story plan version conflict");
             values.put(revision.sessionId(), java.util.stream.Stream.concat(history.stream(), java.util.stream.Stream.of(revision)).toList());
