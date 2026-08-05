@@ -11,6 +11,9 @@ class StoryContinuityToolRegistryTest {
     void exposes_only_domain_continuity_tools_with_versioned_inputs() {
         var tools = StoryContinuityToolRegistry.definitions(invocation -> null, invocation -> null);
         assertTrue(tools.stream().anyMatch(tool -> tool.name().equals("revise_story_plan") && tool.inputSchema().contains("expectedPlanVersion") && tool.inputSchema().contains("commandId")));
-        assertTrue(tools.stream().anyMatch(tool -> tool.name().equals("advance_game_time") && tool.inputSchema().contains("expectedClockVersion") && tool.inputSchema().contains("commandId")));
+        assertTrue(tools.stream().anyMatch(tool -> tool.name().equals("advance_game_time")
+                && tool.inputSchema().contains("expectedClockVersion")
+                && tool.inputSchema().contains("commandId")
+                && tool.inputSchema().contains("ruleSecondsPerTurn")));
     }
 }

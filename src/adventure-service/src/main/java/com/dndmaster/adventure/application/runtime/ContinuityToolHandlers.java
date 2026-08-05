@@ -22,7 +22,9 @@ public final class ContinuityToolHandlers {
         return invocation -> {
             try {
                 JsonNode a = mapper.readTree(invocation.argumentsJson());
-                ContinuityCommandResult result = service.advance(UUID.fromString(a.get("sessionId").asText()), UUID.fromString(a.get("commandId").asText()), UUID.fromString(a.get("turnId").asText()), a.get("turns").asLong(), a.get("expectedClockVersion").asLong(), OptionalInt.empty());
+                OptionalInt ruleSecondsPerTurn = a.has("ruleSecondsPerTurn")
+                        ? OptionalInt.of(a.get("ruleSecondsPerTurn").asInt()) : OptionalInt.empty();
+                ContinuityCommandResult result = service.advance(UUID.fromString(a.get("sessionId").asText()), UUID.fromString(a.get("commandId").asText()), UUID.fromString(a.get("turnId").asText()), a.get("turns").asLong(), a.get("expectedClockVersion").asLong(), ruleSecondsPerTurn);
                 return GmToolOutcome.completed(result.value(), result.version(), result.reference());
             } catch (Exception e) { throw new ToolArgumentInvalidException("invalid advance_game_time arguments"); }
         };
