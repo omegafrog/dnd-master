@@ -95,7 +95,7 @@ public record CharacterCreationBlueprint(
         List<Field> next = new ArrayList<>(fields);
         next.add(child);
         return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.NEEDS_REVIEW,
-                next, diagnostics);
+                next, diagnostics, provenance);
     }
 
     private static List<CharacterInputNode> flatten(List<CharacterInputNode> nodes) {
@@ -176,7 +176,7 @@ public record CharacterCreationBlueprint(
         List<String> nextDiagnostics = diagnostics.stream()
                 .filter(diagnostic -> !diagnostic.startsWith(key + ":"))
                 .toList();
-        return new CharacterCreationBlueprint(revision + 1, nextStatus, next, nextDiagnostics);
+        return new CharacterCreationBlueprint(revision + 1, nextStatus, next, nextDiagnostics, provenance);
     }
 
     public CharacterCreationBlueprint addOption(String key, String option) {
@@ -194,7 +194,7 @@ public record CharacterCreationBlueprint(
                     field.nodeId(), field.parentNodeId(), field.confidence(), field.optionDetails());
         }).toList();
         if (next.equals(fields)) throw new IllegalArgumentException("unknown blueprint field: " + key);
-        return new CharacterCreationBlueprint(revision + 1, status, next, diagnostics);
+        return new CharacterCreationBlueprint(revision + 1, status, next, diagnostics, provenance);
     }
 
     public CharacterCreationBlueprint replaceField(Field replacement) {
@@ -202,7 +202,7 @@ public record CharacterCreationBlueprint(
         boolean found = fields.stream().anyMatch(field -> field.key().equals(replacement.key()));
         if (!found) throw new IllegalArgumentException("unknown blueprint field: " + replacement.key());
         List<Field> next = fields.stream().map(field -> field.key().equals(replacement.key()) ? replacement : field).toList();
-        return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.NEEDS_REVIEW, next, diagnostics);
+        return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.NEEDS_REVIEW, next, diagnostics, provenance);
     }
 
     public CharacterCreationBlueprint upsertField(Field replacement) {
@@ -210,7 +210,7 @@ public record CharacterCreationBlueprint(
         if (status == CharacterCreationBlueprintStatus.PUBLISHED) throw new IllegalStateException("published blueprint is immutable");
         List<Field> next = new ArrayList<>(fields);
         next.add(replacement);
-        return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.NEEDS_REVIEW, next, diagnostics);
+        return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.NEEDS_REVIEW, next, diagnostics, provenance);
     }
 
     /** Composes enrichment into a user resolution that already advanced the revision. */
@@ -220,14 +220,14 @@ public record CharacterCreationBlueprint(
         int index = java.util.stream.IntStream.range(0, next.size())
                 .filter(i -> next.get(i).key().equals(replacement.key())).findFirst().orElse(-1);
         if (index < 0) next.add(replacement); else next.set(index, replacement);
-        return new CharacterCreationBlueprint(revision, CharacterCreationBlueprintStatus.NEEDS_REVIEW, next, diagnostics);
+        return new CharacterCreationBlueprint(revision, CharacterCreationBlueprintStatus.NEEDS_REVIEW, next, diagnostics, provenance);
     }
 
     public CharacterCreationBlueprint publish() {
         if (status != CharacterCreationBlueprintStatus.READY) {
             throw new IllegalStateException("blueprint has unresolved review items");
         }
-        return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.PUBLISHED, fields, diagnostics);
+        return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.PUBLISHED, fields, diagnostics, provenance);
     }
 
     public record Field(String key, List<String> options, boolean required, String sourceType,

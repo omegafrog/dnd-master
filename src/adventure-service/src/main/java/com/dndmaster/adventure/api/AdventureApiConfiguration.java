@@ -609,7 +609,7 @@ public class AdventureApiConfiguration {
             AdventureSessionRepository sessions, RuntimeBindingRepository bindings, ObjectMapper objectMapper,
             @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long timeoutSeconds,
-            @Value("${adventure.integration.internal-token:}") String internalToken) {
+            @Value("${adventure.integration.internal-token:local-dev-internal-token}") String internalToken) {
         return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRulebookTimeDefinitionGateway(
                 sessions, bindings, HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken);
     }

@@ -240,7 +240,7 @@ public class RuleKnowledgeController {
     }
 
     private void requireInternalToken(String token) {
-        if (!internalToken.isBlank() && !internalToken.equals(token)) {
+        if (internalToken.isBlank() || !internalToken.equals(token)) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "invalid internal token");
         }
     }

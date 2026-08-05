@@ -25,6 +25,7 @@ public final class CrossContextHttpRulebookTimeDefinitionGateway implements Func
     private final Duration timeout;
     private final ObjectMapper mapper;
     private final String internalToken;
+    private final boolean requireLock;
 
     public CrossContextHttpRulebookTimeDefinitionGateway(AdventureSessionRepository sessions, RuntimeBindingRepository bindings,
             HttpClient httpClient, URI baseUri, Duration timeout, ObjectMapper mapper) {
@@ -40,6 +41,7 @@ public final class CrossContextHttpRulebookTimeDefinitionGateway implements Func
         this.timeout = Objects.requireNonNull(timeout);
         this.mapper = Objects.requireNonNull(mapper);
         this.internalToken = internalToken == null ? "" : internalToken;
+        this.requireLock = !this.internalToken.isBlank();
     }
 
     @Override
@@ -56,6 +58,7 @@ public final class CrossContextHttpRulebookTimeDefinitionGateway implements Func
             if (configuration == null) return java.util.Optional.empty();
             var adventureId = session.startedAdventureId();
             var binding = adventureId == null ? null : bindings.findCurrentByAdventureId(adventureId).orElse(null);
+            if (requireLock && (binding == null || binding.gameSystemDefinitionVersion() < 1)) return java.util.Optional.empty();
             long lockedVersion = binding == null ? 0 : binding.gameSystemDefinitionVersion();
             for (UUID rulebookId : configuration.rulebookIds()) {
                 var found = findByRulebook(rulebookId, lockedVersion);

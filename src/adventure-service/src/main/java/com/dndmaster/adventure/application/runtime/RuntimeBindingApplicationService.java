@@ -140,8 +140,11 @@ public final class RuntimeBindingApplicationService {
                 scenarioPackage.report().status().name(), scenarioPackage.report().warnings(), candidates, proposal,
                 rulebookIds, engineId, toolIds);
         ActiveSourceContext selected = selectSourceContext(report, proposal);
-        long definitionVersion = gameSystemDefinitionPort.find(adventure.sessionId().value())
-                .map(GameSystemDefinitionPort.Definition::version).orElse(0L);
+        long definitionVersion = rulebookIds.stream()
+                .map(gameSystemDefinitionPort::findByRulebook)
+                .flatMap(java.util.Optional::stream)
+                .mapToLong(GameSystemDefinitionPort.Definition::version)
+                .findFirst().orElse(0L);
         long blueprintVersion = scenarioPackage.characterCreationBlueprint() == null
                 ? 0L : scenarioPackage.characterCreationBlueprint().revision();
         if (requirePublishedReferences && (definitionVersion < 1 || blueprintVersion < 1)) {
