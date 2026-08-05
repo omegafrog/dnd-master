@@ -33,7 +33,7 @@ public final class GmContextCheckpointApplicationService {
             return Optional.of(checkpoint);
         } catch (RuntimeException failure) {
             // Previous current checkpoint remains authoritative. Compaction is internal and retryable.
-            return repository.current(sessionId);
+            return Optional.empty();
         }
     }
 }

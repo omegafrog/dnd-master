@@ -7,6 +7,7 @@ import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -15,14 +16,17 @@ import org.springframework.web.server.ResponseStatusException;
 public final class GmAgentController {
     private final SpringAiChatAdapter adapter;
     private final ObjectMapper mapper;
+    private final ApiRequestGuard requestGuard;
 
-    public GmAgentController(SpringAiChatAdapter adapter, ObjectMapper mapper) {
+    public GmAgentController(SpringAiChatAdapter adapter, ObjectMapper mapper, ApiRequestGuard requestGuard) {
         this.adapter = adapter;
         this.mapper = mapper;
+        this.requestGuard = requestGuard;
     }
 
     @PostMapping("/internal/v1/gm/agent-turns")
-    Response plan(@RequestBody Request request) {
+    Response plan(@RequestHeader(value = "X-Internal-Token", required = false) String token, @RequestBody Request request) {
+        requestGuard.internal(token);
         if (request == null || request.action() == null || request.action().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "action required");
         }
@@ -42,7 +46,9 @@ public final class GmAgentController {
     }
 
     @PostMapping("/internal/v1/gm/context-compactions")
-    CompactionResponse compact(@RequestBody CompactionRequest request) {
+    CompactionResponse compact(@RequestHeader(value = "X-Internal-Token", required = false) String token,
+                               @RequestBody CompactionRequest request) {
+        requestGuard.internal(token);
         if (request == null || request.context() == null || request.context().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "context required");
         }

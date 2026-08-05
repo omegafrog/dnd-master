@@ -25,12 +25,18 @@ public final class HttpGmAgentPort implements GmAgentPort {
     private final URI baseUri;
     private final Duration timeout;
     private final ObjectMapper mapper;
+    private final String internalToken;
 
     public HttpGmAgentPort(HttpClient client, URI baseUri, Duration timeout, ObjectMapper mapper) {
+        this(client, baseUri, timeout, mapper, "local-dev-internal-token");
+    }
+
+    public HttpGmAgentPort(HttpClient client, URI baseUri, Duration timeout, ObjectMapper mapper, String internalToken) {
         this.client = Objects.requireNonNull(client);
         this.baseUri = Objects.requireNonNull(baseUri);
         this.timeout = Objects.requireNonNull(timeout);
         this.mapper = Objects.requireNonNull(mapper);
+        this.internalToken = Objects.requireNonNull(internalToken);
     }
 
     @Override
@@ -44,6 +50,7 @@ public final class HttpGmAgentPort implements GmAgentPort {
             String body = mapper.writeValueAsString(Request.from(context, capability));
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/agent-turns"))
                     .timeout(timeout).header("Content-Type", "application/json")
+                    .header("X-Internal-Token", internalToken)
                     .header("Authorization", "Bearer " + context.ownerPlayerId().value())
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());

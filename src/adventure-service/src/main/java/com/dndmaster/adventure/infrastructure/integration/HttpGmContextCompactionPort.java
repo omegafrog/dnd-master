@@ -19,12 +19,18 @@ public final class HttpGmContextCompactionPort implements ContextCompactionPort 
     private final URI baseUri;
     private final Duration timeout;
     private final ObjectMapper mapper;
+    private final String internalToken;
 
     public HttpGmContextCompactionPort(HttpClient client, URI baseUri, Duration timeout, ObjectMapper mapper) {
+        this(client, baseUri, timeout, mapper, "local-dev-internal-token");
+    }
+
+    public HttpGmContextCompactionPort(HttpClient client, URI baseUri, Duration timeout, ObjectMapper mapper, String internalToken) {
         this.client = Objects.requireNonNull(client);
         this.baseUri = Objects.requireNonNull(baseUri);
         this.timeout = Objects.requireNonNull(timeout);
         this.mapper = Objects.requireNonNull(mapper);
+        this.internalToken = Objects.requireNonNull(internalToken);
     }
 
     @Override
@@ -33,6 +39,7 @@ public final class HttpGmContextCompactionPort implements ContextCompactionPort 
             String body = mapper.writeValueAsString(Request.from(request));
             HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/context-compactions"))
                     .timeout(timeout).header("Content-Type", "application/json")
+                    .header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build();
             HttpResponse<String> response = client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() / 100 != 2) throw new IllegalStateException("GM compaction returned " + response.statusCode());

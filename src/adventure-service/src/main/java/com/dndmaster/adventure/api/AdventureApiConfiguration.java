@@ -174,7 +174,8 @@ public class AdventureApiConfiguration {
 
     @Bean
     ProviderTokenEstimator providerTokenEstimator() {
-        return new ProviderTokenEstimator(Map.of("legacy", 8192, "local", 8192, "remote", 128000));
+        return new ProviderTokenEstimator(Map.of("legacy", 8192, "local", 8192, "remote", 128000,
+                "ollama", 8192, "openai", 128000));
     }
 
     @Bean
@@ -185,9 +186,10 @@ public class AdventureApiConfiguration {
     @Bean
     ContextCompactionPort contextCompactionPort(
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.internal-token:local-dev-internal-token}") String internalToken) {
         return new ValidatingContextCompactionPort(new com.dndmaster.adventure.infrastructure.integration.HttpGmContextCompactionPort(
-                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(30), objectMapper));
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(30), objectMapper, internalToken));
     }
 
     @Bean
@@ -223,8 +225,9 @@ public class AdventureApiConfiguration {
     @Bean
     RuntimeTurnCompactionCoordinator runtimeTurnCompactionCoordinator(
             ProviderTokenEstimator estimator, GmContextCompactionScheduler scheduler,
-            GmContextCheckpointApplicationService checkpoints, AuthoritativeSnapshotResolver snapshots) {
-        return new RuntimeTurnCompactionCoordinator(estimator, scheduler, checkpoints, snapshots);
+            GmContextCheckpointApplicationService checkpoints, AuthoritativeSnapshotResolver snapshots,
+            StoryPlanRevisionRepository plans) {
+        return new RuntimeTurnCompactionCoordinator(estimator, scheduler, checkpoints, snapshots, plans);
     }
 
     @Bean
@@ -707,8 +710,9 @@ public class AdventureApiConfiguration {
     GmAgentPort gmAgentPort(
             ObjectMapper objectMapper,
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.ai-game-master.timeout-seconds:30}") long timeoutSeconds) {
-        return new HttpGmAgentPort(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper);
+            @Value("${adventure.integration.ai-game-master.timeout-seconds:30}") long timeoutSeconds,
+            @Value("${adventure.integration.internal-token:local-dev-internal-token}") String internalToken) {
+        return new HttpGmAgentPort(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken);
     }
 
     @Bean

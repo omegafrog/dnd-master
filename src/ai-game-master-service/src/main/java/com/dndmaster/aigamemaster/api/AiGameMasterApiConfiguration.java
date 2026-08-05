@@ -10,6 +10,7 @@ import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.CharacterTagCompletionPort;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
 
 import java.util.List;
 import java.util.UUID;
@@ -104,7 +105,8 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
-    GmAgentController gmAgentController(SpringAiChatAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
-        return new GmAgentController(adapter, objectMapper);
+    GmAgentController gmAgentController(SpringAiChatAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+                                        @Value("${ai-game-master.integration.internal-token:local-dev-internal-token}") String internalToken) {
+        return new GmAgentController(adapter, objectMapper, new ApiRequestGuard(internalToken));
     }
 }

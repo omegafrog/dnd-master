@@ -108,6 +108,27 @@ class GmContextCompactionTest {
         assertThrows(IllegalArgumentException.class, () -> port.summarize(request));
     }
 
+    @Test
+    void failed_compaction_is_reported_as_failure_even_when_old_checkpoint_exists() {
+        UUID session = UUID.randomUUID();
+        InMemoryGmContextCheckpointRepository repository = new InMemoryGmContextCheckpointRepository();
+        repository.append(checkpoint(session, 1));
+        GmContextCheckpointApplicationService service = new GmContextCheckpointApplicationService(
+                new CompactionPolicy(0.70), request -> { throw new IllegalStateException("provider down"); }, repository);
+
+        assertTrue(service.compact(session, UUID.randomUUID(), 2, new ContextUsage(800, 1_000),
+                CompactionBarrier.clear(), "context", checkpoint(session, 1).exactTail(),
+                checkpoint(session, 1).snapshotReferences()).isEmpty());
+    }
+
+    @Test
+    void provider_token_estimator_accepts_runtime_provider_ids() {
+        ProviderTokenEstimator estimator = new ProviderTokenEstimator(Map.of("ollama", 8_192, "openai", 128_000));
+
+        assertEquals(8_192, estimator.limit("ollama"));
+        assertEquals(128_000, estimator.limit("openai"));
+    }
+
     private static GmContextCheckpoint checkpoint(UUID session, long version) {
         UUID planRevision = UUID.randomUUID();
         return GmContextCheckpoint.create(session, UUID.randomUUID(), version,
