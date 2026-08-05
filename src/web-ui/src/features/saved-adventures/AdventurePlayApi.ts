@@ -33,8 +33,10 @@ export type CombatMapView = {
   tokens?: Array<{ id: string; type: string; x: number; y: number }>
   layers?: Array<{ type: string; value: string }>
   version?: number
+  sessionVersion?: number
   grid?: { width: number; height: number }
   obstacles?: Array<{ x: number; y: number }>
+  objects?: Array<{ id: string; type: string; x: number; y: number }>
 }
 
 export type MapActionCandidate = {
@@ -162,7 +164,7 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
     })
   }
 
-  submitMapAction(adventureId: string, candidate: MapActionCandidate, command = createMapCommandIdentity(), expectedVersion = 0) {
+  submitMapAction(adventureId: string, candidate: MapActionCandidate, command = createMapCommandIdentity(), expectedVersion = candidate.mapVersion) {
     return request<{ turnId: string; version: number }>(`/api/v1/adventures/${adventureId}/turns`, {
       method: 'POST',
       headers: {
@@ -179,5 +181,5 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
 
 function createMapCommandIdentity() {
   const value = globalThis.crypto && 'randomUUID' in globalThis.crypto ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random()}`
-  return { turnId: `map-turn-${value}`, commandId: `map-command-${value}` }
+  return { turnId: value, commandId: value }
 }

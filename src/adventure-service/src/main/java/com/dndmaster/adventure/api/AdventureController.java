@@ -20,12 +20,15 @@ import com.dndmaster.adventure.domain.ruleset.DndEdition;
 import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.UUID;
 import com.dndmaster.adventure.domain.runtime.GmTurn;
+import com.dndmaster.adventure.application.combat.CombatMapPort;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @RestController
 @RequestMapping
@@ -42,6 +45,8 @@ public class AdventureController {
     private final AdventureCombatApplicationService combatService;
     private final AdventureScenarioApplicationService scenarioService;
     private final AuthenticatedPlayerResolver playerResolver;
+    private final CombatMapPort combatMapPort;
+    private final ObjectMapper objectMapper;
 
     public AdventureController(
             SavedAdventureApplicationService savedAdventureService,
@@ -54,7 +59,9 @@ public class AdventureController {
             RuleGuidanceApplicationService guidanceService,
             AdventureCombatApplicationService combatService,
             AdventureScenarioApplicationService scenarioService,
-            AuthenticatedPlayerResolver playerResolver) {
+            AuthenticatedPlayerResolver playerResolver,
+            ObjectProvider<CombatMapPort> combatMapPort,
+            ObjectMapper objectMapper) {
         this.savedAdventureService = savedAdventureService;
         this.runtimeTurnService = runtimeTurnService;
         this.adventureRepository = adventureRepository;
@@ -66,6 +73,10 @@ public class AdventureController {
         this.combatService = combatService;
         this.scenarioService = scenarioService;
         this.playerResolver = playerResolver;
+        this.combatMapPort = combatMapPort.getIfAvailable(() -> command -> {
+            throw new IllegalStateException("combat map gateway unavailable");
+        });
+        this.objectMapper = objectMapper;
     }
 
     @PostMapping("/api/v1/adventures/scenarios")
@@ -127,6 +138,9 @@ public class AdventureController {
         RuntimeTurnResult result;
         try {
             gmTurnRepository.save(turn.process(), adventureId);
+            if (input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput mapAction) {
+                applyMapAction(adventure, owner, commandId, mapAction);
+            }
             result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
                     new AdventureId(adventureId), new OwnerPlayerId(owner), request.turnId(), commandId,
                     input.actionText(), expectedVersion,
@@ -161,7 +175,11 @@ public class AdventureController {
 
     @GetMapping("/api/v1/adventures/{adventureId}/combat-map")
     CombatMapResponse playerMap(@PathVariable UUID adventureId) {
-        return new CombatMapResponse(adventureId, "map-view");
+        var adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        if (!adventure.ownerPlayerId().value().equals(playerResolver.playerId())) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        }
+        return new CombatMapResponse(adventureId, "map-view", adventure.version());
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/dice-rolls")
@@ -285,7 +303,29 @@ public class AdventureController {
     }
     public record RuleInquiryRequest(UUID inquiryId, UUID ruleSetId, UUID playerId, String situation) {}
     public record RuleInquiryResponse(UUID inquiryId, String status) {}
-    public record CombatMapResponse(UUID adventureId, String status) {}
+    private void applyMapAction(Adventure adventure, UUID owner, UUID commandId,
+            com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput input) {
+        try {
+            MapActionPayload payload = objectMapper.readValue(input.action(), MapActionPayload.class);
+            if (!input.mapId().equals(payload.mapId()) || input.mapVersion() != payload.mapVersion()) {
+                throw new IllegalArgumentException("map action identity mismatch");
+            }
+            var member = adventure.party().stream().findFirst()
+                    .orElseThrow(() -> new IllegalStateException("map action requires a party member"));
+            String path = payload.path() == null ? null : payload.path().stream()
+                    .map(position -> position.x() + "," + position.y()).reduce((left, right) -> left + ";" + right).orElse(null);
+            combatMapPort.validateAndMove(new CombatActionCommand(
+                    commandId, adventure.id(), adventure.ruleSetId(), member.characterSheetId(), payload.mapId(),
+                    CombatActorRole.PLAYER, payload.action(), path, owner, payload.tokenId(), payload.mapVersion()));
+        } catch (java.io.IOException exception) {
+            throw new IllegalArgumentException("invalid map action", exception);
+        }
+    }
+
+    public record MapActionPayload(UUID mapId, long mapVersion, UUID tokenId, String action,
+            List<PositionPayload> path, UUID targetId, PositionPayload location) {}
+    public record PositionPayload(int x, int y) {}
+    public record CombatMapResponse(UUID adventureId, String status, long sessionVersion) {}
     public record DiceRollRequest(
             UUID ruleSetId,
             UUID characterSheetId,

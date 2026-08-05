@@ -775,8 +775,11 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    CombatMapPort combatMapPort() {
-        return command -> { /* TODO: implement map validation */ };
+    CombatMapPort combatMapPort(
+            @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl) {
+        CrossContextHttpCombatGateway gateway = new CrossContextHttpCombatGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5));
+        return gateway::validateAndMove;
     }
 
     @Bean
@@ -862,9 +865,11 @@ public class AdventureApiConfiguration {
             RuleGuidanceApplicationService guidanceService,
             AdventureCombatApplicationService combatService,
             AdventureScenarioApplicationService scenarioService,
-            AuthenticatedPlayerResolver playerResolver) {
+            AuthenticatedPlayerResolver playerResolver,
+            org.springframework.beans.factory.ObjectProvider<CombatMapPort> combatMapPort,
+            ObjectMapper objectMapper) {
         return new AdventureController(
-                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, scenarioService, playerResolver);
+                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, scenarioService, playerResolver, combatMapPort, objectMapper);
     }
 
     @Bean

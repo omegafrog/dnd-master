@@ -61,3 +61,9 @@ Fog/LOS, hidden monsters/traps, last-seen semantics.
 - Cancel restores the committed projection locally; confirmation submits exactly one idempotent `MAP_ACTION` GM Turn.
 - Extended player-safe combat-map response with grid and obstacle metadata; preserved internal authoritative movement validation and versioning.
 - Web UI: 26 test files / 76 tests passing; combat-map movement tests and typecheck passing.
+
+## Review Follow-up
+
+- Map command IDs now remain UUIDs; current session version is forwarded and the committed map projection reloads after confirmation.
+- Confirmation is single-flight; Adventure validates the typed payload and routes movement through the versioned Combat Map gateway before committing the turn.
+- Added adjacent path expansion plus target, location, and object-interaction candidate controls.

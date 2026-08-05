@@ -17,7 +17,7 @@ function fakeApi(): AdventurePlayApi {
         intelligence: 10, wisdom: 12, charisma: 8,
       }
     },
-    async getCombatMap() { return { adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0, grid: { width: 3, height: 2 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 1, y: 1 }] } },
+    async getCombatMap() { return { adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0, sessionVersion: 7, grid: { width: 3, height: 2 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 1, y: 1 }] } },
     submitMapAction,
     async rollDice() { return { rollId: 'r1', total: 19 } },
     async listSaved() { return [] },
@@ -68,5 +68,5 @@ it('submits exactly one typed map action after confirmation', async () => {
   await user.click(screen.getByRole('button', { name: '격자 2,1' }))
   await user.click(screen.getByRole('button', { name: '확인' }))
   expect(api.submitMapAction).toHaveBeenCalledTimes(1)
-  expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ action: 'MOVE', path: [{ x: 1, y: 1 }, { x: 2, y: 1 }] }))
+  expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ action: 'MOVE', path: [{ x: 1, y: 1 }, { x: 2, y: 1 }] }), undefined, 7)
 })
