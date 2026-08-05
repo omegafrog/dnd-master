@@ -54,6 +54,8 @@ public final class CharacterSheetApplicationService {
         return repository.findByOwnerPlayerId(Objects.requireNonNull(ownerPlayerId, "owner player id must not be null"));
     }
 
+    public java.util.Optional<CharacterSheet> findByCommandId(UUID commandId) { return repository.findByCommandId(commandId); }
+
     public CharacterSheet copyOwnedSheet(CharacterSheetId sourceId, SessionId targetSessionId, UUID ownerPlayerId) {
         CharacterSheet source = load(sourceId);
         if (!Objects.equals(source.ownerPlayerId(), Objects.requireNonNull(ownerPlayerId, "owner player id must not be null"))) {

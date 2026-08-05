@@ -35,7 +35,8 @@ public final class GmToolExecutionLoop {
                 outcome = gateway.invoke(capability, repairedCall.invocation());
             }
             outcomes.add(outcome);
-            if (planned.required() && outcome.status() != GmToolOutcome.Status.COMPLETED) {
+            if (planned.required() && outcome.status() != GmToolOutcome.Status.COMPLETED
+                    && outcome.status() != GmToolOutcome.Status.UNKNOWN) {
                 throw new RequiredToolFailureException(planned.invocation().toolName());
             }
         }

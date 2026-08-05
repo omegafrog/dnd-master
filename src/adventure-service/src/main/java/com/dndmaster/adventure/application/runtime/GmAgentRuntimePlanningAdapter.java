@@ -1,6 +1,5 @@
 package com.dndmaster.adventure.application.runtime;
 
-import java.util.List;
 import java.util.Objects;
 import java.util.List;
 import java.nio.charset.StandardCharsets;
@@ -32,7 +31,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         java.util.Set<String> hiddenData = context.storyPlanContext().isBlank()
                 ? java.util.Set.of()
                 : java.util.Set.of(context.storyPlanContext());
-        GmPlanResult result = agentPort.plan(context);
+        GmPlanResult result = validator.validate(agentPort.plan(context), request.evidencePack(), request.currentContext(), hiddenData);
         if (!result.toolCalls().isEmpty()) {
             if (gateway == null || saga == null) throw new IllegalStateException("GM tool gateway is not configured");
             TurnCapability capability = TurnCapability.issue(request.sessionId(), request.turnId(), request.ownerPlayerId().value(),
@@ -46,7 +45,11 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
                             ? RuntimeCommandOutcome.applied(tool.value(), 0)
                             : RuntimeCommandOutcome.rejected(tool.value());
                 });
-                return outcome.status() == RuntimeCommandStatus.APPLIED ? GmToolOutcome.completed(outcome.value()) : GmToolOutcome.rejected(outcome.value());
+                return switch (outcome.status()) {
+                    case APPLIED -> GmToolOutcome.completed(outcome.value());
+                    case UNKNOWN -> GmToolOutcome.unknown(outcome.value());
+                    default -> GmToolOutcome.rejected(outcome.value());
+                };
             };
             List<GmToolExecutionLoop.PlannedToolCall> calls = new java.util.ArrayList<>();
             for (int index = 0; index < result.toolCalls().size(); index++) {
@@ -55,7 +58,31 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
                 calls.add(new GmToolExecutionLoop.PlannedToolCall(new GmToolInvocation(id, request.sessionId(), request.turnId(), request.ownerPlayerId().value(), call.toolName(), call.argumentsJson()), call.required()));
             }
             try {
-                new GmToolExecutionLoop(saggedGateway, 8).act(capability, calls, ignored -> null);
+                GmToolExecutionLoop.Result execution = new GmToolExecutionLoop(saggedGateway, 8).act(capability, calls,
+                        failed -> {
+                            GmToolCall repaired = agentPort.repair(context,
+                                    new GmToolCall(failed.invocation().toolName(), failed.invocation().argumentsJson(), failed.required()));
+                            if (repaired == null) return null;
+                            return new GmToolExecutionLoop.PlannedToolCall(new GmToolInvocation(
+                                    failed.invocation().invocationId(), request.sessionId(), request.turnId(), request.ownerPlayerId().value(),
+                                    repaired.toolName(), repaired.argumentsJson()), repaired.required());
+                        });
+                for (int index = 0; index < execution.outcomes().size(); index++) {
+                    if (execution.outcomes().get(index).status() != GmToolOutcome.Status.UNKNOWN) continue;
+                    UUID commandId = calls.get(index).invocation().invocationId();
+                    String toolName = calls.get(index).invocation().toolName();
+                    saga.resume(commandId, ignored -> { throw new IllegalStateException("unknown tool outcome"); },
+                            ignored -> gateway.query(toolName, commandId).map(outcome -> outcome.status() == GmToolOutcome.Status.COMPLETED
+                                    ? RuntimeCommandOutcome.applied(outcome.value(), 0)
+                                    : RuntimeCommandOutcome.rejected(outcome.value())).orElseThrow());
+                }
+                if (execution.outcomes().stream().anyMatch(outcome -> outcome.status() == GmToolOutcome.Status.REJECTED
+                        || outcome.status() == GmToolOutcome.Status.REQUIRES_CHOICE)) {
+                    RuntimePlan safe = new RuntimePlan(result.plan().scene(), result.plan().npcState(), result.plan().judgment(),
+                            "The requested action needs clarification before it can be completed.", result.plan().proposedActiveSourceContext(),
+                            result.plan().citedEvidence(), result.plan().warnings(), result.plan().provider(), result.plan().model(), result.plan().reasoning());
+                    result = new GmPlanResult(safe, result.provider(), result.model(), result.reasoning(), result.stateDelta(), result.toolCalls());
+                }
             } finally {
                 gateway.revoke(capability);
             }

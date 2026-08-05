@@ -8,6 +8,8 @@ import java.net.URI;
 import java.net.http.*;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
 
 public final class HttpDiceToolPort implements OfficialToolPort {
     private final HttpClient client; private final URI endpoint; private final Duration timeout; private final ObjectMapper mapper; private final String token;
@@ -21,6 +23,13 @@ public final class HttpDiceToolPort implements OfficialToolPort {
             if (response.statusCode() / 100 != 2) return GmToolOutcome.rejected("dice service rejected command: " + response.statusCode());
             return GmToolOutcome.completed(response.body());
         } catch (InterruptedException e) { Thread.currentThread().interrupt(); return GmToolOutcome.rejected("dice service interrupted"); }
-        catch (Exception e) { return GmToolOutcome.rejected("dice service unavailable"); }
+        catch (Exception e) { return GmToolOutcome.unknown("dice service outcome unknown"); }
+    }
+    public Optional<GmToolOutcome> query(UUID commandId) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder(endpoint.resolve("../commands/" + commandId)).timeout(timeout).header("X-Internal-Token", token).GET().build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            return response.statusCode() / 100 == 2 ? Optional.of(GmToolOutcome.completed(response.body())) : Optional.empty();
+        } catch (Exception e) { return Optional.empty(); }
     }
 }

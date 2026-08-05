@@ -32,6 +32,12 @@ public final class GmToolGatewayService implements GmToolGateway {
     public void revoke(TurnCapability capability) { revokedNonces.add(capability.nonce()); }
 
     @Override
+    public java.util.Optional<GmToolOutcome> query(String toolName, UUID commandId) {
+        GmToolDefinition definition = registry.get(toolName);
+        return definition == null ? java.util.Optional.empty() : definition.query().apply(commandId);
+    }
+
+    @Override
     public GmToolOutcome invoke(TurnCapability capability, GmToolInvocation invocation) {
         Objects.requireNonNull(capability); Objects.requireNonNull(invocation);
         if (revokedNonces.contains(capability.nonce())) throw new ToolAuthorizationException();

@@ -165,7 +165,7 @@ public class AdventureApiConfiguration {
     @Bean
     CharacterSheetDeletionPort characterSheetDeletionPort(ObjectMapper objectMapper,
             @Value("${adventure.integration.character-management.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.internal-token:local-dev-internal-token}") String token) {
+            @Value("${adventure.integration.internal-token:}") String token) {
         return new CrossContextHttpCharacterSheetDeletionGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(10), objectMapper, token);
     }
 
@@ -572,7 +572,7 @@ public class AdventureApiConfiguration {
     OfficialToolPort diceToolPort(
             ObjectMapper objectMapper,
             @Value("${adventure.integration.dice-roll.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.internal-token:local-dev-internal-token}") String token) {
+            @Value("${adventure.integration.internal-token:}") String token) {
         return new HttpDiceToolPort(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(15), objectMapper, token);
     }
 

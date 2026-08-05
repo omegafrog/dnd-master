@@ -7,6 +7,8 @@ import java.net.URI;
 import java.net.http.*;
 import java.time.Duration;
 import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
 
 public final class HttpCharacterToolPort implements OfficialToolPort {
     private final HttpClient client; private final URI baseUri; private final Duration timeout; private final ObjectMapper mapper; private final String token;
@@ -23,11 +25,20 @@ public final class HttpCharacterToolPort implements OfficialToolPort {
             if (expectedVersion < 0) throw new IllegalArgumentException("expectedVersion required");
             body.remove("characterSheetId");
             body.remove("expectedVersion");
-            HttpRequest request = HttpRequest.newBuilder(endpoint).timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", token).header("Idempotency-Key", invocation.invocationId().toString()).header("If-Match-Version", Long.toString(expectedVersion)).PUT(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body))).build();
+            HttpRequest request = HttpRequest.newBuilder(endpoint).timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", token).header("X-Session-ID", invocation.sessionId().toString()).header("X-Owner-Player-ID", invocation.ownerPlayerId().toString()).header("Idempotency-Key", invocation.invocationId().toString()).header("If-Match-Version", Long.toString(expectedVersion)).PUT(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body))).build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() / 100 != 2) return GmToolOutcome.rejected("character service rejected command: " + response.statusCode());
             return GmToolOutcome.completed(response.body());
         } catch (InterruptedException e) { Thread.currentThread().interrupt(); return GmToolOutcome.rejected("character service interrupted"); }
-        catch (Exception e) { return GmToolOutcome.rejected("character command arguments invalid"); }
+        catch (IllegalArgumentException e) { return GmToolOutcome.rejected("character command arguments invalid"); }
+        catch (Exception e) { return GmToolOutcome.unknown("character service outcome unknown"); }
+    }
+    public Optional<GmToolOutcome> query(UUID commandId) {
+        try {
+            URI endpoint = baseUri.resolve("internal/v1/character-sheets/commands/" + commandId);
+            HttpRequest request = HttpRequest.newBuilder(endpoint).timeout(timeout).header("X-Internal-Token", token).GET().build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            return response.statusCode() / 100 == 2 ? Optional.of(GmToolOutcome.completed(response.body())) : Optional.empty();
+        } catch (Exception e) { return Optional.empty(); }
     }
 }

@@ -143,7 +143,10 @@ class CharacterSheetControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.characterSheetId").value(sheetId.toString()));
 
-        mockMvc.perform(put("/internal/v1/character-sheets/{sheetId}", sheetId)
+                mockMvc.perform(put("/internal/v1/character-sheets/{sheetId}", sheetId)
+                        .header("X-Internal-Token", "test-internal-token")
+                        .header("X-Session-ID", adventureId)
+                        .header("X-Owner-Player-ID", UUID.randomUUID())
                         .header("Idempotency-Key", UUID.randomUUID())
                         .header("If-Match-Version", 0L)
                         .contentType("application/json")

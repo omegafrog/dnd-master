@@ -132,8 +132,10 @@ class CapabilityScopedToolSagaTest {
                 OfficialGmToolRegistry.definitions(invocation -> { dice.incrementAndGet(); return GmToolOutcome.completed("rolled"); },
                         invocation -> { character.incrementAndGet(); return GmToolOutcome.completed("updated"); }), Clock.fixed(NOW, ZoneOffset.UTC));
         TurnCapability capability = TurnCapability.issue(SESSION, TURN, OWNER, Set.of("dice.roll", "character.update"), NOW.plusSeconds(60), UUID.randomUUID());
-        gateway.invoke(capability, new GmToolInvocation(UUID.randomUUID(), SESSION, TURN, OWNER, "dice.roll", "{}"));
-        gateway.invoke(capability, new GmToolInvocation(UUID.randomUUID(), SESSION, TURN, OWNER, "character.update", "{}"));
+        String diceArguments = "{\"adventureId\":\"" + UUID.randomUUID() + "\",\"ruleSetId\":\"" + UUID.randomUUID() + "\",\"scope\":\"PLAYER_ACTION\",\"count\":1,\"sides\":20,\"modifier\":0,\"sessionId\":\"" + SESSION + "\",\"turnId\":\"" + TURN + "\",\"commandId\":\"" + UUID.randomUUID() + "\",\"expectedVersion\":0}";
+        String characterArguments = "{\"characterSheetId\":\"" + UUID.randomUUID() + "\",\"expectedVersion\":0,\"edition\":\"DND_5E_2024\",\"characterName\":\"Aria\",\"level\":1,\"inspiration\":false,\"race\":\"Elf\",\"characterClass\":\"Wizard\",\"background\":\"Sage\"}";
+        gateway.invoke(capability, new GmToolInvocation(UUID.randomUUID(), SESSION, TURN, OWNER, "dice.roll", diceArguments));
+        gateway.invoke(capability, new GmToolInvocation(UUID.randomUUID(), SESSION, TURN, OWNER, "character.update", characterArguments));
         assertEquals(1, dice.get()); assertEquals(1, character.get());
     }
 }

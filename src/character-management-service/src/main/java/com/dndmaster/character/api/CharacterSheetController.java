@@ -108,9 +108,15 @@ public class CharacterSheetController {
     @PutMapping("/internal/v1/character-sheets/{sheetId}")
     CharacterSheetResponse preserveCharacterSheet(
             @PathVariable UUID sheetId,
+            @RequestHeader("X-Internal-Token") String internalToken,
+            @RequestHeader("X-Session-ID") UUID sessionId,
+            @RequestHeader("X-Owner-Player-ID") UUID ownerPlayerId,
             @RequestHeader("Idempotency-Key") UUID commandId,
             @RequestHeader("If-Match-Version") long expectedVersion,
             @RequestBody CharacterSheetRequest request) {
+        if (requestGuard == null) throw new IllegalStateException("request guard is not configured");
+        requestGuard.internal(internalToken);
+        characterSheetService.verifySessionOwnership(new CharacterSheetId(sheetId), new SessionId(sessionId), ownerPlayerId);
         String derivedStatistics = request.derivedStatistics();
         if ("DND_5E_2014".equals(request.edition()) && structuredPayload(request)) {
             Dnd5e2014CharacterBuildEvaluator.Evaluation evaluation = Dnd5e2014CharacterBuildEvaluator.evaluate(request);
@@ -125,6 +131,13 @@ public class CharacterSheetController {
                 expectedVersion);
         CharacterSheet sheet = characterSheetService.manageCharacter(new CharacterSheetId(sheetId), update);
         return CharacterSheetResponse.from(sheet);
+    }
+
+    @GetMapping("/internal/v1/character-sheets/commands/{commandId}")
+    CharacterSheetResponse findByCommand(@RequestHeader("X-Internal-Token") String internalToken, @PathVariable UUID commandId) {
+        if (requestGuard == null) throw new IllegalStateException("request guard is not configured");
+        requestGuard.internal(internalToken);
+        return CharacterSheetResponse.from(characterSheetService.findByCommandId(commandId).orElseThrow(() -> new IllegalStateException("character command not found")));
     }
 
     private static boolean structuredPayload(CharacterSheetRequest request) {

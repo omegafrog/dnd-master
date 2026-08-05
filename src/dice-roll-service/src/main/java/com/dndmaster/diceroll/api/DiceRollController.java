@@ -13,9 +13,10 @@ import java.util.UUID;
 @RequestMapping
 public class DiceRollController {
     private final DiceRollApplicationService diceRollService;
+    private final ApiRequestGuard requestGuard;
 
-    public DiceRollController(DiceRollApplicationService diceRollService) {
-        this.diceRollService = diceRollService;
+    public DiceRollController(DiceRollApplicationService diceRollService, ApiRequestGuard requestGuard) {
+        this.diceRollService = diceRollService; this.requestGuard = requestGuard;
     }
 
     @PostMapping("/internal/v1/dice-rolls/player")
@@ -25,9 +26,16 @@ public class DiceRollController {
     }
 
     @PostMapping("/internal/v1/dice-rolls/ai")
-    DiceRollResponse aiRoll(@RequestBody DiceRollRequest request) {
+    DiceRollResponse aiRoll(@RequestHeader("X-Internal-Token") String token, @RequestBody DiceRollRequest request) {
+        requestGuard.internal(token);
         RollCommand command = toCommand(request);
         return DiceRollResponse.from(diceRollService.executeAiRoll(command));
+    }
+
+    @GetMapping("/internal/v1/dice-rolls/commands/{commandId}")
+    DiceRollResponse findByCommand(@RequestHeader("X-Internal-Token") String token, @PathVariable UUID commandId) {
+        requestGuard.internal(token);
+        return DiceRollResponse.from(diceRollService.findByCommandId(commandId).orElseThrow(() -> new IllegalStateException("dice command not found")));
     }
 
     private static RollCommand toCommand(DiceRollRequest request) {
