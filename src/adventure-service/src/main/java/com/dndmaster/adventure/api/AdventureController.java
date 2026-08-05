@@ -7,6 +7,7 @@ import com.dndmaster.adventure.application.guidance.AnswerRuleInquiryCommand;
 import com.dndmaster.adventure.application.guidance.RuleGuidanceApplicationService;
 import com.dndmaster.adventure.application.progress.AdventureProgressApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
+import com.dndmaster.adventure.application.runtime.GmTurnRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnResult;
 import com.dndmaster.adventure.application.runtime.SubmitRuntimeTurnCommand;
 import com.dndmaster.adventure.application.saved.CreateAdventureCommand;
@@ -23,6 +24,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.UUID;
+import com.dndmaster.adventure.domain.runtime.GmTurn;
 
 @RestController
 @RequestMapping
@@ -30,6 +32,8 @@ public class AdventureController {
     private static final String LEGACY_SCENARIO_UPLOAD_SUNSET = "Fri, 31 Dec 2027 00:00:00 GMT";
     private final SavedAdventureApplicationService savedAdventureService;
     private final RuntimeTurnApplicationService runtimeTurnService;
+    private final GmTurnRepository gmTurnRepository;
+    private final com.dndmaster.adventure.application.runtime.RuntimeTurnRepository runtimeTurnRepository;
     private final RuleGuidanceApplicationService guidanceService;
     private final AdventureCombatApplicationService combatService;
     private final AdventureScenarioApplicationService scenarioService;
@@ -38,12 +42,16 @@ public class AdventureController {
     public AdventureController(
             SavedAdventureApplicationService savedAdventureService,
             RuntimeTurnApplicationService runtimeTurnService,
+            GmTurnRepository gmTurnRepository,
+            com.dndmaster.adventure.application.runtime.RuntimeTurnRepository runtimeTurnRepository,
             RuleGuidanceApplicationService guidanceService,
             AdventureCombatApplicationService combatService,
             AdventureScenarioApplicationService scenarioService,
             AuthenticatedPlayerResolver playerResolver) {
         this.savedAdventureService = savedAdventureService;
         this.runtimeTurnService = runtimeTurnService;
+        this.gmTurnRepository = gmTurnRepository;
+        this.runtimeTurnRepository = runtimeTurnRepository;
         this.guidanceService = guidanceService;
         this.combatService = combatService;
         this.scenarioService = scenarioService;
@@ -77,11 +85,43 @@ public class AdventureController {
         // 플레이어 입력을 런타임 턴으로 바꾸고, 서버가 만든 narration을 돌려준다.
         RuntimeTurnResult result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
                 new AdventureId(adventureId),
-                new OwnerPlayerId(request.playerId()),
+                new OwnerPlayerId(playerResolver.playerId()),
                 request.turnId(),
                 request.commandId(),
                 request.action()));
         return RuntimeTurnResponse.from(result);
+    }
+
+    @PostMapping("/api/v1/adventures/{adventureId}/turns")
+    ResponseEntity<RuntimeTurnResponse> submitTypedTurn(
+            @PathVariable UUID adventureId,
+            @RequestHeader("Idempotency-Key") UUID commandId,
+            @RequestHeader("If-Match-Version") long expectedVersion,
+            @RequestBody GmTurnRequest request) {
+        UUID owner = playerResolver.playerId();
+        var input = request.input().toDomain();
+        var existing = gmTurnRepository.findByCommandId(commandId);
+        if (existing.isPresent()) {
+            existing.get().assertSameCommand(input);
+            var prior = runtimeTurnRepository.findByCommandId(commandId).orElseThrow(
+                    () -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "turn is still processing"));
+            return ResponseEntity.accepted().body(RuntimeTurnResponse.from(new RuntimeTurnResult(
+                    prior, prior.context(), prior.conversation(), prior.version())));
+        }
+        GmTurn turn = GmTurn.start(request.turnId(), commandId, expectedVersion, input);
+        gmTurnRepository.save(turn, adventureId);
+        try {
+            gmTurnRepository.save(turn.process(), adventureId);
+            RuntimeTurnResult result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
+                    new AdventureId(adventureId), new OwnerPlayerId(owner), request.turnId(), commandId,
+                    input.actionText(), expectedVersion));
+            ResponseEntity<RuntimeTurnResponse> response = ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
+            gmTurnRepository.save(turn.process().commit("legacy-runtime"), adventureId);
+            return response;
+        } catch (RuntimeException exception) {
+            gmTurnRepository.save(turn.process().fail(exception.getMessage()), adventureId);
+            throw exception;
+        }
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/rule-inquiries")
@@ -180,6 +220,21 @@ public class AdventureController {
     }
 
     public record StreamMessageRequest(UUID playerId, UUID turnId, UUID commandId, String action) {}
+
+    public record GmTurnRequest(UUID turnId, GmInputRequest input) {}
+
+    public record GmInputRequest(String type, String text, UUID mapId, Long mapVersion, String action, String question) {
+        com.dndmaster.adventure.domain.runtime.GmInput toDomain() {
+            if (type == null) throw new IllegalArgumentException("input type is required");
+            return switch (type) {
+                case "TEXT" -> new com.dndmaster.adventure.domain.runtime.GmInput.TextInput(text);
+                case "MAP_ACTION" -> new com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput(mapId, mapVersion == null ? -1 : mapVersion, action);
+                case "META_QUESTION" -> new com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput(question);
+                default -> throw new IllegalArgumentException("unsupported input type: " + type);
+            };
+        }
+        String actionText() { return toDomain().actionText(); }
+    }
     // 프런트가 바로 보여줄 수 있게 턴 결과를 압축한 응답이다.
     public record RuntimeTurnResponse(
             UUID turnId,

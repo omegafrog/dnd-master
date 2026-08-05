@@ -12,6 +12,8 @@ import com.dndmaster.adventure.application.auth.PlayerSessionLookupPort;
 import com.dndmaster.adventure.application.combat.AdventureCombatApplicationService;
 import com.dndmaster.adventure.application.guidance.RuleGuidanceApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
+import com.dndmaster.adventure.application.runtime.GmTurnRepository;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnRepository;
 import com.dndmaster.adventure.application.saved.SavedAdventureApplicationService;
 import com.dndmaster.adventure.application.scenario.AdventureScenarioApplicationService;
 import com.dndmaster.adventure.domain.scenario.AdventureScenario;
@@ -39,6 +41,8 @@ class AdventureControllerTest {
 
     @MockBean SavedAdventureApplicationService savedAdventureService;
     @MockBean RuntimeTurnApplicationService runtimeTurnService;
+    @MockBean GmTurnRepository gmTurnRepository;
+    @MockBean RuntimeTurnRepository runtimeTurnRepository;
     @MockBean RuleGuidanceApplicationService guidanceService;
     @MockBean AdventureCombatApplicationService combatService;
     @MockBean AdventureScenarioApplicationService scenarioService;

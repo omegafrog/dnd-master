@@ -25,6 +25,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresResolutionOver
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioCompilationRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeBindingRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresGmTurnRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresWorkQueueAdapter;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureSessionRepository;
@@ -69,6 +70,11 @@ public class AdventureApiConfiguration {
     @Bean
     AdventureRepository adventureRepository(DataSource dataSource) {
         return new PostgresAdventureRepository(dataSource);
+    }
+
+    @Bean
+    GmTurnRepository gmTurnRepository(DataSource dataSource, ObjectMapper objectMapper) {
+        return new PostgresGmTurnRepository(dataSource, objectMapper);
     }
 
     @Bean
@@ -736,12 +742,14 @@ public class AdventureApiConfiguration {
     AdventureController adventureController(
             SavedAdventureApplicationService savedAdventureService,
             RuntimeTurnApplicationService runtimeTurnService,
+            GmTurnRepository gmTurnRepository,
+            RuntimeTurnRepository runtimeTurnRepository,
             RuleGuidanceApplicationService guidanceService,
             AdventureCombatApplicationService combatService,
             AdventureScenarioApplicationService scenarioService,
             AuthenticatedPlayerResolver playerResolver) {
         return new AdventureController(
-                savedAdventureService, runtimeTurnService, guidanceService, combatService, scenarioService, playerResolver);
+                savedAdventureService, runtimeTurnService, gmTurnRepository, runtimeTurnRepository, guidanceService, combatService, scenarioService, playerResolver);
     }
 
     @Bean
