@@ -12,6 +12,8 @@ import java.util.UUID;
 public record GmContextEnvelope(
         AdventureId adventureId,
         OwnerPlayerId ownerPlayerId,
+        UUID sessionId,
+        UUID turnId,
         UUID scenarioPackageId,
         long bindingVersion,
         AdventureContext currentContext,
@@ -24,6 +26,8 @@ public record GmContextEnvelope(
     public GmContextEnvelope {
         adventureId = Objects.requireNonNull(adventureId);
         ownerPlayerId = Objects.requireNonNull(ownerPlayerId);
+        sessionId = Objects.requireNonNull(sessionId);
+        turnId = Objects.requireNonNull(turnId);
         scenarioPackageId = Objects.requireNonNull(scenarioPackageId);
         currentContext = Objects.requireNonNull(currentContext);
         action = required(action);
@@ -38,12 +42,12 @@ public record GmContextEnvelope(
                              com.dndmaster.adventure.domain.adventure.OwnerPlayerId ownerPlayerId, UUID scenarioPackageId,
                              long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
                              String action, EvidencePack evidencePack, List<String> recentTurns) {
-        this(adventureId, ownerPlayerId, scenarioPackageId, bindingVersion, currentContext, activeSourceContext, action,
+        this(adventureId, ownerPlayerId, UUID.randomUUID(), UUID.randomUUID(), scenarioPackageId, bindingVersion, currentContext, activeSourceContext, action,
                 evidencePack, recentTurns, List.of(), "");
     }
 
     public String operationKey() {
-        return adventureId.value() + ":" + scenarioPackageId + ":" + bindingVersion + ":" + action + ":" + UUID.randomUUID();
+        return adventureId.value() + ":" + scenarioPackageId + ":" + bindingVersion + ":" + turnId;
     }
 
     private static String required(String value) {

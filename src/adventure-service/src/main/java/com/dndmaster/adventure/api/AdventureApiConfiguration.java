@@ -48,6 +48,8 @@ import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharac
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetDeletionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAgentActionCandidateGateway;
 import com.dndmaster.adventure.infrastructure.integration.HttpGmAgentPort;
+import com.dndmaster.adventure.infrastructure.integration.HttpDiceToolPort;
+import com.dndmaster.adventure.infrastructure.integration.HttpCharacterToolPort;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -57,6 +59,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -566,8 +569,31 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    RuntimePlanningPort runtimePlanningPort(GmAgentPort gmAgentPort) {
-        return new GmAgentRuntimePlanningAdapter(gmAgentPort, new GmFinalValidator());
+    OfficialToolPort diceToolPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.dice-roll.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:local-dev-internal-token}") String token) {
+        return new HttpDiceToolPort(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(15), objectMapper, token);
+    }
+
+    @Bean
+    OfficialToolPort characterToolPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.character-management.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:local-dev-internal-token}") String token) {
+        return new HttpCharacterToolPort(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(15), objectMapper, token);
+    }
+
+    @Bean
+    GmToolGateway gmToolGateway(@Qualifier("diceToolPort") OfficialToolPort diceToolPort,
+                                @Qualifier("characterToolPort") OfficialToolPort characterToolPort, ObjectMapper objectMapper) {
+        return new GmToolGatewayService(OfficialGmToolRegistry.definitions(diceToolPort, characterToolPort), java.time.Clock.systemUTC(), objectMapper);
+    }
+
+    @Bean
+    RuntimePlanningPort runtimePlanningPort(GmAgentPort gmAgentPort, GmToolGateway gmToolGateway,
+                                            RuntimeCommandSagaApplicationService saga) {
+        return new GmAgentRuntimePlanningAdapter(gmAgentPort, new GmFinalValidator(), gmToolGateway, saga);
     }
 
     @Bean

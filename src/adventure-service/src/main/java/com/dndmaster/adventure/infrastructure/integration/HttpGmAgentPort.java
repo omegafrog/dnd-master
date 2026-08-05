@@ -7,6 +7,7 @@ import com.dndmaster.adventure.application.runtime.GmPlanResult;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
 import com.dndmaster.adventure.application.runtime.RuntimePlan;
+import com.dndmaster.adventure.application.runtime.GmToolCall;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -51,13 +52,13 @@ public final class HttpGmAgentPort implements GmAgentPort {
         }
     }
 
-    record Request(String operationKey, UUID adventureId, UUID ownerPlayerId, UUID scenarioPackageId, long bindingVersion,
+    record Request(String operationKey, UUID adventureId, UUID ownerPlayerId, UUID sessionId, UUID turnId, UUID scenarioPackageId, long bindingVersion,
                    String action, String currentScene, String npcState, String pendingAction, String latestJudgment,
                    List<Evidence> storybook, List<Evidence> rulebook, List<Evidence> resolution, List<String> recentTurns,
                    List<String> characterSnapshots, String storyPlanContext) {
         static Request from(GmContextEnvelope c) {
             var context = c.currentContext();
-            return new Request(c.operationKey(), c.adventureId().value(), c.ownerPlayerId().value(), c.scenarioPackageId(), c.bindingVersion(),
+            return new Request(c.operationKey(), c.adventureId().value(), c.ownerPlayerId().value(), c.sessionId(), c.turnId(), c.scenarioPackageId(), c.bindingVersion(),
                     c.action(), context.currentScene(), context.npcState(), context.pendingAction(), context.latestJudgment(),
                     c.evidencePack().storybook().stream().map(Evidence::from).toList(),
                     c.evidencePack().rulebook().stream().map(Evidence::from).toList(),
@@ -80,17 +81,22 @@ public final class HttpGmAgentPort implements GmAgentPort {
     }
 
     record Response(String scene, String npcState, String judgment, String narration, ActiveSource proposedActiveSourceContext,
-                   List<Evidence> citedEvidence, List<String> warnings, String provider, String model, String reasoning, List<String> stateDelta) {
+                   List<Evidence> citedEvidence, List<String> warnings, String provider, String model, String reasoning, List<String> stateDelta,
+                   List<ToolCall> toolCalls) {
+        record ToolCall(String toolName, String argumentsJson, boolean required) {
+            GmToolCall toDomain() { return new GmToolCall(toolName, argumentsJson, required); }
+        }
         static GmPlanResult toResult(Response r) {
             List<RuntimeEvidence> citations = r.citedEvidence == null ? List.of() : r.citedEvidence.stream().map(Evidence::toEvidence).toList();
             if (r.provider == null || r.model == null || r.reasoning == null || r.stateDelta == null
                     || r.citedEvidence == null || r.warnings == null) {
                 throw new IllegalStateException("GM response omitted required fields");
             }
+            List<GmToolCall> calls = r.toolCalls == null ? List.of() : r.toolCalls.stream().map(ToolCall::toDomain).toList();
             return new GmPlanResult(new RuntimePlan(r.scene, r.npcState, r.judgment, r.narration,
                     r.proposedActiveSourceContext == null ? null : r.proposedActiveSourceContext.toDomain(), citations,
                     r.warnings == null ? List.of() : r.warnings, r.provider, r.model, r.reasoning), r.provider, r.model, r.reasoning,
-                    r.stateDelta == null ? List.of() : r.stateDelta);
+                    r.stateDelta == null ? List.of() : r.stateDelta, calls);
         }
     }
 }

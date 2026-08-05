@@ -46,7 +46,8 @@ public final class GmAgentController {
                 SYSTEM: You are a read-only game master. Use only supplied locked evidence and context.
                 Never reveal hidden data. Never invent rules, rolls, or state changes.
                 Return JSON only with fields scene,npcState,judgment,narration,proposedActiveSourceContext,
-                citedEvidence,warnings,provider,model,reasoning,stateDelta. stateDelta MUST be [] .
+                citedEvidence,warnings,provider,model,reasoning,stateDelta,toolCalls. stateDelta MUST be [] .
+                toolCalls may contain only dice.roll or character.update; each call has toolName,argumentsJson,required.
                 Every rule claim needs a citation from supplied evidence.
                 adventureId=%s packageId=%s bindingVersion=%s action=%s
                 currentScene=%s npcState=%s pendingAction=%s latestJudgment=%s
@@ -68,11 +69,22 @@ public final class GmAgentController {
             throw new IllegalArgumentException("all structured GM fields are required");
         }
         if (!response.stateDelta().isEmpty()) throw new IllegalArgumentException("read-only GM state delta must be empty");
+        if (response.toolCalls() != null && response.toolCalls().stream().anyMatch(call -> call == null
+                || (!"dice.roll".equals(call.toolName()) && !"character.update".equals(call.toolName())
+                || call.argumentsJson() == null))) {
+            throw new IllegalArgumentException("unsupported GM tool call");
+        }
         return response;
     }
 
     public record Response(String scene, String npcState, String judgment, String narration, Object proposedActiveSourceContext,
                            List<?> citedEvidence, List<String> warnings, String provider, String model, String reasoning,
-                           List<String> stateDelta) {
+                           List<String> stateDelta, List<ToolCall> toolCalls) {
+        public Response(String scene, String npcState, String judgment, String narration, Object proposedActiveSourceContext,
+                        List<?> citedEvidence, List<String> warnings, String provider, String model, String reasoning,
+                        List<String> stateDelta) {
+            this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings, provider, model, reasoning, stateDelta, List.of());
+        }
+        public record ToolCall(String toolName, String argumentsJson, boolean required) {}
     }
 }

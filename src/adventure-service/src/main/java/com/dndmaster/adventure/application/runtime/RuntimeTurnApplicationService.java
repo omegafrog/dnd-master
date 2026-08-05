@@ -103,7 +103,7 @@ public final class RuntimeTurnApplicationService {
 
         EvidencePack evidencePack = prefetchEvidence(command, adventure, binding, scenarioPackage);
         RuntimePlan plan = planningPort.plan(new RuntimePlanningRequest(
-                command.adventureId(), command.ownerPlayerId(), binding.scenarioPackageId(), binding.bindingVersion(),
+                command.adventureId(), command.ownerPlayerId(), adventure.sessionId().value(), command.turnId(), binding.scenarioPackageId(), binding.bindingVersion(),
                 adventure.currentContext(), binding.activeSourceContext(), command.action(), evidencePack,
                 adventure.conversation().stream().map(entry -> entry.speaker() + ": " + entry.content()).toList(),
                 adventure.party().stream().map(member -> member.characterSheetId().value() + " control=" + member.controlMode()).toList(),

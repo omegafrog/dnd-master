@@ -7,7 +7,7 @@ public final class OfficialGmToolRegistry {
     private OfficialGmToolRegistry() { }
     public static Set<GmToolDefinition> definitions(OfficialToolPort dice, OfficialToolPort character) {
         return Set.of(
-                GmToolDefinition.of("dice.roll", "{}", dice::execute),
-                GmToolDefinition.of("character.update", "{}", character::execute));
+                GmToolDefinition.of("dice.roll", "{\"type\":\"object\"}", dice::execute),
+                GmToolDefinition.of("character.update", "{\"type\":\"object\"}", character::execute));
     }
 }

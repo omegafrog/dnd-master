@@ -28,6 +28,7 @@ public final class GmToolGatewayService implements GmToolGateway {
         this.registry = Map.copyOf(definitions.stream().collect(Collectors.toUnmodifiableMap(GmToolDefinition::name, Function.identity())));
     }
 
+    @Override
     public void revoke(TurnCapability capability) { revokedNonces.add(capability.nonce()); }
 
     @Override

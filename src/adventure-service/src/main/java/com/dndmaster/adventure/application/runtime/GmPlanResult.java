@@ -9,13 +9,19 @@ public record GmPlanResult(
         String provider,
         String model,
         String reasoning,
-        List<String> stateDelta) {
+        List<String> stateDelta,
+        List<GmToolCall> toolCalls) {
     public GmPlanResult {
         plan = Objects.requireNonNull(plan, "plan must not be null");
         provider = required(provider, "provider");
         model = required(model, "model");
         reasoning = reasoning == null ? "" : reasoning.trim();
         stateDelta = List.copyOf(Objects.requireNonNull(stateDelta, "state delta must not be null"));
+        toolCalls = List.copyOf(Objects.requireNonNull(toolCalls, "tool calls must not be null"));
+    }
+
+    public GmPlanResult(RuntimePlan plan, String provider, String model, String reasoning, List<String> stateDelta) {
+        this(plan, provider, model, reasoning, stateDelta, List.of());
     }
 
     private static String required(String value, String name) {
