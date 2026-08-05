@@ -5,7 +5,7 @@ import java.util.UUID;
 import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
-public final class GmTurnFailureRecorder {
+public class GmTurnFailureRecorder {
     private final GmTurnRepository turns;
     private final SessionEventRepository events;
 
