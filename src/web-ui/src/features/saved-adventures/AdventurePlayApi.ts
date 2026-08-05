@@ -33,6 +33,18 @@ export type CombatMapView = {
   tokens?: Array<{ id: string; type: string; x: number; y: number }>
   layers?: Array<{ type: string; value: string }>
   version?: number
+  grid?: { width: number; height: number }
+  obstacles?: Array<{ x: number; y: number }>
+}
+
+export type MapActionCandidate = {
+  mapId: string
+  mapVersion: number
+  tokenId: string
+  action: 'MOVE' | 'INTERACT' | 'TARGET' | 'LOCATION'
+  path?: Array<{ x: number; y: number }>
+  targetId?: string
+  location?: { x: number; y: number }
 }
 
 export interface AdventurePlayApi {
@@ -45,6 +57,7 @@ export interface AdventurePlayApi {
   getSessionKnowledgeSet(adventureId: string): Promise<SessionKnowledgeSet>
   saveSessionKnowledgeSet(adventureId: string, playerId: string, knowledgeDocumentIds: string[]): Promise<SessionKnowledgeSet>
   getCombatMap(adventureId: string): Promise<CombatMapView>
+  submitMapAction?(adventureId: string, candidate: MapActionCandidate, command?: { turnId: string; commandId: string }, expectedVersion?: number): Promise<{ turnId: string; version: number }>
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -148,4 +161,23 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
       headers: this.authHeaders(),
     })
   }
+
+  submitMapAction(adventureId: string, candidate: MapActionCandidate, command = createMapCommandIdentity(), expectedVersion = 0) {
+    return request<{ turnId: string; version: number }>(`/api/v1/adventures/${adventureId}/turns`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json', ...this.authHeaders(),
+        'Idempotency-Key': command.commandId, 'If-Match-Version': String(expectedVersion),
+      },
+      body: JSON.stringify({ turnId: command.turnId, input: {
+        type: 'MAP_ACTION', mapId: candidate.mapId, mapVersion: candidate.mapVersion,
+        action: JSON.stringify(candidate),
+      } }),
+    }).then(result => ({ turnId: result.turnId, version: result.version }))
+  }
+}
+
+function createMapCommandIdentity() {
+  const value = globalThis.crypto && 'randomUUID' in globalThis.crypto ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random()}`
+  return { turnId: `map-turn-${value}`, commandId: `map-command-${value}` }
 }
