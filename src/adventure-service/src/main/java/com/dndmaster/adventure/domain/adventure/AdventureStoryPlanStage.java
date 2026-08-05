@@ -25,7 +25,7 @@ public record AdventureStoryPlanStage(
         transitionCondition = required(transitionCondition, "stage transition condition");
         npcOrClues = List.copyOf(Objects.requireNonNull(npcOrClues));
         endingIds = List.copyOf(Objects.requireNonNull(endingIds));
-        mapBindings = List.copyOf(Objects.requireNonNull(mapBindings));
+        mapBindings = mapBindings == null ? List.of() : List.copyOf(mapBindings);
     }
 
     private static String required(String value, String name) {
