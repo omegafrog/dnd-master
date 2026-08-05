@@ -19,10 +19,20 @@ public final class RuntimeTurnCompactionCoordinator {
         var current = snapshots.resolve(turn.sessionId());
         var planId = java.util.UUID.nameUUIDFromBytes((turn.sessionId() + ":plan").getBytes(StandardCharsets.UTF_8));
         var refs = new SnapshotReferences(planId, current.factVersion(), current.clockVersion(), current.characterVersion(), current.mapVersion(), current.mapVersion());
-        var tail = new ExactTail(turn.action(), turn.context().currentScene(), turn.plan().narration(), "turn:" + turn.turnId(), "round:unknown", "location:unknown", "map:authoritative", "fog:authoritative", "choice:none");
+        var precedingScene = turn.conversation().stream()
+                .filter(entry -> "AI_GAME_MASTER".equals(entry.speaker()))
+                .reduce((first, second) -> second)
+                .map(entry -> entry.content())
+                .orElse(turn.context().currentScene());
+        var tail = new ExactTail(turn.action(), precedingScene, turn.plan().narration(), "turn:" + turn.turnId(),
+                "round:" + turn.version(), turn.context().currentScene(), turn.context().currentScene(),
+                String.join("|", turn.warnings()), turn.context().pendingActionValue().orElse("choice:none"));
         var prompt = String.join("\n", turn.conversation().stream().map(Object::toString).toList())
                 + "\n" + turn.context() + "\n" + turn.evidencePack() + "\n" + turn.plan();
         var usage = estimator.usage(turn.plan().provider(), prompt);
-        scheduler.scheduleAfterCommit(turn.sessionId(), usage, CompactionBarrier.clear(), () -> checkpoints.compact(turn.sessionId(), turn.turnId(), turn.version(), usage, CompactionBarrier.clear(), turn.plan().narration(), tail, refs).isPresent());
+        var barrier = new CompactionBarrier(!turn.committed(), false, false,
+                current.characterVersion() > turn.version() || current.mapVersion() > turn.version(), false);
+        scheduler.scheduleAfterCommit(turn.sessionId(), usage, barrier,
+                () -> checkpoints.compact(turn.sessionId(), turn.turnId(), turn.version(), usage, barrier, prompt, tail, refs).isPresent());
     }
 }

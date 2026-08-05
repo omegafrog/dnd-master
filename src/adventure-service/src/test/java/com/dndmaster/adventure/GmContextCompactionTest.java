@@ -86,10 +86,15 @@ class GmContextCompactionTest {
     }
 
     @Test
-    void resume_rejects_stale_authoritative_snapshot_versions() {
+    void resume_rejects_stale_authoritative_snapshot_versions_but_accepts_newer_versions() {
         GmContextCheckpoint checkpoint = checkpoint(UUID.randomUUID(), 1);
         assertThrows(IllegalStateException.class, () -> new ResumedGmContextAssembler().assemble(checkpoint,
-                new AuthoritativeRuntimeSnapshots("character", "map", "facts", "clock", 99, 1, 1, 1)));
+                new AuthoritativeRuntimeSnapshots("character", "map", "facts", "clock", 0, 1, 1, 1)));
+
+        ResumedGmContext resumed = new ResumedGmContextAssembler().assemble(checkpoint,
+                new AuthoritativeRuntimeSnapshots("character-v2", "map-v2", "facts-v2", "clock-v2", 2, 2, 2, 2));
+        assertEquals("character-v2", resumed.characterSnapshot());
+        assertEquals("map-v2", resumed.mapSnapshot());
     }
 
     @Test

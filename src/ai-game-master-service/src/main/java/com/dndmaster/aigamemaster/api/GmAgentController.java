@@ -41,6 +41,35 @@ public final class GmAgentController {
         });
     }
 
+    @PostMapping("/internal/v1/gm/context-compactions")
+    CompactionResponse compact(@RequestBody CompactionRequest request) {
+        if (request == null || request.context() == null || request.context().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "context required");
+        }
+        return adapter.complete("context-compaction:" + request.sessionId() + ":" + request.sourceTurnId(), compactionPrompt(request), json -> {
+            try {
+                CompactionResponse response = mapper.readValue(json, CompactionResponse.class);
+                if (response.summary() == null || response.summary().isBlank()
+                        || response.unresolvedThreats() == null || response.planRevisionId() == null || response.planVersion() < 1) {
+                    throw new IllegalArgumentException("summary, threats, planRevisionId and planVersion required");
+                }
+                return response;
+            } catch (Exception exception) {
+                throw new com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException(
+                        "GM compaction response invalid: " + exception.getMessage());
+            }
+        });
+    }
+
+    private static String compactionPrompt(CompactionRequest r) {
+        return """
+                SYSTEM: Compact GM context for internal resume only. Preserve canonical facts as references, not replacements.
+                Return JSON only with summary, unresolvedThreats, planRevisionId, planVersion.
+                Do not copy or rewrite exactTail. Do not invent state absent from context.
+                sessionId=%s sourceTurnId=%s context=%s exactTail=%s snapshotReferences=%s
+                """.formatted(r.sessionId(), r.sourceTurnId(), r.context(), r.exactTail(), r.snapshotReferences());
+    }
+
     private static String prompt(Request r) {
         return """
                 SYSTEM: You are a read-only game master. Use only supplied locked evidence and context.
@@ -61,6 +90,10 @@ public final class GmAgentController {
                           String currentScene, String npcState, String pendingAction, String latestJudgment,
                           List<?> storybook, List<?> rulebook, List<?> resolution, List<String> recentTurns,
                           List<String> characterSnapshots, String storyPlanContext) {}
+
+    public record CompactionRequest(UUID sessionId, UUID sourceTurnId, String context, Object exactTail, Object snapshotReferences) {}
+
+    public record CompactionResponse(String summary, List<String> unresolvedThreats, UUID planRevisionId, long planVersion) {}
 
     static Response requireComplete(Response response) {
         if (response == null || response.scene() == null || response.judgment() == null || response.narration() == null

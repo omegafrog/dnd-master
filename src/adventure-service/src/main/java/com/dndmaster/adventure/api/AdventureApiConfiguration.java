@@ -183,9 +183,11 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    ContextCompactionPort contextCompactionPort() {
-        return new ValidatingContextCompactionPort(request -> new com.dndmaster.adventure.domain.runtime.checkpoint.ContextSummaryCandidate(
-                request.context(), List.of(), request.snapshotReferences().planRevisionId(), 1));
+    ContextCompactionPort contextCompactionPort(
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            ObjectMapper objectMapper) {
+        return new ValidatingContextCompactionPort(new com.dndmaster.adventure.infrastructure.integration.HttpGmContextCompactionPort(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(30), objectMapper));
     }
 
     @Bean
@@ -195,10 +197,18 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    AuthoritativeSnapshotResolver authoritativeSnapshotResolver(RuntimeTurnRepository turns) {
+    AuthoritativeSnapshotResolver authoritativeSnapshotResolver(RuntimeTurnRepository turns,
+            StoryContinuityContextProvider continuity) {
         return sessionId -> turns.findAllBySessionId(sessionId).stream()
                 .reduce((first, second) -> second)
-                .map(turn -> new VersionedRuntimeSnapshots(turn.context().toString(), turn.version(), "map", turn.version(), "facts", turn.version(), "clock", turn.version()))
+                .map(turn -> {
+                    String facts = continuity.load(sessionId).map(context -> context.promptText()).orElse("facts=none");
+                    String clock = continuity.load(sessionId).map(context -> "clockVersion=" + context.clock().version()
+                            + "; elapsedTurns=" + context.clock().turnsElapsed() + "; elapsedSeconds=" + context.clock().secondsElapsed()).orElse("clock=none");
+                    return new VersionedRuntimeSnapshots(
+                            "scene=" + turn.context().currentScene() + "; npc=" + turn.context().npcStateValue().orElse("none"), turn.version(),
+                            "scene=" + turn.context().currentScene(), turn.version(), facts, turn.version(), clock, turn.version());
+                })
                 .orElse(new VersionedRuntimeSnapshots("", 0, "", 0, "", 0, "", 0));
     }
 
@@ -210,11 +220,23 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    GmContextResumePromptProvider gmContextResumePromptProvider(GmContextCheckpointRepository repository) {
-        return sessionId -> repository.current(sessionId).map(checkpoint ->
-                "checkpointSummary=" + checkpoint.summary() + "; exactTail=" + checkpoint.exactTail()
-                        + "; planVersion=" + checkpoint.planVersion() + "; factVersion=" + checkpoint.snapshotReferences().factVersion()
-                        + "; clockVersion=" + checkpoint.snapshotReferences().clockVersion()).orElse("");
+    GmContextResumePromptProvider gmContextResumePromptProvider(GmContextCheckpointRepository repository,
+            AuthoritativeSnapshotResolver snapshots, ResumedGmContextAssembler assembler) {
+        return sessionId -> repository.current(sessionId).map(checkpoint -> {
+            var current = snapshots.resolve(sessionId);
+            var resumed = assembler.assemble(checkpoint, new AuthoritativeRuntimeSnapshots(
+                    current.characterSnapshot(), current.mapSnapshot(), current.factSnapshot(), current.clockSnapshot(),
+                    current.characterVersion(), current.mapVersion(), current.factVersion(), current.clockVersion()));
+            return "checkpointSummary=" + resumed.summary() + "; exactTail=" + resumed.exactTail()
+                    + "; characterSnapshot=" + resumed.characterSnapshot() + "; mapSnapshot=" + resumed.mapSnapshot()
+                    + "; factSnapshot=" + resumed.factSnapshot() + "; clockSnapshot=" + resumed.clockSnapshot()
+                    + "; planVersion=" + checkpoint.planVersion();
+        }).orElse("");
+    }
+
+    @Bean
+    ResumedGmContextAssembler resumedGmContextAssembler() {
+        return new ResumedGmContextAssembler();
     }
 
     @Bean
