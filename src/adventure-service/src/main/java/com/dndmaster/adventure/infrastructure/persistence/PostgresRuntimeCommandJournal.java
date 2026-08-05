@@ -24,9 +24,18 @@ public final class PostgresRuntimeCommandJournal implements RuntimeCommandJourna
     }
 
     @Override
+    public boolean claim(RuntimeCommandJournalEntry entry) {
+        return jdbc.update("INSERT INTO adventure_runtime_command_journal(command_id, session_id, turn_id, owner_player_id, tool_name, fingerprint, status, version) VALUES (?, ?, ?, ?, ?, ?, 'PENDING', 0) ON CONFLICT (command_id) DO NOTHING",
+                entry.commandId(), entry.sessionId(), entry.turnId(), entry.ownerPlayerId(), entry.toolName(), entry.fingerprint()) == 1;
+    }
+
+    @Override
     public void record(RuntimeCommandJournalEntry entry) {
-        jdbc.update("INSERT INTO adventure_runtime_command_journal(command_id, session_id, turn_id, owner_player_id, tool_name, fingerprint, status, outcome_json, version) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (command_id) DO UPDATE SET status = EXCLUDED.status, outcome_json = EXCLUDED.outcome_json, version = EXCLUDED.version",
-                entry.commandId(), entry.sessionId(), entry.turnId(), entry.ownerPlayerId(), entry.toolName(), entry.fingerprint(), entry.status().name(), outcome(entry.outcome()), entry.version());
+        int updated = jdbc.update("UPDATE adventure_runtime_command_journal SET status = ?, outcome_json = ?, version = ?, updated_at = CURRENT_TIMESTAMP WHERE command_id = ? AND fingerprint = ? AND version = ?",
+                entry.status().name(), outcome(entry.outcome()), entry.version(), entry.commandId(), entry.fingerprint(), entry.version() - 1);
+        if (updated == 0 && !find(entry.commandId()).map(current -> current.status() == entry.status() && current.version() == entry.version()).orElse(false)) {
+            throw new IllegalStateException("runtime command journal version conflict");
+        }
     }
 
     private RuntimeCommandJournalEntry map(ResultSet row, int ignored) throws java.sql.SQLException {

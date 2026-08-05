@@ -14,16 +14,15 @@ public final class RuntimeCommandSagaApplicationService {
         if (existing != null) {
             if (!existing.fingerprint().equals(request.fingerprint())) throw new CommandFingerprintConflictException();
             if (existing.status() == RuntimeCommandStatus.APPLIED || existing.status() == RuntimeCommandStatus.REJECTED) return existing.outcome();
-        } else {
-            journal.record(new RuntimeCommandJournalEntry(request.commandId(), request.sessionId(), request.turnId(), request.ownerPlayerId(), request.toolName(), request.fingerprint(), RuntimeCommandStatus.PENDING, null, 0));
         }
+        RuntimeCommandJournalEntry pending = new RuntimeCommandJournalEntry(request.commandId(), request.sessionId(), request.turnId(), request.ownerPlayerId(), request.toolName(), request.fingerprint(), RuntimeCommandStatus.PENDING, null, 0);
+        if (!journal.claim(pending)) throw new CommandInProgressException();
         try {
             RuntimeCommandOutcome outcome = Objects.requireNonNull(dispatcher.apply(request));
-            journal.record(existingOrPending(request).with(outcome.status(), outcome));
+            journal.record(journal.find(request.commandId()).orElseThrow().with(outcome.status(), outcome));
             return outcome;
         } catch (RuntimeException failure) {
-            RuntimeCommandJournalEntry pending = existingOrPending(request);
-            journal.record(pending.with(RuntimeCommandStatus.UNKNOWN, null));
+            journal.record(journal.find(request.commandId()).orElseThrow().with(RuntimeCommandStatus.UNKNOWN, null));
             throw failure;
         }
     }
@@ -37,7 +36,4 @@ public final class RuntimeCommandSagaApplicationService {
         return recovered;
     }
 
-    private RuntimeCommandJournalEntry existingOrPending(RuntimeCommandRequest request) {
-        return journal.find(request.commandId()).orElseThrow();
-    }
 }

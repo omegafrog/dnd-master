@@ -26,7 +26,7 @@ public final class GmToolExecutionLoop {
             if (++calls > maxToolCalls) throw new RequiredToolFailureException("tool call limit");
             GmToolOutcome outcome;
             try { outcome = gateway.invoke(capability, planned.invocation()); }
-            catch (RuntimeException failure) {
+            catch (ToolArgumentInvalidException failure) {
                 if (repaired) throw failure;
                 PlannedToolCall repairedCall = oneRepair.apply(planned);
                 if (repairedCall == null) throw failure;
