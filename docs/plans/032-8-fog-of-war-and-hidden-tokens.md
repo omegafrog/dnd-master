@@ -1,6 +1,6 @@
 # 032-8 — Fog of War and Hidden Tokens
 
-- Status: `in-progress`
+- Status: `completed`
 - Issue: [#122](https://github.com/omegafrog/dnd-master/issues/122)
 - Parent: [#114](https://github.com/omegafrog/dnd-master/issues/114)
 - Dependencies: [032-5](032-5-story-continuity-facts-and-game-clock.md), [032-7](032-7-confirmed-grid-map-interaction.md)

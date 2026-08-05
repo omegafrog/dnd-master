@@ -80,3 +80,57 @@ paths:
                       visibility: { type: string, enum: [AI_ONLY] }
       responses:
         '200': { description: controlled }
+  /internal/v1/combat-maps/{mapId}/doors:
+    post:
+      operationId: changeDoor
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ownerId, x, y, open, commandId, expectedVersion]
+              properties:
+                ownerId: { type: string, format: uuid }
+                x: { type: integer, minimum: 0 }
+                y: { type: integer, minimum: 0 }
+                open: { type: boolean }
+                commandId: { type: string, format: uuid }
+                expectedVersion: { type: integer, minimum: 0 }
+      responses:
+        '200': { description: door state changed }
+  /internal/v1/combat-maps/{mapId}/game-time:
+    post:
+      operationId: gameTime
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ownerId, adventureId, ruleTurn, causeId, expectedVersion]
+              properties:
+                ownerId: { type: string, format: uuid }
+                adventureId: { type: string, format: uuid }
+                ruleTurn: { type: integer, minimum: 0 }
+                causeId: { type: string, format: uuid }
+                expectedVersion: { type: integer, minimum: 0 }
+      responses:
+        '200': { description: visibility refreshed at committed game time }
+  /internal/v1/combat-maps/{mapId}/reveals:
+    post:
+      operationId: reveal
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ownerId, tokenId, commandId, expectedVersion]
+              properties:
+                ownerId: { type: string, format: uuid }
+                tokenId: { type: string, format: uuid }
+                commandId: { type: string, format: uuid }
+                expectedVersion: { type: integer, minimum: 0 }
+      responses:
+        '200': { description: token revealed }

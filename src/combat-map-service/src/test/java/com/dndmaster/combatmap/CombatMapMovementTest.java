@@ -1,6 +1,7 @@
 package com.dndmaster.combatmap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.combatmap.application.movement.*;
@@ -19,6 +20,15 @@ class CombatMapMovementTest {
 
         assertEquals(new GridPosition(3, 1), moved.tokens().stream().filter(t -> t.id().equals(fixture.playerToken.id())).findFirst().orElseThrow().position());
         assertEquals(1, fixture.saves);
+    }
+
+    @Test
+    void movement_refreshes_visibility_snapshot() {
+        Fixture fixture = new Fixture();
+        fixture.map.refreshVisibility(0);
+        CombatMap moved = fixture.service(10).movePlayerToken(command(fixture,
+                new MovementPath(List.of(new GridPosition(1, 1), new GridPosition(2, 1)), 5), 0));
+        assertTrue(moved.visibilitySnapshot().current().contains(new GridPosition(2, 1)));
     }
 
     @Test
@@ -177,7 +187,7 @@ class CombatMapMovementTest {
                     .map(token -> new CombatToken(
                             token.id(), token.type(), token.position(), token.controller(), token.ownerPlayerId().orElse(null)))
                     .toList();
-            return new CombatMap(
+            CombatMap copy = new CombatMap(
                     source.id(),
                     source.adventureId(),
                     source.ruleSetId(),
@@ -189,6 +199,9 @@ class CombatMapMovementTest {
                     source.version(),
                     source.operationKey(),
                     source.operationFingerprint());
+            if (source.visibilitySnapshot() != null) copy.replaceVisibility(source.visibilitySnapshot());
+            copy.replaceDoors(source.doors());
+            return copy;
         }
     }
 }

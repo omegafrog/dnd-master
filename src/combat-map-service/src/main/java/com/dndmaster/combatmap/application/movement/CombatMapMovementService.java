@@ -14,6 +14,7 @@ public final class CombatMapMovementService {
         if(map.version()!=command.expectedVersion()) throw new IllegalStateException("combat map version does not match");
         int maximum=movementPort.maximumMovement(map.ruleSetId(),command.appliedEdition());
         map.movePlayerToken(command.playerId(),command.tokenId(),command.path(),maximum);
+        map.refreshVisibility(map.visibilitySnapshot() == null ? 0 : map.visibilitySnapshot().ruleTurn());
         repository.save(map, command.expectedVersion()+1, command.commandId(), command.fingerprint());
         map.markPersisted(command.expectedVersion()+1, command.commandId(), command.fingerprint());
         return map;

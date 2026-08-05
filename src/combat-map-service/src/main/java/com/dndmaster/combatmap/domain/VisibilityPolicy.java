@@ -20,12 +20,13 @@ public final class VisibilityPolicy {
         Map<TokenId, LastSeenState> previous = new HashMap<>();
         for (LastSeenState state : previousLastSeen) previous.put(state.tokenId(), state);
         for (CombatToken token : tokens) {
-            if (current.contains(token.position())) {
+            if ((current.contains(token.position()) && token.discovery() != TokenDiscovery.HIDDEN)
+                    || (token.type() == TokenType.TRAP && token.discovery() != TokenDiscovery.HIDDEN)) {
                 observed.add(token.id());
                 if (token.type() != TokenType.PLAYER) {
                     lastSeen.add(new LastSeenState(token.id(), token.type(), token.position(), ruleTurn + 2));
                 }
-            } else {
+            } else if (token.discovery() != TokenDiscovery.HIDDEN) {
                 LastSeenState prior = previous.get(token.id());
                 if (prior != null && prior.expiresAtTurn() > ruleTurn) {
                     lastSeen.add(new LastSeenState(token.id(), prior.type(), prior.position(), ruleTurn + 1));
@@ -33,6 +34,14 @@ public final class VisibilityPolicy {
             }
         }
         return new VisibilitySnapshot(current, explored, observed, lastSeen, ruleTurn);
+    }
+
+    public VisibilitySnapshot calculate(GridSpec grid, Set<GridPosition> origins, Set<GridPosition> exploredBefore,
+            Set<GridPosition> walls, Collection<Door> doors, List<CombatToken> tokens,
+            Collection<LastSeenState> previousLastSeen, long ruleTurn) {
+        Set<GridPosition> blockers = new HashSet<>(walls);
+        doors.stream().filter(door -> !door.open()).map(Door::position).forEach(blockers::add);
+        return calculate(grid, origins, exploredBefore, blockers, tokens, previousLastSeen, ruleTurn);
     }
 
     private boolean lineClear(GridPosition from, GridPosition to, Set<GridPosition> blockers) {
