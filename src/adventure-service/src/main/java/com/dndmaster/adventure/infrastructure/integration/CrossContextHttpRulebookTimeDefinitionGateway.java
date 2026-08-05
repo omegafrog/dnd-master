@@ -38,15 +38,17 @@ public final class CrossContextHttpRulebookTimeDefinitionGateway implements Func
             var configuration = session.runtimeConfiguration();
             if (configuration == null) return OptionalInt.empty();
             for (UUID rulebookId : configuration.rulebookIds()) {
-                HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("api/v1/rulebooks/" + rulebookId + "/source-preview"))
-                        .timeout(timeout)
-                        .header("Authorization", "Bearer " + session.ownerPlayerId().value())
-                        .GET().build();
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                if (response.statusCode() / 100 != 2) continue;
-                SourcePreview source = mapper.readValue(response.body(), SourcePreview.class);
-                OptionalInt seconds = GameSystemTimeDefinitionAdapter.secondsPerTurn(source.content());
-                if (seconds.isPresent()) return seconds;
+                try {
+                    HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("api/v1/rulebooks/" + rulebookId + "/source-preview"))
+                            .timeout(timeout).GET().build();
+                    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                    if (response.statusCode() / 100 != 2) continue;
+                    SourcePreview source = mapper.readValue(response.body(), SourcePreview.class);
+                    OptionalInt seconds = GameSystemTimeDefinitionAdapter.secondsPerTurn(source.content());
+                    if (seconds.isPresent()) return seconds;
+                } catch (Exception ignored) {
+                    // One unavailable rulebook must not hide a later locked rulebook.
+                }
             }
             return OptionalInt.empty();
         } catch (Exception ignored) {

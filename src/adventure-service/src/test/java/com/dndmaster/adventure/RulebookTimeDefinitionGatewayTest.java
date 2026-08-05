@@ -37,7 +37,7 @@ class RulebookTimeDefinitionGatewayTest {
         };
         HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
         server.createContext("/api/v1/rulebooks/" + rulebookId + "/source-preview", exchange -> {
-            byte[] body = "{\"content\":\"The game turn lasts {\\\"secondsPerTurn\\\": 7} seconds.\"}".getBytes();
+            byte[] body = "{\"content\":\"{\\\"time\\\":{\\\"secondsPerTurn\\\":7}}\"}".getBytes();
             exchange.sendResponseHeaders(200, body.length);
             try (var output = exchange.getResponseBody()) { output.write(body); }
         });
