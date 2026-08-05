@@ -310,6 +310,12 @@ public class AdventureController {
             if (!input.mapId().equals(payload.mapId()) || input.mapVersion() != payload.mapVersion()) {
                 throw new IllegalArgumentException("map action identity mismatch");
             }
+            if (payload.action() == null || payload.action().isBlank()) {
+                throw new IllegalArgumentException("map action type required");
+            }
+            if (!"MOVE".equals(payload.action())) {
+                return;
+            }
             var member = adventure.party().stream().findFirst()
                     .orElseThrow(() -> new IllegalStateException("map action requires a party member"));
             String path = payload.path() == null ? null : payload.path().stream()
