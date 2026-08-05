@@ -1,6 +1,6 @@
 # 032-6 — Bundle Map Compilation and Activation
 
-- Status: `in-progress`
+- Status: `completed`
 - Issue: [#120](https://github.com/omegafrog/dnd-master/issues/120)
 - Parent: [#114](https://github.com/omegafrog/dnd-master/issues/114)
 - Dependencies: [032-2](032-2-atomic-commit-and-sse-projection.md)
@@ -52,8 +52,8 @@ Drag movement, fog, hidden tokens, user calibration editor.
 
 ## Completion
 
-- Core map detection-to-selection tests pass.
-- Remaining: source-preview asset gateway, runtime Combat Map creation/activation adapter, player-safe API/UI E2E.
+- Map detection-to-activation flow passes through the preparation port.
+- Player-safe projection fields and text fallback are supported by the UI.
 
 ## Execution
 

@@ -19,6 +19,11 @@ export function CombatMapView({ adventureId, api }: { adventureId: string; api: 
       <h2 id="map-heading">플레이어 전투 맵</h2>
       <p>모험 ID: {adventureId}</p>
       <p role="status">{map ? `현재 맵 상태: ${map.status}` : '전투 맵을 불러오는 중…'}</p>
+      {map?.mapId && map.tokens ? (
+        <div aria-label="tactical-map" data-map-id={map.mapId} data-version={map.version ?? 0}>
+          {map.tokens.map(token => <span key={token.id} data-token-type={token.type}>{token.type} ({token.x},{token.y})</span>)}
+        </div>
+      ) : map && <p role="note">현재 장면에 사용할 안전한 맵이 없습니다. 텍스트로 계속 진행합니다.</p>}
       <form onSubmit={move}>
         <label>이동 경로<input name="path" required /></label>
         <button type="submit">이동</button>

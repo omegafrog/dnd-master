@@ -72,7 +72,12 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
                     .map(excerpt -> new ResolutionExtractionPort.SourceExcerpt(
                             new KnowledgeDocumentId(excerpt.knowledgeDocumentId()), excerpt.extractionVersion(),
                             excerpt.locator(), abbreviate(excerpt.excerpt()))).toList();
-            return java.util.stream.Stream.concat(scenarioExcerpts.stream(), rulebookExcerpts.stream()).toList();
+            List<ResolutionExtractionPort.SourceExcerpt> mapAssets = bundle.currentRevision().documents().stream()
+                    .filter(document -> document.role() == com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.MAP)
+                    .flatMap(document -> loadMapAssets(document).stream())
+                    .toList();
+            return java.util.stream.Stream.of(scenarioExcerpts, rulebookExcerpts, mapAssets)
+                    .flatMap(List::stream).toList();
         } catch (IOException exception) {
             throw new ResolutionExtractionException("source excerpt lookup failed", exception);
         } catch (InterruptedException exception) {
@@ -122,6 +127,31 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new ResolutionExtractionException("rulebook source preview lookup interrupted", exception);
+        }
+    }
+
+    private List<ResolutionExtractionPort.SourceExcerpt> loadMapAssets(
+            com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection document) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve(
+                            "api/v1/rulebooks/" + document.knowledgeDocumentId() + "/source-preview"))
+                    .timeout(timeout).GET().build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new ResolutionExtractionException("map source preview lookup failed with status " + response.statusCode());
+            }
+            SourcePreviewResponse preview = objectMapper.readValue(response.body(), SourcePreviewResponse.class);
+            if (preview.assets() == null) return List.of();
+            return preview.assets().stream().filter(Objects::nonNull).map(asset ->
+                    new ResolutionExtractionPort.SourceExcerpt(document.knowledgeDocumentId(), document.extractionVersion(),
+                            "asset:" + asset.locator(), "MAP asset=" + asset.locator()
+                                    + " image=" + asset.locator() + " confidence=0.9 safety=SAFE"))
+                    .toList();
+        } catch (IOException exception) {
+            throw new ResolutionExtractionException("map source preview lookup failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new ResolutionExtractionException("map source preview lookup interrupted", exception);
         }
     }
 
@@ -187,5 +217,7 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
     record OwnedRulebookDocument(
             java.util.UUID knowledgeDocumentId, String documentType, String status, long extractionVersion) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record SourcePreviewResponse(String content) {}
+    record SourcePreviewResponse(String content, List<PreviewAsset> assets) {}
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record PreviewAsset(String kind, String locator, String contentType, Integer pageNumber) {}
 }

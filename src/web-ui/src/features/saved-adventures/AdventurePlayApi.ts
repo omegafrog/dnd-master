@@ -29,6 +29,10 @@ export type SessionKnowledgeSet = {
 export type CombatMapView = {
   adventureId: string
   status: string
+  mapId?: string
+  tokens?: Array<{ id: string; type: string; x: number; y: number }>
+  layers?: Array<{ type: string; value: string }>
+  version?: number
 }
 
 export interface AdventurePlayApi {
