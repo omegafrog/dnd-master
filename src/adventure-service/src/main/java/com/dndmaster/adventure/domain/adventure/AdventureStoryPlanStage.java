@@ -2,6 +2,7 @@ package com.dndmaster.adventure.domain.adventure;
 
 import java.util.List;
 import java.util.Objects;
+import com.dndmaster.adventure.domain.scenario.StoryMapBinding;
 
 public record AdventureStoryPlanStage(
         int position,
@@ -10,7 +11,12 @@ public record AdventureStoryPlanStage(
         String conflict,
         String transitionCondition,
         List<String> npcOrClues,
-        List<String> endingIds) {
+        List<String> endingIds,
+        List<StoryMapBinding> mapBindings) {
+    public AdventureStoryPlanStage(int position, String title, String goal, String conflict, String transitionCondition,
+            List<String> npcOrClues, List<String> endingIds) {
+        this(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, List.of());
+    }
     public AdventureStoryPlanStage {
         if (position < 1) throw new IllegalArgumentException("stage position must be positive");
         title = required(title, "stage title");
@@ -19,6 +25,7 @@ public record AdventureStoryPlanStage(
         transitionCondition = required(transitionCondition, "stage transition condition");
         npcOrClues = List.copyOf(Objects.requireNonNull(npcOrClues));
         endingIds = List.copyOf(Objects.requireNonNull(endingIds));
+        mapBindings = List.copyOf(Objects.requireNonNull(mapBindings));
     }
 
     private static String required(String value, String name) {

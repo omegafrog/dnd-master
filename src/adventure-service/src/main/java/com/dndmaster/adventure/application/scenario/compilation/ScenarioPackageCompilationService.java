@@ -42,6 +42,7 @@ public final class ScenarioPackageCompilationService {
     private final ScenarioPackageRepository repository;
     private final ResolutionOverrideRepository overrideRepository;
     private final CharacterCreationBlueprintCompiler blueprintCompiler = new CharacterCreationBlueprintCompiler();
+    private final MapDefinitionCompiler mapCompiler = new MapDefinitionCompiler();
 
     public ScenarioPackageCompilationService(ScenarioPackageRepository repository) {
         this(repository, new NoopResolutionOverrideRepository());
@@ -139,7 +140,8 @@ public final class ScenarioPackageCompilationService {
         if (!overrideResult.overrides().isEmpty()) {
             overrideRepository.saveAll(overrideResult.overrides());
         }
-        ScenarioPackage scenarioPackage = ScenarioPackage.publish(
+        var mapCompilation = mapCompiler.compile(bundle, availableExcerpts);
+        ScenarioPackage scenarioPackage = ScenarioPackage.publishWithMaps(
                 bundle.id(), bundle.currentRevision().revision(), fingerprint,
                 bundle.currentRevision().documents(), units,
                 new ScenarioCompilationReport(reportStatus, warnings),
@@ -147,7 +149,8 @@ public final class ScenarioPackageCompilationService {
                 characterCandidates == null
                         ? blueprintCompiler.compile(bundle.currentRevision().revision(), blueprintCandidates(bundle, availableExcerpts))
                         : DndCharacterCreationTemplate.apply("DND_5E_2014",
-                                blueprintCompiler.compileAgent(bundle.currentRevision().revision(), characterCandidates)));
+                                blueprintCompiler.compileAgent(bundle.currentRevision().revision(), characterCandidates)),
+                mapCompilation.maps(), mapCompilation.bindings());
         repository.save(scenarioPackage);
         return scenarioPackage;
     }

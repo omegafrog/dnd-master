@@ -14,6 +14,8 @@ public final class ScenarioPackage {
     private final ScenarioCompilationReport report;
     private final CharacterLimit characterLimit;
     private final CharacterCreationBlueprint characterCreationBlueprint;
+    private final List<MapDefinition> mapDefinitions;
+    private final List<StoryMapBinding> storyMapBindings;
 
     private ScenarioPackage(
             UUID packageId,
@@ -24,7 +26,8 @@ public final class ScenarioPackage {
             List<ScenarioResolutionUnit> units,
             ScenarioCompilationReport report,
             CharacterLimit characterLimit,
-            CharacterCreationBlueprint characterCreationBlueprint) {
+            CharacterCreationBlueprint characterCreationBlueprint,
+            List<MapDefinition> mapDefinitions, List<StoryMapBinding> storyMapBindings) {
         this.packageId = Objects.requireNonNull(packageId, "package id must not be null");
         this.bundleId = Objects.requireNonNull(bundleId, "bundle id must not be null");
         this.inputFingerprint = Objects.requireNonNull(inputFingerprint, "input fingerprint must not be null");
@@ -37,6 +40,8 @@ public final class ScenarioPackage {
         this.report = Objects.requireNonNull(report, "report must not be null");
         this.characterLimit = Objects.requireNonNull(characterLimit, "character limit must not be null");
         this.characterCreationBlueprint = characterCreationBlueprint;
+        this.mapDefinitions = List.copyOf(Objects.requireNonNull(mapDefinitions, "map definitions must not be null"));
+        this.storyMapBindings = List.copyOf(Objects.requireNonNull(storyMapBindings, "story map bindings must not be null"));
     }
 
     public static ScenarioPackage publish(
@@ -57,7 +62,7 @@ public final class ScenarioPackage {
             List<ScenarioResolutionUnit> units,
             ScenarioCompilationReport report,
             CharacterLimit characterLimit) {
-        return new ScenarioPackage(UUID.randomUUID(), bundleId, bundleRevision, inputFingerprint, documents, units, report, characterLimit, null);
+        return new ScenarioPackage(UUID.randomUUID(), bundleId, bundleRevision, inputFingerprint, documents, units, report, characterLimit, null, List.of(), List.of());
     }
 
     public static ScenarioPackage publish(ScenarioBundleId bundleId, long bundleRevision, String inputFingerprint,
@@ -65,7 +70,15 @@ public final class ScenarioPackage {
             ScenarioCompilationReport report, CharacterLimit characterLimit,
             CharacterCreationBlueprint blueprint) {
         return new ScenarioPackage(UUID.randomUUID(), bundleId, bundleRevision, inputFingerprint, documents, units,
-                report, characterLimit, Objects.requireNonNull(blueprint, "blueprint must not be null"));
+                report, characterLimit, Objects.requireNonNull(blueprint, "blueprint must not be null"), List.of(), List.of());
+    }
+
+    public static ScenarioPackage publishWithMaps(ScenarioBundleId bundleId, long bundleRevision, String inputFingerprint,
+            List<ScenarioBundleDocumentSelection> documents, List<ScenarioResolutionUnit> units,
+            ScenarioCompilationReport report, CharacterLimit characterLimit, CharacterCreationBlueprint blueprint,
+            List<MapDefinition> mapDefinitions, List<StoryMapBinding> storyMapBindings) {
+        return new ScenarioPackage(UUID.randomUUID(), bundleId, bundleRevision, inputFingerprint, documents, units,
+                report, characterLimit, blueprint, mapDefinitions, storyMapBindings);
     }
 
     public static ScenarioPackage rehydrate(
@@ -79,14 +92,22 @@ public final class ScenarioPackage {
             UUID packageId, ScenarioBundleId bundleId, long bundleRevision, String inputFingerprint,
             List<ScenarioBundleDocumentSelection> documents, List<ScenarioResolutionUnit> units,
             ScenarioCompilationReport report, CharacterLimit characterLimit) {
-        return new ScenarioPackage(packageId, bundleId, bundleRevision, inputFingerprint, documents, units, report, characterLimit, null);
+        return new ScenarioPackage(packageId, bundleId, bundleRevision, inputFingerprint, documents, units, report, characterLimit, null, List.of(), List.of());
     }
 
     public static ScenarioPackage rehydrate(UUID packageId, ScenarioBundleId bundleId, long bundleRevision,
             String inputFingerprint, List<ScenarioBundleDocumentSelection> documents, List<ScenarioResolutionUnit> units,
             ScenarioCompilationReport report, CharacterLimit characterLimit, CharacterCreationBlueprint blueprint) {
         return new ScenarioPackage(packageId, bundleId, bundleRevision, inputFingerprint, documents, units, report,
-                characterLimit, blueprint);
+                characterLimit, blueprint, List.of(), List.of());
+    }
+
+    public static ScenarioPackage rehydrateWithMaps(UUID packageId, ScenarioBundleId bundleId, long bundleRevision,
+            String inputFingerprint, List<ScenarioBundleDocumentSelection> documents, List<ScenarioResolutionUnit> units,
+            ScenarioCompilationReport report, CharacterLimit characterLimit, CharacterCreationBlueprint blueprint,
+            List<MapDefinition> mapDefinitions, List<StoryMapBinding> storyMapBindings) {
+        return new ScenarioPackage(packageId, bundleId, bundleRevision, inputFingerprint, documents, units, report,
+                characterLimit, blueprint, mapDefinitions, storyMapBindings);
     }
 
     public List<ScenarioResolutionUnit> runtimeCandidates() {
@@ -102,4 +123,6 @@ public final class ScenarioPackage {
     public ScenarioCompilationReport report() { return report; }
     public CharacterLimit characterLimit() { return characterLimit; }
     public CharacterCreationBlueprint characterCreationBlueprint() { return characterCreationBlueprint; }
+    public List<MapDefinition> mapDefinitions() { return mapDefinitions; }
+    public List<StoryMapBinding> storyMapBindings() { return storyMapBindings; }
 }
