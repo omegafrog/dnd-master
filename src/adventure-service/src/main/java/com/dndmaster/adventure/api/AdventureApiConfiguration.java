@@ -173,6 +173,51 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    ProviderTokenEstimator providerTokenEstimator() {
+        return new ProviderTokenEstimator(Map.of("legacy", 8192, "local", 8192, "remote", 128000));
+    }
+
+    @Bean
+    GmContextCompactionScheduler gmContextCompactionScheduler() {
+        return new GmContextCompactionScheduler(new CompactionPolicy(0.70));
+    }
+
+    @Bean
+    ContextCompactionPort contextCompactionPort() {
+        return request -> new com.dndmaster.adventure.domain.runtime.checkpoint.ContextSummaryCandidate(
+                request.context(), List.of(), request.snapshotReferences().planRevisionId(), 1);
+    }
+
+    @Bean
+    GmContextCheckpointApplicationService gmContextCheckpointApplicationService(
+            ContextCompactionPort port, GmContextCheckpointRepository repository) {
+        return new GmContextCheckpointApplicationService(new CompactionPolicy(0.70), port, repository);
+    }
+
+    @Bean
+    AuthoritativeSnapshotResolver authoritativeSnapshotResolver(RuntimeTurnRepository turns) {
+        return sessionId -> turns.findAllBySessionId(sessionId).stream()
+                .reduce((first, second) -> second)
+                .map(turn -> new VersionedRuntimeSnapshots(turn.context().toString(), turn.version(), "map", turn.version(), "facts", turn.version(), "clock", turn.version()))
+                .orElse(new VersionedRuntimeSnapshots("", 0, "", 0, "", 0, "", 0));
+    }
+
+    @Bean
+    RuntimeTurnCompactionCoordinator runtimeTurnCompactionCoordinator(
+            ProviderTokenEstimator estimator, GmContextCompactionScheduler scheduler,
+            GmContextCheckpointApplicationService checkpoints, AuthoritativeSnapshotResolver snapshots) {
+        return new RuntimeTurnCompactionCoordinator(estimator, scheduler, checkpoints, snapshots);
+    }
+
+    @Bean
+    GmContextResumePromptProvider gmContextResumePromptProvider(GmContextCheckpointRepository repository) {
+        return sessionId -> repository.current(sessionId).map(checkpoint ->
+                "checkpointSummary=" + checkpoint.summary() + "; exactTail=" + checkpoint.exactTail()
+                        + "; planVersion=" + checkpoint.planVersion() + "; factVersion=" + checkpoint.snapshotReferences().factVersion()
+                        + "; clockVersion=" + checkpoint.snapshotReferences().clockVersion()).orElse("");
+    }
+
+    @Bean
     StoryContinuityCommandService storyContinuityCommandService(StoryPlanRevisionRepository plans,
             AdventureClockRepository clocks, CommittedWorldFactRepository facts,
             PlatformTransactionManager transactionManager,
@@ -693,10 +738,13 @@ public class AdventureApiConfiguration {
             NarrationSafetyPort narrationSafetyPort,
             SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
             AdventureStoryPlanRepository storyPlanRepository,
-            StoryContinuityContextProvider continuityContextProvider) {
+            StoryContinuityContextProvider continuityContextProvider,
+            RuntimeTurnCompactionCoordinator compactionCoordinator,
+            GmContextResumePromptProvider resumePromptProvider) {
         return new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
-                runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider);
+                runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
+                compactionCoordinator, resumePromptProvider);
     }
 
     @Bean

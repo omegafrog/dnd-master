@@ -23,6 +23,16 @@ class GmContextCompactionTest {
     }
 
     @Test
+    void scheduler_isolated_per_session_and_retries_after_failure() {
+        GmContextCompactionScheduler scheduler = new GmContextCompactionScheduler(new CompactionPolicy(0.70));
+        UUID first = UUID.randomUUID();
+        assertFalse(scheduler.scheduleAfterCommit(first, new ContextUsage(800, 1_000), CompactionBarrier.clear(), () -> false));
+        assertFalse(scheduler.scheduled(first));
+        assertTrue(scheduler.scheduleAfterCommit(first, new ContextUsage(800, 1_000), CompactionBarrier.clear(), () -> true));
+        assertTrue(scheduler.scheduleAfterCommit(UUID.randomUUID(), new ContextUsage(800, 1_000), CompactionBarrier.clear(), () -> true));
+    }
+
+    @Test
     void barrier_blocks_active_work_or_stale_state() {
         CompactionPolicy policy = new CompactionPolicy(0.70);
         assertFalse(policy.canCompact(new CompactionBarrier(true, false, false, false, false)));
@@ -73,6 +83,13 @@ class GmContextCompactionTest {
         assertEquals("map-v4", context.mapSnapshot());
         assertEquals("facts-v8", context.factSnapshot());
         assertEquals("clock-v3", context.clockSnapshot());
+    }
+
+    @Test
+    void resume_rejects_stale_authoritative_snapshot_versions() {
+        GmContextCheckpoint checkpoint = checkpoint(UUID.randomUUID(), 1);
+        assertThrows(IllegalStateException.class, () -> new ResumedGmContextAssembler().assemble(checkpoint,
+                new AuthoritativeRuntimeSnapshots("character", "map", "facts", "clock", 99, 1, 1, 1)));
     }
 
     private static GmContextCheckpoint checkpoint(UUID session, long version) {

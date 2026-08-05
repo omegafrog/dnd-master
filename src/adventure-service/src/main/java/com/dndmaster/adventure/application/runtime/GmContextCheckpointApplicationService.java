@@ -26,7 +26,8 @@ public final class GmContextCheckpointApplicationService {
         try {
             ContextSummaryCandidate candidate = Objects.requireNonNull(compactionPort.summarize(
                     new ContextCompactionRequest(sessionId, sourceTurnId, context, exactTail, references)));
-            GmContextCheckpoint checkpoint = GmContextCheckpoint.create(sessionId, sourceTurnId, version,
+            long checkpointVersion = repository.current(sessionId).map(current -> current.version() + 1).orElse(1L);
+            GmContextCheckpoint checkpoint = GmContextCheckpoint.create(sessionId, sourceTurnId, checkpointVersion,
                     candidate, exactTail, references);
             repository.append(checkpoint);
             return Optional.of(checkpoint);

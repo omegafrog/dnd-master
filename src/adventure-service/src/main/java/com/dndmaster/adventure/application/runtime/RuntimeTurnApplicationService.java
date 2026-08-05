@@ -33,6 +33,8 @@ public class RuntimeTurnApplicationService {
     private final SessionKnowledgeSetRepository sessionKnowledgeSetRepository;
     private final AdventureStoryPlanRepository storyPlanRepository;
     private final StoryContinuityContextProvider continuityContextProvider;
+    private final RuntimeTurnCompactionCoordinator compactionCoordinator;
+    private final GmContextResumePromptProvider resumePromptProvider;
 
     public RuntimeTurnApplicationService(
             AdventureRepository adventureRepository,
@@ -44,7 +46,7 @@ public class RuntimeTurnApplicationService {
             NarrationSafetyPort narrationSafetyPort,
             SessionKnowledgeSetRepository sessionKnowledgeSetRepository) {
         this(adventureRepository, bindingRepository, scenarioPackageRepository, runtimeTurnRepository, evidenceSearchPort,
-                planningPort, narrationSafetyPort, sessionKnowledgeSetRepository, null, null);
+                planningPort, narrationSafetyPort, sessionKnowledgeSetRepository, null, null, null, null);
     }
 
     public RuntimeTurnApplicationService(
@@ -54,7 +56,7 @@ public class RuntimeTurnApplicationService {
             NarrationSafetyPort narrationSafetyPort, SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
             AdventureStoryPlanRepository storyPlanRepository) {
         this(adventureRepository, bindingRepository, scenarioPackageRepository, runtimeTurnRepository, evidenceSearchPort,
-                planningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, null);
+                planningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, null, null, null);
     }
 
     public RuntimeTurnApplicationService(
@@ -63,6 +65,17 @@ public class RuntimeTurnApplicationService {
             RuntimeEvidenceSearchPort evidenceSearchPort, RuntimePlanningPort planningPort,
             NarrationSafetyPort narrationSafetyPort, SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
             AdventureStoryPlanRepository storyPlanRepository, StoryContinuityContextProvider continuityContextProvider) {
+        this(adventureRepository, bindingRepository, scenarioPackageRepository, runtimeTurnRepository, evidenceSearchPort,
+                planningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider, null, null);
+    }
+
+    public RuntimeTurnApplicationService(
+            AdventureRepository adventureRepository, RuntimeBindingRepository bindingRepository,
+            ScenarioPackageRepository scenarioPackageRepository, RuntimeTurnRepository runtimeTurnRepository,
+            RuntimeEvidenceSearchPort evidenceSearchPort, RuntimePlanningPort planningPort,
+            NarrationSafetyPort narrationSafetyPort, SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
+            AdventureStoryPlanRepository storyPlanRepository, StoryContinuityContextProvider continuityContextProvider,
+            RuntimeTurnCompactionCoordinator compactionCoordinator, GmContextResumePromptProvider resumePromptProvider) {
         this.adventureRepository = Objects.requireNonNull(adventureRepository, "adventure repository must not be null");
         this.bindingRepository = Objects.requireNonNull(bindingRepository, "binding repository must not be null");
         this.scenarioPackageRepository = Objects.requireNonNull(scenarioPackageRepository, "scenario package repository must not be null");
@@ -74,6 +87,8 @@ public class RuntimeTurnApplicationService {
                 sessionKnowledgeSetRepository, "session knowledge set repository must not be null");
         this.storyPlanRepository = storyPlanRepository;
         this.continuityContextProvider = continuityContextProvider;
+        this.compactionCoordinator = compactionCoordinator;
+        this.resumePromptProvider = resumePromptProvider;
     }
 
     @Transactional
@@ -167,6 +182,7 @@ public class RuntimeTurnApplicationService {
 
         RuntimeTurn committed = turn.markCommitted();
         runtimeTurnRepository.save(committed);
+        if (compactionCoordinator != null) compactionCoordinator.afterCommit(committed);
         return new RuntimeTurnResult(committed, progressed.currentContext(), progressed.conversation(), progressed.version());
     }
 
@@ -208,11 +224,12 @@ public class RuntimeTurnApplicationService {
     }
 
     private String storyPlanContext(Adventure adventure) {
+        String checkpoint = resumePromptProvider == null ? "" : resumePromptProvider.prompt(adventure.sessionId().value());
         if (continuityContextProvider != null) {
-            return continuityContextProvider.load(adventure.sessionId().value()).map(StoryContinuityContext::promptText).orElse("");
+            return checkpoint + continuityContextProvider.load(adventure.sessionId().value()).map(StoryContinuityContext::promptText).orElse("");
         }
-        if (storyPlanRepository == null) return "";
-        return storyPlanRepository.findBySessionId(adventure.sessionId()).map(plan -> {
+        if (storyPlanRepository == null) return checkpoint;
+        return checkpoint + storyPlanRepository.findBySessionId(adventure.sessionId()).map(plan -> {
             if (plan.stages().isEmpty()) return "planVersion=" + plan.version() + "; status=" + plan.status();
             var stage = plan.stages().get(plan.currentStage());
             return "planVersion=" + plan.version() + "; status=" + plan.status() + "; stage=" + stage.position() + ":" + stage.title()

@@ -13,7 +13,6 @@ public record ExactTail(String playerInput, String precedingScene, String lastGm
     }
     private static String required(String value, String name) {
         Objects.requireNonNull(value, name + " must not be null");
-        if (value.isEmpty()) throw new IllegalArgumentException(name + " must not be empty");
         return value;
     }
 }

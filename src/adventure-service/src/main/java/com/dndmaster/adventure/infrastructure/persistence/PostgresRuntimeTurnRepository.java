@@ -65,6 +65,17 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
     }
 
     @Override
+    public List<RuntimeTurn> findAllBySessionId(UUID sessionId) {
+        String sql = "SELECT runtime_turn_json FROM adventure_runtime_turn WHERE session_id = ? ORDER BY created_at, turn_id";
+        List<RuntimeTurn> turns = new ArrayList<>();
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, sessionId);
+            try (ResultSet rows = statement.executeQuery()) { while (rows.next()) turns.add(read(rows.getString("runtime_turn_json"))); }
+            return turns;
+        } catch (SQLException exception) { throw new RuntimeTurnPersistenceException("could not list runtime turns by session", exception); }
+    }
+
+    @Override
     public void save(RuntimeTurn turn) {
         String sql = """
                 INSERT INTO adventure_runtime_turn (
