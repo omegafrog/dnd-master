@@ -49,5 +49,6 @@ State hallucination and premature unresolved judgments reach 0%; authoritative m
 - Added authoritative resolution model with explicit resolved/rejected/pending states, state changes, and provenance.
 - Added narration contract that accepts only resolved authoritative outcomes.
 - Added policy tests for deterministic retries, conflicting command reuse, provenance propagation, and unresolved-result refusal.
+- Wired authoritative resolution into production runtime turns before provider planning; persisted outcomes use the runtime PostgreSQL command journal.
 
-Remaining: integrate with durable runtime journal, authoritative dice/state adapters, runtime turn persistence, and the player-action → resolution → narration → projection flow. Remove the LLM adjudication path from authoritative resolution.
+Remaining: replace the current deterministic resolver adapter with game-system rule evaluation and concrete dice/state mutation adapters; add full UI/entity E2E coverage.

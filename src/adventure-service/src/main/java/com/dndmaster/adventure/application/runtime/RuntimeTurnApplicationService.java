@@ -41,6 +41,7 @@ public class RuntimeTurnApplicationService {
     private final RuntimeTurnCompactionCoordinator compactionCoordinator;
     private final GmContextResumePromptProvider resumePromptProvider;
     private final GmProviderBindingRepository providerBindingRepository;
+    private final DeterministicAdjudicationService adjudicationService;
 
     public RuntimeTurnApplicationService(
             AdventureRepository adventureRepository,
@@ -95,6 +96,19 @@ public class RuntimeTurnApplicationService {
             AdventureStoryPlanRepository storyPlanRepository, StoryContinuityContextProvider continuityContextProvider,
             RuntimeTurnCompactionCoordinator compactionCoordinator, GmContextResumePromptProvider resumePromptProvider,
             GmProviderBindingRepository providerBindingRepository) {
+        this(adventureRepository, bindingRepository, scenarioPackageRepository, runtimeTurnRepository, evidenceSearchPort,
+                planningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
+                compactionCoordinator, resumePromptProvider, providerBindingRepository, null);
+    }
+
+    public RuntimeTurnApplicationService(
+            AdventureRepository adventureRepository, RuntimeBindingRepository bindingRepository,
+            ScenarioPackageRepository scenarioPackageRepository, RuntimeTurnRepository runtimeTurnRepository,
+            RuntimeEvidenceSearchPort evidenceSearchPort, RuntimePlanningPort planningPort,
+            NarrationSafetyPort narrationSafetyPort, SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
+            AdventureStoryPlanRepository storyPlanRepository, StoryContinuityContextProvider continuityContextProvider,
+            RuntimeTurnCompactionCoordinator compactionCoordinator, GmContextResumePromptProvider resumePromptProvider,
+            GmProviderBindingRepository providerBindingRepository, DeterministicAdjudicationService adjudicationService) {
         this.adventureRepository = Objects.requireNonNull(adventureRepository, "adventure repository must not be null");
         this.bindingRepository = Objects.requireNonNull(bindingRepository, "binding repository must not be null");
         this.scenarioPackageRepository = Objects.requireNonNull(scenarioPackageRepository, "scenario package repository must not be null");
@@ -109,6 +123,7 @@ public class RuntimeTurnApplicationService {
         this.compactionCoordinator = compactionCoordinator;
         this.resumePromptProvider = resumePromptProvider;
         this.providerBindingRepository = providerBindingRepository;
+        this.adjudicationService = adjudicationService;
     }
 
     @Transactional
@@ -153,6 +168,13 @@ public class RuntimeTurnApplicationService {
         EvidencePack evidencePack = command.evidenceOverride() == null
                 ? prefetchEvidence(command, adventure, binding, scenarioPackage)
                 : command.evidenceOverride().evidencePack();
+        AuthoritativeResolution authoritativeResolution = adjudicationService == null ? null
+                : adjudicationService.resolve(new DeterministicAdjudicationRequest(
+                        command.commandId(), adventure.sessionId().value(), command.turnId(), command.ownerPlayerId().value(),
+                        command.action(), adventure.currentContext().toString(), adventure.version(), adventure.version()));
+        if (authoritativeResolution != null && authoritativeResolution.status() != AuthoritativeResolution.Status.RESOLVED) {
+            throw new IllegalStateException("authoritative resolution is not complete");
+        }
         RuntimePlan plan = planningPort.plan(new RuntimePlanningRequest(
                 command.adventureId(), command.ownerPlayerId(), adventure.sessionId().value(), command.turnId(), binding.scenarioPackageId(), binding.bindingVersion(),
                 adventure.currentContext(), binding.activeSourceContext(), command.action(), evidencePack,
@@ -161,6 +183,7 @@ public class RuntimeTurnApplicationService {
                 storyPlanContext(adventure), providerSelection(adventure.sessionId().value(), "provider"),
                 providerSelection(adventure.sessionId().value(), "model"),
                 providerSelection(adventure.sessionId().value(), "reasoning")));
+        if (authoritativeResolution != null) plan = plan.withAuthoritativeResolution(authoritativeResolution);
         new GmFinalValidator().validate(
                 new GmPlanResult(plan, plan.provider(), plan.model(), plan.reasoning(), List.of()),
                 evidencePack, adventure.currentContext(), hiddenData(adventure));

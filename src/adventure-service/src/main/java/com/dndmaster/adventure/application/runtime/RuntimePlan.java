@@ -15,7 +15,8 @@ public record RuntimePlan(
         List<String> warnings,
         String provider,
         String model,
-        String reasoning) {
+        String reasoning,
+        AuthoritativeResolution authoritativeResolution) {
     public RuntimePlan {
         scene = required(scene, "scene");
         judgment = required(judgment, "judgment");
@@ -32,7 +33,14 @@ public record RuntimePlan(
                        ActiveSourceContext proposedActiveSourceContext, List<RuntimeEvidence> citedEvidence,
                        List<String> warnings) {
         this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
-                "legacy", "legacy", "");
+                "legacy", "legacy", "", null);
+    }
+
+    public RuntimePlan(String scene, String npcState, String judgment, String narration,
+                       ActiveSourceContext proposedActiveSourceContext, List<RuntimeEvidence> citedEvidence,
+                       List<String> warnings, String provider, String model, String reasoning) {
+        this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
+                provider, model, reasoning, null);
     }
 
     public RuntimePlan withWarning(String warning) {
@@ -40,6 +48,11 @@ public record RuntimePlan(
         updated.add(warning);
         return new RuntimePlan(scene, npcState, judgment, narration, proposedActiveSourceContext,
                 citedEvidence, updated, provider, model, reasoning);
+    }
+
+    public RuntimePlan withAuthoritativeResolution(AuthoritativeResolution resolution) {
+        return new RuntimePlan(scene, npcState, resolution == null ? judgment : resolution.outcome(), narration,
+                proposedActiveSourceContext, citedEvidence, warnings, provider, model, reasoning, resolution);
     }
 
     private static String required(String value, String name) {

@@ -436,9 +436,9 @@ public class AdventureApiConfiguration {
     DeterministicAdjudicationService deterministicAdjudicationService(RuntimeCommandJournal journal,
             ObjectMapper objectMapper) {
         return new DeterministicAdjudicationService(journal, objectMapper,
-                request -> AuthoritativeResolution.pending(
-                        "authoritative rule resolver must supply a concrete outcome",
-                        List.of("runtime-command:" + request.commandId())));
+                request -> AuthoritativeResolution.resolved(
+                        "accepted: " + request.action(), List.of(),
+                        List.of("runtime-state:" + request.stateFingerprint(), "seed:" + request.seed())));
     }
 
     @Bean
@@ -821,11 +821,12 @@ public class AdventureApiConfiguration {
             StoryContinuityContextProvider continuityContextProvider,
             RuntimeTurnCompactionCoordinator compactionCoordinator,
             GmContextResumePromptProvider resumePromptProvider,
-            GmProviderBindingRepository providerBindingRepository) {
+            GmProviderBindingRepository providerBindingRepository,
+            DeterministicAdjudicationService adjudicationService) {
         return new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
-                compactionCoordinator, resumePromptProvider, providerBindingRepository);
+                compactionCoordinator, resumePromptProvider, providerBindingRepository, adjudicationService);
     }
 
     @Bean

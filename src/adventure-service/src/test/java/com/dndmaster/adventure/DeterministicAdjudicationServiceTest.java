@@ -81,6 +81,12 @@ class DeterministicAdjudicationServiceTest {
         assertThrows(IllegalStateException.class, () -> NarrationContract.from(pending, "You hit."));
     }
 
+    @Test
+    void non_resolved_outcome_cannot_carry_state_changes() {
+        assertThrows(IllegalArgumentException.class, () -> new AuthoritativeResolution(
+                AuthoritativeResolution.Status.PENDING, "needs a roll", List.of("target.hp=-4"), List.of("rules:1")));
+    }
+
     private static DeterministicAdjudicationRequest request(String action, long seed) {
         return new DeterministicAdjudicationRequest(
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), action,
