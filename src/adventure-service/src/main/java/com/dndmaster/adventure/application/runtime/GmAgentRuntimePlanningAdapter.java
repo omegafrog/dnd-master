@@ -28,7 +28,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
     public RuntimePlan plan(RuntimePlanningRequest request) {
         GmContextEnvelope context = new GmContextEnvelope(request.adventureId(), request.ownerPlayerId(), request.sessionId(), request.turnId(), request.scenarioPackageId(),
                 request.bindingVersion(), request.currentContext(), request.activeSourceContext(), request.action(), request.evidencePack(),
-                request.recentTurns(), request.characterSnapshots(), request.storyPlanContext());
+                request.recentTurns(), request.characterSnapshots(), request.storyPlanContext(), request.provider(), request.model(), request.reasoning());
         java.util.Set<String> hiddenData = context.storyPlanContext().isBlank()
                 ? java.util.Set.of()
                 : java.util.Set.of(context.storyPlanContext());

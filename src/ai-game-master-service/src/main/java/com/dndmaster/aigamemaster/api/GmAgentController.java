@@ -1,6 +1,7 @@
 package com.dndmaster.aigamemaster.api;
 
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
+import com.dndmaster.aigamemaster.infrastructure.ai.GmProviderRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.UUID;
@@ -32,23 +33,26 @@ public final class GmAgentController {
         }
         String operation = request.operationKey();
         try {
-            return adapter.complete(operation, prompt(request), this::parseCompleteResponse);
+            return complete(request, operation, prompt(request));
         } catch (com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException malformed) {
             try {
-                return adapter.complete(operation + ":repair", repairPrompt(request), this::parseCompleteResponse);
+                return complete(request, operation + ":repair", repairPrompt(request));
             } catch (RuntimeException stillMalformed) {
-                return fallbackResponse(request);
+                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                        "GM provider structured response unavailable", stillMalformed);
             }
         } catch (RuntimeException providerFailure) {
-            return fallbackResponse(request);
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                    "GM provider unavailable", providerFailure);
         }
     }
 
-    private static Response fallbackResponse(Request request) {
-        return new Response(request.currentScene() == null ? "current scene" : request.currentScene(),
-                request.npcState() == null ? "" : request.npcState(), "accepted", request.action(), null,
-                List.of(), List.of("provider structured output was malformed; safe text fallback used"),
-                "ollama", "qwen3:8b", "fallback", List.of(), List.of());
+    private Response complete(Request request, String operation, String prompt) {
+        if (request.provider() == null || request.provider().isBlank()) {
+            return adapter.complete(operation, prompt, this::parseCompleteResponse);
+        }
+        return adapter.complete(operation, prompt, this::parseCompleteResponse,
+                new GmProviderRequest(request.provider(), request.model(), request.reasoning()));
     }
 
     private Response parseCompleteResponse(String json) {
@@ -136,7 +140,8 @@ public final class GmAgentController {
     public record Request(String operationKey, UUID adventureId, UUID ownerPlayerId, UUID sessionId, UUID turnId, UUID scenarioPackageId, long bindingVersion, String turnCapability, String action,
                           String currentScene, String npcState, String pendingAction, String latestJudgment,
                           List<?> storybook, List<?> rulebook, List<?> resolution, List<String> recentTurns,
-                          List<String> characterSnapshots, String storyPlanContext) {}
+                          List<String> characterSnapshots, String storyPlanContext, String provider, String model,
+                          String reasoning) {}
 
     public record CompactionRequest(UUID sessionId, UUID sourceTurnId, String context, Object exactTail, Object snapshotReferences) {}
 

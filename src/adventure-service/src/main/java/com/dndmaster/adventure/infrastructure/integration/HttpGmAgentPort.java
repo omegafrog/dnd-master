@@ -67,7 +67,7 @@ public final class HttpGmAgentPort implements GmAgentPort {
     record Request(String operationKey, UUID adventureId, UUID ownerPlayerId, UUID sessionId, UUID turnId, UUID scenarioPackageId, long bindingVersion, String turnCapability,
                    String action, String currentScene, String npcState, String pendingAction, String latestJudgment,
                    List<Evidence> storybook, List<Evidence> rulebook, List<Evidence> resolution, List<String> recentTurns,
-                   List<String> characterSnapshots, String storyPlanContext) {
+                   List<String> characterSnapshots, String storyPlanContext, String provider, String model, String reasoning) {
         static Request from(GmContextEnvelope c, com.dndmaster.adventure.application.runtime.TurnCapability capability) {
             var context = c.currentContext();
             return new Request(c.operationKey(), c.adventureId().value(), c.ownerPlayerId().value(), c.sessionId(), c.turnId(), c.scenarioPackageId(), c.bindingVersion(), capability == null ? null : capability.token(),
@@ -75,7 +75,7 @@ public final class HttpGmAgentPort implements GmAgentPort {
                     c.evidencePack().storybook().stream().map(Evidence::from).toList(),
                     c.evidencePack().rulebook().stream().map(Evidence::from).toList(),
                     c.evidencePack().resolution().stream().map(Evidence::from).toList(), c.recentTurns(),
-                    c.characterSnapshots(), c.storyPlanContext());
+                    c.characterSnapshots(), c.storyPlanContext(), c.provider(), c.model(), c.reasoning());
         }
     }
 

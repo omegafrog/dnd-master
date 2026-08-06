@@ -33,10 +33,10 @@ export function SavedAdventurePanel({
     }
   }
 
-  async function remove(id: string) {
+  async function remove(item: SavedAdventure) {
     try {
-      await playApi.deleteAdventure(id, playerId, 0)
-      setItems(old => old.filter(x => x.id !== id))
+      await playApi.deleteAdventure(item.id, playerId, item.version)
+      setItems(old => old.filter(x => x.id !== item.id))
       setMessage('모험을 삭제했습니다.')
     } catch {
       setMessage('모험을 삭제하지 못했습니다.')
@@ -95,7 +95,7 @@ export function SavedAdventurePanel({
           <li key={item.id}>
             <strong>{item.title}</strong>
             <button onClick={() => void resume(item.id)}>재개</button>
-            <button onClick={() => void remove(item.id)}>삭제</button>
+            <button onClick={() => void remove(item)}>삭제</button>
             <button onClick={() => void openSessionKnowledgeSet(item.id)}>자료 설정</button>
           </li>
         ))}

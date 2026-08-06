@@ -4,9 +4,27 @@ import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.server.ResponseStatusException;
 
 class GmAgentControllerContractTest {
+    @Test
+    void provider_failure_is_not_committed_as_a_successful_fallback() {
+        var controller = new GmAgentController(new com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter() {
+            @Override
+            public <T> T complete(String operation, String prompt,
+                                   com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                throw new RuntimeException("provider unavailable");
+            }
+        }, new com.fasterxml.jackson.databind.ObjectMapper(), new ApiRequestGuard("token"));
+
+        var exception = assertThrows(ResponseStatusException.class,
+                () -> controller.plan("token", request()));
+
+        org.junit.jupiter.api.Assertions.assertEquals(503, exception.getStatusCode().value());
+    }
+
     @Test
     void accepts_complete_read_only_structured_response() {
         assertDoesNotThrow(() -> GmAgentController.requireComplete(
@@ -74,5 +92,11 @@ class GmAgentControllerContractTest {
 
         org.junit.jupiter.api.Assertions.assertFalse(result.getFirst().structuredSuccess());
         org.junit.jupiter.api.Assertions.assertEquals("ProviderMalformedResponseException", result.getFirst().failure());
+    }
+
+    private static GmAgentController.Request request() {
+        return new GmAgentController.Request("turn", UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), 1, "capability", "open the door", "crypt", "guarding",
+                "", "", List.of(), List.of(), List.of(), List.of(), List.of(), "", "", "", "");
     }
 }

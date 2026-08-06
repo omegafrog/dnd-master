@@ -37,6 +37,7 @@ public class RuntimeTurnApplicationService {
     private final StoryContinuityContextProvider continuityContextProvider;
     private final RuntimeTurnCompactionCoordinator compactionCoordinator;
     private final GmContextResumePromptProvider resumePromptProvider;
+    private final GmProviderBindingRepository providerBindingRepository;
 
     public RuntimeTurnApplicationService(
             AdventureRepository adventureRepository,
@@ -78,6 +79,19 @@ public class RuntimeTurnApplicationService {
             NarrationSafetyPort narrationSafetyPort, SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
             AdventureStoryPlanRepository storyPlanRepository, StoryContinuityContextProvider continuityContextProvider,
             RuntimeTurnCompactionCoordinator compactionCoordinator, GmContextResumePromptProvider resumePromptProvider) {
+        this(adventureRepository, bindingRepository, scenarioPackageRepository, runtimeTurnRepository, evidenceSearchPort,
+                planningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
+                compactionCoordinator, resumePromptProvider, null);
+    }
+
+    public RuntimeTurnApplicationService(
+            AdventureRepository adventureRepository, RuntimeBindingRepository bindingRepository,
+            ScenarioPackageRepository scenarioPackageRepository, RuntimeTurnRepository runtimeTurnRepository,
+            RuntimeEvidenceSearchPort evidenceSearchPort, RuntimePlanningPort planningPort,
+            NarrationSafetyPort narrationSafetyPort, SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
+            AdventureStoryPlanRepository storyPlanRepository, StoryContinuityContextProvider continuityContextProvider,
+            RuntimeTurnCompactionCoordinator compactionCoordinator, GmContextResumePromptProvider resumePromptProvider,
+            GmProviderBindingRepository providerBindingRepository) {
         this.adventureRepository = Objects.requireNonNull(adventureRepository, "adventure repository must not be null");
         this.bindingRepository = Objects.requireNonNull(bindingRepository, "binding repository must not be null");
         this.scenarioPackageRepository = Objects.requireNonNull(scenarioPackageRepository, "scenario package repository must not be null");
@@ -91,6 +105,7 @@ public class RuntimeTurnApplicationService {
         this.continuityContextProvider = continuityContextProvider;
         this.compactionCoordinator = compactionCoordinator;
         this.resumePromptProvider = resumePromptProvider;
+        this.providerBindingRepository = providerBindingRepository;
     }
 
     @Transactional
@@ -138,7 +153,9 @@ public class RuntimeTurnApplicationService {
                 adventure.currentContext(), binding.activeSourceContext(), command.action(), evidencePack,
                 adventure.conversation().stream().map(entry -> entry.speaker() + ": " + entry.content()).toList(),
                 adventure.party().stream().map(member -> member.characterSheetId().value() + " control=" + member.controlMode()).toList(),
-                storyPlanContext(adventure)));
+                storyPlanContext(adventure), providerSelection(adventure.sessionId().value(), "provider"),
+                providerSelection(adventure.sessionId().value(), "model"),
+                providerSelection(adventure.sessionId().value(), "reasoning")));
         NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
                 plan.narration(), evidencePack, adventure.currentContext(), command.action()));
         if (!safety.approved()) {
@@ -194,6 +211,18 @@ public class RuntimeTurnApplicationService {
             }
         }
         return new RuntimeTurnResult(committed, progressed.currentContext(), progressed.conversation(), progressed.version());
+    }
+
+    private String providerSelection(UUID sessionId, String field) {
+        if (providerBindingRepository == null) return "";
+        ProviderBinding binding = providerBindingRepository.current(sessionId).orElse(null);
+        if (binding == null) return "";
+        return switch (field) {
+            case "provider" -> binding.selection().provider();
+            case "model" -> binding.selection().model();
+            case "reasoning" -> binding.selection().reasoning();
+            default -> "";
+        };
     }
 
     private RuntimeTurn resumeCommittedTurn(SubmitRuntimeTurnCommand command, Adventure adventure, RuntimeTurn existing) {

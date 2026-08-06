@@ -201,8 +201,8 @@ public class AdventureController {
                 request.ownerPlayerId(),
                 request.tokenId(),
                 request.expectedVersion());
-        combatService.resolveCombatAction(command);
-        return new DiceRollResponse(UUID.randomUUID(), request.role(), List.of(), 0);
+        var result = combatService.resolveCombatAction(command);
+        return new DiceRollResponse(result.operationId(), result.role().name(), List.of(result.diceTotal()), result.diceTotal());
     }
 
     @PutMapping("/api/v1/adventures/{adventureId}/save")
@@ -238,7 +238,7 @@ public class AdventureController {
     @GetMapping("/internal/v1/adventures")
     List<AdventureSummaryResponse> ownedAdventures(@RequestParam UUID ownerId) {
         return savedAdventureService.listSavedAdventures(new OwnerPlayerId(ownerId)).stream()
-                .map(a -> new AdventureSummaryResponse(a.id().value(), a.status().name()))
+                .map(a -> new AdventureSummaryResponse(a.id().value(), a.status().name(), a.version()))
                 .toList();
     }
 
@@ -357,7 +357,7 @@ public class AdventureController {
     public record SaveAdventureRequest(UUID playerId, long expectedVersion, String currentScene) {}
     public record SaveAdventureResponse(UUID adventureId, long newVersion) {}
     public record DeleteAdventureRequest(UUID playerId, long expectedVersion) {}
-    public record AdventureSummaryResponse(UUID adventureId, String status) {}
+    public record AdventureSummaryResponse(UUID adventureId, String status, long version) {}
     public record EditionResponse(UUID adventureId, String edition) {}
     public record RollConditionsResponse(UUID adventureId, String conditions) {}
     public record MovementValidationRequest(UUID tokenId, int x, int y) {}

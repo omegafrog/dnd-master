@@ -9,7 +9,7 @@ import com.dndmaster.aigamemaster.application.scene.*;
 import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.CharacterTagCompletionPort;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
-import com.dndmaster.aigamemaster.infrastructure.ai.OpenAiGmProvider;
+import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionRouter;
 import com.dndmaster.aigamemaster.configuration.GmProviderProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,7 +18,6 @@ import org.springframework.context.annotation.Primary;
 
 import java.util.List;
 import java.util.UUID;
-import java.net.http.HttpClient;
 
 @Configuration(proxyBeanMethods = false)
 public class AiGameMasterApiConfiguration {
@@ -113,9 +112,7 @@ public class AiGameMasterApiConfiguration {
     @Primary
     GmCompletionAdapter gmCompletionAdapter(SpringAiChatAdapter ollama, GmProviderProperties properties) {
         properties.validate();
-        if (properties.provider().equals("ollama")) return ollama;
-        return new OpenAiGmProvider(HttpClient.newHttpClient(), properties.baseUrl(), properties.apiKey(),
-                properties.model(), properties.reasoning(), properties.timeout());
+        return new GmCompletionRouter(ollama, properties);
     }
 
     @Bean

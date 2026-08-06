@@ -8,15 +8,15 @@ import { SavedAdventurePanel } from './SavedAdventurePanel'
 import { toSavedAdventure } from './AdventurePlayApi'
 
 it('maps the backend adventureId contract to the UI id contract', () => {
-  expect(toSavedAdventure({ adventureId: 'adventure-1', status: 'SAVED' })).toEqual({
-    id: 'adventure-1', title: 'SAVED', updatedAt: '',
+  expect(toSavedAdventure({ adventureId: 'adventure-1', status: 'SAVED', version: 4 })).toEqual({
+    id: 'adventure-1', title: 'SAVED', updatedAt: '', version: 4,
   })
 })
 
 it('lists, resumes, deletes and configures session knowledge sets', async () => {
   const calls: string[] = []
   const api: AdventurePlayApi = {
-    async listSaved() { return [{ id: 'old', title: 'Old Keep', updatedAt: '2026-01-01' }] },
+    async listSaved() { return [{ id: 'old', title: 'Old Keep', updatedAt: '2026-01-01', version: 4 }] },
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     async save(_adventureId: string, _playerId: string, _expectedVersion: number, _currentScene: string) {
       calls.push('save')

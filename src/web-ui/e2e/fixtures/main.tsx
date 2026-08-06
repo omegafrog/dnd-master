@@ -213,7 +213,7 @@ const playApi: AdventurePlayApi = {
   async listSaved() { return [...saved] },
   async save() {
     const item = { adventureId, title: 'The Sealed Crypt', newVersion: 1 }
-    saved = [{ id: adventureId, title: 'The Sealed Crypt', updatedAt: new Date().toISOString() }]
+    saved = [{ id: adventureId, title: 'The Sealed Crypt', updatedAt: new Date().toISOString(), version: 1 }]
     return item
   },
   async resume() {},

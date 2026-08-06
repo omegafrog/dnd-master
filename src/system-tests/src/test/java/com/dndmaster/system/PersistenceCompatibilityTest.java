@@ -47,6 +47,22 @@ class PersistenceCompatibilityTest {
     }
 
     @Test
+    void deployedMigrationVersionNamesRemainResolvableWhenNewMigrationsArrive() {
+        List<LegacyMigration> modules = List.of(
+                new LegacyMigration("identity-access-service", "identity_access_legacy", "2.5"),
+                new LegacyMigration("dice-roll-service", "dice_roll_legacy", "2.4"),
+                new LegacyMigration("combat-map-service", "combat_map_legacy", "2.4"),
+                new LegacyMigration("rule-knowledge-service", "rule_knowledge_legacy", "2.6"));
+
+        for (LegacyMigration module : modules) {
+            flyway(new ModuleSchema(module.module(), module.schema()), module.lastLegacyVersion()).migrate();
+            Flyway current = flyway(new ModuleSchema(module.module(), module.schema()), null);
+            current.migrate();
+            current.validate();
+        }
+    }
+
+    @Test
     void expandMigrationPreservesOldAdventureState() throws Exception {
         ModuleSchema module = new ModuleSchema("adventure-service", "adventure_expand_contract");
         flyway(module, "1.1").migrate();
@@ -156,4 +172,6 @@ class PersistenceCompatibilityTest {
     }
 
     private record ModuleSchema(String module, String schema) {}
+
+    private record LegacyMigration(String module, String schema, String lastLegacyVersion) {}
 }

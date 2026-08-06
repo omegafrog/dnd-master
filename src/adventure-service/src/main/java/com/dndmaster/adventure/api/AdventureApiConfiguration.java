@@ -811,11 +811,12 @@ public class AdventureApiConfiguration {
             AdventureStoryPlanRepository storyPlanRepository,
             StoryContinuityContextProvider continuityContextProvider,
             RuntimeTurnCompactionCoordinator compactionCoordinator,
-            GmContextResumePromptProvider resumePromptProvider) {
+            GmContextResumePromptProvider resumePromptProvider,
+            GmProviderBindingRepository providerBindingRepository) {
         return new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
-                compactionCoordinator, resumePromptProvider);
+                compactionCoordinator, resumePromptProvider, providerBindingRepository);
     }
 
     @Bean

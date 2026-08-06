@@ -18,12 +18,12 @@ type CharacterSheetResponse = {
   derivedStatistics: string
 }
 
-export type SavedAdventure = { id: string; title: string; updatedAt: string }
+export type SavedAdventure = { id: string; title: string; updatedAt: string; version: number }
 
-export type SavedAdventureResponse = { adventureId: string; status: string }
+export type SavedAdventureResponse = { adventureId: string; status: string; version: number }
 
 export function toSavedAdventure(response: SavedAdventureResponse): SavedAdventure {
-  return { id: response.adventureId, title: response.status, updatedAt: '' }
+  return { id: response.adventureId, title: response.status, updatedAt: '', version: response.version }
 }
 
 export type SessionKnowledgeSet = {
