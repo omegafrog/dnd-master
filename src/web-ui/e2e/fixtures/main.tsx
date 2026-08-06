@@ -209,8 +209,16 @@ let sessionView: AdventureSessionView = {
   sessionId: 'session-e2e', characterLimit: 1, version: 0, status: 'DRAFT', adventureId: null,
   runtimeConfiguration: null, party: [],
 }
+let providerView = { sessionId: 'session-e2e', provider: 'ollama', model: 'qwen3:8b', reasoning: 'medium', version: 0, turnInProgress: false }
 const sessionApi = {
   async read() { return sessionView },
+  async readGmProvider() { return providerView },
+  async switchGmProvider(_sessionId: string, version: number, selection: typeof providerView) {
+    if (version !== providerView.version) throw new Error('provider binding version mismatch')
+    if (providerView.turnInProgress) throw new Error('provider cannot switch during a turn')
+    providerView = { ...providerView, ...selection, version: version + 1 }
+    return providerView
+  },
   async listOwnedCharacters() {
     return [{ characterSheetId: 'sheet-e2e', characterName: 'Aria', level: 1, race: '엘프', characterClass: '로그', background: '범죄자' }]
   },
