@@ -191,14 +191,16 @@ public class RuntimeTurnApplicationService {
         if (authoritativeResolution != null && authoritativeResolution.status() != AuthoritativeResolution.Status.RESOLVED) {
             throw new IllegalStateException("authoritative resolution is not complete");
         }
+        ModelInputProjection modelInput = modelInputProjection(evidencePack, adventure, scenarioPackage);
+        EvidencePack modelEvidencePack = new EvidencePack(modelInput.storybook(), modelInput.rulebook(), modelInput.resolution());
         RuntimePlan plan = planningPort.plan(new RuntimePlanningRequest(
                 command.adventureId(), command.ownerPlayerId(), adventure.sessionId().value(), command.turnId(), binding.scenarioPackageId(), binding.bindingVersion(),
-                adventure.currentContext(), binding.activeSourceContext(), command.action(), evidencePack,
+                adventure.currentContext(), binding.activeSourceContext(), command.action(), modelEvidencePack,
                 adventure.conversation().stream().map(entry -> entry.speaker() + ": " + entry.content()).toList(),
                 adventure.party().stream().map(member -> member.characterSheetId().value() + " control=" + member.controlMode()).toList(),
-                storyPlanContext(adventure), providerSelection(adventure.sessionId().value(), "provider"),
+                modelInput.promptText(), providerSelection(adventure.sessionId().value(), "provider"),
                 providerSelection(adventure.sessionId().value(), "model"),
-                providerSelection(adventure.sessionId().value(), "reasoning")));
+                providerSelection(adventure.sessionId().value(), "reasoning"), modelInput));
         if (authoritativeResolution != null) plan = plan.withAuthoritativeResolution(authoritativeResolution);
         new GmFinalValidator().validate(
                 new GmPlanResult(plan, plan.provider(), plan.model(), plan.reasoning(), List.of()),
@@ -342,18 +344,15 @@ public class RuntimeTurnApplicationService {
     }
 
     private String storyPlanContext(Adventure adventure) {
-        String checkpoint = resumePromptProvider == null ? "" : resumePromptProvider.prompt(adventure.sessionId().value());
         if (continuityContextProvider != null) {
-            return checkpoint + continuityContextProvider.load(adventure.sessionId().value()).map(StoryContinuityContext::promptText).orElse("");
+            return continuityContextProvider.load(adventure.sessionId().value()).map(StoryContinuityContext::playerSafeText).orElse("");
         }
-        if (storyPlanRepository == null) return checkpoint;
-        return checkpoint + storyPlanRepository.findBySessionId(adventure.sessionId()).map(plan -> {
-            if (plan.stages().isEmpty()) return "planVersion=" + plan.version() + "; status=" + plan.status();
-            var stage = plan.stages().get(plan.currentStage());
-            return "planVersion=" + plan.version() + "; status=" + plan.status() + "; stage=" + stage.position() + ":" + stage.title()
-                    + "; goal=" + stage.goal() + "; conflict=" + stage.conflict()
-                    + "; transition=" + stage.transitionCondition();
-        }).orElse("");
+        return "";
+    }
+
+    private ModelInputProjection modelInputProjection(EvidencePack evidencePack, Adventure adventure, ScenarioPackage scenarioPackage) {
+        return ModelInputProjection.create(new HashSet<>(knowledgeDocumentIds(adventure, scenarioPackage)),
+                evidencePack.storybook(), evidencePack.rulebook(), evidencePack.resolution(), "", storyPlanContext(adventure), Set.of());
     }
 
     private List<RuntimeEvidence> scopedSearch(RuntimeEvidenceSearchRequest request) {
