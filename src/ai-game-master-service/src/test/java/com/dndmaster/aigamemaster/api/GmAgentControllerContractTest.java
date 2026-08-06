@@ -22,6 +22,12 @@ class GmAgentControllerContractTest {
         assertThrows(IllegalArgumentException.class, () -> GmAgentController.requireComplete(
                 new GmAgentController.Response("scene", "npc", "judgment", "narration", null,
                         List.of(), List.of(), "ollama", "qwen3:8b", "reasoning", List.of("hp=1"))));
+        assertThrows(IllegalArgumentException.class, () -> GmAgentController.requireComplete(
+                new GmAgentController.Response("scene", "npc", "", "narration", null,
+                        List.of(), List.of(), "ollama", "qwen3:8b", "reasoning", List.of())));
+        assertThrows(IllegalArgumentException.class, () -> GmAgentController.requireComplete(
+                new GmAgentController.Response("scene", "npc", "judgment", "narration", null,
+                        List.of(), List.of(), "", "qwen3:8b", "reasoning", List.of())));
     }
 
     @Test

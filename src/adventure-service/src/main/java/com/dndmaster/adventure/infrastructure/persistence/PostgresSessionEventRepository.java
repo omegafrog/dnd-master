@@ -15,7 +15,7 @@ public final class PostgresSessionEventRepository implements SessionEventReposit
     @Override public void append(SessionEvent event) {
         try (var c = dataSource.getConnection(); var s = c.prepareStatement("""
                 INSERT INTO adventure_session_event_outbox(event_id, session_id, version, event_type, payload)
-                VALUES (?, ?, ?, ?, ?) ON CONFLICT (event_id) DO NOTHING
+                VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING
                 """)) {
             s.setObject(1, event.eventId()); s.setObject(2, event.sessionId()); s.setLong(3, event.version());
             s.setString(4, event.type()); s.setString(5, event.payload()); s.executeUpdate();

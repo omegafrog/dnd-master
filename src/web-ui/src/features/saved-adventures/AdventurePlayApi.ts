@@ -20,6 +20,12 @@ type CharacterSheetResponse = {
 
 export type SavedAdventure = { id: string; title: string; updatedAt: string }
 
+export type SavedAdventureResponse = { adventureId: string; status: string }
+
+export function toSavedAdventure(response: SavedAdventureResponse): SavedAdventure {
+  return { id: response.adventureId, title: response.status, updatedAt: '' }
+}
+
 export type SessionKnowledgeSet = {
   adventureId: string
   sessionId: string
@@ -119,9 +125,9 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
   }
 
   listSaved(ownerId: string) {
-    return request<SavedAdventure[]>(`/internal/v1/adventures?ownerId=${ownerId}`, {
+    return request<SavedAdventureResponse[]>(`/internal/v1/adventures?ownerId=${ownerId}`, {
       headers: this.authHeaders(),
-    })
+    }).then(items => items.map(toSavedAdventure))
   }
 
   save(adventureId: string, playerId: string, expectedVersion: number, currentScene: string) {

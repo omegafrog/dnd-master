@@ -117,7 +117,6 @@ public class AdventureController {
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/turns")
-    @Transactional
     public ResponseEntity<RuntimeTurnResponse> submitTypedTurn(
             @PathVariable UUID adventureId,
             @RequestHeader("Idempotency-Key") UUID commandId,
@@ -150,7 +149,7 @@ public class AdventureController {
                     !(input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput)));
         } catch (RuntimeException exception) {
             gmTurnFailureRecorder.record(turn, adventureId, adventure.sessionId().value(), exception.getMessage(), expectedVersion);
-            throw exception;
+            return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_GATEWAY).build();
         }
         String providerMetadata = "provider=" + result.turn().plan().provider()
                 + ";model=" + result.turn().plan().model()
@@ -222,7 +221,7 @@ public class AdventureController {
     ResponseEntity<Void> resumeAdventure(@PathVariable UUID adventureId) {
         savedAdventureService.reopenAdventure(
                 new AdventureId(adventureId),
-                new OwnerPlayerId(UUID.randomUUID()));
+                new OwnerPlayerId(playerResolver.playerId()));
         return ResponseEntity.noContent().build();
     }
 

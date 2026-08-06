@@ -5,6 +5,13 @@ import { expect, it } from 'vitest'
 import type { SetupApi } from '../rulebooks/SetupApi'
 import type { AdventurePlayApi } from './AdventurePlayApi'
 import { SavedAdventurePanel } from './SavedAdventurePanel'
+import { toSavedAdventure } from './AdventurePlayApi'
+
+it('maps the backend adventureId contract to the UI id contract', () => {
+  expect(toSavedAdventure({ adventureId: 'adventure-1', status: 'SAVED' })).toEqual({
+    id: 'adventure-1', title: 'SAVED', updatedAt: '',
+  })
+})
 
 it('lists, resumes, deletes and configures session knowledge sets', async () => {
   const calls: string[] = []

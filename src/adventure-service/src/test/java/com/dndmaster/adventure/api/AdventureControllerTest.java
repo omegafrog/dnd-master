@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -81,5 +82,21 @@ class AdventureControllerTest {
         verify(scenarioService).uploadScenario(captor.capture());
         assertThat(captor.getValue().originalFilename()).isEqualTo("legacy.pdf");
         assertThat(captor.getValue().ownerPlayerId()).isEqualTo(new OwnerPlayerId(ownerId));
+    }
+
+    @Test
+    void resumeUsesAuthenticatedOwner() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        UUID adventureId = UUID.randomUUID();
+        when(playerResolver.playerId()).thenReturn(ownerId);
+        when(playerSessionLookupPort.resolvePlayerId(any())).thenReturn(Optional.of(ownerId));
+
+        mockMvc.perform(post("/api/v1/adventures/{adventureId}/resume", adventureId)
+                        .header("Authorization", "Bearer " + ownerId))
+                .andExpect(status().isNoContent());
+
+        verify(savedAdventureService).reopenAdventure(
+                new com.dndmaster.adventure.domain.adventure.AdventureId(adventureId),
+                new com.dndmaster.adventure.domain.adventure.OwnerPlayerId(ownerId));
     }
 }

@@ -31,18 +31,51 @@ public final class GmAgentController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "action required");
         }
         String operation = request.operationKey();
-        return adapter.complete(operation, prompt(request), json -> {
+        try {
+            return adapter.complete(operation, prompt(request), this::parseCompleteResponse);
+        } catch (com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException malformed) {
+            try {
+                return adapter.complete(operation + ":repair", repairPrompt(request), this::parseCompleteResponse);
+            } catch (RuntimeException stillMalformed) {
+                return fallbackResponse(request);
+            }
+        } catch (RuntimeException providerFailure) {
+            return fallbackResponse(request);
+        }
+    }
+
+    private static Response fallbackResponse(Request request) {
+        return new Response(request.currentScene() == null ? "current scene" : request.currentScene(),
+                request.npcState() == null ? "" : request.npcState(), "accepted", request.action(), null,
+                List.of(), List.of("provider structured output was malformed; safe text fallback used"),
+                "ollama", "qwen3:8b", "fallback", List.of(), List.of());
+    }
+
+    private Response parseCompleteResponse(String json) {
             try {
                 Response response = mapper.readValue(json, Response.class);
-                if (response.scene() == null || response.judgment() == null || response.narration() == null) {
-                    throw new IllegalArgumentException("scene, judgment and narration required");
+                if (response.proposedActiveSourceContext() instanceof String source
+                        && source.isBlank()) {
+                    response = new Response(response.scene(), response.npcState(), response.judgment(),
+                            response.narration(), null, response.citedEvidence(), response.warnings(),
+                            response.provider(), response.model(), response.reasoning(), response.stateDelta(),
+                            response.toolCalls());
                 }
                 return requireComplete(response);
             } catch (Exception exception) {
                 throw new com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException(
                         "GM structured response invalid: " + exception.getMessage());
             }
-        });
+    }
+
+    private static String repairPrompt(Request r) {
+        return """
+                Return exactly one JSON object and no markdown.
+                Required keys: scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings, provider, model, reasoning, stateDelta, toolCalls.
+                Use non-null strings for scene, judgment, narration; use [] for all arrays and null for proposedActiveSourceContext.
+                Do not make rule claims or invent facts. The player action is: %s
+                Current scene: %s
+                """.formatted(r.action(), r.currentScene());
     }
 
     @PostMapping("/internal/v1/gm/context-compactions")
@@ -116,6 +149,11 @@ public final class GmAgentController {
                 || response.toolCalls() == null) {
             throw new IllegalArgumentException("all structured GM fields are required");
         }
+        requireText(response.scene(), "scene");
+        requireText(response.judgment(), "judgment");
+        requireText(response.narration(), "narration");
+        requireText(response.provider(), "provider");
+        requireText(response.model(), "model");
         if (!response.stateDelta().isEmpty()) throw new IllegalArgumentException("read-only GM state delta must be empty");
         if (response.toolCalls() != null && response.toolCalls().stream().anyMatch(call -> call == null
                 || (!"dice.roll".equals(call.toolName()) && !"character.update".equals(call.toolName())
@@ -123,6 +161,10 @@ public final class GmAgentController {
             throw new IllegalArgumentException("unsupported GM tool call");
         }
         return response;
+    }
+
+    private static void requireText(String value, String name) {
+        if (value.isBlank()) throw new IllegalArgumentException(name + " must not be blank");
     }
 
     public record Response(String scene, String npcState, String judgment, String narration, Object proposedActiveSourceContext,

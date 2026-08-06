@@ -22,8 +22,9 @@ public record RuntimePlan(
         narration = required(narration, "narration");
         citedEvidence = List.copyOf(Objects.requireNonNull(citedEvidence, "cited evidence must not be null"));
         warnings = List.copyOf(Objects.requireNonNull(warnings, "warnings must not be null"));
-        provider = required(provider, "provider");
-        model = required(model, "model");
+        // Rows written before provider metadata was added must remain readable.
+        provider = provider == null || provider.isBlank() ? "legacy" : provider.trim();
+        model = model == null || model.isBlank() ? "legacy" : model.trim();
         reasoning = reasoning == null ? "" : reasoning.trim();
     }
 

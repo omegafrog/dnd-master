@@ -228,7 +228,17 @@ public class AdventureApiConfiguration {
                 .reduce((first, second) -> second)
                 .map(turn -> {
                     var adventure = adventures.findById(turn.adventureId()).orElseThrow(() -> new IllegalStateException("adventure not found"));
-                    var characters = adventure.party().stream().map(member -> characterSheets.read(member.characterSheetId())).toList();
+                    var characters = adventure.party().stream()
+                            .map(member -> {
+                                try {
+                                    return java.util.Optional.of(characterSheets.read(member.characterSheetId()));
+                                } catch (RuntimeException ignored) {
+                                    // A stale/deleted sheet must not make a committed turn fail during compaction.
+                                    return java.util.Optional.<CharacterSheetReadPort.CharacterSheet>empty();
+                                }
+                            })
+                            .flatMap(java.util.Optional::stream)
+                            .toList();
                     long characterVersion = characters.stream().mapToLong(CharacterSheetReadPort.CharacterSheet::version).max().orElse(0);
                     String characterSnapshot = characters.stream().map(sheet -> sheet.id().value() + ":" + sheet.name() + ":level=" + sheet.level() + ":version=" + sheet.version()).reduce((a, b) -> a + "|" + b).orElse("characters=none");
                     var map = maps.playerView(turn.adventureId().value(), adventure.ownerPlayerId().value());
@@ -737,7 +747,7 @@ public class AdventureApiConfiguration {
     GmAgentPort gmAgentPort(
             ObjectMapper objectMapper,
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.ai-game-master.timeout-seconds:30}") long timeoutSeconds,
+            @Value("${adventure.integration.ai-game-master.timeout-seconds:180}") long timeoutSeconds,
             @Value("${adventure.integration.internal-token:}") String internalToken) {
         return new HttpGmAgentPort(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken);
     }

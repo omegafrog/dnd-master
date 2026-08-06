@@ -21,6 +21,7 @@ import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -304,10 +305,17 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
         }
     }
 
-    private static CharacterCreationBlueprint readBlueprint(String value) {
+    static CharacterCreationBlueprint readBlueprint(String value) {
         if (value == null || value.isBlank()) return null;
         try {
-            return JSON.readValue(value, CharacterCreationBlueprint.class);
+            var json = JSON.readTree(value);
+            if (json.isObject()) {
+                ObjectNode object = (ObjectNode) json;
+                if (object.path("provenance").isMissingNode() || object.get("provenance").isNull()) {
+                    object.set("provenance", JSON.valueToTree(com.dndmaster.adventure.domain.scenario.BlueprintProvenance.empty()));
+                }
+            }
+            return JSON.treeToValue(json, CharacterCreationBlueprint.class);
         } catch (JsonProcessingException exception) {
             throw new ScenarioPackagePersistenceException("could not read character creation blueprint", exception);
         }

@@ -258,9 +258,14 @@ public class RuntimeTurnApplicationService {
     }
 
     private List<RuntimeEvidence> scopedSearch(RuntimeEvidenceSearchRequest request) {
-        return evidenceSearchPort.search(request).stream()
-                .filter(evidence -> request.knowledgeDocumentIds().contains(evidence.knowledgeDocumentId().value()))
-                .toList();
+        try {
+            return evidenceSearchPort.search(request).stream()
+                    .filter(evidence -> request.knowledgeDocumentIds().contains(evidence.knowledgeDocumentId().value()))
+                    .toList();
+        } catch (RuntimeException ignored) {
+            // Evidence search is enrichment; a provider turn can still proceed with no citations.
+            return List.of();
+        }
     }
 
     private List<UUID> knowledgeDocumentIds(Adventure adventure, ScenarioPackage scenarioPackage) {

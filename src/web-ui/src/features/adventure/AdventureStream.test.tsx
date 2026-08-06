@@ -38,6 +38,24 @@ it('hydrates persisted conversation on mount', async () => {
   await waitFor(() => expect(screen.getAllByRole('listitem').some(item => item.textContent?.includes('저장된 프롤로그'))).toBe(true))
 })
 
+it('uses the persisted conversation version for the next turn', async () => {
+  let receivedVersion: number | undefined
+  const api: AdventureApi = {
+    async readConversation() { return { adventureId: 'a1', version: 4, entries: [] } },
+    async sendMessage(_adventureId, _message, _command, expectedVersion) {
+      receivedVersion = expectedVersion
+      return { narration: 'GM 응답', judgment: 'accepted', currentScene: 'scene', sourceRefs: [], warnings: [], version: 5 }
+    },
+  }
+  const user = userEvent.setup()
+  render(<AdventureStream adventureId="a1" api={api} />)
+  const input = await screen.findByRole('textbox', { name: '행동 또는 대화' })
+  await user.type(input, '조사한다')
+  await user.click(screen.getByRole('button', { name: '보내기' }))
+  expect(receivedVersion).toBe(4)
+  expect(await screen.findByText((_, node) => node?.textContent === 'AI 게임 마스터: GM 응답')).toBeInTheDocument()
+})
+
 it('announces failure when message send fails', async () => {
   const api: AdventureApi = {
     async sendMessage() { throw new Error('전송 실패') },
@@ -73,4 +91,19 @@ it('shows processing and failed projection states from the event stream', async 
   expect(screen.getByRole('status')).toHaveTextContent('턴 처리 중')
   await act(async () => { publish?.({ version: 2, type: 'GM_TURN_FAILED', payload: 'failure' }) })
   expect(await screen.findByRole('status')).toHaveTextContent('턴 처리 실패')
+})
+
+it('does not let a stale same-version failure override a committed turn', async () => {
+  let publish: ((event: { version: number; type: string; payload: string }) => void) | undefined
+  const api: AdventureApi = {
+    subscribeEvents(_id, _version, onEvent) { publish = onEvent; return () => {} },
+    async sendMessage() { return { narration: 'ok', judgment: '', currentScene: '', sourceRefs: [], warnings: [], version: 2 } },
+  }
+  render(<AdventureStream adventureId="a1" api={api} />)
+  await act(async () => {
+    publish?.({ version: 2, type: 'GM_TURN_COMMITTED', payload: 'turn' })
+    publish?.({ version: 2, type: 'GM_TURN_FAILED', payload: 'stale failure' })
+  })
+  expect(screen.getByRole('status')).toHaveTextContent('직접 플레이 입력 대기')
+  expect(screen.getByRole('alert')).toHaveTextContent('')
 })
