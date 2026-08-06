@@ -23,8 +23,19 @@ public final class PlayerVisibleStoryEvidence {
         var visible = project(evidence, committedEvents, gameTurn);
         boolean leak = evidence.stream().filter(item -> item.evidenceType() == RuntimeEvidenceType.STORYBOOK)
                 .filter(item -> !visible.contains(item))
-                .anyMatch(item -> narration.toLowerCase(java.util.Locale.ROOT)
-                        .contains(item.excerpt().toLowerCase(java.util.Locale.ROOT)));
+                .anyMatch(item -> containsSensitiveExcerpt(narration, item.excerpt()));
         return leak ? "공개할 수 있는 장면 정보가 없습니다." : narration;
+    }
+
+    private static boolean containsSensitiveExcerpt(String narration, String excerpt) {
+        String normalizedNarration = narration.toLowerCase(java.util.Locale.ROOT);
+        String normalizedExcerpt = excerpt.toLowerCase(java.util.Locale.ROOT);
+        if (normalizedNarration.contains(normalizedExcerpt)) return true;
+        long sharedTerms = java.util.Arrays.stream(normalizedExcerpt.split("[^\\p{L}\\p{N}]+"))
+                .filter(term -> term.length() >= 4)
+                .distinct()
+                .filter(normalizedNarration::contains)
+                .count();
+        return sharedTerms >= 2;
     }
 }

@@ -45,6 +45,15 @@ class StoryEvidenceVisibilityTest {
                 "A hidden excerpt", List.of(secret), Set.of(), 1));
     }
 
+    @Test
+    void hidden_story_terms_are_redacted_even_when_narration_paraphrases_excerpt() {
+        var secret = new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK, new KnowledgeDocumentId(UUID.randomUUID()),
+                3, "secret", "sealed moon door", StoryEvidenceVisibility.GM_ONLY, null, 0);
+
+        assertEquals("공개할 수 있는 장면 정보가 없습니다.", PlayerVisibleStoryEvidence.redactNarration(
+                "The sealed stone door opens beneath the moon.", List.of(secret), Set.of(), 1));
+    }
+
     private static RuntimeEvidence evidence(String locator, StoryEvidenceVisibility visibility, String event, long turn) {
         return new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK, new KnowledgeDocumentId(UUID.randomUUID()),
                 3, locator, "excerpt", visibility, event, turn);

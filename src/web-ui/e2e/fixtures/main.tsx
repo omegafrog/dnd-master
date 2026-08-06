@@ -2,6 +2,7 @@ import { type FormEvent, StrictMode, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { AdventureStream } from '../../src/features/adventure/AdventureStream'
 import type { AdventureApi } from '../../src/features/adventure/AdventureApi'
+import { HttpAdventureApi } from '../../src/features/adventure/AdventureApi'
 import { AuthProvider, useAuth } from '../../src/features/auth/AuthContext'
 import { LoginForm } from '../../src/features/auth/LoginForm'
 import type { IdentityApi } from '../../src/features/auth/IdentityApi'
@@ -19,7 +20,10 @@ import { SavedAdventurePanel } from '../../src/features/saved-adventures/SavedAd
 import { AdventureSessionPanel } from '../../src/features/adventure-session/AdventureSessionPanel'
 import type { AdventureSessionView } from '../../src/features/adventure-session/AdventureSessionApi'
 
-const adventureId = 'adventure-e2e'
+const backendUrl = import.meta.env.VITE_BACKEND_E2E_URL as string | undefined
+const backendAdventureId = import.meta.env.VITE_BACKEND_E2E_ADVENTURE_ID as string | undefined
+const backendPlayerId = import.meta.env.VITE_BACKEND_E2E_PLAYER_ID as string | undefined
+const adventureId = backendAdventureId ?? 'adventure-e2e'
 
 const e2eState = {
   bundle: null as unknown,
@@ -33,7 +37,10 @@ const e2eState = {
 
 const identityApi: IdentityApi = {
   async login() {
-    return { accessToken: 'owner-token', playerName: '테스터', expiresAt: new Date(Date.now() + 3_600_000).toISOString() }
+    return {
+      accessToken: 'owner-token', playerName: '테스터', playerId: backendPlayerId ?? 'player-e2e',
+      expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+    }
   },
   async logout() {},
 }
@@ -164,7 +171,7 @@ const setupApi: SetupApi = {
 
 Object.assign(window, { __dndMasterE2E: e2eState })
 
-const adventureApi: AdventureApi = {
+const fixtureAdventureApi: AdventureApi = {
   async readConversation() {
     const entries = JSON.parse(sessionStorage.getItem('dnd-master-e2e-conversation') ?? '[]') as Array<{ sequence: number; speaker: string; content: string }>
     return { adventureId, version: Number(sessionStorage.getItem('dnd-master-e2e-turn-version') ?? '0'), entries }
@@ -186,6 +193,10 @@ const adventureApi: AdventureApi = {
     }
   },
 }
+
+const adventureApi: AdventureApi = backendUrl && backendAdventureId && backendPlayerId
+  ? new HttpAdventureApi(() => 'e2e-proxy-token', () => backendPlayerId)
+  : fixtureAdventureApi
 
 let saved: SavedAdventure[] = []
 const playApi: AdventurePlayApi = {
