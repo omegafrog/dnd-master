@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.dndmaster.adventure.application.runtime.*;
 import java.util.UUID;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class GmProviderQualityGateTest {
@@ -44,5 +45,16 @@ class GmProviderQualityGateTest {
         assertTrue(gate.requireDeployable(report));
         assertThrows(IllegalStateException.class, () -> gate.requireDeployable(
                 new GmQualityGateReport(100, 98, 95, 95, 0, 0, 0, 4.0)));
+    }
+
+    @Test
+    void evaluator_builds_gate_report_from_case_results() {
+        List<GmQualityCaseResult> cases = java.util.stream.IntStream.range(0, 100)
+                .mapToObj(i -> new GmQualityCaseResult(true, true, true, false, false, false, 4.0)).toList();
+
+        GmQualityGateReport report = new GmQualityGateEvaluator().evaluate(cases);
+
+        assertTrue(report.passed());
+        assertTrue(new GmProviderQualityGateService().requireDeployable(cases));
     }
 }
