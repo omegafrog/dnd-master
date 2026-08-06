@@ -1,6 +1,6 @@
 # 033-3 — RAG A/B Condition Harness
 
-- Status: `pending`
+- Status: `completed`
 - Issue: [#128](https://github.com/omegafrog/dnd-master/issues/128)
 - Parent: [#125](https://github.com/omegafrog/dnd-master/issues/125)
 - Dependencies: [033-1](033-1-gm-quality-baseline.md), [033-2](033-2-retrieval-evaluation-corpus.md)
@@ -43,3 +43,10 @@ Changing retrieval ranking or production prompting.
 ## Completion
 
 Four-condition report identifies whether observed gains come from retrieval, context/prompt, or generation.
+
+## Delivered
+
+- Immutable No RAG, Current RAG, Oracle, and Distractor evidence providers.
+- Shared baseline model/configuration and repetition count across conditions.
+- Per-condition and per-case metrics for rule accuracy, citation accuracy, hallucination, leaks, premature state changes, continuity, structure, human score, and latency.
+- Versioned JSON artifact store and deterministic bottleneck analysis.
