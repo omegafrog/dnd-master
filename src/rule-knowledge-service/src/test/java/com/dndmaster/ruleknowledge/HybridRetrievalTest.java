@@ -61,7 +61,7 @@ class HybridRetrievalTest {
         HybridRetrievalService service = new HybridRetrievalService((query, scope, limit) -> { throw new RuntimeException("dense down"); },
                 (query, scope, limit) -> { throw new RuntimeException("keyword down"); });
 
-        var result = service.retrieve("what happens", RetrievalScope.builder(UUID.randomUUID()).build(), 3);
+        var result = service.retrieve("what happens", RetrievalScope.builder(UUID.randomUUID()).sessionId("s").packageId("p").stage("stage").build(), 3);
 
         assertTrue(result.degraded());
         assertEquals("RETRIEVAL_UNAVAILABLE", result.status());
@@ -74,7 +74,7 @@ class HybridRetrievalTest {
                 (query, scope, limit) -> List.of());
 
         var pack = new DecomposedRetrievalService(service).retrieve(
-                "attack the goblin and open the door", RetrievalScope.builder(UUID.randomUUID()).build(), 2);
+                "attack the goblin and open the door", RetrievalScope.builder(UUID.randomUUID()).sessionId("s").packageId("p").stage("stage").build(), 2);
 
         assertTrue(pack.byIntent().containsKey(DecomposedIntent.COMBAT));
         assertTrue(pack.byIntent().containsKey(DecomposedIntent.SCENE));

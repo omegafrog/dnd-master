@@ -15,6 +15,10 @@ public record RetrievalScope(
         Set<String> activeLocators) {
     public RetrievalScope {
         Objects.requireNonNull(ownerId, "owner id must not be null");
+        if (sessionId == null || sessionId.isBlank() || packageId == null || packageId.isBlank()
+                || currentStage == null || currentStage.isBlank()) {
+            throw new IllegalArgumentException("session, package, and current stage are required");
+        }
         documents = Map.copyOf(Objects.requireNonNull(documents, "documents must not be null"));
         extractionVersions = Map.copyOf(Objects.requireNonNull(extractionVersions, "extraction versions must not be null"));
         allowedVisibility = Set.copyOf(Objects.requireNonNull(allowedVisibility, "allowed visibility must not be null"));
@@ -30,6 +34,16 @@ public record RetrievalScope(
                 && allowedVisibility.contains(candidate.visibility())
                 && (currentStage == null || currentStage.equals(candidate.stage()))
                 && (activeLocators.isEmpty() || activeLocators.contains(candidate.locator()));
+    }
+
+    public RetrievalScope withDocumentTypes(Set<DocumentType> types) {
+        Map<KnowledgeDocumentId, DocumentType> filtered = documents.entrySet().stream()
+                .filter(entry -> types.contains(entry.getValue()))
+                .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        Map<KnowledgeDocumentId, Long> versions = extractionVersions.entrySet().stream()
+                .filter(entry -> filtered.containsKey(entry.getKey()))
+                .collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue));
+        return new RetrievalScope(ownerId, sessionId, packageId, filtered, versions, allowedVisibility, currentStage, activeLocators);
     }
 
     public static Builder builder(UUID ownerId) { return new Builder(ownerId); }
