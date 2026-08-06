@@ -68,11 +68,11 @@ public final class GmAgentController {
     }
 
     @PostMapping("/internal/v1/gm/quality-evaluation")
-    List<GmQualityEvaluationService.Result> evaluateQuality(
+    GmQualityEvaluationService.EvaluationReport evaluateQuality(
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
             @RequestBody List<GmQualityEvaluationService.Scenario> scenarios) {
         requestGuard.internal(token);
-        return new GmQualityEvaluationService(adapter, mapper).evaluate(scenarios);
+        return new GmQualityEvaluationService(adapter, mapper).evaluateReport(scenarios);
     }
 
     private static String compactionPrompt(CompactionRequest r) {

@@ -20,7 +20,27 @@ public final class GmQualityEvaluationService {
     public List<Result> evaluate(List<Scenario> scenarios) {
         Objects.requireNonNull(scenarios);
         if (scenarios.isEmpty()) throw new IllegalArgumentException("quality scenarios required");
+        if (scenarios.size() > 100) throw new IllegalArgumentException("at most 100 quality scenarios allowed");
         return scenarios.stream().map(this::evaluate).toList();
+    }
+
+    public EvaluationReport evaluateReport(List<Scenario> scenarios) {
+        List<Result> results = evaluate(scenarios);
+        int total = results.size();
+        int structured = (int) results.stream().filter(Result::structuredSuccess).count();
+        int evidence = (int) results.stream().filter(Result::ruleEvidenceCorrect).count();
+        int consistent = (int) results.stream().filter(Result::planFactConsistent).count();
+        int secrets = (int) results.stream().filter(Result::secretLeak).count();
+        int forbidden = (int) results.stream().filter(Result::forbiddenTool).count();
+        int invented = (int) results.stream().filter(Result::inventedState).count();
+        double human = scenarios.stream().mapToDouble(Scenario::humanScore).average().orElseThrow();
+        boolean passed = secrets == 0 && forbidden == 0 && invented == 0
+                && structured / (double) total >= 0.99
+                && evidence / (double) total >= 0.95
+                && consistent / (double) total >= 0.95
+                && human >= 4.0;
+        return new EvaluationReport(results, total, structured, evidence, consistent, secrets,
+                forbidden, invented, human, passed);
     }
 
     private Result evaluate(Scenario scenario) {
@@ -48,7 +68,10 @@ public final class GmQualityEvaluationService {
                     .anyMatch(call -> scenario.forbiddenTools().stream()
                             .anyMatch(forbidden -> forbidden.equalsIgnoreCase(call.toolName())));
             boolean inventedState = response.stateDelta() != null && !response.stateDelta().isEmpty();
-            return new Result(scenario.id(), true, evidenceCorrect, !secretLeak && !inventedState,
+            boolean expectedStatePresent = scenario.expectedState().stream()
+                    .map(value -> value.toLowerCase(Locale.ROOT)).allMatch(serialized::contains);
+            return new Result(scenario.id(), true, evidenceCorrect,
+                    expectedStatePresent && !secretLeak && !inventedState && !forbiddenTool,
                     secretLeak, forbiddenTool, inventedState, null);
         } catch (RuntimeException failure) {
             return new Result(scenario.id(), false, false, false, false, false, false,
@@ -67,13 +90,16 @@ public final class GmQualityEvaluationService {
 
     public record Scenario(String id, String prompt, List<String> expectedEvidence,
                            List<String> expectedState, List<String> protectedFacts,
-                           List<String> forbiddenTools) {
+                           List<String> forbiddenTools, double humanScore) {
         public Scenario {
             id = required(id, "id"); prompt = required(prompt, "prompt");
             expectedEvidence = List.copyOf(Objects.requireNonNull(expectedEvidence));
             expectedState = List.copyOf(Objects.requireNonNull(expectedState));
             protectedFacts = List.copyOf(Objects.requireNonNull(protectedFacts));
             forbiddenTools = List.copyOf(Objects.requireNonNull(forbiddenTools));
+            if (!Double.isFinite(humanScore) || humanScore < 1.0 || humanScore > 5.0) {
+                throw new IllegalArgumentException("human score must be finite and 1..5");
+            }
         }
         private static String required(String value, String name) {
             if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " required");
@@ -84,4 +110,9 @@ public final class GmQualityEvaluationService {
     public record Result(String id, boolean structuredSuccess, boolean ruleEvidenceCorrect,
                          boolean planFactConsistent, boolean secretLeak, boolean forbiddenTool,
                          boolean inventedState, String failure) {}
+
+    public record EvaluationReport(List<Result> results, int totalCases, int structuredSuccesses,
+                                   int ruleEvidencePasses, int planFactPasses, int secretViolations,
+                                   int forbiddenToolViolations, int inventedStateViolations,
+                                   double humanScore, boolean passed) {}
 }

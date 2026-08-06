@@ -38,11 +38,14 @@ class GmAgentControllerContractTest {
         }, new com.fasterxml.jackson.databind.ObjectMapper());
 
         var result = service.evaluate(List.of(new GmQualityEvaluationService.Scenario(
-                "grounded-rule", "Sneak", List.of("rules.txt#stealth"), List.of("pendingAction preserved"),
-                List.of("secret-door"), List.of("reveal-hidden-token"))));
+                "grounded-rule", "Sneak", List.of("rules.txt#stealth"), List.of("crypt"),
+                List.of("secret-door"), List.of("reveal-hidden-token"), 4.0)));
 
         org.junit.jupiter.api.Assertions.assertTrue(result.getFirst().structuredSuccess());
         org.junit.jupiter.api.Assertions.assertTrue(result.getFirst().ruleEvidenceCorrect());
         org.junit.jupiter.api.Assertions.assertFalse(result.getFirst().secretLeak());
+        org.junit.jupiter.api.Assertions.assertTrue(service.evaluateReport(List.of(new GmQualityEvaluationService.Scenario(
+                "grounded-rule", "Sneak", List.of("rules.txt#stealth"), List.of("crypt"),
+                List.of("secret-door"), List.of("reveal-hidden-token"), 4.0))).passed());
     }
 }
