@@ -243,8 +243,9 @@ public class AdventureApiConfiguration {
     RuntimeTurnCompactionCoordinator runtimeTurnCompactionCoordinator(
             ProviderTokenEstimator estimator, GmContextCompactionScheduler scheduler,
             GmContextCheckpointApplicationService checkpoints, AuthoritativeSnapshotResolver snapshots,
-            StoryPlanRevisionRepository plans) {
-        return new RuntimeTurnCompactionCoordinator(estimator, scheduler, checkpoints, snapshots, plans);
+            StoryPlanRevisionRepository plans, io.micrometer.core.instrument.MeterRegistry registry) {
+        return new RuntimeTurnCompactionCoordinator(estimator, scheduler, checkpoints, snapshots, plans,
+                new com.dndmaster.adventure.infrastructure.metrics.MicrometerGmQualityMetrics(registry));
     }
 
     @Bean
@@ -415,8 +416,10 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    RuntimeCommandSagaApplicationService runtimeCommandSagaApplicationService(RuntimeCommandJournal journal) {
-        return new RuntimeCommandSagaApplicationService(journal);
+    RuntimeCommandSagaApplicationService runtimeCommandSagaApplicationService(RuntimeCommandJournal journal,
+            io.micrometer.core.instrument.MeterRegistry registry) {
+        return new RuntimeCommandSagaApplicationService(journal,
+                new com.dndmaster.adventure.infrastructure.metrics.MicrometerGmQualityMetrics(registry));
     }
 
     @Bean

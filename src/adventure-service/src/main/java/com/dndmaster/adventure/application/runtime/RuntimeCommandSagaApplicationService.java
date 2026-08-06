@@ -6,7 +6,9 @@ import java.util.function.Function;
 
 public final class RuntimeCommandSagaApplicationService {
     private final RuntimeCommandJournal journal;
-    public RuntimeCommandSagaApplicationService(RuntimeCommandJournal journal) { this.journal = Objects.requireNonNull(journal); }
+    private final GmQualityMetrics metrics;
+    public RuntimeCommandSagaApplicationService(RuntimeCommandJournal journal) { this(journal, new GmQualityMetrics() { public void record(GmQualityGateReport report) {} }); }
+    public RuntimeCommandSagaApplicationService(RuntimeCommandJournal journal, GmQualityMetrics metrics) { this.journal = Objects.requireNonNull(journal); this.metrics = Objects.requireNonNull(metrics); }
 
     public RuntimeCommandOutcome execute(RuntimeCommandRequest request, Function<RuntimeCommandRequest, RuntimeCommandOutcome> dispatcher) {
         Objects.requireNonNull(request); Objects.requireNonNull(dispatcher);
@@ -17,12 +19,15 @@ public final class RuntimeCommandSagaApplicationService {
         }
         RuntimeCommandJournalEntry pending = new RuntimeCommandJournalEntry(request.commandId(), request.sessionId(), request.turnId(), request.ownerPlayerId(), request.toolName(), request.fingerprint(), RuntimeCommandStatus.PENDING, null, 0);
         if (!journal.claim(pending)) throw new CommandInProgressException();
+        metrics.recordSagaPending();
         try {
             RuntimeCommandOutcome outcome = Objects.requireNonNull(dispatcher.apply(request));
             journal.record(journal.find(request.commandId()).orElseThrow().with(outcome.status(), outcome));
+            metrics.recordSagaCompleted();
             return outcome;
         } catch (RuntimeException failure) {
             journal.record(journal.find(request.commandId()).orElseThrow().with(RuntimeCommandStatus.UNKNOWN, null));
+            metrics.recordSagaCompleted();
             throw failure;
         }
     }
