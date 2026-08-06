@@ -5,12 +5,18 @@ import com.dndmaster.adventure.application.runtime.GmQualityMetrics;
 import com.dndmaster.adventure.application.runtime.ContextUsage;
 import io.micrometer.core.instrument.MeterRegistry;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.Collections;
+import java.util.Map;
+import java.util.WeakHashMap;
 
 public final class MicrometerGmQualityMetrics implements GmQualityMetrics {
     private final MeterRegistry registry;
-    private final AtomicLong pendingSagas = new AtomicLong();
+    private final AtomicLong pendingSagas;
+    private static final Map<MeterRegistry, AtomicLong> PENDING_BY_REGISTRY =
+            Collections.synchronizedMap(new WeakHashMap<>());
     public MicrometerGmQualityMetrics(MeterRegistry registry) {
         this.registry = registry;
+        this.pendingSagas = PENDING_BY_REGISTRY.computeIfAbsent(registry, ignored -> new AtomicLong());
         registry.gauge("gm.saga.pending", pendingSagas);
     }
 

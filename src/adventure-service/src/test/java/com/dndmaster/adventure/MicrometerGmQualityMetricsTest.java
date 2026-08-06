@@ -12,10 +12,11 @@ class MicrometerGmQualityMetricsTest {
     void exposes_current_pending_saga_backlog_and_summary_samples() {
         var registry = new SimpleMeterRegistry();
         var metrics = new MicrometerGmQualityMetrics(registry);
+        var sagaMetrics = new MicrometerGmQualityMetrics(registry);
 
         metrics.recordSagaPending();
         metrics.recordSagaPending();
-        metrics.recordSagaCompleted();
+        sagaMetrics.recordSagaCompleted();
         metrics.record(new GmQualityGateReport(100, 99, 95, 95, 0, 0, 0, 4.0));
 
         assertEquals(1.0, registry.get("gm.saga.pending").gauge().value());

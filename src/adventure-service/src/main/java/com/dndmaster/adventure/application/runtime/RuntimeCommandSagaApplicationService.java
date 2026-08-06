@@ -38,6 +38,7 @@ public final class RuntimeCommandSagaApplicationService {
         if (entry.status() == RuntimeCommandStatus.APPLIED || entry.status() == RuntimeCommandStatus.REJECTED) return entry.outcome();
         RuntimeCommandOutcome recovered = Objects.requireNonNull(outcomeQuery.apply(commandId));
         journal.record(entry.with(recovered.status(), recovered));
+        metrics.recordSagaCompleted();
         return recovered;
     }
 
