@@ -1,6 +1,6 @@
 # 033-5 — Hybrid Retrieval And Query Decomposition
 
-- Status: `pending`
+- Status: `completed`
 - Issue: [#130](https://github.com/omegafrog/dnd-master/issues/130)
 - Parent: [#125](https://github.com/omegafrog/dnd-master/issues/125)
 - Dependencies: [033-2](033-2-retrieval-evaluation-corpus.md), [033-4](033-4-safe-story-rag-visibility.md)
@@ -44,3 +44,10 @@ Reranker implementation and context expansion.
 ## Completion
 
 Current RAG approaches Oracle quality while retaining zero scope/secret violations and latency budget.
+
+## Delivered
+
+- Shared scoped hybrid retrieval contract with dense/keyword score normalization, deduplication, and fail-closed degraded results.
+- Deterministic action decomposition across rules, scene, NPC, combat, resources, and continuity intents.
+- Per-intent evidence pack preserving independent retrieval status.
+- Unit coverage for scope rejection, secret filtering, deterministic decomposition, hybrid ranking, and retrieval failure.
