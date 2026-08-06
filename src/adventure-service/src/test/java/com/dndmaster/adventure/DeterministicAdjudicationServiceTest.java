@@ -7,6 +7,7 @@ import com.dndmaster.adventure.application.runtime.AuthoritativeResolution;
 import com.dndmaster.adventure.application.runtime.DeterministicAdjudicationRequest;
 import com.dndmaster.adventure.application.runtime.DeterministicAdjudicationService;
 import com.dndmaster.adventure.application.runtime.InMemoryRuntimeCommandJournal;
+import com.dndmaster.adventure.application.runtime.DeterministicRuleResolver;
 import com.dndmaster.adventure.application.runtime.NarrationContract;
 import java.util.List;
 import java.util.UUID;
@@ -85,6 +86,17 @@ class DeterministicAdjudicationServiceTest {
     void non_resolved_outcome_cannot_carry_state_changes() {
         assertThrows(IllegalArgumentException.class, () -> new AuthoritativeResolution(
                 AuthoritativeResolution.Status.PENDING, "needs a roll", List.of("target.hp=-4"), List.of("rules:1")));
+    }
+
+    @Test
+    void rule_resolver_repeats_seeded_roll_exactly() {
+        DeterministicRuleResolver resolver = new DeterministicRuleResolver();
+        DeterministicAdjudicationRequest first = request("roll 2d6+1", 42L);
+        DeterministicAdjudicationRequest second = new DeterministicAdjudicationRequest(
+                UUID.randomUUID(), first.sessionId(), first.turnId(), first.ownerPlayerId(),
+                first.action(), first.stateFingerprint(), first.seed(), first.expectedVersion());
+
+        assertEquals(resolver.apply(first), resolver.apply(second));
     }
 
     private static DeterministicAdjudicationRequest request(String action, long seed) {

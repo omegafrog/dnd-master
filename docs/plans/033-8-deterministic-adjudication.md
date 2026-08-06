@@ -51,4 +51,4 @@ State hallucination and premature unresolved judgments reach 0%; authoritative m
 - Added policy tests for deterministic retries, conflicting command reuse, provenance propagation, and unresolved-result refusal.
 - Wired authoritative resolution into production runtime turns before provider planning; persisted outcomes use the runtime PostgreSQL command journal.
 
-Remaining: replace the current deterministic resolver adapter with game-system rule evaluation and concrete dice/state mutation adapters; add full UI/entity E2E coverage.
+Remaining: connect damage/movement/turn state-change records to owning-service mutation adapters and add full UI/entity E2E coverage.

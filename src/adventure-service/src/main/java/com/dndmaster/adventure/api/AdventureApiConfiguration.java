@@ -436,9 +436,7 @@ public class AdventureApiConfiguration {
     DeterministicAdjudicationService deterministicAdjudicationService(RuntimeCommandJournal journal,
             ObjectMapper objectMapper) {
         return new DeterministicAdjudicationService(journal, objectMapper,
-                request -> AuthoritativeResolution.resolved(
-                        "accepted: " + request.action(), List.of(),
-                        List.of("runtime-state:" + request.stateFingerprint(), "seed:" + request.seed())));
+                new DeterministicRuleResolver());
     }
 
     @Bean
