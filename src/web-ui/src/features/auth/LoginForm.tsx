@@ -25,8 +25,8 @@ export function LoginForm() {
   }
 
   return (
-    <form aria-labelledby="login-heading" onSubmit={submit}>
-      <h2 id="login-heading">{isRegister ? '회원가입' : '로그인'}</h2>
+    <form className="login-form" aria-labelledby="login-heading" onSubmit={submit}>
+      <div className="login-form-heading"><p className="eyebrow">PLAYER ACCESS</p><h1 id="login-heading">{isRegister ? '회원가입' : '로그인'}</h1><p>{isRegister ? '새로운 모험가 기록을 만듭니다.' : '저장된 모험과 캐릭터를 불러옵니다.'}</p></div>
       <label>이메일<input name="email" type="email" autoComplete="username" required /></label>
       <label>비밀번호<input name="password" type="password" autoComplete={isRegister ? 'new-password' : 'current-password'} required /></label>
       <button type="submit" disabled={submitting}>

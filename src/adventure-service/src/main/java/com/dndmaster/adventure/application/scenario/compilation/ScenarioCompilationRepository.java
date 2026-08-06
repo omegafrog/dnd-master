@@ -7,6 +7,7 @@ import java.util.UUID;
 public interface ScenarioCompilationRepository {
     Optional<ScenarioCompilation> findById(UUID id);
     default Optional<ScenarioCompilation> findByInputFingerprint(String fingerprint) { return Optional.empty(); }
+    default Optional<ScenarioCompilation> findByIdempotencyKey(String key) { return Optional.empty(); }
     void save(ScenarioCompilation compilation);
     boolean saveIfLeaseMatches(ScenarioCompilation compilation, UUID expectedLeaseToken);
 }

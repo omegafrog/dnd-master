@@ -1,27 +1,23 @@
-# Plans
+# Implementation Plans
 
-- [024 Character creation flow](024-character-creation-flow.md)
-- [024-1 Blueprint compilation and publication](024-1-character-blueprint.md)
-- [024-2 Session snapshot and session-scoped character creation](024-2-session-scoped-character-creation.md)
-- [024-3 Party validation and adventure start](024-3-party-validation-and-start.md)
-- [024-4 Web UI character creation flow](024-4-character-creation-ui.md)
-- [025 Session knowledge set retrieval authorization](025-session-knowledge-set-retrieval.md)
-- [025-R1 Runtime session scope policy](025-r1-runtime-session-scope.md)
-- [025-R2 Rule-knowledge retrieval authorization](025-r2-rule-knowledge-retrieval-authorization.md)
-- [025-R3 Runtime compatibility and migration hardening](025-r3-runtime-compatibility.md)
-- [027 Agent 기반 캐릭터 Blueprint 추출 및 생성 UI](027-agent-character-blueprint.md)
-- [027-1 Agent 캐릭터 태그 추출 계약 및 Blueprint 표시](027-1-agent-character-tag-extraction.md)
-- [027-2 동적 Blueprint 검토·게시 및 입력 트리 UI](027-2-dynamic-blueprint-review-ui.md)
-- [027-3 Blueprint 기반 캐릭터 생성 연결 및 Playwright](027-3-character-creation-agent-e2e.md)
-- [028 근거 기반 캐릭터 생성 컨텍스트 RAG](028-character-context-rag.md)
-- [028-1 캐릭터 컨텍스트 RAG 검색](028-1-character-context-rag-search.md)
-- [028-2 캐릭터 컨텍스트 컴파일 오케스트레이션](028-2-character-context-compilation.md)
-- [028-3 Blueprint 입력 모드와 충돌 검토](028-3-blueprint-input-modes-conflicts.md)
-- [028-4 캐릭터 컨텍스트 최종 E2E](028-4-character-context-e2e.md)
-- [029 룰북 임베딩 비동기·점진 저장](029-rulebook-progressive-embedding.md)
-- [029-1 점진 임베딩 배치](029-1-progressive-embedding.md)
-- [029-2 Checkpoint 재개](029-2-checkpoint-resume.md)
-- [029-3 Lease·Revision Guard](029-3-lease-revision.md)
-- [029-4 진행 상태 API](029-4-progress-api.md)
-- [029-5 Ollama·Postgres E2E](029-5-ollama-postgres-e2e.md)
-- [030 RAG 선택지 검색·검증 강화](030-rag-option-retrieval-validation.md)
+Tracker: GitHub Issues — `omegafrog/dnd-master`
+
+Parent: [#114 — AI GM Runtime](https://github.com/omegafrog/dnd-master/issues/114)
+
+Status vocabulary: `pending` → `ready-for-agent` → `in-progress` → `completed`.
+
+## 032 — AI GM Runtime
+
+1. [032-1 Typed GM Turn lifecycle](032-1-typed-gm-turn-lifecycle.md) — [#115](https://github.com/omegafrog/dnd-master/issues/115) — `completed`
+2. [032-2 Atomic commit and SSE projection](032-2-atomic-commit-and-sse-projection.md) — [#116](https://github.com/omegafrog/dnd-master/issues/116) — `completed`
+3. [032-3 Provider-neutral GM agent loop](032-3-provider-neutral-gm-agent-loop.md) — [#117](https://github.com/omegafrog/dnd-master/issues/117) — `completed`
+4. [032-4 Capability-scoped tool Saga](032-4-capability-scoped-tool-saga.md) — [#118](https://github.com/omegafrog/dnd-master/issues/118) — `completed`
+5. [032-5 Story continuity, facts, and game clock](032-5-story-continuity-facts-and-game-clock.md) — [#119](https://github.com/omegafrog/dnd-master/issues/119) — `completed`
+   - [032-5a Rulebook template and blueprint layering](032-5a-rulebook-template-and-blueprint-layering.md) — `completed`
+6. [032-6 Bundle map compilation and activation](032-6-bundle-map-compilation-and-activation.md) — [#120](https://github.com/omegafrog/dnd-master/issues/120) — `completed`
+7. [032-7 Confirmed grid-map interaction](032-7-confirmed-grid-map-interaction.md) — [#121](https://github.com/omegafrog/dnd-master/issues/121) — `completed`
+8. [032-8 Fog of war and hidden tokens](032-8-fog-of-war-and-hidden-tokens.md) — [#122](https://github.com/omegafrog/dnd-master/issues/122) — `completed`
+9. [032-9 GM context compaction and resume](032-9-gm-context-compaction-and-resume.md) — [#123](https://github.com/omegafrog/dnd-master/issues/123) — `completed`
+10. [032-10 GM provider quality gate and full journey](032-10-gm-provider-quality-gate-and-full-journey.md) — [#124](https://github.com/omegafrog/dnd-master/issues/124) — `completed`
+
+Dependency chain: `032-1 → 032-2 → 032-3 → 032-4 → 032-5a → 032-5`; `032-2 → 032-6`; `032-4 + 032-6 → 032-7`; `032-5 + 032-7 → 032-8`; `032-5 + 032-8 → 032-9`; all → `032-10`.

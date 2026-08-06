@@ -1,0 +1,4 @@
+ALTER TABLE combat_map ADD COLUMN IF NOT EXISTS visibility_current TEXT NOT NULL DEFAULT '';
+ALTER TABLE combat_map ADD COLUMN IF NOT EXISTS visibility_explored TEXT NOT NULL DEFAULT '';
+ALTER TABLE combat_map ADD COLUMN IF NOT EXISTS visibility_last_seen TEXT NOT NULL DEFAULT '';
+ALTER TABLE combat_map ADD COLUMN IF NOT EXISTS visibility_rule_turn BIGINT NOT NULL DEFAULT 0;

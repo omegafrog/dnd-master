@@ -29,10 +29,12 @@ public final class PostgresScenarioCompilationRepository implements ScenarioComp
         return find("input_fingerprint", fingerprint);
     }
 
+    @Override public Optional<ScenarioCompilation> findByIdempotencyKey(String key) { return find("idempotency_key", key); }
+
     private Optional<ScenarioCompilation> find(String column, Object value) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(
-                        "SELECT compilation_id, bundle_id, bundle_revision, input_fingerprint, status, attempt, lease_token, package_id, failure_reason FROM scenario_compilation WHERE " + column + " = ?")) {
+                        "SELECT compilation_id, bundle_id, bundle_revision, input_fingerprint, idempotency_key, status, attempt, lease_token, package_id, failure_reason FROM scenario_compilation WHERE " + column + " = ?")) {
             statement.setObject(1, value);
             try (ResultSet row = statement.executeQuery()) {
                 if (!row.next()) return Optional.empty();
@@ -47,12 +49,12 @@ public final class PostgresScenarioCompilationRepository implements ScenarioComp
     public void save(ScenarioCompilation compilation) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(
-                        "INSERT INTO scenario_compilation(compilation_id, bundle_id, bundle_revision, input_fingerprint, status, attempt, lease_token, package_id, failure_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (compilation_id) DO UPDATE SET status = EXCLUDED.status, attempt = EXCLUDED.attempt, lease_token = EXCLUDED.lease_token, package_id = EXCLUDED.package_id, failure_reason = EXCLUDED.failure_reason")) {
+                        "INSERT INTO scenario_compilation(compilation_id, bundle_id, bundle_revision, input_fingerprint, idempotency_key, status, attempt, lease_token, package_id, failure_reason) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (compilation_id) DO UPDATE SET status = EXCLUDED.status, attempt = EXCLUDED.attempt, lease_token = EXCLUDED.lease_token, package_id = EXCLUDED.package_id, failure_reason = EXCLUDED.failure_reason")) {
             statement.setObject(1, compilation.id()); statement.setObject(2, compilation.bundleId().value());
-            statement.setLong(3, compilation.bundleRevision()); statement.setString(4, compilation.inputFingerprint());
-            statement.setString(5, compilation.status().name()); statement.setInt(6, compilation.attempt());
-            statement.setObject(7, compilation.leaseToken()); statement.setObject(8, compilation.packageId());
-            statement.setString(9, compilation.failureReason()); statement.executeUpdate();
+            statement.setLong(3, compilation.bundleRevision()); statement.setString(4, compilation.inputFingerprint()); statement.setString(5, compilation.idempotencyKey());
+            statement.setString(6, compilation.status().name()); statement.setInt(7, compilation.attempt());
+            statement.setObject(8, compilation.leaseToken()); statement.setObject(9, compilation.packageId());
+            statement.setString(10, compilation.failureReason()); statement.executeUpdate();
         } catch (SQLException exception) {
             throw new ScenarioPackagePersistenceException("could not save compilation", exception);
         }
@@ -77,7 +79,7 @@ public final class PostgresScenarioCompilationRepository implements ScenarioComp
         return ScenarioCompilation.rehydrate(
                 row.getObject("compilation_id", UUID.class),
                 new ScenarioBundleId(row.getObject("bundle_id", UUID.class)),
-                row.getLong("bundle_revision"), row.getString("input_fingerprint"),
+                row.getLong("bundle_revision"), row.getString("input_fingerprint"), row.getString("idempotency_key"),
                 ScenarioCompilationStatus.valueOf(row.getString("status")), row.getInt("attempt"),
                 row.getObject("lease_token", UUID.class), row.getObject("package_id", UUID.class),
                 row.getString("failure_reason"));

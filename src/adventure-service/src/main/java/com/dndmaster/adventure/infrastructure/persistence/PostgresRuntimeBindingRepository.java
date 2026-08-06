@@ -18,7 +18,8 @@ public final class PostgresRuntimeBindingRepository implements RuntimeBindingRep
     private final ObjectMapper objectMapper;
 
     public PostgresRuntimeBindingRepository(DataSource dataSource, ObjectMapper objectMapper) {
-        this.dataSource = java.util.Objects.requireNonNull(dataSource, "data source must not be null");
+        this.dataSource = new org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy(
+                java.util.Objects.requireNonNull(dataSource, "data source must not be null"));
         this.objectMapper = java.util.Objects.requireNonNull(objectMapper, "object mapper must not be null");
     }
 
@@ -57,10 +58,10 @@ public final class PostgresRuntimeBindingRepository implements RuntimeBindingRep
         String sql = """
                 INSERT INTO adventure_runtime_binding (
                     adventure_id, binding_version, owner_player_id, scenario_package_id, scenario_package_revision,
-                    rulebook_ids_json, party_json, engine_id, tool_ids_json,
+                    rulebook_ids_json, party_json, engine_id, tool_ids_json, game_system_definition_version, character_blueprint_version,
                     playability_status, playability_warnings_json, playability_blockers_json,
                     playability_limits_json, active_source_context_json, source_context_candidates_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (adventure_id, binding_version) DO UPDATE SET
                     owner_player_id = EXCLUDED.owner_player_id,
                     scenario_package_id = EXCLUDED.scenario_package_id,
@@ -69,6 +70,8 @@ public final class PostgresRuntimeBindingRepository implements RuntimeBindingRep
                     party_json = EXCLUDED.party_json,
                     engine_id = EXCLUDED.engine_id,
                     tool_ids_json = EXCLUDED.tool_ids_json,
+                    game_system_definition_version = EXCLUDED.game_system_definition_version,
+                    character_blueprint_version = EXCLUDED.character_blueprint_version,
                     playability_status = EXCLUDED.playability_status,
                     playability_warnings_json = EXCLUDED.playability_warnings_json,
                     playability_blockers_json = EXCLUDED.playability_blockers_json,
@@ -92,8 +95,9 @@ public final class PostgresRuntimeBindingRepository implements RuntimeBindingRep
         statement.setLong(5, binding.scenarioPackageRevision());
         statement.setString(6, write(binding.rulebookIds()));
         statement.setString(7, write(binding.party())); statement.setString(8, binding.engineId());
-        statement.setString(9, write(binding.toolIds())); statement.setString(10, binding.playabilityReport().status().name());
-        statement.setString(11, write(binding.playabilityReport().warnings())); statement.setString(12, write(binding.playabilityReport().blockers())); statement.setString(13, write(binding.playabilityReport().limits())); statement.setString(14, write(binding.activeSourceContext())); statement.setString(15, write(binding.playabilityReport().candidates()));
+        statement.setString(9, write(binding.toolIds())); statement.setLong(10, binding.gameSystemDefinitionVersion()); statement.setLong(11, binding.characterBlueprintVersion());
+        statement.setString(12, binding.playabilityReport().status().name());
+        statement.setString(13, write(binding.playabilityReport().warnings())); statement.setString(14, write(binding.playabilityReport().blockers())); statement.setString(15, write(binding.playabilityReport().limits())); statement.setString(16, write(binding.activeSourceContext())); statement.setString(17, write(binding.playabilityReport().candidates()));
     }
 
     private RuntimeBinding map(ResultSet row) throws SQLException {
@@ -106,7 +110,7 @@ public final class PostgresRuntimeBindingRepository implements RuntimeBindingRep
                 readUuidList(row.getString("rulebook_ids_json")),
                 readParty(row.getString("party_json")),
                 row.getString("engine_id"),
-                readStringList(row.getString("tool_ids_json")),
+                readStringList(row.getString("tool_ids_json")), legacySafeLong(row, "game_system_definition_version"), legacySafeLong(row, "character_blueprint_version"),
                 new PlayabilityReport(
                         PlayabilityStatus.valueOf(row.getString("playability_status")),
                         readStringList(row.getString("playability_warnings_json")),
@@ -114,6 +118,9 @@ public final class PostgresRuntimeBindingRepository implements RuntimeBindingRep
                         readStringList(row.getString("playability_limits_json")),
                         readCandidates(row.getString("source_context_candidates_json"))),
                 readActive(row.getString("active_source_context_json")));
+    }
+    private static long legacySafeLong(ResultSet row, String column) throws SQLException {
+        try { return row.getLong(column); } catch (SQLException missingColumn) { return 0L; }
     }
     private List<AdventurePartyMember> readParty(String json) throws SQLException { if (json == null || json.isBlank()) return List.of(); try { return objectMapper.readValue(json, new TypeReference<List<AdventurePartyMember>>() {}); } catch (Exception e) { throw new SQLException("could not read runtime party", e); } }
 

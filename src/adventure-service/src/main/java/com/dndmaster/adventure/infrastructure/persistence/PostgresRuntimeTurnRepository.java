@@ -19,7 +19,7 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
     private final ObjectMapper objectMapper;
 
     public PostgresRuntimeTurnRepository(DataSource dataSource, ObjectMapper objectMapper) {
-        this.dataSource = java.util.Objects.requireNonNull(dataSource, "data source must not be null");
+        this.dataSource = new org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy(java.util.Objects.requireNonNull(dataSource, "data source must not be null"));
         this.objectMapper = java.util.Objects.requireNonNull(objectMapper, "object mapper must not be null");
     }
 
@@ -62,6 +62,17 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
         } catch (SQLException exception) {
             throw new RuntimeTurnPersistenceException("could not list runtime turns", exception);
         }
+    }
+
+    @Override
+    public List<RuntimeTurn> findAllBySessionId(UUID sessionId) {
+        String sql = "SELECT runtime_turn_json FROM adventure_runtime_turn WHERE session_id = ? ORDER BY created_at, turn_id";
+        List<RuntimeTurn> turns = new ArrayList<>();
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, sessionId);
+            try (ResultSet rows = statement.executeQuery()) { while (rows.next()) turns.add(read(rows.getString("runtime_turn_json"))); }
+            return turns;
+        } catch (SQLException exception) { throw new RuntimeTurnPersistenceException("could not list runtime turns by session", exception); }
     }
 
     @Override

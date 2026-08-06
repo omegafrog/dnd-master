@@ -12,13 +12,27 @@ public record RuntimePlan(
         String narration,
         ActiveSourceContext proposedActiveSourceContext,
         List<RuntimeEvidence> citedEvidence,
-        List<String> warnings) {
+        List<String> warnings,
+        String provider,
+        String model,
+        String reasoning) {
     public RuntimePlan {
         scene = required(scene, "scene");
         judgment = required(judgment, "judgment");
         narration = required(narration, "narration");
         citedEvidence = List.copyOf(Objects.requireNonNull(citedEvidence, "cited evidence must not be null"));
         warnings = List.copyOf(Objects.requireNonNull(warnings, "warnings must not be null"));
+        // Rows written before provider metadata was added must remain readable.
+        provider = provider == null || provider.isBlank() ? "legacy" : provider.trim();
+        model = model == null || model.isBlank() ? "legacy" : model.trim();
+        reasoning = reasoning == null ? "" : reasoning.trim();
+    }
+
+    public RuntimePlan(String scene, String npcState, String judgment, String narration,
+                       ActiveSourceContext proposedActiveSourceContext, List<RuntimeEvidence> citedEvidence,
+                       List<String> warnings) {
+        this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
+                "legacy", "legacy", "");
     }
 
     private static String required(String value, String name) {

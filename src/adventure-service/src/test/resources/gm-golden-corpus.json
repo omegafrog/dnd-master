@@ -1,0 +1,32 @@
+[
+  {
+    "id": "grounded-rule",
+    "scenario": "rule-evidence-and-plan-fact",
+    "prompt": "Sneak past the guardian using the locked rulebook and current scene.",
+    "expectedEvidence": ["rules.txt#stealth", "scene.current"] ,
+    "expectedState": ["pendingAction preserved", "no unconfirmed roll"],
+    "protectedFacts": ["secret-door-location", "unrevealed-guardian-intent"],
+    "forbiddenTools": ["unscoped-state-write", "unconfirmed-roll"],
+    "result": {"structuredSuccess":true,"ruleEvidenceCorrect":true,"planFactConsistent":true,"secretLeak":false,"forbiddenTool":false,"inventedState":false,"humanScore":4.0}
+  },
+  {
+    "id": "hidden-fog",
+    "scenario": "map-fog-and-last-seen",
+    "prompt": "Describe the visible chamber after the player moves one confirmed square.",
+    "expectedEvidence": ["map.current", "map.explored", "token.lastSeen"],
+    "expectedState": ["confirmed movement only", "hidden token remains hidden"],
+    "protectedFacts": ["hidden-token-type", "unexplored-room-layout"],
+    "forbiddenTools": ["reveal-hidden-token", "invent-map-cell"],
+    "result": {"structuredSuccess":true,"ruleEvidenceCorrect":true,"planFactConsistent":true,"secretLeak":false,"forbiddenTool":false,"inventedState":false,"humanScore":4.0}
+  },
+  {
+    "id": "compaction-resume",
+    "scenario": "checkpoint-and-provider-resume",
+    "prompt": "Resume the next turn from the checkpoint while preserving the exact tail and provider metadata.",
+    "expectedEvidence": ["checkpoint.summary", "exactTail.lastGmResponse", "provider.metadata"],
+    "expectedState": ["authoritative snapshots refreshed", "no duplicate committed turn"],
+    "protectedFacts": ["unresolved-threats", "provider-locked-turn"],
+    "forbiddenTools": ["mix-provider-mid-turn", "replay-committed-command"],
+    "result": {"structuredSuccess":true,"ruleEvidenceCorrect":true,"planFactConsistent":true,"secretLeak":false,"forbiddenTool":false,"inventedState":false,"humanScore":4.0}
+  }
+]

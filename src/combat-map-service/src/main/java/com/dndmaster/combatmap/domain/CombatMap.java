@@ -3,8 +3,8 @@ import java.util.*;
 public final class CombatMap {
     private final MapId id; private final AdventureId adventureId; private final RuleSetId ruleSetId; private final GridSpec grid;
     private final PlayerId ownerPlayerId;
-    private final List<CombatToken> tokens; private final Set<GridPosition> obstacles; private final List<MapLayer> layers;
-    private long version; private UUID operationKey; private String operationFingerprint;
+    private final List<CombatToken> tokens; private final Set<GridPosition> obstacles; private final List<MapLayer> layers; private Set<Door> doors = Set.of();
+    private long version; private UUID operationKey; private String operationFingerprint; private VisibilitySnapshot visibilitySnapshot;
     public CombatMap(MapId id, AdventureId adventureId, RuleSetId ruleSetId, GridSpec grid, List<CombatToken> tokens, Collection<GridPosition> obstacles, List<MapLayer> layers) {
         this(id, adventureId, ruleSetId, grid, null, tokens, obstacles, layers, 0, null, null);
     }
@@ -46,4 +46,18 @@ public final class CombatMap {
     public MapId id(){return id;} public AdventureId adventureId(){return adventureId;} public RuleSetId ruleSetId(){return ruleSetId;}
     public GridSpec grid(){return grid;} public PlayerId ownerPlayerId(){return ownerPlayerId;} public List<CombatToken> tokens(){return tokens;} public Set<GridPosition> obstacles(){return obstacles;} public List<MapLayer> layers(){return layers;}
     public long version(){return version;} public UUID operationKey(){return operationKey;} public String operationFingerprint(){return operationFingerprint;}
+    public VisibilitySnapshot visibilitySnapshot(){return visibilitySnapshot;}
+    public void replaceVisibility(VisibilitySnapshot snapshot){visibilitySnapshot=Objects.requireNonNull(snapshot);}
+    public Set<Door> doors(){return doors;}
+    public void replaceDoors(Collection<Door> nextDoors){
+        Objects.requireNonNull(nextDoors);
+        if(nextDoors.stream().anyMatch(door -> !grid.contains(door.position()))) throw new IllegalArgumentException("doors must be inside grid");
+        doors=Set.copyOf(nextDoors);
+    }
+    public void refreshVisibility(long ruleTurn){
+        Set<GridPosition> origins=tokens.stream().filter(t->t.type()==TokenType.PLAYER).map(CombatToken::position).collect(java.util.stream.Collectors.toSet());
+        Set<GridPosition> blocked=new HashSet<>(obstacles); doors.stream().filter(d->!d.open()).map(Door::position).forEach(blocked::add);
+        VisibilitySnapshot prior=visibilitySnapshot;
+        visibilitySnapshot=new VisibilityPolicy().calculate(grid,origins,prior==null?Set.of():prior.explored(),blocked,doors,tokens,prior==null?Set.of():prior.lastSeen(),ruleTurn);
+    }
 }

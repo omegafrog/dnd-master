@@ -5,6 +5,7 @@ import com.dndmaster.diceroll.domain.DiceRoll;
 import com.dndmaster.diceroll.domain.RollId;
 import java.util.ArrayList;
 import java.util.Objects;
+import java.util.Optional;
 
 public final class DiceRollApplicationService {
     private final DiceRollRepository repository;
@@ -22,6 +23,8 @@ public final class DiceRollApplicationService {
     public DiceRoll executeAiRoll(RollCommand command) {
         return execute(command, false);
     }
+
+    public Optional<DiceRoll> findByCommandId(java.util.UUID commandId) { return repository.findByCommandId(commandId); }
 
     private DiceRoll execute(RollCommand command, boolean playerExecution) {
         Objects.requireNonNull(command, "command must not be null");

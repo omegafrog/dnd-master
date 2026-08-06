@@ -62,7 +62,7 @@ export type ScenarioBundleDocumentView = {
 
 export type ScenarioBundleView = {
   bundleId: string
-  ownerPlayerId: string
+  ownerPlayerId?: string
   currentRevision: number
   documents: ScenarioBundleDocumentView[]
 }
@@ -199,6 +199,7 @@ export type CreatedCharacterSheetView = {
 
 export type CharacterCreationDraft = {
   sessionId?: string
+  ownerPlayerId?: string
   edition: 'DND_5E_2014' | 'DND_5E_2024'
   characterName: string
   level: number
@@ -372,7 +373,7 @@ export interface SetupApi {
   getRulebookStatus(rulebookId: string): Promise<RulebookView>
   retryKnowledgeDocument(knowledgeDocumentId: string): Promise<RulebookView>
   getSourcePreview(knowledgeDocumentId: string): Promise<SourcePreviewView>
-  uploadScenario(file: File): Promise<{
+  uploadScenario?(file: File): Promise<{
     id: string
     name: string
     deprecated?: boolean
@@ -380,11 +381,14 @@ export interface SetupApi {
     legacyScenarioId?: string
     sunset?: string | null
   }>
-  migrateLegacyScenario(scenarioId: string): Promise<LegacyScenarioMigrationView>
-  reuploadLegacyScenario(scenarioId: string, file: File): Promise<LegacyScenarioMigrationView>
+  migrateLegacyScenario?(scenarioId: string): Promise<LegacyScenarioMigrationView>
+  reuploadLegacyScenario?(scenarioId: string, file: File): Promise<LegacyScenarioMigrationView>
   createScenarioBundle(ownerId: string, documents: ScenarioBundleDraft[]): Promise<ScenarioBundleView>
   reviseScenarioBundle(bundleId: string, ownerId: string, documents: ScenarioBundleDraft[]): Promise<ScenarioBundleView>
   getScenarioBundle(bundleId: string): Promise<ScenarioBundleView>
+  listScenarioPackages?(bundleId: string): Promise<ScenarioPackageView[]>
+  deleteScenarioBundle?(bundleId: string): Promise<void>
+  listScenarioBundles?(): Promise<ScenarioBundleView[]>
   compileScenarioBundle?(bundleId: string, ownerId: string): Promise<ScenarioPackageView>
   startScenarioCompilation?(bundleId: string, ownerId: string, inputFingerprint: string): Promise<ScenarioCompilationView>
   getScenarioCompilation?(compilationId: string): Promise<ScenarioCompilationView>
@@ -415,7 +419,10 @@ async function request<T>(path: string, init: RequestInit, badRequestMessage = '
   const response = await fetch(path, init)
   if (response.status === 400) throw new Error(badRequestMessage)
   if (response.status === 409) throw new Error('재처리할 수 없는 상태입니다.')
-  if (!response.ok) throw new Error('요청을 처리하지 못했습니다.')
+  if (!response.ok) {
+    const detail = await response.text()
+    throw new Error(detail || `요청을 처리하지 못했습니다. (HTTP ${response.status})`)
+  }
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
 }
@@ -528,6 +535,19 @@ export class HttpSetupApi implements SetupApi {
     })
   }
 
+  deleteScenarioBundle(bundleId: string) {
+    return request<void>(`/api/v1/adventures/scenario-bundles/${bundleId}`, {
+      method: 'DELETE',
+      headers: this.authHeaders(),
+    }, '시나리오 번들을 삭제하지 못했습니다.')
+  }
+
+  listScenarioBundles() {
+    return request<ScenarioBundleView[]>('/api/v1/adventures/scenario-bundles', {
+      headers: this.authHeaders(),
+    })
+  }
+
   compileScenarioBundle(bundleId: string, ownerId: string) {
     return request<ScenarioPackageView>(`/api/v1/adventures/scenario-bundles/${bundleId}/compilations`, {
       method: 'POST',
@@ -554,6 +574,12 @@ export class HttpSetupApi implements SetupApi {
     return request<ScenarioPackageView>(`/api/v1/adventures/scenario-packages/${packageId}`, {
       headers: this.authHeaders(),
     }, '시나리오 패키지를 불러오지 못했습니다.')
+  }
+
+  listScenarioPackages(bundleId: string) {
+    return request<ScenarioPackageView[]>(`/api/v1/adventures/scenario-bundles/${bundleId}/packages`, {
+      headers: this.authHeaders(),
+    }, '번들 컴파일 패키지를 불러오지 못했습니다.')
   }
 
   getPlayPreparation(scenarioPackageId: string) {

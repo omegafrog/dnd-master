@@ -7,6 +7,35 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
   const [sending, setSending] = useState(false)
   const [agentVersion, setAgentVersion] = useState(expectedVersion)
   const [activeControlMode, setActiveControlMode] = useState(controlMode)
+  const [projectionStatus, setProjectionStatus] = useState<'idle' | 'processing' | 'failed'>('idle')
+  const projectionVersion = useRef(expectedVersion)
+  const committedVersion = useRef(-1)
+  useEffect(() => {
+    if (!api.readConversation) return
+    let cancelled = false
+    void api.readConversation(adventureId).then(response => {
+      if (cancelled) return
+      projectionVersion.current = Math.max(projectionVersion.current, response.version)
+      setMessages(current => current.length === 0
+        ? response.entries.map(entry => ({ speaker: speakerLabel(entry.speaker), text: entry.content }))
+        : current)
+    }).catch(() => { if (!cancelled) setNotice('대화 기록을 불러오지 못했습니다.') })
+    return () => { cancelled = true }
+  }, [adventureId, api])
+
+  useEffect(() => {
+    if (!api.subscribeEvents) return
+    return api.subscribeEvents(adventureId, projectionVersion.current, event => {
+      if (event.type !== 'GM_TURN_FAILED') {
+        projectionVersion.current = Math.max(projectionVersion.current, event.version)
+      }
+      if (event.type === 'GM_TURN_FAILED' && event.version <= committedVersion.current) return
+      if (event.type === 'GM_TURN_COMMITTED') committedVersion.current = Math.max(committedVersion.current, event.version)
+      setSending(false)
+      setProjectionStatus(event.type === 'GM_TURN_FAILED' ? 'failed' : 'idle')
+      setNotice(event.type === 'GM_TURN_FAILED' ? '턴 처리가 실패했습니다.' : '')
+    }, () => { setSending(false); setProjectionStatus('failed'); setNotice('실시간 모험 이벤트 연결이 끊겼습니다.') })
+  }, [adventureId, api])
   const previousControlMode = useRef(controlMode)
 
   useEffect(() => {
@@ -39,11 +68,13 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
     const command = createRuntimeCommandIdentity()
     setNotice('')
     setSending(true)
+    setProjectionStatus('processing')
     setMessages(current => [...current, { speaker: '플레이어', text }])
     try {
-      const response = await api.sendMessage(adventureId, text, command)
+      const response = await api.sendMessage(adventureId, text, command, projectionVersion.current)
       setMessages(current => [...current, { speaker: 'AI 게임 마스터', text: response.narration }])
     } catch {
+      setProjectionStatus('failed')
       setNotice('메시지를 전송하지 못했습니다.')
     } finally {
       setSending(false)
@@ -51,9 +82,9 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
   }
 
   return (
-    <section aria-labelledby="conversation-heading">
+    <section className="adventure-stream" aria-labelledby="conversation-heading">
       <h2 id="conversation-heading">모험 대화</h2>
-      <p role="status">{activeControlMode === 'AGENT' ? '에이전트 캐릭터 차례 — 자동 진행 중' : '직접 플레이 입력 대기 중'}</p>
+      <p role="status">{projectionStatus === 'processing' ? '턴 처리 중' : projectionStatus === 'failed' ? '턴 처리 실패' : activeControlMode === 'AGENT' ? '에이전트 캐릭터 차례 — 자동 진행 중' : '직접 플레이 입력 대기 중'}</p>
       <ol aria-label="대화 기록">
         {messages.map((message, index) => (
           <li key={index}>
@@ -68,6 +99,12 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
       </form>
     </section>
   )
+}
+
+function speakerLabel(speaker: string) {
+  if (speaker === 'AI_GAME_MASTER') return 'AI 게임 마스터'
+  if (speaker === 'PLAYER') return '플레이어'
+  return speaker
 }
 
 function createRuntimeCommandIdentity() {

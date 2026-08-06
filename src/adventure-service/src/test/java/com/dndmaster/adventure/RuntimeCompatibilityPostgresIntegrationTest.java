@@ -39,7 +39,7 @@ class RuntimeCompatibilityPostgresIntegrationTest {
                     dataSource, adventureId, sessionId, ownerId, packageId, characterSheetId,
                     firstDocumentId, secondDocumentId);
 
-            Flyway current = Flyway.configure().dataSource(dataSource).locations(location).load();
+            Flyway current = Flyway.configure().dataSource(dataSource).locations(location).target("21").load();
             assertEquals(1, current.migrate().migrationsExecuted);
 
             assertEquals(

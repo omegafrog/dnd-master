@@ -84,7 +84,13 @@ class RetryIdempotencyIntegrationTest {
         InMemoryIndexRepository repository = new InMemoryIndexRepository();
         AtomicInteger embeddings = new AtomicInteger();
         RulebookIndexingApplicationService service = new RulebookIndexingApplicationService(
-                repository, (chunks, model, dimension) -> { embeddings.incrementAndGet(); return List.of(); },
+                repository, (chunks, model, dimension) -> {
+                    embeddings.incrementAndGet();
+                    return chunks.stream()
+                            .map(chunk -> new com.dndmaster.ruleknowledge.application.indexing.ChunkEmbedding(
+                                    chunk.chunkId(), new float[] {1, 0, 0}))
+                            .toList();
+                },
                 text -> StructureDetectionPort.DetectedStructure.none(), 50);
         Rulebook rulebook = Rulebook.acceptUpload(
                 RulebookId.generate(), new OwnerPlayerId(UUID.randomUUID()), RulebookFormat.PDF, new FileSize(10));

@@ -5,6 +5,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -12,6 +13,11 @@ import com.dndmaster.adventure.application.auth.PlayerSessionLookupPort;
 import com.dndmaster.adventure.application.combat.AdventureCombatApplicationService;
 import com.dndmaster.adventure.application.guidance.RuleGuidanceApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
+import com.dndmaster.adventure.application.runtime.GmTurnRepository;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnRepository;
+import com.dndmaster.adventure.application.runtime.SessionEventRepository;
+import com.dndmaster.adventure.application.runtime.GmTurnFailureRecorder;
+import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.saved.SavedAdventureApplicationService;
 import com.dndmaster.adventure.application.scenario.AdventureScenarioApplicationService;
 import com.dndmaster.adventure.domain.scenario.AdventureScenario;
@@ -39,6 +45,11 @@ class AdventureControllerTest {
 
     @MockBean SavedAdventureApplicationService savedAdventureService;
     @MockBean RuntimeTurnApplicationService runtimeTurnService;
+    @MockBean AdventureRepository adventureRepository;
+    @MockBean GmTurnFailureRecorder gmTurnFailureRecorder;
+    @MockBean GmTurnRepository gmTurnRepository;
+    @MockBean RuntimeTurnRepository runtimeTurnRepository;
+    @MockBean SessionEventRepository sessionEventRepository;
     @MockBean RuleGuidanceApplicationService guidanceService;
     @MockBean AdventureCombatApplicationService combatService;
     @MockBean AdventureScenarioApplicationService scenarioService;
@@ -71,5 +82,21 @@ class AdventureControllerTest {
         verify(scenarioService).uploadScenario(captor.capture());
         assertThat(captor.getValue().originalFilename()).isEqualTo("legacy.pdf");
         assertThat(captor.getValue().ownerPlayerId()).isEqualTo(new OwnerPlayerId(ownerId));
+    }
+
+    @Test
+    void resumeUsesAuthenticatedOwner() throws Exception {
+        UUID ownerId = UUID.randomUUID();
+        UUID adventureId = UUID.randomUUID();
+        when(playerResolver.playerId()).thenReturn(ownerId);
+        when(playerSessionLookupPort.resolvePlayerId(any())).thenReturn(Optional.of(ownerId));
+
+        mockMvc.perform(post("/api/v1/adventures/{adventureId}/resume", adventureId)
+                        .header("Authorization", "Bearer " + ownerId))
+                .andExpect(status().isNoContent());
+
+        verify(savedAdventureService).reopenAdventure(
+                new com.dndmaster.adventure.domain.adventure.AdventureId(adventureId),
+                new com.dndmaster.adventure.domain.adventure.OwnerPlayerId(ownerId));
     }
 }

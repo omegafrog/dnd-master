@@ -11,3 +11,5 @@ paths:
     post: { operationId: generateMap, responses: { '200': { description: AI map state } } }
   /internal/v1/gm/intent-classifications:
     post: { operationId: classifyIntent, responses: { '200': { description: GM query intent } } }
+  /internal/v1/gm/agent-turns:
+    post: { operationId: runReadOnlyAgentTurn, responses: { '200': { description: grounded read-only GM plan and final result } } }

@@ -8,6 +8,8 @@ import com.dndmaster.ruleknowledge.application.indexing.RulebookIndexRepository;
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
+import com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository;
+import com.dndmaster.ruleknowledge.domain.definition.GameSystemDefinitionRevision;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceResult;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.search.QueryIntent;
@@ -48,6 +50,8 @@ public class RuleKnowledgeController {
     private final CharacterContextSearchApplicationService characterContextSearchService;
     private final RulebookIndexRepository indexRepository;
     private final ObjectMapper objectMapper;
+    private final GameSystemDefinitionRepository definitionRepository;
+    private final String internalToken;
 
     public RuleKnowledgeController(
             RulebookPipelineApplicationService pipelineService,
@@ -73,6 +77,30 @@ public class RuleKnowledgeController {
         this.characterContextSearchService = characterContextSearchService;
         this.indexRepository = indexRepository;
         this.objectMapper = objectMapper;
+        this.definitionRepository = null;
+        this.internalToken = "";
+    }
+
+    public RuleKnowledgeController(
+            RulebookPipelineApplicationService pipelineService,
+            RulebookRegistrationRepository registrationRepository,
+            RuleEvidenceSearchApplicationService evidenceSearchService,
+            StorySourceSearchApplicationService storySourceSearchService,
+            CharacterContextSearchApplicationService characterContextSearchService,
+            RulebookIndexRepository indexRepository,
+            ObjectMapper objectMapper,
+            GameSystemDefinitionRepository definitionRepository,
+            String internalToken) {
+        this.pipelineService = pipelineService;
+        this.batchUploadService = new BatchRulebookUploadApplicationService(pipelineService);
+        this.registrationRepository = registrationRepository;
+        this.evidenceSearchService = evidenceSearchService;
+        this.storySourceSearchService = storySourceSearchService;
+        this.characterContextSearchService = characterContextSearchService;
+        this.indexRepository = indexRepository;
+        this.objectMapper = objectMapper;
+        this.definitionRepository = definitionRepository;
+        this.internalToken = internalToken == null ? "" : internalToken;
     }
 
     public RuleKnowledgeController(
@@ -183,6 +211,38 @@ public class RuleKnowledgeController {
                 preview.assets().stream()
                         .map(asset -> new PreviewAssetView(asset.kind(), asset.locator(), asset.contentType(), asset.pageNumber()))
                         .toList()));
+    }
+
+    @GetMapping("/internal/v1/rulebooks/{rulebookId}/game-system-definition")
+    GameSystemDefinitionResponse gameSystemDefinition(@PathVariable UUID rulebookId,
+            @RequestParam(required = false) Long version,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requireInternalToken(token);
+        if (definitionRepository == null) throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED);
+        return (version == null ? definitionRepository.findPublished(rulebookId) : definitionRepository.findPublished(rulebookId, version))
+                .map(revision -> new GameSystemDefinitionResponse(revision.rulebookId(), revision.version(), revision.definitionJson()))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "published game system definition not found"));
+    }
+
+    @PostMapping("/internal/v1/rulebooks/{rulebookId}/game-system-definition")
+    GameSystemDefinitionResponse publishGameSystemDefinition(@PathVariable UUID rulebookId,
+            @RequestBody GameSystemDefinitionRequest request,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requireInternalToken(token);
+        if (definitionRepository == null) throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED);
+        if (registrationRepository.findById(new RulebookId(rulebookId)).isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "rulebook not found");
+        }
+        GameSystemDefinitionRevision revision = GameSystemDefinitionRevision.draft(
+                rulebookId, request.version(), request.definitionJson()).publish();
+        definitionRepository.save(revision);
+        return new GameSystemDefinitionResponse(rulebookId, revision.version(), revision.definitionJson());
+    }
+
+    private void requireInternalToken(String token) {
+        if (internalToken.isBlank() || !internalToken.equals(token)) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "invalid internal token");
+        }
     }
 
     @PostMapping("/api/v1/rulebooks/{rulebookId}/retry")
@@ -467,6 +527,8 @@ public class RuleKnowledgeController {
     public record OwnedRulebooksResponse(UUID ownerId, List<RulebookSummary> rulebooks) {}
     public record OwnedIndexesResponse(UUID ownerId, List<?> indexes) {}
     public record OwnershipResponse(UUID rulebookId, UUID playerId, boolean owned) {}
+    public record GameSystemDefinitionResponse(UUID rulebookId, long version, String definitionJson) {}
+    public record GameSystemDefinitionRequest(long version, String definitionJson) {}
     public record RuleSetSaveRequest(List<UUID> knowledgeDocumentIds) {}
     public record EvidenceSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, QueryIntent queryIntent, Integer limit) {}
     public record EvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score, String chapter, String section) {}

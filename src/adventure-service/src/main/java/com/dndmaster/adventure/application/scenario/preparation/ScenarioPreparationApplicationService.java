@@ -18,6 +18,8 @@ import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus;
 import com.dndmaster.adventure.domain.scenario.CharacterInputNode;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintRevisionConflictException;
+import com.dndmaster.adventure.domain.scenario.BlueprintProvenance;
+import com.dndmaster.adventure.application.runtime.GameSystemDefinitionPort;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -45,6 +47,7 @@ public final class ScenarioPreparationApplicationService {
     private final CharacterContextSearchPort characterContextSearch;
     private final CharacterInputTagExtractionPort characterTagExtraction;
     private final CharacterCreationBlueprintCompiler blueprintCompiler;
+    private final GameSystemDefinitionPort gameSystemDefinitionPort;
 
     public ScenarioPreparationApplicationService(
             ScenarioPackageRepository packageRepository,
@@ -61,12 +64,22 @@ public final class ScenarioPreparationApplicationService {
             CharacterContextSearchPort characterContextSearch,
             CharacterInputTagExtractionPort characterTagExtraction,
             CharacterCreationBlueprintCompiler blueprintCompiler) {
+        this(packageRepository, bundleRepository, runtimeOptionCatalog, characterContextSearch, characterTagExtraction,
+                blueprintCompiler, rulebookId -> java.util.Optional.empty());
+    }
+
+    public ScenarioPreparationApplicationService(
+            ScenarioPackageRepository packageRepository, ScenarioBundleRepository bundleRepository,
+            RuntimeOptionCatalogPort runtimeOptionCatalog, CharacterContextSearchPort characterContextSearch,
+            CharacterInputTagExtractionPort characterTagExtraction, CharacterCreationBlueprintCompiler blueprintCompiler,
+            GameSystemDefinitionPort gameSystemDefinitionPort) {
         this.packageRepository = Objects.requireNonNull(packageRepository, "package repository must not be null");
         this.bundleRepository = Objects.requireNonNull(bundleRepository, "bundle repository must not be null");
         this.runtimeOptionCatalog = Objects.requireNonNull(runtimeOptionCatalog, "runtime option catalog must not be null");
         this.characterContextSearch = Objects.requireNonNull(characterContextSearch, "character context search must not be null");
         this.characterTagExtraction = Objects.requireNonNull(characterTagExtraction, "character tag extraction must not be null");
         this.blueprintCompiler = Objects.requireNonNull(blueprintCompiler, "blueprint compiler must not be null");
+        this.gameSystemDefinitionPort = Objects.requireNonNull(gameSystemDefinitionPort, "game system definition port must not be null");
     }
 
     public PlayPreparationView read(UUID scenarioPackageId, OwnerPlayerId ownerPlayerId) {
@@ -166,6 +179,10 @@ public final class ScenarioPreparationApplicationService {
                 blueprintCompiler.compileAgent(nextBlueprintRevision, candidates));
         blueprint = normalizeSystemAgnosticManualFields(blueprint, edition, candidates);
         blueprint = restoreGroundedCandidates(blueprint, candidates);
+        long definitionVersion = rulebooks.stream().map(document -> gameSystemDefinitionPort.findByRulebook(document.knowledgeDocumentId().value()))
+                .flatMap(java.util.Optional::stream).map(GameSystemDefinitionPort.Definition::version).findFirst().orElse(0L);
+        blueprint = blueprint.withProvenance(new BlueprintProvenance(definitionVersion, bundle.currentRevision().revision(),
+                sourceDocuments.stream().map(document -> document.documentType().toUpperCase()).distinct().toList()));
         packageRepository.saveBlueprint(packageId, blueprint);
         return toView(blueprint, storybooks);
     }
@@ -189,7 +206,7 @@ public final class ScenarioPreparationApplicationService {
                     field.sourceQuote(), field.label(), field.value(), field.nodeId(), field.parentNodeId(),
                     field.confidence(), List.of()));
         }
-        return new CharacterCreationBlueprint(blueprint.revision(), blueprint.status(), fields, blueprint.diagnostics());
+        return new CharacterCreationBlueprint(blueprint.revision(), blueprint.status(), fields, blueprint.diagnostics(), blueprint.provenance());
     }
 
     private static CharacterCreationBlueprint restoreGroundedCandidates(
@@ -225,7 +242,7 @@ public final class ScenarioPreparationApplicationService {
         }
         CharacterCreationBlueprintStatus status = reviewRequired
                 ? CharacterCreationBlueprintStatus.NEEDS_REVIEW : blueprint.status();
-        return new CharacterCreationBlueprint(blueprint.revision(), status, fields, blueprint.diagnostics());
+        return new CharacterCreationBlueprint(blueprint.revision(), status, fields, blueprint.diagnostics(), blueprint.provenance());
     }
 
     private static String effectiveKey(CharacterInputTagExtractionPort.CharacterInputTagCandidate candidate) {

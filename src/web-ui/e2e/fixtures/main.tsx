@@ -165,14 +165,24 @@ const setupApi: SetupApi = {
 Object.assign(window, { __dndMasterE2E: e2eState })
 
 const adventureApi: AdventureApi = {
-  async sendMessage() {
+  async readConversation() {
+    const entries = JSON.parse(sessionStorage.getItem('dnd-master-e2e-conversation') ?? '[]') as Array<{ sequence: number; speaker: string; content: string }>
+    return { adventureId, version: Number(sessionStorage.getItem('dnd-master-e2e-turn-version') ?? '0'), entries }
+  },
+  async sendMessage(_adventureId, message) {
+    const version = Number(sessionStorage.getItem('dnd-master-e2e-turn-version') ?? '0') + 1
+    const entries = JSON.parse(sessionStorage.getItem('dnd-master-e2e-conversation') ?? '[]') as Array<{ sequence: number; speaker: string; content: string }>
+    const narration = window.location.search.includes('full-journey') ? `턴 ${version}: 근거를 바탕으로 응답한다.` : '근거를 바탕으로 응답한다.'
+    entries.push({ sequence: entries.length + 1, speaker: 'PLAYER', content: message }, { sequence: entries.length + 2, speaker: 'AI_GAME_MASTER', content: narration })
+    sessionStorage.setItem('dnd-master-e2e-turn-version', String(version))
+    sessionStorage.setItem('dnd-master-e2e-conversation', JSON.stringify(entries))
     return {
-      narration: '근거를 바탕으로 응답한다.',
+      narration,
       judgment: '판정 완료',
       currentScene: '새 장면',
       sourceRefs: [],
       warnings: [],
-      version: 1,
+      version,
     }
   },
 }
@@ -183,16 +193,27 @@ const playApi: AdventurePlayApi = {
     return { characterSheetId: 'sheet-e2e', name: 'Aria', edition: '2024', armorClass: 16, strength: 14, dexterity: 18, constitution: 12, intelligence: 10, wisdom: 13, charisma: 15 }
   },
   async getCombatMap() {
+    if (window.location.search.includes('full-journey')) {
+      const position = JSON.parse(sessionStorage.getItem('dnd-master-e2e-map-position') ?? '{"x":0,"y":0}') as { x: number; y: number }
+      return { adventureId, status: 'authoritative-map', mapId: 'map-e2e', version: Number(sessionStorage.getItem('dnd-master-e2e-map-version') ?? '1'), sessionVersion: 4, grid: { width: 3, height: 3 }, tokens: [{ id: 'hero', type: 'PLAYER', x: position.x, y: position.y }, { id: 'hidden', type: 'ENEMY', x: 2, y: 2, lastSeen: true }], current: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }], explored: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: 2, y: 2 }] }
+    }
     return {
       adventureId,
       status: 'authoritative-map',
     }
   },
+  async submitMapAction(_adventureId, candidate) {
+    const to = candidate.location ?? candidate.path?.at(-1)
+    if (to) sessionStorage.setItem('dnd-master-e2e-map-position', JSON.stringify(to))
+    const version = Number(sessionStorage.getItem('dnd-master-e2e-map-version') ?? '1') + 1
+    sessionStorage.setItem('dnd-master-e2e-map-version', String(version))
+    return { turnId: 'map-turn-e2e', version }
+  },
   async rollDice() { return { rollId: 'roll-e2e', total: 17 } },
   async listSaved() { return [...saved] },
   async save() {
     const item = { adventureId, title: 'The Sealed Crypt', newVersion: 1 }
-    saved = [{ id: adventureId, title: 'The Sealed Crypt', updatedAt: new Date().toISOString() }]
+    saved = [{ id: adventureId, title: 'The Sealed Crypt', updatedAt: new Date().toISOString(), version: 1 }]
     return item
   },
   async resume() {},
@@ -205,12 +226,29 @@ const guidanceApi: RuleGuidanceApi = {
   },
 }
 
+const fullJourneyMode = window.location.search.includes('full-journey')
+const providerStorageKey = 'dnd-master-e2e-provider'
+const defaultProviderView = { sessionId: 'session-e2e', provider: 'ollama', model: 'qwen3:8b', reasoning: 'medium', version: 0, turnInProgress: false }
+const persistedProvider = sessionStorage.getItem(providerStorageKey)
 let sessionView: AdventureSessionView = {
-  sessionId: 'session-e2e', characterLimit: 1, version: 0, status: 'DRAFT', adventureId: null,
+  sessionId: 'session-e2e', characterLimit: 1, version: fullJourneyMode ? 4 : 0, status: fullJourneyMode ? 'STARTED' : 'DRAFT', adventureId: fullJourneyMode ? adventureId : null,
   runtimeConfiguration: null, party: [],
 }
+let providerView = persistedProvider ? { ...defaultProviderView, ...JSON.parse(persistedProvider) } : defaultProviderView
 const sessionApi = {
   async read() { return sessionView },
+  async readGmProvider() { return providerView },
+  async switchGmProvider(_sessionId: string, version: number, selection: typeof providerView) {
+    if (version !== providerView.version) throw new Error('provider binding version mismatch')
+    if (providerView.turnInProgress) throw new Error('provider cannot switch during a turn')
+    providerView = { ...providerView, ...selection, version: version + 1 }
+    sessionStorage.setItem(providerStorageKey, JSON.stringify(providerView))
+    return providerView
+  },
+  async listOwnedCharacters() {
+    return [{ characterSheetId: 'sheet-e2e', characterName: 'Aria', level: 1, race: '엘프', characterClass: '로그', background: '범죄자' }]
+  },
+  async copyOwnedCharacter(_sessionId: string, characterSheetId: string) { return { characterSheetId } },
   async addMember(_sessionId: string, version: number, member: AdventureSessionView['party'][number]) {
     sessionView = { ...sessionView, version: version + 1, party: [member] }
     return sessionView
@@ -218,6 +256,14 @@ const sessionApi = {
   async removeMember() { return sessionView },
   async start(_sessionId: string, version: number, adventureId: string) {
     sessionView = { ...sessionView, version: version + 2, status: 'STARTED', adventureId }
+    return sessionView
+  },
+  async complete(_sessionId: string, version: number) {
+    sessionView = { ...sessionView, version: version + 1, status: 'COMPLETED' }
+    return sessionView
+  },
+  async delete(_sessionId: string, version: number) {
+    sessionView = { ...sessionView, version: version + 1, status: 'DELETED' }
     return sessionView
   },
 }
@@ -253,11 +299,11 @@ function Journey() {
   const auth = useAuth()
   if (!auth.session) return <main><h1>D&amp;D Master</h1><LoginForm /></main>
   return (
-    <main>
+    <div>
       <RulebookSetup api={setupApi} playerId="player-e2e" asMain={false} />
-      <AdventureSessionPanel api={sessionApi} sessionId="session-e2e" />
+      <AdventureSessionPanel api={sessionApi} ownerPlayerId="player-e2e" sessionId="session-e2e" />
       <ScenarioUploadPanel />
-      <CharacterCreationPage sessionId="character-session-e2e" setupApi={setupApi} sessionApi={characterSessionApi} />
+      <CharacterCreationPage sessionId="character-session-e2e" ownerPlayerId="player-e2e" setupApi={setupApi} sessionApi={characterSessionApi} />
       <div aria-label="모험 플레이">
         <AdventureStream adventureId={adventureId} api={adventureApi} />
         <RuleEvidence adventureId={adventureId} api={guidanceApi} />
@@ -266,7 +312,7 @@ function Journey() {
         <CombatMapView adventureId={adventureId} api={playApi} />
         <SavedAdventurePanel playApi={playApi} setupApi={setupApi} playerId="player-e2e" />
       </div>
-    </main>
+    </div>
   )
 }
 

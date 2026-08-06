@@ -1,3 +1,16 @@
+ai-game-master:
+  integration:
+    internal-token: ${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}
+
+ai:
+  gm:
+    provider: ${GM_PROVIDER:ollama}
+    model: ${GM_MODEL:qwen3:8b}
+    reasoning: ${GM_REASONING:medium}
+    base-url: ${OPENAI_BASE_URL:https://api.openai.com/}
+    api-key: ${OPENAI_API_KEY:}
+    timeout: ${GM_PROVIDER_TIMEOUT:90s}
+
 spring:
   ai:
     retry:

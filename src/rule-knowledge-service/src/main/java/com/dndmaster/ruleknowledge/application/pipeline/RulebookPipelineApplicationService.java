@@ -156,7 +156,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 }
                 return fail(registration, extractionResult, previewResult, describeExtractionFailure(extractionResult));
             }
-            attemptIndexing(rulebook, registration);
+            attemptIndexing(indexableRulebook(rulebook, previewResult), registration);
             StoredRulebookRegistration indexed = withStatus(
                     registration,
                     ProcessingStatus.INDEXED,
@@ -187,6 +187,20 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             }
             throw exception;
         }
+    }
+
+    /**
+     * PDF text extraction and source preview use different layout-aware readers.
+     * The preview reader preserves page reading order better, so use it as the
+     * vector-index input when available while keeping the canonical extraction
+     * result persisted for the document lifecycle.
+     */
+    private static Rulebook indexableRulebook(Rulebook extracted, SourcePreviewResult preview) {
+        if (preview == null || preview.content() == null || preview.content().isBlank()) return extracted;
+        Rulebook indexed = Rulebook.acceptUpload(
+                extracted.id(), extracted.ownerPlayerId(), extracted.format(), extracted.fileSize());
+        indexed.recordExtraction(ExtractionResult.success(preview.content()));
+        return indexed;
     }
 
     private RulebookProcessingResult fail(

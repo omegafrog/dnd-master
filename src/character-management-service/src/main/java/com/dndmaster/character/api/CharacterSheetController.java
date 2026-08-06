@@ -88,6 +88,16 @@ public class CharacterSheetController {
         return CharacterSheetResponse.from(sheet);
     }
 
+    @GetMapping("/internal/v1/character-sheets")
+    List<CharacterSheetSummaryResponse> listCharacterSheets(@RequestParam UUID ownerPlayerId) {
+        return characterSheetService.listSheetsOwnedBy(ownerPlayerId).stream().map(CharacterSheetSummaryResponse::from).toList();
+    }
+
+    @PostMapping("/internal/v1/adventure-sessions/{sessionId}/character-sheets/{sheetId}/copy")
+    CharacterSheetResponse copyCharacterSheet(@PathVariable UUID sessionId, @PathVariable UUID sheetId, @RequestBody CopyCharacterSheetRequest request) {
+        return CharacterSheetResponse.from(characterSheetService.copyOwnedSheet(new CharacterSheetId(sheetId), new SessionId(sessionId), request.ownerPlayerId()));
+    }
+
     @GetMapping("/internal/v1/adventure-sessions/{sessionId}/character-sheets/{sheetId}/ownership")
     CharacterSheetResponse verifyOwnership(@RequestHeader(value = "X-Internal-Token", required = false) String token, @RequestHeader("X-Owner-Player-ID") UUID ownerPlayerId, @PathVariable UUID sessionId, @PathVariable UUID sheetId) {
         if (requestGuard == null) throw new IllegalStateException("request guard is not configured");
@@ -98,9 +108,15 @@ public class CharacterSheetController {
     @PutMapping("/internal/v1/character-sheets/{sheetId}")
     CharacterSheetResponse preserveCharacterSheet(
             @PathVariable UUID sheetId,
+            @RequestHeader("X-Internal-Token") String internalToken,
+            @RequestHeader("X-Session-ID") UUID sessionId,
+            @RequestHeader("X-Owner-Player-ID") UUID ownerPlayerId,
             @RequestHeader("Idempotency-Key") UUID commandId,
             @RequestHeader("If-Match-Version") long expectedVersion,
             @RequestBody CharacterSheetRequest request) {
+        if (requestGuard == null) throw new IllegalStateException("request guard is not configured");
+        requestGuard.internal(internalToken);
+        characterSheetService.verifySessionOwnership(new CharacterSheetId(sheetId), new SessionId(sessionId), ownerPlayerId);
         String derivedStatistics = request.derivedStatistics();
         if ("DND_5E_2014".equals(request.edition()) && structuredPayload(request)) {
             Dnd5e2014CharacterBuildEvaluator.Evaluation evaluation = Dnd5e2014CharacterBuildEvaluator.evaluate(request);
@@ -115,6 +131,13 @@ public class CharacterSheetController {
                 expectedVersion);
         CharacterSheet sheet = characterSheetService.manageCharacter(new CharacterSheetId(sheetId), update);
         return CharacterSheetResponse.from(sheet);
+    }
+
+    @GetMapping("/internal/v1/character-sheets/commands/{commandId}")
+    CharacterSheetResponse findByCommand(@RequestHeader("X-Internal-Token") String internalToken, @PathVariable UUID commandId) {
+        if (requestGuard == null) throw new IllegalStateException("request guard is not configured");
+        requestGuard.internal(internalToken);
+        return CharacterSheetResponse.from(characterSheetService.findByCommandId(commandId).orElseThrow(() -> new IllegalStateException("character command not found")));
     }
 
     private static boolean structuredPayload(CharacterSheetRequest request) {
@@ -160,4 +183,10 @@ public class CharacterSheetController {
             List<String> backgrounds) {}
 
     public record CharacterSheetsDeletionRequest(UUID sessionId, java.util.List<UUID> characterSheetIds) {}
+    public record CopyCharacterSheetRequest(UUID ownerPlayerId) {}
+    public record CharacterSheetSummaryResponse(UUID characterSheetId, String characterName, int level, String race, String characterClass, String background) {
+        static CharacterSheetSummaryResponse from(CharacterSheet sheet) {
+            return new CharacterSheetSummaryResponse(sheet.id().value(), sheet.data().characterName(), sheet.data().level(), sheet.data().race(), sheet.data().characterClass(), sheet.data().background());
+        }
+    }
 }

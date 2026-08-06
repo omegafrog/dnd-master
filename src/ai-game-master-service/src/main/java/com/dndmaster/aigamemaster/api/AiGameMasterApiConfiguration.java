@@ -8,8 +8,13 @@ import com.dndmaster.aigamemaster.application.rule.*;
 import com.dndmaster.aigamemaster.application.scene.*;
 import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.CharacterTagCompletionPort;
+import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
+import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionRouter;
+import com.dndmaster.aigamemaster.configuration.GmProviderProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Primary;
 
 import java.util.List;
 import java.util.UUID;
@@ -66,6 +71,11 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
+    AdventureStoryPlanController aiAdventureStoryPlanController(SpringAiChatAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+        return new AdventureStoryPlanController(adapter, objectMapper);
+    }
+
+    @Bean
     ScenarioBoundSceneService scenarioBoundSceneService(
             ScenarioPromptFactory prompts, SceneModelPort model) {
         return new ScenarioBoundSceneService(prompts, model);
@@ -96,5 +106,18 @@ public class AiGameMasterApiConfiguration {
             MapModelPort mapPort,
             IntentClassificationModelPort intentClassificationPort) {
         return new AiGameMasterController(sceneService, adjudicationPort, ruleAnswerService, mapPort, intentClassificationPort);
+    }
+
+    @Bean
+    @Primary
+    GmCompletionAdapter gmCompletionAdapter(SpringAiChatAdapter ollama, GmProviderProperties properties) {
+        properties.validate();
+        return new GmCompletionRouter(ollama, properties);
+    }
+
+    @Bean
+    GmAgentController gmAgentController(GmCompletionAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+                                        @Value("${ai-game-master.integration.internal-token:}") String internalToken) {
+        return new GmAgentController(adapter, objectMapper, new ApiRequestGuard(internalToken));
     }
 }

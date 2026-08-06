@@ -11,6 +11,8 @@ import com.dndmaster.adventure.application.scenario.preparation.ScenarioPreparat
 import com.dndmaster.adventure.application.scenario.preparation.StaticRuntimeOptionCatalog;
 import com.dndmaster.adventure.application.saved.*;
 import com.dndmaster.adventure.application.session.*;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanApplicationService;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository;
 import com.dndmaster.adventure.application.scenario.*;
 import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
@@ -23,10 +25,14 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresResolutionOver
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioCompilationRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeBindingRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeCommandJournal;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresGmTurnRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionEventRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresWorkQueueAdapter;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureSessionRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureSessionStartOutboxRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureStoryPlanRepository;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpKnowledgeDocumentLookupGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpPlayerSessionLookupGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpLegacyScenarioIngestionGateway;
@@ -41,6 +47,9 @@ import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharac
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetOwnershipGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetDeletionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAgentActionCandidateGateway;
+import com.dndmaster.adventure.infrastructure.integration.HttpGmAgentPort;
+import com.dndmaster.adventure.infrastructure.integration.HttpDiceToolPort;
+import com.dndmaster.adventure.infrastructure.integration.HttpCharacterToolPort;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -50,18 +59,45 @@ import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import javax.sql.DataSource;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.transaction.PlatformTransactionManager;
 import java.util.List;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAdventureStoryPlanGenerationGateway;
+import com.dndmaster.adventure.application.prologue.AdventurePrologueApplicationService;
+import com.dndmaster.adventure.application.prologue.AdventurePrologueGenerationPort;
 
 @Configuration(proxyBeanMethods = false)
 public class AdventureApiConfiguration {
 
     @Bean
+    PlatformTransactionManager transactionManager(DataSource dataSource) {
+        return new DataSourceTransactionManager(dataSource);
+    }
+
+    @Bean
     AdventureRepository adventureRepository(DataSource dataSource) {
         return new PostgresAdventureRepository(dataSource);
+    }
+
+    @Bean
+    GmTurnRepository gmTurnRepository(DataSource dataSource, ObjectMapper objectMapper) {
+        return new PostgresGmTurnRepository(dataSource, objectMapper);
+    }
+
+    @Bean
+    SessionEventRepository sessionEventRepository(DataSource dataSource) {
+        return new PostgresSessionEventRepository(dataSource);
+    }
+
+    @Bean
+    GmTurnFailureRecorder gmTurnFailureRecorder(GmTurnRepository turns, SessionEventRepository events) {
+        return new GmTurnFailureRecorder(turns, events);
     }
 
     @Bean
@@ -76,8 +112,213 @@ public class AdventureApiConfiguration {
             AdventureRepository adventureRepository,
             RuntimeBindingApplicationService runtimeBindingApplicationService,
             AdventureSessionStartOutboxRepository startOutboxRepository,
-            CharacterSheetOwnershipPort ownershipPort) {
-        return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository, runtimeBindingApplicationService, startOutboxRepository, ownershipPort);
+            CharacterSheetOwnershipPort ownershipPort,
+            AdventureStoryPlanRepository storyPlanRepository,
+            SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
+            AdventurePrologueApplicationService prologueService) {
+        return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository, runtimeBindingApplicationService, new AdventureSessionStartCoordinator(startOutboxRepository), ownershipPort, storyPlanRepository, sessionKnowledgeSetRepository, prologueService);
+    }
+
+    @Bean
+    AdventurePrologueApplicationService adventurePrologueApplicationService(AdventureRepository adventures,
+            AdventureStoryPlanRepository plans, CharacterSheetReadPort sheets, AdventurePrologueGenerationPort generator) {
+        return new AdventurePrologueApplicationService(adventures, plans, sheets, generator);
+    }
+
+    @Bean
+    AdventurePrologueGenerationPort adventurePrologueGenerationPort() {
+        return request -> {
+            var names = request.party().stream().map(snapshot -> snapshot.name() + " (레벨 " + snapshot.level() + ")").toList();
+            var stage = request.stage();
+            return String.format("%s. %s. %s. 함께한 모험가: %s. 근거: %s.", stage.title(), stage.goal(), stage.conflict(), String.join(", ", names), String.join(", ", request.evidence()));
+        };
+    }
+
+    @Bean
+    AdventureStoryPlanRepository adventureStoryPlanRepository(DataSource dataSource) {
+        return new PostgresAdventureStoryPlanRepository(dataSource);
+    }
+
+    @Bean
+    AdventureClockRepository adventureClockRepository(DataSource dataSource) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureClockRepository(dataSource);
+    }
+
+    @Bean
+    CommittedWorldFactRepository committedWorldFactRepository(DataSource dataSource) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresCommittedWorldFactRepository(dataSource);
+    }
+
+    @Bean
+    StoryContinuityContextProvider storyContinuityContextProvider(StoryPlanRevisionRepository revisions,
+            AdventureStoryPlanRepository legacyPlans, AdventureClockRepository clocks, CommittedWorldFactRepository facts) {
+        return sessionId -> revisions.current(sessionId).or(() -> legacyPlans.findBySessionId(new com.dndmaster.adventure.domain.adventure.SessionId(sessionId)).map(plan -> {
+            var stages = plan.stages().stream().map(stage -> stage.title() + ":" + stage.goal() + ":" + stage.conflict()).toList();
+            return new com.dndmaster.adventure.domain.runtime.plan.AdventureStoryPlanRevision(
+                    plan.planId(), sessionId, plan.version(), null, plan.planId(), stages);
+        })).map(revision -> {
+            var clock = clocks.findBySessionId(sessionId).orElseGet(() -> com.dndmaster.adventure.domain.runtime.clock.AdventureClock.initial(sessionId));
+            return new StoryContinuityContext(revision, facts.findBySessionId(sessionId).facts(), clock);
+        });
+    }
+
+    @Bean
+    StoryPlanRevisionRepository storyPlanRevisionRepository(DataSource dataSource, ObjectMapper mapper) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresStoryPlanRevisionRepository(dataSource, mapper);
+    }
+
+    @Bean
+    GmContextCheckpointRepository gmContextCheckpointRepository(DataSource dataSource, ObjectMapper mapper) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresGmContextCheckpointRepository(dataSource, mapper);
+    }
+
+    @Bean
+    GmProviderBindingRepository gmProviderBindingRepository(DataSource dataSource) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresGmProviderBindingRepository(dataSource);
+    }
+
+    @Bean
+    GmProviderBindingService gmProviderBindingService(GmProviderBindingRepository repository) {
+        return new GmProviderBindingService(repository);
+    }
+
+    @Bean
+    GmProviderQualityGateService gmProviderQualityGateService(io.micrometer.core.instrument.MeterRegistry registry) {
+        return new GmProviderQualityGateService(new com.dndmaster.adventure.infrastructure.metrics.MicrometerGmQualityMetrics(registry));
+    }
+
+    @Bean
+    GmProviderQualityGateStartupValidator gmProviderQualityGateStartupValidator(
+            GmProviderQualityGateService gate, ObjectMapper mapper,
+            @Value("${adventure.gm.quality-gate.enforce:true}") boolean enforce) {
+        return new GmProviderQualityGateStartupValidator(gate, mapper, enforce);
+    }
+
+    @Bean
+    ProviderTokenEstimator providerTokenEstimator() {
+        return new ProviderTokenEstimator(Map.of("legacy", 8192, "local", 8192, "remote", 128000,
+                "ollama", 8192, "openai", 128000));
+    }
+
+    @Bean
+    GmContextCompactionScheduler gmContextCompactionScheduler() {
+        return new GmContextCompactionScheduler(new CompactionPolicy(0.70));
+    }
+
+    @Bean
+    ContextCompactionPort contextCompactionPort(
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.internal-token:}") String internalToken) {
+        return new ValidatingContextCompactionPort(new com.dndmaster.adventure.infrastructure.integration.HttpGmContextCompactionPort(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(30), objectMapper, internalToken));
+    }
+
+    @Bean
+    GmContextCheckpointApplicationService gmContextCheckpointApplicationService(
+            ContextCompactionPort port, GmContextCheckpointRepository repository, StoryPlanRevisionRepository plans) {
+        return new GmContextCheckpointApplicationService(new CompactionPolicy(0.70), port, repository, plans);
+    }
+
+    @Bean
+    AuthoritativeSnapshotResolver authoritativeSnapshotResolver(RuntimeTurnRepository turns,
+            StoryContinuityContextProvider continuity, AdventureRepository adventures,
+            CharacterSheetReadPort characterSheets, CombatMapViewPort maps) {
+        return sessionId -> turns.findAllBySessionId(sessionId).stream()
+                .reduce((first, second) -> second)
+                .map(turn -> {
+                    var adventure = adventures.findById(turn.adventureId()).orElseThrow(() -> new IllegalStateException("adventure not found"));
+                    var characters = adventure.party().stream()
+                            .map(member -> {
+                                try {
+                                    return java.util.Optional.of(characterSheets.read(member.characterSheetId()));
+                                } catch (RuntimeException ignored) {
+                                    // A stale/deleted sheet must not make a committed turn fail during compaction.
+                                    return java.util.Optional.<CharacterSheetReadPort.CharacterSheet>empty();
+                                }
+                            })
+                            .flatMap(java.util.Optional::stream)
+                            .toList();
+                    long characterVersion = characters.stream().mapToLong(CharacterSheetReadPort.CharacterSheet::version).max().orElse(0);
+                    String characterSnapshot = characters.stream().map(sheet -> sheet.id().value() + ":" + sheet.name() + ":level=" + sheet.level() + ":version=" + sheet.version()).reduce((a, b) -> a + "|" + b).orElse("characters=none");
+                    var map = maps.playerView(turn.adventureId().value(), adventure.ownerPlayerId().value());
+                    String facts = continuity.load(sessionId).map(context -> context.promptText()).orElse("facts=none");
+                    String clock = continuity.load(sessionId).map(context -> "clockVersion=" + context.clock().version()
+                            + "; elapsedTurns=" + context.clock().turnsElapsed() + "; elapsedSeconds=" + context.clock().secondsElapsed()).orElse("clock=none");
+                    String mapSnapshot = map.map(Object::toString).orElse("map=none");
+                    return new VersionedRuntimeSnapshots(
+                            characterSnapshot, characterVersion, mapSnapshot, map.map(CombatMapViewPort.View::version).orElse(0L),
+                            facts, continuity.load(sessionId).map(context -> context.facts().stream().mapToLong(fact -> fact.version()).max().orElse(0)).orElse(0L),
+                            clock, continuity.load(sessionId).map(context -> context.clock().version()).orElse(0L),
+                            turn.turnId().toString(), clock, turn.context().currentScene(), mapSnapshot, mapSnapshot,
+                            false, turn.context().pendingActionValue().isPresent(), false);
+                })
+                .orElse(new VersionedRuntimeSnapshots("", 0, "", 0, "", 0, "", 0));
+    }
+
+    @Bean
+    RuntimeTurnCompactionCoordinator runtimeTurnCompactionCoordinator(
+            ProviderTokenEstimator estimator, GmContextCompactionScheduler scheduler,
+            GmContextCheckpointApplicationService checkpoints, AuthoritativeSnapshotResolver snapshots,
+            StoryPlanRevisionRepository plans, io.micrometer.core.instrument.MeterRegistry registry) {
+        return new RuntimeTurnCompactionCoordinator(estimator, scheduler, checkpoints, snapshots, plans,
+                new com.dndmaster.adventure.infrastructure.metrics.MicrometerGmQualityMetrics(registry));
+    }
+
+    @Bean
+    GmContextResumePromptProvider gmContextResumePromptProvider(GmContextCheckpointRepository repository,
+            AuthoritativeSnapshotResolver snapshots, ResumedGmContextAssembler assembler) {
+        return sessionId -> repository.current(sessionId).map(checkpoint -> {
+            var current = snapshots.resolve(sessionId);
+            var resumed = assembler.assemble(checkpoint, new AuthoritativeRuntimeSnapshots(
+                    current.characterSnapshot(), current.mapSnapshot(), current.factSnapshot(), current.clockSnapshot(),
+                    current.characterVersion(), current.mapVersion(), current.factVersion(), current.clockVersion()));
+            return "checkpointSummary=" + resumed.summary() + "; exactTail=" + resumed.exactTail()
+                    + "; characterSnapshot=" + resumed.characterSnapshot() + "; mapSnapshot=" + resumed.mapSnapshot()
+                    + "; factSnapshot=" + resumed.factSnapshot() + "; clockSnapshot=" + resumed.clockSnapshot()
+                    + "; planVersion=" + checkpoint.planVersion();
+        }).orElse("");
+    }
+
+    @Bean
+    ResumedGmContextAssembler resumedGmContextAssembler() {
+        return new ResumedGmContextAssembler();
+    }
+
+    @Bean
+    StoryContinuityCommandService storyContinuityCommandService(StoryPlanRevisionRepository plans,
+            AdventureClockRepository clocks, CommittedWorldFactRepository facts,
+            PlatformTransactionManager transactionManager,
+            GameSystemDefinitionPort gameSystemDefinitionPort) {
+        return new StoryContinuityCommandService(plans, clocks, facts,
+                new com.dndmaster.adventure.domain.runtime.plan.StoryPlanRevisionValidator(),
+                new org.springframework.transaction.support.TransactionTemplate(transactionManager),
+                sessionId -> gameSystemDefinitionPort.find(sessionId)
+                        .map(definition -> GameSystemTimeDefinitionAdapter.secondsPerTurn(definition.definitionJson()))
+                        .filter(java.util.OptionalInt::isPresent).orElse(java.util.OptionalInt.empty()));
+    }
+
+    @Bean
+    OfficialToolPort reviseStoryPlanToolPort(ObjectMapper mapper, StoryContinuityCommandService service) {
+        return ContinuityToolHandlers.revise(mapper, service);
+    }
+
+    @Bean
+    OfficialToolPort advanceGameTimeToolPort(ObjectMapper mapper, StoryContinuityCommandService service) {
+        return ContinuityToolHandlers.advance(mapper, service);
+    }
+
+    @Bean
+    AdventureStoryPlanApplicationService adventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packages, AdventureStoryPlanGenerationPort generator) {
+        return new AdventureStoryPlanApplicationService(plans, sessions, packages, generator);
+    }
+
+    @Bean
+    AdventureStoryPlanGenerationPort adventureStoryPlanGenerationPort(ObjectMapper mapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.ai-game-master.story-plan-timeout:1800s}") Duration timeout) {
+        return new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(), URI.create(baseUrl), timeout, mapper);
     }
 
     @Bean
@@ -93,7 +334,7 @@ public class AdventureApiConfiguration {
     @Bean
     CharacterSheetDeletionPort characterSheetDeletionPort(ObjectMapper objectMapper,
             @Value("${adventure.integration.character-management.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.internal-token:local-dev-internal-token}") String token) {
+            @Value("${adventure.integration.internal-token:}") String token) {
         return new CrossContextHttpCharacterSheetDeletionGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(10), objectMapper, token);
     }
 
@@ -187,6 +428,18 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    RuntimeCommandJournal runtimeCommandJournal(DataSource dataSource, ObjectMapper objectMapper) {
+        return new PostgresRuntimeCommandJournal(dataSource, objectMapper);
+    }
+
+    @Bean
+    RuntimeCommandSagaApplicationService runtimeCommandSagaApplicationService(RuntimeCommandJournal journal,
+            io.micrometer.core.instrument.MeterRegistry registry) {
+        return new RuntimeCommandSagaApplicationService(journal,
+                new com.dndmaster.adventure.infrastructure.metrics.MicrometerGmQualityMetrics(registry));
+    }
+
+    @Bean
     com.dndmaster.adventure.application.scenario.compilation.WorkQueuePort scenarioWorkQueue(DataSource dataSource) {
         return new PostgresWorkQueueAdapter(dataSource);
     }
@@ -231,10 +484,11 @@ public class AdventureApiConfiguration {
             ScenarioBundleRepository bundleRepository,
             RuntimeOptionCatalogPort runtimeOptionCatalogPort,
             com.dndmaster.adventure.application.scenario.compilation.CharacterContextSearchPort characterContextSearch,
-            com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort characterTagExtraction) {
+            com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort characterTagExtraction,
+            GameSystemDefinitionPort gameSystemDefinitionPort) {
         return new ScenarioPreparationApplicationService(packageRepository, bundleRepository, runtimeOptionCatalogPort,
                 characterContextSearch, characterTagExtraction,
-                new com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler());
+                new com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler(), gameSystemDefinitionPort);
     }
 
     @Bean
@@ -463,46 +717,72 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
             RuntimeBindingRepository runtimeBindingRepository,
             InitialSourceContextProposalPort proposalPort,
-            KnowledgeDocumentLookupPort lookupPort) {
+            KnowledgeDocumentLookupPort lookupPort,
+            GameSystemDefinitionPort gameSystemDefinitionPort) {
         return new RuntimeBindingApplicationService(
                 adventureRepository, bundleRepository, packageRepository, runtimeBindingRepository, proposalPort,
-                lookupPort);
+                lookupPort, gameSystemDefinitionPort);
+    }
+
+    @Bean
+    GameSystemDefinitionPort gameSystemDefinitionPort(
+            AdventureSessionRepository sessions, RuntimeBindingRepository bindings, ObjectMapper objectMapper,
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long timeoutSeconds,
+            @Value("${adventure.integration.internal-token:}") String internalToken) {
+        return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRulebookTimeDefinitionGateway(
+                sessions, bindings, HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken);
     }
 
     @Bean
     RuntimeEvidenceSearchPort runtimeEvidenceSearchPort(
             ObjectMapper objectMapper,
-            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl) {
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long timeoutSeconds) {
         return new CrossContextHttpRuntimeEvidenceSearchGateway(
-                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(10), objectMapper);
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper);
     }
 
     @Bean
-    RuntimePlanningPort runtimePlanningPort() {
-        return request -> {
-            RuntimeEvidence primaryEvidence = request.evidencePack().storybook().isEmpty()
-                    ? (request.evidencePack().rulebook().isEmpty() ? null : request.evidencePack().rulebook().getFirst())
-                    : request.evidencePack().storybook().getFirst();
-            String scene = primaryEvidence == null
-                    ? "서버가 현재 문맥을 바탕으로 장면을 정리했다."
-                    : primaryEvidence.excerpt();
-            String judgment = "서버가 '" + request.action() + "' 행동을 근거와 함께 정리했다.";
-            String narration = primaryEvidence == null
-                    ? "근거를 확인한 뒤 응답한다."
-                    : "근거를 바탕으로 '" + request.action() + "'에 응답한다.";
-            return new RuntimePlan(
-                    scene,
-                    request.currentContext().npcStateValue().orElse(null),
-                    judgment,
-                    narration,
-                    primaryEvidence == null ? request.activeSourceContext() : new ActiveSourceContext(
-                            primaryEvidence.knowledgeDocumentId(), primaryEvidence.extractionVersion(),
-                            primaryEvidence.locator(), primaryEvidence.excerpt()),
-                    primaryEvidence == null ? List.of() : List.of(primaryEvidence),
-                    request.evidencePack().resolution().isEmpty()
-                            ? List.of("resolution evidence not prefetched")
-                            : List.of());
-        };
+    GmAgentPort gmAgentPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.ai-game-master.timeout-seconds:180}") long timeoutSeconds,
+            @Value("${adventure.integration.internal-token:}") String internalToken) {
+        return new HttpGmAgentPort(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken);
+    }
+
+    @Bean
+    OfficialToolPort diceToolPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.dice-roll.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:}") String token) {
+        return new HttpDiceToolPort(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(15), objectMapper, token);
+    }
+
+    @Bean
+    OfficialToolPort characterToolPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.character-management.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:local-dev-internal-token}") String token) {
+        return new HttpCharacterToolPort(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(15), objectMapper, token);
+    }
+
+    @Bean
+    GmToolGateway gmToolGateway(@Qualifier("diceToolPort") OfficialToolPort diceToolPort,
+                                @Qualifier("characterToolPort") OfficialToolPort characterToolPort,
+                                @Qualifier("reviseStoryPlanToolPort") OfficialToolPort reviseStoryPlanToolPort,
+                                @Qualifier("advanceGameTimeToolPort") OfficialToolPort advanceGameTimeToolPort,
+                                ObjectMapper objectMapper) {
+        var definitions = new java.util.HashSet<>(OfficialGmToolRegistry.definitions(diceToolPort, characterToolPort));
+        definitions.addAll(StoryContinuityToolRegistry.definitions(reviseStoryPlanToolPort, advanceGameTimeToolPort));
+        return new GmToolGatewayService(definitions, java.time.Clock.systemUTC(), objectMapper);
+    }
+
+    @Bean
+    RuntimePlanningPort runtimePlanningPort(GmAgentPort gmAgentPort, GmToolGateway gmToolGateway,
+                                            RuntimeCommandSagaApplicationService saga) {
+        return new GmAgentRuntimePlanningAdapter(gmAgentPort, new GmFinalValidator(), gmToolGateway, saga);
     }
 
     @Bean
@@ -523,13 +803,20 @@ public class AdventureApiConfiguration {
             RuntimeBindingRepository runtimeBindingRepository,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
             RuntimeTurnRepository runtimeTurnRepository,
+            SessionEventRepository sessionEventRepository,
             RuntimeEvidenceSearchPort runtimeEvidenceSearchPort,
             RuntimePlanningPort runtimePlanningPort,
             NarrationSafetyPort narrationSafetyPort,
-            SessionKnowledgeSetRepository sessionKnowledgeSetRepository) {
+            SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
+            AdventureStoryPlanRepository storyPlanRepository,
+            StoryContinuityContextProvider continuityContextProvider,
+            RuntimeTurnCompactionCoordinator compactionCoordinator,
+            GmContextResumePromptProvider resumePromptProvider,
+            GmProviderBindingRepository providerBindingRepository) {
         return new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
-                runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository);
+                runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
+                compactionCoordinator, resumePromptProvider, providerBindingRepository);
     }
 
     @Bean
@@ -613,8 +900,18 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    CombatMapPort combatMapPort() {
-        return command -> { /* TODO: implement map validation */ };
+    CombatMapPort combatMapPort(
+            @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl) {
+        CrossContextHttpCombatGateway gateway = new CrossContextHttpCombatGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5));
+        return gateway::validateAndMove;
+    }
+
+    @Bean
+    CombatMapViewPort combatMapViewPort(
+            @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            ObjectMapper objectMapper) {
+        return new HttpCombatMapViewGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), objectMapper);
     }
 
     @Bean
@@ -692,12 +989,20 @@ public class AdventureApiConfiguration {
     AdventureController adventureController(
             SavedAdventureApplicationService savedAdventureService,
             RuntimeTurnApplicationService runtimeTurnService,
+            AdventureRepository adventureRepository,
+            GmTurnFailureRecorder gmTurnFailureRecorder,
+            GmTurnRepository gmTurnRepository,
+            RuntimeTurnRepository runtimeTurnRepository,
+            SessionEventRepository sessionEventRepository,
             RuleGuidanceApplicationService guidanceService,
             AdventureCombatApplicationService combatService,
             AdventureScenarioApplicationService scenarioService,
-            AuthenticatedPlayerResolver playerResolver) {
+            AuthenticatedPlayerResolver playerResolver,
+            org.springframework.beans.factory.ObjectProvider<CombatMapPort> combatMapPort,
+            ObjectMapper objectMapper,
+            org.springframework.beans.factory.ObjectProvider<CombatMapViewPort> combatMapViewPort) {
         return new AdventureController(
-                savedAdventureService, runtimeTurnService, guidanceService, combatService, scenarioService, playerResolver);
+                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, scenarioService, playerResolver, combatMapPort, objectMapper, combatMapViewPort);
     }
 
     @Bean

@@ -13,9 +13,13 @@ import javax.sql.DataSource;
 
 public final class PostgresAdventureRepository implements AdventureRepository {
     private final DataSource dataSource;
+    private final DataSource transactionDataSource;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    public PostgresAdventureRepository(DataSource dataSource) { this.dataSource = java.util.Objects.requireNonNull(dataSource); }
+    public PostgresAdventureRepository(DataSource dataSource) {
+        this.transactionDataSource = java.util.Objects.requireNonNull(dataSource);
+        this.dataSource = new org.springframework.jdbc.datasource.TransactionAwareDataSourceProxy(transactionDataSource);
+    }
 
     @Override
     public Optional<Adventure> findById(AdventureId adventureId) {
@@ -45,18 +49,20 @@ public final class PostgresAdventureRepository implements AdventureRepository {
     @Override
     public void save(Adventure adventure) {
         try (Connection connection = dataSource.getConnection()) {
+            // Adventure writes are owned by the configured DataSourceTransactionManager.
+            boolean managed = org.springframework.transaction.support.TransactionSynchronizationManager.isActualTransactionActive();
             boolean priorAutoCommit = connection.getAutoCommit();
-            connection.setAutoCommit(false);
+            if (!managed) connection.setAutoCommit(false);
             try {
                 if (adventure.version() == 0) insert(connection, adventure);
                 else update(connection, adventure);
                 replaceConversation(connection, adventure);
-                connection.commit();
+                if (!managed) connection.commit();
             } catch (SQLException | RuntimeException exception) {
-                rollback(connection, exception);
+                if (!managed) rollback(connection, exception);
                 if (exception instanceof OptimisticAdventureLockException optimistic) throw optimistic;
                 throw failure("could not save adventure", exception);
-            } finally { connection.setAutoCommit(priorAutoCommit); }
+            } finally { if (!managed) connection.setAutoCommit(priorAutoCommit); }
         } catch (SQLException exception) { throw failure("could not access adventure storage", exception); }
     }
 

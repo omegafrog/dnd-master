@@ -26,15 +26,6 @@ import org.testcontainers.utility.DockerImageName;
 class AllInOneFlywayOutOfOrderCompatibilityTest {
     private static final DockerImageName PGVECTOR = DockerImageName.parse("pgvector/pgvector:pg17")
             .asCompatibleSubstituteFor("postgres");
-    private static final List<String> MODULES = List.of(
-            "identity-access-service",
-            "adventure-service",
-            "rule-knowledge-service",
-            "character-management-service",
-            "dice-roll-service",
-            "combat-map-service",
-            "ai-game-master-service");
-
     @Test
     void appAllCanRecoverWhenAdventure31ArrivesAfterHigherVersions() throws Exception {
         try (var postgres = new PostgreSQLContainer<>(PGVECTOR)
@@ -107,9 +98,12 @@ class AllInOneFlywayOutOfOrderCompatibilityTest {
     }
 
     private static Flyway appAllFlyway(DataSource dataSource, boolean outOfOrder) {
+        // app-all configures one Flyway history table per module. Combining all module
+        // locations here creates false duplicate versions (for example V2_6 in
+        // character-management and combat-map) that production never resolves together.
         var configuration = Flyway.configure()
                 .dataSource(dataSource)
-                .locations(MODULES.stream().map(AllInOneFlywayOutOfOrderCompatibilityTest::moduleLocation).toArray(String[]::new))
+                .locations(moduleLocation("adventure-service"))
                 .outOfOrder(outOfOrder);
         return configuration.load();
     }

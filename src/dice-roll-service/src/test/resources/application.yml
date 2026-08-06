@@ -6,3 +6,7 @@ spring:
     password:
   flyway:
     enabled: false
+
+dice:
+  integration:
+    internal-token: test-internal-token

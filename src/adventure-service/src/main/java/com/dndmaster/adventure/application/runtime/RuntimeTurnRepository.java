@@ -9,5 +9,6 @@ public interface RuntimeTurnRepository {
     Optional<RuntimeTurn> findByTurnId(UUID turnId);
     Optional<RuntimeTurn> findByCommandId(UUID commandId);
     List<RuntimeTurn> findAllByAdventureId(AdventureId adventureId);
+    default List<RuntimeTurn> findAllBySessionId(UUID sessionId) { return List.of(); }
     void save(RuntimeTurn turn);
 }

@@ -1,5 +1,22 @@
 # Ubiquitous Language
 
+- **Solo Player**: 자료 준비, 시나리오 구성, 캐릭터 생성, 세션 실행을 혼자 수행하는 유일한 인간 사용자. 별도 인간 GM 역할은 없다.
+- **AI Game Master**: Solo Player의 모험 진행 중 장면 서술, 행동 판정, 규칙 근거 활용을 담당하는 AI 역할. 사용자 권한이나 별도 관리 화면을 갖는 인간 GM과 구분한다.
+- **Player Dashboard**: 로그인 후 Solo Player가 처음 도착하는 상태 기반 시작 화면. 진행 중 모험, 작성 중 세션, 준비된 번들, 최초 자료 준비 순서로 다음 행동을 제시한다.
+- **Game System Definition**: AI가 룰북 근거에서 추출하고 백엔드가 검증·버전 관리·게시하는 선언형 게임 규칙 계약. 캐릭터 필드, 자원, 판정, 공식, 이벤트 조건, 상태 변경을 정의하며 실행 코드나 임의 HTML은 포함하지 않는다. 사용자가 파일을 직접 편집하지 않으므로 검증된 버전형 JSON을 정본으로 사용한다.
+- **Bundle Rulebook Cardinality**: 하나의 Scenario Bundle Revision은 정확히 하나의 Rulebook만 포함한다. Game System Definition은 이 Rulebook 하나에서 생성하며 여러 룰북의 병합이나 우선순위 규칙은 두지 않는다.
+- **Rulebook-Only Bundle**: Rulebook 하나만 포함하고 Main Scenario나 다른 시나리오 자료가 없는 유효한 Scenario Bundle. 캐릭터·판정 규칙은 제공하지만 모험 서사 시작점은 별도로 정해야 한다.
+- **Adventure Story Plan**: 모험 시작부터 결말까지의 대략적인 진행 절차를 메인 줄기, 조건부 분기, 복수 결말, 단계별 목표·갈등·핵심 인물·단서·전환 조건으로 표현한 백엔드 전용 계획. 시나리오 자료가 있으면 자료에서 컴파일하고, Rulebook-Only Bundle이면 AI가 전체 골격을 생성한다. Solo Player에게 내용·검토 화면·요약을 노출하지 않는다.
+- **GM Elaboration**: AI Game Master가 Adventure Story Plan의 현재 단계와 전환 조건을 유지하면서 장면 묘사, 대화, 분위기, 세부 사건을 살을 붙여 서술하는 행위.
+- **Adventure Brief**: Rulebook-Only Bundle에서 Adventure Story Plan을 생성하기 위한 Solo Player 입력. 예상 길이와 난이도는 필수이며, 주제·아이디어, 분위기, 제외 소재는 선택이다. 선택값이 없으면 Rulebook 기반 기본값을 사용한다.
+- **Adventure Party Capacity**: Storybook에서 추출하거나 시나리오 패키지에 기록한 모험의 총 캐릭터 수. 세션 생성 시 고정하며 파티는 이 수를 초과하거나 부족한 상태로 모험을 시작할 수 없다.
+- **Runtime Rule**: 게시된 Game System Definition에 따라 백엔드 규칙 엔진이 턴과 게임 이벤트에 적용하는 상태 전이. D&D의 명중 굴림이나 다른 게임 시스템의 SAN 변화처럼 룰북별로 달라지는 기계 규칙을 포함한다.
+- **Rule Operation DSL**: Runtime Rule이 사용할 수 있는 제한된 선언형 연산 집합. 초기에는 주사위, 비교, 산술, 범위 제한, 조건 분기, 상태 추가·제거, 이벤트, 자원 변경을 허용한다. 임의 스크립트는 실행하지 않으며 표현할 수 없는 규칙은 `UNSUPPORTED`로 기록한다.
+- **Rule-Driven UI**: Game System Definition과 현재 런타임 상태를 API로 받아 허용된 컴포넌트만 렌더링하는 프런트엔드 UI. 캐릭터 생성 입력과 플레이 중 규칙 상태·행동을 표현하지만 규칙 판정의 권위는 갖지 않는다.
+- **Game System Review**: Solo Player가 저수준 JSON 대신 캐릭터 시트 미리보기, 주요 자원·스탯, 지원 판정, `UNSUPPORTED` 규칙, 충돌·신뢰도, 룰북 출처를 확인하고 Game System Definition을 승인하는 준비 단계.
+- **Rule Support Severity**: `UNSUPPORTED` Runtime Rule의 승인 영향도. 캐릭터 생성 필수 스탯, 핵심 판정·자원 변화, 사망·전투·진행 규칙은 `BLOCKING`이며 Game System Review 승인을 막는다. 희귀 선택·부가 규칙은 `WARNING`이며 명시적 경고 확인 후 승인할 수 있다.
+- **Bundle Lock**: 캐릭터 생성에 진입하기 전에 선택된 Scenario Bundle Revision·Scenario Package·Knowledge Document 집합·Game System Definition·캐릭터 생성 스키마의 정확한 버전을 모험 준비 흐름에 고정하는 규칙. 캐릭터 생성을 시작한 뒤에는 해당 흐름이 참조하는 리비전을 바꾸지 않는다. 원본 번들의 후속 변경은 새 리비전으로 만들며 미래 모험에서 사용할 수 있다.
+- **Adventure Start Lock**: 모험 시작 전환 시 파티 구성과 런타임 구성을 고정하는 규칙. 시작 후에는 캐릭터 구성이나 실행 설정을 변경하지 않는다.
 - **Knowledge Document**: 소유자가 업로드하는 RAG 원본 파일. 하나의 통합 업로드·처리 흐름을 사용한다.
 - **Document Type**: Knowledge Document의 의미 메타데이터. 초기 값은 `RULEBOOK`과 `STORYBOOK`이다. 저장·검색·근거 표시에 사용한다.
 - **Batch Upload**: 여러 Knowledge Document를 한 요청으로 접수하는 행위. 각 파일은 별도 처리 상태·실패 사유·재시도 단위를 가진다.
@@ -18,3 +35,9 @@
 - **Source Span**: 원본 문서의 텍스트나 시각 요소와 그 위치를 보존하는 추적 단위. PDF와 이미지는 페이지·좌표·읽기 순서, DOCX와 TXT는 구조·문자 범위를 사용한다. 시나리오 컴파일 전 과정의 정본이다.
 - **Progressive Scenario Compilation**: Source Span을 정본으로 유지하면서 안전하게 해석할 수 있는 판정과 굴림만 Resolution Unit으로 투영하는 방식. 구조화하지 못한 내용은 버리거나 추측하지 않고 원문 조회로 강등한다.
 - **Resolution Unit**: 시나리오 원문에 명시된 판정 또는 굴림 절차를 실행 가능한 형태로 투영한 단위. 능력치·기술 판정, 내성, 공격, 피해, 회복, 대항, 우선권, 충전, 랜덤 테이블, 특수 굴림, 수동 수치 기준을 포함한다. 원문에 없는 절차나 결과는 생성하지 않는다.
+- **GM Turn**: Solo Player의 텍스트 입력 또는 확정된 맵 상호작용 하나를 AI Game Master가 해석하고, 판정·서술·상태 변화·다음 상황을 하나의 원자적 결과로 확정하는 진행 단위. 게임 시스템의 전투 턴이나 시간 단위와 구분한다.
+- **Tactical Map**: Scenario Bundle에서 감지되어 Adventure Story Plan의 장면·장소·진입 조건에 연결되는 격자형 플레이 공간. 탐험, 잠입, 추격, 전투에 사용한다.
+- **Map Interaction Candidate**: Solo Player가 토큰 드래그, 문·오브젝트 클릭, 대상 또는 위치 선택을 완료했지만 확인 팝오버에서 아직 확정하지 않은 맵 행동. 확인 전에는 모험 상태를 바꾸지 않는다.
+- **Fog of War**: 플레이어 토큰의 시야, 벽, 문, 장애물, 발견 판정을 바탕으로 Tactical Map의 현재 가시 영역, 과거 탐험 영역, 미탐험 영역을 구분하는 공개 규칙.
+- **Last Seen Token**: 공개된 몬스터가 시야에서 벗어났을 때 룰북의 최근 1턴 동안 마지막 목격 칸에 축소 표시되는 기존 토큰. 별도 토큰 종류가 아니며 기한이 지나면 제거한다.
+- **GM Context Compaction**: AI Game Master의 장기 컨텍스트를 내부 전용으로 줄이는 과정. 먼저 확정 상태를 저장하고 전투·탐험을 줄거리와 결과 중심으로 요약하되, 마지막 입력·장면·응답·현재 상황은 압축하지 않는다.

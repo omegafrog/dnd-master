@@ -14,7 +14,9 @@ class DomainResponsibilityContractTest {
     private static final Map<String, String> SERVICES = services();
     private static final List<String> ALLOWED_DOMAIN_SERVICES = List.of(
             "OwnershipAccessPolicy.java",
-            "RulebookIndexingPolicy.java");
+            "RulebookIndexingPolicy.java",
+            "VisibilityPolicy.java",
+            "GameTimePolicy.java");
 
     @Test
     void domainAndApplicationDependenciesPointInward() throws Exception {

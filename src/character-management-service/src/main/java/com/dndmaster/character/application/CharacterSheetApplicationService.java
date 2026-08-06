@@ -2,6 +2,8 @@ package com.dndmaster.character.application;
 
 import com.dndmaster.character.domain.*;
 import java.util.Objects;
+import java.util.List;
+import java.util.UUID;
 
 public final class CharacterSheetApplicationService {
     private final CharacterSheetRepository repository;
@@ -46,6 +48,20 @@ public final class CharacterSheetApplicationService {
         if (!decision.accepted()) throw new CharacterMutationRejectedException(decision.violations());
         repository.save(sheet);
         return sheet;
+    }
+
+    public List<CharacterSheet> listSheetsOwnedBy(UUID ownerPlayerId) {
+        return repository.findByOwnerPlayerId(Objects.requireNonNull(ownerPlayerId, "owner player id must not be null"));
+    }
+
+    public java.util.Optional<CharacterSheet> findByCommandId(UUID commandId) { return repository.findByCommandId(commandId); }
+
+    public CharacterSheet copyOwnedSheet(CharacterSheetId sourceId, SessionId targetSessionId, UUID ownerPlayerId) {
+        CharacterSheet source = load(sourceId);
+        if (!Objects.equals(source.ownerPlayerId(), Objects.requireNonNull(ownerPlayerId, "owner player id must not be null"))) {
+            throw new IllegalStateException("character sheet belongs to another owner");
+        }
+        return createSheet(new CreateCharacterSheetCommand(targetSessionId, ownerPlayerId, source.edition(), source.data()));
     }
 
     public CharacterSheet openSheet(CharacterSheetId id, SheetEdition requestedEdition) {

@@ -7,6 +7,7 @@ import com.dndmaster.adventure.application.guidance.AnswerRuleInquiryCommand;
 import com.dndmaster.adventure.application.guidance.RuleGuidanceApplicationService;
 import com.dndmaster.adventure.application.progress.AdventureProgressApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
+import com.dndmaster.adventure.application.runtime.GmTurnRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnResult;
 import com.dndmaster.adventure.application.runtime.SubmitRuntimeTurnCommand;
 import com.dndmaster.adventure.application.saved.CreateAdventureCommand;
@@ -19,10 +20,15 @@ import com.dndmaster.adventure.domain.ruleset.DndEdition;
 import io.swagger.v3.oas.annotations.Operation;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.UUID;
+import com.dndmaster.adventure.domain.runtime.GmTurn;
+import com.dndmaster.adventure.application.combat.CombatMapPort;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 @RestController
 @RequestMapping
@@ -30,24 +36,50 @@ public class AdventureController {
     private static final String LEGACY_SCENARIO_UPLOAD_SUNSET = "Fri, 31 Dec 2027 00:00:00 GMT";
     private final SavedAdventureApplicationService savedAdventureService;
     private final RuntimeTurnApplicationService runtimeTurnService;
+    private final com.dndmaster.adventure.application.saved.AdventureRepository adventureRepository;
+    private final com.dndmaster.adventure.application.runtime.GmTurnFailureRecorder gmTurnFailureRecorder;
+    private final GmTurnRepository gmTurnRepository;
+    private final com.dndmaster.adventure.application.runtime.RuntimeTurnRepository runtimeTurnRepository;
+    private final com.dndmaster.adventure.application.runtime.SessionEventRepository sessionEventRepository;
     private final RuleGuidanceApplicationService guidanceService;
     private final AdventureCombatApplicationService combatService;
     private final AdventureScenarioApplicationService scenarioService;
     private final AuthenticatedPlayerResolver playerResolver;
+    private final CombatMapPort combatMapPort;
+    private final com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort;
+    private final ObjectMapper objectMapper;
 
     public AdventureController(
             SavedAdventureApplicationService savedAdventureService,
             RuntimeTurnApplicationService runtimeTurnService,
+            com.dndmaster.adventure.application.saved.AdventureRepository adventureRepository,
+            com.dndmaster.adventure.application.runtime.GmTurnFailureRecorder gmTurnFailureRecorder,
+            GmTurnRepository gmTurnRepository,
+            com.dndmaster.adventure.application.runtime.RuntimeTurnRepository runtimeTurnRepository,
+            com.dndmaster.adventure.application.runtime.SessionEventRepository sessionEventRepository,
             RuleGuidanceApplicationService guidanceService,
             AdventureCombatApplicationService combatService,
             AdventureScenarioApplicationService scenarioService,
-            AuthenticatedPlayerResolver playerResolver) {
+            AuthenticatedPlayerResolver playerResolver,
+            ObjectProvider<CombatMapPort> combatMapPort,
+            ObjectMapper objectMapper,
+            ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapViewPort> combatMapViewPort) {
         this.savedAdventureService = savedAdventureService;
         this.runtimeTurnService = runtimeTurnService;
+        this.adventureRepository = adventureRepository;
+        this.gmTurnFailureRecorder = gmTurnFailureRecorder;
+        this.gmTurnRepository = gmTurnRepository;
+        this.runtimeTurnRepository = runtimeTurnRepository;
+        this.sessionEventRepository = sessionEventRepository;
         this.guidanceService = guidanceService;
         this.combatService = combatService;
         this.scenarioService = scenarioService;
         this.playerResolver = playerResolver;
+        this.combatMapPort = combatMapPort.getIfAvailable(() -> command -> {
+            throw new IllegalStateException("combat map gateway unavailable");
+        });
+        this.combatMapViewPort = combatMapViewPort.getIfAvailable(() -> (adventureId1, ownerId) -> java.util.Optional.empty());
+        this.objectMapper = objectMapper;
     }
 
     @PostMapping("/api/v1/adventures/scenarios")
@@ -77,11 +109,57 @@ public class AdventureController {
         // 플레이어 입력을 런타임 턴으로 바꾸고, 서버가 만든 narration을 돌려준다.
         RuntimeTurnResult result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
                 new AdventureId(adventureId),
-                new OwnerPlayerId(request.playerId()),
+                new OwnerPlayerId(playerResolver.playerId()),
                 request.turnId(),
                 request.commandId(),
                 request.action()));
         return RuntimeTurnResponse.from(result);
+    }
+
+    @PostMapping("/api/v1/adventures/{adventureId}/turns")
+    public ResponseEntity<RuntimeTurnResponse> submitTypedTurn(
+            @PathVariable UUID adventureId,
+            @RequestHeader("Idempotency-Key") UUID commandId,
+            @RequestHeader("If-Match-Version") long expectedVersion,
+            @RequestBody GmTurnRequest request) {
+        UUID owner = playerResolver.playerId();
+        gmTurnRepository.lockAdventure(adventureId);
+        var adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        adventure.reopen(new OwnerPlayerId(owner));
+        var input = request.input().toDomain();
+        var existing = gmTurnRepository.findByCommandId(commandId);
+        if (existing.isPresent()) {
+            existing.get().assertSameCommand(input);
+            var prior = runtimeTurnRepository.findByCommandId(commandId).orElseThrow(
+                    () -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "turn is still processing"));
+            return ResponseEntity.accepted().body(RuntimeTurnResponse.from(new RuntimeTurnResult(
+                    prior, prior.context(), prior.conversation(), prior.version())));
+        }
+        GmTurn turn = GmTurn.start(request.turnId(), commandId, expectedVersion, input);
+        gmTurnRepository.save(turn, adventureId);
+        RuntimeTurnResult result;
+        try {
+            gmTurnRepository.save(turn.process(), adventureId);
+            if (input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput mapAction) {
+                applyMapAction(adventure, owner, commandId, mapAction);
+            }
+            result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
+                    new AdventureId(adventureId), new OwnerPlayerId(owner), request.turnId(), commandId,
+                    input.actionText(), expectedVersion,
+                    !(input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput)));
+        } catch (RuntimeException exception) {
+            gmTurnFailureRecorder.record(turn, adventureId, adventure.sessionId().value(), exception.getMessage(), expectedVersion);
+            return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_GATEWAY).build();
+        }
+        String providerMetadata = "provider=" + result.turn().plan().provider()
+                + ";model=" + result.turn().plan().model()
+                + ";reasoning=" + result.turn().plan().reasoning()
+                + ";validation=accepted";
+        gmTurnRepository.save(turn.process().commit(providerMetadata), adventureId);
+        com.dndmaster.adventure.application.runtime.GmTurnCommitPolicy.requirePublishable(turn.process().commit(providerMetadata), result.version());
+        sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
+                result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
+        return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/rule-inquiries")
@@ -99,7 +177,13 @@ public class AdventureController {
 
     @GetMapping("/api/v1/adventures/{adventureId}/combat-map")
     CombatMapResponse playerMap(@PathVariable UUID adventureId) {
-        return new CombatMapResponse(adventureId, "map-view");
+        var adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        if (!adventure.ownerPlayerId().value().equals(playerResolver.playerId())) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        }
+        var projection = combatMapViewPort.playerView(adventureId, playerResolver.playerId());
+        return projection.map(view -> CombatMapResponse.from(adventureId, adventure.version(), view))
+                .orElseGet(() -> new CombatMapResponse(adventureId, "map-view", adventure.version(), null, null, List.of(), List.of(), List.of(), null));
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/dice-rolls")
@@ -117,8 +201,8 @@ public class AdventureController {
                 request.ownerPlayerId(),
                 request.tokenId(),
                 request.expectedVersion());
-        combatService.resolveCombatAction(command);
-        return new DiceRollResponse(UUID.randomUUID(), request.role(), List.of(), 0);
+        var result = combatService.resolveCombatAction(command);
+        return new DiceRollResponse(result.operationId(), result.role().name(), List.of(result.diceTotal()), result.diceTotal());
     }
 
     @PutMapping("/api/v1/adventures/{adventureId}/save")
@@ -137,7 +221,7 @@ public class AdventureController {
     ResponseEntity<Void> resumeAdventure(@PathVariable UUID adventureId) {
         savedAdventureService.reopenAdventure(
                 new AdventureId(adventureId),
-                new OwnerPlayerId(UUID.randomUUID()));
+                new OwnerPlayerId(playerResolver.playerId()));
         return ResponseEntity.noContent().build();
     }
 
@@ -154,7 +238,7 @@ public class AdventureController {
     @GetMapping("/internal/v1/adventures")
     List<AdventureSummaryResponse> ownedAdventures(@RequestParam UUID ownerId) {
         return savedAdventureService.listSavedAdventures(new OwnerPlayerId(ownerId)).stream()
-                .map(a -> new AdventureSummaryResponse(a.id().value(), a.status().name()))
+                .map(a -> new AdventureSummaryResponse(a.id().value(), a.status().name(), a.version()))
                 .toList();
     }
 
@@ -180,6 +264,21 @@ public class AdventureController {
     }
 
     public record StreamMessageRequest(UUID playerId, UUID turnId, UUID commandId, String action) {}
+
+    public record GmTurnRequest(UUID turnId, GmInputRequest input) {}
+
+    public record GmInputRequest(String type, String text, UUID mapId, Long mapVersion, String action, String question) {
+        com.dndmaster.adventure.domain.runtime.GmInput toDomain() {
+            if (type == null) throw new IllegalArgumentException("input type is required");
+            return switch (type) {
+                case "TEXT" -> new com.dndmaster.adventure.domain.runtime.GmInput.TextInput(text);
+                case "MAP_ACTION" -> new com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput(mapId, mapVersion == null ? -1 : mapVersion, action);
+                case "META_QUESTION" -> new com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput(question);
+                default -> throw new IllegalArgumentException("unsupported input type: " + type);
+            };
+        }
+        String actionText() { return toDomain().actionText(); }
+    }
     // 프런트가 바로 보여줄 수 있게 턴 결과를 압축한 응답이다.
     public record RuntimeTurnResponse(
             UUID turnId,
@@ -208,7 +307,43 @@ public class AdventureController {
     }
     public record RuleInquiryRequest(UUID inquiryId, UUID ruleSetId, UUID playerId, String situation) {}
     public record RuleInquiryResponse(UUID inquiryId, String status) {}
-    public record CombatMapResponse(UUID adventureId, String status) {}
+    private void applyMapAction(Adventure adventure, UUID owner, UUID commandId,
+            com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput input) {
+        try {
+            MapActionPayload payload = objectMapper.readValue(input.action(), MapActionPayload.class);
+            if (!input.mapId().equals(payload.mapId()) || input.mapVersion() != payload.mapVersion()) {
+                throw new IllegalArgumentException("map action identity mismatch");
+            }
+            if (payload.action() == null || payload.action().isBlank()) {
+                throw new IllegalArgumentException("map action type required");
+            }
+            if (!"MOVE".equals(payload.action())) {
+                return;
+            }
+            var member = adventure.party().stream().findFirst()
+                    .orElseThrow(() -> new IllegalStateException("map action requires a party member"));
+            String path = payload.path() == null ? null : payload.path().stream()
+                    .map(position -> position.x() + "," + position.y()).reduce((left, right) -> left + ";" + right).orElse(null);
+            combatMapPort.validateAndMove(new CombatActionCommand(
+                    commandId, adventure.id(), adventure.ruleSetId(), member.characterSheetId(), payload.mapId(),
+                    CombatActorRole.PLAYER, payload.action(), path, owner, payload.tokenId(), payload.mapVersion()));
+        } catch (java.io.IOException exception) {
+            throw new IllegalArgumentException("invalid map action", exception);
+        }
+    }
+
+    public record MapActionPayload(UUID mapId, long mapVersion, UUID tokenId, String action,
+            List<PositionPayload> path, UUID targetId, PositionPayload location) {}
+    public record PositionPayload(int x, int y) {}
+    public record CombatMapResponse(UUID adventureId, String status, long sessionVersion, UUID mapId,
+            com.dndmaster.adventure.application.combat.CombatMapViewPort.Grid grid,
+            List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Token> tokens,
+            List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Obstacle> obstacles,
+            List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Layer> layers, Long version) {
+        static CombatMapResponse from(UUID adventureId, long sessionVersion, com.dndmaster.adventure.application.combat.CombatMapViewPort.View view) {
+            return new CombatMapResponse(adventureId, "authoritative-map", sessionVersion, view.mapId(), view.grid(), view.tokens(), view.obstacles(), view.layers(), view.version());
+        }
+    }
     public record DiceRollRequest(
             UUID ruleSetId,
             UUID characterSheetId,
@@ -222,7 +357,7 @@ public class AdventureController {
     public record SaveAdventureRequest(UUID playerId, long expectedVersion, String currentScene) {}
     public record SaveAdventureResponse(UUID adventureId, long newVersion) {}
     public record DeleteAdventureRequest(UUID playerId, long expectedVersion) {}
-    public record AdventureSummaryResponse(UUID adventureId, String status) {}
+    public record AdventureSummaryResponse(UUID adventureId, String status, long version) {}
     public record EditionResponse(UUID adventureId, String edition) {}
     public record RollConditionsResponse(UUID adventureId, String conditions) {}
     public record MovementValidationRequest(UUID tokenId, int x, int y) {}

@@ -27,7 +27,10 @@ class FakeIdentityApi implements IdentityApi {
   }
 }
 
-afterEach(() => vi.useRealTimers())
+afterEach(() => {
+  vi.useRealTimers()
+  window.localStorage.clear()
+})
 
 describe('authentication flow', () => {
   it('provides an accessible login and authenticated navigation', async () => {
@@ -57,6 +60,37 @@ describe('authentication flow', () => {
     expect(api.logoutToken).toBe('public-api-token')
     expect(screen.getByRole('heading', { name: '로그인' })).toBeInTheDocument()
     expect(screen.getByRole('status')).toHaveTextContent('로그아웃되었습니다.')
+  })
+
+  it('opens account menu and shows player information', async () => {
+    const api = new FakeIdentityApi()
+    const user = userEvent.setup()
+    render(<App identityApi={api} />)
+    await user.type(screen.getByLabelText('이메일'), 'hero@example.com')
+    await user.type(screen.getByLabelText('비밀번호'), 'swordfish')
+    await user.click(screen.getByRole('button', { name: '로그인' }))
+
+    await user.click(screen.getByRole('button', { name: '계정 메뉴' }))
+    expect(screen.getByText('M')).toBeInTheDocument()
+    await user.click(screen.getByRole('link', { name: '내 정보' }))
+
+    expect(screen.getByRole('heading', { name: '내 정보' })).toBeInTheDocument()
+    expect(screen.getByText('player-1')).toBeInTheDocument()
+  })
+
+  it('restores a valid session after provider remount', async () => {
+    const api = new FakeIdentityApi()
+    const user = userEvent.setup()
+    const first = render(<App identityApi={api} />)
+    await user.type(screen.getByLabelText('이메일'), 'hero@example.com')
+    await user.type(screen.getByLabelText('비밀번호'), 'swordfish')
+    await user.click(screen.getByRole('button', { name: '로그인' }))
+    first.unmount()
+
+    render(<App identityApi={new FakeIdentityApi()} />)
+
+    expect(screen.getByRole('navigation', { name: '주요 메뉴' })).toBeInTheDocument()
+    expect(screen.getByText('Minsc님 환영합니다!')).toBeInTheDocument()
   })
 
   it('expires authentication, hides navigation, and announces reauthentication', async () => {

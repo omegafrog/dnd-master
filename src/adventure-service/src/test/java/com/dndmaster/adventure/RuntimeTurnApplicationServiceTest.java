@@ -64,6 +64,29 @@ import org.junit.jupiter.api.Test;
 
 class RuntimeTurnApplicationServiceTest {
     @Test
+    void meta_question_returns_read_only_result_without_advancing_or_persisting() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        ScenarioPackage scenarioPackage = scenarioPackage(new KnowledgeDocumentId(UUID.randomUUID()), new KnowledgeDocumentId(UUID.randomUUID()));
+        InMemoryRuntimeTurnRepository turns = new InMemoryRuntimeTurnRepository();
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
+                new InMemoryAdventureRepository(adventure),
+                new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId())),
+                new InMemoryPackageRepository(scenarioPackage), turns,
+                request -> { throw new AssertionError("meta question must not call provider"); },
+                request -> { throw new AssertionError("meta question must not call safety port"); },
+                request -> { throw new AssertionError("meta question must not call planner"); },
+                new InMemorySessionKnowledgeSetRepository());
+
+        RuntimeTurnResult result = service.submitTurn(new SubmitRuntimeTurnCommand(
+                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "What rules are active?", 0, false));
+
+        assertEquals(0, result.version());
+        assertEquals(0, turns.saved.size());
+        assertEquals(adventure.currentContext(), result.context());
+    }
+
+    @Test
     void persisted_document_selection_survives_runtime_restart_and_limits_retrieval() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
         Adventure adventure = adventure(owner);
@@ -128,24 +151,26 @@ class RuntimeTurnApplicationServiceTest {
     }
 
     @Test
-    void treats_missing_persisted_session_scope_as_an_empty_authorization_set() {
+    void uses_scenario_package_documents_when_session_scope_is_empty() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
         Adventure adventure = adventure(owner);
         ScenarioPackage scenarioPackage = scenarioPackage(
                 new KnowledgeDocumentId(UUID.randomUUID()), new KnowledgeDocumentId(UUID.randomUUID()));
+        KnowledgeDocumentId story = scenarioPackage.documents().getFirst().knowledgeDocumentId();
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 new InMemoryAdventureRepository(adventure),
                 new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId())),
                 new InMemoryPackageRepository(scenarioPackage), new InMemoryRuntimeTurnRepository(),
-                request -> List.of(), request -> new RuntimePlan(
+                request -> List.of(new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK, story, 1, "page:1", "Story")), request -> new RuntimePlan(
                         "scene", null, "judgment", "narration", null, List.of(), List.of()),
                 new AllowingSafetyPort(true), new InMemorySessionKnowledgeSetRepository());
 
         RuntimeTurnResult result = service.submitTurn(new SubmitRuntimeTurnCommand(
                 adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Open the door"));
 
-        assertTrue(result.turn().evidencePack().storybook().isEmpty());
-        assertTrue(result.turn().evidencePack().rulebook().isEmpty());
+        assertEquals(List.of(story.value()), result.turn().evidencePack().storybook().stream()
+                .map(evidence -> evidence.knowledgeDocumentId().value()).toList());
+
     }
     @Test
     void rejects_stale_expected_version_before_planning_or_persistence() {

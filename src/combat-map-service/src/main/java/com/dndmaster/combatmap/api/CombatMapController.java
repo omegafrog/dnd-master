@@ -5,6 +5,7 @@ import com.dndmaster.combatmap.application.movement.MovePlayerTokenCommand;
 import com.dndmaster.combatmap.application.view.CombatMapViewService;
 import com.dndmaster.combatmap.application.view.MapOwnerId;
 import com.dndmaster.combatmap.application.view.PlayerCombatMapView;
+import com.dndmaster.combatmap.application.view.CombatMapAccessDeniedException;
 import com.dndmaster.combatmap.domain.*;
 import org.springframework.web.bind.annotation.*;
 
@@ -26,6 +27,13 @@ public class CombatMapController {
     PlayerCombatMapResponse playerView(
             @PathVariable UUID mapId, @RequestParam UUID ownerId) {
         PlayerCombatMapView view = mapViewService.displayForPlayer(new MapId(mapId), new MapOwnerId(ownerId));
+        return PlayerCombatMapResponse.from(view);
+    }
+
+    @GetMapping("/internal/v1/adventures/{adventureId}/combat-map/player-view")
+    PlayerCombatMapResponse playerAdventureView(@PathVariable UUID adventureId, @RequestParam UUID ownerId) {
+        PlayerCombatMapView view = mapViewService.displayForAdventure(new AdventureId(adventureId), new MapOwnerId(ownerId))
+                .orElseThrow(CombatMapAccessDeniedException::new);
         return PlayerCombatMapResponse.from(view);
     }
 
@@ -62,6 +70,24 @@ public class CombatMapController {
         return new CombatMapAiStateResponse(map.id().value());
     }
 
+    @PostMapping("/internal/v1/combat-maps/{mapId}/doors")
+    CombatMapAiStateResponse changeDoor(@PathVariable UUID mapId, @RequestBody DoorRequest request) {
+        CombatMap map=mapViewService.changeDoor(new MapId(mapId),new MapOwnerId(request.ownerId()),request.expectedVersion(),request.commandId(),new GridPosition(request.x(),request.y()),request.open());
+        return new CombatMapAiStateResponse(map.id().value());
+    }
+
+    @PostMapping("/internal/v1/combat-maps/{mapId}/reveals")
+    CombatMapAiStateResponse reveal(@PathVariable UUID mapId, @RequestBody RevealRequest request) {
+        CombatMap map=mapViewService.revealToken(new MapId(mapId),new MapOwnerId(request.ownerId()),request.expectedVersion(),request.commandId(),new TokenId(request.tokenId()));
+        return new CombatMapAiStateResponse(map.id().value());
+    }
+
+    @PostMapping("/internal/v1/combat-maps/{mapId}/game-time")
+    CombatMapAiStateResponse gameTime(@PathVariable UUID mapId, @RequestBody GameTimeRequest request) {
+        CombatMap map=mapViewService.onGameTimeAdvanced(new MapId(mapId),new MapOwnerId(request.ownerId()),request.expectedVersion(),new GameTimeAdvanced(request.adventureId(),request.ruleTurn(),request.causeId()));
+        return new CombatMapAiStateResponse(map.id().value());
+    }
+
     public record MoveRequest(
             UUID playerId, UUID tokenId,
             List<PositionRequest> positions, int distance,
@@ -75,6 +101,9 @@ public class CombatMapController {
             UUID commandId,
             long expectedVersion,
             List<LayerRequest> layers) {}
+    public record DoorRequest(UUID ownerId,int x,int y,boolean open,UUID commandId,long expectedVersion) {}
+    public record RevealRequest(UUID ownerId,UUID tokenId,UUID commandId,long expectedVersion) {}
+    public record GameTimeRequest(UUID ownerId,UUID adventureId,long ruleTurn,UUID causeId,long expectedVersion) {}
 
     public record LayerRequest(String type, String value, String visibility) {}
 

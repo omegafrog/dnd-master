@@ -6,9 +6,12 @@ import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 public interface CharacterSheetReadPort {
     CharacterSheet read(CharacterSheetId characterSheetId);
 
-    record CharacterSheet(CharacterSheetId id, String name, int level) {
+    record CharacterSheet(CharacterSheetId id, String name, int level, long version) {
+        public CharacterSheet(CharacterSheetId id, String name, int level) {
+            this(id, name, level, 0);
+        }
         public CharacterSheet {
-            if (id == null || name == null || name.isBlank() || level < 1) {
+            if (id == null || name == null || name.isBlank() || level < 1 || version < 0) {
                 throw new IllegalArgumentException("valid character sheet snapshot required");
             }
             name = name.trim();

@@ -44,6 +44,14 @@ class AdventureApiConfigurationTest {
                 new ObjectMapper(), "http://ai-game-master.internal/", timeout))).isEqualTo(timeout);
     }
 
+    @Test
+    void storyPlanAdapterUsesConfiguredLongRunningTimeout() throws Exception {
+        Duration timeout = Duration.ofMinutes(30);
+
+        assertThat(timeout(configuration.adventureStoryPlanGenerationPort(
+                new ObjectMapper(), "http://ai-game-master.internal/", timeout))).isEqualTo(timeout);
+    }
+
     private static URI baseUri(Object gateway) throws ReflectiveOperationException {
         Field field = gateway.getClass().getDeclaredField("baseUri");
         field.setAccessible(true);

@@ -11,11 +11,12 @@ type Props = {
 }
 
 export function CharacterInputTree({ nodes, values, onChange, onResolve, onAddChild, canResolve = false, abilityScoreMethod: inheritedAbilityScoreMethod }: Props) {
+  const visibleNodes = nodes.filter(node => !isAppearanceNode(node))
   const flatten = (items: CharacterInputNodeView[]): CharacterInputNodeView[] => items.flatMap(item => [item, ...flatten(item.children)])
-  const method = flatten(nodes).find(node => node.key === 'ability_score_method')
+  const method = flatten(visibleNodes).find(node => node.key === 'ability_score_method')
   const abilityScoreMethod = inheritedAbilityScoreMethod ?? (method ? values[method.id] ?? method.value ?? '' : '')
   const groups = new Map<string, CharacterInputNodeView[]>()
-  nodes.forEach(node => {
+  visibleNodes.forEach(node => {
     const group = inputGroup(node.key)
     groups.set(group, [...(groups.get(group) ?? []), node])
   })
@@ -25,6 +26,11 @@ export function CharacterInputTree({ nodes, values, onChange, onResolve, onAddCh
       {groupNodes.map(node => <Node key={node.id} node={node} values={values} onChange={onChange} onResolve={onResolve} onAddChild={onAddChild} canResolve={canResolve} abilityScoreMethod={abilityScoreMethod} />)}
     </details>
   ))}</div>
+}
+
+function isAppearanceNode(node: CharacterInputNodeView) {
+  const identity = `${node.key} ${node.label}`.toLowerCase()
+  return identity.includes('appearance') || identity.includes('외모') || identity.includes('외형')
 }
 
 function inputGroup(key: string) {

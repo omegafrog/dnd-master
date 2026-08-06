@@ -13,6 +13,24 @@ import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.adventure.SessionId;
 import com.dndmaster.adventure.domain.adventure.ScenarioId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
+import com.dndmaster.adventure.application.runtime.RuntimeBindingApplicationService;
+import com.dndmaster.adventure.application.saved.AdventureRepository;
+import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
+import com.dndmaster.adventure.application.session.AdventureSessionApplicationService;
+import com.dndmaster.adventure.application.session.AdventureSessionRepository;
+import com.dndmaster.adventure.application.session.AdventureSessionStartCoordinator;
+import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
+import com.dndmaster.adventure.domain.knowledge.SessionKnowledgeSet;
+import com.dndmaster.adventure.application.knowledge.SessionKnowledgeSetRepository;
+import com.dndmaster.adventure.domain.scenario.CharacterLimit;
+import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
+import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
+import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
+import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
+import static org.mockito.Mockito.*;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -29,6 +47,67 @@ class AdventureSessionTest {
                 SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 1, 1, configuration);
 
         assertEquals(configuration, session.runtimeConfiguration());
+    }
+
+    @Test
+    void creates_default_runtime_configuration_from_compiled_package() {
+        var packages = mock(ScenarioPackageRepository.class);
+        var bundleId = ScenarioBundleId.generate();
+        var rulebookId = UUID.randomUUID();
+        var scenarioPackage = ScenarioPackage.publish(bundleId, 1, "fingerprint", List.of(
+                new ScenarioBundleDocumentSelection(new KnowledgeDocumentId(rulebookId), ScenarioBundleDocumentRole.RULEBOOK,
+                        KnowledgeDocumentStatus.INDEXED, "rules.pdf", "RULEBOOK", 1)), List.of(),
+                new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()), CharacterLimit.defaultLimit());
+        when(packages.findById(scenarioPackage.packageId())).thenReturn(java.util.Optional.of(scenarioPackage));
+        var sessions = mock(AdventureSessionRepository.class);
+        var service = new AdventureSessionApplicationService(sessions, packages, mock(AdventureRepository.class),
+                mock(RuntimeBindingApplicationService.class), mock(AdventureSessionStartCoordinator.class));
+
+        var session = service.create(new OwnerPlayerId(UUID.randomUUID()), scenarioPackage.packageId(), (AdventureSessionRuntimeConfiguration) null);
+
+        assertEquals(scenarioPackage.packageId(), session.runtimeConfiguration().scenarioId().value());
+        assertEquals(bundleId.value(), session.runtimeConfiguration().ruleSetId().value());
+        assertEquals(List.of(rulebookId), session.runtimeConfiguration().rulebookIds());
+        assertEquals("opening", session.runtimeConfiguration().initialScene());
+    }
+
+    @Test
+    void initializes_session_knowledge_scope_from_package_documents() {
+        var packages = mock(ScenarioPackageRepository.class);
+        var documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        var owner = new OwnerPlayerId(UUID.randomUUID());
+        var scenarioPackage = ScenarioPackage.publish(ScenarioBundleId.generate(), 1, "fingerprint", List.of(
+                new ScenarioBundleDocumentSelection(documentId, ScenarioBundleDocumentRole.MAIN_SCENARIO,
+                        KnowledgeDocumentStatus.INDEXED, "story.pdf", "STORYBOOK", 1)), List.of(),
+                new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()), CharacterLimit.defaultLimit(),
+                new com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint(1,
+                        com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.PUBLISHED,
+                        List.of(), List.of()));
+        when(packages.findById(scenarioPackage.packageId())).thenReturn(java.util.Optional.of(scenarioPackage));
+        var session = AdventureSession.create(SessionId.generate(), owner, scenarioPackage.packageId(), 1,
+                scenarioPackage.packageId(), 1, 1,
+                new AdventureSessionRuntimeConfiguration(new ScenarioId(scenarioPackage.packageId()),
+                        new RuleSetId(scenarioPackage.bundleId().value()), List.of(), "ollama", List.of(), "opening"));
+        session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT,
+                true, true, true, true, true, true));
+        var sessions = mock(AdventureSessionRepository.class);
+        when(sessions.findById(session.id())).thenReturn(java.util.Optional.of(session));
+        var adventures = mock(AdventureRepository.class);
+        when(adventures.findById(any())).thenReturn(java.util.Optional.empty());
+        var scopes = mock(SessionKnowledgeSetRepository.class);
+        var plans = mock(com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository.class);
+        when(plans.findBySessionId(session.id())).thenReturn(java.util.Optional.of(
+                com.dndmaster.adventure.domain.adventure.AdventureStoryPlan.ready(session.id(), session.version(), 1,
+                        List.of(new com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage(
+                                1, "Opening", "Start", "Threat", "Resolve", List.of(), List.of())))));
+        new AdventureSessionApplicationService(
+                sessions, packages, adventures,
+                mock(RuntimeBindingApplicationService.class), mock(AdventureSessionStartCoordinator.class),
+                mock(com.dndmaster.adventure.application.session.CharacterSheetOwnershipPort.class),
+                plans, scopes)
+                .start(session.id(), owner, session.version(), UUID.randomUUID(), AdventureId.generate());
+
+        verify(scopes).save(new SessionKnowledgeSet(session.id(), List.of(documentId)));
     }
 
     @Test

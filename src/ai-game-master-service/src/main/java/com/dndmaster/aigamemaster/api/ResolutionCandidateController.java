@@ -2,12 +2,18 @@ package com.dndmaster.aigamemaster.api;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.LinkedHashMap;
+import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.ArrayList;
 import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -15,6 +21,10 @@ import org.springframework.web.bind.annotation.RestController;
 /** Source-grounded fallback tracer for the supported simple resolution grammar. */
 @RestController
 public final class ResolutionCandidateController {
+    private static final Logger log = LoggerFactory.getLogger(ResolutionCandidateController.class);
+    private static final Pattern EXPLICIT_DC = Pattern.compile(
+            "(?i)\\bDC\\s*(\\d+)\\s+([A-Za-z]+(?:\\s*\\([^)]*\\))?)\\s+(sa\\s*ving\\s+throw(?:s)?|check(?:s)?)");
+    private static final Pattern DICE = Pattern.compile("(?i)\\b(\\d+d\\d+(?:\\s*[+-]\\s*\\d+)?)\\b");
     private final SpringAiChatAdapter adapter;
     private final ObjectMapper objectMapper;
 
@@ -27,13 +37,20 @@ public final class ResolutionCandidateController {
     Response extract(@RequestBody Request request) {
         if (request == null || request.excerpts() == null) return new Response(List.of());
         String prompt = "Extract only directly supported tabletop resolution candidates from these source excerpts. "
-                + "Return JSON array only. Schema: [{kind:'SKILL_ABILITY_CHECK'|'SAVING_THROW'|'PASSIVE_THRESHOLD'|'DICE_ROLL'|'ATTACK_ROLL'|'DAMAGE_ROLL'|'HEALING_ROLL'|'OPPOSED_CHECK'|'INITIATIVE_ROLL'|'RECHARGE_ROLL'|'RANDOM_TABLE'|'SPECIAL_ROLL',"
-                + "abilityOrSkill:string|null,dc:number|null,diceExpression:string|null,visibility:'GM_REFERENCE',"
-                + "sourceQuote:string,sourceRefs:[{documentId:string,extractionVersion:number,locator:string}],"
-                + "detail:null,"
-                + "provenance:string}]. Output raw JSON only: no Markdown fences, commentary, or leading/trailing text."
-                + " Do not invent values or references. Excerpts: " + request.excerpts();
-        return new Response(adapter.complete(request.operationId(), prompt, this::parseModel));
+                + "Return exactly a JSON array, never an object wrapper. Use these exact enum values and field types. "
+                + "Template: [{\"kind\":\"SAVING_THROW\",\"abilityOrSkill\":\"Dexterity\",\"dc\":12,\"diceExpression\":\"1d10\",\"visibility\":\"GM_REFERENCE\",\"sourceQuote\":\"exact quote\",\"sourceRefs\":[{\"documentId\":\"uuid\",\"extractionVersion\":2,\"locator\":\"offset 0-10\"}],\"detail\":null,\"provenance\":\"source text\"}]. "
+                + "kind must be one of SKILL_ABILITY_CHECK,SAVING_THROW,PASSIVE_THRESHOLD,DICE_ROLL,ATTACK_ROLL,DAMAGE_ROLL,HEALING_ROLL,OPPOSED_CHECK,INITIATIVE_ROLL,RECHARGE_ROLL,RANDOM_TABLE,SPECIAL_ROLL. "
+                + "visibility must be GM_REFERENCE or PLAYER_SAFE. Keep sourceRefs only when the excerpt supplies an exact object reference. "
+                + "Do not invent values or references. Output JSON only. Excerpts: " + request.excerpts();
+        List<Candidate> candidates = adapter.complete(request.operationId(), prompt, this::parseModel);
+        if (!candidates.isEmpty()) {
+            List<Candidate> deduplicated = deduplicate(candidates);
+            log.info("resolution_candidate_ai_result operationId={} aiCandidates={} deduplicated={} excerpts={}", request.operationId(), candidates.size(), deduplicated.size(), request.excerpts().size());
+            return new Response(deduplicated);
+        }
+        List<Candidate> fallback = deduplicate(fallbackCandidates(request.excerpts()));
+        log.warn("resolution_candidate_ai_empty operationId={} fallbackCandidates={} excerpts={} excerptSummaries={}", request.operationId(), fallback.size(), request.excerpts().size(), request.excerpts().stream().map(e -> e.locator() + ":" + (e.text() == null ? 0 : e.text().length()) + ":" + (e.text() == null ? "" : e.text().substring(0, Math.min(100, e.text().length())).replaceAll("\\s+", " "))).toList());
+        return new Response(fallback);
     }
 
     List<Candidate> parseModel(String text) {
@@ -43,20 +60,19 @@ public final class ResolutionCandidateController {
             List<Candidate> candidates = new ArrayList<>();
             for (JsonNode node : root) {
                 try {
-                    String kind = text(node, "kind");
+                    String kind = normalizeKind(text(node, "kind"));
                     if (!List.of("SKILL_ABILITY_CHECK", "SAVING_THROW", "PASSIVE_THRESHOLD", "DICE_ROLL",
                             "ATTACK_ROLL", "DAMAGE_ROLL", "HEALING_ROLL", "OPPOSED_CHECK",
                             "INITIATIVE_ROLL", "RECHARGE_ROLL", "RANDOM_TABLE", "SPECIAL_ROLL").contains(kind)) {
                         throw new IllegalArgumentException("unsupported resolution kind");
                     }
-                    String visibility = nullableText(node, "visibility");
-                    if (visibility == null) visibility = "GM_REFERENCE";
+                    String visibility = normalizeVisibility(nullableText(node, "visibility"));
                     if (!List.of("GM_REFERENCE", "PLAYER_SAFE").contains(visibility)) {
                         throw new IllegalArgumentException("unsupported visibility");
                     }
                     candidates.add(new Candidate(kind, nullableText(node, "abilityOrSkill"), nullableInt(node, "dc"),
                             nullableText(node, "diceExpression"), visibility, text(node, "sourceQuote"),
-                            parseRefs(node.get("sourceRefs")), node.get("detail"), text(node, "provenance")));
+                            parseRefs(node.get("sourceRefs")), objectOrNull(node.get("detail")), text(node, "provenance")));
                 } catch (RuntimeException ignored) {
                     // One malformed model item must not discard valid source-grounded candidates.
                 }
@@ -67,12 +83,110 @@ public final class ResolutionCandidateController {
         }
     }
 
-    private static String extractJsonArray(String response) {
+    static List<Candidate> fallbackCandidates(List<Excerpt> excerpts) {
+        if (excerpts == null) return List.of();
+        List<Candidate> candidates = new ArrayList<>();
+        for (Excerpt excerpt : excerpts) {
+            if (excerpt == null || excerpt.text() == null) continue;
+            Matcher matcher = EXPLICIT_DC.matcher(excerpt.text());
+            while (matcher.find()) {
+                String quote = normalizeWhitespace(matcher.group());
+                String expression = diceExpression(excerpt.text(), matcher.end());
+                String kind = matcher.group(3).replaceAll("\\s+", "").toLowerCase().startsWith("saving")
+                        ? "SAVING_THROW" : "SKILL_ABILITY_CHECK";
+                candidates.add(new Candidate(kind, normalizeWhitespace(matcher.group(2)), Integer.valueOf(matcher.group(1)), expression,
+                        "GM_REFERENCE", quote,
+                        List.of(new SourceRef(excerpt.documentId(), excerpt.extractionVersion(), excerpt.locator())),
+                        null, "deterministic-source-pattern-v1"));
+            }
+        }
+        return List.copyOf(candidates);
+    }
+
+    static List<Candidate> deduplicate(List<Candidate> candidates) {
+        LinkedHashMap<String, Candidate> unique = new LinkedHashMap<>();
+        for (Candidate candidate : candidates) {
+            if (candidate == null) continue;
+            unique.putIfAbsent(candidateKey(candidate), candidate);
+        }
+        return List.copyOf(unique.values());
+    }
+
+    private static String candidateKey(Candidate candidate) {
+        return String.join("|", normalized(candidate.kind()), normalized(candidate.abilityOrSkill()),
+                normalized(candidate.dc()), normalized(candidate.diceExpression()), normalized(candidate.sourceQuote()));
+    }
+
+    private static String normalized(Object value) {
+        return value == null ? "" : value.toString().replaceAll("\\s+", " ").trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static String diceExpression(String text, int from) {
+        int end = text.length();
+        Matcher nextResolution = EXPLICIT_DC.matcher(text);
+        nextResolution.region(Math.min(from, text.length()), text.length());
+        if (nextResolution.find()) end = Math.min(end, nextResolution.start());
+        for (int index = from; index < text.length() && index < from + 220; index++) {
+            char current = text.charAt(index);
+            if (current == '.' || current == '!' || current == '?') {
+                end = index + 1;
+                break;
+            }
+        }
+        Matcher dice = DICE.matcher(text.substring(Math.min(from, text.length()), Math.min(end, text.length())));
+        return dice.find() ? dice.group(1).replaceAll("\\s+", "") : null;
+    }
+
+    private static String normalizeWhitespace(String value) {
+        return value == null ? null : value.replaceAll("\\s+", " ").trim();
+    }
+
+    private String extractJsonArray(String response) {
         String text = response == null ? "" : response.trim();
+        try {
+            JsonNode root = objectMapper.readTree(text);
+            if (root.isArray()) return root.toString();
+            if (root.isObject()) {
+                for (String field : List.of("response", "output", "content", "result")) {
+                    JsonNode value = root.get(field);
+                    if (value == null) continue;
+                    if (value.isArray()) return value.toString();
+                    if (value.isTextual()) return extractJsonArray(value.textValue());
+                }
+            }
+        } catch (Exception ignored) {
+            // Fall through for markdown or escaped model output.
+        }
         int start = text.indexOf('[');
         int end = text.lastIndexOf(']');
         if (start < 0 || end < start) throw new IllegalArgumentException("AI response did not contain a JSON array");
-        return text.substring(start, end + 1);
+        String array = text.substring(start, end + 1);
+        try { objectMapper.readTree(array); return array; }
+        catch (Exception escaped) { return array.replace("\\\"", "\""); }
+    }
+
+    private static String normalizeKind(String value) {
+        String normalized = value.trim().toUpperCase().replace('-', '_').replace(' ', '_');
+        return switch (normalized) {
+            case "CHECK", "ABILITY_CHECK", "SKILL_CHECK" -> "SKILL_ABILITY_CHECK";
+            case "SAVINGTHROW", "SAVE", "SAVING_THROW" -> "SAVING_THROW";
+            case "DAMAGE" -> "DAMAGE_ROLL";
+            case "ATTACK" -> "ATTACK_ROLL";
+            default -> normalized;
+        };
+    }
+
+    private static String normalizeVisibility(String value) {
+        if (value == null || value.isBlank()) return "GM_REFERENCE";
+        return switch (value.trim().toUpperCase()) {
+            case "PUBLIC", "GM", "GM_REFERENCE", "FAILURE", "SUCCESS" -> "GM_REFERENCE";
+            case "PLAYER", "PLAYER_SAFE" -> "PLAYER_SAFE";
+            default -> value.trim().toUpperCase();
+        };
+    }
+
+    private static JsonNode objectOrNull(JsonNode value) {
+        return value != null && value.isObject() ? value : null;
     }
 
     private static String text(JsonNode node, String field) {
@@ -88,8 +202,10 @@ public final class ResolutionCandidateController {
     }
     private static List<SourceRef> parseRefs(JsonNode node) {
         if (node == null || !node.isArray()) return List.of();
-        return java.util.stream.StreamSupport.stream(node.spliterator(), false).map(ref ->
-                new SourceRef(UUID.fromString(text(ref, "documentId")), ref.get("extractionVersion").asLong(), text(ref, "locator"))).toList();
+        return java.util.stream.StreamSupport.stream(node.spliterator(), false).filter(JsonNode::isObject).flatMap(ref -> {
+            try { return java.util.stream.Stream.of(new SourceRef(UUID.fromString(text(ref, "documentId")), ref.get("extractionVersion").asLong(), text(ref, "locator"))); }
+            catch (RuntimeException malformed) { return java.util.stream.Stream.empty(); }
+        }).toList();
     }
 
     public record Request(String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion) {}

@@ -21,7 +21,7 @@ export function RuleEvidence({ adventureId, api }: { adventureId: string; api: R
   }
 
   return (
-    <section aria-labelledby="evidence-heading">
+    <section className="adventure-tool evidence-panel" aria-labelledby="evidence-heading">
       <h2 id="evidence-heading">룰 근거 확인</h2>
       <p role="status">{message}</p>
       <form onSubmit={ask}>

@@ -6,6 +6,18 @@ afterEach(() => {
 })
 
 describe('HttpSetupApi', () => {
+  it('deletes a scenario bundle through the authenticated API', async () => {
+    const fetchMock = vi.fn(async () => ({ status: 204, ok: true, headers: new Headers() } as Response))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await new HttpSetupApi(() => 'owner-token').deleteScenarioBundle('bundle-1')
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/adventures/scenario-bundles/bundle-1', {
+      method: 'DELETE',
+      headers: { Authorization: 'Bearer owner-token' },
+    })
+  })
+
   it('reads legacy scenario deprecation metadata from response headers', async () => {
     const fetchMock = vi.fn(async () => ({
       status: 202,

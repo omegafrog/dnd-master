@@ -1,6 +1,16 @@
 server:
   port: 8080
 
+character:
+  integration:
+    internal-token: ${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}
+dice:
+  integration:
+    internal-token: ${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}
+ai-game-master:
+  integration:
+    internal-token: ${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}
+
 logging:
   level:
     com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationApplicationService: OFF
@@ -8,12 +18,14 @@ logging:
 
 adventure:
   integration:
+    internal-token: ${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}
     identity-access:
       base-url: ${IDENTITY_ACCESS_BASE_URL:http://127.0.0.1:8080/}
     rule-knowledge:
       base-url: ${RULE_KNOWLEDGE_BASE_URL:http://127.0.0.1:8080/}
     ai-game-master:
       base-url: ${AI_GAME_MASTER_BASE_URL:http://127.0.0.1:8080/}
+      story-plan-timeout: ${AI_GAME_MASTER_STORY_PLAN_TIMEOUT:1800s}
     scenario-compilation:
       timeout: 900s
 
@@ -49,6 +61,7 @@ spring:
           dimensions: 1024
 
 rule-knowledge:
+  internal-token: ${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}
   storage:
     root: ./data/rulebooks
   embedding-model: qwen3-embedding:0.6b
@@ -62,7 +75,7 @@ local-ai:
     allowed-models:
       - qwen3:8b
       - qwen3-embedding:0.6b
-    request-timeout: 900s
+    request-timeout: ${LOCAL_AI_OLLAMA_REQUEST_TIMEOUT:45s}
     circuit-failure-threshold: 3
     circuit-reset-timeout: 30s
 

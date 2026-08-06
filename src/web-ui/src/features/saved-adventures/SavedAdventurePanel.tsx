@@ -1,9 +1,7 @@
-import { type FormEvent, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import type { AdventurePlayApi, SavedAdventure, SessionKnowledgeSet } from './AdventurePlayApi'
 import type {
   KnowledgeDocumentView,
-  LegacyScenarioMigrationView,
-  RuntimeBindingView,
   SetupApi,
 } from '../rulebooks/SetupApi'
 
@@ -23,15 +21,6 @@ export function SavedAdventurePanel({
   const [documents, setDocuments] = useState<KnowledgeDocumentView[]>([])
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(new Set())
   const [sessionMessage, setSessionMessage] = useState('')
-  const [legacyScenarioId, setLegacyScenarioId] = useState('')
-  const [legacyScenarioFile, setLegacyScenarioFile] = useState<File | null>(null)
-  const [legacyScenarioMessage, setLegacyScenarioMessage] = useState('')
-  const [migratingLegacyScenario, setMigratingLegacyScenario] = useState(false)
-  const [reuploadingLegacyScenario, setReuploadingLegacyScenario] = useState(false)
-  const [legacyScenarioResult, setLegacyScenarioResult] = useState<LegacyScenarioMigrationView | null>(null)
-  const [runtimeAdventureId, setRuntimeAdventureId] = useState('')
-  const [runtimeBinding, setRuntimeBinding] = useState<RuntimeBindingView | null>(null)
-  const [switchingLegacyPackage, setSwitchingLegacyPackage] = useState(false)
 
   useEffect(() => { void playApi.listSaved(playerId).then(setItems).catch(() => {}) }, [playApi, playerId])
 
@@ -44,10 +33,10 @@ export function SavedAdventurePanel({
     }
   }
 
-  async function remove(id: string) {
+  async function remove(item: SavedAdventure) {
     try {
-      await playApi.deleteAdventure(id, playerId, 0)
-      setItems(old => old.filter(x => x.id !== id))
+      await playApi.deleteAdventure(item.id, playerId, item.version)
+      setItems(old => old.filter(x => x.id !== item.id))
       setMessage('모험을 삭제했습니다.')
     } catch {
       setMessage('모험을 삭제하지 못했습니다.')
@@ -57,17 +46,14 @@ export function SavedAdventurePanel({
   async function openSessionKnowledgeSet(adventureId: string) {
     setSessionMessage('')
     try {
-      const [sessionKnowledgeSet, libraryDocuments, runtimeBindingView] = await Promise.all([
+      const [sessionKnowledgeSet, libraryDocuments] = await Promise.all([
         playApi.getSessionKnowledgeSet(adventureId),
         setupApi.listKnowledgeDocuments(playerId),
-        setupApi.getRuntimeBinding ? setupApi.getRuntimeBinding(adventureId, playerId) : Promise.resolve(null),
       ])
       setSelectedAdventureId(adventureId)
       setSelectedAdventure(sessionKnowledgeSet)
       setDocuments(libraryDocuments)
       setSelectedDocumentIds(new Set(sessionKnowledgeSet.knowledgeDocumentIds))
-      setRuntimeAdventureId(adventureId)
-      setRuntimeBinding(runtimeBindingView)
     } catch {
       setSessionMessage('세션 자료를 불러오지 못했습니다.')
     }
@@ -99,118 +85,23 @@ export function SavedAdventurePanel({
     }
   }
 
-  function renderMigrationMessage(result: LegacyScenarioMigrationView) {
-    if (result.requiresReupload) {
-      return `레거시 소스 누락: ${result.sourceFilename} · 재업로드 필요 · ${result.message}`
-    }
-    return `${result.message}: ${result.sourceFilename} · 번들 ${result.bundleId} · 패키지 ${result.packageId} · 문서 ${result.knowledgeDocumentId}`
-  }
-
-  async function migrateLegacyScenario(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!legacyScenarioId.trim()) return
-    setLegacyScenarioMessage('')
-    setMigratingLegacyScenario(true)
-    try {
-      const result = await setupApi.migrateLegacyScenario(legacyScenarioId.trim())
-      setLegacyScenarioResult(result)
-      setLegacyScenarioMessage(renderMigrationMessage(result))
-    } catch {
-      setLegacyScenarioMessage('레거시 시나리오를 마이그레이션하지 못했습니다.')
-    } finally {
-      setMigratingLegacyScenario(false)
-    }
-  }
-
-  async function reuploadLegacyScenario(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    if (!legacyScenarioId.trim() || !legacyScenarioFile) return
-    setLegacyScenarioMessage('')
-    setReuploadingLegacyScenario(true)
-    try {
-      const result = await setupApi.reuploadLegacyScenario(legacyScenarioId.trim(), legacyScenarioFile)
-      setLegacyScenarioResult(result)
-      setLegacyScenarioMessage(renderMigrationMessage(result))
-    } catch {
-      setLegacyScenarioMessage('레거시 시나리오를 재업로드하지 못했습니다.')
-    } finally {
-      setReuploadingLegacyScenario(false)
-    }
-  }
-
-  async function switchLegacyPackage() {
-    if (!legacyScenarioResult?.packageId || !runtimeBinding || !runtimeAdventureId.trim() || !setupApi.switchRuntimePackage) {
-      return
-    }
-    setSwitchingLegacyPackage(true)
-    setSessionMessage('')
-    try {
-      const nextBinding = await setupApi.switchRuntimePackage(
-        runtimeAdventureId.trim(),
-        playerId,
-        runtimeBinding.bindingVersion,
-        legacyScenarioResult.packageId,
-      )
-      setRuntimeBinding(nextBinding)
-      setSessionMessage('레거시 패키지를 전환했습니다.')
-    } catch {
-      setSessionMessage('레거시 패키지를 전환하지 못했습니다.')
-    } finally {
-      setSwitchingLegacyPackage(false)
-    }
-  }
-
   return (
-    <section aria-labelledby="saved-heading">
-      <h2 id="saved-heading">저장한 모험</h2>
+    <section className="saved-adventure-page" aria-labelledby="saved-heading">
+      <div className="page-heading"><div><p className="eyebrow">ADVENTURE ARCHIVE</p><h1 id="saved-heading">저장한 모험</h1><p>진행 중인 이야기로 돌아가거나 완료한 모험을 관리하세요.</p></div></div>
       <p role="status">{message}</p>
-      <section aria-labelledby="legacy-scenario-heading">
-        <h3 id="legacy-scenario-heading">레거시 시나리오 마이그레이션</h3>
-        <form onSubmit={migrateLegacyScenario}>
-          <label>
-            레거시 시나리오 ID
-            <input value={legacyScenarioId} onChange={event => setLegacyScenarioId(event.currentTarget.value)} />
-          </label>
-          <button type="submit" disabled={migratingLegacyScenario || !legacyScenarioId.trim()}>
-            {migratingLegacyScenario ? '마이그레이션 중…' : '레거시 시나리오 마이그레이션'}
-          </button>
-        </form>
-        <form onSubmit={reuploadLegacyScenario}>
-          <label>
-            재업로드 파일
-            <input
-              type="file"
-              accept=".pdf,.docx,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff,.bmp"
-              onChange={event => {
-                setLegacyScenarioFile(event.currentTarget.files?.item(0) ?? null)
-                setLegacyScenarioMessage('')
-              }}
-            />
-          </label>
-          <button type="submit" disabled={reuploadingLegacyScenario || !legacyScenarioId.trim() || legacyScenarioFile == null}>
-            {reuploadingLegacyScenario ? '재업로드 중…' : '레거시 재업로드'}
-          </button>
-        </form>
-        {legacyScenarioMessage ? <p role="status">{legacyScenarioMessage}</p> : null}
-        {legacyScenarioResult?.packageId && runtimeBinding ? (
-          <button type="button" disabled={switchingLegacyPackage || !runtimeAdventureId.trim()} onClick={() => void switchLegacyPackage()}>
-            {switchingLegacyPackage ? '패키지 전환 중…' : '현재 모험에 패키지 전환'}
-          </button>
-        ) : null}
-      </section>
       {items.length === 0 && <p>저장된 모험이 없습니다.</p>}
-      <ul>
+      <ul className="adventure-list">
         {items.map(item => (
           <li key={item.id}>
             <strong>{item.title}</strong>
             <button onClick={() => void resume(item.id)}>재개</button>
-            <button onClick={() => void remove(item.id)}>삭제</button>
+            <button onClick={() => void remove(item)}>삭제</button>
             <button onClick={() => void openSessionKnowledgeSet(item.id)}>자료 설정</button>
           </li>
         ))}
       </ul>
       {selectedAdventureId && (
-        <section aria-labelledby="session-knowledge-heading">
+        <section className="session-knowledge-panel" aria-labelledby="session-knowledge-heading">
           <h3 id="session-knowledge-heading">세션 자료 선택</h3>
           <p>{selectedAdventureId}</p>
           <p role="status">{sessionMessage}</p>

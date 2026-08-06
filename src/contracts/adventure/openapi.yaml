@@ -1,6 +1,28 @@
 openapi: 3.1.0
 info: { title: Adventure API, version: 1.0.0 }
 paths:
+  /api/v1/adventures/{adventureId}/events:
+    get:
+      operationId: streamAdventureEvents
+      parameters:
+        - { name: afterVersion, in: query, schema: { type: integer, format: int64, default: -1 } }
+        - { name: Last-Event-ID, in: header, schema: { type: string } }
+      responses:
+        '200': { description: ordered committed session events, content: { text/event-stream: { schema: { type: string } } } }
+  /api/v1/adventures/{adventureId}/turns:
+    post:
+      operationId: submitGmTurn
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+        - { name: If-Match-Version, in: header, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { type: object, required: [turnId, input], properties: { turnId: { type: string, format: uuid }, input: { type: object } } } }
+      responses:
+        '202': { description: accepted }
+        '403': { description: adventure is not owned by bearer }
+        '409': { description: stale version or idempotency conflict }
   /api/v1/adventures/scenarios:
     post: { operationId: uploadScenario, requestBody: { required: true, content: { multipart/form-data: { schema: { $ref: '../rule-knowledge/schemas/multipart-upload.json' } } } }, responses: { '202': { description: accepted } } }
   /api/v1/adventures/{adventureId}/messages:

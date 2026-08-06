@@ -193,49 +193,6 @@ class FakeSetupApi implements SetupApi {
   }
 }
 
-class ReviewBlueprintSetupApi extends FakeSetupApi {
-  async getPlayPreparation(): Promise<PlayPreparationView> {
-    return {
-      scenarioPackageId: 'package-1',
-      bundleId: 'bundle-1',
-      bundleRevision: 1,
-      status: 'READY',
-      blockers: [],
-      characterCreationBlueprint: {
-        available: true,
-        summary: 'CharacterCreationBlueprint: needs review',
-        rulebookDocumentCount: 0,
-        storybookDocumentCount: 1,
-        diagnostics: [],
-        revision: 1,
-        status: 'NEEDS_REVIEW',
-        roots: [{
-          id: 'name-1',
-          parentId: null,
-          key: 'name',
-          label: 'name',
-          inputMode: 'FREE_TEXT',
-          value: null,
-          options: [],
-          suggestions: [],
-          status: 'EXTRACTED',
-          allowUserAddChild: false,
-          confidence: 'HIGH',
-          sourceQuote: '',
-          diagnostics: [],
-          sourceEvidence: [],
-          children: [],
-        }],
-      },
-      characterLimit: {
-        maximumCharacters: 1,
-        source: null,
-        sourceQuote: '',
-      },
-    }
-  }
-}
-
 function bundle(id: string, revision: number, documents: ScenarioBundleView['documents']): ScenarioBundleView {
   return {
     bundleId: id,
@@ -275,7 +232,7 @@ describe('ScenarioSetup', () => {
     ], { 'str-1': '12', 'str-2': '14' })).toEqual(['str=12', 'group.str=14'])
   })
 
-  it('lets the owner save a bundle, compile it, and inspect play prep without uuid inputs', async () => {
+  it('lets the owner save a bundle and compile it without rendering play prep in setup', async () => {
     const api = new FakeSetupApi()
     const user = userEvent.setup()
     render(<ScenarioSetup api={api} playerId="owner-1" onError={() => {}} />)
@@ -294,11 +251,10 @@ describe('ScenarioSetup', () => {
     await user.click(screen.getByRole('button', { name: '시나리오 패키지 컴파일' }))
 
     expect(await screen.findByText('패키지 package-1 · COMPLETE')).toBeInTheDocument()
-    expect(await screen.findByText('준비 상태 READY · 패키지 package-1')).toBeInTheDocument()
-    expect(screen.getAllByText('캐릭터 한도: 2명')).toHaveLength(2)
-    expect(screen.getAllByText('한도 근거: page:1 · 최대 2명')).toHaveLength(2)
-    expect(screen.getByText('캐릭터 생성은 세션을 만든 뒤 별도 캐릭터 생성 페이지에서 진행합니다.')).toBeInTheDocument()
-    expect(screen.queryAllByText((_, element) => element?.textContent?.includes('STORYBOOK 1개, RULEBOOK 런타임 세트 별도') ?? false).length).toBeGreaterThan(0)
+    expect(screen.getByText('캐릭터 한도: 2명')).toBeInTheDocument()
+    expect(screen.getByText('한도 근거: page:1 · 최대 2명')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '캐릭터 생성 시작' })).toBeInTheDocument()
+    expect(screen.queryByText('플레이 준비')).not.toBeInTheDocument()
     expect(screen.getByLabelText('런타임 엔진')).toHaveValue('ollama')
     expect(screen.getByLabelText('search')).toBeChecked()
     expect(screen.getByLabelText('move')).toBeChecked()
@@ -352,16 +308,4 @@ describe('ScenarioSetup', () => {
     expect(api.getScenarioCompilation).toHaveBeenCalled()
   }, 10000)
 
-  it('keeps manual blueprint input stable while typing', async () => {
-    const user = userEvent.setup()
-    render(<ScenarioSetup api={new ReviewBlueprintSetupApi()} playerId="owner-1" onError={() => {}} />)
-
-    await screen.findByText('main.pdf')
-    await user.click(screen.getByRole('button', { name: '시나리오 번들 저장' }))
-    await user.click(screen.getByRole('button', { name: '시나리오 패키지 컴파일' }))
-    expect(await screen.findByRole('textbox', { name: 'name' })).toBeInTheDocument()
-    await user.type(screen.getByRole('textbox', { name: 'name' }), 'Aria')
-
-    expect(screen.getByRole('textbox', { name: 'name' })).toHaveValue('Aria')
-  })
 })

@@ -26,7 +26,7 @@ export function RoleDiceRoller({ adventureId, api }: { adventureId: string; api:
   }
 
   return (
-    <section aria-labelledby="dice-heading">
+    <section className="adventure-tool dice-panel" aria-labelledby="dice-heading">
       <h2 id="dice-heading">주사위 굴림</h2>
       <form onSubmit={roll}>
         <label>담당 역할

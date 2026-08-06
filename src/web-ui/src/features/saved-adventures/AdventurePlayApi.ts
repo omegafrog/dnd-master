@@ -11,7 +11,20 @@ export type CharacterSheet = {
   charisma: number
 }
 
-export type SavedAdventure = { id: string; title: string; updatedAt: string }
+type CharacterSheetResponse = {
+  characterSheetId: string
+  characterName: string
+  edition: string
+  derivedStatistics: string
+}
+
+export type SavedAdventure = { id: string; title: string; updatedAt: string; version: number }
+
+export type SavedAdventureResponse = { adventureId: string; status: string; version: number }
+
+export function toSavedAdventure(response: SavedAdventureResponse): SavedAdventure {
+  return { id: response.adventureId, title: response.status, updatedAt: '', version: response.version }
+}
 
 export type SessionKnowledgeSet = {
   adventureId: string
@@ -22,6 +35,27 @@ export type SessionKnowledgeSet = {
 export type CombatMapView = {
   adventureId: string
   status: string
+  mapId?: string
+  tokens?: Array<{ id: string; type: string; x: number; y: number; lastSeen?: boolean }>
+  layers?: Array<{ type: string; value: string }>
+  doors?: Array<{ x: number; y: number; open: boolean }>
+  current?: Array<{ x: number; y: number }>
+  explored?: Array<{ x: number; y: number }>
+  version?: number
+  sessionVersion?: number
+  grid?: { width: number; height: number }
+  obstacles?: Array<{ x: number; y: number }>
+  objects?: Array<{ id: string; type: string; x: number; y: number }>
+}
+
+export type MapActionCandidate = {
+  mapId: string
+  mapVersion: number
+  tokenId: string
+  action: 'MOVE' | 'INTERACT' | 'TARGET' | 'LOCATION'
+  path?: Array<{ x: number; y: number }>
+  targetId?: string
+  location?: { x: number; y: number }
 }
 
 export interface AdventurePlayApi {
@@ -34,6 +68,7 @@ export interface AdventurePlayApi {
   getSessionKnowledgeSet(adventureId: string): Promise<SessionKnowledgeSet>
   saveSessionKnowledgeSet(adventureId: string, playerId: string, knowledgeDocumentIds: string[]): Promise<SessionKnowledgeSet>
   getCombatMap(adventureId: string): Promise<CombatMapView>
+  submitMapAction?(adventureId: string, candidate: MapActionCandidate, command?: { turnId: string; commandId: string }, expectedVersion?: number): Promise<{ turnId: string; version: number }>
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -56,8 +91,28 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
   }
 
   getCharacter(sheetId: string) {
-    return request<CharacterSheet>(`/internal/v1/character-sheets/${sheetId}`, {
+    return request<CharacterSheetResponse>(`/internal/v1/character-sheets/${sheetId}?edition=DND_5E_2014`, {
       headers: this.authHeaders(),
+    }).then(sheet => {
+      let derived: { armorClass?: number; abilityScores?: Record<string, number> } = {}
+      try {
+        derived = JSON.parse(sheet.derivedStatistics) as typeof derived
+      } catch {
+        // Keep the detail view usable even when an older sheet has no derived JSON.
+      }
+      const scores = derived.abilityScores ?? {}
+      return {
+        characterSheetId: sheet.characterSheetId,
+        name: sheet.characterName,
+        edition: sheet.edition,
+        armorClass: derived.armorClass ?? 0,
+        strength: scores.strength ?? 0,
+        dexterity: scores.dexterity ?? 0,
+        constitution: scores.constitution ?? 0,
+        intelligence: scores.intelligence ?? 0,
+        wisdom: scores.wisdom ?? 0,
+        charisma: scores.charisma ?? 0,
+      }
     })
   }
 
@@ -70,9 +125,9 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
   }
 
   listSaved(ownerId: string) {
-    return request<SavedAdventure[]>(`/internal/v1/adventures?ownerId=${ownerId}`, {
+    return request<SavedAdventureResponse[]>(`/internal/v1/adventures?ownerId=${ownerId}`, {
       headers: this.authHeaders(),
-    })
+    }).then(items => items.map(toSavedAdventure))
   }
 
   save(adventureId: string, playerId: string, expectedVersion: number, currentScene: string) {
@@ -117,4 +172,23 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
       headers: this.authHeaders(),
     })
   }
+
+  submitMapAction(adventureId: string, candidate: MapActionCandidate, command = createMapCommandIdentity(), expectedVersion = candidate.mapVersion) {
+    return request<{ turnId: string; version: number }>(`/api/v1/adventures/${adventureId}/turns`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json', ...this.authHeaders(),
+        'Idempotency-Key': command.commandId, 'If-Match-Version': String(expectedVersion),
+      },
+      body: JSON.stringify({ turnId: command.turnId, input: {
+        type: 'MAP_ACTION', mapId: candidate.mapId, mapVersion: candidate.mapVersion,
+        action: JSON.stringify(candidate),
+      } }),
+    }).then(result => ({ turnId: result.turnId, version: result.version }))
+  }
+}
+
+function createMapCommandIdentity() {
+  const value = globalThis.crypto && 'randomUUID' in globalThis.crypto ? globalThis.crypto.randomUUID() : `${Date.now()}-${Math.random()}`
+  return { turnId: value, commandId: value }
 }

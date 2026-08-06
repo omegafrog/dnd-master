@@ -94,14 +94,25 @@ public final class ScenarioCompilationApplicationService {
         return scenarioPackage;
     }
 
+    public List<ScenarioPackage> listByBundleId(ScenarioBundleId bundleId, OwnerPlayerId owner) {
+        ScenarioSourceBundle bundle = bundleRepository.findById(bundleId)
+                .orElseThrow(ScenarioBundleNotFoundException::new);
+        bundle.authorize(owner);
+        return packageRepository.findByBundleId(bundleId.value());
+    }
+
     public com.dndmaster.adventure.domain.scenario.ScenarioCompilation start(
             ScenarioBundleId bundleId, OwnerPlayerId owner, String inputFingerprint) {
+        return start(bundleId, owner, inputFingerprint, inputFingerprint);
+    }
+    public com.dndmaster.adventure.domain.scenario.ScenarioCompilation start(
+            ScenarioBundleId bundleId, OwnerPlayerId owner, String inputFingerprint, String idempotencyKey) {
         ScenarioSourceBundle bundle = bundleRepository.findById(bundleId)
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         bundle.authorize(owner);
         log.info("scenario compilation enqueue bundleId={} owner={} revision={} inputFingerprint={}",
                 bundleId.value(), owner.value(), bundle.currentRevision().revision(), inputFingerprint);
-        return processManager.start(bundleId, bundle.currentRevision().revision(), inputFingerprint);
+        return processManager.start(bundleId, bundle.currentRevision().revision(), inputFingerprint, idempotencyKey);
     }
 
     public com.dndmaster.adventure.domain.scenario.ScenarioCompilation readCompilation(

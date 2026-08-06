@@ -1,0 +1,33 @@
+package com.dndmaster.adventure.application.runtime;
+
+import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
+import com.dndmaster.adventure.domain.scenario.MapDefinition;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
+
+public final class TacticalMapActivationApplicationService {
+    private final ScenarioPackageRepository packages;
+    private final TacticalMapActivationPolicy policy;
+    private final TacticalMapPreparationPort preparation;
+
+    public TacticalMapActivationApplicationService(ScenarioPackageRepository packages,
+            TacticalMapPreparationPort preparation) {
+        this.packages = Objects.requireNonNull(packages, "package repository must not be null");
+        this.policy = new TacticalMapActivationPolicy();
+        this.preparation = Objects.requireNonNull(preparation, "map preparation port must not be null");
+    }
+
+    public Activation activate(UUID packageId, UUID adventureId, UUID ownerPlayerId,
+            String stage, String location, String condition) {
+        var scenarioPackage = packages.findById(packageId).orElseThrow(() -> new IllegalArgumentException("scenario package not found"));
+        var decision = policy.decide(scenarioPackage, stage, location, condition);
+        if (decision.map().isEmpty()) return new Activation(Optional.empty(), decision.textFallback());
+        MapDefinition definition = decision.map().orElseThrow();
+        return new Activation(Optional.of(preparation.prepare(adventureId, ownerPlayerId, definition)), false);
+    }
+
+    public record Activation(Optional<UUID> combatMapId, boolean textFallback) {
+        public Activation { combatMapId = Objects.requireNonNull(combatMapId, "combat map id must not be null"); }
+    }
+}

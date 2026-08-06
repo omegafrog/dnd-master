@@ -128,7 +128,7 @@ public final class CrossContextHttpCombatGateway
             return List.of();
         }
         List<PositionRequest> positions = new ArrayList<>();
-        for (String step : movementPath.split(">")) {
+        for (String step : movementPath.split(">|;")) {
             positions.add(parsePosition(step));
         }
         return positions;
@@ -136,6 +136,10 @@ public final class CrossContextHttpCombatGateway
 
     private static PositionRequest parsePosition(String value) {
         String trimmed = value.trim().toUpperCase();
+        if (trimmed.contains(",")) {
+            String[] coordinates = trimmed.split(",");
+            return new PositionRequest(Integer.parseInt(coordinates[0].trim()), Integer.parseInt(coordinates[1].trim()));
+        }
         int split = 0;
         while (split < trimmed.length() && Character.isLetter(trimmed.charAt(split))) split++;
         if (split == 0 || split == trimmed.length()) {
