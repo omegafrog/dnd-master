@@ -4,7 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.dndmaster.adventure.application.runtime.GmTurnFailureRecorder;
 import com.dndmaster.adventure.application.runtime.GmTurnRepository;
-import com.dndmaster.adventure.application.runtime.SessionEvent;
+import com.dndmaster.adventure.domain.runtime.event.SessionEvent;
 import com.dndmaster.adventure.application.runtime.SessionEventRepository;
 import com.dndmaster.adventure.domain.runtime.GmInput;
 import com.dndmaster.adventure.domain.runtime.GmTurn;

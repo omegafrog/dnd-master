@@ -5,7 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
-import com.dndmaster.adventure.application.runtime.SessionEvent;
+import com.dndmaster.adventure.domain.runtime.event.SessionEvent;
 import com.dndmaster.adventure.application.runtime.SessionEventRepository;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.domain.adventure.Adventure;

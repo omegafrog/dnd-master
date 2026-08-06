@@ -3,7 +3,7 @@ package com.dndmaster.adventure;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.dndmaster.adventure.application.runtime.InMemorySessionEventRepository;
-import com.dndmaster.adventure.application.runtime.SessionEvent;
+import com.dndmaster.adventure.domain.runtime.event.SessionEvent;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 

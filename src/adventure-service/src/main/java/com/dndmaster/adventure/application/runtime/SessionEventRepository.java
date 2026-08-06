@@ -1,5 +1,7 @@
 package com.dndmaster.adventure.application.runtime;
 
+import com.dndmaster.adventure.domain.runtime.event.SessionEvent;
+
 import java.util.List;
 import java.util.UUID;
 

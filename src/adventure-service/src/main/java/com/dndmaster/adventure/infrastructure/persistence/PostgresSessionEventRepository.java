@@ -1,7 +1,7 @@
 package com.dndmaster.adventure.infrastructure.persistence;
 
-import com.dndmaster.adventure.application.runtime.SessionEvent;
 import com.dndmaster.adventure.application.runtime.SessionEventRepository;
+import com.dndmaster.adventure.domain.runtime.event.SessionEvent;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;

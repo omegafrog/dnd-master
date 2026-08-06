@@ -1,5 +1,6 @@
 package com.dndmaster.adventure.application.runtime;
 
+import com.dndmaster.adventure.domain.runtime.event.SessionEvent;
 import com.dndmaster.adventure.domain.runtime.GmTurn;
 import java.util.UUID;
 import org.springframework.transaction.annotation.Transactional;

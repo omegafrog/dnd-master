@@ -1,4 +1,4 @@
-package com.dndmaster.adventure.application.runtime;
+package com.dndmaster.adventure.domain.runtime.event;
 
 import java.util.Objects;
 import java.util.UUID;

@@ -1,5 +1,7 @@
 package com.dndmaster.adventure.application.runtime;
 
+import com.dndmaster.adventure.domain.runtime.event.SessionEvent;
+
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;

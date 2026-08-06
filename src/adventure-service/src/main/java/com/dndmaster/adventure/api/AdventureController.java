@@ -157,7 +157,7 @@ public class AdventureController {
                 + ";validation=accepted";
         gmTurnRepository.save(turn.process().commit(providerMetadata), adventureId);
         com.dndmaster.adventure.application.runtime.GmTurnCommitPolicy.requirePublishable(turn.process().commit(providerMetadata), result.version());
-        sessionEventRepository.append(new com.dndmaster.adventure.application.runtime.SessionEvent(
+        sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
                 result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
         return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
     }

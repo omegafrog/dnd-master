@@ -1,7 +1,7 @@
 package com.dndmaster.adventure.api;
 
-import com.dndmaster.adventure.application.runtime.SessionEvent;
 import com.dndmaster.adventure.application.runtime.SessionEventRepository;
+import com.dndmaster.adventure.domain.runtime.event.SessionEvent;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
