@@ -1,0 +1,4 @@
+ALTER TABLE gm_context_checkpoint
+    ADD COLUMN IF NOT EXISTS provider TEXT NOT NULL DEFAULT 'unknown',
+    ADD COLUMN IF NOT EXISTS model TEXT NOT NULL DEFAULT 'unknown',
+    ADD COLUMN IF NOT EXISTS reasoning TEXT NOT NULL DEFAULT 'unknown';

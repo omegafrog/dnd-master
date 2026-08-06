@@ -54,6 +54,12 @@ class GmContextCompactionTest {
 
         assertEquals("player\ntext", checkpoint.exactTail().playerInput());
         assertEquals("gm response", checkpoint.exactTail().lastGmResponse());
+        GmContextCheckpoint providerCheckpoint = GmContextCheckpoint.create(session, UUID.randomUUID(), 4,
+                new ContextSummaryCandidate("summary", List.of(), planRevision, 4), tail,
+                new SnapshotReferences(planRevision, 7, 9, 11, 13, 15), "openai", "gpt-5.6-luna", "medium");
+        assertEquals("openai", providerCheckpoint.provider());
+        assertEquals("gpt-5.6-luna", providerCheckpoint.model());
+        assertEquals("medium", providerCheckpoint.reasoning());
         assertThrows(IllegalArgumentException.class, () -> new ContextSummaryCandidate("", List.of(), UUID.randomUUID(), 1));
     }
 

@@ -25,6 +25,14 @@ public final class GmContextCheckpointApplicationService {
     public Optional<GmContextCheckpoint> compact(UUID sessionId, UUID sourceTurnId, long version,
                                                   ContextUsage usage, CompactionBarrier barrier, String context,
                                                   ExactTail exactTail, SnapshotReferences references) {
+        return compact(sessionId, sourceTurnId, version, usage, barrier, context, exactTail, references,
+                "unknown", "unknown", "unknown");
+    }
+
+    public Optional<GmContextCheckpoint> compact(UUID sessionId, UUID sourceTurnId, long version,
+                                                  ContextUsage usage, CompactionBarrier barrier, String context,
+                                                  ExactTail exactTail, SnapshotReferences references,
+                                                  String provider, String model, String reasoning) {
         if (!policy.shouldSchedule(usage, false) || !policy.canCompact(barrier)) return Optional.empty();
         try {
             ContextSummaryCandidate candidate = Objects.requireNonNull(compactionPort.summarize(
@@ -35,7 +43,7 @@ public final class GmContextCheckpointApplicationService {
             }
             long checkpointVersion = repository.current(sessionId).map(current -> current.version() + 1).orElse(1L);
             GmContextCheckpoint checkpoint = GmContextCheckpoint.create(sessionId, sourceTurnId, checkpointVersion,
-                    candidate, exactTail, references);
+                    candidate, exactTail, references, provider, model, reasoning);
             repository.append(checkpoint);
             return Optional.of(checkpoint);
         } catch (RuntimeException failure) {

@@ -40,6 +40,7 @@ public final class RuntimeTurnCompactionCoordinator {
         var barrier = new CompactionBarrier(!turn.committed(), current.pendingTool(), current.pendingMapCandidate(),
                 false, current.saveFailure());
         scheduler.scheduleAfterCommit(turn.sessionId(), usage, barrier,
-                () -> checkpoints.compact(turn.sessionId(), turn.turnId(), turn.version(), usage, barrier, prompt, tail, refs).isPresent());
+                () -> checkpoints.compact(turn.sessionId(), turn.turnId(), turn.version(), usage, barrier, prompt, tail, refs,
+                        turn.plan().provider(), turn.plan().model(), turn.plan().reasoning()).isPresent());
     }
 }
