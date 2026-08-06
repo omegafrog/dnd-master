@@ -31,7 +31,7 @@ Parent: [#125](https://github.com/omegafrog/dnd-master/issues/125)
 3. [033-3 RAG A/B condition harness](033-3-rag-ab-evaluation.md) — [#128](https://github.com/omegafrog/dnd-master/issues/128) — `completed`
 4. [033-4 Safe Story RAG visibility projection](033-4-safe-story-rag-visibility.md) — [#129](https://github.com/omegafrog/dnd-master/issues/129) — `completed`
 5. [033-5 Hybrid retrieval and query decomposition](033-5-hybrid-retrieval-and-query-decomposition.md) — [#130](https://github.com/omegafrog/dnd-master/issues/130) — `completed`
-6. [033-6 Reranking and context expansion](033-6-reranking-and-context-expansion.md) — [#131](https://github.com/omegafrog/dnd-master/issues/131) — `pending`
+6. [033-6 Reranking and context expansion](033-6-reranking-and-context-expansion.md) — [#131](https://github.com/omegafrog/dnd-master/issues/131) — `completed`
 7. [033-7 Grounding hard gate and degraded mode](033-7-grounding-hard-gate.md) — [#132](https://github.com/omegafrog/dnd-master/issues/132) — `pending`
 8. [033-8 Deterministic adjudication and narrative separation](033-8-deterministic-adjudication.md) — [#133](https://github.com/omegafrog/dnd-master/issues/133) — `pending`
 9. [033-9 Fine-tuning experiment and decision report](033-9-finetuning-decision.md) — [#134](https://github.com/omegafrog/dnd-master/issues/134) — `pending`

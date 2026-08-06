@@ -1,6 +1,6 @@
 # 033-6 — Reranking And Context Expansion
 
-- Status: `pending`
+- Status: `completed`
 - Issue: [#131](https://github.com/omegafrog/dnd-master/issues/131)
 - Parent: [#125](https://github.com/omegafrog/dnd-master/issues/125)
 - Dependencies: [033-5](033-5-hybrid-retrieval-and-query-decomposition.md)
@@ -43,3 +43,11 @@ Grounding hard gate and model fine-tuning.
 ## Completion
 
 Distractor robustness improves, Current RAG nears Oracle, and retrieval p95 remains within budget.
+
+## Delivered
+
+- Added deterministic reranker port with safe pre-rank fallback on adapter failure.
+- Added scope-bound context expansion port and evidence-pack assembler.
+- Enforced maximum entries, per-document diversity, scope/version/visibility checks, and expansion filtering.
+- Recorded candidate key, rerank score, and expanded context keys as provenance.
+- Added unit coverage for deterministic ranking, diversity, failure fallback, and boundary protection.
