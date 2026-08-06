@@ -36,6 +36,23 @@ class FineTuningDecisionTest {
         var report = FineTuningDecisionReport.create(split, evaluations);
         assertEquals(FineTuningDecisionReport.Decision.NO_GO, report.decision());
         assertTrue(report.rationale().contains("quality"));
+        assertThrows(IllegalArgumentException.class, () -> new FineTuningDecisionReport(
+                "gm-quality-finetuning.v1", split, evaluations, FineTuningDecisionReport.Decision.GO, "bypass"));
+    }
+
+    @Test
+    void runner_executes_each_artifact_under_each_rag_condition() {
+        var split = new FineTuningDatasetSplit("split-v1", List.of("a"), List.of("b"), "sha256:train", "sha256:test");
+        var base = artifact(FineTuningModelArtifact.Variant.BASE, "base-digest");
+        var tuned = artifact(FineTuningModelArtifact.Variant.FINE_TUNED, "tuned-digest");
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var report = new FineTuningEvaluationRunner().run(split, base, tuned, CONFIG,
+                (artifact, condition, ignoredSplit, ignoredConfig) -> {
+                    calls.incrementAndGet();
+                    return new FineTuningMetrics(1, .5, .5, .5, 100, 25, 1);
+                });
+        assertEquals(6, calls.get());
+        assertEquals(FineTuningDecisionReport.Decision.NO_GO, report.decision());
     }
 
     @Test
