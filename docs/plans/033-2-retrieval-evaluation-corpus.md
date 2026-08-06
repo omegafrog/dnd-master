@@ -1,6 +1,6 @@
 # 033-2 — Retrieval Evaluation Corpus And Metrics
 
-- Status: `pending`
+- Status: `completed`
 - Issue: [#127](https://github.com/omegafrog/dnd-master/issues/127)
 - Parent: [#125](https://github.com/omegafrog/dnd-master/issues/125)
 - Dependencies: [033-1](033-1-gm-quality-baseline.md)

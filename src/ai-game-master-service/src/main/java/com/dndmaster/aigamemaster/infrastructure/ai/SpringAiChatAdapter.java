@@ -40,6 +40,15 @@ public final class SpringAiChatAdapter implements GmCompletionAdapter {
         return completeWithModel(operationId, prompt, parser, null);
     }
 
+    public String completeNarrative(String scene, String groundedContext) {
+        if (scene == null || scene.isBlank() || groundedContext == null || groundedContext.isBlank()) {
+            throw new IllegalArgumentException("scene and grounded context required");
+        }
+        ChatResponse response = model.call(new Prompt(scene + "\n" + groundedContext,
+                OllamaChatOptions.builder().numPredict(512).disableThinking().build()));
+        return text(response);
+    }
+
     public <T> T completeWithModel(String operationId, String prompt, StructuredResponseParser<T> parser, String requestedModel) {
         String fingerprint = register(operationId, prompt);
         CachedResult cached = completed.get(operationId);

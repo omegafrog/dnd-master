@@ -1,0 +1,4502 @@
+{
+  "version": "retrieval-evaluation-v1",
+  "cases": [
+    {
+      "id": "retrieval-001",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 001: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000001",
+          "locator": "rule:chapter:1:case:001",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001001",
+          "locator": "rule:alternative:001",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:001",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000001",
+          "locator": "rule:chapter:1:case:001",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001001",
+          "locator": "rule:alternative:001",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:001",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008001",
+          "locator": "distractor:case:001",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-002",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 002: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000002",
+          "locator": "rule:chapter:2:case:002",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:002",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000002",
+          "locator": "rule:chapter:2:case:002",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:002",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008002",
+          "locator": "distractor:case:002",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-003",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 003: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000003",
+          "locator": "rule:chapter:3:case:003",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:003",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000003",
+          "locator": "rule:chapter:3:case:003",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:003",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008003",
+          "locator": "distractor:case:003",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-004",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 004: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000004",
+          "locator": "rule:chapter:4:case:004",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:004",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000004",
+          "locator": "rule:chapter:4:case:004",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:004",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008004",
+          "locator": "distractor:case:004",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-005",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 005: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000005",
+          "locator": "rule:chapter:5:case:005",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001005",
+          "locator": "rule:alternative:005",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:005",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000005",
+          "locator": "rule:chapter:5:case:005",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001005",
+          "locator": "rule:alternative:005",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:005",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008005",
+          "locator": "distractor:case:005",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-006",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 006: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000006",
+          "locator": "rule:chapter:6:case:006",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:006",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000006",
+          "locator": "rule:chapter:6:case:006",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:006",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008006",
+          "locator": "distractor:case:006",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-007",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 007: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000007",
+          "locator": "rule:chapter:1:case:007",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:007",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000007",
+          "locator": "rule:chapter:1:case:007",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:007",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008007",
+          "locator": "distractor:case:007",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-008",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 008: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000008",
+          "locator": "rule:chapter:2:case:008",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:008",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000008",
+          "locator": "rule:chapter:2:case:008",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:008",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008008",
+          "locator": "distractor:case:008",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-009",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 009: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000009",
+          "locator": "rule:chapter:3:case:009",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001009",
+          "locator": "rule:alternative:009",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:009",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000009",
+          "locator": "rule:chapter:3:case:009",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001009",
+          "locator": "rule:alternative:009",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:009",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008009",
+          "locator": "distractor:case:009",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-010",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 010: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000010",
+          "locator": "rule:chapter:4:case:010",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:010",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000010",
+          "locator": "rule:chapter:4:case:010",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:010",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008010",
+          "locator": "distractor:case:010",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-011",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 011: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000011",
+          "locator": "rule:chapter:5:case:011",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:011",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000011",
+          "locator": "rule:chapter:5:case:011",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:011",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008011",
+          "locator": "distractor:case:011",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-012",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 012: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000012",
+          "locator": "rule:chapter:6:case:012",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:012",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000012",
+          "locator": "rule:chapter:6:case:012",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:012",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008012",
+          "locator": "distractor:case:012",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-013",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 013: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000013",
+          "locator": "rule:chapter:1:case:013",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001013",
+          "locator": "rule:alternative:013",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:013",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000013",
+          "locator": "rule:chapter:1:case:013",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001013",
+          "locator": "rule:alternative:013",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:013",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008013",
+          "locator": "distractor:case:013",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-014",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 014: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000014",
+          "locator": "rule:chapter:2:case:014",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:014",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000014",
+          "locator": "rule:chapter:2:case:014",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:014",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008014",
+          "locator": "distractor:case:014",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-015",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 015: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000015",
+          "locator": "rule:chapter:3:case:015",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:015",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000015",
+          "locator": "rule:chapter:3:case:015",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:015",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008015",
+          "locator": "distractor:case:015",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-016",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 016: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000016",
+          "locator": "rule:chapter:4:case:016",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:016",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000016",
+          "locator": "rule:chapter:4:case:016",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:016",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008016",
+          "locator": "distractor:case:016",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-017",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 017: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000017",
+          "locator": "rule:chapter:5:case:017",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001017",
+          "locator": "rule:alternative:017",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:017",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000017",
+          "locator": "rule:chapter:5:case:017",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001017",
+          "locator": "rule:alternative:017",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:017",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008017",
+          "locator": "distractor:case:017",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-018",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 018: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000018",
+          "locator": "rule:chapter:6:case:018",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:018",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000018",
+          "locator": "rule:chapter:6:case:018",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:018",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008018",
+          "locator": "distractor:case:018",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-019",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 019: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000019",
+          "locator": "rule:chapter:1:case:019",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:019",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000019",
+          "locator": "rule:chapter:1:case:019",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:019",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008019",
+          "locator": "distractor:case:019",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-020",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 020: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000020",
+          "locator": "rule:chapter:2:case:020",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:020",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000020",
+          "locator": "rule:chapter:2:case:020",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:020",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008020",
+          "locator": "distractor:case:020",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-021",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 021: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000021",
+          "locator": "rule:chapter:3:case:021",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001021",
+          "locator": "rule:alternative:021",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:021",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000021",
+          "locator": "rule:chapter:3:case:021",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001021",
+          "locator": "rule:alternative:021",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:021",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008021",
+          "locator": "distractor:case:021",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-022",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 022: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000022",
+          "locator": "rule:chapter:4:case:022",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:022",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000022",
+          "locator": "rule:chapter:4:case:022",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:022",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008022",
+          "locator": "distractor:case:022",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-023",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 023: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000023",
+          "locator": "rule:chapter:5:case:023",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:023",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000023",
+          "locator": "rule:chapter:5:case:023",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:023",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008023",
+          "locator": "distractor:case:023",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-024",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 024: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000024",
+          "locator": "rule:chapter:6:case:024",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:024",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000024",
+          "locator": "rule:chapter:6:case:024",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:024",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008024",
+          "locator": "distractor:case:024",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-025",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 025: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000025",
+          "locator": "rule:chapter:1:case:025",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001025",
+          "locator": "rule:alternative:025",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:025",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000025",
+          "locator": "rule:chapter:1:case:025",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001025",
+          "locator": "rule:alternative:025",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:025",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008025",
+          "locator": "distractor:case:025",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-026",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 026: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000026",
+          "locator": "rule:chapter:2:case:026",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:026",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000026",
+          "locator": "rule:chapter:2:case:026",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:026",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008026",
+          "locator": "distractor:case:026",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-027",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 027: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000027",
+          "locator": "rule:chapter:3:case:027",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:027",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000027",
+          "locator": "rule:chapter:3:case:027",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:027",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008027",
+          "locator": "distractor:case:027",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-028",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 028: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000028",
+          "locator": "rule:chapter:4:case:028",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:028",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000028",
+          "locator": "rule:chapter:4:case:028",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:028",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008028",
+          "locator": "distractor:case:028",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-029",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 029: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000029",
+          "locator": "rule:chapter:5:case:029",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001029",
+          "locator": "rule:alternative:029",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:029",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000029",
+          "locator": "rule:chapter:5:case:029",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001029",
+          "locator": "rule:alternative:029",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:029",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008029",
+          "locator": "distractor:case:029",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-030",
+      "evidenceType": "rule",
+      "query": "rule retrieval case 030: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000030",
+          "locator": "rule:chapter:6:case:030",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:030",
+          "version": "v1"
+        }
+      ],
+      "scope": "rule",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000030",
+          "locator": "rule:chapter:6:case:030",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:030",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008030",
+          "locator": "distractor:case:030",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-031",
+      "evidenceType": "scene",
+      "query": "scene retrieval case 031: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000031",
+          "locator": "scene:chapter:1:case:031",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001031",
+          "locator": "scene:alternative:031",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:031",
+          "version": "v1"
+        }
+      ],
+      "scope": "scene",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000031",
+          "locator": "scene:chapter:1:case:031",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001031",
+          "locator": "scene:alternative:031",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:031",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008031",
+          "locator": "distractor:case:031",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-032",
+      "evidenceType": "scene",
+      "query": "scene retrieval case 032: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000032",
+          "locator": "scene:chapter:2:case:032",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:032",
+          "version": "v1"
+        }
+      ],
+      "scope": "scene",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000032",
+          "locator": "scene:chapter:2:case:032",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:032",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008032",
+          "locator": "distractor:case:032",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-033",
+      "evidenceType": "scene",
+      "query": "scene retrieval case 033: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000033",
+          "locator": "scene:chapter:3:case:033",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:033",
+          "version": "v1"
+        }
+      ],
+      "scope": "scene",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000033",
+          "locator": "scene:chapter:3:case:033",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:033",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008033",
+          "locator": "distractor:case:033",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-034",
+      "evidenceType": "scene",
+      "query": "scene retrieval case 034: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000034",
+          "locator": "scene:chapter:4:case:034",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:034",
+          "version": "v1"
+        }
+      ],
+      "scope": "scene",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000034",
+          "locator": "scene:chapter:4:case:034",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:034",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008034",
+          "locator": "distractor:case:034",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-035",
+      "evidenceType": "scene",
+      "query": "scene retrieval case 035: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000035",
+          "locator": "scene:chapter:5:case:035",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001035",
+          "locator": "scene:alternative:035",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:035",
+          "version": "v1"
+        }
+      ],
+      "scope": "scene",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000035",
+          "locator": "scene:chapter:5:case:035",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001035",
+          "locator": "scene:alternative:035",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:035",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008035",
+          "locator": "distractor:case:035",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-036",
+      "evidenceType": "scene",
+      "query": "scene retrieval case 036: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000036",
+          "locator": "scene:chapter:6:case:036",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:036",
+          "version": "v1"
+        }
+      ],
+      "scope": "scene",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000036",
+          "locator": "scene:chapter:6:case:036",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:036",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008036",
+          "locator": "distractor:case:036",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-037",
+      "evidenceType": "scene",
+      "query": "scene retrieval case 037: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000037",
+          "locator": "scene:chapter:1:case:037",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:037",
+          "version": "v1"
+        }
+      ],
+      "scope": "scene",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000037",
+          "locator": "scene:chapter:1:case:037",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:037",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008037",
+          "locator": "distractor:case:037",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-038",
+      "evidenceType": "scene",
+      "query": "scene retrieval case 038: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000038",
+          "locator": "scene:chapter:2:case:038",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:038",
+          "version": "v1"
+        }
+      ],
+      "scope": "scene",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000038",
+          "locator": "scene:chapter:2:case:038",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:038",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008038",
+          "locator": "distractor:case:038",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-039",
+      "evidenceType": "scene",
+      "query": "scene retrieval case 039: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000039",
+          "locator": "scene:chapter:3:case:039",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001039",
+          "locator": "scene:alternative:039",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:039",
+          "version": "v1"
+        }
+      ],
+      "scope": "scene",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000039",
+          "locator": "scene:chapter:3:case:039",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001039",
+          "locator": "scene:alternative:039",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:039",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008039",
+          "locator": "distractor:case:039",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-040",
+      "evidenceType": "scene",
+      "query": "scene retrieval case 040: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000040",
+          "locator": "scene:chapter:4:case:040",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:040",
+          "version": "v1"
+        }
+      ],
+      "scope": "scene",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000040",
+          "locator": "scene:chapter:4:case:040",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:040",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008040",
+          "locator": "distractor:case:040",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-041",
+      "evidenceType": "scene",
+      "query": "scene retrieval case 041: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000041",
+          "locator": "scene:chapter:5:case:041",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:041",
+          "version": "v1"
+        }
+      ],
+      "scope": "scene",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000041",
+          "locator": "scene:chapter:5:case:041",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:041",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008041",
+          "locator": "distractor:case:041",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-042",
+      "evidenceType": "scene",
+      "query": "scene retrieval case 042: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000042",
+          "locator": "scene:chapter:6:case:042",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:042",
+          "version": "v1"
+        }
+      ],
+      "scope": "scene",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000042",
+          "locator": "scene:chapter:6:case:042",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:042",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008042",
+          "locator": "distractor:case:042",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-043",
+      "evidenceType": "scene",
+      "query": "scene retrieval case 043: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000043",
+          "locator": "scene:chapter:1:case:043",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001043",
+          "locator": "scene:alternative:043",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:043",
+          "version": "v1"
+        }
+      ],
+      "scope": "scene",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000043",
+          "locator": "scene:chapter:1:case:043",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001043",
+          "locator": "scene:alternative:043",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:043",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008043",
+          "locator": "distractor:case:043",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-044",
+      "evidenceType": "scene",
+      "query": "scene retrieval case 044: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000044",
+          "locator": "scene:chapter:2:case:044",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:044",
+          "version": "v1"
+        }
+      ],
+      "scope": "scene",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000044",
+          "locator": "scene:chapter:2:case:044",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:044",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008044",
+          "locator": "distractor:case:044",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-045",
+      "evidenceType": "scene",
+      "query": "scene retrieval case 045: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000045",
+          "locator": "scene:chapter:3:case:045",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:045",
+          "version": "v1"
+        }
+      ],
+      "scope": "scene",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000045",
+          "locator": "scene:chapter:3:case:045",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:045",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008045",
+          "locator": "distractor:case:045",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-046",
+      "evidenceType": "scene",
+      "query": "scene retrieval case 046: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000046",
+          "locator": "scene:chapter:4:case:046",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:046",
+          "version": "v1"
+        }
+      ],
+      "scope": "scene",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000046",
+          "locator": "scene:chapter:4:case:046",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:046",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008046",
+          "locator": "distractor:case:046",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-047",
+      "evidenceType": "scene",
+      "query": "scene retrieval case 047: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000047",
+          "locator": "scene:chapter:5:case:047",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001047",
+          "locator": "scene:alternative:047",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:047",
+          "version": "v1"
+        }
+      ],
+      "scope": "scene",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000047",
+          "locator": "scene:chapter:5:case:047",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001047",
+          "locator": "scene:alternative:047",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:047",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008047",
+          "locator": "distractor:case:047",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-048",
+      "evidenceType": "scene",
+      "query": "scene retrieval case 048: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000048",
+          "locator": "scene:chapter:6:case:048",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:048",
+          "version": "v1"
+        }
+      ],
+      "scope": "scene",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000048",
+          "locator": "scene:chapter:6:case:048",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:048",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008048",
+          "locator": "distractor:case:048",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-049",
+      "evidenceType": "scene",
+      "query": "scene retrieval case 049: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000049",
+          "locator": "scene:chapter:1:case:049",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:049",
+          "version": "v1"
+        }
+      ],
+      "scope": "scene",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000049",
+          "locator": "scene:chapter:1:case:049",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:049",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008049",
+          "locator": "distractor:case:049",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-050",
+      "evidenceType": "scene",
+      "query": "scene retrieval case 050: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000050",
+          "locator": "scene:chapter:2:case:050",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:050",
+          "version": "v1"
+        }
+      ],
+      "scope": "scene",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000050",
+          "locator": "scene:chapter:2:case:050",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:050",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008050",
+          "locator": "distractor:case:050",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-051",
+      "evidenceType": "npc-continuity",
+      "query": "npc-continuity retrieval case 051: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000051",
+          "locator": "npc-continuity:chapter:1:case:051",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001051",
+          "locator": "npc-continuity:alternative:051",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:051",
+          "version": "v1"
+        }
+      ],
+      "scope": "npc-continuity",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000051",
+          "locator": "npc-continuity:chapter:1:case:051",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001051",
+          "locator": "npc-continuity:alternative:051",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:051",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008051",
+          "locator": "distractor:case:051",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-052",
+      "evidenceType": "npc-continuity",
+      "query": "npc-continuity retrieval case 052: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000052",
+          "locator": "npc-continuity:chapter:2:case:052",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:052",
+          "version": "v1"
+        }
+      ],
+      "scope": "npc-continuity",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000052",
+          "locator": "npc-continuity:chapter:2:case:052",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:052",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008052",
+          "locator": "distractor:case:052",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-053",
+      "evidenceType": "npc-continuity",
+      "query": "npc-continuity retrieval case 053: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000053",
+          "locator": "npc-continuity:chapter:3:case:053",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:053",
+          "version": "v1"
+        }
+      ],
+      "scope": "npc-continuity",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000053",
+          "locator": "npc-continuity:chapter:3:case:053",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:053",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008053",
+          "locator": "distractor:case:053",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-054",
+      "evidenceType": "npc-continuity",
+      "query": "npc-continuity retrieval case 054: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000054",
+          "locator": "npc-continuity:chapter:4:case:054",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:054",
+          "version": "v1"
+        }
+      ],
+      "scope": "npc-continuity",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000054",
+          "locator": "npc-continuity:chapter:4:case:054",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:054",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008054",
+          "locator": "distractor:case:054",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-055",
+      "evidenceType": "npc-continuity",
+      "query": "npc-continuity retrieval case 055: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000055",
+          "locator": "npc-continuity:chapter:5:case:055",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001055",
+          "locator": "npc-continuity:alternative:055",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:055",
+          "version": "v1"
+        }
+      ],
+      "scope": "npc-continuity",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000055",
+          "locator": "npc-continuity:chapter:5:case:055",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001055",
+          "locator": "npc-continuity:alternative:055",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:055",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008055",
+          "locator": "distractor:case:055",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-056",
+      "evidenceType": "npc-continuity",
+      "query": "npc-continuity retrieval case 056: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000056",
+          "locator": "npc-continuity:chapter:6:case:056",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:056",
+          "version": "v1"
+        }
+      ],
+      "scope": "npc-continuity",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000056",
+          "locator": "npc-continuity:chapter:6:case:056",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:056",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008056",
+          "locator": "distractor:case:056",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-057",
+      "evidenceType": "npc-continuity",
+      "query": "npc-continuity retrieval case 057: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000057",
+          "locator": "npc-continuity:chapter:1:case:057",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:057",
+          "version": "v1"
+        }
+      ],
+      "scope": "npc-continuity",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000057",
+          "locator": "npc-continuity:chapter:1:case:057",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:057",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008057",
+          "locator": "distractor:case:057",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-058",
+      "evidenceType": "npc-continuity",
+      "query": "npc-continuity retrieval case 058: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000058",
+          "locator": "npc-continuity:chapter:2:case:058",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:058",
+          "version": "v1"
+        }
+      ],
+      "scope": "npc-continuity",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000058",
+          "locator": "npc-continuity:chapter:2:case:058",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:058",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008058",
+          "locator": "distractor:case:058",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-059",
+      "evidenceType": "npc-continuity",
+      "query": "npc-continuity retrieval case 059: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000059",
+          "locator": "npc-continuity:chapter:3:case:059",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001059",
+          "locator": "npc-continuity:alternative:059",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:059",
+          "version": "v1"
+        }
+      ],
+      "scope": "npc-continuity",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000059",
+          "locator": "npc-continuity:chapter:3:case:059",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001059",
+          "locator": "npc-continuity:alternative:059",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:059",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008059",
+          "locator": "distractor:case:059",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-060",
+      "evidenceType": "npc-continuity",
+      "query": "npc-continuity retrieval case 060: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000060",
+          "locator": "npc-continuity:chapter:4:case:060",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:060",
+          "version": "v1"
+        }
+      ],
+      "scope": "npc-continuity",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000060",
+          "locator": "npc-continuity:chapter:4:case:060",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:060",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008060",
+          "locator": "distractor:case:060",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-061",
+      "evidenceType": "npc-continuity",
+      "query": "npc-continuity retrieval case 061: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000061",
+          "locator": "npc-continuity:chapter:5:case:061",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:061",
+          "version": "v1"
+        }
+      ],
+      "scope": "npc-continuity",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000061",
+          "locator": "npc-continuity:chapter:5:case:061",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:061",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008061",
+          "locator": "distractor:case:061",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-062",
+      "evidenceType": "npc-continuity",
+      "query": "npc-continuity retrieval case 062: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000062",
+          "locator": "npc-continuity:chapter:6:case:062",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:062",
+          "version": "v1"
+        }
+      ],
+      "scope": "npc-continuity",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000062",
+          "locator": "npc-continuity:chapter:6:case:062",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:062",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008062",
+          "locator": "distractor:case:062",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-063",
+      "evidenceType": "npc-continuity",
+      "query": "npc-continuity retrieval case 063: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000063",
+          "locator": "npc-continuity:chapter:1:case:063",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001063",
+          "locator": "npc-continuity:alternative:063",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:063",
+          "version": "v1"
+        }
+      ],
+      "scope": "npc-continuity",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000063",
+          "locator": "npc-continuity:chapter:1:case:063",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001063",
+          "locator": "npc-continuity:alternative:063",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:063",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008063",
+          "locator": "distractor:case:063",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-064",
+      "evidenceType": "npc-continuity",
+      "query": "npc-continuity retrieval case 064: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000064",
+          "locator": "npc-continuity:chapter:2:case:064",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:064",
+          "version": "v1"
+        }
+      ],
+      "scope": "npc-continuity",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000064",
+          "locator": "npc-continuity:chapter:2:case:064",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:064",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008064",
+          "locator": "distractor:case:064",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-065",
+      "evidenceType": "npc-continuity",
+      "query": "npc-continuity retrieval case 065: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000065",
+          "locator": "npc-continuity:chapter:3:case:065",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:065",
+          "version": "v1"
+        }
+      ],
+      "scope": "npc-continuity",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000065",
+          "locator": "npc-continuity:chapter:3:case:065",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:065",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008065",
+          "locator": "distractor:case:065",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-066",
+      "evidenceType": "npc-continuity",
+      "query": "npc-continuity retrieval case 066: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000066",
+          "locator": "npc-continuity:chapter:4:case:066",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:066",
+          "version": "v1"
+        }
+      ],
+      "scope": "npc-continuity",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000066",
+          "locator": "npc-continuity:chapter:4:case:066",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:066",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008066",
+          "locator": "distractor:case:066",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-067",
+      "evidenceType": "npc-continuity",
+      "query": "npc-continuity retrieval case 067: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000067",
+          "locator": "npc-continuity:chapter:5:case:067",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001067",
+          "locator": "npc-continuity:alternative:067",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:067",
+          "version": "v1"
+        }
+      ],
+      "scope": "npc-continuity",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000067",
+          "locator": "npc-continuity:chapter:5:case:067",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001067",
+          "locator": "npc-continuity:alternative:067",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:067",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008067",
+          "locator": "distractor:case:067",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-068",
+      "evidenceType": "npc-continuity",
+      "query": "npc-continuity retrieval case 068: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000068",
+          "locator": "npc-continuity:chapter:6:case:068",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:068",
+          "version": "v1"
+        }
+      ],
+      "scope": "npc-continuity",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000068",
+          "locator": "npc-continuity:chapter:6:case:068",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:068",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008068",
+          "locator": "distractor:case:068",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-069",
+      "evidenceType": "npc-continuity",
+      "query": "npc-continuity retrieval case 069: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000069",
+          "locator": "npc-continuity:chapter:1:case:069",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:069",
+          "version": "v1"
+        }
+      ],
+      "scope": "npc-continuity",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000069",
+          "locator": "npc-continuity:chapter:1:case:069",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:069",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008069",
+          "locator": "distractor:case:069",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-070",
+      "evidenceType": "npc-continuity",
+      "query": "npc-continuity retrieval case 070: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000070",
+          "locator": "npc-continuity:chapter:2:case:070",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:070",
+          "version": "v1"
+        }
+      ],
+      "scope": "npc-continuity",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000070",
+          "locator": "npc-continuity:chapter:2:case:070",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:070",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008070",
+          "locator": "distractor:case:070",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-071",
+      "evidenceType": "combat",
+      "query": "combat retrieval case 071: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000071",
+          "locator": "combat:chapter:1:case:071",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001071",
+          "locator": "combat:alternative:071",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:071",
+          "version": "v1"
+        }
+      ],
+      "scope": "combat",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000071",
+          "locator": "combat:chapter:1:case:071",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001071",
+          "locator": "combat:alternative:071",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:071",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008071",
+          "locator": "distractor:case:071",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-072",
+      "evidenceType": "combat",
+      "query": "combat retrieval case 072: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000072",
+          "locator": "combat:chapter:2:case:072",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:072",
+          "version": "v1"
+        }
+      ],
+      "scope": "combat",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000072",
+          "locator": "combat:chapter:2:case:072",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:072",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008072",
+          "locator": "distractor:case:072",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-073",
+      "evidenceType": "combat",
+      "query": "combat retrieval case 073: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000073",
+          "locator": "combat:chapter:3:case:073",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:073",
+          "version": "v1"
+        }
+      ],
+      "scope": "combat",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000073",
+          "locator": "combat:chapter:3:case:073",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:073",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008073",
+          "locator": "distractor:case:073",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-074",
+      "evidenceType": "combat",
+      "query": "combat retrieval case 074: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000074",
+          "locator": "combat:chapter:4:case:074",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:074",
+          "version": "v1"
+        }
+      ],
+      "scope": "combat",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000074",
+          "locator": "combat:chapter:4:case:074",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:074",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008074",
+          "locator": "distractor:case:074",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-075",
+      "evidenceType": "combat",
+      "query": "combat retrieval case 075: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000075",
+          "locator": "combat:chapter:5:case:075",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001075",
+          "locator": "combat:alternative:075",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:075",
+          "version": "v1"
+        }
+      ],
+      "scope": "combat",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000075",
+          "locator": "combat:chapter:5:case:075",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001075",
+          "locator": "combat:alternative:075",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:075",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008075",
+          "locator": "distractor:case:075",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-076",
+      "evidenceType": "combat",
+      "query": "combat retrieval case 076: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000076",
+          "locator": "combat:chapter:6:case:076",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:076",
+          "version": "v1"
+        }
+      ],
+      "scope": "combat",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000076",
+          "locator": "combat:chapter:6:case:076",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:076",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008076",
+          "locator": "distractor:case:076",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-077",
+      "evidenceType": "combat",
+      "query": "combat retrieval case 077: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000077",
+          "locator": "combat:chapter:1:case:077",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:077",
+          "version": "v1"
+        }
+      ],
+      "scope": "combat",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000077",
+          "locator": "combat:chapter:1:case:077",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:077",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008077",
+          "locator": "distractor:case:077",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-078",
+      "evidenceType": "combat",
+      "query": "combat retrieval case 078: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000078",
+          "locator": "combat:chapter:2:case:078",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:078",
+          "version": "v1"
+        }
+      ],
+      "scope": "combat",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000078",
+          "locator": "combat:chapter:2:case:078",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:078",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008078",
+          "locator": "distractor:case:078",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-079",
+      "evidenceType": "combat",
+      "query": "combat retrieval case 079: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000079",
+          "locator": "combat:chapter:3:case:079",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001079",
+          "locator": "combat:alternative:079",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:079",
+          "version": "v1"
+        }
+      ],
+      "scope": "combat",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000079",
+          "locator": "combat:chapter:3:case:079",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001079",
+          "locator": "combat:alternative:079",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:079",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008079",
+          "locator": "distractor:case:079",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-080",
+      "evidenceType": "combat",
+      "query": "combat retrieval case 080: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000080",
+          "locator": "combat:chapter:4:case:080",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:080",
+          "version": "v1"
+        }
+      ],
+      "scope": "combat",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000080",
+          "locator": "combat:chapter:4:case:080",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:080",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008080",
+          "locator": "distractor:case:080",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-081",
+      "evidenceType": "combat",
+      "query": "combat retrieval case 081: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000081",
+          "locator": "combat:chapter:5:case:081",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:081",
+          "version": "v1"
+        }
+      ],
+      "scope": "combat",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000081",
+          "locator": "combat:chapter:5:case:081",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:081",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008081",
+          "locator": "distractor:case:081",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-082",
+      "evidenceType": "combat",
+      "query": "combat retrieval case 082: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000082",
+          "locator": "combat:chapter:6:case:082",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:082",
+          "version": "v1"
+        }
+      ],
+      "scope": "combat",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000082",
+          "locator": "combat:chapter:6:case:082",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:082",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008082",
+          "locator": "distractor:case:082",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-083",
+      "evidenceType": "combat",
+      "query": "combat retrieval case 083: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000083",
+          "locator": "combat:chapter:1:case:083",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001083",
+          "locator": "combat:alternative:083",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:083",
+          "version": "v1"
+        }
+      ],
+      "scope": "combat",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000083",
+          "locator": "combat:chapter:1:case:083",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001083",
+          "locator": "combat:alternative:083",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:083",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008083",
+          "locator": "distractor:case:083",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-084",
+      "evidenceType": "combat",
+      "query": "combat retrieval case 084: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000084",
+          "locator": "combat:chapter:2:case:084",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:084",
+          "version": "v1"
+        }
+      ],
+      "scope": "combat",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000084",
+          "locator": "combat:chapter:2:case:084",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:084",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008084",
+          "locator": "distractor:case:084",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-085",
+      "evidenceType": "combat",
+      "query": "combat retrieval case 085: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000085",
+          "locator": "combat:chapter:3:case:085",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:085",
+          "version": "v1"
+        }
+      ],
+      "scope": "combat",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000085",
+          "locator": "combat:chapter:3:case:085",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:085",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008085",
+          "locator": "distractor:case:085",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-086",
+      "evidenceType": "long-memory",
+      "query": "long-memory retrieval case 086: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000086",
+          "locator": "long-memory:chapter:1:case:086",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001086",
+          "locator": "long-memory:alternative:086",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:086",
+          "version": "v1"
+        }
+      ],
+      "scope": "long-memory",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000086",
+          "locator": "long-memory:chapter:1:case:086",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001086",
+          "locator": "long-memory:alternative:086",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:086",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008086",
+          "locator": "distractor:case:086",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-087",
+      "evidenceType": "long-memory",
+      "query": "long-memory retrieval case 087: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000087",
+          "locator": "long-memory:chapter:2:case:087",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:087",
+          "version": "v1"
+        }
+      ],
+      "scope": "long-memory",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000087",
+          "locator": "long-memory:chapter:2:case:087",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:087",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008087",
+          "locator": "distractor:case:087",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-088",
+      "evidenceType": "long-memory",
+      "query": "long-memory retrieval case 088: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000088",
+          "locator": "long-memory:chapter:3:case:088",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:088",
+          "version": "v1"
+        }
+      ],
+      "scope": "long-memory",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000088",
+          "locator": "long-memory:chapter:3:case:088",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:088",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008088",
+          "locator": "distractor:case:088",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-089",
+      "evidenceType": "long-memory",
+      "query": "long-memory retrieval case 089: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000089",
+          "locator": "long-memory:chapter:4:case:089",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:089",
+          "version": "v1"
+        }
+      ],
+      "scope": "long-memory",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000089",
+          "locator": "long-memory:chapter:4:case:089",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:089",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008089",
+          "locator": "distractor:case:089",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-090",
+      "evidenceType": "long-memory",
+      "query": "long-memory retrieval case 090: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000090",
+          "locator": "long-memory:chapter:5:case:090",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001090",
+          "locator": "long-memory:alternative:090",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:090",
+          "version": "v1"
+        }
+      ],
+      "scope": "long-memory",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000090",
+          "locator": "long-memory:chapter:5:case:090",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001090",
+          "locator": "long-memory:alternative:090",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:090",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008090",
+          "locator": "distractor:case:090",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-091",
+      "evidenceType": "long-memory",
+      "query": "long-memory retrieval case 091: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000091",
+          "locator": "long-memory:chapter:6:case:091",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:091",
+          "version": "v1"
+        }
+      ],
+      "scope": "long-memory",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000091",
+          "locator": "long-memory:chapter:6:case:091",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:091",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008091",
+          "locator": "distractor:case:091",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-092",
+      "evidenceType": "long-memory",
+      "query": "long-memory retrieval case 092: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000092",
+          "locator": "long-memory:chapter:1:case:092",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:092",
+          "version": "v1"
+        }
+      ],
+      "scope": "long-memory",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000092",
+          "locator": "long-memory:chapter:1:case:092",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:092",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008092",
+          "locator": "distractor:case:092",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-093",
+      "evidenceType": "long-memory",
+      "query": "long-memory retrieval case 093: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000002",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000093",
+          "locator": "long-memory:chapter:2:case:093",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:093",
+          "version": "v1"
+        }
+      ],
+      "scope": "long-memory",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000093",
+          "locator": "long-memory:chapter:2:case:093",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:093",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008093",
+          "locator": "distractor:case:093",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-094",
+      "evidenceType": "long-memory",
+      "query": "long-memory retrieval case 094: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000003",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000094",
+          "locator": "long-memory:chapter:3:case:094",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001094",
+          "locator": "long-memory:alternative:094",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:094",
+          "version": "v1"
+        }
+      ],
+      "scope": "long-memory",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000094",
+          "locator": "long-memory:chapter:3:case:094",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001094",
+          "locator": "long-memory:alternative:094",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:094",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008094",
+          "locator": "distractor:case:094",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-095",
+      "evidenceType": "long-memory",
+      "query": "long-memory retrieval case 095: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000001",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000095",
+          "locator": "long-memory:chapter:4:case:095",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:095",
+          "version": "v1"
+        }
+      ],
+      "scope": "long-memory",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000095",
+          "locator": "long-memory:chapter:4:case:095",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:095",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008095",
+          "locator": "distractor:case:095",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-096",
+      "evidenceType": "secrecy",
+      "query": "secrecy retrieval case 096: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000900",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000096",
+          "locator": "secrecy:chapter:1:case:096",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001096",
+          "locator": "secrecy:alternative:096",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:096",
+          "version": "v1"
+        }
+      ],
+      "scope": "secrecy",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000096",
+          "locator": "secrecy:chapter:1:case:096",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001096",
+          "locator": "secrecy:alternative:096",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:096",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008096",
+          "locator": "distractor:case:096",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-097",
+      "evidenceType": "secrecy",
+      "query": "secrecy retrieval case 097: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000900",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000097",
+          "locator": "secrecy:chapter:2:case:097",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:097",
+          "version": "v1"
+        }
+      ],
+      "scope": "secrecy",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000097",
+          "locator": "secrecy:chapter:2:case:097",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:097",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008097",
+          "locator": "distractor:case:097",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-098",
+      "evidenceType": "secrecy",
+      "query": "secrecy retrieval case 098: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000900",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000098",
+          "locator": "secrecy:chapter:3:case:098",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:098",
+          "version": "v1"
+        }
+      ],
+      "scope": "secrecy",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000098",
+          "locator": "secrecy:chapter:3:case:098",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:098",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008098",
+          "locator": "distractor:case:098",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-099",
+      "evidenceType": "secrecy",
+      "query": "secrecy retrieval case 099: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000900",
+      "sessionId": "00000000-0000-0000-0000-000000000101",
+      "packageId": "00000000-0000-0000-0000-000000000201",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000099",
+          "locator": "secrecy:chapter:4:case:099",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:099",
+          "version": "v1"
+        }
+      ],
+      "scope": "secrecy",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000099",
+          "locator": "secrecy:chapter:4:case:099",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:099",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008099",
+          "locator": "distractor:case:099",
+          "version": "v1"
+        }
+      ]
+    },
+    {
+      "id": "retrieval-100",
+      "evidenceType": "secrecy",
+      "query": "secrecy retrieval case 100: determine grounded evidence for current adventure state",
+      "ownerId": "00000000-0000-0000-0000-000000000900",
+      "sessionId": "00000000-0000-0000-0000-000000000100",
+      "packageId": "00000000-0000-0000-0000-000000000200",
+      "expected": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000100",
+          "locator": "secrecy:chapter:5:case:100",
+          "version": "v1"
+        }
+      ],
+      "alternatives": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000001100",
+          "locator": "secrecy:alternative:100",
+          "version": "v1"
+        }
+      ],
+      "forbidden": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:100",
+          "version": "v1"
+        }
+      ],
+      "scope": "secrecy",
+      "noEvidencePolicy": "REQUIRE_EVIDENCE",
+      "searchScope": [
+        {
+          "documentId": "00000000-0000-0000-0000-000000000100",
+          "locator": "secrecy:chapter:5:case:100",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000001100",
+          "locator": "secrecy:alternative:100",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000009999",
+          "locator": "secret:case:100",
+          "version": "v1"
+        },
+        {
+          "documentId": "00000000-0000-0000-0000-000000008100",
+          "locator": "distractor:case:100",
+          "version": "v1"
+        }
+      ]
+    }
+  ]
+}
