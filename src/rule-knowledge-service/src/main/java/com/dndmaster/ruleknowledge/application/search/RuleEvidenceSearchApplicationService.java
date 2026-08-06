@@ -17,6 +17,7 @@ public final class RuleEvidenceSearchApplicationService {
     private final String embeddingModel;
     private final int embeddingDimension;
     private final HybridRetrievalService hybridRetrieval;
+    private final DecomposedRetrievalService decomposedRetrieval;
 
     public RuleEvidenceSearchApplicationService(
             RuleEvidenceSearchPort searchRepository,
@@ -33,6 +34,7 @@ public final class RuleEvidenceSearchApplicationService {
         this.hybridRetrieval = new HybridRetrievalService(
                 (text, scope, limit) -> retrieveCandidates(text, scope, limit, false),
                 (text, scope, limit) -> retrieveCandidates(text, scope, limit, true));
+        this.decomposedRetrieval = new DecomposedRetrievalService(hybridRetrieval);
     }
 
     public List<RuleEvidenceResult> search(SearchRuleEvidenceQuery query) {
@@ -45,7 +47,10 @@ public final class RuleEvidenceSearchApplicationService {
         query.selectedRulebooks().forEach(id -> scopeBuilder.document(com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId.fromRulebookId(id),
                 com.dndmaster.ruleknowledge.domain.rulebook.DocumentType.RULEBOOK, 1));
         RetrievalScope scope = scopeBuilder.build();
-        return hybridRetrieval.search(query.situation(), scope, query.limit()).stream()
+        return decomposedRetrieval.retrieve(query.situation(), scope, query.limit()).byIntent().values().stream()
+                .flatMap(result -> result.candidates().stream())
+                .sorted(java.util.Comparator.comparingDouble(HybridRetrievalCandidate::score).reversed())
+                .limit(query.limit())
                 .map(hit -> new RuleEvidenceResult(
                         hit.documentId().asRulebookId(),
                         new ChunkId(hit.chunkId()),
