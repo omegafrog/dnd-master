@@ -17,6 +17,7 @@ public record FineTuningDecisionReport(String schemaVersion, FineTuningDatasetSp
         if (!SCHEMA.equals(schemaVersion)) throw new IllegalArgumentException("unsupported fine-tuning schema");
         Objects.requireNonNull(split); evaluations = List.copyOf(Objects.requireNonNull(evaluations));
         Objects.requireNonNull(decision); rationale = required(rationale, "rationale");
+        if (!rationale.contains("bottleneck=") || !rationale.contains("follow-up=")) throw new IllegalArgumentException("evidence-based rationale required");
         validateMatrix(split, evaluations);
         if (decision != decide(evaluations)) throw new IllegalArgumentException("decision does not match evaluation evidence");
     }
@@ -30,8 +31,8 @@ public record FineTuningDecisionReport(String schemaVersion, FineTuningDatasetSp
         double gain = average(evaluations, FineTuningModelArtifact.Variant.FINE_TUNED, FineTuningMetrics::qualityScore)
                 - average(evaluations, FineTuningModelArtifact.Variant.BASE, FineTuningMetrics::qualityScore);
         String rationale = decision == Decision.GO
-                ? "bottleneck=none; fine-tuned quality gain=" + gain + "; follow-up=monitor production metrics"
-                : "bottleneck=quality-or-regression-gate; quality gain=" + gain + "; follow-up=improve data, prompting, or validation before rollout";
+                ? "bottleneck=none; quality gain=" + gain + "; follow-up=monitor production metrics"
+                : "bottleneck=" + failure(evaluations) + "; quality gain=" + gain + "; follow-up=improve data, prompting, or validation before rollout";
         return new FineTuningDecisionReport(SCHEMA, split, evaluations, decision, rationale);
     }
 
@@ -64,6 +65,22 @@ public record FineTuningDecisionReport(String schemaVersion, FineTuningDatasetSp
                     || tuned.costUsd() > base.costUsd()) return Decision.NO_GO;
         }
         return Decision.GO;
+    }
+
+    private static String failure(List<FineTuningEvaluation> evaluations) {
+        for (var condition : RagCondition.values()) {
+            var base = find(evaluations, FineTuningModelArtifact.Variant.BASE, condition).metrics();
+            var tuned = find(evaluations, FineTuningModelArtifact.Variant.FINE_TUNED, condition).metrics();
+            double gain = tuned.qualityScore() - base.qualityScore();
+            double standardError = Math.sqrt(tuned.qualityVariance() / tuned.sampleCount() + base.qualityVariance() / base.sampleCount());
+            if (gain < MIN_GAIN || gain <= 1.96 * standardError) return condition.name().toLowerCase() + " quality/significance";
+            if (tuned.groundingRate() < base.groundingRate()) return condition.name().toLowerCase() + " grounding";
+            if (tuned.koreanNarrationRate() < base.koreanNarrationRate()) return condition.name().toLowerCase() + " Korean narration";
+            if (tuned.structureSuccessRate() < base.structureSuccessRate()) return condition.name().toLowerCase() + " structure";
+            if (tuned.latencyMeanMs() > base.latencyMeanMs() || tuned.latencyVarianceMs() > base.latencyVarianceMs()) return condition.name().toLowerCase() + " latency";
+            if (tuned.costUsd() > base.costUsd()) return condition.name().toLowerCase() + " cost";
+        }
+        return "unknown";
     }
 
     private static FineTuningEvaluation find(List<FineTuningEvaluation> evaluations, FineTuningModelArtifact.Variant variant, RagCondition condition) {

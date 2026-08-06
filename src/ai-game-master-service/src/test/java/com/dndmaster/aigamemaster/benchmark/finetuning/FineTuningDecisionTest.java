@@ -3,11 +3,14 @@ package com.dndmaster.aigamemaster.benchmark.finetuning;
 import static org.junit.jupiter.api.Assertions.*;
 
 import com.dndmaster.aigamemaster.benchmark.GmBenchmarkConfig;
+import com.dndmaster.aigamemaster.benchmark.GmBenchmarkCase;
+import com.dndmaster.aigamemaster.benchmark.rag.RagAbCase;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmProviderRequest;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class FineTuningDecisionTest {
+    private static final GmBenchmarkCase CASE = new GmBenchmarkCase("case-01", "open door", List.of("rules#door"), List.of("hidden key"));
     private static final GmBenchmarkConfig CONFIG = new GmBenchmarkConfig(
             "gm-finetune-v1", "model", "sha256:config", .2, 512, 4096, 3);
 
@@ -46,10 +49,11 @@ class FineTuningDecisionTest {
         var base = artifact(FineTuningModelArtifact.Variant.BASE, "base-digest");
         var tuned = artifact(FineTuningModelArtifact.Variant.FINE_TUNED, "tuned-digest");
         var calls = new java.util.concurrent.atomic.AtomicInteger();
-        var report = new FineTuningEvaluationRunner().run(split, base, tuned, CONFIG,
-                (artifact, condition, ignoredSplit, ignoredConfig) -> {
+        var report = new FineTuningEvaluationRunner().run(split,
+                new RagAbCase(CASE, List.of("rules#similar-door")), c -> List.of("rules#similar-door"), base, tuned, CONFIG,
+                (artifact, condition, ignoredSplit, ignoredConfig, evidence) -> {
                     calls.incrementAndGet();
-                    return new FineTuningMetrics(1, .5, .5, .5, 100, 25, 1);
+                    return new FineTuningMetrics(1, .5, .5, .5, 100, 25, 1, 0, 3);
                 });
         assertEquals(6, calls.get());
         assertEquals(FineTuningDecisionReport.Decision.NO_GO, report.decision());
@@ -71,6 +75,6 @@ class FineTuningDecisionTest {
     private static FineTuningEvaluation evaluation(FineTuningModelArtifact artifact, RagCondition condition,
                                                    double quality) {
         return new FineTuningEvaluation(artifact, condition, CONFIG,
-                new FineTuningMetrics(quality, .5, .5, .5, 100, 25, 1));
+                new FineTuningMetrics(quality, .5, .5, .5, 100, 25, 1, 0, 3));
     }
 }

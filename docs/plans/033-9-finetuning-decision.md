@@ -48,9 +48,9 @@ Decision report shows statistically meaningful quality gain, or records evidence
 
 - Added immutable, digest-addressed training/test split with overlap rejection.
 - Added provider-neutral base/fine-tuned artifact metadata and JSON persistence.
-- Added identical No RAG/Current RAG/Oracle evaluation matrix with quality, grounding, Korean narration, structure, latency, variance, and cost metrics.
+- Added identical No RAG/Current RAG/Oracle/Distractor evaluation matrix with quality, grounding, Korean narration, structure, latency, variance, and cost metrics.
 - Added runner for both provider-neutral artifacts across all three RAG conditions.
-- Added deterministic GO/NO_GO decision gates, variance/significance checks, and required-metadata validation on direct construction and load.
+- Added deterministic GO/NO_GO decision gates across every RAG condition, measured variance/significance checks, evidence-based bottlenecks, and required-metadata validation on direct construction and load.
 - Fixed shared benchmark sample variance and nearest-rank percentile calculations to match report contracts.
 
 Verification: `:ai-game-master-service:test` passes.
