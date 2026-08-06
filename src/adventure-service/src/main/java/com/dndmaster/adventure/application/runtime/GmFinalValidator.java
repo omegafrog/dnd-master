@@ -65,7 +65,7 @@ public final class GmFinalValidator {
             }
         }
         if (hiddenData.stream().filter(Objects::nonNull).map(secret -> secret.toLowerCase(Locale.ROOT)).anyMatch(secret ->
-                !secret.isBlank() && narration.contains(secret))) {
+                !secret.isBlank() && revealsHidden(narration, secret))) {
             throw new IllegalStateException("GM narration contains hidden data");
         }
         return result;
@@ -74,5 +74,22 @@ public final class GmFinalValidator {
     private static boolean containsAny(String value, String... terms) {
         for (String term : terms) if (value.contains(term)) return true;
         return false;
+    }
+
+    private static boolean revealsHidden(String narration, String secret) {
+        if (narration.contains(secret)) return true;
+        Set<String> distinctive = tokens(secret);
+        if (distinctive.size() < 2) return false;
+        Set<String> spoken = tokens(narration);
+        long overlap = distinctive.stream().filter(spoken::contains).count();
+        return overlap >= 2;
+    }
+
+    private static Set<String> tokens(String value) {
+        Set<String> result = new java.util.HashSet<>();
+        for (String token : value.split("[^\\p{L}\\p{Nd}]+")) {
+            if (token.length() >= 4) result.add(token);
+        }
+        return result;
     }
 }

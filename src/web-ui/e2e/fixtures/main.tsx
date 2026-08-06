@@ -179,16 +179,19 @@ const fixtureAdventureApi: AdventureApi = {
   async sendMessage(_adventureId, message) {
     const version = Number(sessionStorage.getItem('dnd-master-e2e-turn-version') ?? '0') + 1
     const entries = JSON.parse(sessionStorage.getItem('dnd-master-e2e-conversation') ?? '[]') as Array<{ sequence: number; speaker: string; content: string }>
-    const narration = window.location.search.includes('full-journey') ? `턴 ${version}: 근거를 바탕으로 응답한다.` : '근거를 바탕으로 응답한다.'
+    const refused = window.location.search.includes('grounding-refusal')
+    const narration = refused
+      ? '아직 확인된 근거가 없어 결과를 말할 수 없습니다.'
+      : window.location.search.includes('full-journey') ? `턴 ${version}: 근거를 바탕으로 응답한다.` : '근거를 바탕으로 응답한다.'
     entries.push({ sequence: entries.length + 1, speaker: 'PLAYER', content: message }, { sequence: entries.length + 2, speaker: 'AI_GAME_MASTER', content: narration })
     sessionStorage.setItem('dnd-master-e2e-turn-version', String(version))
     sessionStorage.setItem('dnd-master-e2e-conversation', JSON.stringify(entries))
     return {
       narration,
-      judgment: '판정 완료',
+      judgment: refused ? 'pending judgment' : '판정 완료',
       currentScene: '새 장면',
       sourceRefs: [],
-      warnings: [],
+      warnings: refused ? ['degraded-mode:RULE;repair-attempted=true;refusal-reason=fixture-only'] : [],
       version,
     }
   },

@@ -29,6 +29,27 @@ it('renders sent conversation and acknowledges delivery', async () => {
   expect(await screen.findByText((_, node) => node?.textContent === 'AI 게임 마스터: 근거를 바탕으로 응답한다.')).toBeInTheDocument()
 })
 
+it('shows a safe grounding notice when backend refuses unsupported output', async () => {
+  const api: AdventureApi = {
+    async sendMessage() {
+      return {
+        narration: '아직 확인된 근거가 없어 결과를 말할 수 없습니다.',
+        judgment: 'pending judgment',
+        currentScene: 'scene',
+        sourceRefs: [],
+        warnings: ['degraded-mode:RULE;repair-attempted=true;refusal-reason=secret internal detail'],
+        version: 1,
+      }
+    },
+  }
+  const user = userEvent.setup()
+  render(<AdventureStream adventureId="a1" api={api} />)
+  await user.type(screen.getByLabelText('행동 또는 대화'), '공격한다')
+  await user.click(screen.getByRole('button', { name: '보내기' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('근거가 부족해 안전한 대기 응답을 표시했습니다.')
+  expect(screen.getByRole('alert')).not.toHaveTextContent('secret internal detail')
+})
+
 it('hydrates persisted conversation on mount', async () => {
   const api: AdventureApi = {
     async readConversation() { return { adventureId: 'a1', version: 1, entries: [{ sequence: 0, speaker: 'AI_GAME_MASTER', content: '저장된 프롤로그' }] } },

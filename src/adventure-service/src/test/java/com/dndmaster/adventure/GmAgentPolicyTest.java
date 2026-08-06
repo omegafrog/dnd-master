@@ -93,4 +93,13 @@ class GmAgentPolicyTest {
                 new GmPlanResult(plan, "ollama", "qwen3:8b", "reasoning", List.of()),
                 new EvidencePack(List.of(story), List.of(), List.of()), context, Set.of()));
     }
+
+    @Test
+    void rejects_paraphrased_hidden_story_fact_when_distinctive_tokens_leak() {
+        RuntimePlan plan = new RuntimePlan("scene", "npc", "judgment", "A dragon waits beside the vault", null,
+                List.of(evidence), List.of());
+        assertThrows(IllegalStateException.class, () -> new GmFinalValidator().validate(
+                new GmPlanResult(plan, "ollama", "qwen3:8b", "reasoning", List.of()), pack, context,
+                Set.of("The dragon guards the hidden vault")));
+    }
 }

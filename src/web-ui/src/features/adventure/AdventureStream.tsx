@@ -52,6 +52,7 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
     void api.runAgentTurn(adventureId, agentVersion).then(response => {
       if (cancelled) return
       setMessages(current => [...current, { speaker: '에이전트 캐릭터', text: response.narration }])
+      setNotice(groundingNotice(response.warnings))
       setAgentVersion(response.version)
       setActiveControlMode(response.nextControlMode ?? 'DIRECT')
     }).catch(() => {
@@ -73,6 +74,7 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
     try {
       const response = await api.sendMessage(adventureId, text, command, projectionVersion.current)
       setMessages(current => [...current, { speaker: 'AI 게임 마스터', text: response.narration }])
+      setNotice(groundingNotice(response.warnings))
     } catch {
       setProjectionStatus('failed')
       setNotice('메시지를 전송하지 못했습니다.')
@@ -99,6 +101,12 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
       </form>
     </section>
   )
+}
+
+function groundingNotice(warnings: string[]) {
+  return warnings.some(warning => warning.startsWith('degraded-mode:'))
+    ? '근거가 부족해 안전한 대기 응답을 표시했습니다.'
+    : ''
 }
 
 function speakerLabel(speaker: string) {
