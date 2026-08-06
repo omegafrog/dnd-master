@@ -29,6 +29,20 @@ public final class StorySourceSearchApplicationService {
 
     public List<StorySourceEvidence> search(StorySourceSearchQuery query) {
         Objects.requireNonNull(query, "query must not be null");
+        List<QueryIntentPart> storyParts = QueryDecomposer.decompose(query.situation()).stream()
+                .filter(part -> part.intent() == DecomposedIntent.SCENE || part.intent() == DecomposedIntent.NPC
+                        || part.intent() == DecomposedIntent.CONTINUITY).toList();
+        if (storyParts.isEmpty()) return searchSingle(query);
+        var merged = new LinkedHashMap<String, StorySourceEvidence>();
+        for (QueryIntentPart part : storyParts) {
+            StorySourceSearchQuery partQuery = new StorySourceSearchQuery(query.owner(), query.packageScope(),
+                    query.activeLocators(), part.query(), query.limit());
+            searchSingle(partQuery).forEach(item -> merged.putIfAbsent(evidenceKey(item), item));
+        }
+        return merged.values().stream().limit(query.limit()).toList();
+    }
+
+    private List<StorySourceEvidence> searchSingle(StorySourceSearchQuery query) {
         float[] embedding = embeddingPort.embed(
                         List.of(new com.dndmaster.ruleknowledge.domain.index.RulebookChunk(
                                 query.packageScope().getFirst().documentId().asRulebookId(),
