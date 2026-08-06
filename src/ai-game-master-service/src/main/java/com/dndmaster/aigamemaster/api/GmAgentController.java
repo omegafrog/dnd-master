@@ -1,6 +1,6 @@
 package com.dndmaster.aigamemaster.api;
 
-import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
+import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.UUID;
@@ -14,11 +14,11 @@ import org.springframework.web.server.ResponseStatusException;
 /** Provider-neutral read-only GM loop. No tool calls or state mutations are exposed. */
 @RestController
 public final class GmAgentController {
-    private final SpringAiChatAdapter adapter;
+    private final GmCompletionAdapter adapter;
     private final ObjectMapper mapper;
     private final ApiRequestGuard requestGuard;
 
-    public GmAgentController(SpringAiChatAdapter adapter, ObjectMapper mapper, ApiRequestGuard requestGuard) {
+    public GmAgentController(GmCompletionAdapter adapter, ObjectMapper mapper, ApiRequestGuard requestGuard) {
         this.adapter = adapter;
         this.mapper = mapper;
         this.requestGuard = requestGuard;

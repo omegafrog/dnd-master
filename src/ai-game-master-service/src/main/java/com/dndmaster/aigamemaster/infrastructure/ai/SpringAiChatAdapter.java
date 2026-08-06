@@ -1,7 +1,7 @@
 package com.dndmaster.aigamemaster.infrastructure.ai;
 import java.nio.charset.StandardCharsets;import java.security.*;import java.util.*;import java.util.concurrent.ConcurrentHashMap;import org.springframework.ai.chat.model.*;import org.springframework.ai.chat.prompt.Prompt;import reactor.core.publisher.Flux;
 import org.springframework.ai.ollama.api.OllamaChatOptions;
-public final class SpringAiChatAdapter{
+public final class SpringAiChatAdapter implements GmCompletionAdapter{
  private final ChatModel model;private final int maxAttempts;private final SafeAiAuditLogger logger;private final boolean thinkingOnly;private final Map<String,CachedResult> completed=new ConcurrentHashMap<>();private final Map<String,String> fingerprints=new ConcurrentHashMap<>();
  public SpringAiChatAdapter(ChatModel model,int maxAttempts,SafeAiAuditLogger logger){this(model,maxAttempts,logger,false);}
  public SpringAiChatAdapter(ChatModel model,int maxAttempts,SafeAiAuditLogger logger,boolean thinkingOnly){this.model=Objects.requireNonNull(model);if(maxAttempts<1)throw new IllegalArgumentException("max attempts positive");this.maxAttempts=maxAttempts;this.logger=Objects.requireNonNull(logger);this.thinkingOnly=thinkingOnly;}

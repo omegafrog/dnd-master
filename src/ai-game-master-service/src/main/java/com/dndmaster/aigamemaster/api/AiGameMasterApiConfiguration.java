@@ -8,12 +8,17 @@ import com.dndmaster.aigamemaster.application.rule.*;
 import com.dndmaster.aigamemaster.application.scene.*;
 import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.CharacterTagCompletionPort;
+import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
+import com.dndmaster.aigamemaster.infrastructure.ai.OpenAiGmProvider;
+import com.dndmaster.aigamemaster.configuration.GmProviderProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.context.annotation.Primary;
 
 import java.util.List;
 import java.util.UUID;
+import java.net.http.HttpClient;
 
 @Configuration(proxyBeanMethods = false)
 public class AiGameMasterApiConfiguration {
@@ -105,7 +110,16 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
-    GmAgentController gmAgentController(SpringAiChatAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+    @Primary
+    GmCompletionAdapter gmCompletionAdapter(SpringAiChatAdapter ollama, GmProviderProperties properties) {
+        properties.validate();
+        if (properties.provider().equals("ollama")) return ollama;
+        return new OpenAiGmProvider(HttpClient.newHttpClient(), properties.baseUrl(), properties.apiKey(),
+                properties.model(), properties.reasoning(), properties.timeout());
+    }
+
+    @Bean
+    GmAgentController gmAgentController(GmCompletionAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper objectMapper,
                                         @Value("${ai-game-master.integration.internal-token:}") String internalToken) {
         return new GmAgentController(adapter, objectMapper, new ApiRequestGuard(internalToken));
     }
