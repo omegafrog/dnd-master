@@ -299,7 +299,7 @@ function Journey() {
   const auth = useAuth()
   if (!auth.session) return <main><h1>D&amp;D Master</h1><LoginForm /></main>
   return (
-    <main>
+    <div>
       <RulebookSetup api={setupApi} playerId="player-e2e" asMain={false} />
       <AdventureSessionPanel api={sessionApi} ownerPlayerId="player-e2e" sessionId="session-e2e" />
       <ScenarioUploadPanel />
@@ -312,7 +312,7 @@ function Journey() {
         <CombatMapView adventureId={adventureId} api={playApi} />
         <SavedAdventurePanel playApi={playApi} setupApi={setupApi} playerId="player-e2e" />
       </div>
-    </main>
+    </div>
   )
 }
 
