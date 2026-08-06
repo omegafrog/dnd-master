@@ -1,6 +1,6 @@
 # 033-7 — Grounding Hard Gate And Degraded Mode
 
-- Status: `pending`
+- Status: `completed`
 - Issue: [#132](https://github.com/omegafrog/dnd-master/issues/132)
 - Parent: [#125](https://github.com/omegafrog/dnd-master/issues/125)
 - Dependencies: [033-3](033-3-rag-ab-evaluation.md), [033-4](033-4-safe-story-rag-visibility.md)

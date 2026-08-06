@@ -18,6 +18,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -158,6 +159,9 @@ public class RuntimeTurnApplicationService {
                 storyPlanContext(adventure), providerSelection(adventure.sessionId().value(), "provider"),
                 providerSelection(adventure.sessionId().value(), "model"),
                 providerSelection(adventure.sessionId().value(), "reasoning")));
+        new GmFinalValidator().validate(
+                new GmPlanResult(plan, plan.provider(), plan.model(), plan.reasoning(), List.of()),
+                evidencePack, adventure.currentContext(), hiddenData(adventure));
         NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
                 plan.narration(), evidencePack, adventure.currentContext(), command.action()));
         if (!safety.approved()) {
@@ -217,6 +221,11 @@ public class RuntimeTurnApplicationService {
             }
         }
         return new RuntimeTurnResult(committed, progressed.currentContext(), progressed.conversation(), progressed.version());
+    }
+
+    private Set<String> hiddenData(Adventure adventure) {
+        String storyContext = storyPlanContext(adventure);
+        return storyContext == null || storyContext.isBlank() ? Set.of() : Set.of(storyContext);
     }
 
     private String providerSelection(UUID sessionId, String field) {

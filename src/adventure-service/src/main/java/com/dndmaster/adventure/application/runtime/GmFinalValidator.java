@@ -4,6 +4,7 @@ import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.Locale;
 
 /** Fail-closed boundary between provider output and player-visible narration. */
 public final class GmFinalValidator {
@@ -27,18 +28,40 @@ public final class GmFinalValidator {
                         && evidence.locator().equals(result.plan().proposedActiveSourceContext().locator()))) {
             throw new IllegalStateException("active source is outside selected evidence");
         }
-        String judgment = result.plan().judgment().toLowerCase(java.util.Locale.ROOT);
-        String narration = result.plan().narration().toLowerCase(java.util.Locale.ROOT);
-        boolean ruleClaim = (judgment + " " + narration).contains("rule") || (judgment + " " + narration).contains("must")
-                || (judgment + " " + narration).contains("roll") || (judgment + " " + narration).contains("damage")
-                || (judgment + " " + narration).contains("check");
-        if (ruleClaim && result.plan().citedEvidence().isEmpty()) {
-            throw new IllegalStateException("rule claim requires citation");
+        String judgment = result.plan().judgment().toLowerCase(Locale.ROOT);
+        String narration = result.plan().narration().toLowerCase(Locale.ROOT);
+        String output = judgment + " " + narration;
+        boolean ruleClaim = containsAny(output, "rule", "must", "roll", "check", "saving throw", "proficiency");
+        if (ruleClaim && result.plan().citedEvidence().stream()
+                .noneMatch(evidence -> evidence.evidenceType() == RuntimeEvidenceType.RULEBOOK)) {
+            throw new IllegalStateException("rule claim requires rulebook evidence");
+        }
+        boolean outcomeClaim = containsAny(output, "hits", "misses", "succeeds", "fails", "takes damage",
+                "damage", "natural 20", "critical hit", "total");
+        if (outcomeClaim && result.plan().citedEvidence().stream()
+                .noneMatch(evidence -> evidence.evidenceType() == RuntimeEvidenceType.RESOLUTION)) {
+            throw new IllegalStateException("outcome requires supplied resolution evidence");
+        }
+        for (RuntimeEvidence evidence : result.plan().citedEvidence()) {
+            if (evidence.evidenceType() == RuntimeEvidenceType.STORYBOOK
+                    && evidence.visibility() != StoryEvidenceVisibility.PLAYER_VISIBLE
+                    && narration.contains(evidence.excerpt().toLowerCase(Locale.ROOT))) {
+                if (evidence.visibility() != StoryEvidenceVisibility.REVEALED_AFTER_EVENT
+                        || evidence.disclosureEvent() == null
+                        || !output.contains(evidence.disclosureEvent().toLowerCase(Locale.ROOT))) {
+                    throw new IllegalStateException("undisclosed story evidence in player narration");
+                }
+            }
         }
         if (hiddenData.stream().filter(Objects::nonNull).anyMatch(secret ->
                 !secret.isBlank() && result.plan().narration().contains(secret))) {
             throw new IllegalStateException("GM narration contains hidden data");
         }
         return result;
+    }
+
+    private static boolean containsAny(String value, String... terms) {
+        for (String term : terms) if (value.contains(term)) return true;
+        return false;
     }
 }

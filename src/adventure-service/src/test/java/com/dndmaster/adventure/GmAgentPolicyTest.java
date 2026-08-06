@@ -51,4 +51,34 @@ class GmAgentPolicyTest {
                 new GmPlanResult(plan, "ollama", "qwen3:8b", "reasoning", List.of()), pack, context,
                 Set.of("stage=secret ending")));
     }
+
+    @Test
+    void rejects_rule_claim_cited_only_to_story_evidence() {
+        RuntimeEvidence story = new RuntimeEvidence(
+                RuntimeEvidenceType.STORYBOOK, document, 1, "scene:1", "A locked door");
+        RuntimePlan plan = new RuntimePlan("scene", "npc", "The rule says roll a check", "narration", null,
+                List.of(story), List.of());
+        assertThrows(IllegalStateException.class, () -> new GmFinalValidator().validate(
+                new GmPlanResult(plan, "ollama", "qwen3:8b", "reasoning", List.of()),
+                new EvidencePack(List.of(story), List.of(), List.of()), context, Set.of()));
+    }
+
+    @Test
+    void rejects_outcome_claim_without_resolution_evidence() {
+        RuntimePlan plan = new RuntimePlan("scene", "npc", "The attack hits", "The goblin takes damage", null,
+                List.of(evidence), List.of());
+        assertThrows(IllegalStateException.class, () -> new GmFinalValidator().validate(
+                new GmPlanResult(plan, "ollama", "qwen3:8b", "reasoning", List.of()), pack, context, Set.of()));
+    }
+
+    @Test
+    void rejects_player_narration_that_repeats_undisclosed_story_evidence() {
+        RuntimeEvidence story = new RuntimeEvidence(
+                RuntimeEvidenceType.STORYBOOK, document, 1, "scene:1", "The hidden chamber contains gold");
+        RuntimePlan plan = new RuntimePlan("scene", "npc", "judgment", "The hidden chamber contains gold", null,
+                List.of(story), List.of());
+        assertThrows(IllegalStateException.class, () -> new GmFinalValidator().validate(
+                new GmPlanResult(plan, "ollama", "qwen3:8b", "reasoning", List.of()),
+                new EvidencePack(List.of(story), List.of(), List.of()), context, Set.of()));
+    }
 }
