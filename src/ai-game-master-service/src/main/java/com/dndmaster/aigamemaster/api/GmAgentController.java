@@ -147,7 +147,7 @@ public final class GmAgentController {
 
     public record CompactionResponse(String summary, List<String> unresolvedThreats, UUID planRevisionId, long planVersion) {}
 
-    static Response requireComplete(Response response) {
+    public static Response requireComplete(Response response) {
         if (response == null || response.scene() == null || response.judgment() == null || response.narration() == null
                 || response.citedEvidence() == null || response.warnings() == null || response.provider() == null
                 || response.model() == null || response.reasoning() == null || response.stateDelta() == null

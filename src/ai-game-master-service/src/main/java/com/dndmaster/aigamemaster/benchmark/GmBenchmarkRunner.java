@@ -28,6 +28,8 @@ public final class GmBenchmarkRunner {
         }).toList();
         return new GmBenchmarkReport("gm-quality-baseline.v1", corpus.version(), config.model(), config.modelDigest(),
                 config.temperature(), config.tokenCap(), config.contextSize(), runs, metrics,
-                GmBenchmarkAggregator.aggregateAll(runs));
+                GmBenchmarkAggregator.aggregateAll(runs),
+                GmBenchmarkAggregator.aggregateAll(runs.stream().filter(run -> run.temperatureState() == GmBenchmarkRun.TemperatureState.COLD).toList()),
+                GmBenchmarkAggregator.aggregateAll(runs.stream().filter(run -> run.temperatureState() == GmBenchmarkRun.TemperatureState.WARM).toList()));
     }
 }

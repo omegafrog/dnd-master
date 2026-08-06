@@ -65,6 +65,12 @@ class GmBenchmarkBaselineTest {
         new GmBenchmarkArtifactStore(new com.fasterxml.jackson.databind.ObjectMapper()).write(directory, report);
         assertEquals(3, Files.list(directory.resolve("raw")).count());
         assertTrue(Files.exists(directory.resolve("baseline-report.json")));
+        assertEquals(10.0, report.coldMetrics().latencyMeanMs());
+        assertEquals(20.0, report.warmMetrics().latencyMeanMs());
+        assertThrows(IllegalArgumentException.class, () -> new GmBenchmarkReport(
+                "gm-quality-baseline.v2", "gm-baseline-v1", "qwen3:8b", "sha256:abc", 0.2,
+                512, 4096, report.runs(), report.cases(), report.overallMetrics(),
+                report.coldMetrics(), report.warmMetrics()));
     }
 
     @Test
