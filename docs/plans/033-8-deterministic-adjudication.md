@@ -1,6 +1,6 @@
 # 033-8 — Deterministic Adjudication And Narrative Separation
 
-- Status: `pending`
+- Status: `completed`
 - Issue: [#133](https://github.com/omegafrog/dnd-master/issues/133)
 - Parent: [#125](https://github.com/omegafrog/dnd-master/issues/125)
 - Dependencies: [033-7](033-7-grounding-hard-gate.md)
@@ -42,3 +42,10 @@ Fine-tuning and retrieval ranking.
 ## Completion
 
 State hallucination and premature unresolved judgments reach 0%; authoritative mutations remain idempotent.
+
+## Execution
+
+- Added deterministic adjudication request fingerprinting and command-id idempotency.
+- Added authoritative resolution model with explicit resolved/rejected/pending states, state changes, and provenance.
+- Added narration contract that accepts only resolved authoritative outcomes.
+- Added policy tests for deterministic retries, conflicting command reuse, provenance propagation, and unresolved-result refusal.
