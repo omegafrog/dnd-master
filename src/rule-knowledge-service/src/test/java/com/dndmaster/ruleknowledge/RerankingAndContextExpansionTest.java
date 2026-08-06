@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.ruleknowledge.application.search.ContextExpansionPort;
+import com.dndmaster.ruleknowledge.application.search.CandidateWindowContextExpansion;
 import com.dndmaster.ruleknowledge.application.search.EvidencePack;
 import com.dndmaster.ruleknowledge.application.search.EvidencePackAssembler;
 import com.dndmaster.ruleknowledge.application.search.HybridRetrievalCandidate;
@@ -50,6 +51,29 @@ class RerankingAndContextExpansionTest {
         assertEquals(1, pack.entries().size());
         assertEquals("seed", pack.entries().getFirst().candidate().excerpt());
         assertTrue(pack.degraded());
+    }
+
+    @Test
+    void expandsOnlyAdjacentSameVersionChunksAndReportsLatency() {
+        UUID owner = UUID.randomUUID();
+        KnowledgeDocumentId document = KnowledgeDocumentId.generate();
+        RetrievalScope scope = RetrievalScope.builder(owner).sessionId("s").packageId("p").stage("start")
+                .document(document, DocumentType.RULEBOOK, 1).build();
+        List<HybridRetrievalCandidate> window = List.of(
+                candidate(owner, document, DocumentType.RULEBOOK, 1, "p0", "before", .5),
+                candidate(owner, document, DocumentType.RULEBOOK, 1, "p1", "seed", .9),
+                candidate(owner, document, DocumentType.RULEBOOK, 1, "p2", "after", .4),
+                candidate(owner, document, DocumentType.RULEBOOK, 2, "p1", "old version", .99));
+        long[] elapsed = { -1L };
+
+        EvidencePack pack = new EvidencePackAssembler(Reranker.deterministic(),
+                new CandidateWindowContextExpansion(window), 3, 2,
+                (candidates, entries, degraded, nanos) -> elapsed[0] = nanos)
+                .assemble("seed", window, scope);
+
+        assertEquals(List.of("seed", "before", "after"), pack.entries().getFirst().context().stream()
+                .map(HybridRetrievalCandidate::excerpt).toList());
+        assertTrue(elapsed[0] >= 0 && elapsed[0] < 100_000_000L);
     }
 
     private static HybridRetrievalCandidate candidate(UUID owner, KnowledgeDocumentId document, DocumentType type,

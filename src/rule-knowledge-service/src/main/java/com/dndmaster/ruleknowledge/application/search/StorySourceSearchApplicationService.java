@@ -89,7 +89,11 @@ public final class StorySourceSearchApplicationService {
         if (result.degraded() && result.candidates().isEmpty()) {
             throw new IllegalStateException("story retrieval degraded: no scoped evidence available");
         }
-        return result.candidates().stream()
+        EvidencePack evidencePack = new EvidencePackAssembler(Reranker.deterministic(),
+                new CandidateWindowContextExpansion(result.candidates()), query.limit(), 2,
+                new LoggingEvidencePackObserver()).assemble(query.situation(), result.candidates(), scope);
+        return evidencePack.entries().stream()
+                .map(entry -> entry.candidate())
                 .map(candidate -> evidence.stream().filter(item -> candidate.documentId().equals(item.documentId())
                         && candidate.locator().equals(item.sourceSpanLocator())).findFirst().orElseThrow())
                 .toList();

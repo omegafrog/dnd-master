@@ -13,17 +13,25 @@ public final class EvidencePackAssembler {
     private final ContextExpansionPort expansion;
     private final int maxEntries;
     private final int maxPerDocument;
+    private final EvidencePackObserver observer;
 
     public EvidencePackAssembler(Reranker reranker, ContextExpansionPort expansion, int maxEntries,
             int maxPerDocument) {
+        this(reranker, expansion, maxEntries, maxPerDocument, EvidencePackObserver.noop());
+    }
+
+    public EvidencePackAssembler(Reranker reranker, ContextExpansionPort expansion, int maxEntries,
+            int maxPerDocument, EvidencePackObserver observer) {
         this.reranker = Objects.requireNonNull(reranker);
         this.expansion = Objects.requireNonNull(expansion);
+        this.observer = Objects.requireNonNull(observer);
         if (maxEntries <= 0 || maxPerDocument <= 0) throw new IllegalArgumentException("limits must be positive");
         this.maxEntries = maxEntries;
         this.maxPerDocument = maxPerDocument;
     }
 
     public EvidencePack assemble(String query, List<HybridRetrievalCandidate> candidates, RetrievalScope scope) {
+        long started = System.nanoTime();
         if (query == null || query.isBlank()) throw new IllegalArgumentException("query must not be blank");
         Objects.requireNonNull(candidates);
         Objects.requireNonNull(scope);
@@ -44,7 +52,9 @@ public final class EvidencePackAssembler {
             if (!scope.accepts(candidate) || documents.stream().filter(candidate.documentId()::equals).count() >= maxPerDocument) continue;
             List<HybridRetrievalCandidate> context;
             try {
-                context = expansion.expand(candidate, scope, 1).stream().filter(scope::accepts).distinct().toList();
+                context = expansion.expand(candidate, scope, 1).stream().filter(scope::accepts).distinct()
+                        .filter(item -> item.documentId().equals(candidate.documentId()))
+                        .limit(maxEntries).toList();
             } catch (RuntimeException failure) {
                 context = List.of(candidate);
                 degraded = true;
@@ -55,7 +65,9 @@ public final class EvidencePackAssembler {
             documents.add(candidate.documentId());
             if (entries.size() == maxEntries) break;
         }
-        return new EvidencePack(entries, degraded);
+        EvidencePack result = new EvidencePack(entries, degraded);
+        observer.onAssembled(candidates.size(), entries.size(), degraded, System.nanoTime() - started);
+        return result;
     }
 
     private List<HybridRetrievalCandidate> selectDiverse(List<HybridRetrievalCandidate> ranked, RetrievalScope scope) {

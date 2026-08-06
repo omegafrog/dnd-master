@@ -47,7 +47,8 @@ Distractor robustness improves, Current RAG nears Oracle, and retrieval p95 rema
 ## Delivered
 
 - Added deterministic reranker port with safe pre-rank fallback on adapter failure.
-- Added scope-bound context expansion port and evidence-pack assembler.
-- Enforced maximum entries, per-document diversity, scope/version/visibility checks, and expansion filtering.
+- Wired reranking and context expansion into rule and story retrieval application services.
+- Added scope-bound adjacent-candidate expansion with same-document/version filtering.
+- Enforced maximum entries, per-document/type diversity, scope/version/visibility checks, and bounded expansion.
 - Recorded candidate key, rerank score, and expanded context keys as provenance.
-- Added unit coverage for deterministic ranking, diversity, failure fallback, and boundary protection.
+- Added latency/observability hooks, unit coverage, and browser E2E coverage for distractor actions.

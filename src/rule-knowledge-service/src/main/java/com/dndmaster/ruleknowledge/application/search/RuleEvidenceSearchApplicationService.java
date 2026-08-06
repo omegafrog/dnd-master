@@ -47,14 +47,19 @@ public final class RuleEvidenceSearchApplicationService {
         query.selectedRulebooks().forEach(id -> scopeBuilder.document(com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId.fromRulebookId(id),
                 com.dndmaster.ruleknowledge.domain.rulebook.DocumentType.RULEBOOK, 1));
         RetrievalScope scope = scopeBuilder.build();
-        DecomposedEvidencePack pack = decomposedRetrieval.retrieve(query.situation(), scope, query.limit());
+        int candidateLimit = Math.max(20, query.limit() * 4);
+        DecomposedEvidencePack pack = decomposedRetrieval.retrieve(query.situation(), scope, candidateLimit);
         if (pack.degraded() && pack.byIntent().values().stream().allMatch(result -> result.candidates().isEmpty())) {
             throw new IllegalStateException("rule retrieval degraded: no scoped evidence available");
         }
-        return pack.byIntent().values().stream()
+        List<HybridRetrievalCandidate> candidates = pack.byIntent().values().stream()
                 .flatMap(result -> result.candidates().stream())
-                .sorted(java.util.Comparator.comparingDouble(HybridRetrievalCandidate::score).reversed())
-                .limit(query.limit())
+                .toList();
+        EvidencePack evidencePack = new EvidencePackAssembler(Reranker.deterministic(),
+                new CandidateWindowContextExpansion(candidates), query.limit(), 2, new LoggingEvidencePackObserver())
+                .assemble(query.situation(), candidates, scope);
+        return evidencePack.entries().stream()
+                .map(entry -> entry.candidate())
                 .map(hit -> new RuleEvidenceResult(
                         hit.documentId().asRulebookId(),
                         new ChunkId(hit.chunkId()),
