@@ -1,6 +1,6 @@
 # 032-10 — GM Provider Quality Gate and Full Journey
 
-- Status: `completed`
+- Status: `in-progress`
 - Issue: [#124](https://github.com/omegafrog/dnd-master/issues/124)
 - Parent: [#114](https://github.com/omegafrog/dnd-master/issues/114)
 - Dependencies: [032-1](032-1-typed-gm-turn-lifecycle.md) through [032-9](032-9-gm-context-compaction-and-resume.md)
@@ -59,7 +59,7 @@ Automatic provider mixing, multiplayer, hex grids, generated maps.
 
 ## Validation
 
-- Backend `./gradlew check` passes, including all-in-one Flyway recovery.
 - Web unit tests: 26 files / 76 tests pass.
 - Player journey Playwright suite: 3/3 pass.
 - Web typecheck and lint pass.
+- Backend service checks pass; all-in-one Flyway check still has pre-existing duplicate migration versions.
