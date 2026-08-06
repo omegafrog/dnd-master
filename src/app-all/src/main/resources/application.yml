@@ -1,6 +1,16 @@
 server:
   port: 8080
 
+character:
+  integration:
+    internal-token: ${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}
+dice:
+  integration:
+    internal-token: ${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}
+ai-game-master:
+  integration:
+    internal-token: ${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}
+
 logging:
   level:
     com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationApplicationService: OFF
@@ -8,6 +18,7 @@ logging:
 
 adventure:
   integration:
+    internal-token: ${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}
     identity-access:
       base-url: ${IDENTITY_ACCESS_BASE_URL:http://127.0.0.1:8080/}
     rule-knowledge:
@@ -50,6 +61,7 @@ spring:
           dimensions: 1024
 
 rule-knowledge:
+  internal-token: ${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}
   storage:
     root: ./data/rulebooks
   embedding-model: qwen3-embedding:0.6b

@@ -77,6 +77,7 @@ public class ModuleFlywayConfiguration {
                 .locations(module.location())
                 .baselineOnMigrate(true)
                 .baselineVersion("0")
+                .ignoreMigrationPatterns("*:missing")
                 .outOfOrder(true)
                 .load();
     }

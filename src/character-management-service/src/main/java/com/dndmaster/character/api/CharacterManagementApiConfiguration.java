@@ -22,7 +22,7 @@ import javax.sql.DataSource;
 public class CharacterManagementApiConfiguration {
 
     @Bean
-    ApiRequestGuard apiRequestGuard(@Value("${character.integration.internal-token:}") String token) { return new ApiRequestGuard(token); }
+    ApiRequestGuard characterApiRequestGuard(@Value("${character.integration.internal-token:${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}}") String token) { return new ApiRequestGuard(token); }
 
     @Bean
     CharacterSheetRepository characterSheetRepository(DataSource dataSource) {

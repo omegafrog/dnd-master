@@ -25,7 +25,7 @@ public class DiceRollApiConfiguration {
     }
 
     @Bean
-    ApiRequestGuard apiRequestGuard(@Value("${dice.integration.internal-token:}") String token) { return new ApiRequestGuard(token); }
+    ApiRequestGuard diceApiRequestGuard(@Value("${dice.integration.internal-token:${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}}") String token) { return new ApiRequestGuard(token); }
 
     @Bean
     DiceRollApplicationService diceRollApplicationService(
