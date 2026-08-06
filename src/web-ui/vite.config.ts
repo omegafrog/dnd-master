@@ -6,11 +6,11 @@ export default defineConfig({
   server: {
     proxy: {
       '/api': {
-        target: 'http://localhost:8080',
+        target: process.env.BACKEND_E2E_URL ?? 'http://localhost:8080',
         changeOrigin: true,
       },
       '/internal': {
-        target: 'http://localhost:8080',
+        target: process.env.BACKEND_E2E_URL ?? 'http://localhost:8080',
         changeOrigin: true,
       },
     },
