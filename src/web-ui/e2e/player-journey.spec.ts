@@ -115,6 +115,25 @@ test('document-derived scenario preserves bundle and exposes character blueprint
   }
 })
 
+test('running session reconnects with switched provider and confirms ending', async ({ page }) => {
+  await page.goto('/e2e/fixtures/index.html?full-journey')
+  await page.getByLabel('이메일').fill('player@example.com')
+  await page.getByLabel('비밀번호').fill('secret-password')
+  await page.getByRole('button', { name: '로그인', exact: true }).click()
+
+  const provider = page.getByRole('region', { name: '모험 생성과 파티 구성' })
+  const gmProvider = provider.getByRole('region', { name: 'GM provider' })
+  await gmProvider.getByLabel('GM provider').selectOption('openai')
+  await page.locator('input[aria-label="GM model"]').fill('gpt-5.6-luna')
+  await gmProvider.getByRole('button', { name: 'Provider 전환' }).click()
+  await expect(gmProvider.getByText(/현재: openai · gpt-5.6-luna · medium/)).toBeVisible()
+
+  await page.reload()
+  await expect(page.getByRole('region', { name: 'GM provider' }).getByText(/현재: openai · gpt-5.6-luna · medium/)).toBeVisible()
+  await page.getByRole('button', { name: '세션 완료' }).click()
+  await expect(page.getByText(/COMPLETED · 파티/)).toBeVisible()
+})
+
 function summarizeErrorBody(body: string) {
   const compact = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
   return compact.length > 500 ? `${compact.slice(0, 500)}…` : compact

@@ -1,0 +1,29 @@
+apiVersion: 1
+kind: GmQualityGateDashboard
+metadata:
+  name: gm-quality-gate
+  owner: adventure-platform
+panels:
+  - title: Gate result
+    query: sum by (result) (rate(gm_quality_gate_total[15m]))
+  - title: Safety violations
+    query: sum(rate(gm_quality_secret_violations_total[15m])) + sum(rate(gm_quality_forbidden_tool_violations_total[15m])) + sum(rate(gm_quality_invented_state_violations_total[15m]))
+  - title: Human score
+    query: gm_quality_human_score
+  - title: Context utilization
+    query: gm_context_utilization
+  - title: Pending Saga
+    query: rate(gm_saga_pending_total[15m])
+alerts:
+  - name: GmQualityGateFailed
+    expr: increase(gm_quality_gate_total{result="fail"}[15m]) > 0
+    severity: critical
+  - name: GmSafetyViolation
+    expr: increase(gm_quality_secret_violations_total[15m]) + increase(gm_quality_forbidden_tool_violations_total[15m]) + increase(gm_quality_invented_state_violations_total[15m]) > 0
+    severity: critical
+  - name: GmContextNearLimit
+    expr: max_over_time(gm_context_utilization[10m]) > 0.7
+    severity: warning
+  - name: GmSagaPending
+    expr: increase(gm_saga_pending_total[10m]) > increase(gm_saga_completed_total[10m])
+    severity: warning

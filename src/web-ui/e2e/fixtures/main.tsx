@@ -205,11 +205,15 @@ const guidanceApi: RuleGuidanceApi = {
   },
 }
 
+const fullJourneyMode = window.location.search.includes('full-journey')
+const providerStorageKey = 'dnd-master-e2e-provider'
+const defaultProviderView = { sessionId: 'session-e2e', provider: 'ollama', model: 'qwen3:8b', reasoning: 'medium', version: 0, turnInProgress: false }
+const persistedProvider = sessionStorage.getItem(providerStorageKey)
 let sessionView: AdventureSessionView = {
-  sessionId: 'session-e2e', characterLimit: 1, version: 0, status: 'DRAFT', adventureId: null,
+  sessionId: 'session-e2e', characterLimit: 1, version: fullJourneyMode ? 4 : 0, status: fullJourneyMode ? 'STARTED' : 'DRAFT', adventureId: fullJourneyMode ? adventureId : null,
   runtimeConfiguration: null, party: [],
 }
-let providerView = { sessionId: 'session-e2e', provider: 'ollama', model: 'qwen3:8b', reasoning: 'medium', version: 0, turnInProgress: false }
+let providerView = persistedProvider ? { ...defaultProviderView, ...JSON.parse(persistedProvider) } : defaultProviderView
 const sessionApi = {
   async read() { return sessionView },
   async readGmProvider() { return providerView },
@@ -217,6 +221,7 @@ const sessionApi = {
     if (version !== providerView.version) throw new Error('provider binding version mismatch')
     if (providerView.turnInProgress) throw new Error('provider cannot switch during a turn')
     providerView = { ...providerView, ...selection, version: version + 1 }
+    sessionStorage.setItem(providerStorageKey, JSON.stringify(providerView))
     return providerView
   },
   async listOwnedCharacters() {

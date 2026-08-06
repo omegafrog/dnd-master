@@ -2,6 +2,7 @@ package com.dndmaster.aigamemaster.infrastructure.ai;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.*;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
@@ -28,5 +29,26 @@ class OpenAiGmProviderTest {
                 .withRequestBody(matchingJsonPath("$.model", equalTo("gpt-5.6-luna")))
                 .withRequestBody(matchingJsonPath("$.reasoning.effort", equalTo("medium")))
                 .withRequestBody(matchingJsonPath("$.text.format.type", equalTo("json_object"))));
+    }
+
+    @Test void maps_rate_limit_to_provider_contract_error() {
+        server.stubFor(post("/v1/responses").willReturn(aResponse().withStatus(429)));
+        GmCompletionAdapter adapter = provider(Duration.ofSeconds(1));
+
+        assertThrows(ProviderRateLimitException.class,
+                () -> adapter.complete("turn-rate-limit", "grounded context", value -> value));
+    }
+
+    @Test void rejects_missing_structured_output_with_provider_contract_error() {
+        server.stubFor(post("/v1/responses").willReturn(okJson("{\"output\":[]}")));
+        GmCompletionAdapter adapter = provider(Duration.ofSeconds(1));
+
+        assertThrows(ProviderMalformedResponseException.class,
+                () -> adapter.complete("turn-malformed", "grounded context", value -> value));
+    }
+
+    private GmCompletionAdapter provider(Duration timeout) {
+        return new OpenAiGmProvider(HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"),
+                "test-key", "gpt-5.6-luna", "medium", timeout);
     }
 }
