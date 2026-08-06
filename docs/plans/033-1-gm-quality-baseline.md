@@ -1,6 +1,6 @@
 # 033-1 — Reproducible GM Quality Baseline
 
-- Status: `pending`
+- Status: `completed`
 - Issue: [#126](https://github.com/omegafrog/dnd-master/issues/126)
 - Parent: [#125](https://github.com/omegafrog/dnd-master/issues/125)
 - Dependencies: none

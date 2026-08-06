@@ -26,7 +26,7 @@ Dependency chain: `032-1 → 032-2 → 032-3 → 032-4 → 032-5a → 032-5`; `0
 
 Parent: [#125](https://github.com/omegafrog/dnd-master/issues/125)
 
-1. [033-1 Reproducible GM quality baseline](033-1-gm-quality-baseline.md) — [#126](https://github.com/omegafrog/dnd-master/issues/126) — `pending`
+1. [033-1 Reproducible GM quality baseline](033-1-gm-quality-baseline.md) — [#126](https://github.com/omegafrog/dnd-master/issues/126) — `completed`
 2. [033-2 Retrieval evaluation corpus and metrics](033-2-retrieval-evaluation-corpus.md) — [#127](https://github.com/omegafrog/dnd-master/issues/127) — `pending`
 3. [033-3 RAG A/B condition harness](033-3-rag-ab-evaluation.md) — [#128](https://github.com/omegafrog/dnd-master/issues/128) — `pending`
 4. [033-4 Safe Story RAG visibility projection](033-4-safe-story-rag-visibility.md) — [#129](https://github.com/omegafrog/dnd-master/issues/129) — `pending`
