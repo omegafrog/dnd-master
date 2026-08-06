@@ -54,6 +54,7 @@ class GmAgentToolWiringTest {
                         new EvidencePack(List.of(), List.of(rule), List.of()), List.of(), List.of(), ""));
 
         assertEquals(List.of(rule), plan.citedEvidence());
+        assertTrue(plan.warnings().contains("repair-attempted=true"));
     }
 
     @Test

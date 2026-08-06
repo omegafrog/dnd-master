@@ -46,6 +46,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
             } else {
                 try {
                     result = validator.validate(repaired, request.evidencePack(), request.currentContext(), hiddenData);
+                    result = withRepairMetadata(result);
                 } catch (IllegalStateException unrepaired) {
                     result = refusal(repaired, modeFor(unrepaired.getMessage()), unrepaired.getMessage(), true);
                 }
@@ -117,6 +118,11 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
                 "I cannot provide a grounded result yet. Please retry with more evidence.",
                 plan.proposedActiveSourceContext(), List.of(), warnings, plan.provider(), plan.model(), plan.reasoning());
         return new GmPlanResult(safe, source.provider(), source.model(), source.reasoning(), List.of(), List.of());
+    }
+
+    private static GmPlanResult withRepairMetadata(GmPlanResult result) {
+        return new GmPlanResult(result.plan().withWarning("repair-attempted=true"), result.provider(), result.model(),
+                result.reasoning(), result.stateDelta(), result.toolCalls());
     }
 
     private static GmDegradedMode modeFor(String reason) {
