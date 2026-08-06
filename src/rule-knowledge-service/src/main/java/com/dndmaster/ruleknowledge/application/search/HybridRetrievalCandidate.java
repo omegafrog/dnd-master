@@ -25,5 +25,5 @@ public record HybridRetrievalCandidate(
         return new HybridRetrievalCandidate(ownerId, documentId, documentType, extractionVersion, locator, excerpt,
                 denseScore, keywordScore, chunkId, sessionId, packageId, stage, visibility, value);
     }
-    public String key() { return documentId.value() + ":" + extractionVersion + ":" + locator; }
+    public String key() { return documentId.value() + ":" + extractionVersion + ":" + locator + ":" + chunkId; }
 }

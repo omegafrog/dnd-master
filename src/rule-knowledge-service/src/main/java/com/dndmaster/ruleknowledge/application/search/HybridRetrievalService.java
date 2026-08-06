@@ -28,7 +28,9 @@ public final class HybridRetrievalService {
         List<HybridRetrievalCandidate> ranked = normalize(merged.values().stream().toList()).stream()
                 .sorted(Comparator.comparingDouble(HybridRetrievalCandidate::score).reversed()
                         .thenComparing(HybridRetrievalCandidate::key)).limit(limit).toList();
-        return new HybridRetrievalResult(ranked, failed, ranked.isEmpty() && failed ? "RETRIEVAL_UNAVAILABLE" : failed ? "RETRIEVAL_DEGRADED" : "OK");
+        boolean empty = ranked.isEmpty();
+        return new HybridRetrievalResult(ranked, failed || empty,
+                failed && empty ? "RETRIEVAL_UNAVAILABLE" : failed ? "RETRIEVAL_DEGRADED" : empty ? "NO_EVIDENCE" : "OK");
     }
     private static List<HybridRetrievalCandidate> call(RetrievalCandidateSource source, String q, RetrievalScope s, int limit) {
         try { return Optional.ofNullable(source.search(q, s, limit)).orElse(List.of()); } catch (RuntimeException ex) { return null; }

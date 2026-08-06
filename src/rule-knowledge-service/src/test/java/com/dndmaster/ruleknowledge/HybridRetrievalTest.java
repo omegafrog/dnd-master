@@ -84,6 +84,6 @@ class HybridRetrievalTest {
     private static HybridRetrievalCandidate candidate(UUID owner, KnowledgeDocumentId document, long version, String locator,
             double dense, double keyword, String session, String pack, String stage, String visibility) {
         return new HybridRetrievalCandidate(owner, document, DocumentType.STORYBOOK, version, locator, "excerpt", dense,
-                keyword, UUID.randomUUID(), session, pack, stage, visibility);
+                keyword, UUID.nameUUIDFromBytes(locator.getBytes(java.nio.charset.StandardCharsets.UTF_8)), session, pack, stage, visibility);
     }
 }
