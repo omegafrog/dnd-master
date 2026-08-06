@@ -213,11 +213,13 @@ public class AdventureApiConfiguration {
                     String facts = continuity.load(sessionId).map(context -> context.promptText()).orElse("facts=none");
                     String clock = continuity.load(sessionId).map(context -> "clockVersion=" + context.clock().version()
                             + "; elapsedTurns=" + context.clock().turnsElapsed() + "; elapsedSeconds=" + context.clock().secondsElapsed()).orElse("clock=none");
+                    String mapSnapshot = map.map(Object::toString).orElse("map=none");
                     return new VersionedRuntimeSnapshots(
-                            characterSnapshot, characterVersion,
-                            map.map(Object::toString).orElse("map=none"), map.map(CombatMapViewPort.View::version).orElse(0L),
+                            characterSnapshot, characterVersion, mapSnapshot, map.map(CombatMapViewPort.View::version).orElse(0L),
                             facts, continuity.load(sessionId).map(context -> context.facts().stream().mapToLong(fact -> fact.version()).max().orElse(0)).orElse(0L),
-                            clock, continuity.load(sessionId).map(context -> context.clock().version()).orElse(0L));
+                            clock, continuity.load(sessionId).map(context -> context.clock().version()).orElse(0L),
+                            turn.turnId().toString(), clock, turn.context().currentScene(), mapSnapshot, mapSnapshot,
+                            false, turn.context().pendingActionValue().isPresent(), false);
                 })
                 .orElse(new VersionedRuntimeSnapshots("", 0, "", 0, "", 0, "", 0));
     }

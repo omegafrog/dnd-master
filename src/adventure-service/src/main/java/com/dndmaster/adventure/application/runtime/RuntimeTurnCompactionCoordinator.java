@@ -31,16 +31,14 @@ public final class RuntimeTurnCompactionCoordinator {
                     .filter(entry -> "AI_GAME_MASTER".equals(entry.speaker()))
                     .reduce((first, second) -> second).map(entry -> entry.content()).orElse(turn.context().currentScene())
                 : turn.context().currentScene();
-        var tail = new ExactTail(turn.action(), precedingScene, turn.plan().narration(), turn.turnId().toString(),
-                current.clockSnapshot(), turn.context().currentScene(), current.mapSnapshot(),
-                current.mapSnapshot(), turn.context().pendingActionValue().orElse("choice:none"));
+        var tail = new ExactTail(turn.action(), precedingScene, turn.plan().narration(), current.currentTurn(),
+                current.currentRound(), current.location(), current.mapState(),
+                current.fogOfWar(), turn.context().pendingActionValue().orElse("choice:none"));
         var prompt = String.join("\n", turn.conversation().stream().map(Object::toString).toList())
                 + "\n" + turn.context() + "\n" + turn.evidencePack() + "\n" + turn.plan();
         var usage = estimator.usage(turn.plan().provider(), prompt);
-        // Resolver reads post-commit authoritative snapshots. Runtime-turn version is a different counter;
-        // comparing them would create false stale barriers. Pending choice blocks map-candidate compaction.
-        var barrier = new CompactionBarrier(!turn.committed(), false, turn.context().pendingActionValue().isPresent(),
-                false, false);
+        var barrier = new CompactionBarrier(!turn.committed(), current.pendingTool(), current.pendingMapCandidate(),
+                false, current.saveFailure());
         scheduler.scheduleAfterCommit(turn.sessionId(), usage, barrier,
                 () -> checkpoints.compact(turn.sessionId(), turn.turnId(), turn.version(), usage, barrier, prompt, tail, refs).isPresent());
     }
