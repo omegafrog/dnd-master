@@ -33,7 +33,7 @@ class RagAbEvaluationTest {
     void report_contains_all_conditions_and_classifies_bottleneck() {
         var corpus = new RagAbCorpus("gm-baseline-v1", List.of(new RagAbCase(CASE, List.of("rules#similar-door"))));
         var config = new GmBenchmarkConfig("gm-baseline-v1", "qwen", "sha256:x", .2, 512, 4096, 3);
-        var report = new RagAbRunner(new CurrentRagEvidenceProvider(c -> c.expectedEvidence())).run(corpus, config, (c, condition, evidence, unchanged) -> {
+        var report = new RagAbRunner(new CurrentRagEvidenceProvider(c -> List.of("rules#similar-door"))).run(corpus, config, (c, condition, evidence, unchanged) -> {
             boolean good = condition == RagAbCondition.ORACLE;
             return new RagAbExecution(good, good, good, !good, false, good, good, good ? 5.0 : 1.0, good ? 5.0 : 20.0, "raw");
         });

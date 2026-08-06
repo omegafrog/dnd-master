@@ -53,9 +53,9 @@ public final class RagAbRunner {
                 && current.structureSuccessRate() >= no.structureSuccessRate()
                 && current.humanScoreMean() >= no.humanScoreMean()
                 && current.latencyP95Ms() <= no.latencyP95Ms();
-        if (oracle.ruleAccuracy() > current.ruleAccuracy() && oracle.ruleAccuracy() > no.ruleAccuracy()) { bottleneck = RagAbBottleneck.RETRIEVAL; rationale = "Oracle improves over Current and No RAG"; }
+        if (current.retrievalRecallMean() >= .95 && current.structureSuccessRate() < .8) { bottleneck = RagAbBottleneck.PROMPT_CONTEXT; rationale = "retrieval recall is high but structured quality remains low"; }
+        else if (oracle.ruleAccuracy() > current.ruleAccuracy() && oracle.ruleAccuracy() > no.ruleAccuracy()) { bottleneck = RagAbBottleneck.RETRIEVAL; rationale = "Oracle improves over Current and No RAG"; }
         else if (oracle.structureSuccessRate() < .8) { bottleneck = RagAbBottleneck.GENERATION; rationale = "Oracle evidence still produces low structured quality"; }
-        else if (current.retrievalRecallMean() >= .95 && current.structureSuccessRate() < .8) { bottleneck = RagAbBottleneck.PROMPT_CONTEXT; rationale = "retrieval recall is high but structured quality remains low"; }
         else if (distractor.ruleAccuracy() < current.ruleAccuracy()) { bottleneck = RagAbBottleneck.VALIDATION; rationale = "distractor evidence causes quality regression"; }
         else { bottleneck = RagAbBottleneck.INCONCLUSIVE; rationale = "conditions do not isolate a dominant bottleneck"; }
         return new RagAbAnalysis(bottleneck, accepted, currentDelta, oracleDelta, rationale);
