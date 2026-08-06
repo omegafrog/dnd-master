@@ -10,6 +10,10 @@ import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService
 import com.dndmaster.adventure.application.runtime.GmTurnRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnResult;
 import com.dndmaster.adventure.application.runtime.SubmitRuntimeTurnCommand;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidenceOverride;
+import com.dndmaster.adventure.application.runtime.EvidencePack;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
 import com.dndmaster.adventure.application.saved.CreateAdventureCommand;
 import com.dndmaster.adventure.application.saved.SavedAdventureApplicationService;
 import com.dndmaster.adventure.application.scenario.AdventureScenarioApplicationService;
@@ -143,10 +147,16 @@ public class AdventureController {
             if (input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput mapAction) {
                 applyMapAction(adventure, owner, commandId, mapAction);
             }
-            result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
+            SubmitRuntimeTurnCommand runtimeCommand = new SubmitRuntimeTurnCommand(
                     new AdventureId(adventureId), new OwnerPlayerId(owner), request.turnId(), commandId,
                     input.actionText(), expectedVersion,
-                    !(input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput)));
+                    !(input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput));
+            if (request.ragCondition() != null) {
+                runtimeCommand = SubmitRuntimeTurnCommand.withEvidenceOverride(
+                        new AdventureId(adventureId), new OwnerPlayerId(owner), request.turnId(), commandId,
+                        input.actionText(), expectedVersion, request.ragOverride());
+            }
+            result = runtimeTurnService.submitTurn(runtimeCommand);
         } catch (RuntimeException exception) {
             gmTurnFailureRecorder.record(turn, adventureId, adventure.sessionId().value(), exception.getMessage(), expectedVersion);
             return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_GATEWAY).build();
@@ -265,7 +275,20 @@ public class AdventureController {
 
     public record StreamMessageRequest(UUID playerId, UUID turnId, UUID commandId, String action) {}
 
-    public record GmTurnRequest(UUID turnId, GmInputRequest input) {}
+    public record GmTurnRequest(UUID turnId, GmInputRequest input, String ragCondition,
+                                List<RagEvidenceRequest> ragEvidence) {
+        RuntimeEvidenceOverride ragOverride() {
+            List<RuntimeEvidence> evidence = (ragEvidence == null ? List.<RagEvidenceRequest>of() : ragEvidence).stream()
+                    .map(item -> new RuntimeEvidence(item.type(), new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(item.documentId()),
+                            item.extractionVersion(), item.locator(), item.excerpt())).toList();
+            return new RuntimeEvidenceOverride(ragCondition, new EvidencePack(
+                    evidence.stream().filter(item -> item.evidenceType() == RuntimeEvidenceType.STORYBOOK).toList(),
+                    evidence.stream().filter(item -> item.evidenceType() == RuntimeEvidenceType.RULEBOOK).toList(),
+                    evidence.stream().filter(item -> item.evidenceType() == RuntimeEvidenceType.RESOLUTION).toList()));
+        }
+    }
+    public record RagEvidenceRequest(RuntimeEvidenceType type, UUID documentId, long extractionVersion,
+                                     String locator, String excerpt) {}
 
     public record GmInputRequest(String type, String text, UUID mapId, Long mapVersion, String action, String question) {
         com.dndmaster.adventure.domain.runtime.GmInput toDomain() {
