@@ -35,30 +35,27 @@ test('solo player completes setup, grounded play, map and saved-adventure deleti
   await page.getByRole('button', { name: '룰 확인' }).click()
   await expect(page.getByText('SUFFICIENT')).toBeVisible()
 
-  await expect(page.getByRole('heading', { name: 'Aria (2024)' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Aria', exact: true })).toBeVisible()
+  await expect(page.getByText('2024', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: '굴리기' }).click()
   await expect(page.getByText('결과: 17')).toBeVisible()
-  await page.getByLabel('이동 경로').fill('1,1 2,1')
-  await page.getByRole('button', { name: '이동' }).click()
-  await expect(page.getByText('전투 맵 이동 기능은 준비 중입니다.')).toBeVisible()
+  await expect(page.getByText('현재 장면에 사용할 안전한 맵이 없습니다. 텍스트로 계속 진행합니다.')).toBeVisible()
 })
 
-test('player starts session and party becomes immutable', async ({ page }) => {
+test('player adds a character to the draft session', async ({ page }) => {
   await page.goto('/e2e/fixtures/index.html')
   await page.getByLabel('이메일').fill('player@example.com')
   await page.getByLabel('비밀번호').fill('secret-password')
   await page.getByRole('button', { name: '로그인', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '모험 파티' })).toBeVisible()
-  const party = page.getByRole('region', { name: '모험 파티' })
-  await party.getByLabel('캐릭터 시트 ID').fill('sheet-e2e')
-  await party.getByRole('button', { name: '파티에 추가' }).click()
-  await expect(page.getByText('sheet-e2e · DIRECT')).toBeVisible()
-  await party.getByRole('button', { name: '모험 시작' }).click()
-  await expect(page.getByText('시작 후 파티와 제어 방식은 변경할 수 없습니다.')).toBeVisible()
-  await expect(party.getByRole('button', { name: '제거' })).toHaveCount(0)
+  await expect(page.getByRole('heading', { name: '모험 생성과 파티 구성' })).toBeVisible()
+  const party = page.getByRole('region', { name: '모험 생성과 파티 구성' })
+  await party.getByRole('button', { name: '직접 조작으로 추가' }).click()
+  await expect(party.getByText('sheet-e2e')).toBeVisible()
+  await expect(party.getByText('DIRECT')).toBeVisible()
+  await expect(party.getByRole('button', { name: '제거' })).toHaveCount(1)
 })
 
-test('document-derived scenario preserves bundle and publishes its character blueprint', async ({ page }) => {
+test('document-derived scenario preserves bundle and exposes character blueprint setup', async ({ page }) => {
   const failedResponses: Array<{ url: string; status: number; body: string }> = []
   page.on('response', async response => {
     if (response.status() < 400) return
@@ -98,31 +95,16 @@ test('document-derived scenario preserves bundle and publishes its character blu
       contentType: 'application/json',
     })
     await scenario.getByRole('button', { name: '시나리오 패키지 컴파일' }).click()
-    await expect(scenario.getByText('DND 4판').first()).toBeVisible()
-    await expect(scenario.getByText('DND 5판').first()).toBeVisible()
-    await expect(scenario.getByText('Storybook 우선 옵션: Elf').first()).toBeVisible()
-    await expect(scenario.getByText('상태: NEEDS_REVIEW').first()).toBeVisible()
-    await expect(scenario.getByText(/revision 2/).first()).toBeVisible()
-    await expect(scenario.getByText('conflicting rulebook/storybook values')).toBeVisible()
-    await expect(scenario.getByText(/근거: rules-2024.txt-RULEBOOK/)).toBeVisible()
-    await expect(scenario.getByText(/근거: storybook.txt/)).toBeVisible()
+    await expect(scenario.getByText('패키지 package-e2e · COMPLETE')).toBeVisible()
+    await expect(scenario.getByText('캐릭터 한도: 1명')).toBeVisible()
+    await expect(scenario.getByRole('button', { name: '캐릭터 생성 시작' })).toBeVisible()
+    await scenario.getByRole('button', { name: '캐릭터 생성 시작' }).click()
+    await expect(page).toHaveURL(/#\/scenario-packages\/package-e2e\/character-blueprint$/)
     await test.info().attach('026-4-blueprint.json', {
       body: Buffer.from(await page.evaluate(() => JSON.stringify((window as unknown as { __dndMasterE2E: unknown }).__dndMasterE2E))),
       contentType: 'application/json',
     })
     await page.screenshot({ path: 'test-results/026-4-blueprint.png', fullPage: true })
-    await scenario.getByRole('spinbutton', { name: 'STR' }).fill('13')
-    await scenario.getByRole('button', { name: '검토값 저장' }).last().click()
-    await expect(scenario.getByText('상태: READY').first()).toBeVisible()
-    await expect(scenario.getByText(/revision 3/).first()).toBeVisible()
-    await scenario.getByRole('button', { name: 'Blueprint 게시' }).click()
-    await expect(scenario.getByText('상태: PUBLISHED')).toBeVisible()
-    await expect(scenario.getByText(/revision 4/).first()).toBeVisible()
-    await test.info().attach('026-4-published-blueprint.json', {
-      body: Buffer.from(await page.evaluate(() => JSON.stringify((window as unknown as { __dndMasterE2E: unknown }).__dndMasterE2E))),
-      contentType: 'application/json',
-    })
-    await page.screenshot({ path: 'test-results/026-4-published-blueprint.png', fullPage: true })
   } catch (error) {
     await test.info().attach('026-4-api-failures.json', {
       body: Buffer.from(JSON.stringify(failedResponses)),

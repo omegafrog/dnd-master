@@ -211,7 +211,9 @@ let sessionView: AdventureSessionView = {
 }
 const sessionApi = {
   async read() { return sessionView },
-  async listOwnedCharacters() { return [] },
+  async listOwnedCharacters() {
+    return [{ characterSheetId: 'sheet-e2e', characterName: 'Aria', level: 1, race: '엘프', characterClass: '로그', background: '범죄자' }]
+  },
   async copyOwnedCharacter(_sessionId: string, characterSheetId: string) { return { characterSheetId } },
   async addMember(_sessionId: string, version: number, member: AdventureSessionView['party'][number]) {
     sessionView = { ...sessionView, version: version + 1, party: [member] }
