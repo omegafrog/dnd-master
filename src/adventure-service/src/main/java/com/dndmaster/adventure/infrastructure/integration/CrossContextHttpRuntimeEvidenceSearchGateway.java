@@ -40,7 +40,7 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
                 return response.evidence().stream()
                         .map(item -> new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
                                 new KnowledgeDocumentId(item.rulebookId()), 1L, item.locator(), item.excerpt(),
-                                StoryEvidenceVisibility.PLAYER_VISIBLE, null, 0, item.context(),
+                                StoryEvidenceVisibility.PLAYER_VISIBLE, null, 0, item.context() == null ? List.of() : item.context(),
                                 item.provenance() == null ? null : new com.dndmaster.adventure.application.runtime.RuntimeEvidenceProvenance(
                                         item.provenance().candidateKey(), item.provenance().rerankScore(), item.provenance().expandedKeys())))
                         .toList();
@@ -54,7 +54,8 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
                     .map(item -> new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
                             new KnowledgeDocumentId(item.knowledgeDocumentId()), item.extractionVersion(), item.locator(), item.excerpt(),
                             parseVisibility(item.visibility()),
-                            item.disclosureEvent(), item.disclosureTurn() == null ? 0 : item.disclosureTurn(), item.context(),
+                            item.disclosureEvent(), item.disclosureTurn() == null ? 0 : item.disclosureTurn(),
+                            item.context() == null ? List.of() : item.context(),
                             item.provenance() == null ? null : new com.dndmaster.adventure.application.runtime.RuntimeEvidenceProvenance(
                                     item.provenance().candidateKey(), item.provenance().rerankScore(), item.provenance().expandedKeys())))
                     .toList();

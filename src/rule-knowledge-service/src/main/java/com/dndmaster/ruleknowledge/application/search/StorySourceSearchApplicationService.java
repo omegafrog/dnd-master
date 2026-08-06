@@ -50,6 +50,9 @@ public final class StorySourceSearchApplicationService {
     }
 
     private List<StorySourceEvidence> searchSingle(StorySourceSearchQuery query) {
+        int candidateLimit = Math.max(20, query.limit() * 4);
+        StorySourceSearchQuery candidateQuery = new StorySourceSearchQuery(query.owner(), query.packageScope(),
+                query.activeLocators(), query.situation(), candidateLimit);
         float[] embedding = embeddingPort.embed(
                         List.of(new com.dndmaster.ruleknowledge.domain.index.RulebookChunk(
                                 query.packageScope().getFirst().documentId().asRulebookId(),
@@ -64,14 +67,14 @@ public final class StorySourceSearchApplicationService {
                 .getFirst()
                 .vector();
 
-        List<StorySourceEvidence> active = searchPort.search(query, embedding, true);
+        List<StorySourceEvidence> active = searchPort.search(candidateQuery, embedding, true);
         if (query.activeLocators().isEmpty()) {
-            return hybridize(query, searchPort.search(query, embedding, false));
+            return hybridize(query, searchPort.search(candidateQuery, embedding, false));
         }
-        if (active.size() >= query.limit()) {
+        if (active.size() >= candidateLimit) {
             return hybridize(query, active);
         }
-        List<StorySourceEvidence> fallback = searchPort.search(query, embedding, false);
+        List<StorySourceEvidence> fallback = searchPort.search(candidateQuery, embedding, false);
         var merged = new LinkedHashMap<String, StorySourceEvidence>();
         active.forEach(result -> merged.put(evidenceKey(result), result));
         fallback.forEach(result -> merged.putIfAbsent(evidenceKey(result), result));

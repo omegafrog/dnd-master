@@ -31,8 +31,12 @@ public final class CandidateWindowContextExpansion implements ContextExpansionPo
 
     private static String locatorOrder(HybridRetrievalCandidate candidate) {
         String locator = candidate.locator();
-        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(\\d+)(?!.*\\d)").matcher(locator);
-        if (!matcher.find()) return "1:" + locator;
-        return "0:" + String.format("%020d", Long.parseLong(matcher.group(1))) + ":" + locator;
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("\\d+").matcher(locator);
+        StringBuilder order = new StringBuilder("0:");
+        int count = 0;
+        while (matcher.find() && count++ < 3) {
+            order.append(String.format("%020d:", Long.parseLong(matcher.group())));
+        }
+        return count == 0 ? "1:" + locator : order + locator;
     }
 }
