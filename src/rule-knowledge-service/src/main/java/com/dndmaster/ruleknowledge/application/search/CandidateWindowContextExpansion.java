@@ -16,7 +16,7 @@ public final class CandidateWindowContextExpansion implements ContextExpansionPo
         List<HybridRetrievalCandidate> related = candidates.stream().filter(scope::accepts)
                 .filter(candidate -> candidate.documentId().equals(seed.documentId())
                         && candidate.extractionVersion() == seed.extractionVersion())
-                .sorted(java.util.Comparator.comparing(HybridRetrievalCandidate::locator)
+                .sorted(java.util.Comparator.comparing(CandidateWindowContextExpansion::locatorOrder)
                         .thenComparing(HybridRetrievalCandidate::key)).toList();
         int index = java.util.stream.IntStream.range(0, related.size())
                 .filter(candidateIndex -> related.get(candidateIndex).key().equals(seed.key())).findFirst().orElse(-1);
@@ -27,5 +27,12 @@ public final class CandidateWindowContextExpansion implements ContextExpansionPo
                 .sorted(java.util.Comparator.comparingInt(candidate -> candidate.key().equals(seed.key()) ? 0
                         : Math.abs(related.indexOf(candidate) - seedIndex)))
                 .toList();
+    }
+
+    private static String locatorOrder(HybridRetrievalCandidate candidate) {
+        String locator = candidate.locator();
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(\\d+)(?!.*\\d)").matcher(locator);
+        if (!matcher.find()) return "1:" + locator;
+        return "0:" + String.format("%020d", Long.parseLong(matcher.group(1))) + ":" + locator;
     }
 }

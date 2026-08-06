@@ -2,6 +2,7 @@ package com.dndmaster.adventure.application.runtime;
 
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import java.util.Objects;
+import java.util.List;
 
 // 검색이나 계획에 쓸 수 있는 단일 근거 조각이다.
 public record RuntimeEvidence(
@@ -12,12 +13,17 @@ public record RuntimeEvidence(
         String excerpt,
         StoryEvidenceVisibility visibility,
         String disclosureEvent,
-        long disclosureTurn) {
+        long disclosureTurn, List<String> context, RuntimeEvidenceProvenance provenance) {
     public RuntimeEvidence(RuntimeEvidenceType evidenceType, KnowledgeDocumentId knowledgeDocumentId,
             long extractionVersion, String locator, String excerpt) {
         this(evidenceType, knowledgeDocumentId, extractionVersion, locator, excerpt,
                 evidenceType == RuntimeEvidenceType.STORYBOOK ? StoryEvidenceVisibility.GM_ONLY : StoryEvidenceVisibility.PLAYER_VISIBLE,
-                null, 0);
+                null, 0, List.of(), null);
+    }
+    public RuntimeEvidence(RuntimeEvidenceType evidenceType, KnowledgeDocumentId knowledgeDocumentId, long extractionVersion,
+            String locator, String excerpt, StoryEvidenceVisibility visibility, String disclosureEvent, long disclosureTurn) {
+        this(evidenceType, knowledgeDocumentId, extractionVersion, locator, excerpt, visibility, disclosureEvent,
+                disclosureTurn, List.of(), null);
     }
     public RuntimeEvidence {
         evidenceType = Objects.requireNonNull(evidenceType, "evidence type must not be null");
@@ -36,6 +42,7 @@ public record RuntimeEvidence(
             throw new IllegalArgumentException("reveal event required");
         }
         disclosureEvent = disclosureEvent == null ? null : disclosureEvent.trim();
+        context = List.copyOf(Objects.requireNonNull(context));
     }
 
     private static String required(String value, String name) {

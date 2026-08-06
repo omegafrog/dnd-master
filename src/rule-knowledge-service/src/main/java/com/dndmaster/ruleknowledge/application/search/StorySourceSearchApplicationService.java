@@ -92,7 +92,8 @@ public final class StorySourceSearchApplicationService {
         HybridRetrievalService retrieval = new HybridRetrievalService(
                 (ignored, ignoredScope, limit) -> candidates(query, evidence, false, limit),
                 (ignored, ignoredScope, limit) -> candidates(query, evidence, true, limit));
-        HybridRetrievalResult result = retrieval.retrieve(query.situation(), scope, query.limit());
+        int candidateLimit = Math.max(20, query.limit() * 4);
+        HybridRetrievalResult result = retrieval.retrieve(query.situation(), scope, candidateLimit);
         if (result.degraded() && result.candidates().isEmpty()) {
             throw new IllegalStateException("story retrieval degraded: no scoped evidence available");
         }

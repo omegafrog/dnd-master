@@ -39,7 +39,10 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
                                 request.action(), "RULE", request.limit()), request.ownerPlayerId().value(), RuleSearchResponse.class);
                 return response.evidence().stream()
                         .map(item -> new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
-                                new KnowledgeDocumentId(item.rulebookId()), 1L, item.locator(), item.excerpt()))
+                                new KnowledgeDocumentId(item.rulebookId()), 1L, item.locator(), item.excerpt(),
+                                StoryEvidenceVisibility.PLAYER_VISIBLE, null, 0, item.context(),
+                                item.provenance() == null ? null : new com.dndmaster.adventure.application.runtime.RuntimeEvidenceProvenance(
+                                        item.provenance().candidateKey(), item.provenance().rerankScore(), item.provenance().expandedKeys())))
                         .toList();
             }
             StorySearchResponse response = post("internal/v1/story-sources/search",
@@ -51,7 +54,9 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
                     .map(item -> new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
                             new KnowledgeDocumentId(item.knowledgeDocumentId()), item.extractionVersion(), item.locator(), item.excerpt(),
                             parseVisibility(item.visibility()),
-                            item.disclosureEvent(), item.disclosureTurn() == null ? 0 : item.disclosureTurn()))
+                            item.disclosureEvent(), item.disclosureTurn() == null ? 0 : item.disclosureTurn(), item.context(),
+                            item.provenance() == null ? null : new com.dndmaster.adventure.application.runtime.RuntimeEvidenceProvenance(
+                                    item.provenance().candidateKey(), item.provenance().rerankScore(), item.provenance().expandedKeys())))
                     .toList();
         } catch (Exception exception) {
             throw new IllegalStateException("runtime evidence search failed", exception);
@@ -91,8 +96,11 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
     record StorySearchRequest(UUID ownerId, List<StoryDocument> documents, List<String> activeLocators, String situation, int limit) {}
     record StoryDocument(UUID documentId, long extractionVersion) {}
     record RuleSearchResponse(UUID ownerId, List<RuleEvidenceItem> evidence) {}
-    record RuleEvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score, String chapter, String section) {}
+    record RuleEvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score, String chapter, String section,
+                            List<String> context, Provenance provenance) {}
     record StorySearchResponse(UUID ownerId, List<StoryEvidenceItem> evidence) {}
     record StoryEvidenceItem(UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt, double score,
-                             String visibility, String disclosureEvent, Long disclosureTurn) {}
+                             String visibility, String disclosureEvent, Long disclosureTurn, List<String> context,
+                             Provenance provenance) {}
+    record Provenance(String candidateKey, double rerankScore, List<String> expandedKeys) {}
 }
