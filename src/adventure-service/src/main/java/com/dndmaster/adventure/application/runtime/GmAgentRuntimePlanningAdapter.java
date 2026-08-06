@@ -42,12 +42,12 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         } catch (IllegalStateException failure) {
             GmPlanResult repaired = agentPort.repairPlan(context, proposed, failure.getMessage());
             if (repaired == null) {
-                result = refusal(proposed, GmDegradedMode.ALL_EVIDENCE, failure.getMessage(), false);
+                result = refusal(proposed, modeFor(failure.getMessage()), failure.getMessage(), false);
             } else {
                 try {
                     result = validator.validate(repaired, request.evidencePack(), request.currentContext(), hiddenData);
                 } catch (IllegalStateException unrepaired) {
-                    result = refusal(repaired, GmDegradedMode.ALL_EVIDENCE, unrepaired.getMessage(), true);
+                    result = refusal(repaired, modeFor(unrepaired.getMessage()), unrepaired.getMessage(), true);
                 }
             }
         }
@@ -117,5 +117,14 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
                 "I cannot provide a grounded result yet. Please retry with more evidence.",
                 plan.proposedActiveSourceContext(), List.of(), warnings, plan.provider(), plan.model(), plan.reasoning());
         return new GmPlanResult(safe, source.provider(), source.model(), source.reasoning(), List.of(), List.of());
+    }
+
+    private static GmDegradedMode modeFor(String reason) {
+        String normalized = reason == null ? "" : reason.toLowerCase(java.util.Locale.ROOT);
+        if (normalized.contains("rule")) return GmDegradedMode.RULE;
+        if (normalized.contains("story") || normalized.contains("hidden") || normalized.contains("disclos")) {
+            return GmDegradedMode.STORY;
+        }
+        return GmDegradedMode.ALL_EVIDENCE;
     }
 }

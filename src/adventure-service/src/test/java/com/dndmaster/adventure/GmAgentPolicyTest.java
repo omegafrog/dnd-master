@@ -9,6 +9,7 @@ import com.dndmaster.adventure.application.runtime.GmPlanResult;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
 import com.dndmaster.adventure.application.runtime.RuntimePlan;
+import com.dndmaster.adventure.application.runtime.StoryEvidenceVisibility;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import java.util.List;
@@ -69,6 +70,17 @@ class GmAgentPolicyTest {
                 List.of(evidence), List.of());
         assertThrows(IllegalStateException.class, () -> new GmFinalValidator().validate(
                 new GmPlanResult(plan, "ollama", "qwen3:8b", "reasoning", List.of()), pack, context, Set.of()));
+    }
+
+    @Test
+    void rejects_outcome_claim_using_partial_or_conflicting_resolution() {
+        RuntimeEvidence partial = new RuntimeEvidence(RuntimeEvidenceType.RESOLUTION, document, 1, "roll:1", "attack roll",
+                StoryEvidenceVisibility.PLAYER_VISIBLE, null, 0, List.of("resolution-status=PARTIAL", "conflict: unresolved"), null);
+        RuntimePlan plan = new RuntimePlan("scene", "npc", "The attack hits", "damage is applied", null,
+                List.of(partial), List.of());
+        assertThrows(IllegalStateException.class, () -> new GmFinalValidator().validate(
+                new GmPlanResult(plan, "ollama", "qwen3:8b", "reasoning", List.of()),
+                new EvidencePack(List.of(), List.of(), List.of(partial)), context, Set.of()));
     }
 
     @Test

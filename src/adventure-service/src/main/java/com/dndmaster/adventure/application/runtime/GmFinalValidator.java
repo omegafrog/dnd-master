@@ -45,6 +45,14 @@ public final class GmFinalValidator {
                 .noneMatch(evidence -> evidence.evidenceType() == RuntimeEvidenceType.RESOLUTION)) {
             throw new IllegalStateException("outcome requires supplied resolution evidence");
         }
+        if (outcomeClaim && result.plan().citedEvidence().stream()
+                .filter(evidence -> evidence.evidenceType() == RuntimeEvidenceType.RESOLUTION)
+                .anyMatch(evidence -> evidence.context().stream().anyMatch(marker ->
+                        marker.equalsIgnoreCase("resolution-status=PARTIAL")
+                                || marker.equalsIgnoreCase("resolution-status=INVALID")
+                                || marker.toLowerCase(Locale.ROOT).contains("conflict")))) {
+            throw new IllegalStateException("resolution is incomplete or conflicting");
+        }
         for (RuntimeEvidence evidence : result.plan().citedEvidence()) {
             if (evidence.evidenceType() == RuntimeEvidenceType.STORYBOOK
                     && evidence.visibility() != StoryEvidenceVisibility.PLAYER_VISIBLE

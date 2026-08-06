@@ -345,7 +345,10 @@ public class RuntimeTurnApplicationService {
         for (ScenarioSourceReference ref : unit.sourceRefs()) {
             evidence.add(new RuntimeEvidence(
                     RuntimeEvidenceType.RESOLUTION, ref.knowledgeDocumentId(), ref.extractionVersion(), ref.locator(),
-                    unit.sourceQuote()));
+                    unit.sourceQuote(), StoryEvidenceVisibility.PLAYER_VISIBLE, null, 0,
+                    java.util.stream.Stream.concat(
+                            java.util.stream.Stream.of("resolution-status=" + unit.status()),
+                            unit.validationMessages().stream()).toList(), null));
         }
         return evidence;
     }
