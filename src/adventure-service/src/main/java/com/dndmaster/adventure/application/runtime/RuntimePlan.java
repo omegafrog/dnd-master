@@ -35,6 +35,13 @@ public record RuntimePlan(
                 "legacy", "legacy", "");
     }
 
+    public RuntimePlan withWarning(String warning) {
+        List<String> updated = new java.util.ArrayList<>(warnings);
+        updated.add(warning);
+        return new RuntimePlan(scene, npcState, judgment, narration, proposedActiveSourceContext,
+                citedEvidence, updated, provider, model, reasoning);
+    }
+
     private static String required(String value, String name) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " must not be blank");
         return value.trim();

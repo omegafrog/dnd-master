@@ -164,6 +164,8 @@ public class RuntimeTurnApplicationService {
         new GmFinalValidator().validate(
                 new GmPlanResult(plan, plan.provider(), plan.model(), plan.reasoning(), List.of()),
                 evidencePack, adventure.currentContext(), hiddenData(adventure));
+        plan = plan.withWarning("validation=passed;repair-attempted="
+                + plan.warnings().stream().anyMatch(warning -> warning.contains("repair-attempted=true")));
         NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
                 plan.narration(), evidencePack, adventure.currentContext(), command.action()));
         if (!safety.approved()) {

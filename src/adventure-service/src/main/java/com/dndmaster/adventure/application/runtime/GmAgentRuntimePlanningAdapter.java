@@ -35,8 +35,22 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         TurnCapability capability = gateway == null || saga == null ? null : TurnCapability.issue(
                 request.sessionId(), request.turnId(), request.ownerPlayerId().value(), Set.of("dice.roll", "character.update", "revise_story_plan", "advance_game_time"),
                 java.time.Instant.now().plusSeconds(60), UUID.nameUUIDFromBytes((request.sessionId() + ":" + request.turnId()).getBytes(StandardCharsets.UTF_8)));
-        GmPlanResult result = validator.validate(capability == null ? agentPort.plan(context) : agentPort.plan(context, capability),
-                request.evidencePack(), request.currentContext(), hiddenData);
+        GmPlanResult proposed = capability == null ? agentPort.plan(context) : agentPort.plan(context, capability);
+        GmPlanResult result;
+        try {
+            result = validator.validate(proposed, request.evidencePack(), request.currentContext(), hiddenData);
+        } catch (IllegalStateException failure) {
+            GmPlanResult repaired = agentPort.repairPlan(context, proposed, failure.getMessage());
+            if (repaired == null) {
+                result = refusal(proposed, GmDegradedMode.ALL_EVIDENCE, failure.getMessage(), false);
+            } else {
+                try {
+                    result = validator.validate(repaired, request.evidencePack(), request.currentContext(), hiddenData);
+                } catch (IllegalStateException unrepaired) {
+                    result = refusal(repaired, GmDegradedMode.ALL_EVIDENCE, unrepaired.getMessage(), true);
+                }
+            }
+        }
         if (!result.toolCalls().isEmpty()) {
             if (gateway == null || saga == null) throw new IllegalStateException("GM tool gateway is not configured");
             GmToolGateway saggedGateway = (cap, invocation) -> {
@@ -93,5 +107,15 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         }
         GmPlanResult validated = validator.validate(result, request.evidencePack(), request.currentContext(), hiddenData);
         return validated.plan();
+    }
+
+    private static GmPlanResult refusal(GmPlanResult source, GmDegradedMode mode, String reason, boolean repaired) {
+        RuntimePlan plan = source.plan();
+        java.util.ArrayList<String> warnings = new java.util.ArrayList<>(plan.warnings());
+        warnings.add(new GmDegradedResult(mode, reason == null ? "grounding validation failed" : reason, repaired).warning());
+        RuntimePlan safe = new RuntimePlan(plan.scene(), plan.npcState(), "pending judgment",
+                "I cannot provide a grounded result yet. Please retry with more evidence.",
+                plan.proposedActiveSourceContext(), List.of(), warnings, plan.provider(), plan.model(), plan.reasoning());
+        return new GmPlanResult(safe, source.provider(), source.model(), source.reasoning(), List.of(), List.of());
     }
 }

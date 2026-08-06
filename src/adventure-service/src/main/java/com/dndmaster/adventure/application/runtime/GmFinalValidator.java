@@ -38,6 +38,9 @@ public final class GmFinalValidator {
         }
         boolean outcomeClaim = containsAny(output, "hits", "misses", "succeeds", "fails", "takes damage",
                 "damage", "natural 20", "critical hit", "total");
+        if (containsAny(output, "unresolved", "awaiting roll", "roll pending", "pending roll")) {
+            throw new IllegalStateException("unresolved roll cannot be finalized");
+        }
         if (outcomeClaim && result.plan().citedEvidence().stream()
                 .noneMatch(evidence -> evidence.evidenceType() == RuntimeEvidenceType.RESOLUTION)) {
             throw new IllegalStateException("outcome requires supplied resolution evidence");
