@@ -22,7 +22,8 @@ public final class GmBenchmarkAggregator {
         double[] latency = runs.stream().mapToDouble(GmBenchmarkRun::latencyMs).toArray();
         for (double value : latency) if (!Double.isFinite(value)) throw new IllegalArgumentException("non-finite metric");
         double mean = java.util.Arrays.stream(latency).average().orElseThrow();
-        double variance = java.util.Arrays.stream(latency).map(value -> Math.pow(value - mean, 2)).average().orElseThrow();
+        double variance = java.util.Arrays.stream(latency).map(value -> Math.pow(value - mean, 2)).sum()
+                / Math.max(1, latency.length - 1);
         java.util.Arrays.sort(latency);
         return new GmBenchmarkMetrics(runs.size(), rate(runs, GmBenchmarkRun::structuredSuccess),
                 rate(runs, GmBenchmarkRun::secretLeak), rate(runs, GmBenchmarkRun::citationCorrect), mean,
@@ -34,10 +35,7 @@ public final class GmBenchmarkAggregator {
     }
 
     private static double percentile(double[] values, double percentile) {
-        if (values.length == 1) return values[0];
-        double position = percentile * (values.length - 1);
-        int lower = (int) Math.floor(position);
-        int upper = (int) Math.ceil(position);
-        return values[lower] + (values[upper] - values[lower]) * (position - lower);
+        int rank = (int) Math.ceil(percentile * values.length);
+        return values[Math.max(0, Math.min(values.length - 1, rank - 1))];
     }
 }

@@ -34,6 +34,6 @@ Parent: [#125](https://github.com/omegafrog/dnd-master/issues/125)
 6. [033-6 Reranking and context expansion](033-6-reranking-and-context-expansion.md) — [#131](https://github.com/omegafrog/dnd-master/issues/131) — `completed`
 7. [033-7 Grounding hard gate and degraded mode](033-7-grounding-hard-gate.md) — [#132](https://github.com/omegafrog/dnd-master/issues/132) — `completed`
 8. [033-8 Deterministic adjudication and narrative separation](033-8-deterministic-adjudication.md) — [#133](https://github.com/omegafrog/dnd-master/issues/133) — `completed`
-9. [033-9 Fine-tuning experiment and decision report](033-9-finetuning-decision.md) — [#134](https://github.com/omegafrog/dnd-master/issues/134) — `pending`
+9. [033-9 Fine-tuning experiment and decision report](033-9-finetuning-decision.md) — [#134](https://github.com/omegafrog/dnd-master/issues/134) — `completed`
 
 Dependency chain: `033-1 → 033-2 → 033-3`; `033-2 → 033-4`; `033-2 + 033-4 → 033-5 → 033-6`; `033-3 + 033-4 → 033-7 → 033-8`; `033-3 + 033-7 + 033-8 → 033-9`.

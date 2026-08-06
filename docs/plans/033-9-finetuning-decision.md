@@ -1,6 +1,6 @@
 # 033-9 — Fine-tuning Experiment And Decision Report
 
-- Status: `pending`
+- Status: `completed`
 - Issue: [#134](https://github.com/omegafrog/dnd-master/issues/134)
 - Parent: [#125](https://github.com/omegafrog/dnd-master/issues/125)
 - Dependencies: [033-3](033-3-rag-ab-evaluation.md), [033-7](033-7-grounding-hard-gate.md), [033-8](033-8-deterministic-adjudication.md)
@@ -43,3 +43,13 @@ Automatic production rollout or per-turn provider mixing.
 ## Completion
 
 Decision report shows statistically meaningful quality gain, or records evidence-based rejection with identified bottleneck.
+
+## Execution
+
+- Added immutable, digest-addressed training/test split with overlap rejection.
+- Added provider-neutral base/fine-tuned artifact metadata and JSON persistence.
+- Added identical No RAG/Current RAG/Oracle evaluation matrix with quality, grounding, Korean narration, structure, latency, variance, and cost metrics.
+- Added deterministic GO/NO_GO decision gates and required-metadata validation.
+- Fixed shared benchmark sample variance and nearest-rank percentile calculations to match report contracts.
+
+Verification: `:ai-game-master-service:test` passes.
