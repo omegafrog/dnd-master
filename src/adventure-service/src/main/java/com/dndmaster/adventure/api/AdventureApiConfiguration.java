@@ -905,19 +905,29 @@ public class AdventureApiConfiguration {
 
     @Bean
     CharacterCombatPort characterCombatPort() {
-        return command -> { /* TODO: implement character verification */ };
+        return command -> {
+            if (command.characterSheetId() == null || command.ownerPlayerId() == null) {
+                throw new IllegalArgumentException("combat action requires character ownership");
+            }
+        };
     }
 
     @Bean
     DiceCombatPort diceCombatPort() {
-        return command -> (int) (Math.random() * 20) + 1;
+        return command -> {
+            long seed = command.operationId().getMostSignificantBits() ^ command.operationId().getLeastSignificantBits();
+            return new java.util.SplittableRandom(seed).nextInt(1, 21);
+        };
     }
 
     @Bean
-    CombatMapPort combatMapPort(
+    CrossContextHttpCombatGateway combatGateway(
             @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl) {
-        CrossContextHttpCombatGateway gateway = new CrossContextHttpCombatGateway(
-                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5));
+        return new CrossContextHttpCombatGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5));
+    }
+
+    @Bean
+    CombatMapPort combatMapPort(CrossContextHttpCombatGateway gateway) {
         return gateway::validateAndMove;
     }
 
@@ -929,14 +939,14 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    AiCombatPort aiCombatPort() {
+    AiCombatPort aiCombatPort(CrossContextHttpCombatGateway gateway) {
         return new AiCombatPort() {
             @Override
-            public void controlState(CombatActionCommand command) { /* TODO */ }
+            public void controlState(CombatActionCommand command) { gateway.controlState(command); }
 
             @Override
             public String adjudicate(CombatActionCommand command, int diceTotal) {
-                return "judgment-result";
+                return diceTotal >= 10 ? "success (roll=" + diceTotal + ")" : "failure (roll=" + diceTotal + ")";
             }
         };
     }
