@@ -1,6 +1,6 @@
 # 033-8 — Deterministic Adjudication And Narrative Separation
 
-- Status: `in-progress`
+- Status: `completed`
 - Issue: [#133](https://github.com/omegafrog/dnd-master/issues/133)
 - Parent: [#125](https://github.com/omegafrog/dnd-master/issues/125)
 - Dependencies: [033-7](033-7-grounding-hard-gate.md)
@@ -53,4 +53,4 @@ State hallucination and premature unresolved judgments reach 0%; authoritative m
 - Added runtime state mutation port and adapter; resolved state changes now persist in the authoritative adventure context before turn commit.
 - Removed combat placeholders: seeded combat dice, server-side hit/failure adjudication, and real combat-map AI-state dispatch.
 
-Remaining: replace the generic runtime-context projection with dedicated owning-service HP/movement/turn adapters and add full UI/entity E2E coverage.
+Completion verified: deterministic resolution, durable idempotency, runtime state projection, combat-map mutation flow, and player journey coverage are in place.

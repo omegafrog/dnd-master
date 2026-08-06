@@ -61,6 +61,7 @@ import java.util.Map;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Configuration;
 
 import javax.sql.DataSource;
@@ -921,6 +922,7 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    @Primary
     CrossContextHttpCombatGateway combatGateway(
             @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl) {
         return new CrossContextHttpCombatGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5));
