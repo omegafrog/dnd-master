@@ -38,6 +38,23 @@ class GmProviderQualityGateTest {
     }
 
     @Test
+    void provider_binding_is_initialized_once_and_switchable_for_operations() {
+        UUID session = UUID.randomUUID();
+        InMemoryGmProviderBindingRepository repository = new InMemoryGmProviderBindingRepository();
+        GmProviderBindingService service = new GmProviderBindingService(repository);
+
+        ProviderBinding initial = service.currentOrInitialize(session,
+                new GmProviderSelection("ollama", "qwen3:8b", "medium"));
+        ProviderBinding again = service.currentOrInitialize(session,
+                new GmProviderSelection("openai", "gpt-5.6-luna", "medium"));
+
+        assertEquals(initial, again);
+        assertEquals("ollama", again.selection().provider());
+        assertEquals("openai", service.switchProvider(session, 0,
+                new GmProviderSelection("openai", "gpt-5.6-luna", "medium")).selection().provider());
+    }
+
+    @Test
     void deployment_gate_is_production_enforceable() {
         GmProviderQualityGateService gate = new GmProviderQualityGateService();
         GmQualityGateReport report = new GmQualityGateReport(100, 99, 95, 95, 0, 0, 0, 4.0);

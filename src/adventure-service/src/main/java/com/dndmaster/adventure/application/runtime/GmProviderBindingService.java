@@ -10,6 +10,14 @@ public final class GmProviderBindingService {
         this.repository = Objects.requireNonNull(repository);
     }
 
+    public synchronized ProviderBinding currentOrInitialize(UUID sessionId, GmProviderSelection defaultSelection) {
+        return repository.current(sessionId).orElseGet(() -> {
+            ProviderBinding initial = new ProviderBinding(sessionId, defaultSelection, 0, false);
+            repository.save(initial);
+            return initial;
+        });
+    }
+
     public ProviderBinding switchProvider(UUID sessionId, long expectedVersion, GmProviderSelection selection) {
         ProviderBinding current = current(sessionId);
         checkVersion(current, expectedVersion);

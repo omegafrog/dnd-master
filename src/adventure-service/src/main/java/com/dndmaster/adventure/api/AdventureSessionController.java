@@ -1,6 +1,9 @@
 package com.dndmaster.adventure.api;
 
 import com.dndmaster.adventure.application.session.AdventureSessionApplicationService;
+import com.dndmaster.adventure.application.runtime.GmProviderBindingService;
+import com.dndmaster.adventure.application.runtime.GmProviderSelection;
+import com.dndmaster.adventure.application.runtime.ProviderBinding;
 import com.dndmaster.adventure.domain.adventure.*;
 import java.util.List;
 import java.util.UUID;
@@ -11,10 +14,19 @@ import org.springframework.web.bind.annotation.*;
 public final class AdventureSessionController {
     private final AdventureSessionApplicationService service;
     private final AuthenticatedPlayerResolver playerResolver;
-    public AdventureSessionController(AdventureSessionApplicationService service, AuthenticatedPlayerResolver playerResolver) { this.service = service; this.playerResolver = playerResolver; }
+    private final GmProviderBindingService providerBindings;
+    public AdventureSessionController(AdventureSessionApplicationService service, AuthenticatedPlayerResolver playerResolver, GmProviderBindingService providerBindings) { this.service = service; this.playerResolver = playerResolver; this.providerBindings = providerBindings; }
     @PostMapping SessionView create(@RequestBody CreateSessionRequest request) { return SessionView.from(service.create(owner(), request.scenarioPackageId(), request.blueprintId(), request.blueprintRevision(), request.runtimeConfiguration())); }
     @GetMapping List<SessionView> list(@RequestParam UUID scenarioPackageId) { return service.listByScenarioPackageId(scenarioPackageId, owner()).stream().map(SessionView::from).toList(); }
     @GetMapping("/{sessionId}") SessionView read(@PathVariable UUID sessionId) { return SessionView.from(service.read(new SessionId(sessionId), owner())); }
+    @GetMapping("/{sessionId}/gm-provider") GmProviderView provider(@PathVariable UUID sessionId) {
+        service.read(new SessionId(sessionId), owner());
+        return GmProviderView.from(providerBindings.currentOrInitialize(sessionId, defaultProvider()));
+    }
+    @PutMapping("/{sessionId}/gm-provider") GmProviderView switchProvider(@PathVariable UUID sessionId, @RequestHeader("If-Match-Version") long version, @RequestBody GmProviderRequest request) {
+        service.read(new SessionId(sessionId), owner());
+        return GmProviderView.from(providerBindings.switchProvider(sessionId, version, request.toSelection()));
+    }
     @PostMapping("/{sessionId}/party") SessionView add(@PathVariable UUID sessionId, @RequestHeader("If-Match-Version") long version, @RequestBody PartyMemberRequest request) { return SessionView.from(service.addMember(new SessionId(sessionId), owner(), version, request.toDomain())); }
     @PutMapping("/{sessionId}/party/{characterSheetId}") SessionView replace(@PathVariable UUID sessionId, @PathVariable UUID characterSheetId, @RequestHeader("If-Match-Version") long version, @RequestBody PartyMemberRequest request) { return SessionView.from(service.replaceMember(new SessionId(sessionId), owner(), version, request.toDomain(characterSheetId))); }
     @DeleteMapping("/{sessionId}/party/{characterSheetId}") SessionView remove(@PathVariable UUID sessionId, @PathVariable UUID characterSheetId, @RequestHeader("If-Match-Version") long version) { return SessionView.from(service.removeMember(new SessionId(sessionId), owner(), version, new CharacterSheetId(characterSheetId))); }
@@ -32,8 +44,15 @@ public final class AdventureSessionController {
                 mutable || member.backgroundMutableAfterStart(), mutable || member.startingAbilitiesMutableAfterStart());
     }
     private OwnerPlayerId owner() { return new OwnerPlayerId(playerResolver.playerId()); }
+    private static GmProviderSelection defaultProvider() { return new GmProviderSelection("ollama", "qwen3:8b", "medium"); }
     public record CreateSessionRequest(UUID scenarioPackageId, UUID blueprintId, long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration) {}
     public record StartRequest(UUID adventureId) {}
+    public record GmProviderRequest(String provider, String model, String reasoning) {
+        GmProviderSelection toSelection() { return new GmProviderSelection(provider, model, reasoning); }
+    }
+    public record GmProviderView(UUID sessionId, String provider, String model, String reasoning, long version, boolean turnInProgress) {
+        static GmProviderView from(ProviderBinding binding) { return new GmProviderView(binding.sessionId(), binding.selection().provider(), binding.selection().model(), binding.selection().reasoning(), binding.stateVersion(), binding.turnInProgress()); }
+    }
     public record CharacterPolicyView(boolean acceptingCharacterSheets, boolean nameMutable, boolean levelMutable,
             boolean raceMutable, boolean characterClassMutable, boolean backgroundMutable, boolean startingAbilitiesMutable) {
             static CharacterPolicyView draft() { return new CharacterPolicyView(true, true, true, true, true, true, true); }
