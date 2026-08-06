@@ -1,6 +1,6 @@
 # 032-10 — GM Provider Quality Gate and Full Journey
 
-- Status: `in-progress`
+- Status: `completed`
 - Issue: [#124](https://github.com/omegafrog/dnd-master/issues/124)
 - Parent: [#114](https://github.com/omegafrog/dnd-master/issues/114)
 - Dependencies: [032-1](032-1-typed-gm-turn-lifecycle.md) through [032-9](032-9-gm-context-compaction-and-resume.md)
@@ -56,3 +56,10 @@ Automatic provider mixing, multiplayer, hex grids, generated maps.
 - Local model passes gate or deployment config selects GPT-5.6 Luna medium.
 - Full journey and all prior regression suites pass.
 - Status becomes `completed`; remove `ready-for-agent` from all completed issues; parent #114 may close.
+
+## Validation
+
+- Backend `./gradlew check` passes, including all-in-one Flyway recovery.
+- Web unit tests: 26 files / 76 tests pass.
+- Player journey Playwright suite: 3/3 pass.
+- Web typecheck and lint pass.
