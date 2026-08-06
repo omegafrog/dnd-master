@@ -16,6 +16,8 @@ import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -225,7 +227,16 @@ public class RuntimeTurnApplicationService {
 
     private Set<String> hiddenData(Adventure adventure) {
         String storyContext = storyPlanContext(adventure);
-        return storyContext == null || storyContext.isBlank() ? Set.of() : Set.of(storyContext);
+        if (storyContext == null || storyContext.isBlank()) return Set.of();
+        Set<String> values = new HashSet<>();
+        values.add(storyContext);
+        Arrays.stream(storyContext.split(";"))
+                .map(String::trim)
+                .filter(value -> value.contains("="))
+                .map(value -> value.substring(value.indexOf('=') + 1).trim())
+                .filter(value -> value.length() >= 4)
+                .forEach(values::add);
+        return Set.copyOf(values);
     }
 
     private String providerSelection(UUID sessionId, String field) {

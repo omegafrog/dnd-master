@@ -53,8 +53,8 @@ public final class GmFinalValidator {
                 }
             }
         }
-        if (hiddenData.stream().filter(Objects::nonNull).anyMatch(secret ->
-                !secret.isBlank() && result.plan().narration().contains(secret))) {
+        if (hiddenData.stream().filter(Objects::nonNull).map(secret -> secret.toLowerCase(Locale.ROOT)).anyMatch(secret ->
+                !secret.isBlank() && narration.contains(secret))) {
             throw new IllegalStateException("GM narration contains hidden data");
         }
         return result;
