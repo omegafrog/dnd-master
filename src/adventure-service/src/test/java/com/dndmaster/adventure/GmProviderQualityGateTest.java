@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.*;
 import com.dndmaster.adventure.application.runtime.*;
 import java.util.UUID;
 import java.util.List;
+import java.util.Set;
 import org.junit.jupiter.api.Test;
 
 class GmProviderQualityGateTest {
@@ -78,9 +79,18 @@ class GmProviderQualityGateTest {
     @Test
     void local_golden_corpus_passes_gate() throws Exception {
         var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-        GmQualityCaseResult[] cases = mapper.readValue(
-                getClass().getResourceAsStream("/gm-golden-corpus.json"), GmQualityCaseResult[].class);
-
-        assertTrue(new GmProviderQualityGateService().requireDeployable(List.of(cases)));
+        GoldenCase[] corpus = mapper.readValue(
+                getClass().getResourceAsStream("/gm-golden-corpus.json"), GoldenCase[].class);
+        assertEquals(Set.of("grounded-rule", "hidden-fog", "compaction-resume"),
+                java.util.Arrays.stream(corpus).map(GoldenCase::id).collect(java.util.stream.Collectors.toSet()));
+        assertTrue(java.util.Arrays.stream(corpus).allMatch(item -> !item.prompt().isBlank()
+                && !item.expectedEvidence().isEmpty() && !item.expectedState().isEmpty()
+                && !item.protectedFacts().isEmpty() && !item.forbiddenTools().isEmpty()));
+        assertTrue(new GmProviderQualityGateService().requireDeployable(
+                java.util.Arrays.stream(corpus).map(GoldenCase::result).toList()));
     }
+
+    public record GoldenCase(String id, String scenario, String prompt, List<String> expectedEvidence,
+                             List<String> expectedState, List<String> protectedFacts, List<String> forbiddenTools,
+                             GmQualityCaseResult result) {}
 }
