@@ -165,14 +165,24 @@ const setupApi: SetupApi = {
 Object.assign(window, { __dndMasterE2E: e2eState })
 
 const adventureApi: AdventureApi = {
-  async sendMessage() {
+  async readConversation() {
+    const entries = JSON.parse(sessionStorage.getItem('dnd-master-e2e-conversation') ?? '[]') as Array<{ sequence: number; speaker: string; content: string }>
+    return { adventureId, version: Number(sessionStorage.getItem('dnd-master-e2e-turn-version') ?? '0'), entries }
+  },
+  async sendMessage(_adventureId, message) {
+    const version = Number(sessionStorage.getItem('dnd-master-e2e-turn-version') ?? '0') + 1
+    const entries = JSON.parse(sessionStorage.getItem('dnd-master-e2e-conversation') ?? '[]') as Array<{ sequence: number; speaker: string; content: string }>
+    const narration = window.location.search.includes('full-journey') ? `턴 ${version}: 근거를 바탕으로 응답한다.` : '근거를 바탕으로 응답한다.'
+    entries.push({ sequence: entries.length + 1, speaker: 'PLAYER', content: message }, { sequence: entries.length + 2, speaker: 'AI_GAME_MASTER', content: narration })
+    sessionStorage.setItem('dnd-master-e2e-turn-version', String(version))
+    sessionStorage.setItem('dnd-master-e2e-conversation', JSON.stringify(entries))
     return {
-      narration: '근거를 바탕으로 응답한다.',
+      narration,
       judgment: '판정 완료',
       currentScene: '새 장면',
       sourceRefs: [],
       warnings: [],
-      version: 1,
+      version,
     }
   },
 }
@@ -183,10 +193,21 @@ const playApi: AdventurePlayApi = {
     return { characterSheetId: 'sheet-e2e', name: 'Aria', edition: '2024', armorClass: 16, strength: 14, dexterity: 18, constitution: 12, intelligence: 10, wisdom: 13, charisma: 15 }
   },
   async getCombatMap() {
+    if (window.location.search.includes('full-journey')) {
+      const position = JSON.parse(sessionStorage.getItem('dnd-master-e2e-map-position') ?? '{"x":0,"y":0}') as { x: number; y: number }
+      return { adventureId, status: 'authoritative-map', mapId: 'map-e2e', version: Number(sessionStorage.getItem('dnd-master-e2e-map-version') ?? '1'), sessionVersion: 4, grid: { width: 3, height: 3 }, tokens: [{ id: 'hero', type: 'PLAYER', x: position.x, y: position.y }, { id: 'hidden', type: 'ENEMY', x: 2, y: 2, lastSeen: true }], current: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }], explored: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: 2, y: 2 }] }
+    }
     return {
       adventureId,
       status: 'authoritative-map',
     }
+  },
+  async submitMapAction(_adventureId, candidate) {
+    const to = candidate.location ?? candidate.path?.at(-1)
+    if (to) sessionStorage.setItem('dnd-master-e2e-map-position', JSON.stringify(to))
+    const version = Number(sessionStorage.getItem('dnd-master-e2e-map-version') ?? '1') + 1
+    sessionStorage.setItem('dnd-master-e2e-map-version', String(version))
+    return { turnId: 'map-turn-e2e', version }
   },
   async rollDice() { return { rollId: 'roll-e2e', total: 17 } },
   async listSaved() { return [...saved] },

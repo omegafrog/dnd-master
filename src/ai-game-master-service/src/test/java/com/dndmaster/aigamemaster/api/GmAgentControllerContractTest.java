@@ -23,4 +23,26 @@ class GmAgentControllerContractTest {
                 new GmAgentController.Response("scene", "npc", "judgment", "narration", null,
                         List.of(), List.of(), "ollama", "qwen3:8b", "reasoning", List.of("hp=1"))));
     }
+
+    @Test
+    void quality_evaluation_runs_provider_output_through_canonical_contract() {
+        var response = "{\"scene\":\"crypt\",\"npcState\":\"alert\",\"judgment\":\"success\","
+                + "\"narration\":\"The crypt opens.\",\"citedEvidence\":[\"rules.txt#stealth\"],"
+                + "\"warnings\":[],\"provider\":\"ollama\",\"model\":\"qwen3:8b\","
+                + "\"reasoning\":\"medium\",\"stateDelta\":[],\"toolCalls\":[]}";
+        var service = new GmQualityEvaluationService(new com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt,
+                                             com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                return parser.parse(response);
+            }
+        }, new com.fasterxml.jackson.databind.ObjectMapper());
+
+        var result = service.evaluate(List.of(new GmQualityEvaluationService.Scenario(
+                "grounded-rule", "Sneak", List.of("rules.txt#stealth"), List.of("pendingAction preserved"),
+                List.of("secret-door"), List.of("reveal-hidden-token"))));
+
+        org.junit.jupiter.api.Assertions.assertTrue(result.getFirst().structuredSuccess());
+        org.junit.jupiter.api.Assertions.assertTrue(result.getFirst().ruleEvidenceCorrect());
+        org.junit.jupiter.api.Assertions.assertFalse(result.getFirst().secretLeak());
+    }
 }
