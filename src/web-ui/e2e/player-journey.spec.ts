@@ -131,6 +131,7 @@ test('running session reconnects with switched provider and confirms ending', as
   await page.reload()
   await expect(page.getByRole('region', { name: 'GM provider' }).getByText(/현재: openai · gpt-5.6-luna · medium/)).toBeVisible()
   await page.getByRole('button', { name: '세션 완료' }).click()
+  await page.getByRole('button', { name: '종료 확인' }).click()
   await expect(page.getByText(/COMPLETED · 파티/)).toBeVisible()
 })
 

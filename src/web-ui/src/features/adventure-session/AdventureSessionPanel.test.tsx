@@ -30,6 +30,7 @@ describe('AdventureSessionPanel lifecycle', () => {
     render(<AdventureSessionPanel api={api} ownerPlayerId="p" sessionId="s" />)
     expect(await screen.findByRole('button', { name: '세션 완료' })).toBeTruthy()
     await userEvent.click(screen.getByRole('button', { name: '세션 완료' }))
+    await userEvent.click(screen.getByRole('button', { name: '종료 확인' }))
     expect(api.complete).toHaveBeenCalledWith('s', 3)
   })
 
