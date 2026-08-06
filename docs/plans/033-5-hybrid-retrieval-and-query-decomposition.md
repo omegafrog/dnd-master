@@ -1,6 +1,6 @@
 # 033-5 — Hybrid Retrieval And Query Decomposition
 
-- Status: `in-progress`
+- Status: `completed`
 - Issue: [#130](https://github.com/omegafrog/dnd-master/issues/130)
 - Parent: [#125](https://github.com/omegafrog/dnd-master/issues/125)
 - Dependencies: [033-2](033-2-retrieval-evaluation-corpus.md), [033-4](033-4-safe-story-rag-visibility.md)

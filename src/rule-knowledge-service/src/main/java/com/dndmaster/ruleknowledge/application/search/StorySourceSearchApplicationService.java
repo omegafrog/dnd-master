@@ -4,6 +4,8 @@ import com.dndmaster.ruleknowledge.application.indexing.EmbeddingPort;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
+import java.util.Set;
 
 public final class StorySourceSearchApplicationService {
     private final StorySourceSearchPort searchPort;
@@ -43,16 +45,49 @@ public final class StorySourceSearchApplicationService {
 
         List<StorySourceEvidence> active = searchPort.search(query, embedding, true);
         if (query.activeLocators().isEmpty()) {
-            return searchPort.search(query, embedding, false).stream().limit(query.limit()).toList();
+            return hybridize(query, searchPort.search(query, embedding, false));
         }
         if (active.size() >= query.limit()) {
-            return active.stream().limit(query.limit()).toList();
+            return hybridize(query, active);
         }
         List<StorySourceEvidence> fallback = searchPort.search(query, embedding, false);
         var merged = new LinkedHashMap<String, StorySourceEvidence>();
         active.forEach(result -> merged.put(evidenceKey(result), result));
         fallback.forEach(result -> merged.putIfAbsent(evidenceKey(result), result));
-        return merged.values().stream().limit(query.limit()).toList();
+        return hybridize(query, List.copyOf(merged.values()));
+    }
+
+    private List<StorySourceEvidence> hybridize(StorySourceSearchQuery query, List<StorySourceEvidence> evidence) {
+        RetrievalScope.Builder builder = RetrievalScope.builder(query.owner().value())
+                .sessionId("legacy-story-search").packageId("legacy-story-search").stage("current");
+        for (StorySourceScope item : query.packageScope()) {
+            builder.document(item.documentId(), com.dndmaster.ruleknowledge.domain.rulebook.DocumentType.STORYBOOK,
+                    item.extractionVersion());
+        }
+        for (String visibility : Set.of("PLAYER_VISIBLE", "GM_ONLY", "NPC_PRIVATE", "REVEALED_AFTER_EVENT", "DISCOVERED", "PUBLIC_SUMMARY")) {
+            builder.allowedVisibility(visibility);
+        }
+        RetrievalScope scope = builder.build();
+        HybridRetrievalService retrieval = new HybridRetrievalService(
+                (ignored, ignoredScope, limit) -> candidates(query, evidence, false, limit),
+                (ignored, ignoredScope, limit) -> candidates(query, evidence, true, limit));
+        return retrieval.search(query.situation(), scope, query.limit()).stream()
+                .map(candidate -> evidence.stream().filter(item -> candidate.locator().equals(item.sourceSpanLocator())).findFirst().orElseThrow())
+                .toList();
+    }
+
+    private static List<HybridRetrievalCandidate> candidates(StorySourceSearchQuery query,
+            List<StorySourceEvidence> evidence, boolean keyword, int limit) {
+        return evidence.stream().limit(limit).map(item -> new HybridRetrievalCandidate(query.owner().value(), item.documentId(),
+                com.dndmaster.ruleknowledge.domain.rulebook.DocumentType.STORYBOOK, item.extractionVersion(), item.sourceSpanLocator(),
+                item.excerpt(), keyword ? 0d : item.score(), keyword ? lexicalScore(query.situation(), item.excerpt()) : 0d,
+                UUID.nameUUIDFromBytes((item.documentId().value() + ":" + item.sourceSpanLocator()).getBytes()),
+                "legacy-story-search", "legacy-story-search", "current", item.visibility())).toList();
+    }
+
+    private static double lexicalScore(String query, String excerpt) {
+        Set<String> terms = new java.util.HashSet<>(java.util.Arrays.asList(query.toLowerCase().split("\\W+")));
+        return terms.isEmpty() ? 0d : (double) terms.stream().filter(term -> !term.isBlank() && excerpt.toLowerCase().contains(term)).count() / terms.size();
     }
 
     private static String evidenceKey(StorySourceEvidence evidence) {
