@@ -72,7 +72,8 @@ public final class StorySourceSearchApplicationService {
                 (ignored, ignoredScope, limit) -> candidates(query, evidence, false, limit),
                 (ignored, ignoredScope, limit) -> candidates(query, evidence, true, limit));
         return retrieval.search(query.situation(), scope, query.limit()).stream()
-                .map(candidate -> evidence.stream().filter(item -> candidate.locator().equals(item.sourceSpanLocator())).findFirst().orElseThrow())
+                .map(candidate -> evidence.stream().filter(item -> candidate.documentId().equals(item.documentId())
+                        && candidate.locator().equals(item.sourceSpanLocator())).findFirst().orElseThrow())
                 .toList();
     }
 
