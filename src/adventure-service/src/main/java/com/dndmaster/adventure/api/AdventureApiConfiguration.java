@@ -188,6 +188,13 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    GmProviderQualityGateStartupValidator gmProviderQualityGateStartupValidator(
+            GmProviderQualityGateService gate, ObjectMapper mapper,
+            @Value("${adventure.gm.quality-gate.enforce:true}") boolean enforce) {
+        return new GmProviderQualityGateStartupValidator(gate, mapper, enforce);
+    }
+
+    @Bean
     ProviderTokenEstimator providerTokenEstimator() {
         return new ProviderTokenEstimator(Map.of("legacy", 8192, "local", 8192, "remote", 128000,
                 "ollama", 8192, "openai", 128000));

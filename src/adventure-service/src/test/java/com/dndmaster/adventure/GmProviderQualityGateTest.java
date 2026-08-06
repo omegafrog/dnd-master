@@ -66,6 +66,14 @@ class GmProviderQualityGateTest {
     }
 
     @Test
+    void startup_validator_fails_closed_when_enforcement_is_enabled() {
+        assertDoesNotThrow(() -> new GmProviderQualityGateStartupValidator(
+                new GmProviderQualityGateService(), new com.fasterxml.jackson.databind.ObjectMapper(), true));
+        assertDoesNotThrow(() -> new GmProviderQualityGateStartupValidator(
+                new GmProviderQualityGateService(), new com.fasterxml.jackson.databind.ObjectMapper(), false));
+    }
+
+    @Test
     void evaluator_builds_gate_report_from_case_results() {
         List<GmQualityCaseResult> cases = java.util.stream.IntStream.range(0, 100)
                 .mapToObj(i -> new GmQualityCaseResult(true, true, true, false, false, false, 4.0)).toList();

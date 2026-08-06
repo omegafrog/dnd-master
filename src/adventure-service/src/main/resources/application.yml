@@ -1,3 +1,6 @@
 adventure:
+  gm:
+    quality-gate:
+      enforce: ${GM_QUALITY_GATE_ENFORCE:true}
   integration:
     internal-token: ${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}
