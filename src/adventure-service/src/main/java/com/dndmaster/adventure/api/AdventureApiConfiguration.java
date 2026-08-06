@@ -183,8 +183,8 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    GmProviderQualityGateService gmProviderQualityGateService() {
-        return new GmProviderQualityGateService();
+    GmProviderQualityGateService gmProviderQualityGateService(io.micrometer.core.instrument.MeterRegistry registry) {
+        return new GmProviderQualityGateService(new com.dndmaster.adventure.infrastructure.metrics.MicrometerGmQualityMetrics(registry));
     }
 
     @Bean

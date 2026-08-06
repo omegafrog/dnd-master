@@ -57,4 +57,13 @@ class GmProviderQualityGateTest {
         assertTrue(report.passed());
         assertTrue(new GmProviderQualityGateService().requireDeployable(cases));
     }
+
+    @Test
+    void local_golden_corpus_passes_gate() throws Exception {
+        var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+        GmQualityCaseResult[] cases = mapper.readValue(
+                getClass().getResourceAsStream("/gm-golden-corpus.json"), GmQualityCaseResult[].class);
+
+        assertTrue(new GmProviderQualityGateService().requireDeployable(List.of(cases)));
+    }
 }
