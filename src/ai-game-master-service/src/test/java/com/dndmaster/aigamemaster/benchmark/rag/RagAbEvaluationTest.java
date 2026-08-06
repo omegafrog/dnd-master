@@ -40,6 +40,10 @@ class RagAbEvaluationTest {
         assertEquals(RagAbCondition.values().length, report.conditions().size());
         assertEquals(RagAbBottleneck.RETRIEVAL, report.analysis().bottleneck());
         assertTrue(report.conditions().stream().allMatch(c -> c.metrics().runs() == 3));
+        assertEquals(0.0, report.conditions().stream().filter(c -> c.condition() == RagAbCondition.NO_RAG)
+                .findFirst().orElseThrow().metrics().retrievalRecallMean());
+        assertEquals(1.0, report.conditions().stream().filter(c -> c.condition() == RagAbCondition.ORACLE)
+                .findFirst().orElseThrow().metrics().retrievalRecallMean());
     }
 
     @Test

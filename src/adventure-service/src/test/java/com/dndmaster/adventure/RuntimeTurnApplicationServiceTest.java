@@ -16,6 +16,7 @@ import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceSearchPort;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceSearchRequest;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidenceOverride;
 import com.dndmaster.adventure.application.runtime.RuntimePlan;
 import com.dndmaster.adventure.application.runtime.RuntimePlanningPort;
 import com.dndmaster.adventure.application.runtime.RuntimePlanningRequest;
@@ -63,6 +64,31 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class RuntimeTurnApplicationServiceTest {
+    @Test
+    void rag_condition_evidence_flows_through_canonical_turn_and_is_persisted() {
+        for (String condition : List.of("NO_RAG", "CURRENT_RAG", "ORACLE", "DISTRACTOR")) {
+            OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+            Adventure adventure = adventure(owner);
+            KnowledgeDocumentId evidenceId = new KnowledgeDocumentId(UUID.randomUUID());
+            ScenarioPackage scenarioPackage = scenarioPackage(evidenceId, new KnowledgeDocumentId(UUID.randomUUID()));
+            InMemoryRuntimeTurnRepository turns = new InMemoryRuntimeTurnRepository();
+            RuntimeEvidence evidence = new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK, evidenceId, 1, "page:1", condition);
+            RuntimeTurnResult result = new RuntimeTurnApplicationService(
+                    new InMemoryAdventureRepository(adventure),
+                    new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId())),
+                    new InMemoryPackageRepository(scenarioPackage), turns,
+                    request -> { throw new AssertionError("override must bypass retrieval"); },
+                    request -> new RuntimePlan("scene", null, "judgment", "narration", null, List.of(), List.of()),
+                    new AllowingSafetyPort(true), new InMemorySessionKnowledgeSetRepository())
+                    .submitTurn(SubmitRuntimeTurnCommand.withEvidenceOverride(
+                            adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Open the door", 0,
+                            new RuntimeEvidenceOverride(condition, new EvidencePack(List.of(), List.of(evidence), List.of()))));
+
+            assertEquals(condition, result.turn().evidenceCondition());
+            assertEquals(evidenceId, turns.saved.getLast().evidencePack().rulebook().getFirst().knowledgeDocumentId());
+            assertEquals(condition, turns.saved.getLast().evidenceCondition());
+        }
+    }
     @Test
     void meta_question_returns_read_only_result_without_advancing_or_persisting() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());

@@ -147,7 +147,9 @@ public class RuntimeTurnApplicationService {
             return new RuntimeTurnResult(metaTurn, adventure.currentContext(), adventure.conversation(), adventure.version());
         }
 
-        EvidencePack evidencePack = prefetchEvidence(command, adventure, binding, scenarioPackage);
+        EvidencePack evidencePack = command.evidenceOverride() == null
+                ? prefetchEvidence(command, adventure, binding, scenarioPackage)
+                : command.evidenceOverride().evidencePack();
         RuntimePlan plan = planningPort.plan(new RuntimePlanningRequest(
                 command.adventureId(), command.ownerPlayerId(), adventure.sessionId().value(), command.turnId(), binding.scenarioPackageId(), binding.bindingVersion(),
                 adventure.currentContext(), binding.activeSourceContext(), command.action(), evidencePack,
@@ -179,6 +181,10 @@ public class RuntimeTurnApplicationService {
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.judgment()));
 
         long nextVersion = adventure.version() + 1 + (command.turnCharacterSheetId() == null ? 0 : 1);
+        List<String> persistedWarnings = new ArrayList<>(plan.warnings());
+        if (command.evidenceOverride() != null) {
+            persistedWarnings.add("rag-condition:" + command.evidenceOverride().condition());
+        }
         RuntimeTurn turn = new RuntimeTurn(
                 command.turnId(), command.commandId(), adventure.id(), adventure.sessionId().value(), binding.scenarioPackageId(),
                 binding.bindingVersion(), command.action(), evidencePack, plan, activeSourceContext, nextContext,
@@ -186,7 +192,7 @@ public class RuntimeTurnApplicationService {
                 plan.citedEvidence().stream()
                         .map(evidence -> evidence.evidenceType() + ":" + evidence.locator())
                         .toList(),
-                plan.warnings());
+                persistedWarnings);
         runtimeTurnRepository.save(turn);
 
         Adventure progressed = Adventure.rehydrate(

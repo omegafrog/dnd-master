@@ -29,7 +29,8 @@ public final class RagAbRunner {
                     case DISTRACTOR -> new DistractorRagEvidenceProvider().evidence(benchmarkCase);
                 };
                 for (int i = 0; i < config.repetitions(); i++) {
-                    var execution = Objects.requireNonNull(executor.execute(benchmarkCase, condition, evidence, config));
+                    var execution = Objects.requireNonNull(executor.execute(benchmarkCase, condition, evidence, config))
+                            .withRetrievalRecall(recall(evidence, benchmarkCase.source().expectedEvidence()));
                     grouped.get(condition).add(execution);
                     perCase.get(condition).computeIfAbsent(benchmarkCase.id(), ignored -> new ArrayList<>()).add(execution);
                 }
@@ -54,10 +55,14 @@ public final class RagAbRunner {
                 && current.latencyP95Ms() <= no.latencyP95Ms();
         if (oracle.ruleAccuracy() > current.ruleAccuracy() && oracle.ruleAccuracy() > no.ruleAccuracy()) { bottleneck = RagAbBottleneck.RETRIEVAL; rationale = "Oracle improves over Current and No RAG"; }
         else if (oracle.structureSuccessRate() < .8) { bottleneck = RagAbBottleneck.GENERATION; rationale = "Oracle evidence still produces low structured quality"; }
-        else if (current.ruleAccuracy() >= oracle.ruleAccuracy() && current.structureSuccessRate() < .8) { bottleneck = RagAbBottleneck.PROMPT_CONTEXT; rationale = "retrieval is adequate but structured quality remains low"; }
+        else if (current.retrievalRecallMean() >= .95 && current.structureSuccessRate() < .8) { bottleneck = RagAbBottleneck.PROMPT_CONTEXT; rationale = "retrieval recall is high but structured quality remains low"; }
         else if (distractor.ruleAccuracy() < current.ruleAccuracy()) { bottleneck = RagAbBottleneck.VALIDATION; rationale = "distractor evidence causes quality regression"; }
         else { bottleneck = RagAbBottleneck.INCONCLUSIVE; rationale = "conditions do not isolate a dominant bottleneck"; }
         return new RagAbAnalysis(bottleneck, accepted, currentDelta, oracleDelta, rationale);
     }
     private static RagAbConditionReport find(List<RagAbConditionReport> reports, RagAbCondition c) { return reports.stream().filter(r -> r.condition() == c).findFirst().orElseThrow(); }
+    private static double recall(List<String> supplied, List<String> expected) {
+        if (expected.isEmpty()) return supplied.isEmpty() ? 1 : 0;
+        return supplied.stream().distinct().filter(expected::contains).count() / (double) expected.size();
+    }
 }

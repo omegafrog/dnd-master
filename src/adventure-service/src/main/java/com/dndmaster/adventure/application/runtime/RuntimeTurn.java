@@ -72,4 +72,9 @@ public record RuntimeTurn(
                 turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action, evidencePack, plan,
                 activeSourceContext, context, conversation, version, citations, warnings, true);
     }
+
+    public String evidenceCondition() {
+        return warnings.stream().filter(warning -> warning.startsWith("rag-condition:"))
+                .map(warning -> warning.substring("rag-condition:".length())).findFirst().orElse("CURRENT_RAG");
+    }
 }
