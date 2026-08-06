@@ -18,12 +18,22 @@ public final class RuleEvidenceSearchApplicationService {
     private final int embeddingDimension;
     private final HybridRetrievalService hybridRetrieval;
     private final DecomposedRetrievalService decomposedRetrieval;
+    private final Reranker reranker;
 
     public RuleEvidenceSearchApplicationService(
             RuleEvidenceSearchPort searchRepository,
             EmbeddingPort embeddingPort,
             String embeddingModel,
             int embeddingDimension) {
+        this(searchRepository, embeddingPort, embeddingModel, embeddingDimension, Reranker.deterministic());
+    }
+
+    public RuleEvidenceSearchApplicationService(
+            RuleEvidenceSearchPort searchRepository,
+            EmbeddingPort embeddingPort,
+            String embeddingModel,
+            int embeddingDimension,
+            Reranker reranker) {
         this.searchRepository = Objects.requireNonNull(searchRepository, "searchRepository must not be null");
         this.embeddingPort = Objects.requireNonNull(embeddingPort, "embeddingPort must not be null");
         this.embeddingModel = Objects.requireNonNull(embeddingModel, "embeddingModel must not be null");
@@ -31,6 +41,7 @@ public final class RuleEvidenceSearchApplicationService {
             throw new IllegalArgumentException("embeddingDimension must be positive");
         }
         this.embeddingDimension = embeddingDimension;
+        this.reranker = Objects.requireNonNull(reranker, "reranker must not be null");
         this.hybridRetrieval = new HybridRetrievalService(
                 (text, scope, limit) -> retrieveCandidates(text, scope, limit, false),
                 (text, scope, limit) -> retrieveCandidates(text, scope, limit, true));
@@ -55,16 +66,16 @@ public final class RuleEvidenceSearchApplicationService {
         List<HybridRetrievalCandidate> candidates = pack.byIntent().values().stream()
                 .flatMap(result -> result.candidates().stream())
                 .toList();
-        EvidencePack evidencePack = new EvidencePackAssembler(Reranker.deterministic(),
+        EvidencePack evidencePack = new EvidencePackAssembler(reranker,
                 new CandidateWindowContextExpansion(candidates), query.limit(), 2, new LoggingEvidencePackObserver())
                 .assemble(query.situation(), candidates, scope);
         return evidencePack.entries().stream()
-                .map(entry -> entry.candidate())
                 .map(hit -> new RuleEvidenceResult(
-                        hit.documentId().asRulebookId(),
-                        new ChunkId(hit.chunkId()),
-                        hit.locator(),
-                        hit.excerpt(), hit.score(), null, null))
+                        hit.candidate().documentId().asRulebookId(),
+                        new ChunkId(hit.candidate().chunkId()),
+                        hit.candidate().locator(),
+                        hit.candidate().excerpt(), hit.candidate().score(), null, null,
+                        hit.context().stream().map(HybridRetrievalCandidate::excerpt).toList(), hit.provenance()))
                 .toList();
     }
 

@@ -13,22 +13,19 @@ public final class CandidateWindowContextExpansion implements ContextExpansionPo
 
     @Override
     public List<HybridRetrievalCandidate> expand(HybridRetrievalCandidate seed, RetrievalScope scope, int radius) {
-        int index = -1;
-        for (int candidateIndex = 0; candidateIndex < candidates.size(); candidateIndex++) {
-            if (candidates.get(candidateIndex).key().equals(seed.key())) {
-                index = candidateIndex;
-                break;
-            }
-        }
-        if (index < 0) return List.of(seed);
-        final int seedIndex = index;
-        return candidates.stream()
-                .filter(scope::accepts)
+        List<HybridRetrievalCandidate> related = candidates.stream().filter(scope::accepts)
                 .filter(candidate -> candidate.documentId().equals(seed.documentId())
                         && candidate.extractionVersion() == seed.extractionVersion())
-                .filter(candidate -> Math.abs(candidates.indexOf(candidate) - seedIndex) <= radius)
+                .sorted(java.util.Comparator.comparing(HybridRetrievalCandidate::locator)
+                        .thenComparing(HybridRetrievalCandidate::key)).toList();
+        int index = java.util.stream.IntStream.range(0, related.size())
+                .filter(candidateIndex -> related.get(candidateIndex).key().equals(seed.key())).findFirst().orElse(-1);
+        if (index < 0) return List.of(seed);
+        final int seedIndex = index;
+        return related.stream()
+                .filter(candidate -> Math.abs(related.indexOf(candidate) - seedIndex) <= radius)
                 .sorted(java.util.Comparator.comparingInt(candidate -> candidate.key().equals(seed.key()) ? 0
-                        : Math.abs(candidates.indexOf(candidate) - seedIndex)))
+                        : Math.abs(related.indexOf(candidate) - seedIndex)))
                 .toList();
     }
 }

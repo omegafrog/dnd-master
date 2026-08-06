@@ -3,6 +3,7 @@ package com.dndmaster.ruleknowledge.application.search;
 import com.dndmaster.ruleknowledge.domain.index.ChunkId;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
 import java.util.Objects;
+import java.util.List;
 
 public record RuleEvidenceResult(
         RulebookId rulebookId,
@@ -11,7 +12,12 @@ public record RuleEvidenceResult(
         String excerpt,
         double score,
         String chapter,
-        String section) {
+        String section, List<String> context, EvidenceProvenance provenance) {
+
+    public RuleEvidenceResult(RulebookId rulebookId, ChunkId chunkId, String locator, String excerpt,
+            double score, String chapter, String section) {
+        this(rulebookId, chunkId, locator, excerpt, score, chapter, section, List.of(), null);
+    }
 
     public RuleEvidenceResult {
         Objects.requireNonNull(rulebookId, "rulebookId must not be null");
@@ -22,5 +28,6 @@ public record RuleEvidenceResult(
         if (excerpt == null || excerpt.isBlank()) {
             throw new IllegalArgumentException("excerpt must not be blank");
         }
+        context = List.copyOf(Objects.requireNonNull(context));
     }
 }

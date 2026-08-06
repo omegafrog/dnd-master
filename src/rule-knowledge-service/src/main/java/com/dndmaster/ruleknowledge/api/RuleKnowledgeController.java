@@ -327,7 +327,7 @@ public class RuleKnowledgeController {
                         r.excerpt(),
                         r.score(),
                         r.chapter(),
-                        r.section()))
+                        r.section(), r.context(), r.provenance()))
                 .toList();
         return new EvidenceSearchResponse(request.ownerId(), evidence);
     }
@@ -359,7 +359,8 @@ public class RuleKnowledgeController {
                 evidence.stream()
                         .map(result -> new StorySourceEvidenceItem(
                                 result.documentId().value(), result.extractionVersion(), result.sourceSpanLocator(),
-                                result.excerpt(), result.score(), result.visibility(), result.disclosureEvent(), result.disclosureTurn()))
+                                result.excerpt(), result.score(), result.visibility(), result.disclosureEvent(), result.disclosureTurn(),
+                                result.context(), result.provenance()))
                 .toList());
     }
 
@@ -531,7 +532,8 @@ public class RuleKnowledgeController {
     public record GameSystemDefinitionRequest(long version, String definitionJson) {}
     public record RuleSetSaveRequest(List<UUID> knowledgeDocumentIds) {}
     public record EvidenceSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, QueryIntent queryIntent, Integer limit) {}
-    public record EvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score, String chapter, String section) {}
+    public record EvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score, String chapter,
+            String section, List<String> context, com.dndmaster.ruleknowledge.application.search.EvidenceProvenance provenance) {}
     public record EvidenceSearchResponse(UUID ownerId, List<EvidenceItem> evidence) {}
     public record StorySourceSearchRequest(
             UUID ownerId,
@@ -543,7 +545,8 @@ public class RuleKnowledgeController {
     public record StorySourceSearchResponse(UUID ownerId, List<StorySourceEvidenceItem> evidence) {}
     public record StorySourceEvidenceItem(
             UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt, double score,
-            String visibility, String disclosureEvent, Long disclosureTurn) {}
+            String visibility, String disclosureEvent, Long disclosureTurn, List<String> context,
+            com.dndmaster.ruleknowledge.application.search.EvidenceProvenance provenance) {}
     public record CharacterContextSearchRequest(
             UUID ownerId, List<CharacterContextScopeRequest> documents, String situation,
             Map<DocumentType, Double> thresholds, Integer tokenBudget) {}

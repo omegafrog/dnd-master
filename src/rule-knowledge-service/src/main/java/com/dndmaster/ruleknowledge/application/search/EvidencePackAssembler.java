@@ -47,6 +47,7 @@ public final class EvidencePackAssembler {
         }
         List<EvidencePackEntry> entries = new ArrayList<>();
         Set<KnowledgeDocumentId> documents = new HashSet<>();
+        Set<String> contextKeys = new HashSet<>();
         List<HybridRetrievalCandidate> selected = selectDiverse(ranked, scope);
         for (HybridRetrievalCandidate candidate : selected) {
             if (!scope.accepts(candidate) || documents.stream().filter(candidate.documentId()::equals).count() >= maxPerDocument) continue;
@@ -54,12 +55,14 @@ public final class EvidencePackAssembler {
             try {
                 context = expansion.expand(candidate, scope, 1).stream().filter(scope::accepts).distinct()
                         .filter(item -> item.documentId().equals(candidate.documentId()))
+                        .filter(item -> item.key().equals(candidate.key()) || !contextKeys.contains(item.key()))
                         .limit(maxEntries).toList();
             } catch (RuntimeException failure) {
                 context = List.of(candidate);
                 degraded = true;
             }
             if (context.isEmpty()) context = List.of(candidate);
+            contextKeys.addAll(context.stream().map(HybridRetrievalCandidate::key).toList());
             entries.add(new EvidencePackEntry(candidate, context,
                     new EvidenceProvenance(candidate.key(), candidate.score(), context.stream().map(HybridRetrievalCandidate::key).toList())));
             documents.add(candidate.documentId());

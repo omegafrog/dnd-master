@@ -4,6 +4,7 @@ import com.dndmaster.ruleknowledge.application.indexing.*;
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.*;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicationService;
+import com.dndmaster.ruleknowledge.application.search.Reranker;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchPort;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchPort;
@@ -135,21 +136,28 @@ public class RuleKnowledgeApiConfiguration {
     }
 
     @Bean
+    Reranker reranker() {
+        return Reranker.deterministic();
+    }
+
+    @Bean
     RuleEvidenceSearchApplicationService evidenceSearchService(
             RuleEvidenceSearchPort searchRepository,
             EmbeddingPort embeddingPort,
+            Reranker reranker,
             @Value("${rule-knowledge.embedding-model:qwen3-embedding:0.6b}") String embeddingModel,
             @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension) {
-        return new RuleEvidenceSearchApplicationService(searchRepository, embeddingPort, embeddingModel, embeddingDimension);
+        return new RuleEvidenceSearchApplicationService(searchRepository, embeddingPort, embeddingModel, embeddingDimension, reranker);
     }
 
     @Bean
     StorySourceSearchApplicationService storySourceSearchService(
             StorySourceSearchPort searchPort,
             EmbeddingPort embeddingPort,
+            Reranker reranker,
             @Value("${rule-knowledge.embedding-model:qwen3-embedding:0.6b}") String embeddingModel,
             @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension) {
-        return new StorySourceSearchApplicationService(searchPort, embeddingPort, embeddingModel, embeddingDimension);
+        return new StorySourceSearchApplicationService(searchPort, embeddingPort, embeddingModel, embeddingDimension, reranker);
     }
 
     @Bean

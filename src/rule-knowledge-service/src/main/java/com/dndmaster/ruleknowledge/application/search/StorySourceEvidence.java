@@ -2,6 +2,7 @@ package com.dndmaster.ruleknowledge.application.search;
 
 import com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId;
 import java.util.Objects;
+import java.util.List;
 
 public record StorySourceEvidence(
         KnowledgeDocumentId documentId,
@@ -11,10 +12,15 @@ public record StorySourceEvidence(
         double score,
         String visibility,
         String disclosureEvent,
-        Long disclosureTurn) {
+        Long disclosureTurn, List<String> context, EvidenceProvenance provenance) {
     public StorySourceEvidence(KnowledgeDocumentId documentId, long extractionVersion, String sourceSpanLocator,
             String excerpt, double score) {
-        this(documentId, extractionVersion, sourceSpanLocator, excerpt, score, "GM_ONLY", null, 0L);
+        this(documentId, extractionVersion, sourceSpanLocator, excerpt, score, "GM_ONLY", null, 0L, List.of(), null);
+    }
+    public StorySourceEvidence(KnowledgeDocumentId documentId, long extractionVersion, String sourceSpanLocator,
+            String excerpt, double score, String visibility, String disclosureEvent, Long disclosureTurn) {
+        this(documentId, extractionVersion, sourceSpanLocator, excerpt, score, visibility, disclosureEvent, disclosureTurn,
+                List.of(), null);
     }
     public StorySourceEvidence {
         Objects.requireNonNull(documentId, "document id must not be null");
@@ -35,5 +41,6 @@ public record StorySourceEvidence(
             throw new IllegalArgumentException("unsupported visibility");
         }
         if (disclosureTurn == null || disclosureTurn < 0) throw new IllegalArgumentException("disclosure turn must be non-negative");
+        context = List.copyOf(Objects.requireNonNull(context));
     }
 }

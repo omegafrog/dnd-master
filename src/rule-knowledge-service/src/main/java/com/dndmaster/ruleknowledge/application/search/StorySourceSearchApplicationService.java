@@ -12,12 +12,18 @@ public final class StorySourceSearchApplicationService {
     private final EmbeddingPort embeddingPort;
     private final String embeddingModel;
     private final int embeddingDimension;
+    private final Reranker reranker;
 
     public StorySourceSearchApplicationService(
             StorySourceSearchPort searchPort,
             EmbeddingPort embeddingPort,
             String embeddingModel,
             int embeddingDimension) {
+        this(searchPort, embeddingPort, embeddingModel, embeddingDimension, Reranker.deterministic());
+    }
+
+    public StorySourceSearchApplicationService(StorySourceSearchPort searchPort, EmbeddingPort embeddingPort,
+            String embeddingModel, int embeddingDimension, Reranker reranker) {
         this.searchPort = Objects.requireNonNull(searchPort, "search port must not be null");
         this.embeddingPort = Objects.requireNonNull(embeddingPort, "embedding port must not be null");
         this.embeddingModel = Objects.requireNonNull(embeddingModel, "embedding model must not be null");
@@ -25,6 +31,7 @@ public final class StorySourceSearchApplicationService {
             throw new IllegalArgumentException("embedding dimension must be positive");
         }
         this.embeddingDimension = embeddingDimension;
+        this.reranker = Objects.requireNonNull(reranker, "reranker must not be null");
     }
 
     public List<StorySourceEvidence> search(StorySourceSearchQuery query) {
@@ -89,13 +96,16 @@ public final class StorySourceSearchApplicationService {
         if (result.degraded() && result.candidates().isEmpty()) {
             throw new IllegalStateException("story retrieval degraded: no scoped evidence available");
         }
-        EvidencePack evidencePack = new EvidencePackAssembler(Reranker.deterministic(),
+        EvidencePack evidencePack = new EvidencePackAssembler(reranker,
                 new CandidateWindowContextExpansion(result.candidates()), query.limit(), 2,
                 new LoggingEvidencePackObserver()).assemble(query.situation(), result.candidates(), scope);
         return evidencePack.entries().stream()
-                .map(entry -> entry.candidate())
-                .map(candidate -> evidence.stream().filter(item -> candidate.documentId().equals(item.documentId())
-                        && candidate.locator().equals(item.sourceSpanLocator())).findFirst().orElseThrow())
+                .map(entry -> evidence.stream().filter(item -> entry.candidate().documentId().equals(item.documentId())
+                        && entry.candidate().locator().equals(item.sourceSpanLocator())).findFirst()
+                        .map(item -> new StorySourceEvidence(item.documentId(), item.extractionVersion(), item.sourceSpanLocator(),
+                                item.excerpt(), item.score(), item.visibility(), item.disclosureEvent(), item.disclosureTurn(),
+                                entry.context().stream().map(HybridRetrievalCandidate::excerpt).toList(), entry.provenance()))
+                        .orElseThrow())
                 .toList();
     }
 
