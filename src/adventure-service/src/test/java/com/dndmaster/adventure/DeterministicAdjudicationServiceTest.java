@@ -8,6 +8,8 @@ import com.dndmaster.adventure.application.runtime.DeterministicAdjudicationRequ
 import com.dndmaster.adventure.application.runtime.DeterministicAdjudicationService;
 import com.dndmaster.adventure.application.runtime.InMemoryRuntimeCommandJournal;
 import com.dndmaster.adventure.application.runtime.DeterministicRuleResolver;
+import com.dndmaster.adventure.application.runtime.RuntimeContextStateMutationAdapter;
+import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.application.runtime.NarrationContract;
 import java.util.List;
 import java.util.UUID;
@@ -97,6 +99,18 @@ class DeterministicAdjudicationServiceTest {
                 first.action(), first.stateFingerprint(), first.seed(), first.expectedVersion());
 
         assertEquals(resolver.apply(first), resolver.apply(second));
+    }
+
+    @Test
+    void state_mutation_adapter_persists_authoritative_changes_in_context() {
+        AdventureContext current = new AdventureContext("hall", "guard", "attack", "pending");
+        AuthoritativeResolution resolution = AuthoritativeResolution.resolved(
+                "damage-applied", List.of("target.hp=-4"), List.of("rules:1"));
+
+        AdventureContext next = new RuntimeContextStateMutationAdapter().apply(current, resolution);
+
+        assertEquals("guard; authoritative=target.hp=-4", next.npcState());
+        assertEquals("damage-applied", next.latestJudgmentValue().orElseThrow());
     }
 
     private static DeterministicAdjudicationRequest request(String action, long seed) {

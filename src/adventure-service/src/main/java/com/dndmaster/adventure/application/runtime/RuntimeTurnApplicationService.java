@@ -42,6 +42,7 @@ public class RuntimeTurnApplicationService {
     private final GmContextResumePromptProvider resumePromptProvider;
     private final GmProviderBindingRepository providerBindingRepository;
     private final DeterministicAdjudicationService adjudicationService;
+    private final AuthoritativeStateMutationPort stateMutationPort;
 
     public RuntimeTurnApplicationService(
             AdventureRepository adventureRepository,
@@ -109,6 +110,20 @@ public class RuntimeTurnApplicationService {
             AdventureStoryPlanRepository storyPlanRepository, StoryContinuityContextProvider continuityContextProvider,
             RuntimeTurnCompactionCoordinator compactionCoordinator, GmContextResumePromptProvider resumePromptProvider,
             GmProviderBindingRepository providerBindingRepository, DeterministicAdjudicationService adjudicationService) {
+        this(adventureRepository, bindingRepository, scenarioPackageRepository, runtimeTurnRepository, evidenceSearchPort,
+                planningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
+                compactionCoordinator, resumePromptProvider, providerBindingRepository, adjudicationService, null);
+    }
+
+    public RuntimeTurnApplicationService(
+            AdventureRepository adventureRepository, RuntimeBindingRepository bindingRepository,
+            ScenarioPackageRepository scenarioPackageRepository, RuntimeTurnRepository runtimeTurnRepository,
+            RuntimeEvidenceSearchPort evidenceSearchPort, RuntimePlanningPort planningPort,
+            NarrationSafetyPort narrationSafetyPort, SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
+            AdventureStoryPlanRepository storyPlanRepository, StoryContinuityContextProvider continuityContextProvider,
+            RuntimeTurnCompactionCoordinator compactionCoordinator, GmContextResumePromptProvider resumePromptProvider,
+            GmProviderBindingRepository providerBindingRepository, DeterministicAdjudicationService adjudicationService,
+            AuthoritativeStateMutationPort stateMutationPort) {
         this.adventureRepository = Objects.requireNonNull(adventureRepository, "adventure repository must not be null");
         this.bindingRepository = Objects.requireNonNull(bindingRepository, "binding repository must not be null");
         this.scenarioPackageRepository = Objects.requireNonNull(scenarioPackageRepository, "scenario package repository must not be null");
@@ -124,6 +139,7 @@ public class RuntimeTurnApplicationService {
         this.resumePromptProvider = resumePromptProvider;
         this.providerBindingRepository = providerBindingRepository;
         this.adjudicationService = adjudicationService;
+        this.stateMutationPort = stateMutationPort;
     }
 
     @Transactional
@@ -206,6 +222,9 @@ public class RuntimeTurnApplicationService {
         }
 
         AdventureContext nextContext = new AdventureContext(plan.scene(), plan.npcState(), command.action(), plan.judgment());
+        if (authoritativeResolution != null && stateMutationPort != null) {
+            nextContext = stateMutationPort.apply(nextContext, authoritativeResolution);
+        }
         List<ConversationEntry> conversation = new ArrayList<>(adventure.conversation());
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.narration()));
         conversation.add(new ConversationEntry(conversation.size(), "PLAYER", command.action()));

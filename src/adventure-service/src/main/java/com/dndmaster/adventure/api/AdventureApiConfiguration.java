@@ -440,6 +440,11 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    AuthoritativeStateMutationPort authoritativeStateMutationPort() {
+        return new RuntimeContextStateMutationAdapter();
+    }
+
+    @Bean
     RuntimeCommandSagaApplicationService runtimeCommandSagaApplicationService(RuntimeCommandJournal journal,
             io.micrometer.core.instrument.MeterRegistry registry) {
         return new RuntimeCommandSagaApplicationService(journal,
@@ -820,11 +825,12 @@ public class AdventureApiConfiguration {
             RuntimeTurnCompactionCoordinator compactionCoordinator,
             GmContextResumePromptProvider resumePromptProvider,
             GmProviderBindingRepository providerBindingRepository,
-            DeterministicAdjudicationService adjudicationService) {
+            DeterministicAdjudicationService adjudicationService,
+            AuthoritativeStateMutationPort stateMutationPort) {
         return new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
-                compactionCoordinator, resumePromptProvider, providerBindingRepository, adjudicationService);
+                compactionCoordinator, resumePromptProvider, providerBindingRepository, adjudicationService, stateMutationPort);
     }
 
     @Bean

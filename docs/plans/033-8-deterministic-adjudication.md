@@ -50,5 +50,6 @@ State hallucination and premature unresolved judgments reach 0%; authoritative m
 - Added narration contract that accepts only resolved authoritative outcomes.
 - Added policy tests for deterministic retries, conflicting command reuse, provenance propagation, and unresolved-result refusal.
 - Wired authoritative resolution into production runtime turns before provider planning; persisted outcomes use the runtime PostgreSQL command journal.
+- Added runtime state mutation port and adapter; resolved state changes now persist in the authoritative adventure context before turn commit.
 
-Remaining: connect damage/movement/turn state-change records to owning-service mutation adapters and add full UI/entity E2E coverage.
+Remaining: replace the generic runtime-context projection with dedicated owning-service HP/movement/turn adapters and add full UI/entity E2E coverage.
