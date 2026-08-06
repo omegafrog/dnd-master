@@ -47,7 +47,11 @@ public final class RuleEvidenceSearchApplicationService {
         query.selectedRulebooks().forEach(id -> scopeBuilder.document(com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId.fromRulebookId(id),
                 com.dndmaster.ruleknowledge.domain.rulebook.DocumentType.RULEBOOK, 1));
         RetrievalScope scope = scopeBuilder.build();
-        return decomposedRetrieval.retrieve(query.situation(), scope, query.limit()).byIntent().values().stream()
+        DecomposedEvidencePack pack = decomposedRetrieval.retrieve(query.situation(), scope, query.limit());
+        if (pack.degraded() && pack.byIntent().values().stream().allMatch(result -> result.candidates().isEmpty())) {
+            throw new IllegalStateException("rule retrieval degraded: no scoped evidence available");
+        }
+        return pack.byIntent().values().stream()
                 .flatMap(result -> result.candidates().stream())
                 .sorted(java.util.Comparator.comparingDouble(HybridRetrievalCandidate::score).reversed())
                 .limit(query.limit())
@@ -61,6 +65,11 @@ public final class RuleEvidenceSearchApplicationService {
 
     private List<HybridRetrievalCandidate> retrieveCandidates(String text, RetrievalScope scope, int limit,
             boolean keyword) {
+        if (keyword && searchRepository instanceof RuleEvidenceKeywordSearchPort keywordPort) {
+            return keywordPort.searchKeyword(new com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId(scope.ownerId()),
+                            scope.documents().keySet().stream().map(com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId::asRulebookId).toList(), text, limit).stream()
+                    .map(hit -> toCandidate(hit, scope, 0d, Math.max(0d, 1d - hit.distance()))).toList();
+        }
         RulebookChunk input = new RulebookChunk(RulebookId.generate(), new ChunkId(UUID.randomUUID()), 0,
                 new ExtractedContentRange(0, text.length()), text, null, null);
         float[] embedding = embeddingPort.embed(List.of(input), embeddingModel, embeddingDimension).getFirst().vector();
@@ -72,11 +81,15 @@ public final class RuleEvidenceSearchApplicationService {
                     double dense = Math.max(0d, 1d - hit.distance());
                     double keywordScore = keyword ? lexicalScore(text, hit.content()) : 0d;
                     long version = scope.extractionVersions().get(com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId.fromRulebookId(hit.rulebookId()));
-                    return new HybridRetrievalCandidate(scope.ownerId(), com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId.fromRulebookId(hit.rulebookId()),
-                            com.dndmaster.ruleknowledge.domain.rulebook.DocumentType.RULEBOOK, version, hit.locator(),
-                            hit.content(), dense, keywordScore, hit.chunkId().value(), scope.sessionId(), scope.packageId(),
-                            scope.currentStage(), "PLAYER_VISIBLE");
+                    return toCandidate(hit, scope, dense, keywordScore);
                 }).toList();
+    }
+
+    private static HybridRetrievalCandidate toCandidate(RuleSearchHit hit, RetrievalScope scope, double dense, double keyword) {
+        long version = scope.extractionVersions().get(com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId.fromRulebookId(hit.rulebookId()));
+        return new HybridRetrievalCandidate(scope.ownerId(), com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId.fromRulebookId(hit.rulebookId()),
+                com.dndmaster.ruleknowledge.domain.rulebook.DocumentType.RULEBOOK, version, hit.locator(), hit.content(), dense, keyword,
+                hit.chunkId().value(), scope.sessionId(), scope.packageId(), scope.currentStage(), "PLAYER_VISIBLE");
     }
 
     private static double lexicalScore(String query, String content) {
