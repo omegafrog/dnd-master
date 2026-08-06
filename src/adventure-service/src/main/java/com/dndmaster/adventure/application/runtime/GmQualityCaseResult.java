@@ -4,6 +4,8 @@ public record GmQualityCaseResult(boolean structuredSuccess, boolean ruleEvidenc
                                   boolean planFactConsistent, boolean secretLeak, boolean forbiddenTool,
                                   boolean inventedState, double humanScore) {
     public GmQualityCaseResult {
-        if (humanScore < 1.0 || humanScore > 5.0) throw new IllegalArgumentException("human score must be 1..5");
+        if (!Double.isFinite(humanScore) || humanScore < 1.0 || humanScore > 5.0) {
+            throw new IllegalArgumentException("human score must be finite and 1..5");
+        }
     }
 }

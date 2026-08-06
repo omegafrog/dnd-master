@@ -21,6 +21,16 @@ class GmProviderQualityGateTest {
     }
 
     @Test
+    void quality_gate_report_rejects_impossible_counts_and_non_finite_scores() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new GmQualityGateReport(1, 1, 1, 1, 2, 0, 0, 4.0));
+        assertThrows(IllegalArgumentException.class,
+                () -> new GmQualityGateReport(1, 1, 1, 1, 0, 0, 0, Double.NaN));
+        assertThrows(IllegalArgumentException.class,
+                () -> new GmQualityGateReport(1, 1, 1, 1, 0, 0, 0, Double.POSITIVE_INFINITY));
+    }
+
+    @Test
     void provider_switch_preserves_session_state_and_rejects_mid_turn_mixing() {
         UUID session = UUID.randomUUID();
         InMemoryGmProviderBindingRepository repository = new InMemoryGmProviderBindingRepository();

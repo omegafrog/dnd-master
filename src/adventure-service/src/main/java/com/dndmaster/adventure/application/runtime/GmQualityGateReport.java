@@ -8,6 +8,8 @@ public record GmQualityGateReport(int totalCases, int structuredSuccesses, int r
         if (totalCases < 1 || structuredSuccesses < 0 || ruleEvidencePasses < 0 || planFactPasses < 0
                 || structuredSuccesses > totalCases || ruleEvidencePasses > totalCases || planFactPasses > totalCases
                 || secretViolations < 0 || forbiddenToolViolations < 0 || inventedStateViolations < 0
+                || secretViolations > totalCases || forbiddenToolViolations > totalCases
+                || inventedStateViolations > totalCases || !Double.isFinite(humanScore)
                 || humanScore < 1.0 || humanScore > 5.0) {
             throw new IllegalArgumentException("invalid GM quality gate report");
         }
