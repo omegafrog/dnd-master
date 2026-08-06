@@ -3,7 +3,10 @@ package com.dndmaster.adventure.application.runtime;
 import java.util.Objects;
 import java.util.UUID;
 
-public record ProviderBinding(UUID sessionId, GmProviderSelection selection, long stateVersion) {
+public record ProviderBinding(UUID sessionId, GmProviderSelection selection, long stateVersion, boolean turnInProgress) {
+    public ProviderBinding(UUID sessionId, GmProviderSelection selection, long stateVersion) {
+        this(sessionId, selection, stateVersion, false);
+    }
     public ProviderBinding {
         sessionId = Objects.requireNonNull(sessionId);
         selection = Objects.requireNonNull(selection);

@@ -173,6 +173,21 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    GmProviderBindingRepository gmProviderBindingRepository(DataSource dataSource) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresGmProviderBindingRepository(dataSource);
+    }
+
+    @Bean
+    GmProviderBindingService gmProviderBindingService(GmProviderBindingRepository repository) {
+        return new GmProviderBindingService(repository);
+    }
+
+    @Bean
+    GmProviderQualityGateService gmProviderQualityGateService() {
+        return new GmProviderQualityGateService();
+    }
+
+    @Bean
     ProviderTokenEstimator providerTokenEstimator() {
         return new ProviderTokenEstimator(Map.of("legacy", 8192, "local", 8192, "remote", 128000,
                 "ollama", 8192, "openai", 128000));
