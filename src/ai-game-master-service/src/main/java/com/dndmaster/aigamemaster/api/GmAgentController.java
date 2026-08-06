@@ -112,7 +112,8 @@ public final class GmAgentController {
     static Response requireComplete(Response response) {
         if (response == null || response.scene() == null || response.judgment() == null || response.narration() == null
                 || response.citedEvidence() == null || response.warnings() == null || response.provider() == null
-                || response.model() == null || response.reasoning() == null || response.stateDelta() == null) {
+                || response.model() == null || response.reasoning() == null || response.stateDelta() == null
+                || response.toolCalls() == null) {
             throw new IllegalArgumentException("all structured GM fields are required");
         }
         if (!response.stateDelta().isEmpty()) throw new IllegalArgumentException("read-only GM state delta must be empty");

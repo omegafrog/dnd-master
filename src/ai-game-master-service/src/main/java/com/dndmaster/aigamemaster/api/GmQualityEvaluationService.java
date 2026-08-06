@@ -46,7 +46,7 @@ public final class GmQualityEvaluationService {
     private Result evaluate(Scenario scenario) {
         try {
             GmAgentController.Response response = adapter.complete(
-                    "quality:" + scenario.id(), scenario.prompt(), json -> parse(json));
+                    "quality:" + scenario.id(), canonicalPrompt(scenario.prompt()), json -> parse(json));
             String serialized;
             try {
                 serialized = mapper.writeValueAsString(response).toLowerCase(Locale.ROOT);
@@ -86,6 +86,20 @@ public final class GmQualityEvaluationService {
             throw new com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException(
                     "GM quality response invalid: " + failure.getMessage());
         }
+    }
+
+    private static String canonicalPrompt(String scenarioPrompt) {
+        return """
+                SYSTEM: Execute a provider quality scenario as a read-only GM.
+                Return JSON only. Every field is required. Use exactly these JSON types:
+                scene:string, npcState:string, judgment:string, narration:string,
+                proposedActiveSourceContext:object or string, citedEvidence:array,
+                warnings:array, provider:string, model:string, reasoning:string,
+                stateDelta:array, toolCalls:array of objects with toolName,argumentsJson,required.
+                stateDelta MUST be []. Do not invent state, rolls, facts, or tools.
+                Scenario:
+                %s
+                """.formatted(scenarioPrompt);
     }
 
     public record Scenario(String id, String prompt, List<String> expectedEvidence,

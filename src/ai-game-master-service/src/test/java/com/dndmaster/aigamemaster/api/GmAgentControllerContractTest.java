@@ -48,4 +48,25 @@ class GmAgentControllerContractTest {
                 "grounded-rule", "Sneak", List.of("rules.txt#stealth"), List.of("crypt"),
                 List.of("secret-door"), List.of("reveal-hidden-token"), 4.0))).passed());
     }
+
+    @Test
+    void quality_evaluation_fails_closed_on_provider_scalar_lists() {
+        var response = "{\"scene\":\"crypt\",\"npcState\":\"alert\",\"judgment\":\"success\","
+                + "\"narration\":\"The crypt opens.\",\"citedEvidence\":\"rules.txt#stealth\","
+                + "\"warnings\":\"none\",\"provider\":\"ollama\",\"model\":\"qwen3:8b\","
+                + "\"reasoning\":\"medium\",\"stateDelta\":[],\"toolCalls\":[]}";
+        var service = new GmQualityEvaluationService(new com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt,
+                                             com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                return parser.parse(response);
+            }
+        }, new com.fasterxml.jackson.databind.ObjectMapper());
+
+        var result = service.evaluate(List.of(new GmQualityEvaluationService.Scenario(
+                "scalar-lists", "Sneak", List.of("rules.txt#stealth"), List.of("crypt"),
+                List.of("secret-door"), List.of("reveal-hidden-token"), 4.0)));
+
+        org.junit.jupiter.api.Assertions.assertFalse(result.getFirst().structuredSuccess());
+        org.junit.jupiter.api.Assertions.assertEquals("ProviderMalformedResponseException", result.getFirst().failure());
+    }
 }

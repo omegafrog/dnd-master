@@ -1,6 +1,6 @@
 # 032-10 — GM Provider Quality Gate and Full Journey
 
-- Status: `in-progress`
+- Status: `completed`
 - Issue: [#124](https://github.com/omegafrog/dnd-master/issues/124)
 - Parent: [#114](https://github.com/omegafrog/dnd-master/issues/114)
 - Dependencies: [032-1](032-1-typed-gm-turn-lifecycle.md) through [032-9](032-9-gm-context-compaction-and-resume.md)
