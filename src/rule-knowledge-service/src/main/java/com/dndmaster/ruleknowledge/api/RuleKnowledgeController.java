@@ -359,7 +359,7 @@ public class RuleKnowledgeController {
                 evidence.stream()
                         .map(result -> new StorySourceEvidenceItem(
                                 result.documentId().value(), result.extractionVersion(), result.sourceSpanLocator(),
-                                result.excerpt(), result.score()))
+                                result.excerpt(), result.score(), result.visibility(), result.disclosureEvent(), result.disclosureTurn()))
                 .toList());
     }
 
@@ -542,7 +542,8 @@ public class RuleKnowledgeController {
     public record StorySourceScopeRequest(UUID documentId, long extractionVersion) {}
     public record StorySourceSearchResponse(UUID ownerId, List<StorySourceEvidenceItem> evidence) {}
     public record StorySourceEvidenceItem(
-            UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt, double score) {}
+            UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt, double score,
+            String visibility, String disclosureEvent, Long disclosureTurn) {}
     public record CharacterContextSearchRequest(
             UUID ownerId, List<CharacterContextScopeRequest> documents, String situation,
             Map<DocumentType, Double> thresholds, Integer tokenBudget) {}

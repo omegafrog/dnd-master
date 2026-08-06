@@ -14,6 +14,8 @@ import com.dndmaster.adventure.application.runtime.RuntimeEvidenceOverride;
 import com.dndmaster.adventure.application.runtime.EvidencePack;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
+import com.dndmaster.adventure.application.runtime.PlayerVisibleStoryEvidence;
+import com.dndmaster.adventure.application.runtime.StoryEvidenceVisibility;
 import com.dndmaster.adventure.application.saved.CreateAdventureCommand;
 import com.dndmaster.adventure.application.saved.SavedAdventureApplicationService;
 import com.dndmaster.adventure.application.scenario.AdventureScenarioApplicationService;
@@ -169,7 +171,7 @@ public class AdventureController {
         com.dndmaster.adventure.application.runtime.GmTurnCommitPolicy.requirePublishable(turn.process().commit(providerMetadata), result.version());
         sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
                 result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
-        return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
+        return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result, sessionEventRepository));
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/rule-inquiries")
@@ -280,7 +282,8 @@ public class AdventureController {
         RuntimeEvidenceOverride ragOverride() {
             List<RuntimeEvidence> evidence = (ragEvidence == null ? List.<RagEvidenceRequest>of() : ragEvidence).stream()
                     .map(item -> new RuntimeEvidence(item.type(), new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(item.documentId()),
-                            item.extractionVersion(), item.locator(), item.excerpt())).toList();
+                            item.extractionVersion(), item.locator(), item.excerpt(),
+                            item.visibility(), item.disclosureEvent(), item.disclosureTurn() == null ? 0 : item.disclosureTurn())).toList();
             return new RuntimeEvidenceOverride(ragCondition, new EvidencePack(
                     evidence.stream().filter(item -> item.evidenceType() == RuntimeEvidenceType.STORYBOOK).toList(),
                     evidence.stream().filter(item -> item.evidenceType() == RuntimeEvidenceType.RULEBOOK).toList(),
@@ -288,7 +291,8 @@ public class AdventureController {
         }
     }
     public record RagEvidenceRequest(RuntimeEvidenceType type, UUID documentId, long extractionVersion,
-                                     String locator, String excerpt) {}
+                                     String locator, String excerpt, StoryEvidenceVisibility visibility,
+                                     String disclosureEvent, Long disclosureTurn) {}
 
     public record GmInputRequest(String type, String text, UUID mapId, Long mapVersion, String action, String question) {
         com.dndmaster.adventure.domain.runtime.GmInput toDomain() {
@@ -315,15 +319,33 @@ public class AdventureController {
             List<String> warnings,
             long version) {
         static RuntimeTurnResponse from(RuntimeTurnResult result) {
+            return from(result, null);
+        }
+        static RuntimeTurnResponse from(RuntimeTurnResult result, com.dndmaster.adventure.application.runtime.SessionEventRepository eventRepository) {
+            var eventValues = eventRepository == null ? java.util.stream.Stream.<String>empty()
+                    : eventRepository.after(result.turn().sessionId(), -1).stream()
+                    .flatMap(event -> java.util.stream.Stream.of(event.type(), event.payload()));
+            var events = eventValues
+                    .filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet());
+            var visibleStory = PlayerVisibleStoryEvidence.project(result.turn().evidencePack().storybook(),
+                    events, result.version()).stream().map(evidence -> "storybook:" + evidence.locator()).collect(java.util.stream.Collectors.toSet());
+            var safeNarration = PlayerVisibleStoryEvidence.redactNarration(result.turn().plan().narration(),
+                    result.turn().evidencePack().storybook(), events, result.version());
+            var safeJudgment = PlayerVisibleStoryEvidence.redactNarration(result.turn().plan().judgment(),
+                    result.turn().evidencePack().storybook(), events, result.version());
+            var safeScene = PlayerVisibleStoryEvidence.redactNarration(result.context().currentScene(),
+                    result.turn().evidencePack().storybook(), events, result.version());
+            var publicRefs = result.turn().citations().stream()
+                    .filter(reference -> !reference.startsWith("storybook:") || visibleStory.contains(reference)).toList();
             return new RuntimeTurnResponse(
                     result.turn().turnId(),
                     result.turn().adventureId().value(),
                     result.turn().scenarioPackageId(),
                     result.turn().bindingVersion(),
-                    result.turn().plan().narration(),
-                    result.turn().plan().judgment(),
-                    result.context().currentScene(),
-                    result.turn().citations(),
+                    safeNarration,
+                    safeJudgment,
+                    safeScene,
+                    publicRefs,
                     result.turn().warnings(),
                     result.version());
         }

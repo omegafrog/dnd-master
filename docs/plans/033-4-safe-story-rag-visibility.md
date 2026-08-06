@@ -1,6 +1,6 @@
 # 033-4 — Safe Story RAG Visibility Projection
 
-- Status: `pending`
+- Status: `completed`
 - Issue: [#129](https://github.com/omegafrog/dnd-master/issues/129)
 - Parent: [#125](https://github.com/omegafrog/dnd-master/issues/125)
 - Dependencies: [033-2](033-2-retrieval-evaluation-corpus.md)
@@ -43,3 +43,11 @@ Hybrid search and reranking.
 ## Completion
 
 Zero GM-only delivery, public-story Recall@5 ≥95%, NPC continuity ≥95%, leak rate 0%.
+
+## Delivered
+
+- Story visibility and disclosure timing model.
+- Player-visible story projection filtering GM-only, NPC-private, and unrevealed chunks.
+- Story search response metadata contract and runtime adapter mapping.
+- Public turn source-reference filtering while retaining internal evidence for GM planning.
+- Visibility regression tests for provenance, reveal events, and leakage.

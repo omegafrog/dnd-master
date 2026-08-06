@@ -8,7 +8,14 @@ public record StorySourceEvidence(
         long extractionVersion,
         String sourceSpanLocator,
         String excerpt,
-        double score) {
+        double score,
+        String visibility,
+        String disclosureEvent,
+        Long disclosureTurn) {
+    public StorySourceEvidence(KnowledgeDocumentId documentId, long extractionVersion, String sourceSpanLocator,
+            String excerpt, double score) {
+        this(documentId, extractionVersion, sourceSpanLocator, excerpt, score, "GM_ONLY", null, 0L);
+    }
     public StorySourceEvidence {
         Objects.requireNonNull(documentId, "document id must not be null");
         if (extractionVersion < 0) {
@@ -23,5 +30,10 @@ public record StorySourceEvidence(
         if (!Double.isFinite(score) || score < 0d) {
             throw new IllegalArgumentException("score must be finite and non-negative");
         }
+        if (visibility == null || visibility.isBlank()
+                || !java.util.Set.of("PLAYER_VISIBLE", "GM_ONLY", "NPC_PRIVATE", "REVEALED_AFTER_EVENT", "DISCOVERED", "PUBLIC_SUMMARY").contains(visibility)) {
+            throw new IllegalArgumentException("unsupported visibility");
+        }
+        if (disclosureTurn == null || disclosureTurn < 0) throw new IllegalArgumentException("disclosure turn must be non-negative");
     }
 }

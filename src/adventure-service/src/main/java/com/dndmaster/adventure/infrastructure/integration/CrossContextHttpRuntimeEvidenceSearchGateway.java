@@ -4,6 +4,7 @@ import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceSearchPort;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceSearchRequest;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
+import com.dndmaster.adventure.application.runtime.StoryEvidenceVisibility;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
@@ -48,7 +49,9 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
                     request.ownerPlayerId().value(), StorySearchResponse.class);
             return response.evidence().stream()
                     .map(item -> new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
-                            new KnowledgeDocumentId(item.knowledgeDocumentId()), item.extractionVersion(), item.locator(), item.excerpt()))
+                            new KnowledgeDocumentId(item.knowledgeDocumentId()), item.extractionVersion(), item.locator(), item.excerpt(),
+                            parseVisibility(item.visibility()),
+                            item.disclosureEvent(), item.disclosureTurn() == null ? 0 : item.disclosureTurn()))
                     .toList();
         } catch (Exception exception) {
             throw new IllegalStateException("runtime evidence search failed", exception);
@@ -59,6 +62,12 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
         return request.activeSourceContext() != null
                 && request.activeSourceContext().knowledgeDocumentId().value().equals(documentId)
                 ? request.activeSourceContext().extractionVersion() : 1L;
+    }
+
+    private static StoryEvidenceVisibility parseVisibility(String value) {
+        if (value == null) return StoryEvidenceVisibility.GM_ONLY;
+        try { return StoryEvidenceVisibility.valueOf(value); }
+        catch (IllegalArgumentException ignored) { return StoryEvidenceVisibility.GM_ONLY; }
     }
 
     private static List<String> activeLocators(RuntimeEvidenceSearchRequest request) {
@@ -84,5 +93,6 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
     record RuleSearchResponse(UUID ownerId, List<RuleEvidenceItem> evidence) {}
     record RuleEvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score, String chapter, String section) {}
     record StorySearchResponse(UUID ownerId, List<StoryEvidenceItem> evidence) {}
-    record StoryEvidenceItem(UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt, double score) {}
+    record StoryEvidenceItem(UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt, double score,
+                             String visibility, String disclosureEvent, Long disclosureTurn) {}
 }

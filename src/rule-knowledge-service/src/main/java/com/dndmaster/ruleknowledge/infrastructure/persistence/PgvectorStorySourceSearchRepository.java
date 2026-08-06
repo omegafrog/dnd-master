@@ -18,7 +18,7 @@ import javax.sql.DataSource;
 public final class PgvectorStorySourceSearchRepository implements StorySourceSearchPort {
     private static final String SEARCH = """
             WITH ranked AS (
-                SELECT c.rulebook_id, r.version, c.locator, c.content, c.sequence,
+                SELECT c.rulebook_id, r.version, c.locator, c.content, c.sequence, c.visibility, c.disclosure_event, c.disclosure_turn,
                        0.75 * (1 - (c.embedding <=> CAST(? AS vector)))
                            + 0.25 * ts_rank_cd(to_tsvector('simple', c.content), plainto_tsquery('simple', ?))
                            + CASE WHEN c.content ~* '(DC|saving|check|attack|damage|roll|recharge)' THEN 0.20 ELSE 0 END AS score
@@ -45,13 +45,13 @@ public final class PgvectorStorySourceSearchRepository implements StorySourceSea
             ), deduplicated AS (
                 SELECT DISTINCT ON (candidate.rulebook_id, candidate.locator)
                        candidate.rulebook_id, candidate.version, candidate.locator,
-                       candidate.content, candidate.score, candidate.sequence
+                       candidate.content, candidate.score, candidate.sequence, candidate.visibility, candidate.disclosure_event, candidate.disclosure_turn
                   FROM ranked candidate
                    JOIN seeds seed ON seed.rulebook_id = candidate.rulebook_id
                                  AND candidate.sequence BETWEEN seed.sequence - 1 AND seed.sequence + 1
                  ORDER BY candidate.rulebook_id, candidate.locator, candidate.score DESC
             )
-            SELECT rulebook_id, version, locator, content, score
+            SELECT rulebook_id, version, locator, content, score, visibility, disclosure_event, disclosure_turn
               FROM deduplicated
              ORDER BY score DESC, sequence
              LIMIT ?
@@ -98,7 +98,8 @@ public final class PgvectorStorySourceSearchRepository implements StorySourceSea
                             rows.getLong("version"),
                             rows.getString("locator"),
                             rows.getString("content"),
-                            Math.max(0d, rows.getDouble("score"))));
+                            Math.max(0d, rows.getDouble("score")), rows.getString("visibility"),
+                            rows.getString("disclosure_event"), rows.getLong("disclosure_turn")));
                 }
                 return List.copyOf(evidence);
             }

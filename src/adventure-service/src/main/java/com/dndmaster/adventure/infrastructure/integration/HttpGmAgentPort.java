@@ -7,6 +7,7 @@ import com.dndmaster.adventure.application.runtime.GmPlanResult;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
 import com.dndmaster.adventure.application.runtime.RuntimePlan;
+import com.dndmaster.adventure.application.runtime.StoryEvidenceVisibility;
 import com.dndmaster.adventure.application.runtime.GmToolCall;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
@@ -79,12 +80,15 @@ public final class HttpGmAgentPort implements GmAgentPort {
         }
     }
 
-    record Evidence(String type, UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt) {
+    record Evidence(String type, UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt,
+                    StoryEvidenceVisibility visibility, String disclosureEvent, Long disclosureTurn) {
         static Evidence from(RuntimeEvidence e) {
-            return new Evidence(e.evidenceType().name(), e.knowledgeDocumentId().value(), e.extractionVersion(), e.locator(), e.excerpt());
+            return new Evidence(e.evidenceType().name(), e.knowledgeDocumentId().value(), e.extractionVersion(), e.locator(), e.excerpt(),
+                    e.visibility(), e.disclosureEvent(), e.disclosureTurn());
         }
         RuntimeEvidence toEvidence() {
-            return new RuntimeEvidence(RuntimeEvidenceType.valueOf(type), new KnowledgeDocumentId(knowledgeDocumentId), extractionVersion, locator, excerpt);
+            return new RuntimeEvidence(RuntimeEvidenceType.valueOf(type), new KnowledgeDocumentId(knowledgeDocumentId), extractionVersion, locator, excerpt,
+                    visibility, disclosureEvent, disclosureTurn == null ? 0 : disclosureTurn);
         }
     }
 
