@@ -433,6 +433,15 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    DeterministicAdjudicationService deterministicAdjudicationService(RuntimeCommandJournal journal,
+            ObjectMapper objectMapper) {
+        return new DeterministicAdjudicationService(journal, objectMapper,
+                request -> AuthoritativeResolution.pending(
+                        "authoritative rule resolver must supply a concrete outcome",
+                        List.of("runtime-command:" + request.commandId())));
+    }
+
+    @Bean
     RuntimeCommandSagaApplicationService runtimeCommandSagaApplicationService(RuntimeCommandJournal journal,
             io.micrometer.core.instrument.MeterRegistry registry) {
         return new RuntimeCommandSagaApplicationService(journal,

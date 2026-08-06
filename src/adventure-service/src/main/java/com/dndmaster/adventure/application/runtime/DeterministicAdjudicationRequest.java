@@ -2,28 +2,46 @@ package com.dndmaster.adventure.application.runtime;
 
 import java.util.Objects;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 
 /** Immutable input for authoritative resolution. Providers never create state from prose. */
 public record DeterministicAdjudicationRequest(
         UUID commandId,
         UUID sessionId,
         UUID turnId,
+        UUID ownerPlayerId,
         String action,
         String stateFingerprint,
         long seed,
         long expectedVersion) {
+    public DeterministicAdjudicationRequest(UUID commandId, UUID sessionId, UUID turnId, String action,
+            String stateFingerprint, long seed, long expectedVersion) {
+        this(commandId, sessionId, turnId, sessionId, action, stateFingerprint, seed, expectedVersion);
+    }
+
     public DeterministicAdjudicationRequest {
         commandId = Objects.requireNonNull(commandId, "command id must not be null");
         sessionId = Objects.requireNonNull(sessionId, "session id must not be null");
         turnId = Objects.requireNonNull(turnId, "turn id must not be null");
+        ownerPlayerId = Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
         action = required(action, "action");
         stateFingerprint = required(stateFingerprint, "state fingerprint");
         if (expectedVersion < 0) throw new IllegalArgumentException("expected version must not be negative");
     }
 
     public String fingerprint() {
-        return commandId + "|" + sessionId + "|" + turnId + "|" + action + "|"
-                + stateFingerprint + "|" + seed + "|" + expectedVersion;
+        String canonical = String.join("\n", commandId.toString(), sessionId.toString(), turnId.toString(),
+                ownerPlayerId.toString(), action, stateFingerprint, Long.toString(seed), Long.toString(expectedVersion));
+        try {
+            byte[] digest = MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8));
+            StringBuilder result = new StringBuilder(digest.length * 2);
+            for (byte value : digest) result.append(String.format("%02x", value));
+            return result.toString();
+        } catch (NoSuchAlgorithmException impossible) {
+            throw new IllegalStateException("SHA-256 unavailable", impossible);
+        }
     }
 
     private static String required(String value, String name) {

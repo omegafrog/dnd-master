@@ -45,12 +45,9 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
-    AdjudicationModelPort adjudicationModelPort(SpringAiChatAdapter adapter) {
-        return input -> adapter.complete(
-                "adjudicate-" + UUID.randomUUID(), input.toString(), text -> {
-                    // TODO: implement real JSON parsing from AI response
-                    return new AdjudicationModelPort.AdjudicationOutput(text, "parsed-rule-basis");
-                });
+    AdjudicationModelPort adjudicationModelPort() {
+        return input -> new AdjudicationModelPort.AdjudicationOutput(
+                "pending: authoritative runtime resolution required", "deterministic-runtime-boundary");
     }
 
     @Bean

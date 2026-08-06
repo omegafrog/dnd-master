@@ -17,8 +17,12 @@ public record AuthoritativeResolution(
         stateChanges = List.copyOf(Objects.requireNonNull(stateChanges, "state changes must not be null"));
         provenance = List.copyOf(Objects.requireNonNull(provenance, "provenance must not be null"));
         if (provenance.isEmpty()) throw new IllegalArgumentException("provenance must not be empty");
-        if (status == Status.RESOLVED && stateChanges.stream().anyMatch(value -> value == null || value.isBlank())) {
-            throw new IllegalArgumentException("resolved state changes must be non-blank");
+        if (status != Status.RESOLVED && !stateChanges.isEmpty()) {
+            throw new IllegalArgumentException("only resolved outcomes may contain state changes");
+        }
+        if (stateChanges.stream().anyMatch(value -> value == null || value.isBlank())
+                || provenance.stream().anyMatch(value -> value == null || value.isBlank())) {
+            throw new IllegalArgumentException("resolution values must be non-blank");
         }
     }
 

@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.dndmaster.adventure.application.runtime.AuthoritativeResolution;
 import com.dndmaster.adventure.application.runtime.DeterministicAdjudicationRequest;
 import com.dndmaster.adventure.application.runtime.DeterministicAdjudicationService;
+import com.dndmaster.adventure.application.runtime.InMemoryRuntimeCommandJournal;
 import com.dndmaster.adventure.application.runtime.NarrationContract;
 import java.util.List;
 import java.util.UUID;
@@ -40,6 +41,25 @@ class DeterministicAdjudicationServiceTest {
         assertThrows(IllegalStateException.class, () -> service.resolve(
                 new DeterministicAdjudicationRequest(first.commandId(), first.sessionId(), first.turnId(),
                         "attack-goblin", first.stateFingerprint(), first.seed(), first.expectedVersion())));
+    }
+
+    @Test
+    void separate_service_instances_replay_from_shared_journal() {
+        InMemoryRuntimeCommandJournal journal = new InMemoryRuntimeCommandJournal();
+        AtomicInteger executions = new AtomicInteger();
+        var resolver = (java.util.function.Function<DeterministicAdjudicationRequest, AuthoritativeResolution>) request -> {
+            executions.incrementAndGet();
+            return AuthoritativeResolution.resolved("accepted", List.of(), List.of("rules:1"));
+        };
+        DeterministicAdjudicationRequest request = request("open-door", 7L);
+
+        new DeterministicAdjudicationService(journal, new com.fasterxml.jackson.databind.ObjectMapper(), resolver)
+                .resolve(request);
+        AuthoritativeResolution retry = new DeterministicAdjudicationService(
+                journal, new com.fasterxml.jackson.databind.ObjectMapper(), resolver).resolve(request);
+
+        assertEquals("accepted", retry.outcome());
+        assertEquals(1, executions.get());
     }
 
     @Test
