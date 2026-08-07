@@ -31,6 +31,25 @@ class GmAgentControllerContractTest {
     }
 
     @Test
+    void unverified_provider_citation_is_dropped_without_becoming_authoritative() {
+        var controller = new GmAgentController(new com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter() {
+            @Override
+            public <T> T complete(String operation, String prompt,
+                                   com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                return parser.parse("{\"scene\":\"brewery\",\"npcState\":\"calm\",\"judgment\":\"observing\","
+                        + "\"narration\":\"You inspect the room.\",\"proposedActiveSourceContext\":null,"
+                        + "\"citedEvidence\":[\"invented citation\"],\"warnings\":[],\"provider\":\"ollama\","
+                        + "\"model\":\"qwen3:8b\",\"reasoning\":\"grounded\",\"stateDelta\":[],\"toolCalls\":[]}");
+            }
+        }, new com.fasterxml.jackson.databind.ObjectMapper(), new ApiRequestGuard("token"));
+
+        var response = controller.plan("token", request());
+
+        org.junit.jupiter.api.Assertions.assertTrue(response.citedEvidence().isEmpty());
+        org.junit.jupiter.api.Assertions.assertTrue(response.warnings().stream().anyMatch(w -> w.contains("제외")));
+    }
+
+    @Test
     void provider_failure_is_not_committed_as_a_successful_fallback() {
         var controller = new GmAgentController(new com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter() {
             @Override

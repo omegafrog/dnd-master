@@ -27,11 +27,14 @@ class GmTurnFailureRecorderTest {
         assertEquals("GM_TURN_FAILED", events.saved.type());
         assertEquals("provider failed", events.saved.payload());
         assertEquals(5, events.saved.version());
+        assertEquals("provider failed", turns.recoveredFailure);
     }
 
     private static final class RecordingTurns implements GmTurnRepository {
         GmTurn saved;
+        String recoveredFailure;
         @Override public Optional<GmTurn> findByCommandId(UUID commandId) { return Optional.empty(); }
+        @Override public void recoverActive(UUID adventureId, String failure) { recoveredFailure = failure; }
         @Override public void save(GmTurn turn, UUID adventureId) { saved = turn; }
     }
 

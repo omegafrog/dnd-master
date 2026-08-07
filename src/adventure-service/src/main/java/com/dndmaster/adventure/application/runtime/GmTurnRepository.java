@@ -6,6 +6,7 @@ import java.util.UUID;
 
 public interface GmTurnRepository {
     default void lockAdventure(UUID adventureId) {}
+    default void recoverActive(UUID adventureId, String failure) {}
     Optional<GmTurn> findByCommandId(UUID commandId);
     void save(GmTurn turn, UUID adventureId);
 }
