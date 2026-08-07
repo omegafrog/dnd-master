@@ -131,7 +131,8 @@ class LocalOllamaProductionWiringContextTest {
         server.start();
         server.stubFor(get(urlEqualTo("/api/tags")).willReturn(aResponse()
                 .withHeader("Content-Type", "application/json")
-                        .withBody("{\"models\":[{\"name\":\"qwen3:8b\"},"
+                .withBody("{\"models\":[{\"name\":\""
+                        + com.dndmaster.aigamemaster.configuration.LocalOllamaProperties.DEFAULT_CHAT_MODEL + "\"},"
                         + "{\"name\":\"qwen3-embedding:0.6b\"}]}")));
         server.stubFor(post(urlEqualTo("/api/chat")).atPriority(5).willReturn(aResponse()
                 .withHeader("Content-Type", "application/json").withBody(chatResponse())));
@@ -142,7 +143,8 @@ class LocalOllamaProductionWiringContextTest {
     }
 
     private static String chatResponse() {
-        return "{\"model\":\"qwen3:8b\",\"created_at\":\"2026-07-19T00:00:00Z\","
+        return "{\"model\":\"" + com.dndmaster.aigamemaster.configuration.LocalOllamaProperties.DEFAULT_CHAT_MODEL
+                + "\",\"created_at\":\"2026-07-19T00:00:00Z\","
                 + "\"message\":{\"role\":\"assistant\",\"content\":\"" + SECRET_RESPONSE
                 + "\"},\"done\":true}";
     }
