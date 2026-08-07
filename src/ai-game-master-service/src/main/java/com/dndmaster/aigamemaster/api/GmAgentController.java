@@ -124,7 +124,10 @@ public final class GmAgentController {
         return """
                 Return exactly one JSON object and no markdown.
                 Required keys: scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings, provider, model, reasoning, stateDelta, toolCalls.
-                Use non-null strings for scene, judgment, narration; use [] for all arrays and null for proposedActiveSourceContext.
+                Use non-null strings for scene, npcState, judgment, narration, provider, model and reasoning.
+                Use [] for citedEvidence, warnings, stateDelta and toolCalls; use null for proposedActiveSourceContext.
+                citedEvidence MUST be [] unless an evidence object is copied exactly from the supplied request.
+                stateDelta MUST be []. Do not output a citation string.
                 Do not make rule claims or invent facts. The player action is: %s
                 Current scene: %s
                 """.formatted(redact(r.action(), protectedFacts), redact(r.currentScene(), protectedFacts));
@@ -190,6 +193,12 @@ public final class GmAgentController {
                 citedEvidence,warnings,provider,model,reasoning,stateDelta,toolCalls. stateDelta MUST be [] .
                 toolCalls may contain only dice.roll or character.update; each call has toolName,argumentsJson,required.
                 Every rule claim needs a citation from supplied evidence.
+                citedEvidence is an array of exact evidence objects, never strings. If you cannot copy an evidence object
+                exactly, return citedEvidence as []. Do not cite or reproduce hidden DCs, secret locations, or private facts.
+                Use this exact JSON shape (replace values; keep array/object types):
+                {"scene":"...","npcState":"...","judgment":"...","narration":"...",
+                "proposedActiveSourceContext":null,"citedEvidence":[],"warnings":[],"provider":"ollama",
+                "model":"...","reasoning":"...","stateDelta":[],"toolCalls":[]}
                 adventureId=%s packageId=%s bindingVersion=%s action=%s
                 currentScene=%s npcState=%s pendingAction=%s latestJudgment=%s
                 storybook=%s rulebook=%s resolution=%s recentTurns=%s characters=%s storyPlan=%s

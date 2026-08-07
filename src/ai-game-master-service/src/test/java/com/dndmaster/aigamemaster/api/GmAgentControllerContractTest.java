@@ -10,6 +10,27 @@ import org.springframework.web.server.ResponseStatusException;
 
 class GmAgentControllerContractTest {
     @Test
+    void structured_prompt_forces_safe_empty_citations_when_exact_evidence_is_unavailable() {
+        String[] captured = {null};
+        var controller = new GmAgentController(new com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter() {
+            @Override
+            public <T> T complete(String operation, String prompt,
+                                   com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                captured[0] = prompt;
+                return parser.parse("{\"scene\":\"brewery\",\"npcState\":\"calm\",\"judgment\":\"observing\","
+                        + "\"narration\":\"You inspect the room.\",\"proposedActiveSourceContext\":null,"
+                        + "\"citedEvidence\":[],\"warnings\":[],\"provider\":\"ollama\","
+                        + "\"model\":\"qwen3:8b\",\"reasoning\":\"grounded\",\"stateDelta\":[],\"toolCalls\":[]}");
+            }
+        }, new com.fasterxml.jackson.databind.ObjectMapper(), new ApiRequestGuard("token"));
+
+        controller.plan("token", request());
+
+        org.junit.jupiter.api.Assertions.assertTrue(captured[0].contains("citedEvidence is an array of exact evidence objects"));
+        org.junit.jupiter.api.Assertions.assertTrue(captured[0].contains("Do not cite or reproduce hidden DCs"));
+    }
+
+    @Test
     void provider_failure_is_not_committed_as_a_successful_fallback() {
         var controller = new GmAgentController(new com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter() {
             @Override
