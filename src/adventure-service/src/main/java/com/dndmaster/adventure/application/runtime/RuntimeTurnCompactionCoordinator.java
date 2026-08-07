@@ -40,8 +40,14 @@ public final class RuntimeTurnCompactionCoordinator {
         var tail = new ExactTail(turn.action(), precedingScene, turn.plan().narration(), current.currentTurn(),
                 current.currentRound(), current.location(), current.mapState(),
                 current.fogOfWar(), turn.context().pendingActionValue().orElse("choice:none"));
-        var prompt = String.join("\n", turn.conversation().stream().map(Object::toString).toList())
-                + "\n" + turn.context() + "\n" + turn.evidencePack() + "\n" + turn.plan();
+        var safeStory = PlayerVisibleStoryEvidence.project(turn.evidencePack().storybook(), java.util.Set.of(), turn.version());
+        var safeEvidence = new EvidencePack(safeStory, turn.evidencePack().rulebook(), turn.evidencePack().resolution());
+        var safeTurns = ModelInputProjection.redactProtectedTurns(
+                turn.conversation().stream().map(Object::toString).toList(),
+                java.util.stream.Stream.of(turn.evidencePack().storybook(), turn.evidencePack().rulebook(), turn.evidencePack().resolution())
+                        .flatMap(java.util.List::stream).toList());
+        var prompt = String.join("\n", safeTurns)
+                + "\n" + turn.context() + "\n" + safeEvidence + "\n" + turn.plan();
         var usage = estimator.usage(turn.plan().provider(), prompt);
         metrics.recordContextUsage(usage);
         var barrier = new CompactionBarrier(!turn.committed(), current.pendingTool(), current.pendingMapCandidate(),

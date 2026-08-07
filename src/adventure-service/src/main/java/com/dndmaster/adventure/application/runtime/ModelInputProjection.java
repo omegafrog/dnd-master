@@ -76,6 +76,9 @@ public record ModelInputProjection(
             UUID ownerPlayerId, UUID sessionId, UUID scenarioPackageId,
             List<RuntimeEvidence> storybook, List<RuntimeEvidence> rulebook, List<RuntimeEvidence> resolution,
             String continuity, Set<String> committedDisclosureEvents, long currentTurn) {
+        if (allowedDocuments.stream().anyMatch(document -> !expectedVersions.containsKey(document))) {
+            throw new IllegalArgumentException("expected extraction version missing for scoped document");
+        }
         Stream.of(storybook, rulebook, resolution).flatMap(List::stream).forEach(evidence -> {
             if (evidence.ownerPlayerId() == null || evidence.sessionId() == null || evidence.scenarioPackageId() == null
                     || !ownerPlayerId.equals(evidence.ownerPlayerId()) || !sessionId.equals(evidence.sessionId())
@@ -142,8 +145,8 @@ public record ModelInputProjection(
 
     public static List<String> redactProtectedTurns(List<String> turns, List<RuntimeEvidence> authoritativeEvidence) {
         return turns.stream().map(turn -> authoritativeEvidence.stream()
-                .filter(evidence -> evidence.visibility() == StoryEvidenceVisibility.GM_ONLY
-                        || evidence.visibility() == StoryEvidenceVisibility.NPC_PRIVATE)
+                .filter(evidence -> evidence.visibility() != StoryEvidenceVisibility.PLAYER_VISIBLE
+                        && evidence.visibility() != StoryEvidenceVisibility.PUBLIC_SUMMARY)
                 .anyMatch(evidence -> turn.toLowerCase(java.util.Locale.ROOT)
                         .contains(evidence.excerpt().toLowerCase(java.util.Locale.ROOT)))
                 ? "[protected turn redacted]" : turn).toList();

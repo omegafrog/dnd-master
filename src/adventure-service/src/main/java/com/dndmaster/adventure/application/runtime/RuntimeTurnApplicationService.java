@@ -197,8 +197,10 @@ public class RuntimeTurnApplicationService {
         if (authoritativeResolution != null && authoritativeResolution.status() != AuthoritativeResolution.Status.RESOLVED) {
             throw new IllegalStateException("authoritative resolution is not complete");
         }
-        evidencePack = scopedEvidencePack(evidencePack, command.ownerPlayerId().value(), adventure.sessionId().value(), binding.scenarioPackageId());
-        ModelInputProjection modelInput = modelInputProjection(evidencePack, adventure, scenarioPackage);
+        evidencePack = scopedEvidencePack(evidencePack, command.ownerPlayerId().value(), adventure.sessionId().value(), binding.scenarioPackageId(),
+                planningPort instanceof GmAgentRuntimePlanningAdapter);
+        ModelInputProjection modelInput = modelInputProjection(evidencePack, adventure, scenarioPackage,
+                planningPort instanceof GmAgentRuntimePlanningAdapter);
         EvidencePack modelEvidencePack = new EvidencePack(modelInput.storybook(), modelInput.rulebook(), modelInput.resolution());
         ActiveSourceContext modelActiveSource = modelEvidencePack.storybook().stream()
                 .filter(evidence -> binding.activeSourceContext() != null
@@ -208,7 +210,8 @@ public class RuntimeTurnApplicationService {
                 .findFirst().map(evidence -> binding.activeSourceContext()).orElse(null);
         List<String> modelRecentTurns = ModelInputProjection.redactProtectedTurns(
                 adventure.conversation().stream().map(entry -> entry.speaker() + ": " + entry.content()).toList(),
-                evidencePack.storybook());
+                java.util.stream.Stream.of(evidencePack.storybook(), evidencePack.rulebook(), evidencePack.resolution())
+                        .flatMap(List::stream).toList());
         modelInput = modelInput.withRuntimeInputs(adventure.currentContext(), modelActiveSource, command.action(),
                 modelRecentTurns, adventure.party().stream().map(member -> member.characterSheetId().value() + " control=" + member.controlMode()).toList());
         RuntimePlan plan = planningPort.plan(new RuntimePlanningRequest(
@@ -355,6 +358,7 @@ public class RuntimeTurnApplicationService {
                 binding.activeSourceContext(), command.action(), RuntimeEvidenceType.RULEBOOK, 5));
         List<RuntimeEvidence> resolution = scenarioPackage.runtimeCandidates().stream()
                 .flatMap(unit -> resolutionEvidence(unit).stream())
+                .map(evidence -> evidence.withScope(command.ownerPlayerId().value(), adventure.sessionId().value(), binding.scenarioPackageId()))
                 .filter(evidence -> knowledgeDocumentIds.contains(evidence.knowledgeDocumentId().value()))
                 .toList();
         return new EvidencePack(storybook, rulebook, resolution);
@@ -367,20 +371,32 @@ public class RuntimeTurnApplicationService {
         return "";
     }
 
-    private ModelInputProjection modelInputProjection(EvidencePack evidencePack, Adventure adventure, ScenarioPackage scenarioPackage) {
+    private ModelInputProjection modelInputProjection(EvidencePack evidencePack, Adventure adventure, ScenarioPackage scenarioPackage,
+            boolean strictProvider) {
         Set<String> disclosureEvents = sessionEventRepository == null ? Set.of() : sessionEventRepository.after(adventure.sessionId().value(), -1).stream()
-                .map(event -> event.type()).collect(java.util.stream.Collectors.toSet());
+                .flatMap(event -> java.util.stream.Stream.of(event.type(), event.payload()))
+                .collect(java.util.stream.Collectors.toSet());
         Map<UUID, Long> expectedVersions = scenarioPackage.documents().stream().collect(java.util.stream.Collectors.toMap(
                 document -> document.knowledgeDocumentId().value(),
                 com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection::extractionVersion,
                 (first, ignored) -> first));
+        if (!strictProvider) {
+            expectedVersions = java.util.stream.Stream.of(evidencePack.storybook(), evidencePack.rulebook(), evidencePack.resolution())
+                    .flatMap(List::stream).collect(java.util.stream.Collectors.toMap(
+                            evidence -> evidence.knowledgeDocumentId().value(), RuntimeEvidence::extractionVersion, (first, ignored) -> first));
+        }
         return ModelInputProjection.createStrict(new HashSet<>(knowledgeDocumentIds(adventure, scenarioPackage)), expectedVersions,
                 adventure.ownerPlayerId().value(), adventure.sessionId().value(), scenarioPackage.packageId(), evidencePack.storybook(),
                 evidencePack.rulebook(), evidencePack.resolution(), storyPlanContext(adventure), disclosureEvents, adventure.turnIndex());
     }
 
-    private static EvidencePack scopedEvidencePack(EvidencePack pack, UUID owner, UUID session, UUID scenarioPackage) {
-        java.util.function.Function<RuntimeEvidence, RuntimeEvidence> scope = evidence -> evidence.withScope(owner, session, scenarioPackage);
+    private static EvidencePack scopedEvidencePack(EvidencePack pack, UUID owner, UUID session, UUID scenarioPackage, boolean strict) {
+        java.util.function.Function<RuntimeEvidence, RuntimeEvidence> scope = evidence -> {
+            if (strict && (evidence.ownerPlayerId() == null || evidence.sessionId() == null || evidence.scenarioPackageId() == null)) {
+                throw new IllegalArgumentException("unscoped evidence cannot enter provider planning");
+            }
+            return evidence.withScope(owner, session, scenarioPackage);
+        };
         return new EvidencePack(pack.storybook().stream().map(scope).toList(), pack.rulebook().stream().map(scope).toList(),
                 pack.resolution().stream().map(scope).toList());
     }
