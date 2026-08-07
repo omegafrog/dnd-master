@@ -98,6 +98,7 @@ class RuntimeBindingApplicationServiceTest {
 
         assertEquals(RuntimeReadinessStatus.BLOCKED, binding.readiness().status());
         assertTrue(binding.readiness().blockers().stream().anyMatch(reason -> reason.contains("unsupported-provider")));
+        assertEquals(false, binding.readiness().retryable());
     }
 
     @Test

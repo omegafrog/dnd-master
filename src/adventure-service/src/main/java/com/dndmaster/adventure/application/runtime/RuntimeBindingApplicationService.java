@@ -242,7 +242,7 @@ public final class RuntimeBindingApplicationService {
                 : pending ? RuntimeReadinessStatus.INDEXING_PENDING
                 : degraded ? RuntimeReadinessStatus.SUPPORTED_DEGRADED : RuntimeReadinessStatus.INDEXED_READY;
         return new RuntimeReadiness(binding.bindingVersion(), status, blockers, warnings,
-                capabilityRetryable || status == RuntimeReadinessStatus.INDEXING_PENDING || status == RuntimeReadinessStatus.BLOCKED);
+                capabilityRetryable || status == RuntimeReadinessStatus.INDEXING_PENDING);
     }
 
     private PlayabilityReport buildReport(
