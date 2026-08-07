@@ -23,6 +23,14 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
     return () => { active = false }
   }, [api, sessionId])
 
+  useEffect(() => {
+    if (plan?.status !== 'GENERATING') return
+    const timer = window.setInterval(() => {
+      void api.readStoryPlan(sessionId).then(next => setPlan(next)).catch(() => undefined)
+    }, 2000)
+    return () => window.clearInterval(timer)
+  }, [api, sessionId, plan?.status])
+
   async function retry() {
     setMessage('')
     try { setPlan(await api.retryStoryPlan(sessionId)) } catch (error) { setMessage(error instanceof Error ? error.message : '모험 계획을 다시 생성하지 못했습니다.') }
