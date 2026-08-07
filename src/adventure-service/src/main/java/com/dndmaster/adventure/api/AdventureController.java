@@ -223,8 +223,10 @@ public class AdventureController {
     @PostMapping("/api/v1/adventures/{adventureId}/dice-rolls")
     DiceRollResponse diceRoll(
             @PathVariable UUID adventureId, @RequestBody DiceRollRequest request) {
+        UUID operationId = UUID.randomUUID();
+        var adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
         CombatActionCommand command = new CombatActionCommand(
-                UUID.randomUUID(),
+                operationId,
                 new AdventureId(adventureId),
                 new RuleSetId(request.ruleSetId()),
                 new CharacterSheetId(request.characterSheetId()),
@@ -234,7 +236,9 @@ public class AdventureController {
                 null,
                 request.ownerPlayerId(),
                 request.tokenId(),
-                request.expectedVersion());
+                request.expectedVersion(),
+                adventure.sessionId().value(),
+                request.turnId() == null ? operationId : request.turnId());
         var result = combatService.resolveCombatAction(command);
         return new DiceRollResponse(result.operationId(), result.role().name(), List.of(result.diceTotal()), result.diceTotal());
     }
@@ -422,7 +426,8 @@ public class AdventureController {
             UUID tokenId,
             long expectedVersion,
             String role,
-            String action) {}
+            String action,
+            UUID turnId) {}
     public record DiceRollResponse(UUID rollId, String scope, List<Integer> faces, int total) {}
     public record SaveAdventureRequest(UUID playerId, long expectedVersion, String currentScene) {}
     public record SaveAdventureResponse(UUID adventureId, long newVersion) {}

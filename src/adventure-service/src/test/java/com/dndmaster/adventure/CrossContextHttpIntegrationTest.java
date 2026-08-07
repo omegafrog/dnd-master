@@ -68,10 +68,11 @@ class CrossContextHttpIntegrationTest {
         UUID combatMapId = UUID.randomUUID();
         UUID ownerId = UUID.randomUUID();
         UUID tokenId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
         var command = new CombatActionCommand(
                 operationId, AdventureId.generate(), new RuleSetId(UUID.randomUUID()),
                 new CharacterSheetId(UUID.randomUUID()), combatMapId, CombatActorRole.PLAYER, "attack", "A1>B1",
-                ownerId, tokenId, 7L);
+                ownerId, tokenId, 7L, sessionId, UUID.randomUUID());
 
         assertThrows(CrossContextCallException.class, () -> service.resolveCombatAction(command));
         assertEquals("critical hit", service.resolveCombatAction(command).judgment());
@@ -86,7 +87,7 @@ class CrossContextHttpIntegrationTest {
                          "count":1,"sides":20,"modifier":0,"sessionId":"%s","turnId":"%s",
                          "commandId":"%s","expectedVersion":7}
                         """.formatted(command.adventureId().value(), command.ruleSetId().value(),
-                        command.adventureId().value(), command.operationId(), key))));
+                         command.sessionId(), command.turnId(), key))));
         server.verify(exactly(1), postRequestedFor(urlPathMatching("/internal/v1/combat-maps/.*/moves"))
                 .withRequestBody(equalToJson("""
                         {"playerId":"%s","tokenId":"%s","positions":[{"x":0,"y":0},{"x":1,"y":0}],

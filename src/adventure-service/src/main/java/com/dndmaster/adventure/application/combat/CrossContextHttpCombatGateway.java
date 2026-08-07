@@ -47,7 +47,7 @@ public final class CrossContextHttpCombatGateway
         DiceRollRequest request = new DiceRollRequest(
                 command.adventureId().value(), command.ruleSetId().value(), rollScope(command.role()),
                 expression.count(), expression.sides(), expression.modifier(),
-                command.adventureId().value(), command.operationId(), command.operationId(), command.expectedVersion());
+                command.sessionId(), command.turnId(), command.operationId(), command.expectedVersion());
         String value = send(dicePath(command.role()), "POST", request, command);
         try {
             var total = objectMapper.readTree(value).path("total");
