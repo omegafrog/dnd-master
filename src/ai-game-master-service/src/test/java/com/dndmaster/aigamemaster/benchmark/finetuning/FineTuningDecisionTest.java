@@ -95,7 +95,7 @@ class FineTuningDecisionTest {
 
     @Test
     void runner_executes_each_artifact_under_each_rag_condition() {
-        var split = new FineTuningDatasetSplit("split-v1", List.of("a"), List.of("b"), "sha256:train", "sha256:test");
+        var split = new FineTuningDatasetSplit("split-v1", List.of("a"), List.of("case-01"), "sha256:train", "sha256:test");
         var base = artifact(FineTuningModelArtifact.Variant.BASE, "base-digest");
         var tuned = artifact(FineTuningModelArtifact.Variant.FINE_TUNED, "tuned-digest");
         var calls = new java.util.concurrent.atomic.AtomicInteger();

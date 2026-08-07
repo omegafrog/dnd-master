@@ -19,6 +19,8 @@ public record FineTuningMetrics(double qualityScore, double groundingRate, doubl
     public FineTuningMetrics {
         Objects.requireNonNull(qualitySamples, "quality samples");
         qualitySamples = List.copyOf(qualitySamples);
+        double sampleMean = qualitySamples.stream().mapToDouble(Double::doubleValue).average().orElse(Double.NaN);
+        double sampleVariance = qualitySamples.stream().mapToDouble(value -> Math.pow(value - sampleMean, 2)).average().orElse(Double.NaN);
         if (!finiteRate(qualityScore, 0, 5) || !finiteRate(groundingRate, 0, 1)
                 || !finiteRate(koreanNarrationRate, 0, 1) || !finiteRate(structureSuccessRate, 0, 1)
                 || !finiteRate(latencyMeanMs, 0, Double.MAX_VALUE) || !finiteRate(latencyVarianceMs, 0, Double.MAX_VALUE)
@@ -26,7 +28,9 @@ public record FineTuningMetrics(double qualityScore, double groundingRate, doubl
                 || !finiteRate(secretLeakRate, 0, 1) || !finiteRate(stateConsistencyRate, 0, 1)
                 || !finiteRate(scopeComplianceRate, 0, 1) || sampleCount < 2
                 || qualitySamples.size() != sampleCount
-                || qualitySamples.stream().anyMatch(value -> !finiteRate(value, 0, 5))) {
+                || qualitySamples.stream().anyMatch(value -> !finiteRate(value, 0, 5))
+                || Math.abs(sampleMean - qualityScore) > 1e-9
+                || Math.abs(sampleVariance - qualityVariance) > 1e-9) {
             throw new IllegalArgumentException("invalid fine-tuning metrics");
         }
     }

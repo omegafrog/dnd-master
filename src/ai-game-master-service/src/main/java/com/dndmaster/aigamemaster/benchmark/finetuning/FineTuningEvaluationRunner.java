@@ -18,7 +18,7 @@ public final class FineTuningEvaluationRunner {
                                         FineTuningModelArtifact fineTuned, GmBenchmarkConfig configuration,
                                         FineTuningEvaluationExecutor executor) {
         return runInternal(split, List.of(Objects.requireNonNull(benchmarkCase)), currentRag, base, fineTuned,
-                configuration, executor, false);
+                configuration, executor, true);
     }
 
     /** Runs a complete frozen holdout corpus and aggregates each artifact/condition cell. */
@@ -102,7 +102,7 @@ public final class FineTuningEvaluationRunner {
                                         java.util.function.ToDoubleFunction<FineTuningMetrics> means,
                                         java.util.function.ToDoubleFunction<FineTuningMetrics> variances, int samples) {
         double mean = weighted(values, means, samples);
-        return values.stream().mapToDouble(value -> (value.sampleCount() - 1) * variances.applyAsDouble(value)
+        return values.stream().mapToDouble(value -> value.sampleCount() * variances.applyAsDouble(value)
                 + value.sampleCount() * Math.pow(means.applyAsDouble(value) - mean, 2)).sum() / samples;
     }
 }
