@@ -3,14 +3,14 @@ import type { AdventureSessionApi, AdventureSessionView, AdventureStoryPlanView 
 import type { RuntimeBindingView } from '../rulebooks/SetupApi'
 import { RuntimeReadinessPanel } from './RuntimeReadinessPanel'
 
-type StoryPlanApi = Pick<AdventureSessionApi, 'read' | 'readStoryPlan' | 'generateStoryPlan' | 'retryStoryPlan' | 'start'> & Partial<Pick<AdventureSessionApi, 'readRuntimeBinding'>>
+type StoryPlanApi = Pick<AdventureSessionApi, 'read' | 'readStoryPlan' | 'generateStoryPlan' | 'retryStoryPlan' | 'start'> & Partial<Pick<AdventureSessionApi, 'readRuntimeBinding' | 'selectRuntimeSourceContext'>>
 
 export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; sessionId: string }) {
   const [session, setSession] = useState<AdventureSessionView | null>(null)
   const [plan, setPlan] = useState<AdventureStoryPlanView | null>(null)
   const [binding, setBinding] = useState<RuntimeBindingView | null>(null)
   const [message, setMessage] = useState('')
-  const [adventureId] = useState(crypto.randomUUID())
+  const [generatedAdventureId] = useState(crypto.randomUUID())
 
   useEffect(() => {
     let active = true
@@ -39,9 +39,26 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
   async function start() {
     if (!session || !plan || plan.status !== 'READY') return
     try {
-      const started = await api.start(sessionId, session.version, adventureId)
+      const started = await api.start(sessionId, session.version, session.adventureId ?? generatedAdventureId)
       if (started.adventureId) window.location.hash = `#/adventures/${started.adventureId}`
-    } catch (error) { setMessage(error instanceof Error ? error.message : '모험을 시작하지 못했습니다.') }
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '모험을 시작하지 못했습니다.')
+      const refreshed = await api.read(sessionId).catch(() => null)
+      if (refreshed) {
+        setSession(refreshed)
+        if (refreshed.adventureId && api.readRuntimeBinding) {
+          void api.readRuntimeBinding(refreshed.adventureId).then(setBinding).catch(() => undefined)
+        }
+      }
+    }
+  }
+
+  async function selectSourceContext(locator: string) {
+    if (!binding || !api.selectRuntimeSourceContext) return
+    try {
+      setBinding(await api.selectRuntimeSourceContext(binding.adventureId, binding.bindingVersion, locator))
+      setMessage('')
+    } catch (error) { setMessage(error instanceof Error ? error.message : '초기 장면을 선택하지 못했습니다.') }
   }
 
   if (!session || !plan) return <section aria-labelledby="story-plan-title"><h1 id="story-plan-title">모험 계획 준비 중</h1><p role="status">{message || '파티와 모험 자료를 분석하고 있습니다.'}</p>{message && <button type="button" onClick={() => void retry()}>다시 생성</button>}</section>
@@ -54,7 +71,7 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
     {plan.status === 'FAILED' && <><p role="alert">{plan.failureReason || '계획 생성에 실패했습니다.'}</p><button type="button" onClick={() => void retry()}>다시 생성</button></>}
     {ready && <button type="button" onClick={() => void start()} disabled={!session.runtimeConfiguration || runtimeNotReady}>모험 시작</button>}
     {!session.runtimeConfiguration && <p role="alert">런타임 설정이 없어 시작할 수 없습니다.</p>}
-    {binding && api.readRuntimeBinding && <RuntimeReadinessPanel binding={binding} onRetry={() => void api.readRuntimeBinding!(binding.adventureId).then(setBinding)} />}
+    {binding && api.readRuntimeBinding && <RuntimeReadinessPanel binding={binding} onRetry={() => void api.readRuntimeBinding!(binding.adventureId).then(setBinding)} onSelectSourceContext={api.selectRuntimeSourceContext ? (locator) => void selectSourceContext(locator) : undefined} />}
     {message && <p role="status">{message}</p>}
   </section>
 }

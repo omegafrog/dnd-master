@@ -48,25 +48,51 @@ public record ModelInputProjection(
             List<RuntimeEvidence> storybook, List<RuntimeEvidence> rulebook,
             List<RuntimeEvidence> resolution, String ignoredCheckpoint,
             String continuity, Set<String> committedDisclosureEvents, long currentTurn) {
-        return create(allowedDocuments, Map.of(), storybook, rulebook, resolution, ignoredCheckpoint, continuity,
-                committedDisclosureEvents, currentTurn);
+        return createInternal(allowedDocuments, Map.of(), storybook, rulebook, resolution, ignoredCheckpoint, continuity,
+                committedDisclosureEvents, currentTurn, false);
     }
 
     public static ModelInputProjection create(Set<UUID> allowedDocuments, Map<UUID, Long> expectedVersions,
             List<RuntimeEvidence> storybook, List<RuntimeEvidence> rulebook,
             List<RuntimeEvidence> resolution, String ignoredCheckpoint,
             String continuity, Set<String> committedDisclosureEvents, long currentTurn) {
+        return createInternal(allowedDocuments, expectedVersions, storybook, rulebook, resolution, ignoredCheckpoint,
+                continuity, committedDisclosureEvents, currentTurn, false);
+    }
+
+    public static ModelInputProjection createForGmProvider(Set<UUID> allowedDocuments, Map<UUID, Long> expectedVersions,
+            UUID ownerPlayerId, UUID sessionId, UUID scenarioPackageId,
+            List<RuntimeEvidence> storybook, List<RuntimeEvidence> rulebook, List<RuntimeEvidence> resolution,
+            String continuity, Set<String> committedDisclosureEvents, long currentTurn) {
+        if (allowedDocuments.stream().anyMatch(document -> !expectedVersions.containsKey(document))) {
+            throw new IllegalArgumentException("expected extraction version missing for scoped document");
+        }
+        Stream.of(storybook, rulebook, resolution).flatMap(List::stream).forEach(evidence -> {
+            if (evidence.ownerPlayerId() == null || evidence.sessionId() == null || evidence.scenarioPackageId() == null
+                    || !ownerPlayerId.equals(evidence.ownerPlayerId()) || !sessionId.equals(evidence.sessionId())
+                    || !scenarioPackageId.equals(evidence.scenarioPackageId())) {
+                throw new IllegalArgumentException("evidence scope metadata is missing or mismatched");
+            }
+        });
+        return createInternal(allowedDocuments, expectedVersions, storybook, rulebook, resolution, "", continuity,
+                committedDisclosureEvents, currentTurn, true);
+    }
+
+    private static ModelInputProjection createInternal(Set<UUID> allowedDocuments, Map<UUID, Long> expectedVersions,
+            List<RuntimeEvidence> storybook, List<RuntimeEvidence> rulebook,
+            List<RuntimeEvidence> resolution, String ignoredCheckpoint,
+            String continuity, Set<String> committedDisclosureEvents, long currentTurn, boolean trustedGmProvider) {
         Objects.requireNonNull(allowedDocuments, "allowed documents must not be null");
         Objects.requireNonNull(expectedVersions, "expected versions must not be null");
         Objects.requireNonNull(committedDisclosureEvents, "disclosure events must not be null");
         if (currentTurn < 0) throw new IllegalArgumentException("current turn must not be negative");
         List<ProjectionAudit> audit = new ArrayList<>();
         List<RuntimeEvidence> safeStory = filter(RuntimeEvidenceType.STORYBOOK, storybook, allowedDocuments,
-                expectedVersions, committedDisclosureEvents, currentTurn, audit);
+                expectedVersions, committedDisclosureEvents, currentTurn, audit, trustedGmProvider);
         List<RuntimeEvidence> safeRules = filter(RuntimeEvidenceType.RULEBOOK, rulebook, allowedDocuments,
-                expectedVersions, committedDisclosureEvents, currentTurn, audit);
+                expectedVersions, committedDisclosureEvents, currentTurn, audit, trustedGmProvider);
         List<RuntimeEvidence> safeResolution = filter(RuntimeEvidenceType.RESOLUTION, resolution, allowedDocuments,
-                expectedVersions, committedDisclosureEvents, currentTurn, audit);
+                expectedVersions, committedDisclosureEvents, currentTurn, audit, trustedGmProvider);
         audit.forEach(item -> LOG.info("gm_model_projection documentId={} evidenceType={} decision={}",
                 item.documentId(), item.evidenceType(), item.decision()));
         return new ModelInputProjection(safeStory, safeRules, safeResolution, continuity, audit, null, null, "", List.of(), List.of());
@@ -103,7 +129,7 @@ public record ModelInputProjection(
 
     private static List<RuntimeEvidence> filter(RuntimeEvidenceType expected, List<RuntimeEvidence> input,
             Set<UUID> allowedDocuments, Map<UUID, Long> expectedVersions, Set<String> events,
-            long currentTurn, List<ProjectionAudit> audit) {
+            long currentTurn, List<ProjectionAudit> audit, boolean trustedGmProvider) {
         Objects.requireNonNull(input, expected + " evidence must not be null");
         List<RuntimeEvidence> result = new ArrayList<>();
         for (RuntimeEvidence item : input) {
@@ -121,7 +147,9 @@ public record ModelInputProjection(
                 throw new IllegalArgumentException("evidence extraction version is outside model scope");
             }
             if (item.extractionVersion() <= 0) throw new IllegalArgumentException("evidence version is missing");
-            boolean visible = item.visibility() == StoryEvidenceVisibility.PLAYER_VISIBLE
+            boolean visible = trustedGmProvider && (item.visibility() == StoryEvidenceVisibility.GM_ONLY
+                    || item.visibility() == StoryEvidenceVisibility.NPC_PRIVATE)
+                    || item.visibility() == StoryEvidenceVisibility.PLAYER_VISIBLE
                     || item.visibility() == StoryEvidenceVisibility.PUBLIC_SUMMARY
                     || ((item.visibility() == StoryEvidenceVisibility.DISCOVERED
                     || item.visibility() == StoryEvidenceVisibility.REVEALED_AFTER_EVENT)

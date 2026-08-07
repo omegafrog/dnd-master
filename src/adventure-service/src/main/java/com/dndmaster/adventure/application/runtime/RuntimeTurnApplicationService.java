@@ -220,7 +220,13 @@ public class RuntimeTurnApplicationService {
                         .flatMap(List::stream).toList());
         modelInput = modelInput.withRuntimeInputs(adventure.currentContext(), modelActiveSource, command.action(),
                 modelRecentTurns, adventure.party().stream().map(member -> member.characterSheetId().value() + " control=" + member.controlMode()).toList());
-        Set<String> protectedFacts = hiddenData(adventure);
+        Set<String> protectedFacts = new HashSet<>(hiddenData(adventure));
+        evidencePack.storybook().stream()
+                .filter(evidence -> !evidence.visibility().visibleToPlayer(evidence.disclosureEvent(), evidence.disclosureTurn(), Set.of(), adventure.turnIndex()))
+                .map(RuntimeEvidence::excerpt).forEach(protectedFacts::add);
+        evidencePack.resolution().stream()
+                .filter(evidence -> !evidence.visibility().visibleToPlayer(evidence.disclosureEvent(), evidence.disclosureTurn(), Set.of(), adventure.turnIndex()))
+                .map(RuntimeEvidence::excerpt).forEach(protectedFacts::add);
         RuntimePlan plan = planningPort.plan(new RuntimePlanningRequest(
                 command.adventureId(), command.ownerPlayerId(), adventure.sessionId().value(), command.turnId(), binding.scenarioPackageId(), binding.bindingVersion(),
                 adventure.currentContext(), modelActiveSource, command.action(), modelEvidencePack,
@@ -393,7 +399,7 @@ public class RuntimeTurnApplicationService {
                     .flatMap(List::stream).collect(java.util.stream.Collectors.toMap(
                             evidence -> evidence.knowledgeDocumentId().value(), RuntimeEvidence::extractionVersion, (first, ignored) -> first));
         }
-        return ModelInputProjection.createStrict(new HashSet<>(knowledgeDocumentIds(adventure, scenarioPackage)), expectedVersions,
+        return ModelInputProjection.createForGmProvider(new HashSet<>(knowledgeDocumentIds(adventure, scenarioPackage)), expectedVersions,
                 adventure.ownerPlayerId().value(), adventure.sessionId().value(), scenarioPackage.packageId(), evidencePack.storybook(),
                 evidencePack.rulebook(), evidencePack.resolution(), storyPlanContext(adventure), disclosureEvents, adventure.turnIndex());
     }

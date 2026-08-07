@@ -13,6 +13,9 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadFactory;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.runtime.GmProviderBindingRepository;
 
@@ -23,6 +26,7 @@ public final class AdventureStoryPlanApplicationService {
     private final AdventureStoryPlanGenerationPort generator;
     private final GmProviderBindingRepository providerBindings;
     private final ConcurrentHashMap<UUID, Boolean> running = new ConcurrentHashMap<>();
+    private final ExecutorService generationExecutor = Executors.newFixedThreadPool(2, new StoryPlanThreadFactory());
 
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions) {
         this(plans, sessions, null, request -> defaultStages());
@@ -47,9 +51,15 @@ public final class AdventureStoryPlanApplicationService {
     }
 
     public AdventureStoryPlan generate(SessionId sessionId, OwnerPlayerId owner) {
+        return generate(sessionId, owner, true);
+    }
+
+    private AdventureStoryPlan generate(SessionId sessionId, OwnerPlayerId owner, boolean rejectIfAlreadyRunning) {
         AdventureSession session = requireSession(sessionId, owner);
         validateParty(session);
-        if (running.containsKey(sessionId.value())) return plans.findBySessionId(sessionId).orElseThrow();
+        if (rejectIfAlreadyRunning && running.containsKey(sessionId.value())) {
+            return plans.findBySessionId(sessionId).orElseThrow();
+        }
         AdventureStoryPlan previous = plans.findBySessionId(sessionId).orElse(null);
         long version = previous == null ? 1 : previous.version() + 1;
         com.dndmaster.adventure.application.runtime.GmProviderSelection provider = providerBindings == null ? null
@@ -79,7 +89,7 @@ public final class AdventureStoryPlanApplicationService {
         if (running.putIfAbsent(sessionId.value(), Boolean.TRUE) == null) {
             java.util.concurrent.CompletableFuture.runAsync(() -> {
                 try {
-                    generate(sessionId, owner);
+                    generate(sessionId, owner, false);
                 } catch (RuntimeException failure) {
                     plans.save(AdventureStoryPlan.failed(generating.planId(), generating.sessionId(),
                             generating.packageRevision(), generating.partyRevision(), generating.version(),
@@ -87,9 +97,20 @@ public final class AdventureStoryPlanApplicationService {
                 } finally {
                     running.remove(sessionId.value());
                 }
-            });
+            }, generationExecutor);
         }
         return generating;
+    }
+
+    private static final class StoryPlanThreadFactory implements ThreadFactory {
+        private int sequence;
+
+        @Override
+        public synchronized Thread newThread(Runnable task) {
+            Thread thread = new Thread(task, "story-plan-generation-" + (++sequence));
+            thread.setDaemon(true);
+            return thread;
+        }
     }
 
     public AdventureStoryPlan retry(SessionId sessionId, OwnerPlayerId owner) {

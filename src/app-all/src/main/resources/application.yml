@@ -86,6 +86,9 @@ local-ai:
     retry-max-attempts: 2
 
 ai:
+  gm:
+    timeout: ${GM_PROVIDER_TIMEOUT:1800s}
+    retrieval-timeout: ${GM_RETRIEVAL_TIMEOUT:30s}
   character-tags:
     provider: ${CHARACTER_TAG_PROVIDER:codex-cli}
     base-url: ${OPENAI_BASE_URL:https://api.openai.com/}

@@ -9,7 +9,7 @@ ai:
     reasoning: ${GM_REASONING:medium}
     base-url: ${OPENAI_BASE_URL:https://api.openai.com/}
     api-key: ${OPENAI_API_KEY:}
-    timeout: ${GM_PROVIDER_TIMEOUT:90s}
+    timeout: ${GM_PROVIDER_TIMEOUT:1800s}
     retrieval-timeout: ${GM_RETRIEVAL_TIMEOUT:30s}
 
 spring:

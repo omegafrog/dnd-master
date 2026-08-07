@@ -24,7 +24,7 @@ export function AppShell() {
   const auth = useAuth()
   const [route, setRoute] = useState<Route>(() => parseRoute(window.location.hash))
   const [selectedBundleId, setSelectedBundleId] = useState(() => window.localStorage.getItem('dnd-selected-bundle-id') ?? '')
-  const sessionApi = useMemo(() => new AdventureSessionApi(auth.session?.accessToken ?? ''), [auth.session?.accessToken])
+  const sessionApi = useMemo(() => new AdventureSessionApi(auth.session?.accessToken ?? '', auth.session?.playerId ?? ''), [auth.session?.accessToken, auth.session?.playerId])
   const setupApi = useMemo(() => new HttpSetupApi(() => auth.session?.accessToken ?? ''), [auth.session?.accessToken])
   const rawSetupApi = useMemo(() => new HttpSetupApi(() => auth.session?.accessToken ?? ''), [auth.session?.accessToken])
 
