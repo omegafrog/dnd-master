@@ -49,7 +49,8 @@ class CrossContextHttpIntegrationTest {
         server.start();
         server.stubFor(get(urlPathMatching("/internal/v1/character-sheets/.*"))
                 .willReturn(aResponse().withStatus(200).withBody("{\"edition\":\"DND_5E_2024\",\"version\":7}")));
-        server.stubFor(post(urlEqualTo("/rolls")).willReturn(aResponse().withStatus(200).withBody("17")));
+        server.stubFor(post(urlEqualTo("/internal/v1/dice-rolls/player"))
+                .willReturn(aResponse().withStatus(200).withBody("{\"rollId\":\"00000000-0000-0000-0000-000000000001\",\"scope\":\"PLAYER_ACTION\",\"faces\":[17],\"total\":17}")));
         server.stubFor(post(urlPathMatching("/internal/v1/combat-maps/.*/moves")).willReturn(aResponse().withStatus(200)));
         server.stubFor(post(urlPathMatching("/internal/v1/combat-maps/.*/ai-state")).willReturn(aResponse().withStatus(200)));
         server.stubFor(post(urlEqualTo("/ai/adjudications"))
@@ -78,7 +79,14 @@ class CrossContextHttpIntegrationTest {
 
         String key = operationId.toString();
         server.verify(exactly(1), getRequestedFor(urlPathMatching("/internal/v1/character-sheets/.*")).withHeader("Idempotency-Key", equalTo(key)));
-        server.verify(exactly(1), postRequestedFor(urlEqualTo("/rolls")).withHeader("Idempotency-Key", equalTo(key)));
+        server.verify(exactly(1), postRequestedFor(urlEqualTo("/internal/v1/dice-rolls/player"))
+                .withHeader("Idempotency-Key", equalTo(key))
+                .withRequestBody(equalToJson("""
+                        {"adventureId":"%s","ruleSetId":"%s","scope":"PLAYER_ACTION",
+                         "count":1,"sides":20,"modifier":0,"sessionId":"%s","turnId":"%s",
+                         "commandId":"%s","expectedVersion":7}
+                        """.formatted(command.adventureId().value(), command.ruleSetId().value(),
+                        command.adventureId().value(), command.operationId(), key))));
         server.verify(exactly(1), postRequestedFor(urlPathMatching("/internal/v1/combat-maps/.*/moves"))
                 .withRequestBody(equalToJson("""
                         {"playerId":"%s","tokenId":"%s","positions":[{"x":0,"y":0},{"x":1,"y":0}],
@@ -104,6 +112,24 @@ class CrossContextHttpIntegrationTest {
         assertEquals(RuleQueryIntent.STORY, gateway.classify("What happened in the tavern?"));
         server.verify(exactly(1), postRequestedFor(urlEqualTo("/internal/v1/gm/intent-classifications"))
                 .withRequestBody(equalToJson("{\"question\":\"What happened in the tavern?\"}")));
+    }
+
+    @Test
+    void sends_internal_token_for_authoritative_ai_rolls() {
+        server = new WireMockServer(0);
+        server.start();
+        server.stubFor(post(urlEqualTo("/internal/v1/dice-rolls/ai"))
+                .willReturn(aResponse().withStatus(200).withBody("{\"total\":8}")));
+
+        var gateway = new CrossContextHttpCombatGateway(
+                HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), "secret");
+        var command = new CombatActionCommand(
+                UUID.randomUUID(), AdventureId.generate(), new RuleSetId(UUID.randomUUID()),
+                new CharacterSheetId(UUID.randomUUID()), CombatActorRole.NPC, "save 1d20", null);
+
+        assertEquals(8, gateway.roll(command));
+        server.verify(exactly(1), postRequestedFor(urlEqualTo("/internal/v1/dice-rolls/ai"))
+                .withHeader("X-Internal-Token", equalTo("secret")));
     }
 
     private static final class MemoryRepository implements CombatOperationRepository {

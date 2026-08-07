@@ -12,19 +12,28 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class CrossContextHttpCombatGateway
         implements CharacterCombatPort, DiceCombatPort, CombatMapPort, AiCombatPort {
     private final HttpClient client;
     private final URI baseUri;
     private final Duration timeout;
+    private final String internalToken;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Map<java.util.UUID, CharacterSheetView> characterSheetViews = new ConcurrentHashMap<>();
+    private static final Pattern DICE_EXPRESSION = Pattern.compile("(?i)(\\d+)d(\\d+)([+-]\\d+)?");
 
     public CrossContextHttpCombatGateway(HttpClient client, URI baseUri, Duration timeout) {
+        this(client, baseUri, timeout, null);
+    }
+
+    public CrossContextHttpCombatGateway(HttpClient client, URI baseUri, Duration timeout, String internalToken) {
         this.client = Objects.requireNonNull(client);
         this.baseUri = Objects.requireNonNull(baseUri);
         this.timeout = Objects.requireNonNull(timeout);
+        this.internalToken = internalToken == null || internalToken.isBlank() ? null : internalToken.trim();
     }
 
     @Override
@@ -34,12 +43,42 @@ public final class CrossContextHttpCombatGateway
 
     @Override
     public int roll(CombatActionCommand command) {
-        String value = send("rolls", "POST", command.role().name(), command);
+        DiceExpression expression = diceExpression(command.action());
+        DiceRollRequest request = new DiceRollRequest(
+                command.adventureId().value(), command.ruleSetId().value(), rollScope(command.role()),
+                expression.count(), expression.sides(), expression.modifier(),
+                command.adventureId().value(), command.operationId(), command.operationId(), command.expectedVersion());
+        String value = send(dicePath(command.role()), "POST", request, command);
         try {
-            return Integer.parseInt(value.trim());
-        } catch (NumberFormatException exception) {
+            var total = objectMapper.readTree(value).path("total");
+            if (!total.isInt()) throw new IOException("missing integer total");
+            return total.intValue();
+        } catch (IOException exception) {
             throw new CrossContextCallException("Dice Roll BC returned malformed total", exception);
         }
+    }
+
+    private static String dicePath(CombatActorRole role) {
+        return role == CombatActorRole.PLAYER
+                ? "internal/v1/dice-rolls/player"
+                : "internal/v1/dice-rolls/ai";
+    }
+
+    private static String rollScope(CombatActorRole role) {
+        return switch (role) {
+            case PLAYER -> "PLAYER_ACTION";
+            case NPC -> "NPC";
+            case ENEMY -> "ENEMY";
+            case SECRET_CHECK -> "SECRET_CHECK";
+        };
+    }
+
+    private static DiceExpression diceExpression(String action) {
+        Matcher matcher = DICE_EXPRESSION.matcher(action);
+        if (!matcher.find()) return new DiceExpression(1, 20, 0);
+        return new DiceExpression(
+                Integer.parseInt(matcher.group(1)), Integer.parseInt(matcher.group(2)),
+                matcher.group(3) == null ? 0 : Integer.parseInt(matcher.group(3)));
     }
 
     @Override
@@ -78,6 +117,7 @@ public final class CrossContextHttpCombatGateway
         HttpRequest.Builder builder = HttpRequest.newBuilder(baseUri.resolve(path))
                 .timeout(timeout)
                 .header("Idempotency-Key", command.operationId().toString());
+        if (internalToken != null) builder.header("X-Internal-Token", internalToken);
         if (method.equals("GET")) builder.GET();
         else builder.header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body));
         try {
@@ -104,12 +144,13 @@ public final class CrossContextHttpCombatGateway
 
     private CharacterSheetView readCharacterSheet(CombatActionCommand command) {
         try {
-            HttpRequest request = HttpRequest.newBuilder(
+            HttpRequest.Builder requestBuilder = HttpRequest.newBuilder(
                             baseUri.resolve("internal/v1/character-sheets/" + command.characterSheetId().value()))
                     .timeout(timeout)
                     .header("Idempotency-Key", command.operationId().toString())
-                    .GET()
-                    .build();
+                    .GET();
+            if (internalToken != null) requestBuilder.header("X-Internal-Token", internalToken);
+            HttpRequest request = requestBuilder.build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new CrossContextCallException("cross-context call failed with status " + response.statusCode());
@@ -155,6 +196,11 @@ public final class CrossContextHttpCombatGateway
     }
 
     private record CharacterSheetView(String edition, long version) {}
+    private record DiceExpression(int count, int sides, int modifier) {}
+    private record DiceRollRequest(
+            java.util.UUID adventureId, java.util.UUID ruleSetId, String scope,
+            int count, int sides, int modifier, java.util.UUID sessionId,
+            java.util.UUID turnId, java.util.UUID commandId, long expectedVersion) {}
     private record MoveRequest(
             java.util.UUID playerId, java.util.UUID tokenId, List<PositionRequest> positions, int distance,
             String appliedEdition, java.util.UUID commandId, long expectedVersion) {}

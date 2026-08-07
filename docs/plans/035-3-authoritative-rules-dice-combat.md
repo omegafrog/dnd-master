@@ -1,6 +1,6 @@
 # 035-3 Authoritative rules, dice, and combat turns
 
-- Status: `planned`
+- Status: `in-progress`
 - Tracker: local Markdown
 - Dependencies: 035-1, 035-2
 - Product rules: BR-004, BR-005, BR-006, BR-008, AC-004, AC-005
