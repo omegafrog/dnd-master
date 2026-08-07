@@ -6,7 +6,7 @@ public record RagAbMetrics(int runs, double ruleAccuracy, double citationAccurac
         double secretLeakRate, double prematureStateChangeRate, double continuityAccuracy,
         double structureSuccessRate, double humanScoreMean, double humanScoreVariance,
         double latencyMeanMs, double latencyVarianceMs, double latencyP50Ms, double latencyP95Ms,
-        double retrievalRecallMean) {
+        double retrievalRecallMean, double costMeanUsd) {
     static RagAbMetrics aggregate(List<RagAbExecution> values) {
         if (values == null || values.isEmpty()) throw new IllegalArgumentException("RAG A/B runs required");
         double[] latency = values.stream().mapToDouble(RagAbExecution::latencyMs).sorted().toArray();
@@ -15,7 +15,7 @@ public record RagAbMetrics(int runs, double ruleAccuracy, double citationAccurac
                 rate(values, RagAbExecution::prematureStateChange), rate(values, RagAbExecution::continuityCorrect),
                 rate(values, RagAbExecution::structuredSuccess), mean(values, RagAbExecution::humanScore), variance(values, RagAbExecution::humanScore),
                 mean(values, RagAbExecution::latencyMs), variance(values, RagAbExecution::latencyMs), percentile(latency, .5), percentile(latency, .95),
-                mean(values, RagAbExecution::retrievalRecall));
+                mean(values, RagAbExecution::retrievalRecall), mean(values, RagAbExecution::costUsd));
     }
     private static double rate(List<RagAbExecution> values, java.util.function.Predicate<RagAbExecution> p) { return values.stream().filter(p).count() / (double) values.size(); }
     private static double mean(List<RagAbExecution> values, java.util.function.ToDoubleFunction<RagAbExecution> f) { return values.stream().mapToDouble(f).average().orElseThrow(); }

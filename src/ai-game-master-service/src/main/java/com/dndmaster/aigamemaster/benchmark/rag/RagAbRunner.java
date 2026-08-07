@@ -14,7 +14,17 @@ public final class RagAbRunner {
     public RagAbRunner(RagEvidenceProvider currentRag) { this.currentRag = Objects.requireNonNull(currentRag); }
 
     public RagAbReport run(RagAbCorpus corpus, GmBenchmarkConfig config, RagAbExecutor executor) {
+        return run(corpus, config, executor, List.of());
+    }
+
+    /** Runs matrix with blind post-response reviewer scores, keyed by case/condition/repetition. */
+    public RagAbReport run(RagAbCorpus corpus, GmBenchmarkConfig config, RagAbExecutor executor,
+                           List<RagAbReviewerRecord> reviewers) {
         Objects.requireNonNull(corpus); Objects.requireNonNull(config); Objects.requireNonNull(executor);
+        Objects.requireNonNull(reviewers);
+        var reviewerMap = reviewers.stream().collect(java.util.stream.Collectors.toMap(
+                r -> r.caseId() + ":" + r.condition() + ":" + r.repetition(), r -> r,
+                (left, right) -> { throw new IllegalArgumentException("duplicate reviewer record"); }));
         Map<RagAbCondition, List<RagAbExecution>> grouped = new EnumMap<>(RagAbCondition.class);
         Map<RagAbCondition, Map<String, List<RagAbExecution>>> perCase = new EnumMap<>(RagAbCondition.class);
         for (RagAbCondition c : RagAbCondition.values()) grouped.put(c, new ArrayList<>());
@@ -29,8 +39,16 @@ public final class RagAbRunner {
                     case DISTRACTOR -> new DistractorRagEvidenceProvider().evidence(benchmarkCase);
                 };
                 for (int i = 0; i < config.repetitions(); i++) {
-                    var execution = Objects.requireNonNull(executor.execute(benchmarkCase, condition, evidence, config))
-                            .withRetrievalRecall(recall(evidence, benchmarkCase.source().expectedEvidence()));
+                    var execution = Objects.requireNonNull(executor.execute(benchmarkCase, condition, evidence, config));
+                    var reviewer = reviewerMap.get(benchmarkCase.id() + ":" + condition + ":" + i);
+                    if (!reviewers.isEmpty()) {
+                        if (reviewer == null) throw new IllegalArgumentException("incomplete reviewer matrix");
+                        if (!reviewer.responseHash().equals(RagAbReviewerRecord.sha256(execution.rawResponse()))) {
+                            throw new IllegalArgumentException("reviewer response hash mismatch");
+                        }
+                        execution = execution.withHumanScore(reviewer.score());
+                    }
+                    execution = execution.withRetrievalRecall(recall(evidence, benchmarkCase.source().expectedEvidence()));
                     grouped.get(condition).add(execution);
                     perCase.get(condition).computeIfAbsent(benchmarkCase.id(), ignored -> new ArrayList<>()).add(execution);
                 }
@@ -38,27 +56,41 @@ public final class RagAbRunner {
         }
         List<RagAbConditionReport> reports = grouped.entrySet().stream().map(e -> new RagAbConditionReport(e.getKey(), e.getValue(), RagAbMetrics.aggregate(e.getValue()),
                 perCase.get(e.getKey()).entrySet().stream().collect(java.util.stream.Collectors.toMap(Map.Entry::getKey, entry -> RagAbMetrics.aggregate(entry.getValue()))))).toList();
+        if (!reviewers.isEmpty() && reviewerMap.size() != corpus.cases().size() * RagAbCondition.values().length * config.repetitions()) {
+            throw new IllegalArgumentException("unexpected reviewer records");
+        }
         return new RagAbReport("gm-quality-rag-ab.v1", corpus.version(), config, reports, analyze(reports));
     }
     private static RagAbAnalysis analyze(List<RagAbConditionReport> reports) {
         var no = find(reports, RagAbCondition.NO_RAG).metrics(); var current = find(reports, RagAbCondition.CURRENT_RAG).metrics(); var oracle = find(reports, RagAbCondition.ORACLE).metrics(); var distractor = find(reports, RagAbCondition.DISTRACTOR).metrics();
         double currentDelta = current.ruleAccuracy() - no.ruleAccuracy(), oracleDelta = oracle.ruleAccuracy() - current.ruleAccuracy();
         RagAbBottleneck bottleneck; String rationale;
-        boolean accepted = currentDelta > 0
+        boolean accepted = currentDelta >= .05
                 && current.citationAccuracy() >= no.citationAccuracy()
+                && current.citationAccuracy() >= .95
                 && current.hallucinationRate() <= no.hallucinationRate()
+                && current.hallucinationRate() == 0
+                && current.secretLeakRate() == 0
                 && current.secretLeakRate() <= no.secretLeakRate()
                 && current.prematureStateChangeRate() <= no.prematureStateChangeRate()
                 && current.continuityAccuracy() >= no.continuityAccuracy()
-                && current.structureSuccessRate() >= no.structureSuccessRate()
-                && current.humanScoreMean() >= no.humanScoreMean()
+                && current.structureSuccessRate() >= .99
+                && current.humanScoreMean() >= 4.0
                 && current.latencyP95Ms() <= no.latencyP95Ms();
         if (current.retrievalRecallMean() >= .95 && current.structureSuccessRate() < .8) { bottleneck = RagAbBottleneck.PROMPT_CONTEXT; rationale = "retrieval recall is high but structured quality remains low"; }
         else if (oracle.ruleAccuracy() > current.ruleAccuracy() && oracle.ruleAccuracy() > no.ruleAccuracy()) { bottleneck = RagAbBottleneck.RETRIEVAL; rationale = "Oracle improves over Current and No RAG"; }
         else if (oracle.structureSuccessRate() < .8) { bottleneck = RagAbBottleneck.GENERATION; rationale = "Oracle evidence still produces low structured quality"; }
         else if (distractor.ruleAccuracy() < current.ruleAccuracy()) { bottleneck = RagAbBottleneck.VALIDATION; rationale = "distractor evidence causes quality regression"; }
         else { bottleneck = RagAbBottleneck.INCONCLUSIVE; rationale = "conditions do not isolate a dominant bottleneck"; }
-        return new RagAbAnalysis(bottleneck, accepted, currentDelta, oracleDelta, rationale);
+        var paired = pairedRuleAccuracy(find(reports, RagAbCondition.CURRENT_RAG), find(reports, RagAbCondition.NO_RAG));
+        return new RagAbAnalysis(bottleneck, accepted && paired.significant(), currentDelta, oracleDelta, rationale,
+                "paired-permutation + bootstrap", paired.effect(), paired.pValue(), paired.confidenceLow(), paired.confidenceHigh(), 0);
+    }
+    private static RagAbPairedStatistics.Result pairedRuleAccuracy(RagAbConditionReport current, RagAbConditionReport noRag) {
+        var ids = current.caseMetrics().keySet().stream().filter(noRag.caseMetrics()::containsKey).sorted().toList();
+        if (ids.isEmpty()) return new RagAbPairedStatistics.Result(0, 0, 0, 1, false);
+        return RagAbPairedStatistics.analyze(ids.stream().map(id -> current.caseMetrics().get(id).ruleAccuracy()).toList(),
+                ids.stream().map(id -> noRag.caseMetrics().get(id).ruleAccuracy()).toList(), .05, 0L);
     }
     private static RagAbConditionReport find(List<RagAbConditionReport> reports, RagAbCondition c) { return reports.stream().filter(r -> r.condition() == c).findFirst().orElseThrow(); }
     private static double recall(List<String> supplied, List<String> expected) {
