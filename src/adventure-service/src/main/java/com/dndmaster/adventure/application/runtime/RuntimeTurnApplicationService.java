@@ -172,6 +172,12 @@ public class RuntimeTurnApplicationService {
         if (!binding.ownerPlayerId().equals(command.ownerPlayerId())) {
             throw new IllegalStateException("runtime binding owner mismatch");
         }
+        if (!binding.readiness().ready()) {
+            List<String> reasons = binding.readiness().blockers().isEmpty()
+                    ? binding.readiness().warnings() : binding.readiness().blockers();
+            throw new IllegalStateException("runtime readiness is " + binding.readiness().status() + ": "
+                    + String.join(", ", reasons));
+        }
         ScenarioPackage scenarioPackage = scenarioPackageRepository.findById(binding.scenarioPackageId())
                 .orElseThrow(() -> new IllegalStateException("scenario package not found"));
 

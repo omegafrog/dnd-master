@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import type { AdventureSessionApi, AdventureSessionView, AdventureStoryPlanView } from './AdventureSessionApi'
+import type { RuntimeBindingView } from '../rulebooks/SetupApi'
+import { RuntimeReadinessPanel } from './RuntimeReadinessPanel'
 
-type StoryPlanApi = Pick<AdventureSessionApi, 'read' | 'readStoryPlan' | 'generateStoryPlan' | 'retryStoryPlan' | 'start'>
+type StoryPlanApi = Pick<AdventureSessionApi, 'read' | 'readStoryPlan' | 'generateStoryPlan' | 'retryStoryPlan' | 'start'> & Partial<Pick<AdventureSessionApi, 'readRuntimeBinding'>>
 
 export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; sessionId: string }) {
   const [session, setSession] = useState<AdventureSessionView | null>(null)
   const [plan, setPlan] = useState<AdventureStoryPlanView | null>(null)
+  const [binding, setBinding] = useState<RuntimeBindingView | null>(null)
   const [message, setMessage] = useState('')
   const [adventureId] = useState(crypto.randomUUID())
 
@@ -14,6 +17,7 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
     void api.read(sessionId).then(next => {
       if (!active) return
       setSession(next)
+      if (next.adventureId && api.readRuntimeBinding) void api.readRuntimeBinding(next.adventureId).then(setBinding).catch(() => undefined)
       return api.readStoryPlan(sessionId).catch(() => api.generateStoryPlan(sessionId))
     }).then(nextPlan => { if (active && nextPlan) setPlan(nextPlan) }).catch(error => { if (active) setMessage(error instanceof Error ? error.message : '모험 계획을 생성하지 못했습니다.') })
     return () => { active = false }
@@ -41,6 +45,7 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
     {plan.status === 'FAILED' && <><p role="alert">{plan.failureReason || '계획 생성에 실패했습니다.'}</p><button type="button" onClick={() => void retry()}>다시 생성</button></>}
     {ready && <button type="button" onClick={() => void start()} disabled={!session.runtimeConfiguration}>모험 시작</button>}
     {!session.runtimeConfiguration && <p role="alert">런타임 설정이 없어 시작할 수 없습니다.</p>}
+    {binding && api.readRuntimeBinding && <RuntimeReadinessPanel binding={binding} onRetry={() => void api.readRuntimeBinding!(binding.adventureId).then(setBinding)} />}
     {message && <p role="status">{message}</p>}
   </section>
 }

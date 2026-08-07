@@ -65,6 +65,29 @@ import org.junit.jupiter.api.Test;
 
 class RuntimeTurnApplicationServiceTest {
     @Test
+    void rejects_turn_when_runtime_readiness_is_blocked() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        ScenarioPackage scenarioPackage = scenarioPackage(new KnowledgeDocumentId(UUID.randomUUID()), new KnowledgeDocumentId(UUID.randomUUID()));
+        RuntimeBinding blocked = RuntimeBinding.create(adventure.id(), owner, scenarioPackage.packageId(), 1, List.of(UUID.randomUUID()),
+                adventure.party(), "ollama", List.of("search"),
+                new PlayabilityReport(PlayabilityStatus.BLOCKED, List.of(), List.of("indexing pending"), List.of(), List.of()), null);
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
+                new InMemoryAdventureRepository(adventure), new InMemoryBindingRepository(blocked),
+                new InMemoryPackageRepository(scenarioPackage), new InMemoryRuntimeTurnRepository(),
+                request -> { throw new AssertionError("blocked runtime must not retrieve evidence"); },
+                request -> { throw new AssertionError("blocked runtime must not plan"); },
+                request -> { throw new AssertionError("blocked runtime must not assess safety"); },
+                new InMemorySessionKnowledgeSetRepository());
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class, () -> service.submitTurn(
+                SubmitRuntimeTurnCommand.withEvidenceOverride(adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(),
+                        "Open the door", 0, new RuntimeEvidenceOverride("NO_RAG", new EvidencePack(List.of(), List.of(), List.of())))));
+
+        assertTrue(failure.getMessage().contains("runtime readiness is BLOCKED"));
+    }
+
+    @Test
     void rag_condition_evidence_flows_through_canonical_turn_and_is_persisted() {
         for (String condition : List.of("NO_RAG", "CURRENT_RAG", "ORACLE", "DISTRACTOR")) {
             OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());

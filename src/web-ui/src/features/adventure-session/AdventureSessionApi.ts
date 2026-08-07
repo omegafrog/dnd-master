@@ -62,6 +62,8 @@ export type GmProviderView = {
   turnInProgress: boolean
 }
 
+export type RuntimeReadinessView = import('../rulebooks/SetupApi').RuntimeBindingView
+
 export class AdventureSessionApi {
   private readonly startKeys = new Map<string, string>()
   constructor(private readonly token: string) {}
@@ -73,6 +75,7 @@ export class AdventureSessionApi {
     return response.json() as Promise<T>
   }
   read(sessionId: string) { return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}`) }
+  readRuntimeBinding(adventureId: string) { return this.request<RuntimeReadinessView>(`/api/v1/adventures/${adventureId}/runtime-bindings`) }
   readGmProvider(sessionId: string) { return this.request<GmProviderView>(`/api/v1/adventure-sessions/${sessionId}/gm-provider`) }
   switchGmProvider(sessionId: string, version: number, selection: Pick<GmProviderView, 'provider' | 'model' | 'reasoning'>) {
     return this.request<GmProviderView>(`/api/v1/adventure-sessions/${sessionId}/gm-provider`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'If-Match-Version': String(version) }, body: JSON.stringify(selection) })
