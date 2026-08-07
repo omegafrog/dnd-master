@@ -107,6 +107,28 @@ class GmAgentControllerContractTest {
         org.junit.jupiter.api.Assertions.assertEquals("ProviderMalformedResponseException", result.getFirst().failure());
     }
 
+    @Test
+    void quality_evaluation_uses_paraphrase_secret_gate_without_collision_false_positive() {
+        var response = "{\"scene\":\"crypt\",\"npcState\":\"alert\",\"judgment\":\"success\","
+                + "\"narration\":\"A crimson crown glints.\",\"citedEvidence\":[],"
+                + "\"warnings\":[],\"provider\":\"ollama\",\"model\":\"qwen3:8b\","
+                + "\"reasoning\":\"medium\",\"stateDelta\":[],\"toolCalls\":[]}";
+        var service = new GmQualityEvaluationService(new com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt,
+                                             com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                return parser.parse(response);
+            }
+        }, new com.fasterxml.jackson.databind.ObjectMapper());
+
+        var leak = service.evaluate(List.of(new GmQualityEvaluationService.Scenario(
+                "secret-paraphrase", "Open", List.of(), List.of(), List.of("hidden crimson crown"), List.of(), 4.0))).getFirst();
+        var collision = service.evaluate(List.of(new GmQualityEvaluationService.Scenario(
+                "secret-collision", "Open", List.of(), List.of(), List.of("hidden emerald crown"), List.of(), 4.0))).getFirst();
+
+        org.junit.jupiter.api.Assertions.assertTrue(leak.secretLeak());
+        org.junit.jupiter.api.Assertions.assertFalse(collision.secretLeak());
+    }
+
     private static GmAgentController.Request request() {
         return new GmAgentController.Request("turn", UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
                 UUID.randomUUID(), UUID.randomUUID(), 1, "capability", "open the door", "crypt", "guarding",

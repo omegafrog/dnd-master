@@ -51,5 +51,7 @@ No provider response reaches runtime or player projection unless citations, fact
 - Added stable evidence identity (`documentId`, extraction version, locator, evidence type) and exact excerpt validation.
 - Rejected substring-based quality evidence matches; evaluator now requires exact cited values.
 - Added AI-boundary protected-fact checks with normalized exact and multi-token paraphrase detection.
+- Wired protected facts through runtime planning and HTTP request boundaries; checked scene, NPC state, judgment, and narration before tool execution.
+- Added quality tests for paraphrase detection and collision avoidance.
 - Provider state delta remains fail-closed and runtime validation remains authoritative.
 - Targeted adventure and AI GM gate tests pass. Full combined service run reached test completion but Gradle did not terminate cleanly.

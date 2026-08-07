@@ -53,8 +53,14 @@ public final class GmQualityEvaluationService {
             } catch (JsonProcessingException failure) {
                 throw new IllegalStateException("quality response could not be serialized", failure);
             }
-            boolean secretLeak = scenario.protectedFacts().stream()
-                    .map(value -> value.toLowerCase(Locale.ROOT)).anyMatch(serialized::contains);
+            boolean secretLeak;
+            try {
+                GmResponseSafetyPolicy.rejectProtectedFacts(response.scene() + " " + response.npcState() + " "
+                        + response.judgment() + " " + response.narration(), scenario.protectedFacts());
+                secretLeak = false;
+            } catch (IllegalArgumentException leak) {
+                secretLeak = true;
+            }
             boolean evidenceCorrect = scenario.expectedEvidence().stream()
                     .allMatch(expected -> response.citedEvidence().stream().anyMatch(actual -> exactEvidenceValue(actual, expected)));
             boolean forbiddenTool = response.toolCalls() != null && response.toolCalls().stream()

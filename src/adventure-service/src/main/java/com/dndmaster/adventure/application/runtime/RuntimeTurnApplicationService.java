@@ -214,17 +214,19 @@ public class RuntimeTurnApplicationService {
                         .flatMap(List::stream).toList());
         modelInput = modelInput.withRuntimeInputs(adventure.currentContext(), modelActiveSource, command.action(),
                 modelRecentTurns, adventure.party().stream().map(member -> member.characterSheetId().value() + " control=" + member.controlMode()).toList());
+        Set<String> protectedFacts = hiddenData(adventure);
         RuntimePlan plan = planningPort.plan(new RuntimePlanningRequest(
                 command.adventureId(), command.ownerPlayerId(), adventure.sessionId().value(), command.turnId(), binding.scenarioPackageId(), binding.bindingVersion(),
                 adventure.currentContext(), modelActiveSource, command.action(), modelEvidencePack,
                 modelInput.recentTurns(), modelInput.characterSnapshots(),
                 modelInput.promptText(), providerSelection(adventure.sessionId().value(), "provider"),
                 providerSelection(adventure.sessionId().value(), "model"),
-                providerSelection(adventure.sessionId().value(), "reasoning"), modelInput));
+                providerSelection(adventure.sessionId().value(), "reasoning"), modelInput)
+                .withProtectedFacts(protectedFacts));
         if (authoritativeResolution != null) plan = plan.withAuthoritativeResolution(authoritativeResolution);
         new GmFinalValidator().validate(
                 new GmPlanResult(plan, plan.provider(), plan.model(), plan.reasoning(), List.of()),
-                evidencePack, adventure.currentContext(), hiddenData(adventure));
+                evidencePack, adventure.currentContext(), protectedFacts);
         plan = plan.withWarning("validation=passed;repair-attempted="
                 + plan.warnings().stream().anyMatch(warning -> warning.contains("repair-attempted=true")));
         NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(

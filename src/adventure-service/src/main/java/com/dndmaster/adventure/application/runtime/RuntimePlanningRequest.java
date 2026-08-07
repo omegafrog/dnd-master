@@ -25,7 +25,8 @@ public record RuntimePlanningRequest(
         String provider,
         String model,
         String reasoning,
-        ModelInputProjection modelInputProjection) {
+        ModelInputProjection modelInputProjection,
+        java.util.Set<String> protectedFacts) {
     public RuntimePlanningRequest {
         adventureId = Objects.requireNonNull(adventureId, "adventure id must not be null");
         ownerPlayerId = Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
@@ -42,13 +43,14 @@ public record RuntimePlanningRequest(
         model = model == null ? "" : model.trim();
         reasoning = reasoning == null ? "" : reasoning.trim();
         modelInputProjection = Objects.requireNonNull(modelInputProjection, "model input projection must not be null");
+        protectedFacts = java.util.Set.copyOf(Objects.requireNonNull(protectedFacts));
     }
 
     public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId,
                                   long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
                                   String action, EvidencePack evidencePack) {
         this(adventureId, ownerPlayerId, UUID.randomUUID(), UUID.randomUUID(), scenarioPackageId, bindingVersion, currentContext, activeSourceContext, action,
-                evidencePack, java.util.List.of(), java.util.List.of(), "", "", "", "", legacyProjection(evidencePack, ""));
+                evidencePack, java.util.List.of(), java.util.List.of(), "", "", "", "", legacyProjection(evidencePack, ""), java.util.Set.of());
     }
 
     public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId,
@@ -57,7 +59,7 @@ public record RuntimePlanningRequest(
                                   java.util.List<String> characterSnapshots, String storyPlanContext) {
         this(adventureId, ownerPlayerId, UUID.randomUUID(), UUID.randomUUID(), scenarioPackageId, bindingVersion,
                 currentContext, activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, storyPlanContext,
-                "", "", "", legacyProjection(evidencePack, storyPlanContext));
+                "", "", "", legacyProjection(evidencePack, storyPlanContext), java.util.Set.of());
     }
 
     public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
@@ -67,7 +69,24 @@ public record RuntimePlanningRequest(
                                   String storyPlanContext) {
         this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext,
                 activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, storyPlanContext,
-                "", "", "", legacyProjection(evidencePack, storyPlanContext));
+                "", "", "", legacyProjection(evidencePack, storyPlanContext), java.util.Set.of());
+    }
+
+    public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
+                                  UUID scenarioPackageId, long bindingVersion, AdventureContext currentContext,
+                                  ActiveSourceContext activeSourceContext, String action, EvidencePack evidencePack,
+                                  java.util.List<String> recentTurns, java.util.List<String> characterSnapshots,
+                                  String storyPlanContext, String provider, String model, String reasoning,
+                                  ModelInputProjection modelInputProjection) {
+        this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext,
+                activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, storyPlanContext,
+                provider, model, reasoning, modelInputProjection, java.util.Set.of());
+    }
+
+    public RuntimePlanningRequest withProtectedFacts(java.util.Set<String> facts) {
+        return new RuntimePlanningRequest(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId,
+                bindingVersion, currentContext, activeSourceContext, action, evidencePack, recentTurns,
+                characterSnapshots, storyPlanContext, provider, model, reasoning, modelInputProjection, facts);
     }
 
     private static ModelInputProjection legacyProjection(EvidencePack evidencePack, String context) {

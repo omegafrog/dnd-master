@@ -66,7 +66,8 @@ public final class GmAgentController {
                             response.toolCalls());
                 }
                 response = requireComplete(response);
-                GmResponseSafetyPolicy.rejectProtectedFacts(response.narration() + " " + response.judgment(), protectedFacts);
+                GmResponseSafetyPolicy.rejectProtectedFacts(response.scene() + " " + response.npcState() + " "
+                        + response.judgment() + " " + response.narration(), protectedFacts);
                 return response;
             } catch (Exception exception) {
                 throw new com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException(

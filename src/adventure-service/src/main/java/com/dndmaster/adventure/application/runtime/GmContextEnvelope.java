@@ -25,7 +25,8 @@ public record GmContextEnvelope(
         String storyPlanContext,
         String provider,
         String model,
-        String reasoning) {
+        String reasoning,
+        java.util.Set<String> protectedFacts) {
     public GmContextEnvelope {
         adventureId = Objects.requireNonNull(adventureId);
         ownerPlayerId = Objects.requireNonNull(ownerPlayerId);
@@ -41,6 +42,7 @@ public record GmContextEnvelope(
         provider = provider == null ? "" : provider.trim();
         model = model == null ? "" : model.trim();
         reasoning = reasoning == null ? "" : reasoning.trim();
+        protectedFacts = java.util.Set.copyOf(Objects.requireNonNull(protectedFacts));
         if (bindingVersion < 0) throw new IllegalArgumentException("binding version must not be negative");
     }
 
@@ -49,7 +51,7 @@ public record GmContextEnvelope(
                              long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
                              String action, EvidencePack evidencePack, List<String> recentTurns) {
         this(adventureId, ownerPlayerId, UUID.randomUUID(), UUID.randomUUID(), scenarioPackageId, bindingVersion, currentContext, activeSourceContext, action,
-                evidencePack, recentTurns, List.of(), "", "", "", "");
+                evidencePack, recentTurns, List.of(), "", "", "", "", java.util.Set.of());
     }
 
     public String operationKey() {
