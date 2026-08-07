@@ -16,6 +16,10 @@ public record RuntimeEvidence(
         String disclosureEvent,
         long disclosureTurn, List<String> context, RuntimeEvidenceProvenance provenance,
         UUID ownerPlayerId, UUID sessionId, UUID scenarioPackageId) {
+    public RuntimeEvidenceIdentity identity() {
+        return new RuntimeEvidenceIdentity(evidenceType, knowledgeDocumentId, extractionVersion, locator);
+    }
+
     public RuntimeEvidence(RuntimeEvidenceType evidenceType, KnowledgeDocumentId knowledgeDocumentId,
             long extractionVersion, String locator, String excerpt, StoryEvidenceVisibility visibility,
             String disclosureEvent, long disclosureTurn, List<String> context, RuntimeEvidenceProvenance provenance) {

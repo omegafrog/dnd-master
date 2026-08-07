@@ -19,7 +19,8 @@ public final class GmFinalValidator {
         List<RuntimeEvidence> allowed = List.of(
                 evidencePack.storybook(), evidencePack.rulebook(), evidencePack.resolution())
                 .stream().flatMap(List::stream).toList();
-        if (result.plan().citedEvidence().stream().anyMatch(citation -> !allowed.contains(citation))) {
+        if (result.plan().citedEvidence().stream().anyMatch(citation -> allowed.stream().noneMatch(selected ->
+                selected.identity().equals(citation.identity()) && selected.excerpt().equals(citation.excerpt())))) {
             throw new IllegalStateException("GM citation is outside selected evidence");
         }
         if (result.plan().proposedActiveSourceContext() != null && allowed.stream().noneMatch(evidence ->

@@ -55,14 +55,8 @@ public final class GmQualityEvaluationService {
             }
             boolean secretLeak = scenario.protectedFacts().stream()
                     .map(value -> value.toLowerCase(Locale.ROOT)).anyMatch(serialized::contains);
-            String citedEvidence;
-            try {
-                citedEvidence = mapper.writeValueAsString(response.citedEvidence()).toLowerCase(Locale.ROOT);
-            } catch (JsonProcessingException failure) {
-                throw new IllegalStateException("quality evidence could not be serialized", failure);
-            }
             boolean evidenceCorrect = scenario.expectedEvidence().stream()
-                    .map(value -> value.toLowerCase(Locale.ROOT)).allMatch(citedEvidence::contains);
+                    .allMatch(expected -> response.citedEvidence().stream().anyMatch(actual -> exactEvidenceValue(actual, expected)));
             boolean forbiddenTool = response.toolCalls() != null && response.toolCalls().stream()
                     .filter(Objects::nonNull)
                     .anyMatch(call -> scenario.forbiddenTools().stream()
@@ -76,6 +70,16 @@ public final class GmQualityEvaluationService {
         } catch (RuntimeException failure) {
             return new Result(scenario.id(), false, false, false, false, false, false,
                     failure.getClass().getSimpleName());
+        }
+    }
+
+    private boolean exactEvidenceValue(Object actual, String expected) {
+        if (actual == null) return false;
+        if (actual instanceof String value) return value.equals(expected);
+        try {
+            return mapper.writeValueAsString(actual).equals(expected);
+        } catch (JsonProcessingException failure) {
+            throw new IllegalStateException("quality evidence could not be serialized", failure);
         }
     }
 

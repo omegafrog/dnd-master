@@ -5,7 +5,7 @@ Tracker mode: local Markdown. 외부 Issue는 생성하지 않는다.
 | ID | Ticket | Status | Dependencies |
 |---|---|---|---|
 | 034-1 | [Secret-safe model context](034-1-secret-safe-model-context.md) | completed | - |
-| 034-2 | [Deterministic GM response gate](034-2-deterministic-gm-response-gate.md) | blocked | 034-1 |
+| 034-2 | [Deterministic GM response gate](034-2-deterministic-gm-response-gate.md) | completed | 034-1 |
 | 034-3 | [Bounded provider latency](034-3-bounded-provider-latency.md) | ready-for-agent | - |
 | 034-4 | [Production retrieval quality run](034-4-production-retrieval-quality-run.md) | blocked | 034-1 |
 | 034-5 | [RAG A/B and human evaluation](034-5-rag-ab-human-evaluation.md) | blocked | 034-2, 034-3, 034-4 |

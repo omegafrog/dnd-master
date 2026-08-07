@@ -49,6 +49,19 @@ class GmAgentControllerContractTest {
     }
 
     @Test
+    void rejects_protected_fact_in_player_visible_provider_output() {
+        var response = new GmAgentController.Response("scene", "npc", "judgment",
+                "The crimson crown is behind the altar", null, List.of(), List.of(),
+                "ollama", "qwen3:8b", "reasoning", List.of());
+        var request = new GmAgentController.Request("turn", UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), 1, "capability", "open", "scene", "npc", "", "",
+                List.of(), List.of(), List.of(), List.of(), List.of(), "", "", "", "",
+                List.of("hidden crimson crown"));
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> GmResponseSafetyPolicy.rejectProtectedFacts(response.narration(), request.protectedFacts()));
+    }
+
+    @Test
     void quality_evaluation_runs_provider_output_through_canonical_contract() {
         var response = "{\"scene\":\"crypt\",\"npcState\":\"alert\",\"judgment\":\"success\","
                 + "\"narration\":\"The crypt opens.\",\"citedEvidence\":[\"rules.txt#stealth\"],"

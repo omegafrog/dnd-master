@@ -39,6 +39,25 @@ class GmAgentPolicyTest {
     }
 
     @Test
+    void validates_citation_by_stable_identity_and_exact_source_excerpt() {
+        RuntimeEvidence providerCitation = new RuntimeEvidence(
+                RuntimeEvidenceType.RULEBOOK, document, 1, "page:1", "A rule",
+                StoryEvidenceVisibility.PLAYER_VISIBLE, "revealed", 4,
+                List.of("provider-metadata"), null);
+        RuntimePlan plan = new RuntimePlan("scene", "npc", "judgment", "narration", null,
+                List.of(providerCitation), List.of());
+        assertDoesNotThrow(() -> new GmFinalValidator().validate(
+                new GmPlanResult(plan, "ollama", "qwen3:8b", "reasoning", List.of()), pack, context, Set.of()));
+
+        RuntimeEvidence wrongExcerpt = new RuntimeEvidence(
+                RuntimeEvidenceType.RULEBOOK, document, 1, "page:1", "A different rule");
+        RuntimePlan invalid = new RuntimePlan("scene", "npc", "judgment", "narration", null,
+                List.of(wrongExcerpt), List.of());
+        assertThrows(IllegalStateException.class, () -> new GmFinalValidator().validate(
+                new GmPlanResult(invalid, "ollama", "qwen3:8b", "reasoning", List.of()), pack, context, Set.of()));
+    }
+
+    @Test
     void rejects_hidden_data_in_player_narration() {
         RuntimePlan plan = new RuntimePlan("scene", "npc", "judgment", "secret treasure", null, List.of(evidence), List.of());
         assertThrows(IllegalStateException.class, () -> new GmFinalValidator().validate(

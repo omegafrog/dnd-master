@@ -33,10 +33,10 @@ public final class GmAgentController {
         }
         String operation = request.operationKey();
         try {
-            return complete(request, operation, prompt(request));
+                return complete(request, operation, prompt(request), request.protectedFacts());
         } catch (com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException malformed) {
             try {
-                return complete(request, operation + ":repair", repairPrompt(request));
+                return complete(request, operation + ":repair", repairPrompt(request), request.protectedFacts());
             } catch (RuntimeException stillMalformed) {
                 throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                         "GM provider structured response unavailable", stillMalformed);
@@ -47,15 +47,15 @@ public final class GmAgentController {
         }
     }
 
-    private Response complete(Request request, String operation, String prompt) {
+    private Response complete(Request request, String operation, String prompt, List<String> protectedFacts) {
         if (request.provider() == null || request.provider().isBlank()) {
-            return adapter.complete(operation, prompt, this::parseCompleteResponse);
+            return adapter.complete(operation, prompt, json -> parseCompleteResponse(json, protectedFacts));
         }
-        return adapter.complete(operation, prompt, this::parseCompleteResponse,
+        return adapter.complete(operation, prompt, json -> parseCompleteResponse(json, protectedFacts),
                 new GmProviderRequest(request.provider(), request.model(), request.reasoning()));
     }
 
-    private Response parseCompleteResponse(String json) {
+    private Response parseCompleteResponse(String json, List<String> protectedFacts) {
             try {
                 Response response = mapper.readValue(json, Response.class);
                 if (response.proposedActiveSourceContext() instanceof String source
@@ -65,7 +65,9 @@ public final class GmAgentController {
                             response.provider(), response.model(), response.reasoning(), response.stateDelta(),
                             response.toolCalls());
                 }
-                return requireComplete(response);
+                response = requireComplete(response);
+                GmResponseSafetyPolicy.rejectProtectedFacts(response.narration() + " " + response.judgment(), protectedFacts);
+                return response;
             } catch (Exception exception) {
                 throw new com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException(
                         "GM structured response invalid: " + exception.getMessage());
@@ -141,7 +143,23 @@ public final class GmAgentController {
                           String currentScene, String npcState, String pendingAction, String latestJudgment,
                           List<?> storybook, List<?> rulebook, List<?> resolution, List<String> recentTurns,
                           List<String> characterSnapshots, String storyPlanContext, String provider, String model,
-                          String reasoning) {}
+                          String reasoning, List<String> protectedFacts) {
+        public Request {
+            protectedFacts = protectedFacts == null ? List.of() : List.copyOf(protectedFacts);
+        }
+
+        public Request(String operationKey, UUID adventureId, UUID ownerPlayerId, UUID sessionId, UUID turnId,
+                       UUID scenarioPackageId, long bindingVersion, String turnCapability, String action,
+                       String currentScene, String npcState, String pendingAction, String latestJudgment,
+                       List<?> storybook, List<?> rulebook, List<?> resolution, List<String> recentTurns,
+                       List<String> characterSnapshots, String storyPlanContext, String provider, String model,
+                       String reasoning) {
+            this(operationKey, adventureId, ownerPlayerId, sessionId, turnId,
+                    scenarioPackageId, bindingVersion, turnCapability, action, currentScene, npcState, pendingAction,
+                    latestJudgment, storybook, rulebook, resolution, recentTurns, characterSnapshots, storyPlanContext,
+                    provider, model, reasoning, List.of());
+        }
+    }
 
     public record CompactionRequest(UUID sessionId, UUID sourceTurnId, String context, Object exactTail, Object snapshotReferences) {}
 
