@@ -209,11 +209,12 @@ public class RuntimeTurnApplicationService {
         List<String> modelRecentTurns = ModelInputProjection.redactProtectedTurns(
                 adventure.conversation().stream().map(entry -> entry.speaker() + ": " + entry.content()).toList(),
                 evidencePack.storybook());
+        modelInput = modelInput.withRuntimeInputs(adventure.currentContext(), modelActiveSource, command.action(),
+                modelRecentTurns, adventure.party().stream().map(member -> member.characterSheetId().value() + " control=" + member.controlMode()).toList());
         RuntimePlan plan = planningPort.plan(new RuntimePlanningRequest(
                 command.adventureId(), command.ownerPlayerId(), adventure.sessionId().value(), command.turnId(), binding.scenarioPackageId(), binding.bindingVersion(),
                 adventure.currentContext(), modelActiveSource, command.action(), modelEvidencePack,
-                modelRecentTurns,
-                adventure.party().stream().map(member -> member.characterSheetId().value() + " control=" + member.controlMode()).toList(),
+                modelInput.recentTurns(), modelInput.characterSnapshots(),
                 modelInput.promptText(), providerSelection(adventure.sessionId().value(), "provider"),
                 providerSelection(adventure.sessionId().value(), "model"),
                 providerSelection(adventure.sessionId().value(), "reasoning"), modelInput));

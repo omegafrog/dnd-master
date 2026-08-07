@@ -1,6 +1,7 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -8,6 +9,13 @@ import com.dndmaster.adventure.application.runtime.ModelInputProjection;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
 import com.dndmaster.adventure.application.runtime.StoryEvidenceVisibility;
+import com.dndmaster.adventure.application.runtime.GmAgentRuntimePlanningAdapter;
+import com.dndmaster.adventure.application.runtime.GmAgentPort;
+import com.dndmaster.adventure.application.runtime.GmContextEnvelope;
+import com.dndmaster.adventure.application.runtime.GmFinalValidator;
+import com.dndmaster.adventure.application.runtime.GmPlanResult;
+import com.dndmaster.adventure.application.runtime.RuntimePlan;
+import com.dndmaster.adventure.application.runtime.EvidencePack;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import java.util.List;
 import java.util.Set;
@@ -71,5 +79,32 @@ class ModelInputProjectionTest {
         assertThrows(IllegalArgumentException.class, () -> ModelInputProjection.createStrict(
                 Set.of(document), java.util.Map.of(document, 1L), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
                 List.of(), List.of(evidence), List.of(), "", Set.of(), 0));
+    }
+
+    @Test
+    void adapter_sends_projected_payload_not_legacy_request_fields() {
+        UUID document = UUID.randomUUID();
+        RuntimeEvidence hidden = new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
+                new KnowledgeDocumentId(document), 1, "page:9", "secret trap",
+                StoryEvidenceVisibility.GM_ONLY, null, 0, List.of(), null);
+        CapturingAgent agent = new CapturingAgent();
+        var request = new com.dndmaster.adventure.application.runtime.RuntimePlanningRequest(
+                new com.dndmaster.adventure.domain.adventure.AdventureId(UUID.randomUUID()),
+                new com.dndmaster.adventure.domain.adventure.OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), 1, new com.dndmaster.adventure.domain.adventure.AdventureContext("scene", "npc", null, null),
+                null, "open", new EvidencePack(List.of(hidden), List.of(), List.of()), List.of("secret trap"), List.of(),
+                "secret trap");
+        new GmAgentRuntimePlanningAdapter(agent, new GmFinalValidator()).plan(request);
+        assertFalse(agent.context.evidencePack().storybook().stream().anyMatch(e -> e.excerpt().contains("secret trap")));
+        assertFalse(agent.context.storyPlanContext().contains("secret trap"));
+        assertEquals(List.of("secret trap"), request.recentTurns());
+    }
+
+    private static final class CapturingAgent implements GmAgentPort {
+        GmContextEnvelope context;
+        public GmPlanResult plan(GmContextEnvelope context) {
+            this.context = context;
+            return new GmPlanResult(new RuntimePlan("scene", null, "judgment", "narration", null, List.of(), List.of()), "p", "m", "r", List.of());
+        }
     }
 }

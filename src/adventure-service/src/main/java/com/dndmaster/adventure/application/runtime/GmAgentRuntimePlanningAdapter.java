@@ -28,9 +28,12 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
     public RuntimePlan plan(RuntimePlanningRequest request) {
         ModelInputProjection projection = request.modelInputProjection();
         EvidencePack projectedEvidence = new EvidencePack(projection.storybook(), projection.rulebook(), projection.resolution());
+        var providerContext = projection.currentContext() == null ? request.currentContext() : projection.currentContext();
+        var providerSource = projection.activeSourceContext();
+        var providerAction = projection.action().isBlank() ? request.action() : projection.action();
         GmContextEnvelope context = new GmContextEnvelope(request.adventureId(), request.ownerPlayerId(), request.sessionId(), request.turnId(), request.scenarioPackageId(),
-                request.bindingVersion(), request.currentContext(), request.activeSourceContext(), request.action(), projectedEvidence,
-                request.recentTurns(), request.characterSnapshots(), projection.promptText(), request.provider(), request.model(), request.reasoning());
+                request.bindingVersion(), providerContext, providerSource, providerAction, projectedEvidence,
+                projection.recentTurns(), projection.characterSnapshots(), projection.promptText(), request.provider(), request.model(), request.reasoning());
         java.util.Set<String> hiddenData = java.util.Set.of();
         TurnCapability capability = gateway == null || saga == null ? null : TurnCapability.issue(
                 request.sessionId(), request.turnId(), request.ownerPlayerId().value(), Set.of("dice.roll", "character.update", "revise_story_plan", "advance_game_time"),

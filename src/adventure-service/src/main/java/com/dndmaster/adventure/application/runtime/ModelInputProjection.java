@@ -9,6 +9,8 @@ import java.util.stream.Stream;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
+import com.dndmaster.adventure.domain.adventure.AdventureContext;
 
 /** Immutable, fail-closed boundary for data sent to a model provider. */
 public record ModelInputProjection(
@@ -16,7 +18,12 @@ public record ModelInputProjection(
         List<RuntimeEvidence> rulebook,
         List<RuntimeEvidence> resolution,
         String continuity,
-        List<ProjectionAudit> audit) {
+        List<ProjectionAudit> audit,
+        AdventureContext currentContext,
+        ActiveSourceContext activeSourceContext,
+        String action,
+        List<String> recentTurns,
+        List<String> characterSnapshots) {
     private static final Logger LOG = LoggerFactory.getLogger(ModelInputProjection.class);
     public ModelInputProjection {
         storybook = List.copyOf(Objects.requireNonNull(storybook));
@@ -24,6 +31,9 @@ public record ModelInputProjection(
         resolution = List.copyOf(Objects.requireNonNull(resolution));
         continuity = continuity == null ? "" : continuity.trim();
         audit = List.copyOf(Objects.requireNonNull(audit));
+        action = action == null ? "" : action.trim();
+        recentTurns = List.copyOf(recentTurns == null ? List.of() : recentTurns);
+        characterSnapshots = List.copyOf(characterSnapshots == null ? List.of() : characterSnapshots);
     }
 
     public static ModelInputProjection create(Set<UUID> allowedDocuments,
@@ -59,7 +69,7 @@ public record ModelInputProjection(
                 expectedVersions, committedDisclosureEvents, currentTurn, audit);
         audit.forEach(item -> LOG.info("gm_model_projection documentId={} evidenceType={} decision={}",
                 item.documentId(), item.evidenceType(), item.decision()));
-        return new ModelInputProjection(safeStory, safeRules, safeResolution, continuity, audit);
+        return new ModelInputProjection(safeStory, safeRules, safeResolution, continuity, audit, null, null, "", List.of(), List.of());
     }
 
     public static ModelInputProjection createStrict(Set<UUID> allowedDocuments, Map<UUID, Long> expectedVersions,
@@ -80,6 +90,12 @@ public record ModelInputProjection(
     public String promptText() {
         return "continuity=" + continuity + "; storybook=" + safeText(storybook)
                 + "; rulebook=" + safeText(rulebook) + "; resolution=" + safeText(resolution);
+    }
+
+    public ModelInputProjection withRuntimeInputs(AdventureContext currentContext, ActiveSourceContext activeSourceContext,
+            String action, List<String> recentTurns, List<String> characterSnapshots) {
+        return new ModelInputProjection(storybook, rulebook, resolution, continuity, audit, currentContext,
+                activeSourceContext, action, recentTurns, characterSnapshots);
     }
 
     private static List<RuntimeEvidence> filter(RuntimeEvidenceType expected, List<RuntimeEvidence> input,
