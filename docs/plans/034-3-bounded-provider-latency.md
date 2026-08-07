@@ -1,6 +1,6 @@
 # 034-3 Bounded provider latency
 
-- Status: `completed`
+- Status: `ready-for-agent`
 - Tracker: local Markdown
 - Dependencies: none
 - Product rules: PR-008, FR-002, BR-026
