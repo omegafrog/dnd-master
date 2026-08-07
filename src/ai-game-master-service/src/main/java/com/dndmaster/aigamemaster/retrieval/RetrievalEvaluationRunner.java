@@ -9,6 +9,10 @@ public final class RetrievalEvaluationRunner {
         return report.metrics();
     }
 
+    public void validateScopes(RetrievalEvaluationCorpus corpus, RetrievalEvaluationPort port) {
+        for (var evaluationCase : corpus.cases()) port.validateScope(evaluationCase);
+    }
+
     public RetrievalEvaluationReport runReport(RetrievalEvaluationCorpus corpus, RetrievalEvaluationPort port) {
         var results = new ArrayList<RetrievalEvaluationResult>();
         for (var evaluationCase : corpus.cases()) {

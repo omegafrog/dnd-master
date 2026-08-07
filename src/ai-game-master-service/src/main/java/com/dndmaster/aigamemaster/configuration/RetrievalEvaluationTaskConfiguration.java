@@ -32,7 +32,9 @@ public class RetrievalEvaluationTaskConfiguration {
             var corpus = RetrievalEvaluationCorpusLoader.load(
                     RetrievalEvaluationTaskConfiguration.class.getResourceAsStream("/retrieval-evaluation-corpus.json"), mapper);
             RetrievalEvaluationCorpusValidator.validate(corpus);
-            var report = new RetrievalEvaluationRunner().runReport(corpus, port);
+            var runner = new RetrievalEvaluationRunner();
+            runner.validateScopes(corpus, port);
+            var report = runner.runReport(corpus, port);
             new RetrievalEvaluationArtifactStore(mapper).write(artifactDirectory, report,
                     new RetrievalEvaluationIdentity(corpusDigest, embeddingModel, indexVersion,
                             serviceVersion, configurationDigest));

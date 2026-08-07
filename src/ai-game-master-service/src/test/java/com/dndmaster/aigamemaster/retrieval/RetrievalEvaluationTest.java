@@ -111,6 +111,22 @@ class RetrievalEvaluationTest {
     }
 
     @Test
+    void scope_preflight_runs_before_retrieval_execution() {
+        var expected = new RetrievalReference("doc-1", "page:1", "v1");
+        var corpus = new RetrievalEvaluationCorpus("retrieval-evaluation-v1", List.of(
+                new RetrievalEvaluationCase("case-1", "rule", "q", "owner", "session", "package",
+                        List.of(expected), List.of(), List.of(), "rule")));
+        var limits = new java.util.ArrayList<Integer>();
+
+        new RetrievalEvaluationRunner().validateScopes(corpus, (c, limit) -> {
+            limits.add(limit);
+            return new RetrievalEvaluationResult(c.id(), List.of(), 1);
+        });
+
+        assertEquals(List.of(0), limits);
+    }
+
+    @Test
     void corpus_and_results_reject_duplicate_case_ids() {
         var c = new RetrievalEvaluationCase("case-1", "rule", "q", "owner", "session", "package", List.of(
                 new RetrievalReference("doc", "page:1", "v1")), List.of(), List.of(), "rule");
