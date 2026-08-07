@@ -102,6 +102,22 @@ class DeterministicAdjudicationServiceTest {
     }
 
     @Test
+    void rule_resolver_authoritatively_resolves_saves_attacks_and_dice_damage() {
+        DeterministicRuleResolver resolver = new DeterministicRuleResolver();
+
+        AuthoritativeResolution save = resolver.apply(request("save 1d20+3 vs 15", 42L));
+        AuthoritativeResolution attack = resolver.apply(request("attack 1d20+3 vs 15", 42L));
+        AuthoritativeResolution damage = resolver.apply(request("damage 2d6+1", 42L));
+
+        assertEquals("save-success", save.outcome());
+        assertEquals(List.of("save.success=true", "save.total=15"), save.stateChanges());
+        assertEquals("attack-hit", attack.outcome());
+        assertEquals(List.of("attack.hit=true", "attack.total=15"), attack.stateChanges());
+        assertEquals("damage-applied", damage.outcome());
+        assertEquals(List.of("target.hp=-8", "damage.total=8"), damage.stateChanges());
+    }
+
+    @Test
     void state_mutation_adapter_persists_authoritative_changes_in_context() {
         AdventureContext current = new AdventureContext("hall", "guard", "attack", "pending");
         AuthoritativeResolution resolution = AuthoritativeResolution.resolved(

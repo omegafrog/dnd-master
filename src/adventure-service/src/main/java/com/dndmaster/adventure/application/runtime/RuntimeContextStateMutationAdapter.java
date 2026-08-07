@@ -7,7 +7,8 @@ import java.util.Set;
 /** Applies deterministic state changes to persisted runtime context. */
 public final class RuntimeContextStateMutationAdapter implements AuthoritativeStateMutationPort {
     private static final Set<String> KNOWN_FACT_IDS = Set.of(
-            "target.hp", "movement.distance", "turn.advance", "roll.faces", "roll.total");
+            "target.hp", "movement.distance", "turn.advance", "roll.faces", "roll.total",
+            "save.success", "save.total", "attack.hit", "attack.total", "damage.total");
     @Override
     public AdventureContext apply(AdventureContext current, AuthoritativeResolution resolution) {
         Objects.requireNonNull(current, "current context must not be null");
