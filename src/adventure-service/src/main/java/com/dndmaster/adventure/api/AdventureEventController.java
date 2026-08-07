@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.api;
 
 import com.dndmaster.adventure.application.runtime.SessionEventRepository;
+import com.dndmaster.adventure.application.runtime.PlayerProjection;
 import com.dndmaster.adventure.domain.runtime.event.SessionEvent;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
@@ -45,7 +46,9 @@ public final class AdventureEventController {
         ScheduledFuture<?> poll = executor.scheduleAtFixedRate(() -> {
             try {
                 for (SessionEvent event : events.after(sessionId, next[0])) {
-                    emitter.send(SseEmitter.event().id(Long.toString(event.version())).name(event.type()).data(event.payload()));
+                    String payload = "GM_TURN_COMMITTED".equals(event.type()) ? "turn committed"
+                            : PlayerProjection.redact(event.payload(), java.util.Set.of());
+                    emitter.send(SseEmitter.event().id(Long.toString(event.version())).name(event.type()).data(payload));
                     next[0] = Math.max(next[0], event.version());
                 }
             } catch (IOException exception) { emitter.completeWithError(exception); }

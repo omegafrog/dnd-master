@@ -31,14 +31,15 @@ public record PlayerProjection(
     public static PlayerProjection create(String narration, String judgment, String currentScene,
             List<String> citations, List<String> warnings, List<String> toolResults,
             List<RuntimeEvidence> evidence, Set<String> committedEvents, long gameTurn) {
-        return create(narration, judgment, currentScene, citations, warnings, toolResults, evidence,
-                committedEvents, gameTurn, null, null);
+        throw new IllegalArgumentException("publication scope is required");
     }
 
     public static PlayerProjection create(String narration, String judgment, String currentScene,
             List<String> citations, List<String> warnings, List<String> toolResults,
             List<RuntimeEvidence> evidence, Set<String> committedEvents, long gameTurn,
             UUID expectedSessionId, UUID expectedScenarioPackageId) {
+        Objects.requireNonNull(expectedSessionId, "expected session id must not be null");
+        Objects.requireNonNull(expectedScenarioPackageId, "expected scenario package id must not be null");
         Objects.requireNonNull(evidence, "evidence must not be null");
         Objects.requireNonNull(committedEvents, "committed events must not be null");
         if (gameTurn < 0) throw new IllegalArgumentException("game turn must not be negative");
@@ -77,9 +78,10 @@ public record PlayerProjection(
         return new PlayerProjection(safeNarration, safeJudgment, safeScene, safeCitations, safeWarnings, safeTools);
     }
 
-    public static String redactNarration(String value, List<RuntimeEvidence> evidence,
-            Set<String> committedEvents, long gameTurn) {
-        return create(value, value, value, List.of(), List.of(), List.of(), evidence, committedEvents, gameTurn).narration();
+    public static String redact(String value, List<RuntimeEvidence> evidence, Set<String> committedEvents,
+            long gameTurn, UUID expectedSessionId, UUID expectedScenarioPackageId) {
+        return create(value, value, value, List.of(), List.of(), List.of(), evidence, committedEvents,
+                gameTurn, expectedSessionId, expectedScenarioPackageId).narration();
     }
 
     public static String redact(String value, Set<String> protectedValues) {

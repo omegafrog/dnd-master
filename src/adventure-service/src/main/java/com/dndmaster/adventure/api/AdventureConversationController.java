@@ -1,6 +1,9 @@
 package com.dndmaster.adventure.api;
 
 import com.dndmaster.adventure.application.saved.AdventureRepository;
+import com.dndmaster.adventure.application.runtime.PlayerProjection;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnRepository;
+import com.dndmaster.adventure.application.runtime.SessionEventRepository;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.ConversationEntry;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
@@ -13,21 +16,39 @@ import org.springframework.web.bind.annotation.*;
 public final class AdventureConversationController {
     private final AdventureRepository adventures;
     private final AuthenticatedPlayerResolver playerResolver;
+    private final RuntimeTurnRepository turns;
+    private final SessionEventRepository events;
 
     public AdventureConversationController(AdventureRepository adventures, AuthenticatedPlayerResolver playerResolver) {
-        this.adventures = adventures;
-        this.playerResolver = playerResolver;
+        this(adventures, playerResolver, null, null);
+    }
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public AdventureConversationController(AdventureRepository adventures, AuthenticatedPlayerResolver playerResolver,
+            RuntimeTurnRepository turns, SessionEventRepository events) {
+        this.adventures = adventures; this.playerResolver = playerResolver; this.turns = turns; this.events = events;
     }
 
     @GetMapping
     ConversationView read(@PathVariable UUID adventureId) {
         var adventure = adventures.findById(new AdventureId(adventureId)).orElseThrow(() -> new IllegalArgumentException("adventure not found"));
         if (!adventure.ownerPlayerId().equals(new OwnerPlayerId(playerResolver.playerId()))) throw new SecurityException("adventure access denied");
-        return new ConversationView(adventure.id().value(), adventure.version(), adventure.conversation().stream().map(EntryView::from).toList());
+        var runtimeTurns = turns == null ? List.<com.dndmaster.adventure.application.runtime.RuntimeTurn>of()
+                : turns.findAllByAdventureId(adventure.id());
+        var committedEvents = events == null ? java.util.Set.<String>of() : events.after(adventure.sessionId().value(), -1).stream()
+                .flatMap(event -> java.util.stream.Stream.of(event.type(), event.payload())).collect(java.util.stream.Collectors.toSet());
+        return new ConversationView(adventure.id().value(), adventure.version(), adventure.conversation().stream()
+                .map(entry -> {
+                    String content = entry.content();
+                    for (var turn : runtimeTurns) content = PlayerProjection.redact(content, turn.evidencePack().all(),
+                            committedEvents, turn.version(), turn.sessionId(), turn.scenarioPackageId());
+                    return EntryView.from(entry, content);
+                }).toList());
     }
 
     public record ConversationView(UUID adventureId, long version, List<EntryView> entries) {}
     public record EntryView(long sequence, String speaker, String content) {
-        static EntryView from(ConversationEntry entry) { return new EntryView(entry.sequence(), entry.speaker(), entry.content()); }
+        static EntryView from(ConversationEntry entry) { return from(entry, entry.content()); }
+        static EntryView from(ConversationEntry entry, String content) { return new EntryView(entry.sequence(), entry.speaker(), content); }
     }
 }
