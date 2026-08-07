@@ -39,9 +39,14 @@ public final class AdventureConversationController {
                 .flatMap(event -> java.util.stream.Stream.of(event.type(), event.payload())).collect(java.util.stream.Collectors.toSet());
         return new ConversationView(adventure.id().value(), adventure.version(), adventure.conversation().stream()
                 .map(entry -> {
+                    var matchingTurns = runtimeTurns.stream().filter(turn -> turn.conversation().stream()
+                            .anyMatch(item -> item.sequence() == entry.sequence())).toList();
+                    if (entry.speaker().equals("AI_GAME_MASTER") && matchingTurns.isEmpty()) {
+                        return EntryView.from(entry, "공개할 수 있는 장면 정보가 없습니다.");
+                    }
                     String content = entry.content();
-                    for (var turn : runtimeTurns) content = PlayerProjection.redact(content, turn.evidencePack().all(),
-                            committedEvents, turn.version(), turn.sessionId(), turn.scenarioPackageId());
+                    for (var turn : matchingTurns) content = PlayerProjection.redact(content, turn.evidencePack().all(),
+                            committedEvents, turn.version(), turn.sessionId(), turn.scenarioPackageId(), adventure.ownerPlayerId().value());
                     return EntryView.from(entry, content);
                 }).toList());
     }

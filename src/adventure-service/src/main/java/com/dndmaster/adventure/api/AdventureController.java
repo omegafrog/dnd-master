@@ -119,7 +119,7 @@ public class AdventureController {
                 request.turnId(),
                 request.commandId(),
                 request.action()));
-        return RuntimeTurnResponse.from(result, sessionEventRepository);
+        return RuntimeTurnResponse.from(result, sessionEventRepository, playerResolver.playerId());
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/turns")
@@ -141,7 +141,7 @@ public class AdventureController {
                 var prior = runtimeTurnRepository.findByCommandId(commandId).orElseThrow(
                         () -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "turn is still processing"));
                 return ResponseEntity.accepted().body(RuntimeTurnResponse.from(new RuntimeTurnResult(
-                        prior, prior.context(), prior.conversation(), prior.version())));
+                        prior, prior.context(), prior.conversation(), prior.version()), sessionEventRepository, owner));
             }
             if (existing.get().status() == com.dndmaster.adventure.domain.runtime.GmTurnStatus.FAILED) {
                 turn = existing.get().retry();
@@ -190,7 +190,7 @@ public class AdventureController {
         com.dndmaster.adventure.application.runtime.GmTurnCommitPolicy.requirePublishable(turn.process().commit(providerMetadata), result.version());
         sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
                 result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
-        return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result, sessionEventRepository));
+        return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result, sessionEventRepository, owner));
     }
 
     public record GmTurnFailureResponse(String category, boolean retryable, String safeMessage,
@@ -341,16 +341,13 @@ public class AdventureController {
                     List<String> warnings,
                     List<String> toolResults,
                     long version) {
-        static RuntimeTurnResponse from(RuntimeTurnResult result) {
-            return from(result, null);
-        }
-        static RuntimeTurnResponse from(RuntimeTurnResult result, com.dndmaster.adventure.application.runtime.SessionEventRepository eventRepository) {
+        static RuntimeTurnResponse from(RuntimeTurnResult result, com.dndmaster.adventure.application.runtime.SessionEventRepository eventRepository, UUID ownerPlayerId) {
             var eventValues = eventRepository == null ? java.util.stream.Stream.<String>empty()
                     : eventRepository.after(result.turn().sessionId(), -1).stream()
                     .flatMap(event -> java.util.stream.Stream.of(event.type(), event.payload()));
             var events = eventValues
                     .filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet());
-            var projection = result.turn().playerProjection(events);
+            var projection = result.turn().playerProjection(events, ownerPlayerId);
             return new RuntimeTurnResponse(
                     result.turn().turnId(),
                     result.turn().adventureId().value(),

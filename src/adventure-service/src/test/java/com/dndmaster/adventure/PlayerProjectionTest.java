@@ -34,7 +34,7 @@ class PlayerProjectionTest {
                 List.of("storybook:page:9", "storybook:page:1", "document:" + document),
                 List.of("degraded-mode:RULE;secret=DC 13"),
                 List.of("{\"warning\":\"DC 13\",\"result\":\"hidden ending\"}"),
-                List.of(hidden, publicEvidence), Set.of(), 0, session, packageId);
+                List.of(hidden, publicEvidence), Set.of(), 0, session, packageId, owner);
 
         assertEquals("the bell rings", projection.narration());
         assertEquals("공개할 수 있는 장면 정보가 없습니다.", projection.judgment());
@@ -56,7 +56,7 @@ class PlayerProjectionTest {
 
         PlayerProjection projection = PlayerProjection.create("the gate opens", "safe", "safe",
                 List.of("storybook:chapter:3"), List.of(), List.of("safe tool result"),
-                List.of(evidence), Set.of("GATE_OPENED"), 2, evidence.sessionId(), evidence.scenarioPackageId());
+                List.of(evidence), Set.of("GATE_OPENED"), 2, evidence.sessionId(), evidence.scenarioPackageId(), evidence.ownerPlayerId());
 
         assertEquals(List.of("storybook:chapter:3"), projection.citations());
         assertEquals(List.of("safe tool result"), projection.toolResults());
@@ -72,7 +72,7 @@ class PlayerProjectionTest {
 
         PlayerProjection projection = PlayerProjection.create("DC 13 secret rule", "safe", "safe",
                 List.of("RULEBOOK:page:13"), List.of("warning=DC 13"), List.of("DC 13 secret rule"),
-                List.of(hiddenRule), Set.of(), 0, session, packageId);
+                List.of(hiddenRule), Set.of(), 0, session, packageId, hiddenRule.ownerPlayerId());
 
         assertEquals("공개할 수 있는 장면 정보가 없습니다.", projection.narration());
         assertTrue(projection.citations().isEmpty());

@@ -44,20 +44,20 @@ public final class AgentTurnController {
         if (!authenticatedPlayer.equals(request.playerId())) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "player mismatch");
         var result = agentTurnService.runAgentTurn(
                 adventure, new OwnerPlayerId(authenticatedPlayer), new TurnCursor(adventure.party(), adventure.turnIndex()), request.expectedVersion());
-        return AgentTurnResponse.from(result, events);
+        return AgentTurnResponse.from(result, events, authenticatedPlayer);
     }
 
     public record AgentTurnRequest(UUID playerId, long expectedVersion) {}
 
-    public record AgentTurnResponse(UUID turnId, UUID adventureId, String narration, String judgment,
+    public record AgentTurnResponse(UUID adventureId, String narration, String judgment,
                                     String currentScene, List<String> sourceRefs, List<String> warnings, long version,
                                     int nextTurnIndex, String nextControlMode) {
-        static AgentTurnResponse from(AgentTurnApplicationService.AgentTurnResult result, SessionEventRepository events) {
+        static AgentTurnResponse from(AgentTurnApplicationService.AgentTurnResult result, SessionEventRepository events, UUID ownerPlayerId) {
             RuntimeTurnResult runtime = result.result();
             var committedEvents = events == null ? java.util.Set.<String>of() : events.after(runtime.turn().sessionId(), -1).stream()
                     .flatMap(event -> java.util.stream.Stream.of(event.type(), event.payload())).collect(java.util.stream.Collectors.toSet());
-            var projection = runtime.turn().playerProjection(committedEvents);
-            return new AgentTurnResponse(runtime.turn().turnId(), runtime.turn().adventureId().value(),
+            var projection = runtime.turn().playerProjection(committedEvents, ownerPlayerId);
+            return new AgentTurnResponse(runtime.turn().adventureId().value(),
                     projection.narration(), projection.judgment(), projection.currentScene(),
                     projection.citations(), projection.warnings(), runtime.version(), result.nextCursor().index(),
                     result.nextCursor().current().controlMode().name());

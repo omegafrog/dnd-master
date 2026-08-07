@@ -37,15 +37,16 @@ public record PlayerProjection(
     public static PlayerProjection create(String narration, String judgment, String currentScene,
             List<String> citations, List<String> warnings, List<String> toolResults,
             List<RuntimeEvidence> evidence, Set<String> committedEvents, long gameTurn,
-            UUID expectedSessionId, UUID expectedScenarioPackageId) {
+            UUID expectedSessionId, UUID expectedScenarioPackageId, UUID expectedOwnerPlayerId) {
         Objects.requireNonNull(expectedSessionId, "expected session id must not be null");
         Objects.requireNonNull(expectedScenarioPackageId, "expected scenario package id must not be null");
+        Objects.requireNonNull(expectedOwnerPlayerId, "expected owner player id must not be null");
         Objects.requireNonNull(evidence, "evidence must not be null");
         Objects.requireNonNull(committedEvents, "committed events must not be null");
         if (gameTurn < 0) throw new IllegalArgumentException("game turn must not be negative");
         List<String> protectedValues = new ArrayList<>();
         evidence.stream().filter(item -> item != null)
-                .filter(item -> !inScope(item, expectedSessionId, expectedScenarioPackageId)
+                .filter(item -> !inScope(item, expectedOwnerPlayerId, expectedSessionId, expectedScenarioPackageId)
                         || !item.visibility().visibleToPlayer(item.disclosureEvent(), item.disclosureTurn(), committedEvents, gameTurn))
                 .map(RuntimeEvidence::excerpt).forEach(protectedValues::add);
 
@@ -53,7 +54,7 @@ public record PlayerProjection(
         String safeJudgment = safeText(judgment, protectedValues, SAFE_FALLBACK);
         String safeScene = safeText(currentScene, protectedValues, SAFE_FALLBACK);
         Set<String> publicEvidenceRefs = evidence.stream()
-                .filter(item -> item != null && inScope(item, expectedSessionId, expectedScenarioPackageId)
+                .filter(item -> item != null && inScope(item, expectedOwnerPlayerId, expectedSessionId, expectedScenarioPackageId)
                         && item.visibility().visibleToPlayer(item.disclosureEvent(), item.disclosureTurn(), committedEvents, gameTurn))
                 .map(item -> (item.evidenceType().name() + ":" + item.locator()).toUpperCase(Locale.ROOT))
                 .collect(java.util.stream.Collectors.toSet());
@@ -79,9 +80,9 @@ public record PlayerProjection(
     }
 
     public static String redact(String value, List<RuntimeEvidence> evidence, Set<String> committedEvents,
-            long gameTurn, UUID expectedSessionId, UUID expectedScenarioPackageId) {
+            long gameTurn, UUID expectedSessionId, UUID expectedScenarioPackageId, UUID expectedOwnerPlayerId) {
         return create(value, value, value, List.of(), List.of(), List.of(), evidence, committedEvents,
-                gameTurn, expectedSessionId, expectedScenarioPackageId).narration();
+                gameTurn, expectedSessionId, expectedScenarioPackageId, expectedOwnerPlayerId).narration();
     }
 
     public static String redact(String value, Set<String> protectedValues) {
@@ -93,9 +94,10 @@ public record PlayerProjection(
         return candidate.isBlank() || UUID_TEXT.matcher(candidate).find() || containsProtected(candidate, protectedValues) ? fallback : candidate;
     }
 
-    private static boolean inScope(RuntimeEvidence item, UUID expectedSessionId, UUID expectedScenarioPackageId) {
-        return (expectedSessionId == null || expectedSessionId.equals(item.sessionId()))
-                && (expectedScenarioPackageId == null || expectedScenarioPackageId.equals(item.scenarioPackageId()));
+    private static boolean inScope(RuntimeEvidence item, UUID expectedOwnerPlayerId, UUID expectedSessionId, UUID expectedScenarioPackageId) {
+        return expectedOwnerPlayerId.equals(item.ownerPlayerId())
+                && expectedSessionId.equals(item.sessionId())
+                && expectedScenarioPackageId.equals(item.scenarioPackageId());
     }
 
     private static boolean containsProtected(String value, List<String> protectedValues) {

@@ -78,17 +78,17 @@ public record RuntimeTurn(
                 .map(warning -> warning.substring("rag-condition:".length())).findFirst().orElse("CURRENT_RAG");
     }
 
-    public PlayerProjection playerProjection(java.util.Set<String> committedEvents) {
-        return playerProjection(committedEvents, List.of());
+    public PlayerProjection playerProjection(java.util.Set<String> committedEvents, java.util.UUID ownerPlayerId) {
+        return playerProjection(committedEvents, List.of(), ownerPlayerId);
     }
 
-    public PlayerProjection playerProjection(java.util.Set<String> committedEvents, List<String> toolResults) {
+    public PlayerProjection playerProjection(java.util.Set<String> committedEvents, List<String> toolResults, java.util.UUID ownerPlayerId) {
         List<String> selectedCitations = plan.citedEvidence().stream()
                 .filter(selected -> evidencePack.all().stream().anyMatch(available ->
                         available.identity().equals(selected.identity()) && available.excerpt().equals(selected.excerpt())))
                 .map(evidence -> evidence.evidenceType().name() + ":" + evidence.locator())
                 .toList();
         return PlayerProjection.create(plan.narration(), plan.judgment(), context.currentScene(), selectedCitations,
-                warnings, toolResults, evidencePack.all(), committedEvents, version, sessionId, scenarioPackageId);
+                warnings, toolResults, evidencePack.all(), committedEvents, version, sessionId, scenarioPackageId, ownerPlayerId);
     }
 }
