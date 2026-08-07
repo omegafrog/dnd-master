@@ -61,4 +61,15 @@ class ModelInputProjectionTest {
         assertTrue(ModelInputProjection.create(Set.of(document), List.of(gated), List.of(), List.of(), "", "",
                 Set.of("DOOR_OPENED"), 4).promptText().contains("revealed clue"));
     }
+
+    @Test
+    void strict_projection_rejects_missing_or_mismatched_request_scope() {
+        UUID document = UUID.randomUUID();
+        RuntimeEvidence evidence = new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
+                new KnowledgeDocumentId(document), 1, "page:1", "rule")
+                .withScope(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID());
+        assertThrows(IllegalArgumentException.class, () -> ModelInputProjection.createStrict(
+                Set.of(document), java.util.Map.of(document, 1L), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                List.of(), List.of(evidence), List.of(), "", Set.of(), 0));
+    }
 }

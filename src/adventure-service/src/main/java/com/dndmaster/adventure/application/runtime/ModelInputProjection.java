@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 import java.util.Map;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,6 +60,21 @@ public record ModelInputProjection(
         audit.forEach(item -> LOG.info("gm_model_projection documentId={} evidenceType={} decision={}",
                 item.documentId(), item.evidenceType(), item.decision()));
         return new ModelInputProjection(safeStory, safeRules, safeResolution, continuity, audit);
+    }
+
+    public static ModelInputProjection createStrict(Set<UUID> allowedDocuments, Map<UUID, Long> expectedVersions,
+            UUID ownerPlayerId, UUID sessionId, UUID scenarioPackageId,
+            List<RuntimeEvidence> storybook, List<RuntimeEvidence> rulebook, List<RuntimeEvidence> resolution,
+            String continuity, Set<String> committedDisclosureEvents, long currentTurn) {
+        Stream.of(storybook, rulebook, resolution).flatMap(List::stream).forEach(evidence -> {
+            if (evidence.ownerPlayerId() == null || evidence.sessionId() == null || evidence.scenarioPackageId() == null
+                    || !ownerPlayerId.equals(evidence.ownerPlayerId()) || !sessionId.equals(evidence.sessionId())
+                    || !scenarioPackageId.equals(evidence.scenarioPackageId())) {
+                throw new IllegalArgumentException("evidence scope metadata is missing or mismatched");
+            }
+        });
+        return create(allowedDocuments, expectedVersions, storybook, rulebook, resolution, "", continuity,
+                committedDisclosureEvents, currentTurn);
     }
 
     public String promptText() {

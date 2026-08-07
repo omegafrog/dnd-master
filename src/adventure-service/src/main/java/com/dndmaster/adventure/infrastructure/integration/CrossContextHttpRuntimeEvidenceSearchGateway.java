@@ -38,11 +38,14 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
                     new RuleSearchRequest(request.ownerPlayerId().value(), request.knowledgeDocumentIds(),
                                 request.action(), "RULE", request.limit()), request.ownerPlayerId().value(), RuleSearchResponse.class);
                 return response.evidence().stream()
-                        .map(item -> new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
+                        .map(item -> {
+                            RuntimeEvidence evidence = new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
                                 new KnowledgeDocumentId(item.rulebookId()), 1L, item.locator(), item.excerpt(),
                                 StoryEvidenceVisibility.PLAYER_VISIBLE, null, 0, item.context() == null ? List.of() : item.context(),
                                 item.provenance() == null ? null : new com.dndmaster.adventure.application.runtime.RuntimeEvidenceProvenance(
-                                        item.provenance().candidateKey(), item.provenance().rerankScore(), item.provenance().expandedKeys())))
+                                        item.provenance().candidateKey(), item.provenance().rerankScore(), item.provenance().expandedKeys()));
+                            return evidence.withScope(request.ownerPlayerId().value(), request.sessionId().value(), request.scenarioPackageId());
+                        })
                         .toList();
             }
             StorySearchResponse response = post("internal/v1/story-sources/search",
@@ -50,14 +53,17 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
                             .map(id -> new StoryDocument(id, extractionVersion(request, id))).toList(),
                             activeLocators(request), request.action(), request.limit()),
                     request.ownerPlayerId().value(), StorySearchResponse.class);
-            return response.evidence().stream()
-                    .map(item -> new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
+                    return response.evidence().stream()
+                    .map(item -> {
+                        RuntimeEvidence evidence = new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
                             new KnowledgeDocumentId(item.knowledgeDocumentId()), item.extractionVersion(), item.locator(), item.excerpt(),
                             parseVisibility(item.visibility()),
                             item.disclosureEvent(), item.disclosureTurn() == null ? 0 : item.disclosureTurn(),
                             item.context() == null ? List.of() : item.context(),
                             item.provenance() == null ? null : new com.dndmaster.adventure.application.runtime.RuntimeEvidenceProvenance(
-                                    item.provenance().candidateKey(), item.provenance().rerankScore(), item.provenance().expandedKeys())))
+                                        item.provenance().candidateKey(), item.provenance().rerankScore(), item.provenance().expandedKeys()));
+                        return evidence.withScope(request.ownerPlayerId().value(), request.sessionId().value(), request.scenarioPackageId());
+                    })
                     .toList();
         } catch (Exception exception) {
             throw new IllegalStateException("runtime evidence search failed", exception);

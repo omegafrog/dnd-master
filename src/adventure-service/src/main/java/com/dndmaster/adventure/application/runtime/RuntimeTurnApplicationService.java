@@ -197,6 +197,7 @@ public class RuntimeTurnApplicationService {
         if (authoritativeResolution != null && authoritativeResolution.status() != AuthoritativeResolution.Status.RESOLVED) {
             throw new IllegalStateException("authoritative resolution is not complete");
         }
+        evidencePack = scopedEvidencePack(evidencePack, command.ownerPlayerId().value(), adventure.sessionId().value(), binding.scenarioPackageId());
         ModelInputProjection modelInput = modelInputProjection(evidencePack, adventure, scenarioPackage);
         EvidencePack modelEvidencePack = new EvidencePack(modelInput.storybook(), modelInput.rulebook(), modelInput.resolution());
         ActiveSourceContext modelActiveSource = modelEvidencePack.storybook().stream()
@@ -372,9 +373,15 @@ public class RuntimeTurnApplicationService {
                 document -> document.knowledgeDocumentId().value(),
                 com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection::extractionVersion,
                 (first, ignored) -> first));
-        return ModelInputProjection.create(new HashSet<>(knowledgeDocumentIds(adventure, scenarioPackage)), expectedVersions,
-                evidencePack.storybook(), evidencePack.rulebook(), evidencePack.resolution(), "", storyPlanContext(adventure),
-                disclosureEvents, adventure.turnIndex());
+        return ModelInputProjection.createStrict(new HashSet<>(knowledgeDocumentIds(adventure, scenarioPackage)), expectedVersions,
+                adventure.ownerPlayerId().value(), adventure.sessionId().value(), scenarioPackage.packageId(), evidencePack.storybook(),
+                evidencePack.rulebook(), evidencePack.resolution(), storyPlanContext(adventure), disclosureEvents, adventure.turnIndex());
+    }
+
+    private static EvidencePack scopedEvidencePack(EvidencePack pack, UUID owner, UUID session, UUID scenarioPackage) {
+        java.util.function.Function<RuntimeEvidence, RuntimeEvidence> scope = evidence -> evidence.withScope(owner, session, scenarioPackage);
+        return new EvidencePack(pack.storybook().stream().map(scope).toList(), pack.rulebook().stream().map(scope).toList(),
+                pack.resolution().stream().map(scope).toList());
     }
 
     private List<RuntimeEvidence> scopedSearch(RuntimeEvidenceSearchRequest request) {

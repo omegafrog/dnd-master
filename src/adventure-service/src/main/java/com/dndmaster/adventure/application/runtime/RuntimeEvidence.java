@@ -3,6 +3,7 @@ package com.dndmaster.adventure.application.runtime;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import java.util.Objects;
 import java.util.List;
+import java.util.UUID;
 
 // 검색이나 계획에 쓸 수 있는 단일 근거 조각이다.
 public record RuntimeEvidence(
@@ -13,7 +14,14 @@ public record RuntimeEvidence(
         String excerpt,
         StoryEvidenceVisibility visibility,
         String disclosureEvent,
-        long disclosureTurn, List<String> context, RuntimeEvidenceProvenance provenance) {
+        long disclosureTurn, List<String> context, RuntimeEvidenceProvenance provenance,
+        UUID ownerPlayerId, UUID sessionId, UUID scenarioPackageId) {
+    public RuntimeEvidence(RuntimeEvidenceType evidenceType, KnowledgeDocumentId knowledgeDocumentId,
+            long extractionVersion, String locator, String excerpt, StoryEvidenceVisibility visibility,
+            String disclosureEvent, long disclosureTurn, List<String> context, RuntimeEvidenceProvenance provenance) {
+        this(evidenceType, knowledgeDocumentId, extractionVersion, locator, excerpt, visibility, disclosureEvent,
+                disclosureTurn, context, provenance, null, null, null);
+    }
     public RuntimeEvidence(RuntimeEvidenceType evidenceType, KnowledgeDocumentId knowledgeDocumentId,
             long extractionVersion, String locator, String excerpt) {
         this(evidenceType, knowledgeDocumentId, extractionVersion, locator, excerpt,
@@ -24,6 +32,16 @@ public record RuntimeEvidence(
             String locator, String excerpt, StoryEvidenceVisibility visibility, String disclosureEvent, long disclosureTurn) {
         this(evidenceType, knowledgeDocumentId, extractionVersion, locator, excerpt, visibility, disclosureEvent,
                 disclosureTurn, List.of(), null);
+    }
+
+    public RuntimeEvidence withScope(UUID ownerPlayerId, UUID sessionId, UUID scenarioPackageId) {
+        if ((this.ownerPlayerId != null && !this.ownerPlayerId.equals(ownerPlayerId))
+                || (this.sessionId != null && !this.sessionId.equals(sessionId))
+                || (this.scenarioPackageId != null && !this.scenarioPackageId.equals(scenarioPackageId))) {
+            throw new IllegalArgumentException("evidence scope mismatch");
+        }
+        return new RuntimeEvidence(evidenceType, knowledgeDocumentId, extractionVersion, locator, excerpt, visibility,
+                disclosureEvent, disclosureTurn, context, provenance, ownerPlayerId, sessionId, scenarioPackageId);
     }
     public RuntimeEvidence {
         evidenceType = Objects.requireNonNull(evidenceType, "evidence type must not be null");
