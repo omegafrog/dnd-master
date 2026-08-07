@@ -26,6 +26,29 @@ class GmAgentControllerContractTest {
     }
 
     @Test
+    void malformed_response_retries_once_and_exposes_typed_safe_failure() {
+        int[] calls = {0};
+        var controller = new GmAgentController(new com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter() {
+            @Override
+            public <T> T complete(String operation, String prompt,
+                                   com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                calls[0]++;
+                throw new com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException(
+                        "raw provider payload must not escape");
+            }
+        }, new com.fasterxml.jackson.databind.ObjectMapper(), new ApiRequestGuard("token"));
+
+        var exception = assertThrows(GmAgentFailureException.class,
+                () -> controller.plan("token", request()));
+
+        org.junit.jupiter.api.Assertions.assertEquals(2, calls[0]);
+        org.junit.jupiter.api.Assertions.assertEquals(GmFailureCategory.SCHEMA, exception.failure().category());
+        org.junit.jupiter.api.Assertions.assertTrue(exception.failure().retryable());
+        org.junit.jupiter.api.Assertions.assertEquals("turn", exception.failure().correlationId());
+        org.junit.jupiter.api.Assertions.assertFalse(exception.failure().safeMessage().contains("raw provider"));
+    }
+
+    @Test
     void accepts_complete_read_only_structured_response() {
         assertDoesNotThrow(() -> GmAgentController.requireComplete(
                 new GmAgentController.Response("scene", "npc", "judgment", "narration", null,

@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 
@@ -51,15 +52,36 @@ public final class GmAgentController {
                 return complete(request, operation, prompt(request), request.protectedFacts(), budget);
         } catch (com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException malformed) {
             try {
-                return complete(request, operation + ":repair", repairPrompt(request), request.protectedFacts(), budget);
+                return complete(request, operation + ":repair", repairPrompt(request, request.protectedFacts()), request.protectedFacts(), budget);
             } catch (RuntimeException stillMalformed) {
-                throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                        "GM provider structured response unavailable", stillMalformed);
+                throw failure(operation, stillMalformed);
             }
         } catch (RuntimeException providerFailure) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "GM provider unavailable", providerFailure);
+            throw failure(operation, providerFailure);
         }
+    }
+
+    @ExceptionHandler(GmAgentFailureException.class)
+    org.springframework.http.ResponseEntity<GmFailure> handleFailure(GmAgentFailureException exception) {
+        return org.springframework.http.ResponseEntity.status(exception.getStatusCode()).body(exception.failure());
+    }
+
+    private static GmAgentFailureException failure(String operation, RuntimeException cause) {
+        GmFailureCategory category = cause instanceof com.dndmaster.aigamemaster.infrastructure.ai.ProviderTimeoutException
+                ? GmFailureCategory.PROVIDER_TIMEOUT
+                : cause instanceof GmGroundingViolationException
+                ? GmFailureCategory.GROUNDING
+                : cause instanceof com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException
+                ? GmFailureCategory.SCHEMA : GmFailureCategory.DEPENDENCY;
+        String message = switch (category) {
+            case PROVIDER_TIMEOUT -> "게임 마스터 응답 시간이 초과되었습니다. 다시 시도해 주세요.";
+            case SCHEMA -> "게임 마스터 응답을 확인하지 못했습니다. 다시 시도해 주세요.";
+            case GROUNDING -> "확인된 근거가 없어 턴을 완료하지 못했습니다.";
+            case CONCURRENCY -> "다른 턴이 처리 중입니다. 잠시 후 다시 시도해 주세요.";
+            case DEPENDENCY -> "게임 마스터를 일시적으로 사용할 수 없습니다. 다시 시도해 주세요.";
+        };
+        return new GmAgentFailureException(new GmFailure(category, true, message,
+                operation == null || operation.isBlank() ? UUID.randomUUID().toString() : operation), cause);
     }
 
     private Response complete(Request request, String operation, String prompt, List<String> protectedFacts,
@@ -83,23 +105,42 @@ public final class GmAgentController {
                 }
                 response = requireComplete(response);
                 validateCitations(response, request);
-                GmResponseSafetyPolicy.rejectProtectedFacts(response.scene() + " " + response.npcState() + " "
-                        + response.judgment() + " " + response.narration(), protectedFacts);
+                try {
+                    GmResponseSafetyPolicy.rejectProtectedFacts(response.scene() + " " + response.npcState() + " "
+                            + response.judgment() + " " + response.narration(), protectedFacts);
+                } catch (IllegalArgumentException violation) {
+                    throw new GmGroundingViolationException("GM response failed grounding safety policy");
+                }
                 return response;
+            } catch (GmGroundingViolationException violation) {
+                throw violation;
             } catch (Exception exception) {
                 throw new com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException(
                         "GM structured response invalid: " + exception.getMessage());
             }
     }
 
-    private static String repairPrompt(Request r) {
+    private static String repairPrompt(Request r, List<String> protectedFacts) {
         return """
                 Return exactly one JSON object and no markdown.
                 Required keys: scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings, provider, model, reasoning, stateDelta, toolCalls.
                 Use non-null strings for scene, judgment, narration; use [] for all arrays and null for proposedActiveSourceContext.
                 Do not make rule claims or invent facts. The player action is: %s
                 Current scene: %s
-                """.formatted(r.action(), r.currentScene());
+                """.formatted(redact(r.action(), protectedFacts), redact(r.currentScene(), protectedFacts));
+    }
+
+    private static String redact(String value, List<String> protectedFacts) {
+        String redacted = value == null ? "" : value;
+        for (String fact : protectedFacts) {
+            if (fact == null || fact.isBlank()) continue;
+            for (String part : fact.split("\\s+")) {
+                if (part.length() >= 4) {
+                    redacted = redacted.replaceAll("(?i)" + java.util.regex.Pattern.quote(part), "[REDACTED]");
+                }
+            }
+        }
+        return redacted;
     }
 
     @PostMapping("/internal/v1/gm/context-compactions")
@@ -162,7 +203,7 @@ public final class GmAgentController {
                 .flatMap(List::stream).toList();
         for (Object citation : response.citedEvidence()) {
             if (!(citation instanceof java.util.Map<?, ?> cited) || selected.stream().noneMatch(item -> sameEvidence(item, cited))) {
-                throw new IllegalArgumentException("citation is outside selected evidence");
+                throw new GmGroundingViolationException("citation is outside selected evidence");
             }
         }
     }

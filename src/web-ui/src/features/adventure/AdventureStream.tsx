@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
-import type { AdventureApi } from './AdventureApi'
+import { AdventureRequestError, type AdventureApi } from './AdventureApi'
 
 export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expectedVersion = 0 }: { adventureId: string; api: AdventureApi; controlMode?: 'DIRECT' | 'AGENT'; expectedVersion?: number }) {
   const [messages, setMessages] = useState<{ speaker: string; text: string }[]>([])
@@ -8,6 +8,7 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
   const [agentVersion, setAgentVersion] = useState(expectedVersion)
   const [activeControlMode, setActiveControlMode] = useState(controlMode)
   const [projectionStatus, setProjectionStatus] = useState<'idle' | 'processing' | 'failed'>('idle')
+  const [retry, setRetry] = useState<{ text: string; command: { turnId: string; commandId: string } } | null>(null)
   const projectionVersion = useRef(expectedVersion)
   const committedVersion = useRef(-1)
   useEffect(() => {
@@ -61,26 +62,29 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
     return () => { cancelled = true }
   }, [adventureId, agentVersion, activeControlMode, api])
 
-  async function send(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    const form = new FormData(event.currentTarget)
-    const text = String(form.get('message')).trim()
-    if (!text) return
-    const command = createRuntimeCommandIdentity()
+  async function submit(text: string, command: { turnId: string; commandId: string }, appendPlayer: boolean) {
     setNotice('')
     setSending(true)
     setProjectionStatus('processing')
-    setMessages(current => [...current, { speaker: '플레이어', text }])
+    if (appendPlayer) setMessages(current => [...current, { speaker: '플레이어', text }])
     try {
       const response = await api.sendMessage(adventureId, text, command, projectionVersion.current)
       setMessages(current => [...current, { speaker: 'AI 게임 마스터', text: response.narration }])
       setNotice(groundingNotice(response.warnings))
-    } catch {
+      setRetry(null)
+    } catch (error) {
       setProjectionStatus('failed')
-      setNotice('메시지를 전송하지 못했습니다.')
+      setRetry(error instanceof AdventureRequestError && !error.failure.retryable ? null : { text, command })
+      setNotice(error instanceof AdventureRequestError ? error.failure.safeMessage : '메시지를 전송하지 못했습니다.')
     } finally {
       setSending(false)
     }
+  }
+
+  async function send(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    const text = String(new FormData(event.currentTarget).get('message')).trim()
+    if (text) await submit(text, createRuntimeCommandIdentity(), true)
   }
 
   return (
@@ -95,6 +99,7 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
         ))}
       </ol>
       <p role="alert">{notice}</p>
+      {retry ? <button type="button" onClick={() => void submit(retry.text, retry.command, false)} disabled={sending}>다시 시도</button> : null}
       <form onSubmit={send} aria-disabled={activeControlMode === 'AGENT'}>
         <label>행동 또는 대화<input name="message" required /></label>
         <button type="submit" disabled={sending || activeControlMode === 'AGENT'}>보내기</button>

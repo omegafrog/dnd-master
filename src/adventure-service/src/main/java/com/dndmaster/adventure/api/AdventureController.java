@@ -123,7 +123,7 @@ public class AdventureController {
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/turns")
-    public ResponseEntity<RuntimeTurnResponse> submitTypedTurn(
+    public ResponseEntity<?> submitTypedTurn(
             @PathVariable UUID adventureId,
             @RequestHeader("Idempotency-Key") UUID commandId,
             @RequestHeader("If-Match-Version") long expectedVersion,
@@ -134,18 +134,31 @@ public class AdventureController {
         adventure.reopen(new OwnerPlayerId(owner));
         var input = request.input().toDomain();
         var existing = gmTurnRepository.findByCommandId(commandId);
+        GmTurn turn;
         if (existing.isPresent()) {
             existing.get().assertSameCommand(input);
-            var prior = runtimeTurnRepository.findByCommandId(commandId).orElseThrow(
-                    () -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "turn is still processing"));
-            return ResponseEntity.accepted().body(RuntimeTurnResponse.from(new RuntimeTurnResult(
-                    prior, prior.context(), prior.conversation(), prior.version())));
+            if (existing.get().status() == com.dndmaster.adventure.domain.runtime.GmTurnStatus.COMMITTED) {
+                var prior = runtimeTurnRepository.findByCommandId(commandId).orElseThrow(
+                        () -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "turn is still processing"));
+                return ResponseEntity.accepted().body(RuntimeTurnResponse.from(new RuntimeTurnResult(
+                        prior, prior.context(), prior.conversation(), prior.version())));
+            }
+            if (existing.get().status() == com.dndmaster.adventure.domain.runtime.GmTurnStatus.FAILED) {
+                turn = existing.get().retry();
+                gmTurnRepository.save(turn, adventureId);
+            } else {
+                throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "turn is still processing");
+            }
+        } else {
+            turn = GmTurn.start(request.turnId(), commandId, expectedVersion, input);
+            gmTurnRepository.save(turn, adventureId);
         }
-        GmTurn turn = GmTurn.start(request.turnId(), commandId, expectedVersion, input);
-        gmTurnRepository.save(turn, adventureId);
         RuntimeTurnResult result;
         try {
-            gmTurnRepository.save(turn.process(), adventureId);
+            if (turn.status() == com.dndmaster.adventure.domain.runtime.GmTurnStatus.STARTED) {
+                turn = turn.process();
+                gmTurnRepository.save(turn, adventureId);
+            }
             if (input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput mapAction) {
                 applyMapAction(adventure, owner, commandId, mapAction);
             }
@@ -160,8 +173,14 @@ public class AdventureController {
             }
             result = runtimeTurnService.submitTurn(runtimeCommand);
         } catch (RuntimeException exception) {
-            gmTurnFailureRecorder.record(turn, adventureId, adventure.sessionId().value(), exception.getMessage(), expectedVersion);
-            return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_GATEWAY).build();
+            String safeMessage = exception instanceof com.dndmaster.adventure.infrastructure.integration.GmAgentFailureException failure
+                    ? failure.failure().safeMessage() : "게임 마스터를 일시적으로 사용할 수 없습니다. 다시 시도해 주세요.";
+            gmTurnFailureRecorder.record(turn, adventureId, adventure.sessionId().value(), safeMessage, expectedVersion);
+            var failure = exception instanceof com.dndmaster.adventure.infrastructure.integration.GmAgentFailureException typed
+                    ? typed.failure() : new com.dndmaster.adventure.application.runtime.GmAgentFailure(
+                            "DEPENDENCY", true, safeMessage, commandId.toString());
+            return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_GATEWAY).body(new GmTurnFailureResponse(
+                    failure.category(), failure.retryable(), failure.safeMessage(), failure.correlationId(), expectedVersion));
         }
         String providerMetadata = "provider=" + result.turn().plan().provider()
                 + ";model=" + result.turn().plan().model()
@@ -173,6 +192,9 @@ public class AdventureController {
                 result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
         return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result, sessionEventRepository));
     }
+
+    public record GmTurnFailureResponse(String category, boolean retryable, String safeMessage,
+                                        String correlationId, long version) {}
 
     @PostMapping("/api/v1/adventures/{adventureId}/rule-inquiries")
     RuleInquiryResponse answerRuleInquiry(

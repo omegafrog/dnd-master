@@ -14,6 +14,15 @@ export type AdventureSessionEvent = { version: number; type: string; payload: st
 
 export type AdventureConversationEntry = { sequence: number; speaker: string; content: string }
 export type AdventureConversationResponse = { adventureId: string; version: number; entries: AdventureConversationEntry[] }
+export type AdventureFailure = { category: string; retryable: boolean; safeMessage: string; correlationId: string; version: number }
+
+export class AdventureRequestError extends Error {
+  readonly failure: AdventureFailure
+  constructor(failure: AdventureFailure) {
+    super(failure.safeMessage)
+    this.failure = failure
+  }
+}
 
 export interface AdventureMessageResponse {
   narration: string
@@ -89,7 +98,7 @@ export class HttpAdventureApi implements AdventureApi {
         input: { type: 'TEXT', text: message },
       }),
     })
-    if (!response.ok) throw new Error('모험 메시지를 전송하지 못했습니다.')
+    if (!response.ok) throw await requestFailure(response, '모험 메시지를 전송하지 못했습니다.')
     return response.json() as Promise<AdventureMessageResponse>
   }
 
@@ -102,6 +111,16 @@ export class HttpAdventureApi implements AdventureApi {
     if (!response.ok) throw new Error('에이전트 턴을 실행하지 못했습니다.')
     return response.json() as Promise<AdventureMessageResponse>
   }
+}
+
+async function requestFailure(response: Response, fallback: string) {
+  try {
+    const failure = await response.json() as AdventureFailure
+    if (failure.category && typeof failure.retryable === 'boolean' && failure.safeMessage && failure.correlationId) {
+      return new AdventureRequestError(failure)
+    }
+  } catch { /* use safe generic fallback */ }
+  return new Error(fallback)
 }
 
 function createRuntimeCommandIdentity() {

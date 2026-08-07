@@ -38,6 +38,7 @@ public final class GmTurn {
     public GmTurn process() { return transition(GmTurnStatus.PROCESSING, null, providerMetadata); }
     public GmTurn commit(String providerMetadata) { return transition(GmTurnStatus.COMMITTED, null, providerMetadata); }
     public GmTurn fail(String failure) { return transition(GmTurnStatus.FAILED, required(failure, "failure"), providerMetadata); }
+    public GmTurn retry() { return transition(GmTurnStatus.PROCESSING, null, providerMetadata); }
 
     public void assertSameCommand(GmInput other) {
         if (!fingerprint.equals(fingerprint(Objects.requireNonNull(other)))) {
@@ -46,10 +47,10 @@ public final class GmTurn {
     }
 
     private GmTurn transition(GmTurnStatus target, String nextFailure, String nextProvider) {
-        if (status == GmTurnStatus.COMMITTED || status == GmTurnStatus.FAILED) {
+        if (status == GmTurnStatus.COMMITTED) {
             throw new IllegalStateException("terminal GM turn cannot transition");
         }
-        if (target == GmTurnStatus.PROCESSING && status != GmTurnStatus.STARTED
+        if (target == GmTurnStatus.PROCESSING && status != GmTurnStatus.STARTED && status != GmTurnStatus.FAILED
                 || target == GmTurnStatus.COMMITTED && status != GmTurnStatus.PROCESSING
                 || target == GmTurnStatus.FAILED && status != GmTurnStatus.PROCESSING) {
             throw new IllegalStateException("invalid GM turn transition: " + status + " -> " + target);

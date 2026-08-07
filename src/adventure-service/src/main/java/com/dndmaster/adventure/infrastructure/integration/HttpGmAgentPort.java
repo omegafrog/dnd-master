@@ -2,6 +2,7 @@ package com.dndmaster.adventure.infrastructure.integration;
 
 import com.dndmaster.adventure.application.runtime.EvidencePack;
 import com.dndmaster.adventure.application.runtime.GmAgentPort;
+import com.dndmaster.adventure.application.runtime.GmAgentFailure;
 import com.dndmaster.adventure.application.runtime.GmContextEnvelope;
 import com.dndmaster.adventure.application.runtime.GmPlanResult;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
@@ -56,13 +57,24 @@ public final class HttpGmAgentPort implements GmAgentPort {
                     .header("Authorization", "Bearer " + context.ownerPlayerId().value())
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() / 100 != 2) throw new IllegalStateException("GM agent returned " + response.statusCode());
+            if (response.statusCode() / 100 != 2) throw failure(response);
             return Response.toResult(mapper.readValue(response.body(), Response.class));
+        } catch (GmAgentFailureException exception) {
+            throw exception;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("GM agent interrupted", exception);
         } catch (Exception exception) {
             throw new IllegalStateException("GM agent call failed", exception);
+        }
+    }
+
+    private RuntimeException failure(HttpResponse<String> response) {
+        try {
+            GmAgentFailure failure = mapper.readValue(response.body(), GmAgentFailure.class);
+            return new GmAgentFailureException(failure);
+        } catch (Exception ignored) {
+            return new IllegalStateException("GM agent returned an unusable failure contract");
         }
     }
 

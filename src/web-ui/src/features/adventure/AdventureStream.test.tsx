@@ -89,6 +89,26 @@ it('announces failure when message send fails', async () => {
   expect(screen.getByRole('status')).toHaveTextContent('턴 처리 실패')
 })
 
+it('retries a typed failure with the original command identity', async () => {
+  const commands: unknown[] = []
+  let attempts = 0
+  const api: AdventureApi = {
+    async sendMessage(_id, _message, command) {
+      commands.push(command)
+      attempts++
+      if (attempts === 1) throw new Error('typed safe failure')
+      return { narration: '재시도 성공', judgment: '', currentScene: '', sourceRefs: [], warnings: [], version: 1 }
+    },
+  }
+  const user = userEvent.setup()
+  render(<AdventureStream adventureId="a1" api={api} />)
+  await user.type(screen.getByLabelText('행동 또는 대화'), 'Open the door')
+  await user.click(screen.getByRole('button', { name: '보내기' }))
+  await user.click(await screen.findByRole('button', { name: '다시 시도' }))
+  expect(commands[1]).toEqual(commands[0])
+  expect(await screen.findByText((_, node) => node?.textContent === 'AI 게임 마스터: 재시도 성공')).toBeInTheDocument()
+})
+
 it('waits for direct input while agent turns progress automatically', () => {
   const api: AdventureApi = { async sendMessage() { throw new Error('must not send') } }
   const { rerender } = render(<AdventureStream adventureId="a1" api={api} controlMode="DIRECT" />)

@@ -15,7 +15,10 @@ public class GmTurnFailureRecorder {
 
     @Transactional
     public void record(GmTurn turn, UUID adventureId, UUID sessionId, String message, long version) {
-        turns.save(turn.process().fail(message == null ? "turn failed" : message), adventureId);
+        GmTurn failed = turn.status() == com.dndmaster.adventure.domain.runtime.GmTurnStatus.PROCESSING
+                ? turn.fail(message == null ? "turn failed" : message)
+                : turn.process().fail(message == null ? "turn failed" : message);
+        turns.save(failed, adventureId);
         events.append(new SessionEvent(sessionId, UUID.randomUUID(), version + 1, "GM_TURN_FAILED", message == null ? "turn failed" : message));
     }
 }
