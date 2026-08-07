@@ -49,5 +49,7 @@ Frozen 100-case corpus runs through real PostgreSQL/pgvector, rule/story HTTP AP
 
 - Added profile-gated `retrieval-evaluation` Spring task for the frozen 100-case corpus.
 - Added reproducibility identity to persisted evaluation artifacts: corpus, embedding, index, service, and configuration.
+- Required released identity values and validated every expected, alternative, and forbidden reference is in each case search scope before execution.
+- Retrieval evaluation profile bypasses unrelated Ollama startup preflight.
 - Kept evaluation task outside default runtime APIs.
 - Targeted retrieval tests and compile pass. Full module suite retains five pre-existing Ollama/FineTuning failures.

@@ -15,6 +15,8 @@ public record RetrievalEvaluationIdentity(
     }
 
     private static void required(String value, String name) {
-        if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " required");
+        if (value == null || value.isBlank() || "unreleased".equalsIgnoreCase(value.trim())) {
+            throw new IllegalArgumentException(name + " must identify a released artifact");
+        }
     }
 }

@@ -12,8 +12,10 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
 import org.springframework.stereotype.Component;
+import org.springframework.context.annotation.Profile;
 
 @Component
+@Profile("!retrieval-evaluation")
 public final class OllamaStartupPreflight implements ApplicationRunner {
     private final LocalOllamaProperties properties;
     private final OllamaModelInventory inventory;

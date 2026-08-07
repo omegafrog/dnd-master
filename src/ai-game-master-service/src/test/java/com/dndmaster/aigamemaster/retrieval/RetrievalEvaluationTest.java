@@ -94,6 +94,23 @@ class RetrievalEvaluationTest {
     }
 
     @Test
+    void corpus_validation_rejects_expected_reference_outside_seed_scope() {
+        var expected = new RetrievalReference("doc-1", "page:1", "v1");
+        var corpus = new RetrievalEvaluationCorpus("retrieval-evaluation-v1", List.of(
+                new RetrievalEvaluationCase("case-1", "rule", "q", "owner", "session", "package",
+                        List.of(expected), List.of(), List.of(), "rule", "REQUIRE_EVIDENCE", List.of(
+                                new RetrievalReference("doc-2", "page:2", "v1")))));
+
+        assertThrows(IllegalArgumentException.class, () -> RetrievalEvaluationCorpusValidator.validate(corpus));
+    }
+
+    @Test
+    void reproducibility_identity_rejects_unreleased_values() {
+        assertThrows(IllegalArgumentException.class, () -> new RetrievalEvaluationIdentity(
+                "unreleased", "embedding", "index", "service", "config"));
+    }
+
+    @Test
     void corpus_and_results_reject_duplicate_case_ids() {
         var c = new RetrievalEvaluationCase("case-1", "rule", "q", "owner", "session", "package", List.of(
                 new RetrievalReference("doc", "page:1", "v1")), List.of(), List.of(), "rule");
