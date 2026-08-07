@@ -31,4 +31,16 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
             default -> throw new IllegalArgumentException("unsupported GM provider: " + provider.provider());
         };
     }
+
+    @Override
+    public <T> T complete(String operationId, String prompt, StructuredResponseParser<T> parser,
+                          GmProviderRequest provider, DeadlineBudget budget) {
+        String routedOperation = operationId + ":" + provider.provider() + ":" + provider.model();
+        return switch (provider.provider()) {
+            case "ollama" -> ollama.completeWithModel(routedOperation, prompt, parser, provider.model(), budget);
+            case "openai" -> budget.call(() -> new OpenAiGmProvider(HttpClient.newHttpClient(), defaults.baseUrl(), defaults.apiKey(),
+                    provider.model(), provider.reasoning(), defaults.timeout()).complete(routedOperation, prompt, parser));
+            default -> throw new IllegalArgumentException("unsupported GM provider: " + provider.provider());
+        };
+    }
 }

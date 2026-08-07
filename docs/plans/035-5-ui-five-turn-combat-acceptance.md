@@ -18,6 +18,7 @@ One repeatable real-browser scenario proves that a Solo Player can use only the 
 - Fail the suite on hidden DC/internal ID leakage, uncommitted partial turn, duplicate roll, or rule/combat mismatch.
 - Document environment prerequisites and artifact retention without mutating input files or DB directly.
 - Bound provider calls to a finite story-plan timeout and expose only safe retryable errors in the player UI.
+- Generate Story Plan asynchronously: persist `GENERATING`, return immediately, poll from the UI, and mark `FAILED` after the 30-minute provider deadline.
 - Keep a real-backend, UI-only five-turn test gated by explicit environment configuration; fixture coverage remains deterministic and stateful.
 
 ## Likely files

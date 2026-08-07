@@ -320,7 +320,7 @@ public class AdventureApiConfiguration {
     @Bean
     AdventureStoryPlanGenerationPort adventureStoryPlanGenerationPort(ObjectMapper mapper,
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.ai-game-master.story-plan-timeout:240s}") Duration timeout) {
+            @Value("${adventure.integration.ai-game-master.story-plan-timeout:1800s}") Duration timeout) {
         return new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(), URI.create(baseUrl), timeout, mapper);
     }
 

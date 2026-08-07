@@ -47,6 +47,10 @@ public final class AdventureStoryPlan {
         return new AdventureStoryPlan(planId, sessionId, packageRevision, partyRevision, version, AdventureStoryPlanStatus.FAILED, List.of(), 0, reason, Instant.now());
     }
 
+    public static AdventureStoryPlan generating(UUID planId, SessionId sessionId, long packageRevision, long partyRevision, long version) {
+        return new AdventureStoryPlan(planId, sessionId, packageRevision, partyRevision, version, AdventureStoryPlanStatus.GENERATING, List.of(), 0, null, Instant.now());
+    }
+
     public static AdventureStoryPlan rehydrate(UUID planId, SessionId sessionId, long packageRevision, long partyRevision,
             long version, AdventureStoryPlanStatus status, List<AdventureStoryPlanStage> stages, int currentStage,
             String failureReason, Instant updatedAt) {

@@ -17,7 +17,14 @@ public final class AdventureStoryPlanController {
     public AdventureStoryPlanController(AdventureStoryPlanApplicationService service, AuthenticatedPlayerResolver playerResolver) { this.service = service; this.playerResolver = playerResolver; }
 
     @GetMapping
-    PlanView read(@PathVariable UUID sessionId) { return PlanView.from(service.read(new SessionId(sessionId), owner())); }
+    PlanView read(@PathVariable UUID sessionId) {
+        try {
+            return PlanView.from(service.read(new SessionId(sessionId), owner()));
+        } catch (IllegalStateException missing) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.NOT_FOUND, "story plan not found", missing);
+        }
+    }
 
     @GetMapping("/history")
     List<PlanView> history(@PathVariable UUID sessionId) { return service.readHistory(new SessionId(sessionId), owner()).stream().map(PlanView::from).toList(); }
@@ -25,7 +32,7 @@ public final class AdventureStoryPlanController {
     @PostMapping
     PlanView generate(@PathVariable UUID sessionId) {
         try {
-            return PlanView.from(service.generate(new SessionId(sessionId), owner()));
+            return PlanView.from(service.startGeneration(new SessionId(sessionId), owner()));
         } catch (IllegalStateException failure) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
@@ -36,7 +43,7 @@ public final class AdventureStoryPlanController {
     @PostMapping("/retry")
     PlanView retry(@PathVariable UUID sessionId) {
         try {
-            return PlanView.from(service.retry(new SessionId(sessionId), owner()));
+            return PlanView.from(service.startGeneration(new SessionId(sessionId), owner()));
         } catch (IllegalStateException failure) {
             throw new org.springframework.web.server.ResponseStatusException(
                     org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,

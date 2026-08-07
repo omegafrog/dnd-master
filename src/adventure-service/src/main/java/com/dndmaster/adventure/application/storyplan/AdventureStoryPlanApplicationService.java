@@ -12,6 +12,7 @@ import com.dndmaster.adventure.domain.adventure.SessionId;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.runtime.GmProviderBindingRepository;
 
@@ -21,6 +22,7 @@ public final class AdventureStoryPlanApplicationService {
     private final ScenarioPackageRepository packages;
     private final AdventureStoryPlanGenerationPort generator;
     private final GmProviderBindingRepository providerBindings;
+    private final ConcurrentHashMap<UUID, Boolean> running = new ConcurrentHashMap<>();
 
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions) {
         this(plans, sessions, null, request -> defaultStages());
@@ -47,6 +49,7 @@ public final class AdventureStoryPlanApplicationService {
     public AdventureStoryPlan generate(SessionId sessionId, OwnerPlayerId owner) {
         AdventureSession session = requireSession(sessionId, owner);
         validateParty(session);
+        if (running.containsKey(sessionId.value())) return plans.findBySessionId(sessionId).orElseThrow();
         AdventureStoryPlan previous = plans.findBySessionId(sessionId).orElse(null);
         long version = previous == null ? 1 : previous.version() + 1;
         com.dndmaster.adventure.application.runtime.GmProviderSelection provider = providerBindings == null ? null
@@ -62,6 +65,31 @@ public final class AdventureStoryPlanApplicationService {
                 session.id(), session.scenarioPackageRevision(), session.version(), version, stages);
         plans.save(plan);
         return plan;
+    }
+
+    public AdventureStoryPlan startGeneration(SessionId sessionId, OwnerPlayerId owner) {
+        AdventureSession session = requireSession(sessionId, owner);
+        validateParty(session);
+        AdventureStoryPlan previous = plans.findBySessionId(sessionId).orElse(null);
+        long version = previous == null ? 1 : previous.version() + 1;
+        AdventureStoryPlan generating = AdventureStoryPlan.generating(
+                previous == null ? UUID.randomUUID() : previous.planId(), session.id(),
+                session.scenarioPackageRevision(), session.version(), version);
+        plans.save(generating);
+        if (running.putIfAbsent(sessionId.value(), Boolean.TRUE) == null) {
+            java.util.concurrent.CompletableFuture.runAsync(() -> {
+                try {
+                    generate(sessionId, owner);
+                } catch (RuntimeException failure) {
+                    plans.save(AdventureStoryPlan.failed(generating.planId(), generating.sessionId(),
+                            generating.packageRevision(), generating.partyRevision(), generating.version(),
+                            "story plan provider unavailable"));
+                } finally {
+                    running.remove(sessionId.value());
+                }
+            });
+        }
+        return generating;
     }
 
     public AdventureStoryPlan retry(SessionId sessionId, OwnerPlayerId owner) {

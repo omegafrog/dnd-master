@@ -2,6 +2,7 @@ package com.dndmaster.aigamemaster.api;
 
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmProviderRequest;
+import com.dndmaster.aigamemaster.infrastructure.ai.DeadlineBudget;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
@@ -28,8 +29,9 @@ public final class AdventureStoryPlanController {
         if (request.provider() == null || request.provider().isBlank()) {
             return new Response(adapter.complete(request.operationId(), prompt, this::parse));
         }
-        return new Response(adapter.complete(request.operationId(), prompt, this::parse,
-                new GmProviderRequest(request.provider(), request.model(), request.reasoning())));
+            return new Response(adapter.complete(request.operationId(), prompt, this::parse,
+                new GmProviderRequest(request.provider(), request.model(), request.reasoning()),
+                DeadlineBudget.start(java.time.Duration.ofSeconds(1800), java.time.Duration.ofSeconds(30))));
     }
     private List<Stage> parse(String text) {
         try {

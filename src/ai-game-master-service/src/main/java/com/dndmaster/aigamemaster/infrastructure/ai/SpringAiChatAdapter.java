@@ -67,8 +67,13 @@ public final class SpringAiChatAdapter implements GmCompletionAdapter {
                 DeadlineBudget.start(java.time.Duration.ofSeconds(180), java.time.Duration.ofSeconds(30)));
     }
 
-    private <T> T completeWithModel(String operationId, String prompt, StructuredResponseParser<T> parser,
-                                    String requestedModel, DeadlineBudget budget) {
+    public <T> T completeWithModel(String operationId, String prompt, StructuredResponseParser<T> parser,
+                                   String requestedModel, DeadlineBudget budget) {
+        return completeWithModelInternal(operationId, prompt, parser, requestedModel, budget);
+    }
+
+    private <T> T completeWithModelInternal(String operationId, String prompt, StructuredResponseParser<T> parser,
+                                             String requestedModel, DeadlineBudget budget) {
         String fingerprint = register(operationId, prompt);
         CachedResult cached = completed.get(operationId);
         if (cached != null) return cast(cached.value);
