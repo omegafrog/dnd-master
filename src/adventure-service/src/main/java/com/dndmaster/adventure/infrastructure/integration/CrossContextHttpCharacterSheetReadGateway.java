@@ -28,7 +28,7 @@ public final class CrossContextHttpCharacterSheetReadGateway implements Characte
     @Override
     public CharacterSheet read(CharacterSheetId characterSheetId) {
         try {
-            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/character-sheets/" + characterSheetId.value()))
+            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/character-sheets/" + characterSheetId.value() + "?edition=DND_5E_2014"))
                     .timeout(timeout).GET().build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {

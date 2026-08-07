@@ -39,7 +39,7 @@ public final class AdventureSessionController {
         AdventurePartyMember member = characterSheetId == null ? null : session.party().stream().filter(item -> item.characterSheetId().value().equals(characterSheetId)).findFirst().orElse(null);
         boolean mutable = session.status() != AdventureSession.Status.STARTED && session.status() != AdventureSession.Status.STARTING;
         return member == null && session.status() == AdventureSession.Status.DRAFT ? CharacterPolicyView.draft() : member == null ? CharacterPolicyView.terminated() : new CharacterPolicyView(
-                mutable, mutable || member.nameMutableAfterStart(), mutable || member.levelMutableAfterStart(),
+                true, mutable || member.nameMutableAfterStart(), mutable || member.levelMutableAfterStart(),
                 mutable || member.raceMutableAfterStart(), mutable || member.characterClassMutableAfterStart(),
                 mutable || member.backgroundMutableAfterStart(), mutable || member.startingAbilitiesMutableAfterStart());
     }

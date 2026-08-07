@@ -5,7 +5,7 @@
       "source": "omegafrog/harness-codex",
       "sourceType": "github",
       "skillPath": ".codex/skills/architecture-spec/SKILL.md",
-      "computedHash": "a9237ac948ea3abf7ad14997380c907a36fb1484761ecbadb152e4d1f2a97849"
+      "computedHash": "aa9336c7e7c97c184115cf70c57ae8d1a372abd299614c1aff0406a3b1b690e5"
     },
     "code-research": {
       "source": "omegafrog/harness-codex",
@@ -48,6 +48,12 @@
       "sourceType": "github",
       "skillPath": ".codex/skills/event-storming/SKILL.md",
       "computedHash": "7eb2b91ca8eb030be8e3a2df8409b1da8bc01d0e98a4d234f41051df7e862003"
+    },
+    "gh-open-pr": {
+      "source": "omegafrog/harness-codex",
+      "sourceType": "github",
+      "skillPath": ".codex/skills/gh-open-pr/SKILL.md",
+      "computedHash": "71476a9c5d85c87d45bf18fbf8ba10b6554b540a7f3cbff92e9a9b6452b23718"
     },
     "grill-with-docs": {
       "source": "omegafrog/harness-codex",

@@ -42,7 +42,7 @@ public final class RuntimeBindingApplicationService {
                 knowledgeDocumentLookupPort, gameSystemDefinitionPort, true);
     }
 
-    private RuntimeBindingApplicationService(
+    public RuntimeBindingApplicationService(
             AdventureRepository adventureRepository, ScenarioBundleRepository bundleRepository,
             ScenarioPackageRepository scenarioPackageRepository, RuntimeBindingRepository bindingRepository,
             InitialSourceContextProposalPort proposalPort, KnowledgeDocumentLookupPort knowledgeDocumentLookupPort,

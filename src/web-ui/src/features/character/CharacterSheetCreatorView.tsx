@@ -624,6 +624,7 @@ type CharacterDraftSnapshot = {
   selectedCantrips?: string[];
   equipmentBundle?: string;
   equipmentItems?: EquipmentItem[];
+  abilityScoreMethod?: "STANDARD_ARRAY" | "ROLL_4D6_DROP_LOWEST";
 };
 function readCharacterDraft(key: string): Partial<CharacterDraftSnapshot> {
   if (typeof window === "undefined") return {};
@@ -641,8 +642,6 @@ function readCharacterDraft(key: string): Partial<CharacterDraftSnapshot> {
 
 function useBlueprintFields(blueprint?: BlueprintProps) {
   const [nodes, setNodes] = useState<ReturnType<typeof flattenNodes>>([]);
-  const [packageId, setPackageId] = useState<string | null>(null);
-  const [revision, setRevision] = useState(0);
   const [values, setValues] = useState<Record<string, string>>({});
   useEffect(() => {
     if (!blueprint) return;
@@ -651,14 +650,12 @@ function useBlueprintFields(blueprint?: BlueprintProps) {
       .read(blueprint.sessionId)
       .then((session) => {
         if (!active) return;
-        setPackageId(session.scenarioPackageId ?? null);
         return session.scenarioPackageId
           ? blueprint.setupApi.getPlayPreparation(session.scenarioPackageId)
           : null;
       })
       .then((preparation) => {
         if (active && preparation) {
-          setRevision(preparation.characterCreationBlueprint.revision ?? 0);
           setNodes(
             flattenNodes(preparation.characterCreationBlueprint.roots).filter(
               (node) => !isRemovedCharacterDetail(node),
@@ -744,19 +741,6 @@ function useBlueprintFields(blueprint?: BlueprintProps) {
     const node = find(keys);
     if (!node) return;
     setValues((current) => ({ ...current, [node.id]: next }));
-    if (packageId && blueprint?.setupApi.resolveBlueprint)
-      void blueprint.setupApi
-        .resolveBlueprint(packageId, node.id, next, revision)
-        .then((result) => {
-          if (
-            typeof result === "object" &&
-            result &&
-            "revision" in result &&
-            typeof result.revision === "number"
-          )
-            setRevision(result.revision);
-        })
-        .catch(() => undefined);
   }
   const extras = nodes.filter((node) => !mappedKeys.has(node.key));
   return { value, change, extras, values };
@@ -791,6 +775,9 @@ export function CharacterSheetCreatorView({
       ? initialDraft.scores
       : [0, 0, 0, 0, 0, 0],
   );
+  const [abilityScoreMethod, setAbilityScoreMethod] = useState<
+    "STANDARD_ARRAY" | "ROLL_4D6_DROP_LOWEST"
+  >(initialDraft.abilityScoreMethod ?? "STANDARD_ARRAY");
   const [equipmentTab] = useState<"owned" | "carried">(
     initialDraft.equipmentTab ?? "owned",
   );
@@ -828,6 +815,7 @@ export function CharacterSheetCreatorView({
           selectedCantrips,
           equipmentBundle,
           equipmentItems,
+          abilityScoreMethod,
         } satisfies CharacterDraftSnapshot),
       );
     } catch {
@@ -848,6 +836,7 @@ export function CharacterSheetCreatorView({
     selectedCantrips,
     equipmentBundle,
     equipmentItems,
+    abilityScoreMethod,
   ]);
   const modifierValue = (value: number) => Math.floor((value - 10) / 2);
   const hasScore = (value: number) => Number.isFinite(value) && value > 0;
@@ -924,6 +913,10 @@ export function CharacterSheetCreatorView({
     selectedClass && hasScore(effectiveScores[2])
       ? `${Math.max(1, Number(selectedClass.hitDie.slice(1)) + modifierValue(effectiveScores[2]))}/${Math.max(1, Number(selectedClass.hitDie.slice(1)) + modifierValue(effectiveScores[2]))}`
       : "—";
+  const hitPointMaximum =
+    selectedClass && hasScore(effectiveScores[2])
+      ? Math.max(1, Number(selectedClass.hitDie.slice(1)) + modifierValue(effectiveScores[2]))
+      : 0;
   const derivedAc = hasScore(effectiveScores[1])
     ? (() => {
         const dexterityModifier = modifierValue(effectiveScores[1]);
@@ -1014,7 +1007,7 @@ export function CharacterSheetCreatorView({
           .filter(([, type]) => type.includes("무기"))
           .map(([name]) => name),
         equippedItems: { armor: equippedArmor, shield: equippedShield },
-          ruleChoices: {},
+          ruleChoices: { abilityScoreMethod },
           baseStats: baseScores,
           stats: effectiveScores,
           race: effectiveRace,
@@ -1046,7 +1039,7 @@ export function CharacterSheetCreatorView({
         }),
         characterState: JSON.stringify({
           equippedItems: { armor: equippedArmor, shield: equippedShield },
-          currentHitPoints: 0,
+          currentHitPoints: hitPointMaximum,
           temporaryHitPoints: 0,
           experience: 0,
         }),
@@ -1210,7 +1203,10 @@ export function CharacterSheetCreatorView({
               <button
                 type="button"
                 className="ability-roll-button"
-                onClick={() => setScores(rollAbilityScores())}
+                onClick={() => {
+                  setAbilityScoreMethod("ROLL_4D6_DROP_LOWEST");
+                  setScores(rollAbilityScores());
+                }}
               >
                 4d6 굴림(최저값 제외)
               </button>
@@ -1243,6 +1239,7 @@ export function CharacterSheetCreatorView({
                       setScores((old) =>
                         old.map((v, j) => (j === i ? value : v)),
                       );
+                      setAbilityScoreMethod("STANDARD_ARRAY");
                       blueprintFields.change(scoreKeys[i], String(value));
                     }}
                   />

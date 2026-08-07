@@ -71,7 +71,7 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
-    AdventureStoryPlanController aiAdventureStoryPlanController(SpringAiChatAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+    AdventureStoryPlanController aiAdventureStoryPlanController(GmCompletionAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         return new AdventureStoryPlanController(adapter, objectMapper);
     }
 

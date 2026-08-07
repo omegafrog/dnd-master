@@ -44,6 +44,19 @@ class Dnd5e2014CharacterCreationValidatorTest {
     }
 
     @Test
+    void acceptsExplicitFourD6DropLowestAbilityScores() {
+        var request = request(
+                "DND_5E_2014", "파이터", 1,
+                "strength=12,dexterity=14,constitution=9,intelligence=8,wisdom=15,charisma=7",
+                """
+                {"schemaVersion":1,"subclass":"","skillProficiencies":["운동","위협"],"expertise":[],
+                 "equipmentSelections":{"equipmentBundle":"fighter-start"},"ruleChoices":{"abilityScoreMethod":"ROLL_4D6_DROP_LOWEST"},
+                 "equippedItems":{"armor":"쇠사슬 갑옷","shield":true}}
+                """);
+        assertDoesNotThrow(() -> Dnd5e2014CharacterCreationValidator.validateCreation(request));
+    }
+
+    @Test
     void rejectsInvalidRogueExpertise() {
         var request = request(
                 "DND_5E_2014", "로그", 1,

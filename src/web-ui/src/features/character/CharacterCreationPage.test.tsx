@@ -72,6 +72,30 @@ afterEach(() => {
 });
 
 describe("CharacterCreationPage", () => {
+  it("keeps published blueprint immutable while editing session character choices", async () => {
+    const user = userEvent.setup();
+    const resolveBlueprint = vi.fn();
+    const setupApi = {
+      getPlayPreparation: vi.fn().mockResolvedValue(preparation),
+      resolveBlueprint,
+      createCharacterSheet: vi.fn(),
+    };
+    const sessionApi = { read: vi.fn().mockResolvedValue(session), addMember: vi.fn() };
+    render(
+      <CharacterCreationPage
+        sessionId="session-1"
+        ownerPlayerId="player-1"
+        setupApi={setupApi}
+        sessionApi={sessionApi}
+      />,
+    );
+
+    await user.selectOptions(await screen.findByLabelText("종족"), "드워프");
+    await user.selectOptions(screen.getByLabelText("직업"), "파이터");
+
+    expect(resolveBlueprint).not.toHaveBeenCalled();
+  });
+
   it("uses the four classes and four races from the bundled Basic Rules", async () => {
     renderPage();
     const classSelect = await screen.findByLabelText("직업");
@@ -180,6 +204,7 @@ describe("CharacterCreationPage", () => {
     expect(draft.ownerPlayerId).toBe("player-1");
     expect(addMember).toHaveBeenCalledWith("session-1", 0, expect.objectContaining({ characterSheetId: "sheet-1", controlMode: "DIRECT" }));
     const build = JSON.parse(draft.characterBuild) as { baseStats: number[]; stats: number[]; raceBonus: number[]; learnedSpells: string[]; schemaVersion: number; skillProficiencies: string[]; equipmentSelections: Record<string, string>; equippedItems: { armor: string; shield: boolean } };
+    const state = JSON.parse(draft.characterState) as { currentHitPoints: number };
     expect(build.baseStats).toEqual([15, 14, 13, 12, 10, 8]);
     expect(build.stats).toEqual([16, 15, 14, 13, 11, 9]);
     expect(build.raceBonus).toEqual([1, 1, 1, 1, 1, 1]);
@@ -188,5 +213,6 @@ describe("CharacterCreationPage", () => {
     expect(build.equipmentSelections).toEqual({ equipmentBundle: "dungeon-explorer" });
     expect(build.equippedItems).toEqual({ armor: "가죽 갑옷", shield: false });
     expect(build.learnedSpells).toHaveLength(6);
+    expect(state.currentHitPoints).toBe(8);
   });
 });

@@ -13,20 +13,27 @@ import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
+import com.dndmaster.adventure.application.runtime.GmProviderBindingRepository;
 
 public final class AdventureStoryPlanApplicationService {
     private final AdventureStoryPlanRepository plans;
     private final AdventureSessionRepository sessions;
     private final ScenarioPackageRepository packages;
     private final AdventureStoryPlanGenerationPort generator;
+    private final GmProviderBindingRepository providerBindings;
 
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions) {
         this(plans, sessions, null, request -> defaultStages());
     }
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
             ScenarioPackageRepository packages, AdventureStoryPlanGenerationPort generator) {
+        this(plans, sessions, packages, generator, null);
+    }
+    public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
+            ScenarioPackageRepository packages, AdventureStoryPlanGenerationPort generator, GmProviderBindingRepository providerBindings) {
         this.plans = Objects.requireNonNull(plans); this.sessions = Objects.requireNonNull(sessions);
         this.packages = packages; this.generator = Objects.requireNonNull(generator);
+        this.providerBindings = providerBindings;
     }
 
     public AdventureStoryPlan read(SessionId sessionId, OwnerPlayerId owner) {
@@ -42,9 +49,14 @@ public final class AdventureStoryPlanApplicationService {
         validateParty(session);
         AdventureStoryPlan previous = plans.findBySessionId(sessionId).orElse(null);
         long version = previous == null ? 1 : previous.version() + 1;
+        com.dndmaster.adventure.application.runtime.GmProviderSelection provider = providerBindings == null ? null
+                : providerBindings.current(sessionId.value()).map(binding -> binding.selection()).orElse(null);
         List<AdventureStoryPlanStage> stages = generator.generate(new AdventureStoryPlanGenerationPort.Request(
                 UUID.randomUUID().toString(), session.scenarioPackageRevision(), session.party().size(),
-                sourceDocuments(session), resolutionEvidence(session)));
+                sourceDocuments(session), resolutionEvidence(session),
+                provider == null ? null : provider.provider(),
+                provider == null ? null : provider.model(),
+                provider == null ? null : provider.reasoning()));
         AdventureStoryPlan plan = AdventureStoryPlan.ready(
                 previous == null ? java.util.UUID.randomUUID() : previous.planId(),
                 session.id(), session.scenarioPackageRevision(), session.version(), version, stages);

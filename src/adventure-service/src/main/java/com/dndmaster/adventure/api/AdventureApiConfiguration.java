@@ -311,8 +311,9 @@ public class AdventureApiConfiguration {
 
     @Bean
     AdventureStoryPlanApplicationService adventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
-            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packages, AdventureStoryPlanGenerationPort generator) {
-        return new AdventureStoryPlanApplicationService(plans, sessions, packages, generator);
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packages, AdventureStoryPlanGenerationPort generator,
+            com.dndmaster.adventure.application.runtime.GmProviderBindingRepository providerBindings) {
+        return new AdventureStoryPlanApplicationService(plans, sessions, packages, generator, providerBindings);
     }
 
     @Bean
@@ -734,7 +735,7 @@ public class AdventureApiConfiguration {
             GameSystemDefinitionPort gameSystemDefinitionPort) {
         return new RuntimeBindingApplicationService(
                 adventureRepository, bundleRepository, packageRepository, runtimeBindingRepository, proposalPort,
-                lookupPort, gameSystemDefinitionPort);
+                lookupPort, gameSystemDefinitionPort, false);
     }
 
     @Bean

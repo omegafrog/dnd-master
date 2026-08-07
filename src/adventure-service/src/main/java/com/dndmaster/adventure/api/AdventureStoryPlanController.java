@@ -23,10 +23,26 @@ public final class AdventureStoryPlanController {
     List<PlanView> history(@PathVariable UUID sessionId) { return service.readHistory(new SessionId(sessionId), owner()).stream().map(PlanView::from).toList(); }
 
     @PostMapping
-    PlanView generate(@PathVariable UUID sessionId) { return PlanView.from(service.generate(new SessionId(sessionId), owner())); }
+    PlanView generate(@PathVariable UUID sessionId) {
+        try {
+            return PlanView.from(service.generate(new SessionId(sessionId), owner()));
+        } catch (IllegalStateException failure) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
+                    "story plan provider unavailable", failure);
+        }
+    }
 
     @PostMapping("/retry")
-    PlanView retry(@PathVariable UUID sessionId) { return PlanView.from(service.retry(new SessionId(sessionId), owner())); }
+    PlanView retry(@PathVariable UUID sessionId) {
+        try {
+            return PlanView.from(service.retry(new SessionId(sessionId), owner()));
+        } catch (IllegalStateException failure) {
+            throw new org.springframework.web.server.ResponseStatusException(
+                    org.springframework.http.HttpStatus.SERVICE_UNAVAILABLE,
+                    "story plan provider unavailable", failure);
+        }
+    }
 
     private OwnerPlayerId owner() { return new OwnerPlayerId(playerResolver.playerId()); }
 

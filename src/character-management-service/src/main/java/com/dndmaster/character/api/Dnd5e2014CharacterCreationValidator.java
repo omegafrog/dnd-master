@@ -37,15 +37,17 @@ final class Dnd5e2014CharacterCreationValidator {
         if (request.characterName() == null || request.characterName().isBlank()) errors.add("NAME_REQUIRED");
         if (request.level() != 1) errors.add("NEW_CHARACTER_LEVEL_MUST_BE_ONE");
         if (!CLASS_SKILL_MINIMUMS.containsKey(request.characterClass())) errors.add("UNSUPPORTED_CLASS");
-        validateStandardArray(request.startingAbilities(), errors);
         JsonNode build = parseRequiredObject(request.characterBuild(), "CHARACTER_BUILD_REQUIRED", errors);
-        if (build != null) validateBuild(request.characterClass(), build, errors);
+        if (build != null) {
+            validateAbilityScores(request.startingAbilities(), build, errors);
+            validateBuild(request.characterClass(), build, errors);
+        }
         JsonNode state = parseRequiredObject(request.characterState(), "CHARACTER_STATE_REQUIRED", errors);
         if (state != null && !state.has("equippedItems")) errors.add("EQUIPPED_ITEMS_REQUIRED");
         if (!errors.isEmpty()) throw badRequest(errors);
     }
 
-    private static void validateStandardArray(String startingAbilities, List<String> errors) {
+    private static void validateAbilityScores(String startingAbilities, JsonNode build, List<String> errors) {
         if (startingAbilities == null || startingAbilities.isBlank()) {
             errors.add("STANDARD_ARRAY_REQUIRED");
             return;
@@ -66,7 +68,16 @@ final class Dnd5e2014CharacterCreationValidator {
         }
         List<Integer> values = new ArrayList<>(parsed.values());
         values.sort(java.util.Comparator.reverseOrder());
-        if (parsed.size() != ABILITIES.size() || !values.equals(STANDARD_ARRAY)) errors.add("STANDARD_ARRAY_MISMATCH");
+        String method = build.path("ruleChoices").path("abilityScoreMethod").asText("STANDARD_ARRAY");
+        if ("ROLL_4D6_DROP_LOWEST".equals(method)) {
+            if (parsed.size() != ABILITIES.size() || values.stream().anyMatch(value -> value < 3 || value > 18)) {
+                errors.add("ROLL_4D6_SCORE_OUT_OF_RANGE");
+            }
+            return;
+        }
+        if (!"STANDARD_ARRAY".equals(method) || parsed.size() != ABILITIES.size() || !values.equals(STANDARD_ARRAY)) {
+            errors.add("STANDARD_ARRAY_MISMATCH");
+        }
     }
 
     private static JsonNode parseRequiredObject(String value, String missingCode, List<String> errors) {
