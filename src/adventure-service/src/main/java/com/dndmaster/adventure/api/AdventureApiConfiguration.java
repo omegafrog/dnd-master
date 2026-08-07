@@ -732,10 +732,22 @@ public class AdventureApiConfiguration {
             RuntimeBindingRepository runtimeBindingRepository,
             InitialSourceContextProposalPort proposalPort,
             KnowledgeDocumentLookupPort lookupPort,
-            GameSystemDefinitionPort gameSystemDefinitionPort) {
+            GameSystemDefinitionPort gameSystemDefinitionPort,
+            RuntimeCapabilityPreflightPort capabilityPreflightPort) {
         return new RuntimeBindingApplicationService(
                 adventureRepository, bundleRepository, packageRepository, runtimeBindingRepository, proposalPort,
-                lookupPort, gameSystemDefinitionPort, false);
+                lookupPort, gameSystemDefinitionPort, false, capabilityPreflightPort);
+    }
+
+    @Bean
+    RuntimeCapabilityPreflightPort runtimeCapabilityPreflightPort(
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String gmBaseUrl,
+            @Value("${adventure.integration.dice-roll.base-url:http://127.0.0.1:8080/}") String diceBaseUrl,
+            @Value("${adventure.integration.character-management.base-url:http://127.0.0.1:8080/}") String characterBaseUrl,
+            @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String mapBaseUrl) {
+        return new com.dndmaster.adventure.infrastructure.integration.HttpRuntimeCapabilityPreflight(
+                HttpClient.newHttpClient(), URI.create(gmBaseUrl), URI.create(diceBaseUrl), URI.create(characterBaseUrl),
+                URI.create(mapBaseUrl), Duration.ofSeconds(2));
     }
 
     @Bean

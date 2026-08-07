@@ -10,6 +10,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 public final class RuntimeBindingApplicationService {
@@ -23,6 +24,7 @@ public final class RuntimeBindingApplicationService {
     private final KnowledgeDocumentLookupPort knowledgeDocumentLookupPort;
     private final GameSystemDefinitionPort gameSystemDefinitionPort;
     private final boolean requirePublishedReferences;
+    private final RuntimeCapabilityPreflightPort capabilityPreflightPort;
 
     public RuntimeBindingApplicationService(
             AdventureRepository adventureRepository,
@@ -32,7 +34,7 @@ public final class RuntimeBindingApplicationService {
             InitialSourceContextProposalPort proposalPort,
             KnowledgeDocumentLookupPort knowledgeDocumentLookupPort) {
         this(adventureRepository, bundleRepository, scenarioPackageRepository, bindingRepository, proposalPort,
-                knowledgeDocumentLookupPort, sessionId -> java.util.Optional.empty(), false);
+                knowledgeDocumentLookupPort, sessionId -> java.util.Optional.empty(), false, (engine, tools, roles) -> RuntimeCapabilityPreflightPort.Result.ready());
     }
 
     public RuntimeBindingApplicationService(
@@ -49,6 +51,17 @@ public final class RuntimeBindingApplicationService {
             ScenarioPackageRepository scenarioPackageRepository, RuntimeBindingRepository bindingRepository,
             InitialSourceContextProposalPort proposalPort, KnowledgeDocumentLookupPort knowledgeDocumentLookupPort,
             GameSystemDefinitionPort gameSystemDefinitionPort, boolean requirePublishedReferences) {
+        this(adventureRepository, bundleRepository, scenarioPackageRepository, bindingRepository, proposalPort,
+                knowledgeDocumentLookupPort, gameSystemDefinitionPort, requirePublishedReferences,
+                (engine, tools, roles) -> RuntimeCapabilityPreflightPort.Result.ready());
+    }
+
+    public RuntimeBindingApplicationService(
+            AdventureRepository adventureRepository, ScenarioBundleRepository bundleRepository,
+            ScenarioPackageRepository scenarioPackageRepository, RuntimeBindingRepository bindingRepository,
+            InitialSourceContextProposalPort proposalPort, KnowledgeDocumentLookupPort knowledgeDocumentLookupPort,
+            GameSystemDefinitionPort gameSystemDefinitionPort, boolean requirePublishedReferences,
+            RuntimeCapabilityPreflightPort capabilityPreflightPort) {
         this.adventureRepository = Objects.requireNonNull(adventureRepository, "adventure repository must not be null");
         this.bundleRepository = Objects.requireNonNull(bundleRepository, "bundle repository must not be null");
         this.scenarioPackageRepository = Objects.requireNonNull(scenarioPackageRepository, "scenario package repository must not be null");
@@ -57,6 +70,7 @@ public final class RuntimeBindingApplicationService {
         this.knowledgeDocumentLookupPort = Objects.requireNonNull(knowledgeDocumentLookupPort, "knowledge document lookup port must not be null");
         this.gameSystemDefinitionPort = Objects.requireNonNull(gameSystemDefinitionPort, "game system definition port must not be null");
         this.requirePublishedReferences = requirePublishedReferences;
+        this.capabilityPreflightPort = Objects.requireNonNull(capabilityPreflightPort);
     }
 
     public RuntimeBinding bind(BindRuntimeBindingCommand command) {
@@ -189,6 +203,11 @@ public final class RuntimeBindingApplicationService {
         List<String> warnings = new ArrayList<>(binding.playabilityReport().warnings());
         boolean pending = false;
         boolean degraded = false;
+        var capability = capabilityPreflightPort.check(binding.engineId(), binding.toolIds(), scenarioPackageRepository.findById(binding.scenarioPackageId())
+                .map(packageValue -> packageValue.documents().stream().map(document -> document.role().name()).collect(java.util.stream.Collectors.toSet()))
+                .orElse(Set.of()));
+        blockers.addAll(capability.blockers());
+        warnings.addAll(capability.warnings());
         boolean[] pendingHolder = {false};
         boolean[] degradedHolder = {false};
         if (!SUPPORTED_ENGINES.contains(binding.engineId())) {
