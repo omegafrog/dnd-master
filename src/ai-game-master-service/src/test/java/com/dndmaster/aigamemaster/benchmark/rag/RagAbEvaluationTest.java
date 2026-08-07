@@ -54,4 +54,29 @@ class RagAbEvaluationTest {
                 new GmBenchmarkConfig("other", "qwen", "sha256:x", .2, 512, 4096, 3),
                 (c, condition, evidence, unchanged) -> new RagAbExecution(true, true, true, false, false, true, true, 1, 1, "")));
     }
+
+    @Test
+    void paired_analysis_reports_effect_confidence_and_significance() {
+        var result = RagAbPairedStatistics.analyze(List.of(1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0),
+                List.of(0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0), 0.05, 0L);
+
+        assertEquals(1.0, result.effect());
+        assertTrue(result.confidenceLow() > 0.0);
+        assertTrue(result.confidenceHigh() >= result.confidenceLow());
+        assertTrue(result.pValue() <= 0.05);
+        assertTrue(result.significant());
+    }
+
+    @Test
+    void reviewer_records_are_blind_and_validate_score_and_provenance() {
+        var record = new RagAbReviewerRecord("case-01", RagAbCondition.CURRENT_RAG, 0,
+                "reviewer-1", 4.0, "blind-web-2026-01", "response-hash");
+
+        assertEquals("reviewer-1", record.reviewerId());
+        assertEquals(4.0, record.score());
+        assertThrows(IllegalArgumentException.class, () -> new RagAbReviewerRecord(
+                "case-01", RagAbCondition.CURRENT_RAG, 0, "", 4.0, "blind-web", "hash"));
+        assertThrows(IllegalArgumentException.class, () -> new RagAbReviewerRecord(
+                "case-01", RagAbCondition.CURRENT_RAG, 0, "reviewer", 6.0, "blind-web", "hash"));
+    }
 }
