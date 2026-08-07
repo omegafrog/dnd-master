@@ -23,4 +23,15 @@ class DeadlineBudgetTest {
 
         assertThrows(ProviderTimeoutException.class, () -> budget.requireRemaining(Duration.ZERO));
     }
+
+    @Test
+    void cancelsProviderWorkAtTheRemainingDeadline() {
+        DeadlineBudget budget = DeadlineBudget.at(java.time.Instant.now().plusMillis(30),
+                Duration.ofMillis(30), Duration.ofMillis(10));
+
+        assertThrows(ProviderTimeoutException.class, () -> budget.call(() -> {
+            Thread.sleep(500);
+            return "late";
+        }));
+    }
 }

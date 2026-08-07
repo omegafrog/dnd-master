@@ -48,6 +48,11 @@ public final class SpringAiChatAdapter implements GmCompletionAdapter {
         return completeWithModel(operationId, prompt, parser, null);
     }
 
+    @Override
+    public <T> T complete(String operationId, String prompt, StructuredResponseParser<T> parser, DeadlineBudget budget) {
+        return completeWithModel(operationId, prompt, parser, null, budget);
+    }
+
     public String completeNarrative(String scene, String groundedContext) {
         if (scene == null || scene.isBlank() || groundedContext == null || groundedContext.isBlank()) {
             throw new IllegalArgumentException("scene and grounded context required");
@@ -58,16 +63,24 @@ public final class SpringAiChatAdapter implements GmCompletionAdapter {
     }
 
     public <T> T completeWithModel(String operationId, String prompt, StructuredResponseParser<T> parser, String requestedModel) {
+        return completeWithModel(operationId, prompt, parser, requestedModel,
+                DeadlineBudget.start(java.time.Duration.ofSeconds(90), java.time.Duration.ofSeconds(30)));
+    }
+
+    private <T> T completeWithModel(String operationId, String prompt, StructuredResponseParser<T> parser,
+                                    String requestedModel, DeadlineBudget budget) {
         String fingerprint = register(operationId, prompt);
         CachedResult cached = completed.get(operationId);
         if (cached != null) return cast(cached.value);
         for (int attempt = 1; ; attempt++) {
             try {
+                budget.requireRemaining(java.time.Duration.ofMillis(1));
                 OllamaChatOptions.Builder options = OllamaChatOptions.builder().format("json").numPredict(numPredict);
                 if (requestedModel != null && !requestedModel.isBlank()) options.model(requestedModel);
                 if (thinkingOnly) options.enableThinking(); else options.disableThinking();
-                ChatResponse response = model.call(new Prompt(prompt, options.build()));
+                ChatResponse response = budget.call(() -> model.call(new Prompt(prompt, options.build())));
                 T parsed = parser.parse(text(response));
+                budget.requireRemaining(java.time.Duration.ofMillis(1));
                 completed.put(operationId, new CachedResult(fingerprint, parsed));
                 logger.success(operationId);
                 return parsed;

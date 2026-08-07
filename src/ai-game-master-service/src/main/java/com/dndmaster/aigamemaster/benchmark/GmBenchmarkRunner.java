@@ -30,6 +30,7 @@ public final class GmBenchmarkRunner {
                 config.temperature(), config.tokenCap(), config.contextSize(), runs, metrics,
                 GmBenchmarkAggregator.aggregateAll(runs),
                 GmBenchmarkAggregator.aggregateAll(runs.stream().filter(run -> run.temperatureState() == GmBenchmarkRun.TemperatureState.COLD).toList()),
-                GmBenchmarkAggregator.aggregateAll(runs.stream().filter(run -> run.temperatureState() == GmBenchmarkRun.TemperatureState.WARM).toList()));
+                GmBenchmarkAggregator.aggregateAll(runs.stream().filter(run -> run.temperatureState() == GmBenchmarkRun.TemperatureState.WARM).toList()),
+                GmLatencyMetadata.defaults(runs.size()));
     }
 }

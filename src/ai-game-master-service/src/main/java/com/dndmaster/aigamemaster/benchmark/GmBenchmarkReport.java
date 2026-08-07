@@ -6,13 +6,29 @@ public record GmBenchmarkReport(String schemaVersion, String corpusVersion, Stri
                                 String modelDigest, double temperature, int tokenCap, int contextSize,
                                 List<GmBenchmarkRun> runs, List<GmBenchmarkCaseMetrics> cases,
                                 GmBenchmarkMetrics overallMetrics, GmBenchmarkMetrics coldMetrics,
-                                GmBenchmarkMetrics warmMetrics) {
+                                GmBenchmarkMetrics warmMetrics, GmLatencyMetadata latencyMetadata) {
     public GmBenchmarkReport {
         if (!"gm-quality-baseline.v1".equals(schemaVersion)) {
             throw new IllegalArgumentException("unsupported benchmark schema version");
         }
         runs = List.copyOf(runs);
         cases = List.copyOf(cases);
+    }
+
+    public GmBenchmarkReport(String schemaVersion, String corpusVersion, String model, String modelDigest,
+                             double temperature, int tokenCap, int contextSize, List<GmBenchmarkRun> runs,
+                             List<GmBenchmarkCaseMetrics> cases, GmBenchmarkMetrics overallMetrics,
+                             GmBenchmarkMetrics coldMetrics, GmBenchmarkMetrics warmMetrics) {
+        this(schemaVersion, corpusVersion, model, modelDigest, temperature, tokenCap, contextSize, runs, cases,
+                overallMetrics, coldMetrics, warmMetrics,
+                GmLatencyMetadata.defaults(runs == null ? 0 : runs.size()));
+    }
+
+    public void assertPublishable() {
+        if (latencyMetadata == null) throw new IllegalStateException("latency deadline metadata required");
+        if (latencyMetadata.sampleCount() < 3 || latencyMetadata.sampleCount() != runs.size()) {
+            throw new IllegalStateException("benchmark sample count is inadequate or inconsistent");
+        }
     }
 
     public record GmBenchmarkCaseMetrics(String caseId, GmBenchmarkMetrics metrics) {}

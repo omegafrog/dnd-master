@@ -2,6 +2,7 @@ package com.dndmaster.aigamemaster.api;
 
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmProviderRequest;
+import com.dndmaster.aigamemaster.infrastructure.ai.DeadlineBudget;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.UUID;
@@ -11,6 +12,8 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 
 /** Provider-neutral read-only GM loop. No tool calls or state mutations are exposed. */
 @RestController
@@ -18,11 +21,22 @@ public final class GmAgentController {
     private final GmCompletionAdapter adapter;
     private final ObjectMapper mapper;
     private final ApiRequestGuard requestGuard;
+    private final java.time.Duration totalTimeout;
+    private final java.time.Duration retrievalTimeout;
 
     public GmAgentController(GmCompletionAdapter adapter, ObjectMapper mapper, ApiRequestGuard requestGuard) {
+        this(adapter, mapper, requestGuard, java.time.Duration.ofSeconds(90), java.time.Duration.ofSeconds(30));
+    }
+
+    @Autowired
+    public GmAgentController(GmCompletionAdapter adapter, ObjectMapper mapper, ApiRequestGuard requestGuard,
+                             @Value("${ai.gm.timeout:90s}") java.time.Duration totalTimeout,
+                             @Value("${ai.gm.retrieval-timeout:30s}") java.time.Duration retrievalTimeout) {
         this.adapter = adapter;
         this.mapper = mapper;
         this.requestGuard = requestGuard;
+        this.totalTimeout = totalTimeout;
+        this.retrievalTimeout = retrievalTimeout;
     }
 
     @PostMapping("/internal/v1/gm/agent-turns")
@@ -32,11 +46,12 @@ public final class GmAgentController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "action required");
         }
         String operation = request.operationKey();
+        DeadlineBudget budget = DeadlineBudget.start(totalTimeout, retrievalTimeout);
         try {
-                return complete(request, operation, prompt(request), request.protectedFacts());
+                return complete(request, operation, prompt(request), request.protectedFacts(), budget);
         } catch (com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException malformed) {
             try {
-                return complete(request, operation + ":repair", repairPrompt(request), request.protectedFacts());
+                return complete(request, operation + ":repair", repairPrompt(request), request.protectedFacts(), budget);
             } catch (RuntimeException stillMalformed) {
                 throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
                         "GM provider structured response unavailable", stillMalformed);
@@ -47,12 +62,13 @@ public final class GmAgentController {
         }
     }
 
-    private Response complete(Request request, String operation, String prompt, List<String> protectedFacts) {
+    private Response complete(Request request, String operation, String prompt, List<String> protectedFacts,
+                              DeadlineBudget budget) {
         if (request.provider() == null || request.provider().isBlank()) {
-            return adapter.complete(operation, prompt, json -> parseCompleteResponse(json, protectedFacts, request));
+            return adapter.complete(operation, prompt, json -> parseCompleteResponse(json, protectedFacts, request), budget);
         }
         return adapter.complete(operation, prompt, json -> parseCompleteResponse(json, protectedFacts, request),
-                new GmProviderRequest(request.provider(), request.model(), request.reasoning()));
+                new GmProviderRequest(request.provider(), request.model(), request.reasoning()), budget);
     }
 
     private Response parseCompleteResponse(String json, List<String> protectedFacts, Request request) {

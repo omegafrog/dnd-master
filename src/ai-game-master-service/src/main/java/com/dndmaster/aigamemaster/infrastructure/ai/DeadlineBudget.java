@@ -3,9 +3,17 @@ package com.dndmaster.aigamemaster.infrastructure.ai;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Objects;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 
 /** Monotonic wall-clock budget shared by retrieval, generation, repair, and validation. */
 public final class DeadlineBudget {
+    private static final ExecutorService CALL_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
     private final Instant deadline;
     private final Duration totalBudget;
     private final Duration retrievalBudget;
@@ -53,6 +61,25 @@ public final class DeadlineBudget {
         Objects.requireNonNull(minimum, "minimum");
         if (minimum.isNegative() || remaining().compareTo(minimum) < 0) {
             throw new ProviderTimeoutException(new java.util.concurrent.TimeoutException("turn deadline exhausted"));
+        }
+    }
+
+    public <T> T call(Callable<T> operation) {
+        Objects.requireNonNull(operation, "operation");
+        Duration available = child(Duration.ofDays(365));
+        Future<T> future = CALL_EXECUTOR.submit(operation);
+        try {
+            return future.get(available.toNanos(), TimeUnit.NANOSECONDS);
+        } catch (TimeoutException exception) {
+            future.cancel(true);
+            throw new ProviderTimeoutException(exception);
+        } catch (InterruptedException exception) {
+            future.cancel(true);
+            Thread.currentThread().interrupt();
+            throw new ProviderTimeoutException(exception);
+        } catch (ExecutionException exception) {
+            if (exception.getCause() instanceof RuntimeException runtime) throw runtime;
+            throw new IllegalStateException("deadline operation failed", exception.getCause());
         }
     }
 

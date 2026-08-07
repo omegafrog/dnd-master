@@ -11,6 +11,7 @@ public final class GmBenchmarkArtifactStore {
     public GmBenchmarkArtifactStore(ObjectMapper mapper) { this.mapper = mapper; }
 
     public void write(Path directory, GmBenchmarkReport report) throws IOException {
+        report.assertPublishable();
         Path raw = directory.resolve("raw");
         Files.createDirectories(raw);
         for (GmBenchmarkRun run : report.runs()) {
