@@ -94,7 +94,8 @@ public class RuntimeBindingController {
             String engineId,
             List<String> toolIds,
             PlayabilityReportResponse playabilityReport,
-            ActiveSourceContextResponse activeSourceContext) {
+            ActiveSourceContextResponse activeSourceContext,
+            RuntimeReadinessResponse readiness) {
         static RuntimeBindingResponse from(RuntimeBinding binding) {
             return new RuntimeBindingResponse(
                     binding.adventureId().value(),
@@ -112,7 +113,16 @@ public class RuntimeBindingController {
                     binding.engineId(),
                     binding.toolIds(),
                     PlayabilityReportResponse.from(binding.playabilityReport()),
-                    binding.activeSourceContext() == null ? null : ActiveSourceContextResponse.from(binding.activeSourceContext()));
+                    binding.activeSourceContext() == null ? null : ActiveSourceContextResponse.from(binding.activeSourceContext()),
+                    RuntimeReadinessResponse.from(binding.readiness()));
+        }
+    }
+
+    public record RuntimeReadinessResponse(long bindingVersion, String status, List<String> blockers,
+                                           List<String> warnings, boolean retryable, boolean ready) {
+        static RuntimeReadinessResponse from(RuntimeReadiness readiness) {
+            return new RuntimeReadinessResponse(readiness.bindingVersion(), readiness.status().name(), readiness.blockers(),
+                    readiness.warnings(), readiness.retryable(), readiness.ready());
         }
     }
 

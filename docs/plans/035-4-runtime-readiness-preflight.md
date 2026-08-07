@@ -1,6 +1,6 @@
 # 035-4 Runtime readiness and preflight
 
-- Status: `planned`
+- Status: `completed`
 - Tracker: local Markdown
 - Dependencies: 035-1
 - Product rules: BR-007, AC-006

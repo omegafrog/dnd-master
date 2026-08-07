@@ -133,7 +133,12 @@ public final class AdventureSessionApplicationService {
         }
         if (prologueService != null) prologueService.ensure(adventureId, owner);
         initializeSessionKnowledgeSetIfMissing(session, scenarioPackage);
-        runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(adventureId, owner, session.scenarioPackageId(), configuration.rulebookIds(), configuration.engineId(), configuration.toolIds()));
+        var binding = runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(
+                adventureId, owner, session.scenarioPackageId(), configuration.rulebookIds(), configuration.engineId(), configuration.toolIds()));
+        if (binding != null && !binding.readiness().ready()) {
+            throw new IllegalStateException("runtime readiness is " + binding.readiness().status() + ": "
+                    + String.join(", ", binding.readiness().blockers().isEmpty() ? binding.readiness().warnings() : binding.readiness().blockers()));
+        }
         if (session.status() == AdventureSession.Status.STARTING) {
             session.completeStart();
             repository.save(session, session.version() - 1);

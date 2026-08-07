@@ -19,6 +19,7 @@ public final class RuntimeBinding {
     private final long characterBlueprintVersion;
     private final PlayabilityReport playabilityReport;
     private final ActiveSourceContext activeSourceContext;
+    private final RuntimeReadiness readiness;
 
     private RuntimeBinding(
             AdventureId adventureId,
@@ -34,6 +35,16 @@ public final class RuntimeBinding {
             long characterBlueprintVersion,
             PlayabilityReport playabilityReport,
             ActiveSourceContext activeSourceContext) {
+        this(adventureId, ownerPlayerId, bindingVersion, scenarioPackageId, scenarioPackageRevision, rulebookIds,
+                party, engineId, toolIds, gameSystemDefinitionVersion, characterBlueprintVersion, playabilityReport,
+                activeSourceContext, readiness(bindingVersion, playabilityReport));
+    }
+
+    private RuntimeBinding(
+            AdventureId adventureId, OwnerPlayerId ownerPlayerId, long bindingVersion, UUID scenarioPackageId,
+            long scenarioPackageRevision, List<UUID> rulebookIds, List<AdventurePartyMember> party, String engineId,
+            List<String> toolIds, long gameSystemDefinitionVersion, long characterBlueprintVersion,
+            PlayabilityReport playabilityReport, ActiveSourceContext activeSourceContext, RuntimeReadiness readiness) {
         this.adventureId = Objects.requireNonNull(adventureId, "adventure id must not be null");
         this.ownerPlayerId = Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
         if (bindingVersion <= 0) {
@@ -55,6 +66,8 @@ public final class RuntimeBinding {
         this.characterBlueprintVersion = characterBlueprintVersion;
         this.playabilityReport = Objects.requireNonNull(playabilityReport, "playability report must not be null");
         this.activeSourceContext = activeSourceContext;
+        this.readiness = Objects.requireNonNull(readiness, "readiness must not be null");
+        if (readiness.bindingVersion() != bindingVersion) throw new IllegalArgumentException("readiness binding version mismatch");
     }
 
     public static RuntimeBinding create(
@@ -102,6 +115,13 @@ public final class RuntimeBinding {
         return new RuntimeBinding(adventureId, ownerPlayerId, bindingVersion, scenarioPackageId, scenarioPackageRevision,
                 rulebookIds, party, engineId, toolIds, definitionVersion, blueprintVersion, playabilityReport, activeSourceContext);
     }
+    public static RuntimeBinding rehydrate(AdventureId adventureId, OwnerPlayerId ownerPlayerId, long bindingVersion,
+            UUID scenarioPackageId, long scenarioPackageRevision, List<UUID> rulebookIds, List<AdventurePartyMember> party,
+            String engineId, List<String> toolIds, long definitionVersion, long blueprintVersion,
+            PlayabilityReport playabilityReport, ActiveSourceContext activeSourceContext, RuntimeReadiness readiness) {
+        return new RuntimeBinding(adventureId, ownerPlayerId, bindingVersion, scenarioPackageId, scenarioPackageRevision,
+                rulebookIds, party, engineId, toolIds, definitionVersion, blueprintVersion, playabilityReport, activeSourceContext, readiness);
+    }
     public RuntimeBinding withNewPackage(
             UUID scenarioPackageId,
             long scenarioPackageRevision,
@@ -135,6 +155,7 @@ public final class RuntimeBinding {
     public long characterBlueprintVersion() { return characterBlueprintVersion; }
     public PlayabilityReport playabilityReport() { return playabilityReport; }
     public ActiveSourceContext activeSourceContext() { return activeSourceContext; }
+    public RuntimeReadiness readiness() { return readiness; }
 
     public RuntimeBinding withSelection(ActiveSourceContext selected, PlayabilityReport playabilityReport) {
         return new RuntimeBinding(
@@ -142,10 +163,26 @@ public final class RuntimeBinding {
                 rulebookIds, party, engineId, toolIds, gameSystemDefinitionVersion, characterBlueprintVersion, playabilityReport, selected);
     }
 
+    public RuntimeBinding withReadiness(RuntimeReadiness readiness) {
+        return new RuntimeBinding(adventureId, ownerPlayerId, bindingVersion, scenarioPackageId, scenarioPackageRevision,
+                rulebookIds, party, engineId, toolIds, gameSystemDefinitionVersion, characterBlueprintVersion,
+                playabilityReport, activeSourceContext, readiness);
+    }
+
     private static String required(String value, String name) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException(name + " must not be blank");
         }
         return value.trim();
+    }
+
+    private static RuntimeReadiness readiness(long bindingVersion, PlayabilityReport report) {
+        RuntimeReadinessStatus status = switch (report.status()) {
+            case BLOCKED -> RuntimeReadinessStatus.BLOCKED;
+            case PLAYABLE_WITH_LIMITS -> RuntimeReadinessStatus.SUPPORTED_DEGRADED;
+            case PLAYABLE -> RuntimeReadinessStatus.INDEXED_READY;
+        };
+        return new RuntimeReadiness(bindingVersion, status, report.blockers(), report.warnings(),
+                status == RuntimeReadinessStatus.BLOCKED);
     }
 }

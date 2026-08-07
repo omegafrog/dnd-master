@@ -61,7 +61,8 @@ public final class PostgresRuntimeBindingRepository implements RuntimeBindingRep
                     rulebook_ids_json, party_json, engine_id, tool_ids_json, game_system_definition_version, character_blueprint_version,
                     playability_status, playability_warnings_json, playability_blockers_json,
                     playability_limits_json, active_source_context_json, source_context_candidates_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    , readiness_status, readiness_blockers_json, readiness_warnings_json, readiness_retryable
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (adventure_id, binding_version) DO UPDATE SET
                     owner_player_id = EXCLUDED.owner_player_id,
                     scenario_package_id = EXCLUDED.scenario_package_id,
@@ -78,6 +79,10 @@ public final class PostgresRuntimeBindingRepository implements RuntimeBindingRep
                     playability_limits_json = EXCLUDED.playability_limits_json,
                     active_source_context_json = EXCLUDED.active_source_context_json,
                     source_context_candidates_json = EXCLUDED.source_context_candidates_json
+                    , readiness_status = EXCLUDED.readiness_status
+                    , readiness_blockers_json = EXCLUDED.readiness_blockers_json
+                    , readiness_warnings_json = EXCLUDED.readiness_warnings_json
+                    , readiness_retryable = EXCLUDED.readiness_retryable
                 """;
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
             bind(statement, binding);
@@ -98,6 +103,7 @@ public final class PostgresRuntimeBindingRepository implements RuntimeBindingRep
         statement.setString(9, write(binding.toolIds())); statement.setLong(10, binding.gameSystemDefinitionVersion()); statement.setLong(11, binding.characterBlueprintVersion());
         statement.setString(12, binding.playabilityReport().status().name());
         statement.setString(13, write(binding.playabilityReport().warnings())); statement.setString(14, write(binding.playabilityReport().blockers())); statement.setString(15, write(binding.playabilityReport().limits())); statement.setString(16, write(binding.activeSourceContext())); statement.setString(17, write(binding.playabilityReport().candidates()));
+        statement.setString(18, binding.readiness().status().name()); statement.setString(19, write(binding.readiness().blockers())); statement.setString(20, write(binding.readiness().warnings())); statement.setBoolean(21, binding.readiness().retryable());
     }
 
     private RuntimeBinding map(ResultSet row) throws SQLException {
@@ -117,7 +123,19 @@ public final class PostgresRuntimeBindingRepository implements RuntimeBindingRep
                         readStringList(row.getString("playability_blockers_json")),
                         readStringList(row.getString("playability_limits_json")),
                         readCandidates(row.getString("source_context_candidates_json"))),
-                readActive(row.getString("active_source_context_json")));
+                readActive(row.getString("active_source_context_json")),
+                readReadiness(row, row.getLong("binding_version")));
+    }
+
+    private RuntimeReadiness readReadiness(ResultSet row, long bindingVersion) throws SQLException {
+        try {
+            return new RuntimeReadiness(bindingVersion, RuntimeReadinessStatus.valueOf(row.getString("readiness_status")),
+                    readStringList(row.getString("readiness_blockers_json")), readStringList(row.getString("readiness_warnings_json")),
+                    row.getBoolean("readiness_retryable"));
+        } catch (SQLException missingColumn) {
+            return new RuntimeReadiness(bindingVersion, RuntimeReadinessStatus.BLOCKED,
+                    List.of("runtime readiness must be re-evaluated"), List.of(), true);
+        }
     }
     private static long legacySafeLong(ResultSet row, String column) throws SQLException {
         try { return row.getLong(column); } catch (SQLException missingColumn) { return 0L; }

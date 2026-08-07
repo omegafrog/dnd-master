@@ -229,6 +229,7 @@ export type RuntimeOptionsView = {
 }
 
 export type RuntimeBindingStatus = 'PLAYABLE' | 'PLAYABLE_WITH_LIMITS' | 'BLOCKED'
+export type RuntimeReadinessStatus = 'INDEXED_READY' | 'INDEXING_PENDING' | 'BLOCKED' | 'SUPPORTED_DEGRADED'
 
 export type RuntimeSourceContextCandidateView = {
   knowledgeDocumentId: string
@@ -265,6 +266,7 @@ export type RuntimeBindingView = {
   toolIds: string[]
   playabilityReport: PlayabilityReportView
   activeSourceContext: ActiveSourceContextView | null
+  readiness: { bindingVersion: number; status: RuntimeReadinessStatus; blockers: string[]; warnings: string[]; retryable: boolean; ready: boolean }
 }
 
 export type RuntimePartyMemberView = {

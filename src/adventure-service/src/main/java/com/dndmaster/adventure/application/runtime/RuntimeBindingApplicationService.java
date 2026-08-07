@@ -73,7 +73,17 @@ public final class RuntimeBindingApplicationService {
     public RuntimeBinding bindForSession(BindRuntimeBindingCommand command) {
         Adventure adventure = loadAdventure(command.adventureId(), command.ownerPlayerId());
         RuntimeBinding existing = bindingRepository.findCurrentByAdventureId(command.adventureId()).orElse(null);
-        if (existing != null) return existing;
+        if (existing != null) {
+            if (!existing.scenarioPackageId().equals(command.scenarioPackageId())
+                    || !existing.rulebookIds().equals(command.rulebookIds())
+                    || !existing.engineId().equals(command.engineId())
+                    || !existing.toolIds().equals(command.toolIds())) {
+                throw new IllegalStateException("runtime binding does not match locked session configuration");
+            }
+            RuntimeBinding refreshed = existing.withReadiness(readiness(existing, command.ownerPlayerId()));
+            bindingRepository.save(refreshed);
+            return refreshed;
+        }
         ScenarioPackage scenarioPackage = loadPackage(command.scenarioPackageId(), command.ownerPlayerId());
         validateRulebookAccess(command.ownerPlayerId(), command.rulebookIds());
         return persistBinding(adventure, command.ownerPlayerId(), scenarioPackage, command.rulebookIds(),
@@ -117,13 +127,18 @@ public final class RuntimeBindingApplicationService {
                 .toList();
         PlayabilityReport report = buildReport(current.playabilityReport(), selected, List.of(), blockers);
         RuntimeBinding updated = current.withSelection(selected, report);
+        updated = updated.withReadiness(readiness(updated, command.ownerPlayerId()));
         bindingRepository.save(updated);
         return updated;
     }
 
     public RuntimeBinding read(AdventureId adventureId, OwnerPlayerId ownerPlayerId) {
         Adventure adventure = loadAdventure(adventureId, ownerPlayerId);
-        return bindingRepository.findCurrentByAdventureId(adventure.id()).orElseThrow(() -> new IllegalStateException("runtime binding not found"));
+        RuntimeBinding binding = bindingRepository.findCurrentByAdventureId(adventure.id())
+                .orElseThrow(() -> new IllegalStateException("runtime binding not found"));
+        RuntimeBinding refreshed = binding.withReadiness(readiness(binding, ownerPlayerId));
+        bindingRepository.save(refreshed);
+        return refreshed;
     }
 
     private RuntimeBinding persistBinding(
@@ -161,8 +176,32 @@ public final class RuntimeBindingApplicationService {
                 ? RuntimeBinding.create(adventure.id(), ownerPlayerId, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), rulebookIds, adventure.party(), engineId, toolIds, definitionVersion, blueprintVersion, report, selected)
                 : RuntimeBinding.rehydrate(adventure.id(), ownerPlayerId, previousBindingVersion + 1, scenarioPackage.packageId(),
                 scenarioPackage.bundleRevision(), rulebookIds, adventure.party(), engineId, toolIds, definitionVersion, blueprintVersion, report, selected);
+        binding = binding.withReadiness(readiness(binding, ownerPlayerId));
         bindingRepository.save(binding);
         return binding;
+    }
+
+    private RuntimeReadiness readiness(RuntimeBinding binding, OwnerPlayerId ownerPlayerId) {
+        List<KnowledgeDocumentLookupPort.KnowledgeDocumentRecord> documents = knowledgeDocumentLookupPort.findOwnedDocuments(ownerPlayerId.value());
+        List<String> blockers = new ArrayList<>(binding.playabilityReport().blockers());
+        List<String> warnings = new ArrayList<>(binding.playabilityReport().warnings());
+        boolean pending = false;
+        boolean degraded = false;
+        for (UUID rulebookId : binding.rulebookIds()) {
+            var document = documents.stream().filter(candidate -> candidate.knowledgeDocumentId().value().equals(rulebookId)).findFirst();
+            if (document.isEmpty()) { blockers.add("rulebook knowledge set is missing"); continue; }
+            switch (document.get().status()) {
+                case INDEXED -> { }
+                case PARTIAL_CONFIRMED -> { warnings.add("rulebook indexing is partial"); degraded = true; }
+                case REJECTED -> blockers.add("rulebook indexing failed");
+                default -> pending = true;
+            }
+        }
+        RuntimeReadinessStatus status = !blockers.isEmpty() ? RuntimeReadinessStatus.BLOCKED
+                : pending ? RuntimeReadinessStatus.INDEXING_PENDING
+                : degraded ? RuntimeReadinessStatus.SUPPORTED_DEGRADED : RuntimeReadinessStatus.INDEXED_READY;
+        return new RuntimeReadiness(binding.bindingVersion(), status, blockers, warnings,
+                status == RuntimeReadinessStatus.INDEXING_PENDING || status == RuntimeReadinessStatus.BLOCKED);
     }
 
     private PlayabilityReport buildReport(
