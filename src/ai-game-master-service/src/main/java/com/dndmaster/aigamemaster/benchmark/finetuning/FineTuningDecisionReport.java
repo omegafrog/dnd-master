@@ -7,7 +7,8 @@ import java.util.Map;
 import java.util.Objects;
 
 public record FineTuningDecisionReport(String schemaVersion, FineTuningDatasetSplit split,
-                                       List<FineTuningEvaluation> evaluations, Decision decision, String rationale) {
+                                       List<FineTuningEvaluation> evaluations, Decision decision, String rationale,
+                                       List<String> rawResultBacklinks) {
     private static final String SCHEMA = "gm-quality-finetuning.v1";
     private static final double MIN_GAIN = .05;
 
@@ -17,12 +18,23 @@ public record FineTuningDecisionReport(String schemaVersion, FineTuningDatasetSp
         if (!SCHEMA.equals(schemaVersion)) throw new IllegalArgumentException("unsupported fine-tuning schema");
         Objects.requireNonNull(split); evaluations = List.copyOf(Objects.requireNonNull(evaluations));
         Objects.requireNonNull(decision); rationale = required(rationale, "rationale");
+        rawResultBacklinks = cleanBacklinks(rawResultBacklinks);
         if (!rationale.contains("bottleneck=") || !rationale.contains("follow-up=")) throw new IllegalArgumentException("evidence-based rationale required");
         validateMatrix(split, evaluations);
         if (decision != decide(evaluations)) throw new IllegalArgumentException("decision does not match evaluation evidence");
     }
 
+    public FineTuningDecisionReport(String schemaVersion, FineTuningDatasetSplit split,
+                                    List<FineTuningEvaluation> evaluations, Decision decision, String rationale) {
+        this(schemaVersion, split, evaluations, decision, rationale, List.of());
+    }
+
     public static FineTuningDecisionReport create(FineTuningDatasetSplit split, List<FineTuningEvaluation> evaluations) {
+        return create(split, evaluations, List.of());
+    }
+
+    public static FineTuningDecisionReport create(FineTuningDatasetSplit split, List<FineTuningEvaluation> evaluations,
+                                                  List<String> rawResultBacklinks) {
         Objects.requireNonNull(split); Objects.requireNonNull(evaluations);
         validateMatrix(split, evaluations);
         var first = evaluations.getFirst().configuration();
@@ -33,7 +45,7 @@ public record FineTuningDecisionReport(String schemaVersion, FineTuningDatasetSp
         String rationale = decision == Decision.GO
                 ? "bottleneck=none; quality gain=" + gain + "; follow-up=monitor production metrics"
                 : "bottleneck=" + failure(evaluations) + "; quality gain=" + gain + "; follow-up=improve data, prompting, or validation before rollout";
-        return new FineTuningDecisionReport(SCHEMA, split, evaluations, decision, rationale);
+        return new FineTuningDecisionReport(SCHEMA, split, evaluations, decision, rationale, rawResultBacklinks);
     }
 
     private static void validateMatrix(FineTuningDatasetSplit split, List<FineTuningEvaluation> evaluations) {
@@ -99,5 +111,10 @@ public record FineTuningDecisionReport(String schemaVersion, FineTuningDatasetSp
     private static String required(String value, String name) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " required");
         return value.trim();
+    }
+
+    private static List<String> cleanBacklinks(List<String> values) {
+        Objects.requireNonNull(values, "raw result backlinks");
+        return values.stream().map(value -> required(value, "raw result backlink")).distinct().toList();
     }
 }

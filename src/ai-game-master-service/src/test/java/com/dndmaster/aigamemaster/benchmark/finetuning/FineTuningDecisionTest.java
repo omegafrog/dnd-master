@@ -24,6 +24,36 @@ class FineTuningDecisionTest {
     }
 
     @Test
+    void split_rejects_validation_or_holdout_identity_and_content_digest_leakage() {
+        assertThrows(IllegalArgumentException.class, () -> new FineTuningDatasetSplit(
+                "split-v2", List.of("train"), List.of("holdout"), List.of("holdout"),
+                "sha256:train", "sha256:validation", "sha256:holdout"));
+        assertThrows(IllegalArgumentException.class, () -> new FineTuningDatasetSplit(
+                "split-v2", List.of("train"), List.of("validation"), List.of("holdout"),
+                "sha256:same", "sha256:same", "sha256:holdout"));
+    }
+
+    @Test
+    void runner_evaluates_complete_holdout_corpus_for_each_artifact_and_condition() {
+        var split = new FineTuningDatasetSplit("split-v2", List.of("train"), List.of("validation"),
+                List.of("case-01", "case-02"), "sha256:train", "sha256:validation", "sha256:holdout");
+        var base = artifact(FineTuningModelArtifact.Variant.BASE, "base-digest", "split-v2");
+        var tuned = artifact(FineTuningModelArtifact.Variant.FINE_TUNED, "tuned-digest", "split-v2");
+        var calls = new java.util.concurrent.atomic.AtomicInteger();
+        var report = new FineTuningEvaluationRunner().run(split,
+                List.of(new RagAbCase(CASE, List.of("rules#similar-door")),
+                        new RagAbCase(new GmBenchmarkCase("case-02", "close door", List.of("rules#door"), List.of("hidden key")),
+                                List.of("rules#similar-door"))),
+                c -> List.of("rules#similar-door"), base, tuned, CONFIG,
+                (artifact, condition, ignoredSplit, ignoredConfig, evidence) -> {
+                    calls.incrementAndGet();
+                    return new FineTuningMetrics(1, .5, .5, .5, 100, 25, 1, 0, 3);
+                });
+        assertEquals(16, calls.get());
+        assertEquals(FineTuningDecisionReport.Decision.NO_GO, report.decision());
+    }
+
+    @Test
     void decision_requires_complete_identical_matrix_and_records_no_go() {
         var split = new FineTuningDatasetSplit("split-v1", List.of("a"), List.of("b"),
                 "sha256:train", "sha256:test");
@@ -34,8 +64,9 @@ class FineTuningDecisionTest {
 
         var evaluations = List.of(
                 evaluation(base, RagCondition.NO_RAG, 3), evaluation(base, RagCondition.CURRENT_RAG, 3),
-                evaluation(base, RagCondition.ORACLE, 3), evaluation(tuned, RagCondition.NO_RAG, 3),
-                evaluation(tuned, RagCondition.CURRENT_RAG, 3), evaluation(tuned, RagCondition.ORACLE, 3));
+                evaluation(base, RagCondition.ORACLE, 3), evaluation(base, RagCondition.DISTRACTOR, 3),
+                evaluation(tuned, RagCondition.NO_RAG, 3), evaluation(tuned, RagCondition.CURRENT_RAG, 3),
+                evaluation(tuned, RagCondition.ORACLE, 3), evaluation(tuned, RagCondition.DISTRACTOR, 3));
         var report = FineTuningDecisionReport.create(split, evaluations);
         assertEquals(FineTuningDecisionReport.Decision.NO_GO, report.decision());
         assertTrue(report.rationale().contains("quality"));
@@ -55,7 +86,7 @@ class FineTuningDecisionTest {
                     calls.incrementAndGet();
                     return new FineTuningMetrics(1, .5, .5, .5, 100, 25, 1, 0, 3);
                 });
-        assertEquals(6, calls.get());
+        assertEquals(8, calls.get());
         assertEquals(FineTuningDecisionReport.Decision.NO_GO, report.decision());
     }
 
@@ -68,8 +99,12 @@ class FineTuningDecisionTest {
     }
 
     private static FineTuningModelArtifact artifact(FineTuningModelArtifact.Variant variant, String digest) {
+        return artifact(variant, digest, "split-v1");
+    }
+
+    private static FineTuningModelArtifact artifact(FineTuningModelArtifact.Variant variant, String digest, String split) {
         return new FineTuningModelArtifact(variant, new GmProviderRequest("ollama", "model", "medium"),
-                digest, "split-v1", "sha256:train");
+                digest, split, split.equals("split-v2") ? "sha256:train" : "sha256:train");
     }
 
     private static FineTuningEvaluation evaluation(FineTuningModelArtifact artifact, RagCondition condition,
