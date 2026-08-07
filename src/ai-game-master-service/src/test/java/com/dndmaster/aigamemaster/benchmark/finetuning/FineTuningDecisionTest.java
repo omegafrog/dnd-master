@@ -31,6 +31,25 @@ class FineTuningDecisionTest {
         assertThrows(IllegalArgumentException.class, () -> new FineTuningDatasetSplit(
                 "split-v2", List.of("train"), List.of("validation"), List.of("holdout"),
                 "sha256:same", "sha256:same", "sha256:holdout"));
+        assertThrows(IllegalArgumentException.class, () -> new FineTuningDatasetSplit(
+                "split-v2", List.of("train"), List.of("validation"), List.of("holdout"),
+                "sha256:train", "sha256:validation", "sha256:holdout",
+                List.of("content-a"), List.of("content-b"), List.of("content-a")));
+    }
+
+    @Test
+    void decision_rejects_fine_tuned_secret_regression() {
+        var split = new FineTuningDatasetSplit("split-v1", List.of("a"), List.of("b"),
+                "sha256:train", "sha256:test");
+        var base = artifact(FineTuningModelArtifact.Variant.BASE, "base-digest");
+        var tuned = artifact(FineTuningModelArtifact.Variant.FINE_TUNED, "tuned-digest");
+        var evaluations = new java.util.ArrayList<FineTuningEvaluation>();
+        for (var condition : RagCondition.values()) {
+            evaluations.add(evaluation(base, condition, 1, 0));
+            evaluations.add(evaluation(tuned, condition, 1.1, .1));
+        }
+        assertEquals(FineTuningDecisionReport.Decision.NO_GO,
+                FineTuningDecisionReport.create(split, evaluations).decision());
     }
 
     @Test
@@ -109,7 +128,13 @@ class FineTuningDecisionTest {
 
     private static FineTuningEvaluation evaluation(FineTuningModelArtifact artifact, RagCondition condition,
                                                    double quality) {
+        return evaluation(artifact, condition, quality, 0);
+    }
+
+    private static FineTuningEvaluation evaluation(FineTuningModelArtifact artifact, RagCondition condition,
+                                                   double quality, double secretLeakRate) {
         return new FineTuningEvaluation(artifact, condition, CONFIG,
-                new FineTuningMetrics(quality, .5, .5, .5, 100, 25, 1, 0, 3));
+                new FineTuningMetrics(quality, .5, .5, .5, 100, 25, 1, 0, 3,
+                        secretLeakRate, 1, 1, java.util.Collections.nCopies(3, quality)));
     }
 }

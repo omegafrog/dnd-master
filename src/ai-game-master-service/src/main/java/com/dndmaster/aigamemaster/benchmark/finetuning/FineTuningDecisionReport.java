@@ -1,6 +1,7 @@
 package com.dndmaster.aigamemaster.benchmark.finetuning;
 
 import com.dndmaster.aigamemaster.benchmark.GmBenchmarkConfig;
+import com.dndmaster.aigamemaster.benchmark.rag.RagAbPairedStatistics;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -70,9 +71,11 @@ public record FineTuningDecisionReport(String schemaVersion, FineTuningDatasetSp
             var base = find(evaluations, FineTuningModelArtifact.Variant.BASE, condition).metrics();
             var tuned = find(evaluations, FineTuningModelArtifact.Variant.FINE_TUNED, condition).metrics();
             double gain = tuned.qualityScore() - base.qualityScore();
-            double standardError = Math.sqrt(tuned.qualityVariance() / tuned.sampleCount() + base.qualityVariance() / base.sampleCount());
-            if (gain < MIN_GAIN || gain <= 1.96 * standardError || tuned.groundingRate() < base.groundingRate()
+            boolean significant = pairedSignificant(base, tuned);
+            if (gain < MIN_GAIN || !significant || tuned.groundingRate() < base.groundingRate()
                     || tuned.koreanNarrationRate() < base.koreanNarrationRate() || tuned.structureSuccessRate() < base.structureSuccessRate()
+                    || tuned.secretLeakRate() > base.secretLeakRate() || tuned.secretLeakRate() > 0
+                    || tuned.stateConsistencyRate() < base.stateConsistencyRate() || tuned.scopeComplianceRate() < base.scopeComplianceRate()
                     || tuned.latencyMeanMs() > base.latencyMeanMs() || tuned.latencyVarianceMs() > base.latencyVarianceMs()
                     || tuned.costUsd() > base.costUsd()) return Decision.NO_GO;
         }
@@ -84,11 +87,13 @@ public record FineTuningDecisionReport(String schemaVersion, FineTuningDatasetSp
             var base = find(evaluations, FineTuningModelArtifact.Variant.BASE, condition).metrics();
             var tuned = find(evaluations, FineTuningModelArtifact.Variant.FINE_TUNED, condition).metrics();
             double gain = tuned.qualityScore() - base.qualityScore();
-            double standardError = Math.sqrt(tuned.qualityVariance() / tuned.sampleCount() + base.qualityVariance() / base.sampleCount());
-            if (gain < MIN_GAIN || gain <= 1.96 * standardError) return condition.name().toLowerCase() + " quality/significance";
+            if (gain < MIN_GAIN || !pairedSignificant(base, tuned)) return condition.name().toLowerCase() + " quality/significance";
             if (tuned.groundingRate() < base.groundingRate()) return condition.name().toLowerCase() + " grounding";
             if (tuned.koreanNarrationRate() < base.koreanNarrationRate()) return condition.name().toLowerCase() + " Korean narration";
             if (tuned.structureSuccessRate() < base.structureSuccessRate()) return condition.name().toLowerCase() + " structure";
+            if (tuned.secretLeakRate() > base.secretLeakRate() || tuned.secretLeakRate() > 0) return condition.name().toLowerCase() + " secret safety";
+            if (tuned.stateConsistencyRate() < base.stateConsistencyRate()) return condition.name().toLowerCase() + " state safety";
+            if (tuned.scopeComplianceRate() < base.scopeComplianceRate()) return condition.name().toLowerCase() + " scope safety";
             if (tuned.latencyMeanMs() > base.latencyMeanMs() || tuned.latencyVarianceMs() > base.latencyVarianceMs()) return condition.name().toLowerCase() + " latency";
             if (tuned.costUsd() > base.costUsd()) return condition.name().toLowerCase() + " cost";
         }
@@ -106,6 +111,11 @@ public record FineTuningDecisionReport(String schemaVersion, FineTuningDatasetSp
     private static boolean sameSettings(GmBenchmarkConfig a, GmBenchmarkConfig b) {
         return a.corpusVersion().equals(b.corpusVersion()) && a.temperature() == b.temperature()
                 && a.tokenCap() == b.tokenCap() && a.contextSize() == b.contextSize() && a.repetitions() == b.repetitions();
+    }
+
+    private static boolean pairedSignificant(FineTuningMetrics base, FineTuningMetrics tuned) {
+        if (base.qualitySamples().size() != tuned.qualitySamples().size()) return false;
+        return RagAbPairedStatistics.analyze(tuned.qualitySamples(), base.qualitySamples(), .05, 0L).significant();
     }
 
     private static String required(String value, String name) {

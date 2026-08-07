@@ -7,12 +7,21 @@ import java.util.Objects;
 /** Immutable, digest-addressed train/validation/frozen-holdout split. */
 public record FineTuningDatasetSplit(String version, List<String> trainingCaseIds, List<String> validationCaseIds,
                                      List<String> holdoutCaseIds, String trainingDigest, String validationDigest,
-                                     String holdoutDigest) {
+                                     String holdoutDigest, List<String> trainingContentFingerprints,
+                                     List<String> validationContentFingerprints, List<String> holdoutContentFingerprints) {
     /** Compatibility constructor for the original train/test split contract. */
     public FineTuningDatasetSplit(String version, List<String> trainingCaseIds, List<String> testCaseIds,
                                   String trainingDigest, String testDigest) {
         this(version, trainingCaseIds, List.of("legacy-validation"), testCaseIds,
-                trainingDigest, "sha256:legacy-validation", testDigest);
+                trainingDigest, "sha256:legacy-validation", testDigest,
+                List.of(trainingDigest), List.of("sha256:legacy-validation"), List.of(testDigest));
+    }
+
+    public FineTuningDatasetSplit(String version, List<String> trainingCaseIds, List<String> validationCaseIds,
+                                  List<String> holdoutCaseIds, String trainingDigest, String validationDigest,
+                                  String holdoutDigest) {
+        this(version, trainingCaseIds, validationCaseIds, holdoutCaseIds, trainingDigest, validationDigest,
+                holdoutDigest, List.of(trainingDigest), List.of(validationDigest), List.of(holdoutDigest));
     }
 
     public FineTuningDatasetSplit {
@@ -23,6 +32,9 @@ public record FineTuningDatasetSplit(String version, List<String> trainingCaseId
         trainingDigest = required(trainingDigest, "training digest");
         validationDigest = required(validationDigest, "validation digest");
         holdoutDigest = required(holdoutDigest, "holdout digest");
+        trainingContentFingerprints = clean(trainingContentFingerprints, "training content fingerprints");
+        validationContentFingerprints = clean(validationContentFingerprints, "validation content fingerprints");
+        holdoutContentFingerprints = clean(holdoutContentFingerprints, "holdout content fingerprints");
         rejectOverlap(trainingCaseIds, validationCaseIds, "training and validation cases");
         rejectOverlap(trainingCaseIds, holdoutCaseIds, "training and holdout cases");
         rejectOverlap(validationCaseIds, holdoutCaseIds, "validation and holdout cases");
@@ -30,6 +42,9 @@ public record FineTuningDatasetSplit(String version, List<String> trainingCaseId
         if (new HashSet<>(digests).size() != digests.size()) {
             throw new IllegalArgumentException("training, validation, and holdout content digests must be disjoint");
         }
+        rejectOverlap(trainingContentFingerprints, validationContentFingerprints, "training and validation content");
+        rejectOverlap(trainingContentFingerprints, holdoutContentFingerprints, "training and holdout content");
+        rejectOverlap(validationContentFingerprints, holdoutContentFingerprints, "validation and holdout content");
     }
 
     /** Legacy name retained for callers that still refer to the holdout as test data. */

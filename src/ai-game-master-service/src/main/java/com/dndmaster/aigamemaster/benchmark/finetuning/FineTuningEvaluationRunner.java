@@ -57,7 +57,11 @@ public final class FineTuningEvaluationRunner {
                     case ORACLE -> new OracleRagEvidenceProvider().evidence(benchmarkCase.source());
                     case DISTRACTOR -> new DistractorRagEvidenceProvider().evidence(benchmarkCase);
                 };
-                metrics.add(Objects.requireNonNull(executor.evaluate(artifact, condition, split, configuration, evidence)));
+                try {
+                    metrics.add(Objects.requireNonNull(executor.evaluate(artifact, condition, split, configuration, evidence)));
+                } catch (RuntimeException failure) {
+                    throw new IllegalArgumentException("incomplete fine-tuning evaluation matrix", failure);
+                }
             }
             evaluations.add(new FineTuningEvaluation(artifact, condition, configuration, aggregate(metrics)));
         }
@@ -71,15 +75,34 @@ public final class FineTuningEvaluationRunner {
 
     private static FineTuningMetrics aggregate(List<FineTuningMetrics> values) {
         if (values.isEmpty()) throw new IllegalArgumentException("holdout metrics required");
+        int samples = values.stream().mapToInt(FineTuningMetrics::sampleCount).sum();
+        var qualitySamples = values.stream().flatMap(value -> value.qualitySamples().stream()).toList();
         return new FineTuningMetrics(
-                values.stream().mapToDouble(FineTuningMetrics::qualityScore).average().orElseThrow(),
-                values.stream().mapToDouble(FineTuningMetrics::groundingRate).average().orElseThrow(),
-                values.stream().mapToDouble(FineTuningMetrics::koreanNarrationRate).average().orElseThrow(),
-                values.stream().mapToDouble(FineTuningMetrics::structureSuccessRate).average().orElseThrow(),
-                values.stream().mapToDouble(FineTuningMetrics::latencyMeanMs).average().orElseThrow(),
-                values.stream().mapToDouble(FineTuningMetrics::latencyVarianceMs).average().orElseThrow(),
-                values.stream().mapToDouble(FineTuningMetrics::costUsd).average().orElseThrow(),
-                values.stream().mapToDouble(FineTuningMetrics::qualityVariance).average().orElseThrow(),
-                values.stream().mapToInt(FineTuningMetrics::sampleCount).sum());
+                weighted(values, FineTuningMetrics::qualityScore, samples),
+                weighted(values, FineTuningMetrics::groundingRate, samples),
+                weighted(values, FineTuningMetrics::koreanNarrationRate, samples),
+                weighted(values, FineTuningMetrics::structureSuccessRate, samples),
+                weighted(values, FineTuningMetrics::latencyMeanMs, samples),
+                pooledVariance(values, FineTuningMetrics::latencyMeanMs, FineTuningMetrics::latencyVarianceMs, samples),
+                weighted(values, FineTuningMetrics::costUsd, samples),
+                pooledVariance(values, FineTuningMetrics::qualityScore, FineTuningMetrics::qualityVariance, samples),
+                samples,
+                weighted(values, FineTuningMetrics::secretLeakRate, samples),
+                weighted(values, FineTuningMetrics::stateConsistencyRate, samples),
+                weighted(values, FineTuningMetrics::scopeComplianceRate, samples),
+                qualitySamples);
+    }
+
+    private static double weighted(List<FineTuningMetrics> values,
+                                   java.util.function.ToDoubleFunction<FineTuningMetrics> metric, int samples) {
+        return values.stream().mapToDouble(value -> metric.applyAsDouble(value) * value.sampleCount()).sum() / samples;
+    }
+
+    private static double pooledVariance(List<FineTuningMetrics> values,
+                                        java.util.function.ToDoubleFunction<FineTuningMetrics> means,
+                                        java.util.function.ToDoubleFunction<FineTuningMetrics> variances, int samples) {
+        double mean = weighted(values, means, samples);
+        return values.stream().mapToDouble(value -> (value.sampleCount() - 1) * variances.applyAsDouble(value)
+                + value.sampleCount() * Math.pow(means.applyAsDouble(value) - mean, 2)).sum() / samples;
     }
 }
