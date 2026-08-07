@@ -41,11 +41,12 @@ public final class PostgresGmTurnRepository implements GmTurnRepository {
     }
 
     @Override
-    public void recoverActive(UUID adventureId, String failure) {
+    public void recoverActive(UUID adventureId, UUID commandId, String failure) {
         try (var c = dataSource.getConnection(); var s = c.prepareStatement(
-                "UPDATE adventure_gm_turn SET status='FAILED', failure=? WHERE adventure_id=? AND status IN ('STARTED', 'PROCESSING')")) {
+                "UPDATE adventure_gm_turn SET status='FAILED', failure=? WHERE adventure_id=? AND command_id=? AND status IN ('STARTED', 'PROCESSING')")) {
             s.setString(1, failure == null || failure.isBlank() ? "turn failed" : failure);
             s.setObject(2, adventureId);
+            s.setObject(3, commandId);
             s.executeUpdate();
         } catch (SQLException e) { throw new GmTurnPersistenceException("could not recover active GM turn", e); }
     }

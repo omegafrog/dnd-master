@@ -31,7 +31,7 @@ class GmAgentControllerContractTest {
     }
 
     @Test
-    void unverified_provider_citation_is_dropped_without_becoming_authoritative() {
+    void unverified_provider_citation_fails_closed() {
         var controller = new GmAgentController(new com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter() {
             @Override
             public <T> T complete(String operation, String prompt,
@@ -43,10 +43,8 @@ class GmAgentControllerContractTest {
             }
         }, new com.fasterxml.jackson.databind.ObjectMapper(), new ApiRequestGuard("token"));
 
-        var response = controller.plan("token", request());
-
-        org.junit.jupiter.api.Assertions.assertTrue(response.citedEvidence().isEmpty());
-        org.junit.jupiter.api.Assertions.assertTrue(response.warnings().stream().anyMatch(w -> w.contains("제외")));
+        org.junit.jupiter.api.Assertions.assertThrows(GmAgentFailureException.class,
+                () -> controller.plan("token", request()));
     }
 
     @Test

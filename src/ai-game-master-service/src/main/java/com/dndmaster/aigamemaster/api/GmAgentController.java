@@ -104,7 +104,6 @@ public final class GmAgentController {
                             response.toolCalls());
                 }
                 response = requireComplete(response);
-                response = normalizeCitations(response, request);
                 validateCitations(response, request);
                 try {
                     GmResponseSafetyPolicy.rejectProtectedFacts(response.scene() + " " + response.npcState() + " "
@@ -119,21 +118,6 @@ public final class GmAgentController {
                 throw new com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException(
                         "GM structured response invalid: " + exception.getMessage());
             }
-    }
-
-    private Response normalizeCitations(Response response, Request request) {
-        List<?> selected = java.util.stream.Stream.of(request.storybook(), request.rulebook(), request.resolution())
-                .flatMap(List::stream).toList();
-        List<?> exact = response.citedEvidence().stream()
-                .filter(citation -> citation instanceof java.util.Map<?, ?> cited
-                        && selected.stream().anyMatch(item -> sameEvidence(item, cited)))
-                .toList();
-        if (exact.size() == response.citedEvidence().size()) return response;
-        List<String> warnings = new java.util.ArrayList<>(response.warnings());
-        warnings.add("검증되지 않은 provider citation은 공개 응답에서 제외되었습니다.");
-        return new Response(response.scene(), response.npcState(), response.judgment(), response.narration(),
-                response.proposedActiveSourceContext(), exact, warnings, response.provider(), response.model(),
-                response.reasoning(), response.stateDelta(), response.toolCalls());
     }
 
     private static String repairPrompt(Request r, List<String> protectedFacts) {

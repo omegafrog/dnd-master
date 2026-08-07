@@ -34,7 +34,7 @@ class GmTurnFailureRecorderTest {
         GmTurn saved;
         String recoveredFailure;
         @Override public Optional<GmTurn> findByCommandId(UUID commandId) { return Optional.empty(); }
-        @Override public void recoverActive(UUID adventureId, String failure) { recoveredFailure = failure; }
+        @Override public void recoverActive(UUID adventureId, UUID commandId, String failure) { recoveredFailure = failure; }
         @Override public void save(GmTurn turn, UUID adventureId) { saved = turn; }
     }
 
