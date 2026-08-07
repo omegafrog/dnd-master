@@ -44,4 +44,9 @@ docs/plans/plans.md
 /graphify-out/
 /.playwright-cli/
 docs/assets/
+
+# Local Markdown tracker tickets are repository-owned planning artifacts.
+!docs/plans/
+!docs/plans/*.md
 output/
+docs/plans
