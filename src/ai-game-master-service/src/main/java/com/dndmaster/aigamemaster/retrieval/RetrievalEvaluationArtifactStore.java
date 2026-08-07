@@ -14,4 +14,15 @@ public final class RetrievalEvaluationArtifactStore {
         mapper.writerWithDefaultPrettyPrinter().writeValue(target.toFile(), report);
         return target;
     }
+
+    public Path write(Path directory, RetrievalEvaluationReport report, RetrievalEvaluationIdentity identity) throws IOException {
+        Files.createDirectories(directory);
+        Path target = directory.resolve("retrieval-evaluation-artifact.json");
+        mapper.writerWithDefaultPrettyPrinter().writeValue(target.toFile(),
+                new Artifact("retrieval-evaluation-artifact.v1", identity, report));
+        return target;
+    }
+
+    private record Artifact(String schemaVersion, RetrievalEvaluationIdentity identity,
+            RetrievalEvaluationReport report) {}
 }

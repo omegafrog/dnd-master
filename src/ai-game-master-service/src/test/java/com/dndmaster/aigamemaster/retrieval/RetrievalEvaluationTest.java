@@ -78,6 +78,22 @@ class RetrievalEvaluationTest {
     }
 
     @Test
+    void artifact_persists_reproducibility_identity_alongside_report() throws Exception {
+        var expected = new RetrievalReference("doc-1", "page:1", "v1");
+        var corpus = new RetrievalEvaluationCorpus("retrieval-evaluation-v1", List.of(
+                new RetrievalEvaluationCase("case-1", "rule", "q", "owner", "session", "package", List.of(expected), List.of(), List.of(), "rule")));
+        var report = new RetrievalEvaluationRunner().runReport(corpus, (c, limit) ->
+                new RetrievalEvaluationResult(c.id(), List.of(new RetrievalCandidate(expected, c.ownerId(), c.sessionId(), c.packageId(), 1)), 4));
+        var path = new RetrievalEvaluationArtifactStore(new ObjectMapper()).write(
+                Files.createTempDirectory("retrieval-artifact"), report,
+                new RetrievalEvaluationIdentity("corpus-sha", "embedding-model", "index-v1", "service-v1", "config-sha"));
+
+        var artifact = new ObjectMapper().readTree(path.toFile());
+        assertEquals("embedding-model", artifact.path("identity").path("embeddingModel").asText());
+        assertEquals("retrieval-evaluation-report.v1", artifact.path("report").path("schemaVersion").asText());
+    }
+
+    @Test
     void corpus_and_results_reject_duplicate_case_ids() {
         var c = new RetrievalEvaluationCase("case-1", "rule", "q", "owner", "session", "package", List.of(
                 new RetrievalReference("doc", "page:1", "v1")), List.of(), List.of(), "rule");
