@@ -18,7 +18,7 @@ public final class GmBenchmarkRunner {
                 GmBenchmarkExecution execution = Objects.requireNonNull(executor.execute(benchmarkCase, config, state));
                 runs.add(new GmBenchmarkRun(corpus.caseIdentity(benchmarkCase), index, state,
                         execution.rawResponse(), execution.structuredSuccess(), execution.secretLeak(),
-                        execution.citationCorrect(), execution.latencyMs()));
+                        execution.citationCorrect(), execution.latencyMs(), execution.timing()));
             }
         }
         List<GmBenchmarkReport.GmBenchmarkCaseMetrics> metrics = corpus.cases().stream().map(benchmarkCase -> {

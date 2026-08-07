@@ -29,6 +29,10 @@ public record GmBenchmarkReport(String schemaVersion, String corpusVersion, Stri
         if (latencyMetadata.sampleCount() < 3 || latencyMetadata.sampleCount() != runs.size()) {
             throw new IllegalStateException("benchmark sample count is inadequate or inconsistent");
         }
+        var endToEnd = overallMetrics.phaseMetrics().get(GmBenchmarkPhase.END_TO_END);
+        if (endToEnd == null || endToEnd.p95Ms() > latencyMetadata.totalDeadlineMs()) {
+            throw new IllegalStateException("benchmark end-to-end p95 exceeds declared deadline");
+        }
     }
 
     public record GmBenchmarkCaseMetrics(String caseId, GmBenchmarkMetrics metrics) {}

@@ -51,9 +51,21 @@ class GmBenchmarkBaselineTest {
         assertEquals(2.0 / 3.0, metrics.structureSuccessRate());
         assertEquals(1.0 / 3.0, metrics.leakRate());
         assertEquals(2.0 / 3.0, metrics.citationRate());
+        assertEquals(20.0, metrics.phaseMetrics().get(GmBenchmarkPhase.END_TO_END).p50Ms());
+        assertEquals(30.0, metrics.phaseMetrics().get(GmBenchmarkPhase.TTFT).p95Ms());
         assertThrows(IllegalArgumentException.class, () -> GmBenchmarkAggregator.aggregate(List.of(
                 new GmBenchmarkRun("case-01", 0, GmBenchmarkRun.TemperatureState.COLD,
                         "raw", true, false, true, Double.NaN))));
+    }
+
+    @Test
+    void artifact_rejects_end_to_end_p95_over_declared_deadline() {
+        var corpus = new GmBenchmarkCorpus("gm-baseline-v1", List.of(
+                new GmBenchmarkCase("case-01", "open door", List.of("rules#door"), List.of("hidden key"))));
+        var report = new GmBenchmarkRunner().run(corpus,
+                new GmBenchmarkConfig("gm-baseline-v1", "qwen3:8b", "sha256:abc", .2, 512, 4096, 3),
+                (benchmarkCase, ignored, state) -> new GmBenchmarkExecution("raw", true, false, true, 100_001));
+        assertThrows(IllegalStateException.class, report::assertPublishable);
     }
 
     @Test
