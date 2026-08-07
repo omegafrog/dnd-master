@@ -56,7 +56,7 @@ spring:
           model: exaone3.5:7.8b
           keep-alive: 30m
           num-ctx: 8192
-          num-predict: 4096
+          num-predict: 8192
       embedding:
         options:
           model: qwen3-embedding:0.6b

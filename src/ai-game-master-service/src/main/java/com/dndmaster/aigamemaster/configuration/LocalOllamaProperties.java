@@ -20,7 +20,7 @@ public record LocalOllamaProperties(
     public static final String DEFAULT_EMBEDDING_MODEL = "qwen3-embedding:0.6b";
     public static final String QUALITY_CHAT_MODEL = "exaone3.5:7.8b";
     public static final int DEFAULT_NUM_CTX = 8192;
-    public static final int DEFAULT_NUM_PREDICT = 4096;
+    public static final int DEFAULT_NUM_PREDICT = 8192;
 
     public LocalOllamaProperties {
         allowedModels = Set.copyOf(allowedModels == null ? Set.of() : allowedModels);
