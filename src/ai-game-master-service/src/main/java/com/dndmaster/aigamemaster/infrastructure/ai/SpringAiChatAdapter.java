@@ -20,19 +20,27 @@ public final class SpringAiChatAdapter implements GmCompletionAdapter {
     private final int maxAttempts;
     private final SafeAiAuditLogger logger;
     private final boolean thinkingOnly;
+    private final int numPredict;
     private final Map<String, CachedResult> completed = new ConcurrentHashMap<>();
     private final Map<String, String> fingerprints = new ConcurrentHashMap<>();
 
     public SpringAiChatAdapter(ChatModel model, int maxAttempts, SafeAiAuditLogger logger) {
-        this(model, maxAttempts, logger, false);
+        this(model, maxAttempts, logger, false, 4096);
     }
 
     public SpringAiChatAdapter(ChatModel model, int maxAttempts, SafeAiAuditLogger logger, boolean thinkingOnly) {
+        this(model, maxAttempts, logger, thinkingOnly, 4096);
+    }
+
+    public SpringAiChatAdapter(ChatModel model, int maxAttempts, SafeAiAuditLogger logger,
+                               boolean thinkingOnly, int numPredict) {
         this.model = Objects.requireNonNull(model);
         if (maxAttempts < 1) throw new IllegalArgumentException("max attempts positive");
         this.maxAttempts = maxAttempts;
         this.logger = Objects.requireNonNull(logger);
         this.thinkingOnly = thinkingOnly;
+        if (numPredict < 1) throw new IllegalArgumentException("num predict positive");
+        this.numPredict = numPredict;
     }
 
     @Override
@@ -55,7 +63,7 @@ public final class SpringAiChatAdapter implements GmCompletionAdapter {
         if (cached != null) return cast(cached.value);
         for (int attempt = 1; ; attempt++) {
             try {
-                OllamaChatOptions.Builder options = OllamaChatOptions.builder().format("json").numPredict(1536);
+                OllamaChatOptions.Builder options = OllamaChatOptions.builder().format("json").numPredict(numPredict);
                 if (requestedModel != null && !requestedModel.isBlank()) options.model(requestedModel);
                 if (thinkingOnly) options.enableThinking(); else options.disableThinking();
                 ChatResponse response = model.call(new Prompt(prompt, options.build()));

@@ -21,7 +21,7 @@ public class AiAdapterConfiguration {
         SafeAiAuditLogger auditLogger = new SafeAiAuditLogger(
                 message -> LoggerFactory.getLogger(SpringAiChatAdapter.class).info(message));
         return new SpringAiChatAdapter(chatModel, properties.retryMaxAttempts(), auditLogger,
-                properties.chatModel().toLowerCase(java.util.Locale.ROOT).contains("thinking"));
+                properties.chatModel().toLowerCase(java.util.Locale.ROOT).contains("thinking"), properties.numPredict());
     }
 
     @Bean

@@ -762,7 +762,8 @@ public class AdventureApiConfiguration {
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.ai-game-master.timeout-seconds:180}") long timeoutSeconds,
             @Value("${adventure.integration.internal-token:}") String internalToken) {
-        return new HttpGmAgentPort(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken);
+        Duration timeout = Duration.ofSeconds(timeoutSeconds);
+        return new HttpGmAgentPort(HttpClient.newBuilder().connectTimeout(timeout).build(), URI.create(baseUrl), timeout, objectMapper, internalToken);
     }
 
     @Bean

@@ -7,10 +7,17 @@ import java.util.UUID;
 import org.springframework.web.client.RestClient;
 import org.springframework.http.client.JdkClientHttpRequestFactory;
 import java.net.http.HttpClient;
+import java.time.Duration;
 
 public final class HttpStoryRetrievalAdapter implements RetrievalEvaluationPort {
     private final RestClient client;
-    public HttpStoryRetrievalAdapter(String baseUrl, ObjectMapper mapper) { this.client = RestClient.builder().baseUrl(baseUrl).requestFactory(new JdkClientHttpRequestFactory(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build())).build(); }
+    public HttpStoryRetrievalAdapter(String baseUrl, ObjectMapper mapper) { this(baseUrl, mapper, Duration.ofSeconds(5)); }
+    public HttpStoryRetrievalAdapter(String baseUrl, ObjectMapper mapper, Duration timeout) {
+        var factory = new JdkClientHttpRequestFactory(HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(timeout).build());
+        factory.setReadTimeout(timeout);
+        this.client = RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();
+    }
     @Override public RetrievalEvaluationResult retrieve(RetrievalEvaluationCase c, int limit) {
         long started = System.nanoTime();
         try {

@@ -14,7 +14,8 @@ public class RetrievalEvaluationConfiguration {
     @Bean
     RetrievalEvaluationPort retrievalEvaluationPort(
             @Value("${retrieval.rule-knowledge-base-url:http://127.0.0.1:8080}") String baseUrl,
+            @Value("${retrieval.timeout:5s}") java.time.Duration timeout,
             ObjectMapper mapper) {
-        return new RetrievalEvaluationRouter(new HttpRuleRetrievalAdapter(baseUrl, mapper), new HttpStoryRetrievalAdapter(baseUrl, mapper));
+        return new RetrievalEvaluationRouter(new HttpRuleRetrievalAdapter(baseUrl, mapper, timeout), new HttpStoryRetrievalAdapter(baseUrl, mapper, timeout));
     }
 }

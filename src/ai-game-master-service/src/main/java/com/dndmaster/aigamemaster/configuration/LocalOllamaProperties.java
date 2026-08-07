@@ -19,6 +19,8 @@ public record LocalOllamaProperties(
     public static final String DEFAULT_CHAT_MODEL = "exaone3.5:7.8b";
     public static final String DEFAULT_EMBEDDING_MODEL = "qwen3-embedding:0.6b";
     public static final String QUALITY_CHAT_MODEL = "exaone3.5:7.8b";
+    public static final int DEFAULT_NUM_CTX = 8192;
+    public static final int DEFAULT_NUM_PREDICT = 4096;
 
     public LocalOllamaProperties {
         allowedModels = Set.copyOf(allowedModels == null ? Set.of() : allowedModels);
@@ -37,6 +39,10 @@ public record LocalOllamaProperties(
             throw new IllegalStateException("Ollama timeout, circuit and retry policy must be positive");
         }
     }
+
+    public int numCtx() { return DEFAULT_NUM_CTX; }
+
+    public int numPredict() { return DEFAULT_NUM_PREDICT; }
 
     private static boolean isLoopback(String host) {
         return "localhost".equalsIgnoreCase(host) || "127.0.0.1".equals(host) || "::1".equals(host);

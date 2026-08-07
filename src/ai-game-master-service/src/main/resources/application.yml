@@ -39,13 +39,14 @@ local-ai:
       - qwen3:8b
       - exaone3.5:7.8b
       - qwen3-embedding:0.6b
-    request-timeout: 5s
+    request-timeout: 30s
     circuit-failure-threshold: 3
     circuit-reset-timeout: 30s
     retry-max-attempts: 2
 
 retrieval:
   rule-knowledge-base-url: ${RULE_KNOWLEDGE_BASE_URL:http://127.0.0.1:8080}
+  timeout: ${RETRIEVAL_TIMEOUT:5s}
 ---
 spring:
   config:
