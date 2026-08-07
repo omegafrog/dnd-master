@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Test;
 
 class AdventurePrologueApplicationServiceTest {
     @Test
-    void fail_closed_when_generated_prologue_repeats_stage_clue() {
+    void fail_closed_when_generated_prologue_repeats_private_ending() {
         var owner = new OwnerPlayerId(UUID.randomUUID());
         var sheetId = new CharacterSheetId(UUID.randomUUID());
         var adventure = Adventure.create(new AdventureId(UUID.randomUUID()), SessionId.generate(), owner,
@@ -32,7 +32,7 @@ class AdventurePrologueApplicationServiceTest {
         when(adventures.findById(adventure.id())).thenReturn(Optional.of(adventure));
         when(plans.findBySessionId(adventure.sessionId())).thenReturn(Optional.of(plan));
         when(sheets.read(sheetId)).thenReturn(new CharacterSheetReadPort.CharacterSheet(sheetId, "Mira", 2));
-        when(generator.generate(any())).thenReturn("Mira discovers the secret clue.");
+        when(generator.generate(any())).thenReturn("Mira reaches the secret ending.");
 
         new AdventurePrologueApplicationService(adventures, plans, sheets, generator).ensure(adventure.id(), owner);
 
@@ -60,7 +60,7 @@ class AdventurePrologueApplicationServiceTest {
 
         new AdventurePrologueApplicationService(adventures, plans, sheets, generator).ensure(adventure.id(), owner);
 
-        assertEquals(List.of(new ConversationEntry(0, "AI_GAME_MASTER", "공개할 수 있는 장면 정보가 없습니다.")), adventure.conversation());
+        assertEquals(List.of(new ConversationEntry(0, "AI_GAME_MASTER", "Mira hears the bell. The warning sounds from the tower.")), adventure.conversation());
         verify(adventures).save(adventure);
         new AdventurePrologueApplicationService(adventures, plans, sheets, generator).ensure(adventure.id(), owner);
         verify(generator, times(1)).generate(any());
