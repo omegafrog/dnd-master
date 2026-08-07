@@ -73,7 +73,7 @@ public record RuntimePlanningRequest(
     private static ModelInputProjection legacyProjection(EvidencePack evidencePack, String context) {
         java.util.Set<java.util.UUID> documents = java.util.stream.Stream.of(evidencePack.storybook(), evidencePack.rulebook(), evidencePack.resolution())
                 .flatMap(java.util.List::stream).map(e -> e.knowledgeDocumentId().value()).collect(java.util.stream.Collectors.toSet());
-        return ModelInputProjection.create(documents, evidencePack.storybook(), evidencePack.rulebook(), evidencePack.resolution(), "", context, java.util.Set.of());
+        return ModelInputProjection.create(documents, evidencePack.storybook(), evidencePack.rulebook(), evidencePack.resolution(), "", "", java.util.Set.of());
     }
 
     private static String required(String value, String name) {

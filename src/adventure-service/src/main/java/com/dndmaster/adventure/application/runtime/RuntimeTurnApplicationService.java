@@ -19,6 +19,7 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -198,10 +199,19 @@ public class RuntimeTurnApplicationService {
         }
         ModelInputProjection modelInput = modelInputProjection(evidencePack, adventure, scenarioPackage);
         EvidencePack modelEvidencePack = new EvidencePack(modelInput.storybook(), modelInput.rulebook(), modelInput.resolution());
+        ActiveSourceContext modelActiveSource = modelEvidencePack.storybook().stream()
+                .filter(evidence -> binding.activeSourceContext() != null
+                        && evidence.knowledgeDocumentId().equals(binding.activeSourceContext().knowledgeDocumentId())
+                        && evidence.extractionVersion() == binding.activeSourceContext().extractionVersion()
+                        && evidence.locator().equals(binding.activeSourceContext().locator()))
+                .findFirst().map(evidence -> binding.activeSourceContext()).orElse(null);
+        List<String> modelRecentTurns = ModelInputProjection.redactProtectedTurns(
+                adventure.conversation().stream().map(entry -> entry.speaker() + ": " + entry.content()).toList(),
+                evidencePack.storybook());
         RuntimePlan plan = planningPort.plan(new RuntimePlanningRequest(
                 command.adventureId(), command.ownerPlayerId(), adventure.sessionId().value(), command.turnId(), binding.scenarioPackageId(), binding.bindingVersion(),
-                adventure.currentContext(), binding.activeSourceContext(), command.action(), modelEvidencePack,
-                adventure.conversation().stream().map(entry -> entry.speaker() + ": " + entry.content()).toList(),
+                adventure.currentContext(), modelActiveSource, command.action(), modelEvidencePack,
+                modelRecentTurns,
                 adventure.party().stream().map(member -> member.characterSheetId().value() + " control=" + member.controlMode()).toList(),
                 modelInput.promptText(), providerSelection(adventure.sessionId().value(), "provider"),
                 providerSelection(adventure.sessionId().value(), "model"),
@@ -358,7 +368,11 @@ public class RuntimeTurnApplicationService {
     private ModelInputProjection modelInputProjection(EvidencePack evidencePack, Adventure adventure, ScenarioPackage scenarioPackage) {
         Set<String> disclosureEvents = sessionEventRepository == null ? Set.of() : sessionEventRepository.after(adventure.sessionId().value(), -1).stream()
                 .map(event -> event.type()).collect(java.util.stream.Collectors.toSet());
-        return ModelInputProjection.create(new HashSet<>(knowledgeDocumentIds(adventure, scenarioPackage)),
+        Map<UUID, Long> expectedVersions = scenarioPackage.documents().stream().collect(java.util.stream.Collectors.toMap(
+                document -> document.knowledgeDocumentId().value(),
+                com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection::extractionVersion,
+                (first, ignored) -> first));
+        return ModelInputProjection.create(new HashSet<>(knowledgeDocumentIds(adventure, scenarioPackage)), expectedVersions,
                 evidencePack.storybook(), evidencePack.rulebook(), evidencePack.resolution(), "", storyPlanContext(adventure),
                 disclosureEvents, adventure.turnIndex());
     }
