@@ -77,4 +77,9 @@ public record RuntimeTurn(
         return warnings.stream().filter(warning -> warning.startsWith("rag-condition:"))
                 .map(warning -> warning.substring("rag-condition:".length())).findFirst().orElse("CURRENT_RAG");
     }
+
+    public PlayerProjection playerProjection(java.util.Set<String> committedEvents) {
+        return PlayerProjection.create(plan.narration(), plan.judgment(), context.currentScene(), citations,
+                warnings, List.of(), evidencePack.all(), committedEvents, version);
+    }
 }

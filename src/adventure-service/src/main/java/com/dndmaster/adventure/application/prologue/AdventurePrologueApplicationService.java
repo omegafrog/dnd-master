@@ -2,6 +2,7 @@ package com.dndmaster.adventure.application.prologue;
 
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.runtime.CharacterSheetReadPort;
+import com.dndmaster.adventure.application.runtime.PlayerProjection;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository;
 import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
@@ -37,7 +38,9 @@ public final class AdventurePrologueApplicationService {
         }).toList();
         var evidence = java.util.stream.Stream.concat(stage.npcOrClues().stream(), stage.endingIds().stream())
                 .map(value -> "story-plan:stage-" + stage.position() + ":" + value).toList();
-        String narration = Objects.requireNonNull(generator.generate(new AdventurePrologueGenerationPort.Request(stage, party, evidence)));
+        String narration = PlayerProjection.redact(
+                Objects.requireNonNull(generator.generate(new AdventurePrologueGenerationPort.Request(stage, party, evidence))),
+                java.util.Set.copyOf(stage.endingIds()));
         var conversation = new ArrayList<>(adventure.conversation());
         conversation.add(new ConversationEntry(0, "AI_GAME_MASTER", narration));
         adventure.preserveProgress(owner, adventure.version(), adventure.currentContext(), conversation);

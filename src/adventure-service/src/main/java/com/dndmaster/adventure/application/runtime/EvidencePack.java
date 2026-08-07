@@ -10,4 +10,8 @@ public record EvidencePack(List<RuntimeEvidence> storybook, List<RuntimeEvidence
         rulebook = List.copyOf(Objects.requireNonNull(rulebook, "rulebook evidence must not be null"));
         resolution = List.copyOf(Objects.requireNonNull(resolution, "resolution evidence must not be null"));
     }
+
+    public List<RuntimeEvidence> all() {
+        return java.util.stream.Stream.of(storybook, rulebook, resolution).flatMap(List::stream).toList();
+    }
 }

@@ -349,26 +349,17 @@ public class AdventureController {
                     .flatMap(event -> java.util.stream.Stream.of(event.type(), event.payload()));
             var events = eventValues
                     .filter(java.util.Objects::nonNull).collect(java.util.stream.Collectors.toSet());
-            var visibleStory = PlayerVisibleStoryEvidence.project(result.turn().evidencePack().storybook(),
-                    events, result.version()).stream().map(evidence -> "storybook:" + evidence.locator()).collect(java.util.stream.Collectors.toSet());
-            var safeNarration = PlayerVisibleStoryEvidence.redactNarration(result.turn().plan().narration(),
-                    result.turn().evidencePack().storybook(), events, result.version());
-            var safeJudgment = PlayerVisibleStoryEvidence.redactNarration(result.turn().plan().judgment(),
-                    result.turn().evidencePack().storybook(), events, result.version());
-            var safeScene = PlayerVisibleStoryEvidence.redactNarration(result.context().currentScene(),
-                    result.turn().evidencePack().storybook(), events, result.version());
-            var publicRefs = result.turn().citations().stream()
-                    .filter(reference -> !reference.startsWith("storybook:") || visibleStory.contains(reference)).toList();
+            var projection = result.turn().playerProjection(events);
             return new RuntimeTurnResponse(
                     result.turn().turnId(),
                     result.turn().adventureId().value(),
                     result.turn().scenarioPackageId(),
                     result.turn().bindingVersion(),
-                    safeNarration,
-                    safeJudgment,
-                    safeScene,
-                    publicRefs,
-                    result.turn().warnings(),
+                    projection.narration(),
+                    projection.judgment(),
+                    projection.currentScene(),
+                    projection.citations(),
+                    projection.warnings(),
                     result.version());
         }
     }
