@@ -63,7 +63,7 @@ import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Configuration;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.context.annotation.Profile;
 
 import javax.sql.DataSource;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
@@ -741,7 +741,7 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    @ConditionalOnMissingBean(RuntimeCapabilityPreflightPort.class)
+    @Profile("!app-all")
     RuntimeCapabilityPreflightPort runtimeCapabilityPreflightPort(
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String gmBaseUrl,
             @Value("${adventure.integration.dice-roll.base-url:http://127.0.0.1:8080/}") String diceBaseUrl,
