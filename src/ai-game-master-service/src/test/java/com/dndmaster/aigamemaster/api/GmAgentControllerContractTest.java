@@ -10,6 +10,28 @@ import org.springframework.web.server.ResponseStatusException;
 
 class GmAgentControllerContractTest {
     @Test
+    void tagged_gm_only_narration_is_not_part_of_public_narration() {
+        var controller = new GmAgentController(new com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter() {
+            @Override
+            public <T> T complete(String operation, String prompt,
+                                   com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                return parser.parse("{\"scene\":\"brewery\",\"npcState\":\"calm\",\"judgment\":\"observing\","
+                        + "\"narration\":\"fallback\",\"narrationSegments\":["
+                        + "{\"visibility\":\"PLAYER_VISIBLE\",\"text\":\"The door is closed.\"},"
+                        + "{\"visibility\":\"GM_ONLY\",\"text\":\"The hidden key is under the vat.\"}],"
+                        + "\"proposedActiveSourceContext\":null,\"citedEvidence\":[],\"warnings\":[],"
+                        + "\"provider\":\"ollama\",\"model\":\"qwen3:8b\",\"reasoning\":\"grounded\","
+                        + "\"stateDelta\":[],\"toolCalls\":[]}");
+            }
+        }, new com.fasterxml.jackson.databind.ObjectMapper(), new ApiRequestGuard("token"));
+
+        var response = controller.plan("token", request());
+
+        org.junit.jupiter.api.Assertions.assertEquals("The door is closed.", response.narration());
+        org.junit.jupiter.api.Assertions.assertTrue(response.narrationSegments().stream().anyMatch(s -> "GM_ONLY".equals(s.visibility())));
+    }
+
+    @Test
     void structured_prompt_forces_safe_empty_citations_when_exact_evidence_is_unavailable() {
         String[] captured = {null};
         var controller = new GmAgentController(new com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter() {

@@ -99,11 +99,12 @@ public final class GmAgentController {
                 if (response.proposedActiveSourceContext() instanceof String source
                         && source.isBlank()) {
                     response = new Response(response.scene(), response.npcState(), response.judgment(),
-                            response.narration(), null, response.citedEvidence(), response.warnings(),
+                            response.narration(), response.narrationSegments(), null, response.citedEvidence(), response.warnings(),
                             response.provider(), response.model(), response.reasoning(), response.stateDelta(),
                             response.toolCalls());
                 }
                 response = requireComplete(response);
+                response = publicNarration(response);
                 validateCitations(response, request);
                 try {
                     GmResponseSafetyPolicy.rejectProtectedFacts(response.scene() + " " + response.npcState() + " "
@@ -123,10 +124,11 @@ public final class GmAgentController {
     private static String repairPrompt(Request r, List<String> protectedFacts) {
         return """
                 Return exactly one JSON object and no markdown.
-                Required keys: scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings, provider, model, reasoning, stateDelta, toolCalls.
+                Required keys: scene, npcState, judgment, narration, narrationSegments, proposedActiveSourceContext, citedEvidence, warnings, provider, model, reasoning, stateDelta, toolCalls.
                 Use non-null strings for scene, npcState, judgment, narration, provider, model and reasoning.
                 Use [] for citedEvidence, warnings, stateDelta and toolCalls; use null for proposedActiveSourceContext.
                 citedEvidence MUST be [] unless an evidence object is copied exactly from the supplied request.
+                narrationSegments MUST contain objects with visibility PLAYER_VISIBLE or GM_ONLY and text. Put private facts only in GM_ONLY.
                 stateDelta MUST be []. Do not output a citation string.
                 Do not make rule claims or invent facts. The player action is: %s
                 Current scene: %s
@@ -191,12 +193,13 @@ public final class GmAgentController {
                 Never reveal hidden data. Never invent rules, rolls, or state changes.
                 Return JSON only with fields scene,npcState,judgment,narration,proposedActiveSourceContext,
                 citedEvidence,warnings,provider,model,reasoning,stateDelta,toolCalls. stateDelta MUST be [] .
+                narrationSegments is an array of {visibility,text}; visibility is PLAYER_VISIBLE or GM_ONLY. Only PLAYER_VISIBLE text may be shown to the player.
                 toolCalls may contain only dice.roll or character.update; each call has toolName,argumentsJson,required.
                 Every rule claim needs a citation from supplied evidence.
                 citedEvidence is an array of exact evidence objects, never strings. If you cannot copy an evidence object
                 exactly, return citedEvidence as []. Do not cite or reproduce hidden DCs, secret locations, or private facts.
                 Use this exact JSON shape (replace values; keep array/object types):
-                {"scene":"...","npcState":"...","judgment":"...","narration":"...",
+                {"scene":"...","npcState":"...","judgment":"...","narration":"...","narrationSegments":[{"visibility":"PLAYER_VISIBLE","text":"..."}],
                 "proposedActiveSourceContext":null,"citedEvidence":[],"warnings":[],"provider":"ollama",
                 "model":"...","reasoning":"...","stateDelta":[],"toolCalls":[]}
                 adventureId=%s packageId=%s bindingVersion=%s action=%s
@@ -279,13 +282,36 @@ public final class GmAgentController {
         return response;
     }
 
+    private static Response publicNarration(Response response) {
+        List<NarrationSegment> segments = response.narrationSegments() == null || response.narrationSegments().isEmpty()
+                ? List.of(new NarrationSegment("PLAYER_VISIBLE", response.narration())) : response.narrationSegments();
+        segments.forEach(segment -> {
+            if (segment == null || segment.text() == null || segment.text().isBlank()
+                    || (!"PLAYER_VISIBLE".equals(segment.visibility()) && !"GM_ONLY".equals(segment.visibility()))) {
+                throw new com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException("invalid narration segment");
+            }
+        });
+        String narration = segments.stream().filter(segment -> "PLAYER_VISIBLE".equals(segment.visibility()))
+                .map(NarrationSegment::text).reduce("", (left, right) -> left.isBlank() ? right : left + " " + right);
+        if (narration.isBlank()) throw new com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException("player narration is empty");
+        return new Response(response.scene(), response.npcState(), response.judgment(), narration, segments,
+                response.proposedActiveSourceContext(), response.citedEvidence(), response.warnings(), response.provider(),
+                response.model(), response.reasoning(), response.stateDelta(), response.toolCalls());
+    }
+
     private static void requireText(String value, String name) {
         if (value.isBlank()) throw new IllegalArgumentException(name + " must not be blank");
     }
 
-    public record Response(String scene, String npcState, String judgment, String narration, Object proposedActiveSourceContext,
+    public record Response(String scene, String npcState, String judgment, String narration, List<NarrationSegment> narrationSegments, Object proposedActiveSourceContext,
                            List<?> citedEvidence, List<String> warnings, String provider, String model, String reasoning,
                            List<String> stateDelta, List<ToolCall> toolCalls) {
+        public Response(String scene, String npcState, String judgment, String narration, Object proposedActiveSourceContext,
+                        List<?> citedEvidence, List<String> warnings, String provider, String model, String reasoning,
+                        List<String> stateDelta, List<ToolCall> toolCalls) {
+            this(scene, npcState, judgment, narration, List.of(new NarrationSegment("PLAYER_VISIBLE", narration)),
+                    proposedActiveSourceContext, citedEvidence, warnings, provider, model, reasoning, stateDelta, toolCalls);
+        }
         public Response(String scene, String npcState, String judgment, String narration, Object proposedActiveSourceContext,
                         List<?> citedEvidence, List<String> warnings, String provider, String model, String reasoning,
                         List<String> stateDelta) {
@@ -293,4 +319,6 @@ public final class GmAgentController {
         }
         public record ToolCall(String toolName, String argumentsJson, boolean required) {}
     }
+
+    public record NarrationSegment(String visibility, String text) {}
 }

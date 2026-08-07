@@ -112,9 +112,10 @@ public final class HttpGmAgentPort implements GmAgentPort {
         ActiveSourceContext toDomain() { return new ActiveSourceContext(new KnowledgeDocumentId(knowledgeDocumentId), extractionVersion, locator, excerpt); }
     }
 
-    record Response(String scene, String npcState, String judgment, String narration, ActiveSource proposedActiveSourceContext,
+    record Response(String scene, String npcState, String judgment, String narration, List<NarrationSegment> narrationSegments, ActiveSource proposedActiveSourceContext,
                    List<Evidence> citedEvidence, List<String> warnings, String provider, String model, String reasoning, List<String> stateDelta,
                    List<ToolCall> toolCalls) {
+        record NarrationSegment(String visibility, String text) {}
         record ToolCall(String toolName, String argumentsJson, boolean required) {
             GmToolCall toDomain() { return new GmToolCall(toolName, argumentsJson, required); }
         }
@@ -125,7 +126,12 @@ public final class HttpGmAgentPort implements GmAgentPort {
                 throw new IllegalStateException("GM response omitted required fields");
             }
             List<GmToolCall> calls = r.toolCalls == null ? List.of() : r.toolCalls.stream().map(ToolCall::toDomain).toList();
-            return new GmPlanResult(new RuntimePlan(r.scene, r.npcState, r.judgment, r.narration,
+            String publicNarration = r.narrationSegments == null || r.narrationSegments.isEmpty()
+                    ? r.narration
+                    : r.narrationSegments.stream().filter(segment -> "PLAYER_VISIBLE".equals(segment.visibility()))
+                    .map(NarrationSegment::text).filter(Objects::nonNull).reduce("", (left, right) -> left.isBlank() ? right : left + " " + right);
+            if (publicNarration.isBlank()) throw new IllegalStateException("GM response has no player-visible narration");
+            return new GmPlanResult(new RuntimePlan(r.scene, r.npcState, r.judgment, publicNarration,
                     r.proposedActiveSourceContext == null ? null : r.proposedActiveSourceContext.toDomain(), citations,
                     r.warnings == null ? List.of() : r.warnings, r.provider, r.model, r.reasoning), r.provider, r.model, r.reasoning,
                     r.stateDelta == null ? List.of() : r.stateDelta, calls);
