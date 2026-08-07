@@ -828,10 +828,12 @@ public class AdventureApiConfiguration {
             GmProviderBindingRepository providerBindingRepository,
             DeterministicAdjudicationService adjudicationService,
             AuthoritativeStateMutationPort stateMutationPort) {
-        return new RuntimeTurnApplicationService(
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
                 compactionCoordinator, resumePromptProvider, providerBindingRepository, adjudicationService, stateMutationPort);
+        service.setSessionEventRepository(sessionEventRepository);
+        return service;
     }
 
     @Bean

@@ -43,6 +43,7 @@ public class RuntimeTurnApplicationService {
     private final GmProviderBindingRepository providerBindingRepository;
     private final DeterministicAdjudicationService adjudicationService;
     private final AuthoritativeStateMutationPort stateMutationPort;
+    private SessionEventRepository sessionEventRepository;
 
     public RuntimeTurnApplicationService(
             AdventureRepository adventureRepository,
@@ -140,6 +141,10 @@ public class RuntimeTurnApplicationService {
         this.providerBindingRepository = providerBindingRepository;
         this.adjudicationService = adjudicationService;
         this.stateMutationPort = stateMutationPort;
+    }
+
+    public void setSessionEventRepository(SessionEventRepository repository) {
+        this.sessionEventRepository = repository;
     }
 
     @Transactional
@@ -351,8 +356,11 @@ public class RuntimeTurnApplicationService {
     }
 
     private ModelInputProjection modelInputProjection(EvidencePack evidencePack, Adventure adventure, ScenarioPackage scenarioPackage) {
+        Set<String> disclosureEvents = sessionEventRepository == null ? Set.of() : sessionEventRepository.after(adventure.sessionId().value(), -1).stream()
+                .map(event -> event.type()).collect(java.util.stream.Collectors.toSet());
         return ModelInputProjection.create(new HashSet<>(knowledgeDocumentIds(adventure, scenarioPackage)),
-                evidencePack.storybook(), evidencePack.rulebook(), evidencePack.resolution(), "", storyPlanContext(adventure), Set.of());
+                evidencePack.storybook(), evidencePack.rulebook(), evidencePack.resolution(), "", storyPlanContext(adventure),
+                disclosureEvents, adventure.turnIndex());
     }
 
     private List<RuntimeEvidence> scopedSearch(RuntimeEvidenceSearchRequest request) {

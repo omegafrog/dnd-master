@@ -26,9 +26,11 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
 
     @Override
     public RuntimePlan plan(RuntimePlanningRequest request) {
+        ModelInputProjection projection = request.modelInputProjection();
+        EvidencePack projectedEvidence = new EvidencePack(projection.storybook(), projection.rulebook(), projection.resolution());
         GmContextEnvelope context = new GmContextEnvelope(request.adventureId(), request.ownerPlayerId(), request.sessionId(), request.turnId(), request.scenarioPackageId(),
-                request.bindingVersion(), request.currentContext(), request.activeSourceContext(), request.action(), request.evidencePack(),
-                request.recentTurns(), request.characterSnapshots(), request.storyPlanContext(), request.provider(), request.model(), request.reasoning());
+                request.bindingVersion(), request.currentContext(), request.activeSourceContext(), request.action(), projectedEvidence,
+                request.recentTurns(), request.characterSnapshots(), projection.promptText(), request.provider(), request.model(), request.reasoning());
         java.util.Set<String> hiddenData = java.util.Set.of();
         TurnCapability capability = gateway == null || saga == null ? null : TurnCapability.issue(
                 request.sessionId(), request.turnId(), request.ownerPlayerId().value(), Set.of("dice.roll", "character.update", "revise_story_plan", "advance_game_time"),
@@ -36,14 +38,14 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         GmPlanResult proposed = capability == null ? agentPort.plan(context) : agentPort.plan(context, capability);
         GmPlanResult result;
         try {
-            result = validator.validate(proposed, request.evidencePack(), request.currentContext(), hiddenData);
+            result = validator.validate(proposed, projectedEvidence, request.currentContext(), hiddenData);
         } catch (IllegalStateException failure) {
             GmPlanResult repaired = agentPort.repairPlan(context, proposed, failure.getMessage());
             if (repaired == null) {
                 result = refusal(proposed, modeFor(failure.getMessage()), failure.getMessage(), false);
             } else {
                 try {
-                    result = validator.validate(repaired, request.evidencePack(), request.currentContext(), hiddenData);
+                    result = validator.validate(repaired, projectedEvidence, request.currentContext(), hiddenData);
                     result = withRepairMetadata(result);
                 } catch (IllegalStateException unrepaired) {
                     result = refusal(repaired, modeFor(unrepaired.getMessage()), unrepaired.getMessage(), true);
@@ -104,7 +106,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         } else if (capability != null) {
             gateway.revoke(capability);
         }
-        GmPlanResult validated = validator.validate(result, request.evidencePack(), request.currentContext(), hiddenData);
+        GmPlanResult validated = validator.validate(result, projectedEvidence, request.currentContext(), hiddenData);
         return validated.plan();
     }
 

@@ -49,4 +49,16 @@ class ModelInputProjectionTest {
         assertFalse(ModelInputProjection.create(Set.of(allowed), List.of(missingVisibility), List.of(), List.of(), "", "", Set.of())
                 .promptText().contains("secret"));
     }
+
+    @Test
+    void does_not_release_evidence_before_disclosure_turn() {
+        UUID document = UUID.randomUUID();
+        RuntimeEvidence gated = new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
+                new KnowledgeDocumentId(document), 1, "page:2", "revealed clue",
+                StoryEvidenceVisibility.REVEALED_AFTER_EVENT, "DOOR_OPENED", 4, List.of(), null);
+        assertFalse(ModelInputProjection.create(Set.of(document), List.of(gated), List.of(), List.of(), "", "",
+                Set.of("DOOR_OPENED"), 3).promptText().contains("revealed clue"));
+        assertTrue(ModelInputProjection.create(Set.of(document), List.of(gated), List.of(), List.of(), "", "",
+                Set.of("DOOR_OPENED"), 4).promptText().contains("revealed clue"));
+    }
 }

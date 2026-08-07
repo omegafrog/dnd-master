@@ -25,15 +25,24 @@ public record ModelInputProjection(
             List<RuntimeEvidence> storybook, List<RuntimeEvidence> rulebook,
             List<RuntimeEvidence> resolution, String ignoredCheckpoint,
             String continuity, Set<String> committedDisclosureEvents) {
+        return create(allowedDocuments, storybook, rulebook, resolution, ignoredCheckpoint, continuity,
+                committedDisclosureEvents, Long.MAX_VALUE);
+    }
+
+    public static ModelInputProjection create(Set<UUID> allowedDocuments,
+            List<RuntimeEvidence> storybook, List<RuntimeEvidence> rulebook,
+            List<RuntimeEvidence> resolution, String ignoredCheckpoint,
+            String continuity, Set<String> committedDisclosureEvents, long currentTurn) {
         Objects.requireNonNull(allowedDocuments, "allowed documents must not be null");
         Objects.requireNonNull(committedDisclosureEvents, "disclosure events must not be null");
+        if (currentTurn < 0) throw new IllegalArgumentException("current turn must not be negative");
         List<ProjectionAudit> audit = new ArrayList<>();
         List<RuntimeEvidence> safeStory = filter(RuntimeEvidenceType.STORYBOOK, storybook, allowedDocuments,
-                committedDisclosureEvents, audit);
+                committedDisclosureEvents, currentTurn, audit);
         List<RuntimeEvidence> safeRules = filter(RuntimeEvidenceType.RULEBOOK, rulebook, allowedDocuments,
-                committedDisclosureEvents, audit);
+                committedDisclosureEvents, currentTurn, audit);
         List<RuntimeEvidence> safeResolution = filter(RuntimeEvidenceType.RESOLUTION, resolution, allowedDocuments,
-                committedDisclosureEvents, audit);
+                committedDisclosureEvents, currentTurn, audit);
         return new ModelInputProjection(safeStory, safeRules, safeResolution, continuity, audit);
     }
 
@@ -43,7 +52,7 @@ public record ModelInputProjection(
     }
 
     private static List<RuntimeEvidence> filter(RuntimeEvidenceType expected, List<RuntimeEvidence> input,
-            Set<UUID> allowedDocuments, Set<String> events, List<ProjectionAudit> audit) {
+            Set<UUID> allowedDocuments, Set<String> events, long currentTurn, List<ProjectionAudit> audit) {
         Objects.requireNonNull(input, expected + " evidence must not be null");
         List<RuntimeEvidence> result = new ArrayList<>();
         for (RuntimeEvidence item : input) {
@@ -60,7 +69,8 @@ public record ModelInputProjection(
                     || item.visibility() == StoryEvidenceVisibility.PUBLIC_SUMMARY
                     || ((item.visibility() == StoryEvidenceVisibility.DISCOVERED
                     || item.visibility() == StoryEvidenceVisibility.REVEALED_AFTER_EVENT)
-                    && item.disclosureEvent() != null && events.contains(item.disclosureEvent()));
+                    && item.disclosureEvent() != null && events.contains(item.disclosureEvent())
+                    && currentTurn >= item.disclosureTurn());
             if (visible) {
                 result.add(item);
                 audit.add(new ProjectionAudit(item.knowledgeDocumentId().value(), expected, "ACCEPTED"));

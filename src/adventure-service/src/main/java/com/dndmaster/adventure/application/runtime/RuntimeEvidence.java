@@ -33,9 +33,7 @@ public record RuntimeEvidence(
         }
         locator = required(locator, "locator");
         excerpt = required(excerpt, "excerpt");
-        visibility = visibility == null
-                ? (evidenceType == RuntimeEvidenceType.STORYBOOK ? StoryEvidenceVisibility.GM_ONLY : StoryEvidenceVisibility.PLAYER_VISIBLE)
-                : visibility;
+        visibility = visibility == null ? StoryEvidenceVisibility.GM_ONLY : visibility;
         if (disclosureTurn < 0) throw new IllegalArgumentException("disclosure turn must not be negative");
         if (visibility == StoryEvidenceVisibility.REVEALED_AFTER_EVENT
                 && (disclosureEvent == null || disclosureEvent.isBlank())) {
