@@ -64,7 +64,7 @@ public final class SpringAiChatAdapter implements GmCompletionAdapter {
 
     public <T> T completeWithModel(String operationId, String prompt, StructuredResponseParser<T> parser, String requestedModel) {
         return completeWithModel(operationId, prompt, parser, requestedModel,
-                DeadlineBudget.start(java.time.Duration.ofSeconds(90), java.time.Duration.ofSeconds(30)));
+                DeadlineBudget.start(java.time.Duration.ofSeconds(180), java.time.Duration.ofSeconds(30)));
     }
 
     private <T> T completeWithModel(String operationId, String prompt, StructuredResponseParser<T> parser,
@@ -98,7 +98,7 @@ public final class SpringAiChatAdapter implements GmCompletionAdapter {
     }
 
     public Flux<String> stream(String operationId, String prompt) {
-        return stream(operationId, prompt, DeadlineBudget.start(java.time.Duration.ofSeconds(90), java.time.Duration.ofSeconds(30)));
+        return stream(operationId, prompt, DeadlineBudget.start(java.time.Duration.ofSeconds(180), java.time.Duration.ofSeconds(30)));
     }
 
     public Flux<String> stream(String operationId, String prompt, DeadlineBudget budget) {

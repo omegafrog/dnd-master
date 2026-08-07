@@ -26,7 +26,7 @@ adventure:
     ai-game-master:
       base-url: ${AI_GAME_MASTER_BASE_URL:http://127.0.0.1:8080/}
       # Story-plan generation must fail/retry in a bounded UI request window.
-      story-plan-timeout: ${AI_GAME_MASTER_STORY_PLAN_TIMEOUT:90s}
+      story-plan-timeout: ${AI_GAME_MASTER_STORY_PLAN_TIMEOUT:240s}
     scenario-compilation:
       timeout: 900s
 
@@ -79,7 +79,7 @@ local-ai:
       - qwen3:8b
       - exaone3.5:7.8b
       - qwen3-embedding:0.6b
-    request-timeout: ${LOCAL_AI_OLLAMA_REQUEST_TIMEOUT:45s}
+    request-timeout: ${LOCAL_AI_OLLAMA_REQUEST_TIMEOUT:180s}
     circuit-failure-threshold: 3
     circuit-reset-timeout: 30s
 
