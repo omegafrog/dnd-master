@@ -7,48 +7,38 @@
 
 ## 구현 목적
 
-모델이 근거 원문이나 locator를 재작성하지 못하게 하고, 서버가 발급한 짧은 ID만 인용하게 한다. 이를 통해 Storybook 전개와 Rulebook 판정의 실제 근거를 잠긴 bundle에 대해 정확히 검증한다.
+근거 identity를 서버가 소유한다. provider는 서버가 발급한 짧은 citation handle만 반환하고, 원문·locator·근거 범위를 위조하지 못하게 한다.
 
 ## Outcome
 
-The server owns all Storybook and Rulebook evidence identity. The GM returns only short citation handles such as `E1`; it cannot echo, replace, broaden, or invent source evidence.
+Each turn has an immutable server-owned evidence registry scoped to locked session/version and visibility.
 
-## Implementation scope
+## Scope
 
-- Build an immutable per-turn citation registry from the locked evidence pack before provider invocation.
-- Assign opaque short handles to evidence while retaining source type, locator, bundle/version, visibility, provenance, and protected facts server-side.
-- Send the model the handle and the minimum text needed for reasoning; require output to reference handles only.
-- Resolve handles after provider parsing and reject unknown, duplicated, stale, cross-session, or visibility-incompatible references.
-- Remove full `RuntimeEvidence` objects from the provider response contract.
-- Persist canonical server-resolved references, with backward-compatible reads for existing locator strings.
-- Ensure Storybook claims cite Storybook evidence and rule judgments cite Rulebook evidence.
+- Build per-turn registry before provider invocation.
+- Map opaque handles to source type, locator, version, visibility, and provenance server-side.
+- Reject unknown, duplicate, stale, cross-session, and visibility-incompatible handles.
+- Persist canonical resolved references; read legacy locator strings safely.
+- Enforce Storybook citations for story claims and Rulebook citations for rule judgments.
 
-## Likely files
+## Acceptance
 
-- `src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeEvidence.java`
-- `src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/EvidencePack.java`
-- `src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/ModelInputProjection.java`
-- `src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/GmFinalValidator.java`
-- `src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/integration/HttpGmAgentPort.java`
-- `src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeTurn.java`
-- `src/contracts/ai-game-master/openapi.yaml`
-
-## Acceptance criteria
-
-- Each provider-visible citation handle maps to exactly one locked evidence item for that turn.
-- Provider responses contain citation handles only; returned excerpts or evidence objects are rejected.
-- Unknown, stale, cross-adventure, and cross-version handles fail closed before persistence.
-- Rule judgments cannot be grounded solely in Storybook evidence; story claims cannot cite unrelated evidence.
-- Player citations are derived from canonical resolved evidence, never provider-authored locators.
-- Hidden evidence contents and protected facts never appear in public citation DTOs.
+- Provider returns handles only.
+- Invented or cross-turn handles fail closed before persistence.
+- Player citations derive only from canonical server references.
 
 ## Test contract
 
-- Unit: registry identity, stable mapping, source-type policy, visibility policy, unknown/stale handle rejection.
-- Integration: fake provider returns valid `E1`, invented `E99`, duplicated IDs, and another turn's ID; only valid resolution commits.
-- `UI ~ entity` E2E: a UI turn displays allowed source references matching the committed evidence entities, with no raw hidden excerpt.
+- Unit: identity, mapping, source-type, visibility, stale-handle rules.
+- Integration: valid handle, invented, duplicate, and foreign-turn handles.
+- `UI ~ entity` E2E: public source references match committed evidence; no hidden excerpts.
+
+## Likely files
+
+- `src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/{RuntimeEvidence,EvidencePack,ModelInputProjection,GmFinalValidator,RuntimeTurn}.java`
+- `src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/integration/HttpGmAgentPort.java`
+- `src/contracts/ai-game-master/openapi.yaml`
 
 ## Out of scope
 
-- Browser-wide private payload enforcement; covered by 036-3.
-- Rule outcome computation; covered by 036-4.
+Browser-wide secrecy and rule outcome computation; tickets 036-3 and 036-4.

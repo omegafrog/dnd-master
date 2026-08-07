@@ -4,7 +4,7 @@ Tracker mode: local Markdown. 외부 Issue는 생성하지 않는다.
 
 | ID | Ticket | Status | Dependencies |
 |---|---|---|---|
-| 036-1 | [Provider-native GM response envelope](036-1-provider-native-gm-envelope.md) | planned | - |
+| 036-1 | [Provider-native GM response envelope](036-1-provider-native-gm-envelope.md) | ready-for-agent | - |
 | 036-2 | [Server-owned evidence citation registry](036-2-server-owned-evidence-citations.md) | planned | 036-1 |
 | 036-3 | [Private GM state and player projection boundary](036-3-private-state-player-projection.md) | planned | 036-1, 036-2 |
 | 036-4 | [Authoritative adjudication and combat orchestration](036-4-authoritative-adjudication-orchestration.md) | planned | 036-1, 036-2, 036-3 |
