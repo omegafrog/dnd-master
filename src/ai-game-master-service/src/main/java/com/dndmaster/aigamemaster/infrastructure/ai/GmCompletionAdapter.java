@@ -6,7 +6,7 @@ public interface GmCompletionAdapter {
 
     default <T> T complete(String operationId, String prompt, StructuredResponseParser<T> parser,
                            DeadlineBudget budget) {
-        return complete(operationId, prompt, parser);
+        return budget.call(() -> complete(operationId, prompt, parser));
     }
 
     default <T> T complete(String operationId, String prompt, StructuredResponseParser<T> parser,
@@ -16,6 +16,6 @@ public interface GmCompletionAdapter {
 
     default <T> T complete(String operationId, String prompt, StructuredResponseParser<T> parser,
                            GmProviderRequest provider, DeadlineBudget budget) {
-        return complete(operationId, prompt, parser, provider);
+        return budget.call(() -> complete(operationId, prompt, parser, provider));
     }
 }

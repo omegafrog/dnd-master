@@ -98,6 +98,10 @@ public final class SpringAiChatAdapter implements GmCompletionAdapter {
     }
 
     public Flux<String> stream(String operationId, String prompt) {
+        return stream(operationId, prompt, DeadlineBudget.start(java.time.Duration.ofSeconds(90), java.time.Duration.ofSeconds(30)));
+    }
+
+    public Flux<String> stream(String operationId, String prompt, DeadlineBudget budget) {
         String fingerprint = register(operationId, prompt);
         CachedResult cached = completed.get(operationId);
         if (cached != null) {
@@ -106,7 +110,8 @@ public final class SpringAiChatAdapter implements GmCompletionAdapter {
         }
         return Flux.defer(() -> {
             List<String> chunks = new ArrayList<>();
-            return model.stream(new Prompt(prompt)).map(SpringAiChatAdapter::text)
+            return model.stream(new Prompt(prompt)).timeout(budget.child(java.time.Duration.ofDays(365)))
+                    .map(SpringAiChatAdapter::text)
                     .doOnNext(chunks::add)
                     .doOnComplete(() -> {
                         completed.put(operationId, new CachedResult(fingerprint, List.copyOf(chunks)));

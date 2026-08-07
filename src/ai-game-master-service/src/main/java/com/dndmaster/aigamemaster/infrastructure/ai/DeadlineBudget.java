@@ -1,7 +1,6 @@
 package com.dndmaster.aigamemaster.infrastructure.ai;
 
 import java.time.Duration;
-import java.time.Instant;
 import java.util.Objects;
 import java.util.concurrent.Callable;
 import java.util.concurrent.ExecutionException;
@@ -14,12 +13,12 @@ import java.util.concurrent.TimeoutException;
 /** Monotonic wall-clock budget shared by retrieval, generation, repair, and validation. */
 public final class DeadlineBudget {
     private static final ExecutorService CALL_EXECUTOR = Executors.newVirtualThreadPerTaskExecutor();
-    private final Instant deadline;
+    private final long deadlineNanos;
     private final Duration totalBudget;
     private final Duration retrievalBudget;
 
-    private DeadlineBudget(Instant deadline, Duration totalBudget, Duration retrievalBudget) {
-        this.deadline = deadline;
+    private DeadlineBudget(long deadlineNanos, Duration totalBudget, Duration retrievalBudget) {
+        this.deadlineNanos = deadlineNanos;
         this.totalBudget = totalBudget;
         this.retrievalBudget = retrievalBudget;
     }
@@ -30,12 +29,12 @@ public final class DeadlineBudget {
     }
 
     static DeadlineBudget at(Duration totalBudget, Duration retrievalBudget) {
-        return at(Instant.now().plus(totalBudget), totalBudget, retrievalBudget);
+        return at(System.nanoTime() + totalBudget.toNanos(), totalBudget, retrievalBudget);
     }
 
-    static DeadlineBudget at(Instant deadline, Duration totalBudget, Duration retrievalBudget) {
+    static DeadlineBudget at(long deadlineNanos, Duration totalBudget, Duration retrievalBudget) {
         validate(totalBudget, retrievalBudget);
-        return new DeadlineBudget(Objects.requireNonNull(deadline), totalBudget,
+        return new DeadlineBudget(deadlineNanos, totalBudget,
                 retrievalBudget.compareTo(totalBudget) > 0 ? totalBudget : retrievalBudget);
     }
 
@@ -44,7 +43,7 @@ public final class DeadlineBudget {
     public Duration retrievalBudget() { return retrievalBudget; }
 
     public Duration remaining() {
-        return Duration.between(Instant.now(), deadline);
+        return Duration.ofNanos(deadlineNanos - System.nanoTime());
     }
 
     public Duration child(Duration requested) {

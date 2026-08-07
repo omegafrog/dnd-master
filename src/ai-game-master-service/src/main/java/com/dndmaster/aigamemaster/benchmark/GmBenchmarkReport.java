@@ -21,7 +21,7 @@ public record GmBenchmarkReport(String schemaVersion, String corpusVersion, Stri
                              GmBenchmarkMetrics coldMetrics, GmBenchmarkMetrics warmMetrics) {
         this(schemaVersion, corpusVersion, model, modelDigest, temperature, tokenCap, contextSize, runs, cases,
                 overallMetrics, coldMetrics, warmMetrics,
-                GmLatencyMetadata.defaults(runs == null ? 0 : runs.size()));
+                null);
     }
 
     public void assertPublishable() {

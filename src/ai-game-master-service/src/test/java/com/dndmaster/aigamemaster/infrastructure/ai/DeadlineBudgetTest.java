@@ -19,14 +19,14 @@ class DeadlineBudgetTest {
 
     @Test
     void rejectsWorkWhenTotalDeadlineIsExhausted() {
-        DeadlineBudget budget = DeadlineBudget.at(java.time.Instant.now().minusSeconds(1), Duration.ofSeconds(1), Duration.ofSeconds(1));
+        DeadlineBudget budget = DeadlineBudget.at(System.nanoTime() - Duration.ofSeconds(1).toNanos(), Duration.ofSeconds(1), Duration.ofSeconds(1));
 
         assertThrows(ProviderTimeoutException.class, () -> budget.requireRemaining(Duration.ZERO));
     }
 
     @Test
     void cancelsProviderWorkAtTheRemainingDeadline() {
-        DeadlineBudget budget = DeadlineBudget.at(java.time.Instant.now().plusMillis(30),
+        DeadlineBudget budget = DeadlineBudget.at(System.nanoTime() + Duration.ofMillis(30).toNanos(),
                 Duration.ofMillis(30), Duration.ofMillis(10));
 
         assertThrows(ProviderTimeoutException.class, () -> budget.call(() -> {
