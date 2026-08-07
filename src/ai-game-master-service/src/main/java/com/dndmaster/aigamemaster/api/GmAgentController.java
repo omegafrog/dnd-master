@@ -193,13 +193,13 @@ public final class GmAgentController {
                 Never reveal hidden data. Never invent rules, rolls, or state changes.
                 Return JSON only with fields scene,npcState,judgment,narration,proposedActiveSourceContext,
                 citedEvidence,warnings,provider,model,reasoning,stateDelta,toolCalls. stateDelta MUST be [] .
-                narrationSegments is an array of {visibility,text}; visibility is PLAYER_VISIBLE or GM_ONLY. Only PLAYER_VISIBLE text may be shown to the player.
+                narrationSegments is an array of {field,visibility,text}; field is SCENE, NPC_STATE, JUDGMENT, or NARRATION; visibility is PLAYER_VISIBLE or GM_ONLY. Only PLAYER_VISIBLE text may be shown to the player.
                 toolCalls may contain only dice.roll or character.update; each call has toolName,argumentsJson,required.
                 Every rule claim needs a citation from supplied evidence.
                 citedEvidence is an array of exact evidence objects, never strings. If you cannot copy an evidence object
                 exactly, return citedEvidence as []. Do not cite or reproduce hidden DCs, secret locations, or private facts.
                 Use this exact JSON shape (replace values; keep array/object types):
-                {"scene":"...","npcState":"...","judgment":"...","narration":"...","narrationSegments":[{"visibility":"PLAYER_VISIBLE","text":"..."}],
+                {"scene":"...","npcState":"...","judgment":"...","narration":"...","narrationSegments":[{"field":"NARRATION","visibility":"PLAYER_VISIBLE","text":"..."}],
                 "proposedActiveSourceContext":null,"citedEvidence":[],"warnings":[],"provider":"ollama",
                 "model":"...","reasoning":"...","stateDelta":[],"toolCalls":[]}
                 adventureId=%s packageId=%s bindingVersion=%s action=%s
@@ -284,19 +284,28 @@ public final class GmAgentController {
 
     private static Response publicNarration(Response response) {
         List<NarrationSegment> segments = response.narrationSegments() == null || response.narrationSegments().isEmpty()
-                ? List.of(new NarrationSegment("PLAYER_VISIBLE", response.narration())) : response.narrationSegments();
+                ? List.of(new NarrationSegment("NARRATION", "PLAYER_VISIBLE", response.narration()))
+                : response.narrationSegments().stream().map(segment -> segment.field() == null
+                        ? new NarrationSegment("NARRATION", segment.visibility(), segment.text()) : segment).toList();
         segments.forEach(segment -> {
             if (segment == null || segment.text() == null || segment.text().isBlank()
+                    || (!"SCENE".equals(segment.field()) && !"NPC_STATE".equals(segment.field())
+                    && !"JUDGMENT".equals(segment.field()) && !"NARRATION".equals(segment.field()))
                     || (!"PLAYER_VISIBLE".equals(segment.visibility()) && !"GM_ONLY".equals(segment.visibility()))) {
                 throw new com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException("invalid narration segment");
             }
         });
-        String narration = segments.stream().filter(segment -> "PLAYER_VISIBLE".equals(segment.visibility()))
-                .map(NarrationSegment::text).reduce("", (left, right) -> left.isBlank() ? right : left + " " + right);
+        String narration = publicField(segments, "NARRATION", response.narration());
         if (narration.isBlank()) throw new com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException("player narration is empty");
-        return new Response(response.scene(), response.npcState(), response.judgment(), narration, segments,
+        return new Response(publicField(segments, "SCENE", response.scene()), publicField(segments, "NPC_STATE", response.npcState()),
+                publicField(segments, "JUDGMENT", response.judgment()), narration, segments,
                 response.proposedActiveSourceContext(), response.citedEvidence(), response.warnings(), response.provider(),
                 response.model(), response.reasoning(), response.stateDelta(), response.toolCalls());
+    }
+
+    private static String publicField(List<NarrationSegment> segments, String field, String fallback) {
+        return segments.stream().filter(segment -> field.equals(segment.field()) && "PLAYER_VISIBLE".equals(segment.visibility()))
+                .map(NarrationSegment::text).reduce("", (left, right) -> left.isBlank() ? right : left + " " + right);
     }
 
     private static void requireText(String value, String name) {
@@ -320,5 +329,7 @@ public final class GmAgentController {
         public record ToolCall(String toolName, String argumentsJson, boolean required) {}
     }
 
-    public record NarrationSegment(String visibility, String text) {}
+    public record NarrationSegment(String field, String visibility, String text) {
+        public NarrationSegment(String visibility, String text) { this("NARRATION", visibility, text); }
+    }
 }

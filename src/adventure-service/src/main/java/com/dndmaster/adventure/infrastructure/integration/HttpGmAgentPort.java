@@ -115,7 +115,7 @@ public final class HttpGmAgentPort implements GmAgentPort {
     record Response(String scene, String npcState, String judgment, String narration, List<NarrationSegment> narrationSegments, ActiveSource proposedActiveSourceContext,
                    List<Evidence> citedEvidence, List<String> warnings, String provider, String model, String reasoning, List<String> stateDelta,
                    List<ToolCall> toolCalls) {
-        record NarrationSegment(String visibility, String text) {}
+        record NarrationSegment(String field, String visibility, String text) {}
         record ToolCall(String toolName, String argumentsJson, boolean required) {
             GmToolCall toDomain() { return new GmToolCall(toolName, argumentsJson, required); }
         }
@@ -128,7 +128,7 @@ public final class HttpGmAgentPort implements GmAgentPort {
             List<GmToolCall> calls = r.toolCalls == null ? List.of() : r.toolCalls.stream().map(ToolCall::toDomain).toList();
             String publicNarration = r.narrationSegments == null || r.narrationSegments.isEmpty()
                     ? r.narration
-                    : r.narrationSegments.stream().filter(segment -> "PLAYER_VISIBLE".equals(segment.visibility()))
+                    : r.narrationSegments.stream().filter(segment -> (segment.field() == null || "NARRATION".equals(segment.field())) && "PLAYER_VISIBLE".equals(segment.visibility()))
                     .map(NarrationSegment::text).filter(Objects::nonNull).reduce("", (left, right) -> left.isBlank() ? right : left + " " + right);
             if (publicNarration.isBlank()) throw new IllegalStateException("GM response has no player-visible narration");
             return new GmPlanResult(new RuntimePlan(r.scene, r.npcState, r.judgment, publicNarration,
