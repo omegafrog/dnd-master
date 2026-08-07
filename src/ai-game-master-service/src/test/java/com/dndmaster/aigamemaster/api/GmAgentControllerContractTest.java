@@ -62,6 +62,23 @@ class GmAgentControllerContractTest {
     }
 
     @Test
+    void rejects_citation_not_matching_selected_identity_and_excerpt() {
+        var controller = new GmAgentController(null, new com.fasterxml.jackson.databind.ObjectMapper(), null);
+        var selected = java.util.Map.of("type", "RULEBOOK", "knowledgeDocumentId", UUID.randomUUID(),
+                "extractionVersion", 1, "locator", "page:1", "excerpt", "Exact rule");
+        var request = new GmAgentController.Request("turn", UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), 1, "capability", "open", "scene", "npc", "", "",
+                List.of(selected), List.of(), List.of(), List.of(), List.of(), "", "", "", "", List.of());
+        var response = new GmAgentController.Response("scene", "npc", "judgment", "narration", null,
+                List.of(java.util.Map.of("type", "RULEBOOK", "knowledgeDocumentId", selected.get("knowledgeDocumentId"),
+                        "extractionVersion", 1, "locator", "page:1", "excerpt", "Forged rule")),
+                List.of(), "ollama", "qwen", "", List.of());
+        var exception = org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> controller.validateCitations(response, request));
+        org.junit.jupiter.api.Assertions.assertEquals("citation is outside selected evidence", exception.getMessage());
+    }
+
+    @Test
     void quality_evaluation_runs_provider_output_through_canonical_contract() {
         var response = "{\"scene\":\"crypt\",\"npcState\":\"alert\",\"judgment\":\"success\","
                 + "\"narration\":\"The crypt opens.\",\"citedEvidence\":[\"rules.txt#stealth\"],"

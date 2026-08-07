@@ -53,5 +53,7 @@ No provider response reaches runtime or player projection unless citations, fact
 - Added AI-boundary protected-fact checks with normalized exact and multi-token paraphrase detection.
 - Wired protected facts through runtime planning and HTTP request boundaries; checked scene, NPC state, judgment, and narration before tool execution.
 - Added quality tests for paraphrase detection and collision avoidance.
+- Added typed canonical fact IDs with unknown-ID rejection at state mutation.
+- AI boundary now rejects citations unless identity and excerpt exactly match selected evidence.
 - Provider state delta remains fail-closed and runtime validation remains authoritative.
 - Targeted adventure and AI GM gate tests pass. Full combined service run reached test completion but Gradle did not terminate cleanly.

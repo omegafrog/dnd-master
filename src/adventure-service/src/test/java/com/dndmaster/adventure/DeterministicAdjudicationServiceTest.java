@@ -113,6 +113,15 @@ class DeterministicAdjudicationServiceTest {
         assertEquals("damage-applied", next.latestJudgmentValue().orElseThrow());
     }
 
+    @Test
+    void state_mutation_rejects_unknown_authoritative_fact_id() {
+        AuthoritativeResolution resolution = AuthoritativeResolution.resolved(
+                "changed", List.of("invented.fact=true"), List.of("rules:1"));
+
+        assertThrows(IllegalStateException.class,
+                () -> new RuntimeContextStateMutationAdapter().apply(new AdventureContext("hall", "guard", null, null), resolution));
+    }
+
     private static DeterministicAdjudicationRequest request(String action, long seed) {
         return new DeterministicAdjudicationRequest(
                 UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), action,

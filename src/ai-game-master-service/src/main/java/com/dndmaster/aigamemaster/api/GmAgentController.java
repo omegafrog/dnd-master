@@ -49,13 +49,13 @@ public final class GmAgentController {
 
     private Response complete(Request request, String operation, String prompt, List<String> protectedFacts) {
         if (request.provider() == null || request.provider().isBlank()) {
-            return adapter.complete(operation, prompt, json -> parseCompleteResponse(json, protectedFacts));
+            return adapter.complete(operation, prompt, json -> parseCompleteResponse(json, protectedFacts, request));
         }
-        return adapter.complete(operation, prompt, json -> parseCompleteResponse(json, protectedFacts),
+        return adapter.complete(operation, prompt, json -> parseCompleteResponse(json, protectedFacts, request),
                 new GmProviderRequest(request.provider(), request.model(), request.reasoning()));
     }
 
-    private Response parseCompleteResponse(String json, List<String> protectedFacts) {
+    private Response parseCompleteResponse(String json, List<String> protectedFacts, Request request) {
             try {
                 Response response = mapper.readValue(json, Response.class);
                 if (response.proposedActiveSourceContext() instanceof String source
@@ -66,6 +66,7 @@ public final class GmAgentController {
                             response.toolCalls());
                 }
                 response = requireComplete(response);
+                validateCitations(response, request);
                 GmResponseSafetyPolicy.rejectProtectedFacts(response.scene() + " " + response.npcState() + " "
                         + response.judgment() + " " + response.narration(), protectedFacts);
                 return response;
@@ -138,6 +139,31 @@ public final class GmAgentController {
                 """.formatted(r.adventureId(), r.scenarioPackageId(), r.bindingVersion(), r.action(), r.currentScene(),
                 r.npcState(), r.pendingAction(), r.latestJudgment(), r.storybook(), r.rulebook(), r.resolution(), r.recentTurns(),
                 r.characterSnapshots(), r.storyPlanContext());
+    }
+
+    void validateCitations(Response response, Request request) {
+        List<?> selected = java.util.stream.Stream.of(request.storybook(), request.rulebook(), request.resolution())
+                .flatMap(List::stream).toList();
+        for (Object citation : response.citedEvidence()) {
+            if (!(citation instanceof java.util.Map<?, ?> cited) || selected.stream().noneMatch(item -> sameEvidence(item, cited))) {
+                throw new IllegalArgumentException("citation is outside selected evidence");
+            }
+        }
+    }
+
+    private static boolean sameEvidence(Object selected, java.util.Map<?, ?> cited) {
+        if (!(selected instanceof java.util.Map<?, ?> source)) return false;
+        return exact(source, cited, "type")
+                && exact(source, cited, "knowledgeDocumentId")
+                && exact(source, cited, "extractionVersion")
+                && exact(source, cited, "locator")
+                && exact(source, cited, "excerpt");
+    }
+
+    private static boolean exact(java.util.Map<?, ?> left, java.util.Map<?, ?> right, String key) {
+        Object a = left.get(key);
+        Object b = right.get(key);
+        return a != null && b != null && String.valueOf(a).equals(String.valueOf(b));
     }
 
     public record Request(String operationKey, UUID adventureId, UUID ownerPlayerId, UUID sessionId, UUID turnId, UUID scenarioPackageId, long bindingVersion, String turnCapability, String action,

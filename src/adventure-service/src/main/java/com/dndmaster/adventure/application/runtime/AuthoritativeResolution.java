@@ -2,6 +2,8 @@ package com.dndmaster.adventure.application.runtime;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /** State-changing result owned by deterministic rules, including audit provenance. */
 public record AuthoritativeResolution(
@@ -24,6 +26,20 @@ public record AuthoritativeResolution(
                 || provenance.stream().anyMatch(value -> value == null || value.isBlank())) {
             throw new IllegalArgumentException("resolution values must be non-blank");
         }
+        stateChanges.forEach(change -> new ReferencedFactId(factId(change)));
+    }
+
+    public Set<ReferencedFactId> referencedFactIds() {
+        return stateChanges.stream().map(AuthoritativeResolution::factId)
+                .map(ReferencedFactId::new).collect(Collectors.toUnmodifiableSet());
+    }
+
+    private static String factId(String change) {
+        int separator = change.indexOf('=');
+        if (separator <= 0 || separator == change.length() - 1) {
+            throw new IllegalArgumentException("state change must reference canonical fact id");
+        }
+        return change.substring(0, separator).trim();
     }
 
     public static AuthoritativeResolution resolved(String outcome, List<String> stateChanges, List<String> provenance) {
