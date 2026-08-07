@@ -3,6 +3,7 @@ package com.dndmaster.adventure;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentLookupPort;
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
@@ -79,6 +80,23 @@ class RuntimeBindingApplicationServiceTest {
 
         assertEquals(RuntimeReadinessStatus.SUPPORTED_DEGRADED, binding.readiness().status());
         assertEquals(true, binding.readiness().ready());
+    }
+
+    @Test
+    void blocks_unsupported_provider_capability() {
+        ScenarioBundleId bundleId = ScenarioBundleId.generate();
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(bundleId, rulebookId, new KnowledgeDocumentId(UUID.randomUUID()), "page:1:span:1");
+
+        RuntimeBinding binding = service(new InMemoryAdventureRepository(adventure), new InMemoryBundleRepository(bundleId, owner),
+                new InMemoryPackageRepository(scenarioPackage), new InMemoryBindingRepository(), rulebookId)
+                .bind(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(adventure.id(), owner,
+                        scenarioPackage.packageId(), List.of(rulebookId.value()), "unsupported-provider", List.of("search")));
+
+        assertEquals(RuntimeReadinessStatus.BLOCKED, binding.readiness().status());
+        assertTrue(binding.readiness().blockers().stream().anyMatch(reason -> reason.contains("unsupported-provider")));
     }
 
     @Test

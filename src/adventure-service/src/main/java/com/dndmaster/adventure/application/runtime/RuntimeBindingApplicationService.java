@@ -13,6 +13,8 @@ import java.util.Objects;
 import java.util.UUID;
 
 public final class RuntimeBindingApplicationService {
+    private static final java.util.Set<String> SUPPORTED_ENGINES = java.util.Set.of("ollama", "openai");
+    private static final java.util.Set<String> SUPPORTED_TOOLS = java.util.Set.of("search", "move", "note");
     private final AdventureRepository adventureRepository;
     private final ScenarioBundleRepository bundleRepository;
     private final ScenarioPackageRepository scenarioPackageRepository;
@@ -187,6 +189,25 @@ public final class RuntimeBindingApplicationService {
         List<String> warnings = new ArrayList<>(binding.playabilityReport().warnings());
         boolean pending = false;
         boolean degraded = false;
+        boolean[] pendingHolder = {false};
+        boolean[] degradedHolder = {false};
+        if (!SUPPORTED_ENGINES.contains(binding.engineId())) {
+            blockers.add("runtime provider capability is unsupported: " + binding.engineId());
+        }
+        for (String toolId : binding.toolIds()) {
+            if (!SUPPORTED_TOOLS.contains(toolId)) blockers.add("runtime tool capability is unsupported: " + toolId);
+        }
+        scenarioPackageRepository.findById(binding.scenarioPackageId()).ifPresentOrElse(scenarioPackage -> {
+            // Bundle document status is locked into the package; non-indexed assets cannot be used safely.
+            for (var document : scenarioPackage.documents()) {
+                String status = document.status().name();
+                if ("REJECTED".equals(status)) blockers.add("scenario asset indexing failed: " + document.role());
+                else if ("PARTIAL_CONFIRMED".equals(status)) { warnings.add("scenario asset indexing is partial: " + document.role()); degradedHolder[0] = true; }
+                else if (!"INDEXED".equals(status)) pendingHolder[0] = true;
+            }
+        }, () -> blockers.add("scenario package is unavailable for readiness preflight"));
+        pending = pending || pendingHolder[0];
+        degraded = degraded || degradedHolder[0];
         for (UUID rulebookId : binding.rulebookIds()) {
             var document = documents.stream().filter(candidate -> candidate.knowledgeDocumentId().value().equals(rulebookId)).findFirst();
             if (document.isEmpty()) { blockers.add("rulebook knowledge set is missing"); continue; }
