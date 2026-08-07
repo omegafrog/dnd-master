@@ -55,8 +55,10 @@ class AdventureEventControllerTest {
 
     @Test
     void event_payloads_are_not_used_as_player_visible_data() {
-        assertEquals("공개할 수 있는 장면 정보가 없습니다.",
-                com.dndmaster.adventure.application.runtime.PlayerProjection.redact("hidden provider detail", java.util.Set.of()));
+        SessionEvent event = new SessionEvent(UUID.randomUUID(), UUID.randomUUID(), 1, "GM_TURN_FAILED", "hidden provider detail");
+        assertEquals("event updated", AdventureEventController.playerPayload(event));
+        assertEquals("turn committed", AdventureEventController.playerPayload(
+                new SessionEvent(event.sessionId(), UUID.randomUUID(), 2, "GM_TURN_COMMITTED", "hidden provider detail")));
     }
 
     private static Adventure adventure(UUID owner) {
