@@ -79,7 +79,11 @@ public record RuntimeTurn(
     }
 
     public PlayerProjection playerProjection(java.util.Set<String> committedEvents) {
+        return playerProjection(committedEvents, List.of());
+    }
+
+    public PlayerProjection playerProjection(java.util.Set<String> committedEvents, List<String> toolResults) {
         return PlayerProjection.create(plan.narration(), plan.judgment(), context.currentScene(), citations,
-                warnings, List.of(), evidencePack.all(), committedEvents, version);
+                warnings, toolResults, evidencePack.all(), committedEvents, version, sessionId, scenarioPackageId);
     }
 }

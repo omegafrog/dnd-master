@@ -119,7 +119,7 @@ public class AdventureController {
                 request.turnId(),
                 request.commandId(),
                 request.action()));
-        return RuntimeTurnResponse.from(result);
+        return RuntimeTurnResponse.from(result, sessionEventRepository);
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/turns")
@@ -178,9 +178,9 @@ public class AdventureController {
             gmTurnFailureRecorder.record(turn, adventureId, adventure.sessionId().value(), safeMessage, expectedVersion);
             var failure = exception instanceof com.dndmaster.adventure.infrastructure.integration.GmAgentFailureException typed
                     ? typed.failure() : new com.dndmaster.adventure.application.runtime.GmAgentFailure(
-                            "DEPENDENCY", true, safeMessage, commandId.toString());
+                            "DEPENDENCY", true, safeMessage, "turn-failure");
             return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_GATEWAY).body(new GmTurnFailureResponse(
-                    failure.category(), failure.retryable(), failure.safeMessage(), failure.correlationId(), expectedVersion));
+                    failure.category(), failure.retryable(), failure.safeMessage(), "turn-failure", expectedVersion));
         }
         String providerMetadata = "provider=" + result.turn().plan().provider()
                 + ";model=" + result.turn().plan().model()
@@ -337,9 +337,10 @@ public class AdventureController {
             String narration,
             String judgment,
             String currentScene,
-            List<String> sourceRefs,
-            List<String> warnings,
-            long version) {
+                    List<String> sourceRefs,
+                    List<String> warnings,
+                    List<String> toolResults,
+                    long version) {
         static RuntimeTurnResponse from(RuntimeTurnResult result) {
             return from(result, null);
         }
@@ -360,6 +361,7 @@ public class AdventureController {
                     projection.currentScene(),
                     projection.citations(),
                     projection.warnings(),
+                    projection.toolResults(),
                     result.version());
         }
     }
@@ -399,7 +401,17 @@ public class AdventureController {
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Obstacle> obstacles,
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Layer> layers, Long version) {
         static CombatMapResponse from(UUID adventureId, long sessionVersion, com.dndmaster.adventure.application.combat.CombatMapViewPort.View view) {
-            return new CombatMapResponse(adventureId, "authoritative-map", sessionVersion, view.mapId(), view.grid(), view.tokens(), view.obstacles(), view.layers(), view.version());
+            var safeLayers = view.layers().stream()
+                    .filter(layer -> layer.type() != null && layer.value() != null)
+                    .filter(layer -> !containsPrivateMarker(layer.type()) && !containsPrivateMarker(layer.value()))
+                    .toList();
+            return new CombatMapResponse(adventureId, "authoritative-map", sessionVersion, view.mapId(), view.grid(), view.tokens(), view.obstacles(), safeLayers, view.version());
+        }
+        private static boolean containsPrivateMarker(String value) {
+            String normalized = value.toLowerCase(java.util.Locale.ROOT);
+            return normalized.contains("ai_only") || normalized.contains("gm_only")
+                    || normalized.contains("secret") || normalized.contains("hidden") || normalized.contains("internal")
+                    || java.util.regex.Pattern.matches(".*[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}.*", normalized);
         }
     }
     public record DiceRollRequest(

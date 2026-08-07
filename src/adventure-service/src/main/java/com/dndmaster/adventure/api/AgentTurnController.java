@@ -45,9 +45,10 @@ public final class AgentTurnController {
                                     int nextTurnIndex, String nextControlMode) {
         static AgentTurnResponse from(AgentTurnApplicationService.AgentTurnResult result) {
             RuntimeTurnResult runtime = result.result();
+            var projection = runtime.turn().playerProjection(java.util.Set.of());
             return new AgentTurnResponse(runtime.turn().turnId(), runtime.turn().adventureId().value(),
-                    runtime.turn().plan().narration(), runtime.turn().plan().judgment(), runtime.context().currentScene(),
-                    runtime.turn().citations(), runtime.turn().warnings(), runtime.version(), result.nextCursor().index(),
+                    projection.narration(), projection.judgment(), projection.currentScene(),
+                    projection.citations(), projection.warnings(), runtime.version(), result.nextCursor().index(),
                     result.nextCursor().current().controlMode().name());
         }
     }

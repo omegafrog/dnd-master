@@ -36,7 +36,7 @@ class PlayerProjectionTest {
         assertEquals("공개할 수 있는 장면 정보가 없습니다.", projection.judgment());
         assertEquals("공개할 수 있는 장면 정보가 없습니다.", projection.currentScene());
         assertEquals(List.of("storybook:page:1"), projection.citations());
-        assertEquals(List.of("degraded-mode:RULE"), projection.warnings());
+        assertTrue(projection.warnings().isEmpty());
         assertTrue(projection.toolResults().isEmpty());
         assertFalse(projection.toString().contains("DC 13"));
         assertFalse(projection.toString().contains("hidden ending"));
@@ -55,5 +55,23 @@ class PlayerProjectionTest {
 
         assertEquals(List.of("storybook:chapter:3"), projection.citations());
         assertEquals(List.of("safe tool result"), projection.toolResults());
+    }
+
+    @Test
+    void rejects_hidden_rule_evidence_and_scope_mismatch_at_publication() {
+        UUID session = UUID.randomUUID();
+        UUID packageId = UUID.randomUUID();
+        RuntimeEvidence hiddenRule = new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
+                new KnowledgeDocumentId(UUID.randomUUID()), 4, "page:13", "DC 13 secret rule",
+                StoryEvidenceVisibility.GM_ONLY, null, 0).withScope(UUID.randomUUID(), session, packageId);
+
+        PlayerProjection projection = PlayerProjection.create("DC 13 secret rule", "safe", "safe",
+                List.of("RULEBOOK:page:13"), List.of("warning=DC 13"), List.of("DC 13 secret rule"),
+                List.of(hiddenRule), Set.of(), 0, session, packageId);
+
+        assertEquals("공개할 수 있는 장면 정보가 없습니다.", projection.narration());
+        assertTrue(projection.citations().isEmpty());
+        assertTrue(projection.warnings().isEmpty());
+        assertTrue(projection.toolResults().isEmpty());
     }
 }

@@ -31,30 +31,41 @@ public record PlayerProjection(
     public static PlayerProjection create(String narration, String judgment, String currentScene,
             List<String> citations, List<String> warnings, List<String> toolResults,
             List<RuntimeEvidence> evidence, Set<String> committedEvents, long gameTurn) {
+        return create(narration, judgment, currentScene, citations, warnings, toolResults, evidence,
+                committedEvents, gameTurn, null, null);
+    }
+
+    public static PlayerProjection create(String narration, String judgment, String currentScene,
+            List<String> citations, List<String> warnings, List<String> toolResults,
+            List<RuntimeEvidence> evidence, Set<String> committedEvents, long gameTurn,
+            UUID expectedSessionId, UUID expectedScenarioPackageId) {
         Objects.requireNonNull(evidence, "evidence must not be null");
         Objects.requireNonNull(committedEvents, "committed events must not be null");
         if (gameTurn < 0) throw new IllegalArgumentException("game turn must not be negative");
         List<String> protectedValues = new ArrayList<>();
-        evidence.stream()
-                .filter(item -> item != null && item.evidenceType() == RuntimeEvidenceType.STORYBOOK
-                        && !item.visibility().visibleToPlayer(item.disclosureEvent(), item.disclosureTurn(), committedEvents, gameTurn))
+        evidence.stream().filter(item -> item != null)
+                .filter(item -> !inScope(item, expectedSessionId, expectedScenarioPackageId)
+                        || !item.visibility().visibleToPlayer(item.disclosureEvent(), item.disclosureTurn(), committedEvents, gameTurn))
                 .map(RuntimeEvidence::excerpt).forEach(protectedValues::add);
 
         String safeNarration = safeText(narration, protectedValues, SAFE_FALLBACK);
         String safeJudgment = safeText(judgment, protectedValues, SAFE_FALLBACK);
         String safeScene = safeText(currentScene, protectedValues, SAFE_FALLBACK);
+        Set<String> publicEvidenceRefs = evidence.stream()
+                .filter(item -> item != null && inScope(item, expectedSessionId, expectedScenarioPackageId)
+                        && item.visibility().visibleToPlayer(item.disclosureEvent(), item.disclosureTurn(), committedEvents, gameTurn))
+                .map(item -> (item.evidenceType().name() + ":" + item.locator()).toUpperCase(Locale.ROOT))
+                .collect(java.util.stream.Collectors.toSet());
         List<String> safeCitations = (citations == null ? List.<String>of() : citations).stream()
                 .filter(Objects::nonNull)
                 .filter(value -> !UUID_TEXT.matcher(value).find())
                 .filter(value -> !containsProtected(value, protectedValues))
-                .filter(value -> !value.startsWith("storybook:") || evidence.stream().anyMatch(item ->
-                        item != null && item.evidenceType() == RuntimeEvidenceType.STORYBOOK
-                                && value.equals("storybook:" + item.locator())
-                                && item.visibility().visibleToPlayer(item.disclosureEvent(), item.disclosureTurn(), committedEvents, gameTurn)))
+                .filter(value -> publicEvidenceRefs.contains(value.toUpperCase(Locale.ROOT)))
                 .toList();
         List<String> safeWarnings = (warnings == null ? List.<String>of() : warnings).stream()
                 .filter(Objects::nonNull)
                 .filter(value -> !containsProtected(value, protectedValues))
+                .filter(value -> !UUID_TEXT.matcher(value).find())
                 .map(value -> value.split(";", 2)[0])
                 .filter(value -> !value.isBlank())
                 .toList();
@@ -77,7 +88,12 @@ public record PlayerProjection(
 
     private static String safeText(String value, List<String> protectedValues, String fallback) {
         String candidate = value == null ? "" : value.trim();
-        return candidate.isBlank() || containsProtected(candidate, protectedValues) ? fallback : candidate;
+        return candidate.isBlank() || UUID_TEXT.matcher(candidate).find() || containsProtected(candidate, protectedValues) ? fallback : candidate;
+    }
+
+    private static boolean inScope(RuntimeEvidence item, UUID expectedSessionId, UUID expectedScenarioPackageId) {
+        return (expectedSessionId == null || expectedSessionId.equals(item.sessionId()))
+                && (expectedScenarioPackageId == null || expectedScenarioPackageId.equals(item.scenarioPackageId()));
     }
 
     private static boolean containsProtected(String value, List<String> protectedValues) {
@@ -87,7 +103,7 @@ public record PlayerProjection(
             if (hidden.isBlank()) return false;
             if (normalized.contains(hidden)) return true;
             Set<String> tokens = new java.util.HashSet<>(List.of(hidden.split("[^\\p{L}\\p{Nd}]+")));
-            tokens.removeIf(token -> token.length() < 4);
+            tokens.removeIf(token -> token.length() < 2);
             long overlap = tokens.stream().filter(normalized::contains).count();
             return tokens.size() >= 2 && overlap >= 2;
         });
