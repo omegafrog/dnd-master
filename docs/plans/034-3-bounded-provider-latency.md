@@ -1,6 +1,6 @@
 # 034-3 Bounded provider latency
 
-- Status: `ready-for-agent`
+- Status: `completed`
 - Tracker: local Markdown
 - Dependencies: none
 - Product rules: PR-008, FR-002, BR-026
@@ -53,3 +53,4 @@ One end-to-end deadline governs context assembly, retrieval, provider generation
 - Added explicit connect/read deadlines to retrieval adapters and connect deadline to GM HTTP adapter.
 - Set local Ollama request timeout to 30 seconds and retrieval timeout to 5 seconds.
 - Verified with AI Game Master and Adventure module test suites.
+- Rejected latency artifacts whose retrieval deadline exceeds the total deadline.

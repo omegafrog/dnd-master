@@ -5,7 +5,8 @@ public record GmLatencyMetadata(String hardwareProfile, long totalDeadlineMs, lo
                                 int sampleCount) {
     public GmLatencyMetadata {
         if (hardwareProfile == null || hardwareProfile.isBlank()
-                || totalDeadlineMs < 1 || retrievalDeadlineMs < 1 || sampleCount < 3) {
+                || totalDeadlineMs < 1 || retrievalDeadlineMs < 1 || retrievalDeadlineMs > totalDeadlineMs
+                || sampleCount < 3) {
             throw new IllegalArgumentException("latency metadata requires hardware, deadlines, and 3 samples");
         }
         hardwareProfile = hardwareProfile.trim();

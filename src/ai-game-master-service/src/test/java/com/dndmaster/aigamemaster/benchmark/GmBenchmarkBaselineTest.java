@@ -18,6 +18,12 @@ class GmBenchmarkBaselineTest {
     }
 
     @Test
+    void latency_metadata_rejects_retrieval_deadline_longer_than_total_deadline() {
+        assertThrows(IllegalArgumentException.class,
+                () -> new GmLatencyMetadata("linux:x86_64", 1_000, 1_001, 3));
+    }
+
+    @Test
     void corpus_has_stable_identity_and_schema() {
         var corpus = new GmBenchmarkCorpus("gm-baseline-v1", List.of(
                 new GmBenchmarkCase("case-01", "open door", List.of("rules#door"), List.of("hidden key"))));
