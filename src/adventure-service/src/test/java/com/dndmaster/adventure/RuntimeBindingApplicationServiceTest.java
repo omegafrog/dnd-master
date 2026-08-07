@@ -10,6 +10,7 @@ import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
 import com.dndmaster.adventure.application.runtime.InitialSourceContextProposalPort;
 import com.dndmaster.adventure.application.runtime.RuntimeBindingApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeBindingRepository;
+import com.dndmaster.adventure.application.runtime.RuntimeCapabilityPreflightPort;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.scenario.ScenarioBundleRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
@@ -97,6 +98,31 @@ class RuntimeBindingApplicationServiceTest {
 
         assertEquals(RuntimeReadinessStatus.BLOCKED, binding.readiness().status());
         assertTrue(binding.readiness().blockers().stream().anyMatch(reason -> reason.contains("unsupported-provider")));
+    }
+
+    @Test
+    void preserves_retryability_from_transient_capability_preflight_failure() {
+        ScenarioBundleId bundleId = ScenarioBundleId.generate();
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(bundleId, rulebookId, new KnowledgeDocumentId(UUID.randomUUID()), "page:1:span:1");
+        RuntimeBindingApplicationService service = new RuntimeBindingApplicationService(
+                new InMemoryAdventureRepository(adventure), new InMemoryBundleRepository(bundleId, owner),
+                new InMemoryPackageRepository(scenarioPackage), new InMemoryBindingRepository(),
+                (proposalPackage, candidates) -> new InitialSourceContextProposalPort.InitialSourceContextProposalResult("CLEAR", candidates),
+                ownerId -> List.of(new KnowledgeDocumentLookupPort.KnowledgeDocumentRecord(
+                        rulebookId, KnowledgeDocumentStatus.INDEXED, "rules.pdf", "RULEBOOK", 1)),
+                sessionId -> Optional.empty(), false,
+                (engine, tools, roles) -> new RuntimeCapabilityPreflightPort.Result(
+                        List.of(), List.of("provider is degraded"), true));
+
+        RuntimeBinding binding = service.bind(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(
+                adventure.id(), owner, scenarioPackage.packageId(), List.of(rulebookId.value()),
+                "ollama", List.of("search")));
+
+        assertEquals(RuntimeReadinessStatus.SUPPORTED_DEGRADED, binding.readiness().status());
+        assertTrue(binding.readiness().retryable());
     }
 
     @Test

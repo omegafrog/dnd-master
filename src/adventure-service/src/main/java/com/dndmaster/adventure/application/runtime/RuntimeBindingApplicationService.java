@@ -202,12 +202,13 @@ public final class RuntimeBindingApplicationService {
         List<String> blockers = new ArrayList<>(binding.playabilityReport().blockers());
         List<String> warnings = new ArrayList<>(binding.playabilityReport().warnings());
         boolean pending = false;
-        boolean degraded = false;
         var capability = capabilityPreflightPort.check(binding.engineId(), binding.toolIds(), scenarioPackageRepository.findById(binding.scenarioPackageId())
                 .map(packageValue -> packageValue.documents().stream().map(document -> document.role().name()).collect(java.util.stream.Collectors.toSet()))
                 .orElse(Set.of()));
         blockers.addAll(capability.blockers());
         warnings.addAll(capability.warnings());
+        boolean capabilityRetryable = capability.retryable();
+        boolean degraded = !capability.warnings().isEmpty();
         boolean[] pendingHolder = {false};
         boolean[] degradedHolder = {false};
         if (!SUPPORTED_ENGINES.contains(binding.engineId())) {
@@ -241,7 +242,7 @@ public final class RuntimeBindingApplicationService {
                 : pending ? RuntimeReadinessStatus.INDEXING_PENDING
                 : degraded ? RuntimeReadinessStatus.SUPPORTED_DEGRADED : RuntimeReadinessStatus.INDEXED_READY;
         return new RuntimeReadiness(binding.bindingVersion(), status, blockers, warnings,
-                status == RuntimeReadinessStatus.INDEXING_PENDING || status == RuntimeReadinessStatus.BLOCKED);
+                capabilityRetryable || status == RuntimeReadinessStatus.INDEXING_PENDING || status == RuntimeReadinessStatus.BLOCKED);
     }
 
     private PlayabilityReport buildReport(
