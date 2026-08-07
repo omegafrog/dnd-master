@@ -77,6 +77,24 @@ it('uses the persisted conversation version for the next turn', async () => {
   expect(await screen.findByText((_, node) => node?.textContent === 'AI 게임 마스터: GM 응답')).toBeInTheDocument()
 })
 
+it('advances the cursor from a committed response before the next turn', async () => {
+  const receivedVersions: number[] = []
+  const api: AdventureApi = {
+    async sendMessage(_adventureId, _message, _command, expectedVersion) {
+      receivedVersions.push(expectedVersion ?? -1)
+      return { narration: 'GM 응답', judgment: '', currentScene: '', sourceRefs: [], warnings: [], version: receivedVersions.length }
+    },
+  }
+  const user = userEvent.setup()
+  render(<AdventureStream adventureId="a1" api={api} />)
+  const input = screen.getByLabelText('행동 또는 대화')
+  await user.type(input, '첫 행동')
+  await user.click(screen.getByRole('button', { name: '보내기' }))
+  await user.type(input, '다음 행동')
+  await user.click(screen.getByRole('button', { name: '보내기' }))
+  expect(receivedVersions).toEqual([0, 1])
+})
+
 it('announces failure when message send fails', async () => {
   const api: AdventureApi = {
     async sendMessage() { throw new Error('전송 실패') },

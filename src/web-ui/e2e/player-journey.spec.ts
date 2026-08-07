@@ -150,6 +150,89 @@ test('running session reconnects with switched provider and confirms ending', as
   await expect(page.getByText(/COMPLETED · 파티/)).toBeVisible()
 })
 
+test('solo player completes five grounded turns and resolves combat', async ({ page }) => {
+  await page.goto('/e2e/fixtures/index.html?acceptance-journey')
+  await page.getByLabel('이메일').fill('player@example.com')
+  await page.getByLabel('비밀번호').fill('secret-password')
+  await page.getByRole('button', { name: '로그인', exact: true }).click()
+
+  await page.getByLabel('자료 파일').setInputFiles([
+    { name: 'rules.txt', mimeType: 'text/plain', buffer: Buffer.from('DND 5e perception, saving throw, attack and damage rules') },
+    { name: 'story.txt', mimeType: 'text/plain', buffer: Buffer.from('Most Potent Brew: brewery, fumes, tracks and hostile creature') },
+  ])
+  await page.getByLabel('rules.txt 유형').selectOption('RULEBOOK')
+  await page.getByLabel('story.txt 유형').selectOption('STORYBOOK')
+  await page.getByRole('button', { name: '자료 업로드' }).click()
+  await expect(page.getByText('rules.txt: 사용 준비 완료')).toBeVisible()
+  await expect(page.getByText('story.txt: 사용 준비 완료')).toBeVisible()
+  await page.getByRole('button', { name: '시나리오 번들 저장' }).click()
+  await page.getByRole('button', { name: '시나리오 패키지 컴파일' }).click()
+  await expect(page.getByText('패키지 package-e2e · COMPLETE')).toBeVisible()
+
+  const party = page.getByRole('region', { name: '모험 생성과 파티 구성' })
+  const provider = party.getByRole('region', { name: 'GM provider' })
+  await provider.getByLabel('GM provider').selectOption('openai')
+  await provider.getByLabel('GM model').fill('fixture-rules-model')
+  await provider.getByRole('button', { name: 'Provider 전환' }).click()
+  await expect(provider.getByText(/현재: openai · fixture-rules-model/)).toBeVisible()
+  await party.getByRole('button', { name: '직접 조작으로 추가' }).click()
+  await expect(party.getByText(/DRAFT · 파티 1\/1/)).toBeVisible()
+  await party.getByRole('button', { name: '모험 계획 만들기' }).click()
+  await expect(page.getByRole('heading', { name: '모험 계획 준비' })).toBeVisible()
+  await page.getByRole('button', { name: '모험 시작' }).click()
+  await expect(page.getByText(/모험 시작 완료 · 파티 1\/1/)).toBeVisible()
+
+  const dice = page.getByRole('region', { name: '주사위 굴림' })
+  await dice.getByLabel('주사위 식').fill('1d20+3')
+  await dice.getByRole('button', { name: '굴리기' }).click()
+  await expect(dice.getByText('결과: 16')).toBeVisible()
+  await dice.getByLabel('주사위 식').fill('1d20+2')
+  await dice.getByRole('button', { name: '굴리기' }).click()
+  await expect(dice.getByText('결과: 14')).toBeVisible()
+  await dice.getByLabel('주사위 식').fill('2d6')
+  await dice.getByRole('button', { name: '굴리기' }).click()
+  await expect(dice.getByText('결과: 8')).toBeVisible()
+
+  const actions = [
+    ['I listen for movement near the brewery', /턴 1:.*지각 판정/],
+    ['I endure the strange fumes', /턴 2:.*내성 굴림/],
+    ['I follow the fresh tracks', /턴 3:.*다중 주사위/],
+    ['I approach the hostile creature', /턴 4:.*전투 시작/],
+    ['I strike the creature with my sword', /턴 5:.*전투 종료/],
+  ] as const
+
+  for (const [index, [action, narration]] of actions.entries()) {
+    await page.getByLabel('행동 또는 대화').fill(action)
+    await page.getByRole('button', { name: '보내기' }).click()
+    await expect(page.getByText(narration)).toBeVisible()
+    if (index === 3) {
+      await page.reload()
+      await expect(page.getByRole('region', { name: '플레이어 전투 맵' }).getByText(/현재 맵 상태: COMBAT/)).toBeVisible()
+    }
+  }
+
+  const conversation = page.getByRole('list', { name: '대화 기록' })
+  await expect(conversation.locator('li')).toHaveCount(10)
+  await expect(conversation.getByText(/턴 1:/)).toHaveCount(1)
+  await expect(conversation.getByText(/턴 2:/)).toHaveCount(1)
+  await expect(conversation.getByText(/턴 3:/)).toHaveCount(1)
+  await expect(conversation.getByText(/턴 4:/)).toHaveCount(1)
+  await expect(conversation.getByText(/턴 5:/)).toHaveCount(1)
+  await expect(conversation.getByText(/DC|내부|ending-|hidden/i)).toHaveCount(0)
+  await expect(page.locator('body')).not.toContainText(/raw prompt|protected fact|scenario-package|session-e2e/i)
+
+  await page.screenshot({ path: 'output/playwright/035-5-ui-acceptance/five-turn-combat.png', fullPage: true })
+  const evidence = await page.evaluate(() => (window as unknown as { __dndMasterE2E: { turnEvidence: unknown[] } }).__dndMasterE2E.turnEvidence)
+  expect(evidence).toHaveLength(5)
+  expect(evidence.map(item => (item as { version: number }).version)).toEqual([1, 2, 3, 4, 5])
+  expect(evidence.every(item => (item as { sourceRefs: string[] }).sourceRefs.length > 0)).toBeTruthy()
+
+  await page.reload()
+  const map = page.getByRole('region', { name: '플레이어 전투 맵' })
+  await expect(map.getByText(/현재 맵 상태: EXPLORATION/)).toBeVisible()
+  await expect(map.getByRole('button', { name: '대상 선택: ENEMY' })).toHaveCount(0)
+})
+
 function summarizeErrorBody(body: string) {
   const compact = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
   return compact.length > 500 ? `${compact.slice(0, 500)}…` : compact

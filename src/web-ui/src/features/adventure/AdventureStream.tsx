@@ -69,6 +69,7 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
     if (appendPlayer) setMessages(current => [...current, { speaker: '플레이어', text }])
     try {
       const response = await api.sendMessage(adventureId, text, command, projectionVersion.current)
+      projectionVersion.current = Math.max(projectionVersion.current, response.version)
       setMessages(current => [...current, { speaker: 'AI 게임 마스터', text: response.narration }])
       setNotice(groundingNotice(response.warnings))
       setRetry(null)

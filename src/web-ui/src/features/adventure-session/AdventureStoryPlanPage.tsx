@@ -36,7 +36,7 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
     } catch (error) { setMessage(error instanceof Error ? error.message : '모험을 시작하지 못했습니다.') }
   }
 
-  if (!session || !plan) return <section aria-labelledby="story-plan-title"><h1 id="story-plan-title">모험 계획 준비 중</h1><p role="status">{message || '파티와 모험 자료를 분석하고 있습니다.'}</p></section>
+  if (!session || !plan) return <section aria-labelledby="story-plan-title"><h1 id="story-plan-title">모험 계획 준비 중</h1><p role="status">{message || '파티와 모험 자료를 분석하고 있습니다.'}</p>{message && <button type="button" onClick={() => void retry()}>다시 생성</button>}</section>
   const ready = plan.status === 'READY'
   const runtimeNotReady = binding !== null && !binding.readiness.ready
   return <section className="story-plan-page" aria-labelledby="story-plan-title">

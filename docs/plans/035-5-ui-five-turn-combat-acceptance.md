@@ -1,6 +1,6 @@
 # 035-5 UI five-turn and combat acceptance journey
 
-- Status: `planned`
+- Status: `in-progress`
 - Tracker: local Markdown
 - Dependencies: 035-1, 035-2, 035-3, 035-4
 - Product rules: BR-001 through BR-010, AC-001 through AC-007
@@ -17,6 +17,8 @@ One repeatable real-browser scenario proves that a Solo Player can use only the 
 - Capture browser-visible evidence: screenshots, UI state, network assertions, turn cursor, combat state, and failure/retry behavior.
 - Fail the suite on hidden DC/internal ID leakage, uncommitted partial turn, duplicate roll, or rule/combat mismatch.
 - Document environment prerequisites and artifact retention without mutating input files or DB directly.
+- Bound provider calls to a finite story-plan timeout and expose only safe retryable errors in the player UI.
+- Keep a real-backend, UI-only five-turn test gated by explicit environment configuration; fixture coverage remains deterministic and stateful.
 
 ## Likely files
 
@@ -37,6 +39,8 @@ One repeatable real-browser scenario proves that a Solo Player can use only the 
 - Story drives the player toward the next objective and does not expose hidden plan details.
 - UI/network assertions prove no DC, hidden ending, internal ID, raw prompt, or protected fact leakage.
 - The run produces a report with pass/fail evidence and preserves unrelated dirty worktree changes.
+- Provider timeout/failure is recoverable through a visible retry action and never displays provider response bodies.
+- The fixture rejects combat exit before authoritative attack/damage evidence and records command identity, cursor, initiative, HP, and source references.
 
 ## Test contract
 
@@ -46,5 +50,5 @@ One repeatable real-browser scenario proves that a Solo Player can use only the 
 
 ## Out of scope
 
-- Fixing provider, projection, rules, or readiness behavior; tickets 035-1 through 035-4.
+- Replacing the authoritative backend combat/rules engine; this plan verifies it through browser-visible behavior.
 - Performance benchmark or model fine-tuning.
