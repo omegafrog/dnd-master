@@ -40,7 +40,7 @@ public final class AdventurePrologueApplicationService {
                 .map(value -> "story-plan:stage-" + stage.position() + ":" + value).toList();
         String narration = PlayerProjection.redact(
                 Objects.requireNonNull(generator.generate(new AdventurePrologueGenerationPort.Request(stage, party, evidence))),
-                java.util.Set.copyOf(stage.endingIds()));
+                java.util.stream.Stream.concat(stage.npcOrClues().stream(), stage.endingIds().stream()).collect(java.util.stream.Collectors.toUnmodifiableSet()));
         var conversation = new ArrayList<>(adventure.conversation());
         conversation.add(new ConversationEntry(0, "AI_GAME_MASTER", narration));
         adventure.preserveProgress(owner, adventure.version(), adventure.currentContext(), conversation);

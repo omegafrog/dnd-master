@@ -330,8 +330,11 @@ public class AdventureController {
     }
     // 프런트가 바로 보여줄 수 있게 턴 결과를 압축한 응답이다.
     public record RuntimeTurnResponse(
+            @com.fasterxml.jackson.annotation.JsonIgnore
             UUID turnId,
+            @com.fasterxml.jackson.annotation.JsonIgnore
             UUID adventureId,
+            @com.fasterxml.jackson.annotation.JsonIgnore
             UUID scenarioPackageId,
             long bindingVersion,
             String narration,

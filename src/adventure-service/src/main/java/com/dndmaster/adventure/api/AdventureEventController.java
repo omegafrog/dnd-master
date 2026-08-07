@@ -46,8 +46,7 @@ public final class AdventureEventController {
         ScheduledFuture<?> poll = executor.scheduleAtFixedRate(() -> {
             try {
                 for (SessionEvent event : events.after(sessionId, next[0])) {
-                    String payload = "GM_TURN_COMMITTED".equals(event.type()) ? "turn committed"
-                            : PlayerProjection.redact(event.payload(), java.util.Set.of());
+                    String payload = "GM_TURN_COMMITTED".equals(event.type()) ? "turn committed" : "event updated";
                     emitter.send(SseEmitter.event().id(Long.toString(event.version())).name(event.type()).data(payload));
                     next[0] = Math.max(next[0], event.version());
                 }

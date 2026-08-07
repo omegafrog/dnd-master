@@ -53,6 +53,12 @@ class AdventureEventControllerTest {
                 new RecordingEvents(), resolver, repository(adventure)).events(adventure.id().value(), -1, null));
     }
 
+    @Test
+    void event_payloads_are_not_used_as_player_visible_data() {
+        assertEquals("공개할 수 있는 장면 정보가 없습니다.",
+                com.dndmaster.adventure.application.runtime.PlayerProjection.redact("hidden provider detail", java.util.Set.of()));
+    }
+
     private static Adventure adventure(UUID owner) {
         return Adventure.create(AdventureId.generate(), SessionId.generate(), new OwnerPlayerId(owner),
                 new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), new CharacterSheetId(UUID.randomUUID()),

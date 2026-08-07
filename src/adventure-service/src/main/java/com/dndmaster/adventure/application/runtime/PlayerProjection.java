@@ -86,7 +86,9 @@ public record PlayerProjection(
     }
 
     public static String redact(String value, Set<String> protectedValues) {
-        return safeText(value, new ArrayList<>(Objects.requireNonNull(protectedValues)), SAFE_FALLBACK);
+        Set<String> requiredValues = Objects.requireNonNull(protectedValues);
+        if (requiredValues.isEmpty()) return SAFE_FALLBACK;
+        return safeText(value, new ArrayList<>(requiredValues), SAFE_FALLBACK);
     }
 
     private static String safeText(String value, List<String> protectedValues, String fallback) {

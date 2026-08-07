@@ -79,4 +79,9 @@ class PlayerProjectionTest {
         assertTrue(projection.warnings().isEmpty());
         assertTrue(projection.toolResults().isEmpty());
     }
+
+    @Test
+    void empty_scope_redaction_is_not_a_publication_channel() {
+        assertEquals("공개할 수 있는 장면 정보가 없습니다.", PlayerProjection.redact("provider secret", Set.of()));
+    }
 }
