@@ -32,6 +32,12 @@ public final class PostgresEvidenceUnitRepository implements EvidenceUnitReposit
 
     @Override
     public void replace(RulebookId documentId, long extractionVersion, RuleEvidenceProjection projection) {
+        replace(documentId, extractionVersion, projection, Map.of());
+    }
+
+    @Override
+    public void replace(RulebookId documentId, long extractionVersion, RuleEvidenceProjection projection,
+            Map<UUID, float[]> embeddings) {
         Objects.requireNonNull(documentId, "documentId must not be null");
         Objects.requireNonNull(projection, "projection must not be null");
         try (Connection connection = dataSource.getConnection()) {
@@ -48,7 +54,7 @@ public final class PostgresEvidenceUnitRepository implements EvidenceUnitReposit
                 }
                 for (EvidenceUnit unit : projection.units()) {
                     for (SourceSpan span : unit.sourceSpans()) insertSpanLink(connection, unit.id(), unit.documentId(), unit.extractionVersion(), span);
-                    insertSearchIndex(connection, unit);
+                    insertSearchIndex(connection, unit, embeddings.get(unit.id()));
                 }
                 connection.commit();
             } catch (SQLException exception) {
@@ -102,6 +108,21 @@ public final class PostgresEvidenceUnitRepository implements EvidenceUnitReposit
         }
     }
 
+    @Override
+    public List<EvidenceUnit> search(RulebookId documentId, long extractionVersion, float[] embedding,
+            String query, int limit) {
+        String sql = "SELECT u.evidence_id FROM rule_evidence_unit u JOIN rule_evidence_search_index i ON i.evidence_id = u.evidence_id AND i.document_id = u.document_id AND i.extraction_version = u.extraction_version WHERE u.document_id = ? AND u.extraction_version = ? AND u.visibility = 'PLAYER_VISIBLE' ORDER BY (0.65 * (1 - (i.embedding <=> CAST(? AS vector))) + 0.35 * ts_rank_cd(i.search_text, plainto_tsquery('simple', ?))) DESC LIMIT ?";
+        List<UUID> ids = new ArrayList<>();
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, documentId.value()); statement.setLong(2, extractionVersion);
+            statement.setString(3, vectorLiteral(embedding)); statement.setString(4, query); statement.setInt(5, limit);
+            try (ResultSet rows = statement.executeQuery()) { while (rows.next()) ids.add(rows.getObject(1, UUID.class)); }
+        } catch (SQLException exception) { throw new RuleVectorPersistenceException("could not search persisted rule evidence", exception); }
+        Map<UUID, EvidenceUnit> units = load(documentId, extractionVersion).units().stream()
+                .collect(java.util.stream.Collectors.toMap(EvidenceUnit::id, unit -> unit));
+        return ids.stream().map(units::get).filter(Objects::nonNull).toList();
+    }
+
     private static void delete(Connection connection, RulebookId documentId, long version) throws SQLException {
         for (String table : List.of("rule_evidence_edge_source_span", "rule_evidence_source_span",
                 "rule_evidence_edge", "rule_evidence_search_index", "rule_evidence_unit")) {
@@ -134,22 +155,25 @@ public final class PostgresEvidenceUnitRepository implements EvidenceUnitReposit
             s.setObject(1, documentId.value());
             try (ResultSet row = s.executeQuery()) {
                 if (!row.next()) throw new SQLException("rulebook registration not found: " + documentId.value());
-                try (PreparedStatement document = c.prepareStatement("INSERT INTO knowledge_document(document_id, owner_player_id, document_type, original_filename, format, file_size, content_hash, current_published_version, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PUBLISHED') ON CONFLICT (document_id) DO NOTHING")) {
+                try (PreparedStatement document = c.prepareStatement("INSERT INTO knowledge_document(document_id, owner_player_id, document_type, original_filename, format, file_size, content_hash, current_published_version, status) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 'PROCESSING') ON CONFLICT (document_id) DO NOTHING")) {
                     document.setObject(1, documentId.value()); document.setObject(2, row.getObject("owner_player_id"));
                     document.setString(3, row.getString("document_type")); document.setString(4, row.getString("original_filename"));
                     document.setString(5, row.getString("format")); document.setLong(6, row.getLong("file_size"));
-                    document.setString(7, row.getString("content_hash")); document.setLong(8, version); document.executeUpdate();
+                    document.setString(7, row.getString("content_hash")); document.executeUpdate();
                 }
             }
         }
-        try (PreparedStatement versionInsert = c.prepareStatement("INSERT INTO extraction_version(document_id, version, content_hash, status, published_at) SELECT ?, ?, content_hash, 'PUBLISHED', now() FROM knowledge_document WHERE document_id = ? ON CONFLICT (document_id, version) DO NOTHING")) {
+        try (PreparedStatement versionInsert = c.prepareStatement("INSERT INTO extraction_version(document_id, version, content_hash, status) SELECT ?, ?, content_hash, 'DRAFT' FROM knowledge_document WHERE document_id = ? ON CONFLICT (document_id, version) DO NOTHING")) {
             versionInsert.setObject(1, documentId.value()); versionInsert.setLong(2, version); versionInsert.setObject(3, documentId.value()); versionInsert.executeUpdate();
-        }
-        try (PreparedStatement update = c.prepareStatement("UPDATE knowledge_document SET current_published_version = ?, status = 'PUBLISHED' WHERE document_id = ?")) {
-            update.setLong(1, version); update.setObject(2, documentId.value()); update.executeUpdate();
         }
         for (EvidenceUnit unit : projection.units()) for (SourceSpan span : unit.sourceSpans()) ensureSourceSpan(c, documentId, version, span);
         for (EvidenceEdge edge : projection.edges()) for (SourceSpan span : edge.sourceSpans()) ensureSourceSpan(c, documentId, version, span);
+        try (PreparedStatement publish = c.prepareStatement("UPDATE extraction_version SET status = 'PUBLISHED', published_at = now() WHERE document_id = ? AND version = ?")) {
+            publish.setObject(1, documentId.value()); publish.setLong(2, version); publish.executeUpdate();
+        }
+        try (PreparedStatement document = c.prepareStatement("UPDATE knowledge_document SET current_published_version = ?, status = 'PUBLISHED' WHERE document_id = ?")) {
+            document.setLong(1, version); document.setObject(2, documentId.value()); document.executeUpdate();
+        }
     }
 
     private static void ensureSourceSpan(Connection c, RulebookId documentId, long version, SourceSpan span) throws SQLException {
@@ -186,10 +210,23 @@ public final class PostgresEvidenceUnitRepository implements EvidenceUnitReposit
         }
     }
 
-    private static void insertSearchIndex(Connection c, EvidenceUnit unit) throws SQLException {
-        try (PreparedStatement s = c.prepareStatement("INSERT INTO rule_evidence_search_index(evidence_id, document_id, extraction_version, content) VALUES (?, ?, ?, ?)")) {
-            s.setObject(1, unit.id()); s.setObject(2, unit.documentId().value()); s.setLong(3, unit.extractionVersion()); s.setString(4, unit.content()); s.executeUpdate();
+    private static void insertSearchIndex(Connection c, EvidenceUnit unit, float[] embedding) throws SQLException {
+        try (PreparedStatement s = c.prepareStatement("INSERT INTO rule_evidence_search_index(evidence_id, document_id, extraction_version, embedding, content) VALUES (?, ?, ?, ?, ?)")) {
+            s.setObject(1, unit.id()); s.setObject(2, unit.documentId().value()); s.setLong(3, unit.extractionVersion());
+            if (embedding == null) s.setNull(4, Types.OTHER); else s.setString(4, vectorLiteral(embedding));
+            s.setString(5, unit.content()); s.executeUpdate();
         }
+    }
+
+    private static String vectorLiteral(float[] values) {
+        if (values.length == 0) throw new IllegalArgumentException("embedding must not be empty");
+        StringBuilder result = new StringBuilder("[");
+        for (int i = 0; i < values.length; i++) {
+            if (!Float.isFinite(values[i])) throw new IllegalArgumentException("embedding values must be finite");
+            if (i > 0) result.append(',');
+            result.append(values[i]);
+        }
+        return result.append(']').toString();
     }
 
     private static void insertEdgeSpanLink(Connection c, UUID edgeId, RulebookId documentId, long version, SourceSpan span) throws SQLException {

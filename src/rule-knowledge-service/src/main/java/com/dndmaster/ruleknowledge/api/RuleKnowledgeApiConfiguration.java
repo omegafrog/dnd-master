@@ -109,8 +109,13 @@ public class RuleKnowledgeApiConfiguration {
     }
 
     @Bean
-    RuleEvidenceProjectionApplicationService ruleEvidenceProjectionApplicationService(EvidenceUnitRepository repository) {
-        return new RuleEvidenceProjectionApplicationService(new RuleEvidenceProjector(), repository);
+    RuleEvidenceProjectionApplicationService ruleEvidenceProjectionApplicationService(
+            EvidenceUnitRepository repository,
+            EmbeddingPort embeddingPort,
+            @Value("${rule-knowledge.embedding-model:qwen3-embedding:0.6b}") String embeddingModel,
+            @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension) {
+        return new RuleEvidenceProjectionApplicationService(new RuleEvidenceProjector(), repository,
+                embeddingPort, embeddingModel, embeddingDimension);
     }
 
     @Bean

@@ -411,7 +411,10 @@ public class RuleKnowledgeController {
         for (RuleEvidenceScopeRequest scope : request.documents()) {
             RuleEvidenceProjection projection = evidenceUnitRepository.load(new RulebookId(scope.documentId()), scope.extractionVersion());
             projections.put(scope.documentId(), projection);
-            candidates.addAll(projection.units().stream().filter(unit -> unit.visibility().canExposeToPlayer()).toList());
+            candidates.addAll(embeddingPort == null
+                    ? projection.units().stream().filter(EvidenceUnit::canExposeToPlayer).toList()
+                    : evidenceUnitRepository.search(new RulebookId(scope.documentId()), scope.extractionVersion(),
+                            embed(request.situation()), request.situation(), request.limit() == null ? 5 : request.limit()));
         }
         List<HybridRetrievalService.RankedCandidate> ranked = new HybridRetrievalService().rerank(
                 candidates.stream().map(unit -> new com.dndmaster.ruleknowledge.application.retrieval.HybridSearchCandidate(
