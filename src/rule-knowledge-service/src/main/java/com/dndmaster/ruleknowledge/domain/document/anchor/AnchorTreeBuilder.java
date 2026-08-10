@@ -11,6 +11,7 @@ public final class AnchorTreeBuilder {
     public AnchorSkeleton build(List<MatchedAnchor> matches) {
         List<MatchedAnchor> confirmed = matches.stream().filter(MatchedAnchor::confirmed).toList();
         Map<String, String> elementByNumbering = new HashMap<>();
+        Map<String, Integer> tocLevelByElement = new HashMap<>();
         List<AnchorSkeletonNode> nodes = new ArrayList<>();
         List<MatchedAnchor> unresolved = new ArrayList<>(matches.stream().filter(match -> !match.confirmed()).toList());
         Set<String> ownedElements = new HashSet<>();
@@ -20,15 +21,26 @@ public final class AnchorTreeBuilder {
                 continue;
             }
             if (!match.anchor().numbering().isBlank()) elementByNumbering.put(match.anchor().numbering(), match.bodyElementId());
+            if (match.anchor().levelSuggestion() != null) tocLevelByElement.put(match.bodyElementId(), match.anchor().levelSuggestion());
         }
         for (MatchedAnchor match : confirmed) {
             if (!ownedElements.contains(match.bodyElementId()) || nodes.stream().anyMatch(node -> node.bodyElementId().equals(match.bodyElementId()))) continue;
-            String parent = parentNumbering(match.anchor().numbering())
-                    .map(elementByNumbering::get).orElse("");
+            String parent = match.anchor().levelSuggestion() == null
+                    ? parentNumbering(match.anchor().numbering()).map(elementByNumbering::get).orElse("")
+                    : nearestTocParent(nodes, tocLevelByElement, match.anchor().levelSuggestion());
             nodes.add(new AnchorSkeletonNode(match.bodyElementId(), parent, match.score()));
         }
         validate(nodes);
         return new AnchorSkeleton(nodes, unresolved);
+    }
+
+    private String nearestTocParent(List<AnchorSkeletonNode> nodes, Map<String, Integer> tocLevelByElement, int level) {
+        for (int index = nodes.size() - 1; index >= 0; index--) {
+            AnchorSkeletonNode candidate = nodes.get(index);
+            Integer candidateLevel = tocLevelByElement.get(candidate.bodyElementId());
+            if (candidateLevel != null && candidateLevel < level) return candidate.bodyElementId();
+        }
+        return "";
     }
 
     private java.util.Optional<String> parentNumbering(String numbering) {

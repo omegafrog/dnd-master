@@ -81,6 +81,32 @@ class AnchorPipelineTest {
         assertEquals(List.of("body"), result.skeleton().nodes().stream().map(AnchorSkeletonNode::bodyElementId).toList());
     }
 
+    @Test
+    void derivesBasicRulesPartChapterAndSectionParentsFromItsPrintedContents() {
+        NormalizedDocument document = new NormalizedDocument("v1", "docling", "1", "basic-rules",
+                List.of(new NormalizedPage(2, null, null), new NormalizedPage(7, null, null), new NormalizedPage(8, null, null), new NormalizedPage(12, null, null)),
+                List.of(
+                        heading("toc-introduction", "Introduction", 2, 0),
+                        heading("toc-part", "Part 1: Creating a Character", 2, 1),
+                        heading("toc-chapter", "Ch. 1: Step-by-Step Characters..............8", 2, 2),
+                        heading("toc-section", "Beyond 1st Level....................................................................12", 2, 3),
+                        heading("part", "Part 1: Creating a Character", 7, 0),
+                        heading("chapter", "Chapter 1: Step-by-Step Characters", 8, 0),
+                        heading("section", "Beyond 1st Level", 12, 0)),
+                List.of(), List.of(), List.of(), List.of(), List.of(), "D&D Basic Rules");
+
+        AnchorSkeleton skeleton = new AnchorSkeletonResolver().resolve(document,
+                new StructuralEvidenceExtractor().extract(document)).skeleton();
+
+        assertEquals("", parentOf(skeleton, "part"));
+        assertEquals("part", parentOf(skeleton, "chapter"));
+        assertEquals("chapter", parentOf(skeleton, "section"));
+    }
+
+    private static String parentOf(AnchorSkeleton skeleton, String id) {
+        return skeleton.nodes().stream().filter(node -> node.bodyElementId().equals(id)).findFirst().orElseThrow().parentBodyElementId();
+    }
+
     private static NormalizedElement heading(String id, String text, int page, int order) {
         return new NormalizedElement(id, "HEADING", text, page, order, null, null, List.of(),
                 new NormalizedSourceSpan(id, page, order, null, null, null), "heading", "");

@@ -16,7 +16,7 @@ import org.junit.jupiter.api.Test;
 
 class HierarchyAwareChunkerTest {
     @Test
-    void emitsConfirmedPathAndSourceIdentityButExcludesUnresolvedContent() {
+    void keepsAllContentUnderItsPrecedingTocSectionWithoutFragmentingTheChunkPath() {
         NormalizedElement heading = element("h", "HEADING", "Rules", 1, 0, null);
         NormalizedElement text = element("p", "PARAGRAPH", "Confirmed rule text", 1, 1, "h");
         NormalizedElement unresolved = element("u", "PARAGRAPH", "Unsafe text", 2, 2, null);
@@ -27,10 +27,10 @@ class HierarchyAwareChunkerTest {
 
         List<RagChunk> chunks = new HierarchyAwareChunker(100).createChunks(document, tree);
 
-        assertEquals(2, chunks.size());
+        assertEquals(1, chunks.size());
         assertEquals(List.of("h"), chunks.getFirst().canonicalPath());
         assertTrue(chunks.getFirst().sourceNodeIds().contains("h"));
-        assertTrue(chunks.get(1).canonicalPath().isEmpty());
+        assertTrue(chunks.getFirst().sourceNodeIds().contains("u"));
     }
     private static NormalizedElement element(String id, String type, String text, int page, int order, String parent) {
         return new NormalizedElement(id, type, text, page, order, parent, null, List.of(),

@@ -14,7 +14,7 @@ import org.junit.jupiter.api.Test;
 
 class CanonicalHierarchyResolverTest {
     @Test
-    void preservesAmbiguousContentUnderUnresolvedWithoutChangingLeafSpan() {
+    void placesBodyContentUnderTheMostRecentConfirmedTocAnchorWithoutChangingLeafSpan() {
         NormalizedElement parent = element("h1", "HEADING", "Rules", 1, 0);
         NormalizedElement ambiguous = element("p1", "PARAGRAPH", "shared text", 1, 1);
         NormalizedDocument document = document(parent, ambiguous);
@@ -23,9 +23,10 @@ class CanonicalHierarchyResolverTest {
                 new AnchorSkeleton(List.of(new AnchorSkeletonNode("h1", "", 0.9)), List.of()));
 
         assertEquals(ResolutionStatus.CONFIRMED, tree.edgeFor("h1").orElseThrow().status());
-        assertEquals(ResolutionStatus.UNRESOLVED, tree.edgeFor("p1").orElseThrow().status());
+        assertEquals(ResolutionStatus.CONFIRMED, tree.edgeFor("p1").orElseThrow().status());
+        assertEquals("h1", tree.edgeFor("p1").orElseThrow().parentId());
         assertEquals("p1", tree.node("p1").orElseThrow().leafSpan().sourceId());
-        assertTrue(tree.semanticPath("p1").isEmpty());
+        assertEquals(List.of("h1", "p1"), tree.semanticPath("p1"));
     }
 
     @Test
@@ -43,16 +44,29 @@ class CanonicalHierarchyResolverTest {
     }
 
     @Test
-    void confirmsNonAnchorOnlyFromParserTypographyAndHeadingSignals() {
+    void confirmsNonAnchorFromThePrecedingTocSection() {
         NormalizedElement anchor = element("anchor", "HEADING", "Rules", 1, 0);
         NormalizedElement child = new NormalizedElement("child", "HEADING", "Combat", 2, 1, "anchor", 2, List.of(),
                 new NormalizedSourceSpan("child", 2, 1, null, null, null), "heading-2", "");
         CanonicalDocumentTree tree = new CanonicalHierarchyResolver("resolver.v1").resolve(document(anchor, child),
                 new AnchorSkeleton(List.of(new AnchorSkeletonNode("anchor", "", 0.9)), List.of()));
 
-        assertEquals(ResolutionStatus.TENTATIVE, tree.edgeFor("child").orElseThrow().status());
+        assertEquals(ResolutionStatus.CONFIRMED, tree.edgeFor("child").orElseThrow().status());
         assertEquals("anchor", tree.edgeFor("child").orElseThrow().parentId());
         assertTrue(tree.node("UNRESOLVED").orElseThrow().synthetic());
+    }
+
+    @Test
+    void returnsTheFullConfirmedAncestorPath() {
+        NormalizedElement part = element("part", "HEADING", "Part 1", 1, 0);
+        NormalizedElement chapter = element("chapter", "HEADING", "Chapter 1", 2, 0);
+        NormalizedElement section = element("section", "HEADING", "Section", 3, 0);
+        CanonicalDocumentTree tree = new CanonicalHierarchyResolver("resolver.v1").resolve(document(part, chapter, section),
+                new AnchorSkeleton(List.of(new AnchorSkeletonNode("part", "", 1),
+                        new AnchorSkeletonNode("chapter", "part", 1),
+                        new AnchorSkeletonNode("section", "chapter", 1)), List.of()));
+
+        assertEquals(List.of("part", "chapter", "section"), tree.semanticPath("section"));
     }
 
     private static NormalizedDocument document(NormalizedElement... elements) {

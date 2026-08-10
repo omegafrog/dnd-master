@@ -19,7 +19,7 @@ public final class HierarchyAwareChunker {
         for (NormalizedElement element : document.elements()) {
             HierarchyEdge edge = tree.edgeFor(element.id()).orElse(null);
             if (edge == null) continue;
-            List<String> elementPath = edge.status() == ResolutionStatus.CONFIRMED ? tree.semanticPath(element.id()) : List.of();
+            List<String> elementPath = edge.status() == ResolutionStatus.CONFIRMED ? tree.semanticAnchorPath(element.id()) : List.of();
             if (text.length() > 0 && (!elementPath.equals(path) || text.length() + element.text().length() + 1 > maximumCharacters)) {
                 result.add(chunk(sequence++, text, path, ids, firstPage, lastPage, confidence)); text = new StringBuilder(); ids = new ArrayList<>(); firstPage = 0; lastPage = 0; confidence = 1;
             }

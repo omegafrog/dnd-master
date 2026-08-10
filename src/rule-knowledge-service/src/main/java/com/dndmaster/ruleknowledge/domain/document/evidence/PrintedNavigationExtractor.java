@@ -19,17 +19,48 @@ public final class PrintedNavigationExtractor {
     public PrintedNavigationResult extractWithDiagnostics(NormalizedDocument document) {
         List<NavigationEntry> entries = new ArrayList<>();
         List<String> diagnostics = new ArrayList<>();
-        document.tables().stream().sorted(Comparator.comparingInt(t -> t.page())).forEach(table ->
+        boolean basicRules = isBasicRules(document);
+        document.tables().stream().filter(table -> !basicRules || table.page() != 2)
+                .sorted(Comparator.comparingInt(t -> t.page())).forEach(table ->
                 table.rows().forEach((row) -> addTableRow(entries, row, table.id())));
         document.elements().stream().sorted(Comparator.comparingInt(NormalizedElement::page)
-                .thenComparingInt(NormalizedElement::order)).forEach(element -> addLine(entries, diagnostics, element.text(), element.id()));
-        List<NavigationEntry> deduplicated = deduplicate(entries);
+                .thenComparingInt(NormalizedElement::order)).forEach(element -> {
+                    addLine(entries, diagnostics, element.text(), element.id());
+                    if (basicRules && element.page() == 2) addBasicRulesDivider(entries, element);
+                });
+        List<NavigationEntry> deduplicated = applyBasicRulesLevels(deduplicate(entries), basicRules);
         if (deduplicated.size() == 1 && document.tables().isEmpty()) {
             diagnostics.add("single printed-navigation-shaped line rejected without corroboration");
             String onlySourceId = deduplicated.get(0).sourceId();
             deduplicated = deduplicated.stream().filter(e -> !e.sourceId().equals(onlySourceId)).toList();
         }
         return new PrintedNavigationResult(deduplicated, diagnostics);
+    }
+
+    private void addBasicRulesDivider(List<NavigationEntry> entries, NormalizedElement element) {
+        String title = element.text() == null ? "" : element.text().trim();
+        if (title.equals("Introduction") || title.equals("Appendices") || title.matches("Part\\s+\\d+:.+")) {
+            entries.add(new NavigationEntry(element.id() + "#toc-divider", title, "", null,
+                    element.id(), title, 0.95));
+        }
+    }
+
+    private List<NavigationEntry> applyBasicRulesLevels(List<NavigationEntry> entries, boolean basicRules) {
+        if (!basicRules) return entries;
+        return entries.stream().map(entry -> new NavigationEntry(entry.id(), entry.title(), entry.locator(),
+                basicRulesLevel(entry.title()), entry.sourceId(), entry.rawText(), entry.confidence())).toList();
+    }
+
+    private Integer basicRulesLevel(String title) {
+        String value = title == null ? "" : title.trim();
+        if (value.equals("Introduction") || value.equals("Appendices") || value.matches("Part\\s+\\d+:.+")) return 1;
+        if (value.matches("Ch\\.?\\s*\\d+:.*") || value.matches("Appendix\\s+[A-Z]:.*")) return 2;
+        return 3;
+    }
+
+    private boolean isBasicRules(NormalizedDocument document) {
+        return document.rawText().contains("D&D Basic Rules")
+                || document.elements().stream().anyMatch(element -> element.text().contains("D&D Basic Rules"));
     }
 
     private void addTableRow(List<NavigationEntry> entries, List<String> row, String sourceId) {

@@ -15,10 +15,24 @@ public record CanonicalDocumentTree(Map<String, CanonicalNode> nodes, List<Hiera
     public Optional<CanonicalNode> node(String id) { return Optional.ofNullable(nodes.get(id)); }
     public Optional<HierarchyEdge> edgeFor(String id) { return edges.stream().filter(edge -> edge.childId().equals(id)).findFirst(); }
     public List<String> semanticPath(String id) {
+        List<String> reversed = new ArrayList<>();
+        String current = id;
+        while (true) {
+            HierarchyEdge edge = edgeFor(current).orElse(null);
+            if (edge == null || edge.status() != ResolutionStatus.CONFIRMED || edge.parentId().equals("UNRESOLVED")) return List.of();
+            reversed.add(current);
+            if (edge.parentId().isBlank()) {
+                java.util.Collections.reverse(reversed);
+                return List.copyOf(reversed);
+            }
+            current = edge.parentId();
+        }
+    }
+    /** Section path for retrieval: body leaves inherit their TOC anchor path rather than fragmenting chunks. */
+    public List<String> semanticAnchorPath(String id) {
         HierarchyEdge edge = edgeFor(id).orElse(null);
-        if (edge == null || edge.status() != ResolutionStatus.CONFIRMED || edge.parentId().equals("UNRESOLVED")) return List.of();
-        if (edge.parentId().isBlank()) return List.of(id);
-        return List.of(edge.parentId(), id);
+        if (edge != null && edge.evidenceIds().contains("toc-range")) return semanticPath(edge.parentId());
+        return semanticPath(id);
     }
     public Optional<DerivedSourceSpan> derivedSpan(String id) {
         if (!nodes.containsKey(id)) return Optional.empty();
