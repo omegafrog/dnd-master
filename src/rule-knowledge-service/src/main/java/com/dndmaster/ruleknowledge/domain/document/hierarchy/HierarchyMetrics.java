@@ -24,12 +24,15 @@ public record HierarchyMetrics(int sourceNodes, int confirmed, int tentative, in
         for (String start : sourceIds) {
             java.util.Set<String> visited = new java.util.HashSet<>();
             String current = start;
-            while (sourceIds.contains(current) && visited.add(current)) {
+            while (sourceIds.contains(current)) {
+                if (!visited.add(current)) {
+                    cycles++;
+                    break;
+                }
                 HierarchyEdge edge = tree.edgeFor(current).orElse(null);
                 if (edge == null || edge.status() == ResolutionStatus.UNRESOLVED) break;
                 current = edge.parentId();
             }
-            if (sourceIds.contains(current) && visited.contains(current)) cycles++;
         }
         return cycles;
     }
