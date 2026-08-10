@@ -58,7 +58,8 @@ public final class PrintedNavigationExtractor {
 
     private Integer dnd5eLevel(String title) {
         String value = title == null ? "" : title.trim();
-        if (value.equals("Introduction") || value.equals("Appendices") || value.matches("Part\\s+\\d+:.+")) return 1;
+        if (value.equals("Introduction") || value.equals("Appendices") || value.equals("Character Sheet")
+                || value.replace(".", "").equals("What Comes Next?") || value.matches("Part\\s+\\d+:.+")) return 1;
         if (value.matches("Ch\\.?\\s*\\d+:.*") || value.matches("Appendix\\s+[A-Z]:.*")) return 2;
         return 3;
     }

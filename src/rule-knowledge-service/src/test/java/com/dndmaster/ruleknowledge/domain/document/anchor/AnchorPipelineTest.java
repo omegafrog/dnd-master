@@ -124,6 +124,26 @@ class AnchorPipelineTest {
         assertEquals("chapter", parentOf(skeleton, "section"));
     }
 
+    @Test
+    void keepsDnd5eTailMatterOutOfTheFinalAppendix() {
+        NormalizedDocument document = new NormalizedDocument("v1", "docling", "1", "dnd5e",
+                List.of(new NormalizedPage(7, null, null), new NormalizedPage(171, null, null), new NormalizedPage(177, null, null)),
+                List.of(
+                        heading("contents", "Contents", 7, 0),
+                        heading("toc-appendices", "Appendices", 7, 1),
+                        heading("toc-appendix", "Appendix C: The Five Factions.............174", 7, 2),
+                        heading("toc-sheet", "Character Sheet...............................177", 7, 3),
+                        heading("appendices", "Appendices", 171, 0),
+                        heading("appendix", "Appendix C: The Five Factions", 171, 1),
+                        heading("sheet", "Character Sheet", 177, 0)),
+                List.of(), List.of(), List.of(), List.of(), List.of(), "D&D Basic Rules");
+
+        AnchorSkeleton skeleton = new AnchorSkeletonResolver().resolve(document,
+                new StructuralEvidenceExtractor().extract(document)).skeleton();
+
+        assertEquals("", parentOf(skeleton, "sheet"));
+    }
+
     private static String parentOf(AnchorSkeleton skeleton, String id) {
         return skeleton.nodes().stream().filter(node -> node.bodyElementId().equals(id)).findFirst().orElseThrow().parentBodyElementId();
     }
