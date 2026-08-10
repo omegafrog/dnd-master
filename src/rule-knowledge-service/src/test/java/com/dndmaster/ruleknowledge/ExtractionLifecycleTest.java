@@ -17,6 +17,7 @@ class ExtractionLifecycleTest {
         ExtractionVersion draft = document.startExtraction(1);
         SourceSpan span = new SourceSpan(1, 0, 5, "hello", "page:1", 1, new BoundingBox(1, 2, 3, 4), 0);
         draft.addSourceSpan(span);
+        draft.beginValidation();
         ExtractionVersion published = document.publish(draft);
 
         assertEquals(1, published.version());
@@ -33,7 +34,9 @@ class ExtractionLifecycleTest {
         KnowledgeDocument second = document();
         DocumentProcessingJob job = first.startJob();
         assertEquals(DocumentProcessingJob.Status.PROCESSING, job.claim("worker-a", Duration.ofMinutes(5), Instant.now()));
-        job.fail("OCR_TIMEOUT", Instant.now());
+        String leaseToken = job.leaseToken();
+        assertThrows(IllegalArgumentException.class, () -> job.fail("wrong-token", "OCR_TIMEOUT", Instant.now()));
+        job.fail(leaseToken, "OCR_TIMEOUT", Instant.now());
         assertEquals(DocumentProcessingJob.Status.FAILED, job.status());
         DocumentProcessingJob retry = job.retry(Instant.now());
         assertNotEquals(job.attempt(), retry.attempt());

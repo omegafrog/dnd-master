@@ -7,7 +7,7 @@ import java.util.Objects;
 
 /** Append-only source-derived snapshot. Published instances cannot be changed. */
 public final class ExtractionVersion {
-    public enum Status { DRAFT, PUBLISHED, REJECTED }
+    public enum Status { DRAFT, VALIDATING, PUBLISHED, REJECTED }
 
     private final KnowledgeDocumentId documentId;
     private final long version;
@@ -29,12 +29,22 @@ public final class ExtractionVersion {
         sourceSpans.add(Objects.requireNonNull(span, "span must not be null"));
     }
 
-    public ExtractionVersion publish(Instant at) {
+    public void beginValidation() {
         ensureDraft();
-        if (sourceSpans.isEmpty()) throw new IllegalStateException("published version requires source spans");
+        if (sourceSpans.isEmpty()) throw new IllegalStateException("validation requires source spans");
+        status = Status.VALIDATING;
+    }
+
+    public ExtractionVersion publish(Instant at) {
+        if (status != Status.VALIDATING) throw new IllegalStateException("version must be validating before publication");
         status = Status.PUBLISHED;
         publishedAt = Objects.requireNonNull(at, "publishedAt must not be null");
         return this;
+    }
+
+    public void reject() {
+        if (status != Status.VALIDATING) throw new IllegalStateException("only validating version can be rejected");
+        status = Status.REJECTED;
     }
 
     public KnowledgeDocumentId documentId() { return documentId; }
@@ -45,6 +55,6 @@ public final class ExtractionVersion {
     public Instant publishedAt() { return publishedAt; }
 
     private void ensureDraft() {
-        if (status != Status.DRAFT) throw new IllegalStateException("published extraction version is immutable");
+        if (status != Status.DRAFT) throw new IllegalStateException("non-draft extraction version is immutable");
     }
 }

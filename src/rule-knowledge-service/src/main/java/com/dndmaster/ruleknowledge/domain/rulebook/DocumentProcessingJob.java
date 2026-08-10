@@ -38,13 +38,17 @@ public final class DocumentProcessingJob {
         return status;
     }
 
-    public void fail(String code, Instant now) {
-        requireProcessing(now);
+    public void fail(String leaseToken, String code, Instant now) {
+        requireProcessing(leaseToken, now);
         if (code == null || code.isBlank()) throw new IllegalArgumentException("failure code must not be blank");
         status = Status.FAILED;
         failureCode = code.trim();
         leaseToken = null;
         leaseExpiresAt = null;
+    }
+
+    public void fail(String code, Instant now) {
+        throw new IllegalArgumentException("lease token is required");
     }
 
     public DocumentProcessingJob retry(Instant now) {
@@ -53,11 +57,15 @@ public final class DocumentProcessingJob {
         return new DocumentProcessingJob(documentId, attempt + 1, Status.QUEUED);
     }
 
-    public void complete(Instant now) {
-        requireProcessing(now);
+    public void complete(String leaseToken, Instant now) {
+        requireProcessing(leaseToken, now);
         status = Status.COMPLETED;
         leaseToken = null;
         leaseExpiresAt = null;
+    }
+
+    public void complete(Instant now) {
+        throw new IllegalArgumentException("lease token is required");
     }
 
     public KnowledgeDocumentId documentId() { return documentId; }
@@ -67,8 +75,9 @@ public final class DocumentProcessingJob {
     public Instant leaseExpiresAt() { return leaseExpiresAt; }
     public String failureCode() { return failureCode; }
 
-    private void requireProcessing(Instant now) {
+    private void requireProcessing(String token, Instant now) {
         Objects.requireNonNull(now, "now must not be null");
+        if (token == null || !token.equals(leaseToken)) throw new IllegalArgumentException("invalid lease token");
         if (status != Status.PROCESSING || leaseExpiresAt == null || !leaseExpiresAt.isAfter(now)) throw new IllegalStateException("job lease is not active");
     }
 }

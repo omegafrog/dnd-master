@@ -34,7 +34,12 @@ public final class KnowledgeDocument {
     public ExtractionVersion publish(ExtractionVersion version) {
         Objects.requireNonNull(version, "version must not be null");
         if (version.documentId().equals(metadata.id()) == false) throw new IllegalArgumentException("version belongs to another document");
-        if (version.version() != latestVersion || version.status() != ExtractionVersion.Status.DRAFT) throw new IllegalStateException("version is not current draft");
+        if (version.version() != latestVersion
+                || (version.status() != ExtractionVersion.Status.DRAFT
+                    && version.status() != ExtractionVersion.Status.VALIDATING)) {
+            throw new IllegalStateException("version is not current draft");
+        }
+        if (version.status() == ExtractionVersion.Status.DRAFT) version.beginValidation();
         version.publish(Instant.now());
         currentPublishedVersion = version;
         status = Status.PUBLISHED;
