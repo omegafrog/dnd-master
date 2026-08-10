@@ -1,23 +1,11 @@
-# Implementation Plans
+# GM Knowledge Base, Retrieval, and Game Assets Plans
 
-Tracker: GitHub Issues — `omegafrog/dnd-master`
-
-Parent: [#114 — AI GM Runtime](https://github.com/omegafrog/dnd-master/issues/114)
-
-Status vocabulary: `pending` → `ready-for-agent` → `in-progress` → `completed`.
-
-## 032 — AI GM Runtime
-
-1. [032-1 Typed GM Turn lifecycle](032-1-typed-gm-turn-lifecycle.md) — [#115](https://github.com/omegafrog/dnd-master/issues/115) — `completed`
-2. [032-2 Atomic commit and SSE projection](032-2-atomic-commit-and-sse-projection.md) — [#116](https://github.com/omegafrog/dnd-master/issues/116) — `completed`
-3. [032-3 Provider-neutral GM agent loop](032-3-provider-neutral-gm-agent-loop.md) — [#117](https://github.com/omegafrog/dnd-master/issues/117) — `completed`
-4. [032-4 Capability-scoped tool Saga](032-4-capability-scoped-tool-saga.md) — [#118](https://github.com/omegafrog/dnd-master/issues/118) — `completed`
-5. [032-5 Story continuity, facts, and game clock](032-5-story-continuity-facts-and-game-clock.md) — [#119](https://github.com/omegafrog/dnd-master/issues/119) — `completed`
-   - [032-5a Rulebook template and blueprint layering](032-5a-rulebook-template-and-blueprint-layering.md) — `completed`
-6. [032-6 Bundle map compilation and activation](032-6-bundle-map-compilation-and-activation.md) — [#120](https://github.com/omegafrog/dnd-master/issues/120) — `completed`
-7. [032-7 Confirmed grid-map interaction](032-7-confirmed-grid-map-interaction.md) — [#121](https://github.com/omegafrog/dnd-master/issues/121) — `completed`
-8. [032-8 Fog of war and hidden tokens](032-8-fog-of-war-and-hidden-tokens.md) — [#122](https://github.com/omegafrog/dnd-master/issues/122) — `completed`
-9. [032-9 GM context compaction and resume](032-9-gm-context-compaction-and-resume.md) — [#123](https://github.com/omegafrog/dnd-master/issues/123) — `completed`
-10. [032-10 GM provider quality gate and full journey](032-10-gm-provider-quality-gate-and-full-journey.md) — [#124](https://github.com/omegafrog/dnd-master/issues/124) — `completed`
-
-Dependency chain: `032-1 → 032-2 → 032-3 → 032-4 → 032-5a → 032-5`; `032-2 → 032-6`; `032-4 + 032-6 → 032-7`; `032-5 + 032-7 → 032-8`; `032-5 + 032-8 → 032-9`; all → `032-10`.
+- [KB-001: 불변 Extraction Version과 Source Span 정본](KB-001.md) — `ready-for-agent` — [Issue #135](https://github.com/omegafrog/dnd-master/issues/135)
+- [KB-002: Docling 구조 추출과 Content Role 분류](KB-002.md) — `planned` — [Issue #136](https://github.com/omegafrog/dnd-master/issues/136)
+- [KB-003: 계층형 Rule Evidence와 하이브리드 검색](KB-003.md) — `planned` — [Issue #137](https://github.com/omegafrog/dnd-master/issues/137)
+- [KB-004: Adventure Evidence, Scene Graph, Planner Evidence Pack](KB-004.md) — `planned` — [Issue #138](https://github.com/omegafrog/dnd-master/issues/138)
+- [KB-005: Game Asset Catalog, Map Region, Player Handout](KB-005.md) — `planned` — [Issue #139](https://github.com/omegafrog/dnd-master/issues/139)
+- [KB-006: exact-version Scene→Asset/Map Region 시나리오 컴파일](KB-006.md) — `planned` — [Issue #140](https://github.com/omegafrog/dnd-master/issues/140)
+- [KB-007: Runtime Retrieval Router와 Typed Evidence Pack](KB-007.md) — `planned` — [Issue #141](https://github.com/omegafrog/dnd-master/issues/141)
+- [KB-008: show_asset/show_map 권한과 Combat Map 활성화](KB-008.md) — `planned` — [Issue #142](https://github.com/omegafrog/dnd-master/issues/142)
+- [KB-009: Player Asset UI와 Upload-to-Play 시스템 E2E](KB-009.md) — `planned` — [Issue #143](https://github.com/omegafrog/dnd-master/issues/143)

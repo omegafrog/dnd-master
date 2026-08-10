@@ -41,3 +41,14 @@
 - **Fog of War**: 플레이어 토큰의 시야, 벽, 문, 장애물, 발견 판정을 바탕으로 Tactical Map의 현재 가시 영역, 과거 탐험 영역, 미탐험 영역을 구분하는 공개 규칙.
 - **Last Seen Token**: 공개된 몬스터가 시야에서 벗어났을 때 룰북의 최근 1턴 동안 마지막 목격 칸에 축소 표시되는 기존 토큰. 별도 토큰 종류가 아니며 기한이 지나면 제거한다.
 - **GM Context Compaction**: AI Game Master의 장기 컨텍스트를 내부 전용으로 줄이는 과정. 먼저 확정 상태를 저장하고 전투·탐험을 줄거리와 결과 중심으로 요약하되, 마지막 입력·장면·응답·현재 상황은 압축하지 않는다.
+- **Evidence Unit**: Source Span에서 파생된 검색 단위. 의미 유형, 문서 계층, 공개 범위, 원문 출처를 유지하며 구조화 불가능한 내용도 원문 조회 형태로 보존한다.
+- **Rule Evidence**: 규칙 개념과 상·하위 관계를 가진 RULEBOOK Evidence Unit. 세부 규칙 검색 시 판정에 필요한 상위 규칙 맥락을 확장할 수 있다.
+- **Adventure Evidence**: 장면, 장소, 인물, 조우, 판정, 비밀 또는 전환을 표현하는 STORYBOOK Evidence Unit.
+- **Player-Visible Evidence**: 현재 공개 조건에서 Solo Player에게 노출 가능한 Evidence Unit.
+- **GM-Only Evidence**: 발견 또는 사건 발생 전 Solo Player에게 내용, 정체, 좌표를 노출하면 안 되는 Evidence Unit.
+- **Scene Graph**: 모험의 장면과 원문 근거 또는 명시된 추론 신뢰도를 가진 조건부 전환 구조.
+- **Retrieval Evidence Pack**: 세션 범위, 질의 의도, 공개 정책을 적용해 규칙·모험·엔티티 근거를 조합한 출처 포함 묶음. 판정이나 상태 변경 권한은 없다.
+- **Content Role**: 추출 콘텐츠가 게임에서 쓰이는 목적. `KNOWLEDGE`, `GAME_ASSET`, `GM_MATERIAL`로 구분하며 문서 전체의 Document Type과 별개다.
+- **Game Asset**: 게임 중 표시하거나 공간적으로 참조하는 원본 시각 자료와 파생 메타데이터. 지도, Player Handout, 삽화, 초상화, 퍼즐 자료를 포함한다.
+- **Map Region**: 지도 안에서 장면 또는 위치와 안정적인 ID로 직접 연결되는 공간 영역. 좌표, 축척, 특징, 공개 상태를 가진다.
+- **Player Handout**: Solo Player에게 원본 그대로 표시할 수 있는 퍼즐, 편지, 그림 등의 Game Asset. 해답, 트리거, 실패 결과 같은 GM Material은 포함하지 않는다.
