@@ -4,6 +4,8 @@ import com.dndmaster.ruleknowledge.domain.evidence.RuleEvidenceProjection;
 import com.dndmaster.ruleknowledge.domain.evidence.RuleEvidenceProjector;
 import com.dndmaster.ruleknowledge.domain.extraction.DocumentNode;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
+import com.dndmaster.ruleknowledge.domain.document.hierarchy.CanonicalDocumentTree;
+import com.dndmaster.ruleknowledge.domain.document.normalized.NormalizedDocument;
 import com.dndmaster.ruleknowledge.application.indexing.EmbeddingPort;
 import com.dndmaster.ruleknowledge.domain.index.ChunkId;
 import com.dndmaster.ruleknowledge.domain.index.ExtractedContentRange;
@@ -45,6 +47,13 @@ public final class RuleEvidenceProjectionApplicationService {
             }
         }
         repository.replace(documentId, extractionVersion, projection, embeddings);
+        return projection;
+    }
+
+    public RuleEvidenceProjection projectCanonicalAndStore(RulebookId documentId, long extractionVersion,
+                                                            NormalizedDocument document, CanonicalDocumentTree tree) {
+        RuleEvidenceProjection projection = projector.projectCanonical(documentId, extractionVersion, document, tree);
+        repository.replace(documentId, extractionVersion, projection, Map.of());
         return projection;
     }
 }

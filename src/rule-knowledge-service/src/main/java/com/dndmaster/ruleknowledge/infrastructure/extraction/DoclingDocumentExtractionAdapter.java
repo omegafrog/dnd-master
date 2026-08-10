@@ -10,6 +10,7 @@ import com.dndmaster.ruleknowledge.domain.extraction.ExtractionWarning;
 import com.dndmaster.ruleknowledge.domain.rulebook.BoundingBox;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat;
 import com.dndmaster.ruleknowledge.domain.document.normalized.NormalizedDocument;
+import com.dndmaster.ruleknowledge.application.extraction.NormalizedDocumentExtractionPort;
 import com.dndmaster.ruleknowledge.domain.document.normalized.NormalizedElement;
 import com.dndmaster.ruleknowledge.domain.document.normalized.NormalizedOutlineEntry;
 import com.dndmaster.ruleknowledge.domain.document.normalized.NormalizedPage;
@@ -36,7 +37,7 @@ import java.util.HashMap;
 import java.util.HexFormat;
 import java.security.MessageDigest;
 
-public final class DoclingDocumentExtractionAdapter implements DocumentExtractionPort {
+public final class DoclingDocumentExtractionAdapter implements DocumentExtractionPort, NormalizedDocumentExtractionPort {
     private final HttpClient client;
     private final ObjectMapper mapper;
     private final URI endpoint;

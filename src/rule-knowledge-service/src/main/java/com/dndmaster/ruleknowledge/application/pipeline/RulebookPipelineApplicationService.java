@@ -12,6 +12,11 @@ import com.dndmaster.ruleknowledge.application.registration.StoredRulebookFile;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
 import com.dndmaster.ruleknowledge.application.evidence.RuleEvidenceProjectionApplicationService;
 import com.dndmaster.ruleknowledge.application.extraction.DocumentExtractionPort;
+import com.dndmaster.ruleknowledge.application.extraction.NormalizedDocumentExtractionPort;
+import com.dndmaster.ruleknowledge.domain.document.evidence.StructuralEvidenceExtractor;
+import com.dndmaster.ruleknowledge.domain.document.anchor.AnchorSkeletonResolver;
+import com.dndmaster.ruleknowledge.domain.document.hierarchy.CanonicalHierarchyResolver;
+import com.dndmaster.ruleknowledge.domain.document.hierarchy.HierarchyMetrics;
 import com.dndmaster.ruleknowledge.domain.index.IndexKey;
 import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
 import com.dndmaster.ruleknowledge.domain.rulebook.ExtractionResult;
@@ -204,6 +209,15 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         if (structuredExtractor == null || evidenceProjectionService == null
                 || (registration.format() != com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat.PDF
                 && registration.format() != com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat.DOCX)) return;
+        if (structuredExtractor instanceof NormalizedDocumentExtractionPort normalized) {
+            var document = normalized.extractNormalized(registration.format(), content);
+            var evidence = new StructuralEvidenceExtractor().extract(document);
+            var skeleton = new AnchorSkeletonResolver().resolve(document, evidence).skeleton();
+            var tree = new CanonicalHierarchyResolver("canonical-hierarchy.v1").resolve(document, skeleton);
+            HierarchyMetrics metrics = HierarchyMetrics.from(tree);
+            LOGGER.info("Canonical hierarchy shadow: document={}, sourceNodes={}, confirmed={}, tentative={}, unresolved={}",
+                    registration.rulebookId(), metrics.sourceNodes(), metrics.confirmed(), metrics.tentative(), metrics.unresolved());
+        }
         var extracted = structuredExtractor.extract(registration.format(), content);
         if (extracted.nodes().isEmpty()) return;
         DocumentNode root = new DocumentNode("root", DocumentNodeType.ROOT, 1, null, "", extracted.nodes(), List.of());
