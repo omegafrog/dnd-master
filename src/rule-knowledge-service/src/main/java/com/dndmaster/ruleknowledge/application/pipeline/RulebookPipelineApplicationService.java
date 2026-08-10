@@ -234,8 +234,9 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             var skeleton = new AnchorSkeletonResolver().resolve(document, evidence).skeleton();
             var tree = new CanonicalHierarchyResolver("canonical-hierarchy.v1").resolve(document, skeleton);
             HierarchyMetrics metrics = HierarchyMetrics.from(tree);
-            LOGGER.info("Canonical hierarchy shadow: document={}, sourceNodes={}, confirmed={}, tentative={}, unresolved={}",
-                    registration.rulebookId(), metrics.sourceNodes(), metrics.confirmed(), metrics.tentative(), metrics.unresolved());
+            LOGGER.info("Canonical hierarchy shadow: document={}, sourceNodes={}, confirmedRatio={}, tentativeRatio={}, unresolvedRatio={}, preservationRatio={}, cycles={}, duplicateOwnership={}",
+                    registration.rulebookId(), metrics.sourceNodes(), metrics.confirmedRatio(), metrics.tentativeRatio(),
+                    metrics.unresolvedRatio(), metrics.preservationRatio(), metrics.cycles(), metrics.duplicateOwnership());
             if (canonicalCutoverPolicy.permits(metrics)) {
                 evidenceProjectionService.projectCanonicalAndStore(registration.rulebookId(), registration.version() + 1,
                         document, tree);

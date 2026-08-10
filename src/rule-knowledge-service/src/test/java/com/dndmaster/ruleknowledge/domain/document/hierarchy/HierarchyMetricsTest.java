@@ -2,6 +2,7 @@ package com.dndmaster.ruleknowledge.domain.document.hierarchy;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.dndmaster.ruleknowledge.domain.document.anchor.AnchorSkeleton;
 import com.dndmaster.ruleknowledge.domain.document.anchor.AnchorSkeletonNode;
@@ -25,6 +26,14 @@ class HierarchyMetricsTest {
         CanonicalDocumentTree tree = tree();
         CanonicalDocumentTree incomplete = new CanonicalDocumentTree(tree.nodes(), List.of(tree.edges().getFirst()), "v1");
         assertFalse(new CanonicalCutoverPolicy(true, 0).permits(HierarchyMetrics.from(incomplete)));
+    }
+
+    @Test
+    void exposesResolutionRatiosForShadowMonitoring() {
+        HierarchyMetrics metrics = HierarchyMetrics.from(tree());
+        assertEquals(1, metrics.confirmedRatio());
+        assertEquals(0, metrics.tentativeRatio());
+        assertEquals(0, metrics.unresolvedRatio());
     }
 
     private static CanonicalDocumentTree tree() {

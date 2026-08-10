@@ -37,5 +37,8 @@ public record HierarchyMetrics(int sourceNodes, int confirmed, int tentative, in
         return cycles;
     }
     public double preservationRatio() { return sourceNodes == 0 ? 1 : (double) (confirmed + tentative + unresolved) / sourceNodes; }
+    public double confirmedRatio() { return sourceNodes == 0 ? 0 : (double) confirmed / sourceNodes; }
+    public double tentativeRatio() { return sourceNodes == 0 ? 0 : (double) tentative / sourceNodes; }
+    public double unresolvedRatio() { return sourceNodes == 0 ? 0 : (double) unresolved / sourceNodes; }
     public boolean validForCutover() { return preservationRatio() == 1 && cycles == 0 && duplicateOwnership == 0; }
 }

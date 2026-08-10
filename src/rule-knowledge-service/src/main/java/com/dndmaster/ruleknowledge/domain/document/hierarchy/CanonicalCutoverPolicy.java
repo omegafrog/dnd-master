@@ -7,7 +7,7 @@ public record CanonicalCutoverPolicy(boolean enabled, double minimumConfirmedRat
     }
     public boolean permits(HierarchyMetrics metrics) {
         return enabled && metrics.validForCutover() && metrics.sourceNodes() > 0
-                && (double) metrics.confirmed() / metrics.sourceNodes() >= minimumConfirmedRatio;
+                && metrics.confirmedRatio() >= minimumConfirmedRatio;
     }
     public static CanonicalCutoverPolicy shadowOnly() { return new CanonicalCutoverPolicy(false, 1); }
 }
