@@ -38,6 +38,7 @@ public final class PostgresEvidenceUnitRepository implements EvidenceUnitReposit
             boolean autoCommit = connection.getAutoCommit();
             connection.setAutoCommit(false);
             try {
+                ensureExtractionSnapshot(connection, documentId, extractionVersion, projection);
                 delete(connection, documentId, extractionVersion);
                 for (EvidenceUnit unit : projection.units()) insertUnit(connection, unit);
                 for (EvidenceEdge edge : projection.edges()) {
@@ -123,6 +124,47 @@ public final class PostgresEvidenceUnitRepository implements EvidenceUnitReposit
         try (PreparedStatement s = c.prepareStatement("INSERT INTO rule_evidence_unit(evidence_id, document_id, extraction_version, kind, content, visibility) VALUES (?, ?, ?, ?, ?, ?)")) {
             s.setObject(1, unit.id()); s.setObject(2, unit.documentId().value()); s.setLong(3, unit.extractionVersion());
             s.setString(4, unit.kind().name()); s.setString(5, unit.content()); s.setString(6, unit.visibility().name()); s.executeUpdate();
+        }
+    }
+
+    private static void ensureExtractionSnapshot(Connection c, RulebookId documentId, long version,
+            RuleEvidenceProjection projection) throws SQLException {
+        String registration = "SELECT owner_player_id, document_type, original_filename, format, file_size, content_hash FROM rulebook_registration WHERE rulebook_id = ?";
+        try (PreparedStatement s = c.prepareStatement(registration)) {
+            s.setObject(1, documentId.value());
+            try (ResultSet row = s.executeQuery()) {
+                if (!row.next()) throw new SQLException("rulebook registration not found: " + documentId.value());
+                try (PreparedStatement document = c.prepareStatement("INSERT INTO knowledge_document(document_id, owner_player_id, document_type, original_filename, format, file_size, content_hash, current_published_version, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'PUBLISHED') ON CONFLICT (document_id) DO NOTHING")) {
+                    document.setObject(1, documentId.value()); document.setObject(2, row.getObject("owner_player_id"));
+                    document.setString(3, row.getString("document_type")); document.setString(4, row.getString("original_filename"));
+                    document.setString(5, row.getString("format")); document.setLong(6, row.getLong("file_size"));
+                    document.setString(7, row.getString("content_hash")); document.setLong(8, version); document.executeUpdate();
+                }
+            }
+        }
+        try (PreparedStatement versionInsert = c.prepareStatement("INSERT INTO extraction_version(document_id, version, content_hash, status, published_at) SELECT ?, ?, content_hash, 'PUBLISHED', now() FROM knowledge_document WHERE document_id = ? ON CONFLICT (document_id, version) DO NOTHING")) {
+            versionInsert.setObject(1, documentId.value()); versionInsert.setLong(2, version); versionInsert.setObject(3, documentId.value()); versionInsert.executeUpdate();
+        }
+        try (PreparedStatement update = c.prepareStatement("UPDATE knowledge_document SET current_published_version = ?, status = 'PUBLISHED' WHERE document_id = ?")) {
+            update.setLong(1, version); update.setObject(2, documentId.value()); update.executeUpdate();
+        }
+        for (EvidenceUnit unit : projection.units()) for (SourceSpan span : unit.sourceSpans()) ensureSourceSpan(c, documentId, version, span);
+        for (EvidenceEdge edge : projection.edges()) for (SourceSpan span : edge.sourceSpans()) ensureSourceSpan(c, documentId, version, span);
+    }
+
+    private static void ensureSourceSpan(Connection c, RulebookId documentId, long version, SourceSpan span) throws SQLException {
+        try (PreparedStatement find = c.prepareStatement("SELECT 1 FROM extraction_source_span WHERE document_id = ? AND version = ? AND locator = ?")) {
+            find.setObject(1, documentId.value()); find.setLong(2, version); find.setString(3, span.locator());
+            try (ResultSet rows = find.executeQuery()) { if (rows.next()) return; }
+        }
+        String insert = "INSERT INTO extraction_source_span(document_id, version, page_number, left_coord, top_coord, right_coord, bottom_coord, reading_order, line_number, start_inclusive, end_exclusive, text, locator) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        try (PreparedStatement s = c.prepareStatement(insert)) {
+            s.setObject(1, documentId.value()); s.setLong(2, version);
+            if (span.pageNumber() == null) s.setNull(3, Types.INTEGER); else s.setInt(3, span.pageNumber());
+            if (span.bounds() == null) { for (int i = 4; i <= 7; i++) s.setNull(i, Types.DOUBLE); }
+            else { s.setDouble(4, span.bounds().left()); s.setDouble(5, span.bounds().top()); s.setDouble(6, span.bounds().right()); s.setDouble(7, span.bounds().bottom()); }
+            s.setInt(8, span.readingOrder()); s.setInt(9, span.lineNumber()); s.setInt(10, span.startInclusive());
+            s.setInt(11, span.endExclusive()); s.setString(12, span.text()); s.setString(13, span.locator()); s.executeUpdate();
         }
     }
 

@@ -24,6 +24,10 @@ import com.dndmaster.ruleknowledge.application.search.CharacterContextEvidence;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchQuery;
 import com.dndmaster.ruleknowledge.application.retrieval.HybridRetrievalService;
 import com.dndmaster.ruleknowledge.application.evidence.EvidenceUnitRepository;
+import com.dndmaster.ruleknowledge.application.indexing.EmbeddingPort;
+import com.dndmaster.ruleknowledge.domain.index.ChunkId;
+import com.dndmaster.ruleknowledge.domain.index.ExtractedContentRange;
+import com.dndmaster.ruleknowledge.domain.index.RulebookChunk;
 import com.dndmaster.ruleknowledge.domain.evidence.AncestorExpansionPolicy;
 import com.dndmaster.ruleknowledge.domain.evidence.EvidenceUnit;
 import com.dndmaster.ruleknowledge.domain.evidence.RuleEvidenceProjection;
@@ -59,6 +63,9 @@ public class RuleKnowledgeController {
     private final GameSystemDefinitionRepository definitionRepository;
     private final String internalToken;
     private final EvidenceUnitRepository evidenceUnitRepository;
+    private final EmbeddingPort embeddingPort;
+    private final String embeddingModel;
+    private final int embeddingDimension;
 
     public RuleKnowledgeController(
             RulebookPipelineApplicationService pipelineService,
@@ -87,6 +94,9 @@ public class RuleKnowledgeController {
         this.definitionRepository = null;
         this.internalToken = "";
         this.evidenceUnitRepository = null;
+        this.embeddingPort = null;
+        this.embeddingModel = "";
+        this.embeddingDimension = 0;
     }
 
     public RuleKnowledgeController(
@@ -100,7 +110,8 @@ public class RuleKnowledgeController {
             GameSystemDefinitionRepository definitionRepository,
             String internalToken) {
         this(pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
-                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken, null);
+                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken, null,
+                null, null, 0);
     }
 
     public RuleKnowledgeController(
@@ -114,6 +125,25 @@ public class RuleKnowledgeController {
             GameSystemDefinitionRepository definitionRepository,
             String internalToken,
             EvidenceUnitRepository evidenceUnitRepository) {
+        this(pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
+                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken,
+                evidenceUnitRepository, null, null, 0);
+    }
+
+    public RuleKnowledgeController(
+            RulebookPipelineApplicationService pipelineService,
+            RulebookRegistrationRepository registrationRepository,
+            RuleEvidenceSearchApplicationService evidenceSearchService,
+            StorySourceSearchApplicationService storySourceSearchService,
+            CharacterContextSearchApplicationService characterContextSearchService,
+            RulebookIndexRepository indexRepository,
+            ObjectMapper objectMapper,
+            GameSystemDefinitionRepository definitionRepository,
+            String internalToken,
+            EvidenceUnitRepository evidenceUnitRepository,
+            EmbeddingPort embeddingPort,
+            String embeddingModel,
+            int embeddingDimension) {
         this.pipelineService = pipelineService;
         this.batchUploadService = new BatchRulebookUploadApplicationService(pipelineService);
         this.registrationRepository = registrationRepository;
@@ -125,6 +155,9 @@ public class RuleKnowledgeController {
         this.definitionRepository = definitionRepository;
         this.internalToken = internalToken == null ? "" : internalToken;
         this.evidenceUnitRepository = evidenceUnitRepository;
+        this.embeddingPort = embeddingPort;
+        this.embeddingModel = embeddingModel == null ? "" : embeddingModel;
+        this.embeddingDimension = embeddingDimension;
     }
 
     public RuleKnowledgeController(
@@ -382,18 +415,38 @@ public class RuleKnowledgeController {
         }
         List<HybridRetrievalService.RankedCandidate> ranked = new HybridRetrievalService().rerank(
                 candidates.stream().map(unit -> new com.dndmaster.ruleknowledge.application.retrieval.HybridSearchCandidate(
-                        unit.id(), lexicalScore(unit.content(), request.situation()), lexicalScore(unit.content(), request.situation()),
+                        unit.id(), denseScore(unit.content(), request.situation()), lexicalScore(unit.content(), request.situation()),
                         unit.kind().name().equals("RULE") ? 1.0 : 0.5)).toList(), request.queryIntent(), request.limit() == null ? 5 : request.limit());
         Map<UUID, EvidenceUnit> byId = candidates.stream().collect(java.util.stream.Collectors.toMap(EvidenceUnit::id, unit -> unit));
         List<EvidenceUnit> expanded = new java.util.ArrayList<>();
         for (var result : ranked) {
             EvidenceUnit leaf = byId.get(result.evidenceId());
             expanded.addAll(new AncestorExpansionPolicy(1).expand(leaf.id(),
-                    projections.get(leaf.documentId().value()), 200));
+                    projections.get(leaf.documentId().value()), 200).stream()
+                    .filter(EvidenceUnit::canExposeToPlayer).toList());
         }
         return new EvidenceSearchResponse(request.ownerId(), expanded.stream().distinct().limit(request.limit() == null ? 5 : request.limit())
                 .map(unit -> new EvidenceItem(unit.documentId().value(), unit.id(), unit.extractionVersion(),
                         unit.sourceSpans().getFirst().locator(), unit.content(), 1.0, null, null)).toList());
+    }
+
+    private double denseScore(String content, String query) {
+        if (embeddingPort == null || embeddingDimension <= 0) return lexicalScore(content, query);
+        float[] queryVector = embed(query);
+        float[] contentVector = embed(content);
+        double dot = 0.0, queryNorm = 0.0, contentNorm = 0.0;
+        for (int i = 0; i < Math.min(queryVector.length, contentVector.length); i++) {
+            dot += queryVector[i] * contentVector[i];
+            queryNorm += queryVector[i] * queryVector[i];
+            contentNorm += contentVector[i] * contentVector[i];
+        }
+        return queryNorm == 0 || contentNorm == 0 ? 0.0 : dot / Math.sqrt(queryNorm * contentNorm);
+    }
+
+    private float[] embed(String text) {
+        RulebookChunk chunk = new RulebookChunk(RulebookId.generate(), new ChunkId(UUID.randomUUID()), 0,
+                new ExtractedContentRange(0, text.length()), text, null, null);
+        return embeddingPort.embed(List.of(chunk), embeddingModel, embeddingDimension).getFirst().vector();
     }
 
     private static double lexicalScore(String content, String query) {

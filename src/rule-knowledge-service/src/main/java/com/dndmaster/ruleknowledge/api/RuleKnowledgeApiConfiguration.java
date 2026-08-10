@@ -208,10 +208,13 @@ public class RuleKnowledgeApiConfiguration {
             ObjectMapper objectMapper,
             com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository definitionRepository,
             com.dndmaster.ruleknowledge.application.evidence.EvidenceUnitRepository evidenceUnitRepository,
+            EmbeddingPort embeddingPort,
+            @Value("${rule-knowledge.embedding-model:qwen3-embedding:0.6b}") String embeddingModel,
+            @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension,
             @Value("${rule-knowledge.internal-token:}") String internalToken) {
         return new RuleKnowledgeController(
                 pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
                 characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken,
-                evidenceUnitRepository);
+                evidenceUnitRepository, embeddingPort, embeddingModel, embeddingDimension);
     }
 }

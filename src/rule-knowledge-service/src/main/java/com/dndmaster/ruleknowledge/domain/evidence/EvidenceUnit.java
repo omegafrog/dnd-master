@@ -28,4 +28,8 @@ public record EvidenceUnit(
     public int tokenCount() {
         return content.trim().split("\\s+").length;
     }
+
+    public boolean canExposeToPlayer() {
+        return visibility.canExposeToPlayer();
+    }
 }
