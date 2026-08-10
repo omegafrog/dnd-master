@@ -32,11 +32,12 @@ public final class AnchorMatcher {
     private Candidate candidate(StructuralAnchor anchor, NormalizedElement element, PageLocatorResolver.LocatorMapping locations) {
         List<String> evidence = new ArrayList<>();
         double score = 0;
-        if (normal(anchor.title()).equals(normal(stripNumbering(element.text())))) { score += 0.45; evidence.add("title"); }
+        boolean titleMatch = normal(anchor.title()).equals(normal(stripNumbering(element.text())));
+        if (titleMatch) { score += 0.45; evidence.add("title"); }
         ResolvedLocation location = locations.resolve(anchor.locator());
         if (location.confidence() >= 0.5 && location.physicalPage().isPresent() && location.physicalPage().getAsInt() == element.page()) { score += 0.40; evidence.add("locator"); }
         if (!anchor.numbering().isBlank() && element.text().trim().startsWith(anchor.numbering() + " ")) { score += 0.15; evidence.add("numbering"); }
-        if (anchor.levelSuggestion() != null) { score += 0.25; evidence.add("toc-level"); }
+        if (anchor.levelSuggestion() != null && titleMatch) { score += 0.25; evidence.add("toc-level"); }
         if ("HEADING".equalsIgnoreCase(element.type())) { score += 0.05; evidence.add("parser-heading"); }
         if (!element.style().isBlank()) { score += 0.05; evidence.add("style"); }
         return new Candidate(element, Math.min(1, score), List.copyOf(evidence));
@@ -49,7 +50,7 @@ public final class AnchorMatcher {
     }
     private String normal(String value) {
         if (value == null) return "";
-        return value.replaceFirst("(?i)^ch\\.?\\s*", "chapter ")
+        return value.replaceFirst("(?i)^ch\\.\\s*", "chapter ")
                 .replaceAll("\\s+", " ").trim().toLowerCase(Locale.ROOT);
     }
     private record Candidate(NormalizedElement element, double score, List<String> evidence) {}

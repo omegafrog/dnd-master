@@ -103,6 +103,27 @@ class AnchorPipelineTest {
         assertEquals("chapter", parentOf(skeleton, "section"));
     }
 
+    @Test
+    void derivesDnd5eContentsHierarchyWithoutAssumingTheContentsIsOnPageTwo() {
+        NormalizedDocument document = new NormalizedDocument("v1", "docling", "1", "dnd5e",
+                List.of(new NormalizedPage(7, null, null), new NormalizedPage(20, null, null), new NormalizedPage(21, null, null)),
+                List.of(
+                        heading("contents", "Contents", 7, 0),
+                        heading("toc-part", "Part 2: Playing the Game", 7, 1),
+                        heading("toc-chapter", "Ch. 7: Using Ability Scores ................. 20", 7, 2),
+                        heading("toc-section", "Ability Scores and Modifiers...................20", 7, 3),
+                        heading("part", "Part 2: Playing the Game", 20, 0),
+                        heading("chapter", "Chapter 7: Using Ability Scores", 20, 1),
+                        heading("section", "Ability Scores and Modifiers", 21, 0)),
+                List.of(), List.of(), List.of(), List.of(), List.of(), "D&D Basic Rules");
+
+        AnchorSkeleton skeleton = new AnchorSkeletonResolver().resolve(document,
+                new StructuralEvidenceExtractor().extract(document)).skeleton();
+
+        assertEquals("part", parentOf(skeleton, "chapter"));
+        assertEquals("chapter", parentOf(skeleton, "section"));
+    }
+
     private static String parentOf(AnchorSkeleton skeleton, String id) {
         return skeleton.nodes().stream().filter(node -> node.bodyElementId().equals(id)).findFirst().orElseThrow().parentBodyElementId();
     }

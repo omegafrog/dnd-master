@@ -4,7 +4,11 @@ import com.dndmaster.ruleknowledge.domain.document.normalized.NormalizedDocument
 import com.dndmaster.ruleknowledge.domain.document.normalized.NormalizedElement;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -19,16 +23,17 @@ public final class PrintedNavigationExtractor {
     public PrintedNavigationResult extractWithDiagnostics(NormalizedDocument document) {
         List<NavigationEntry> entries = new ArrayList<>();
         List<String> diagnostics = new ArrayList<>();
-        boolean basicRules = isBasicRules(document);
-        document.tables().stream().filter(table -> !basicRules || table.page() != 2)
+        boolean dnd5e = isDnd5e(document);
+        Set<Integer> tocPages = dnd5e ? dnd5eContentsPages(document) : Set.of();
+        document.tables().stream().filter(table -> !dnd5e || tocPages.contains(table.page()))
                 .sorted(Comparator.comparingInt(t -> t.page())).forEach(table ->
                 table.rows().forEach((row) -> addTableRow(entries, row, table.id())));
         document.elements().stream().sorted(Comparator.comparingInt(NormalizedElement::page)
                 .thenComparingInt(NormalizedElement::order)).forEach(element -> {
-                    addLine(entries, diagnostics, element.text(), element.id());
-                    if (basicRules && element.page() == 2) addBasicRulesDivider(entries, element);
+                    if (!dnd5e || tocPages.contains(element.page())) addLine(entries, diagnostics, element.text(), element.id());
+                    if (dnd5e && tocPages.contains(element.page())) addDnd5eTocDivider(entries, element);
                 });
-        List<NavigationEntry> deduplicated = applyBasicRulesLevels(deduplicate(entries), basicRules);
+        List<NavigationEntry> deduplicated = applyDnd5eLevels(deduplicate(entries), dnd5e);
         if (deduplicated.size() == 1 && document.tables().isEmpty()) {
             diagnostics.add("single printed-navigation-shaped line rejected without corroboration");
             String onlySourceId = deduplicated.get(0).sourceId();
@@ -37,7 +42,7 @@ public final class PrintedNavigationExtractor {
         return new PrintedNavigationResult(deduplicated, diagnostics);
     }
 
-    private void addBasicRulesDivider(List<NavigationEntry> entries, NormalizedElement element) {
+    private void addDnd5eTocDivider(List<NavigationEntry> entries, NormalizedElement element) {
         String title = element.text() == null ? "" : element.text().trim();
         if (title.equals("Introduction") || title.equals("Appendices") || title.matches("Part\\s+\\d+:.+")) {
             entries.add(new NavigationEntry(element.id() + "#toc-divider", title, "", null,
@@ -45,22 +50,34 @@ public final class PrintedNavigationExtractor {
         }
     }
 
-    private List<NavigationEntry> applyBasicRulesLevels(List<NavigationEntry> entries, boolean basicRules) {
-        if (!basicRules) return entries;
+    private List<NavigationEntry> applyDnd5eLevels(List<NavigationEntry> entries, boolean dnd5e) {
+        if (!dnd5e) return entries;
         return entries.stream().map(entry -> new NavigationEntry(entry.id(), entry.title(), entry.locator(),
-                basicRulesLevel(entry.title()), entry.sourceId(), entry.rawText(), entry.confidence())).toList();
+                dnd5eLevel(entry.title()), entry.sourceId(), entry.rawText(), entry.confidence())).toList();
     }
 
-    private Integer basicRulesLevel(String title) {
+    private Integer dnd5eLevel(String title) {
         String value = title == null ? "" : title.trim();
         if (value.equals("Introduction") || value.equals("Appendices") || value.matches("Part\\s+\\d+:.+")) return 1;
         if (value.matches("Ch\\.?\\s*\\d+:.*") || value.matches("Appendix\\s+[A-Z]:.*")) return 2;
         return 3;
     }
 
-    private boolean isBasicRules(NormalizedDocument document) {
+    private boolean isDnd5e(NormalizedDocument document) {
         return document.rawText().contains("D&D Basic Rules")
                 || document.elements().stream().anyMatch(element -> element.text().contains("D&D Basic Rules"));
+    }
+
+    private Set<Integer> dnd5eContentsPages(NormalizedDocument document) {
+        Map<Integer, Integer> navigationLines = new HashMap<>();
+        Set<Integer> pages = new HashSet<>();
+        for (NormalizedElement element : document.elements()) {
+            String text = element.text() == null ? "" : element.text().trim();
+            if (text.equalsIgnoreCase("Contents")) pages.add(element.page());
+            if (LINE.matcher(text).matches()) navigationLines.merge(element.page(), 1, Integer::sum);
+        }
+        navigationLines.forEach((page, count) -> { if (count >= 2) pages.add(page); });
+        return Set.copyOf(pages);
     }
 
     private void addTableRow(List<NavigationEntry> entries, List<String> row, String sourceId) {
