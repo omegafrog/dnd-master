@@ -40,15 +40,52 @@ def extract(request: ExtractRequest):
 
 def _nodes(value, page=1, prefix="node"):
     """Map Docling's versioned dict shape to stable nodes; unknown fields ignored."""
-    result = []
-    for index, item in enumerate(value.get("texts", []) if isinstance(value, dict) else []):
+    roots = []
+    heading_stack = []
+    items = value.get("texts", []) if isinstance(value, dict) else []
+    for index, item in enumerate(items):
         text = item.get("text", "") if isinstance(item, dict) else str(item)
         if not text.strip():
             continue
         label = str(item.get("label", "paragraph")).upper() if isinstance(item, dict) else "PARAGRAPH"
-        kind = "HEADING" if "SECTION" in label or "TITLE" in label else "PARAGRAPH"
-        result.append({"id": f"{prefix}-{index}", "type": kind, "page": page, "text": text, "children": []})
-    return result
+        is_heading = "SECTION" in label or "TITLE" in label or "HEADING" in label
+        node = {
+            "id": f"{prefix}-{index}",
+            "type": "HEADING" if is_heading else "PARAGRAPH",
+            "page": _page(item, page),
+            "text": text,
+            "children": [],
+        }
+        if is_heading:
+            level = _heading_level(item)
+            while heading_stack and heading_stack[-1][0] >= level:
+                heading_stack.pop()
+            if heading_stack:
+                heading_stack[-1][1]["children"].append(node)
+            else:
+                roots.append(node)
+            heading_stack.append((level, node))
+        elif heading_stack:
+            heading_stack[-1][1]["children"].append(node)
+        else:
+            roots.append(node)
+    return roots
+
+def _heading_level(item):
+    if isinstance(item, dict):
+        value = item.get("level")
+        if isinstance(value, int) and value > 0:
+            return value
+    return 1
+
+def _page(item, fallback):
+    if isinstance(item, dict):
+        provenance = item.get("prov", [])
+        if isinstance(provenance, list) and provenance:
+            page_no = provenance[0].get("page_no") if isinstance(provenance[0], dict) else None
+            if isinstance(page_no, int) and page_no > 0:
+                return page_no
+    return fallback
 
 def _tables(value):
     result = []
