@@ -52,15 +52,64 @@ def extract(request: ExtractRequest):
         logger.exception("Docling extraction failed")
         if request.format == "PDF":
             try:
-                logger.warning("Using rendered-page OCR fallback")
-                return _ocr_fallback(raw)
+                logger.warning("Using PyMuPDF text fallback")
+                return _pymupdf_fallback(raw)
             except Exception as fallback_exc:
                 logger.exception("Rendered-page OCR fallback failed")
                 raise HTTPException(status_code=422, detail="document extraction failed") from fallback_exc
         raise HTTPException(status_code=422, detail="document extraction failed") from exc
 
-def _ocr_fallback(raw):
-    """Bypass malformed native PDF text streams and rebuild page nodes from OCR."""
+def _pymupdf_fallback(raw):
+    """Use fast page text blocks and OCR only pages whose text is unusable."""
+    import pymupdf
+
+    document = pymupdf.open(stream=raw, filetype="pdf")
+    texts = []
+    markdown = []
+    bad_pages = []
+    for page_index, page in enumerate(document):
+        blocks = [block for block in page.get_text("blocks") if len(block) >= 7 and block[6] == 0]
+        page_text = "\n".join(block[4].strip() for block in blocks if block[4].strip())
+        if _bad_text(page_text):
+            bad_pages.append(page_index)
+            continue
+        markdown.append(page_text)
+        for block_index, block in enumerate(blocks):
+            text = block[4].strip()
+            if not text:
+                continue
+            texts.append({
+                "id": f"pymupdf-{page_index + 1}-{block_index}",
+                "label": "section_header" if _looks_like_heading(text) else "text",
+                "page": page_index + 1,
+                "text": text,
+                "children": [],
+                "prov": [{"page_no": page_index + 1}],
+            })
+    if bad_pages:
+        logger.warning("Using rendered-page OCR fallback for pages %s", [page + 1 for page in bad_pages])
+        ocr_texts, ocr_markdown = _ocr_pages(document, bad_pages)
+        texts.extend(ocr_texts)
+        markdown.extend(ocr_markdown)
+    document.close()
+    return {
+        "nodes": _nodes({"texts": texts}),
+        "tables": [],
+        "images": [],
+        "warnings": [{"code": "NATIVE_PDF_TEXT_FAILED", "severity": "WARNING",
+                       "message": "Docling native text parsing failed; PyMuPDF fallback used."}],
+        "rawText": "\n".join(markdown),
+    }
+
+def _bad_text(text):
+    if len(text.strip()) < 30:
+        return True
+    weird = sum(1 for char in text if ord(char) < 32 and char not in "\n\r\t")
+    replacement = text.count("\ufffd")
+    return (weird + replacement) / max(1, len(text)) > 0.01
+
+def _ocr_pages(document, page_indexes):
+    """Bypass malformed native PDF text streams for selected pages only."""
     import easyocr
     import numpy as np
     import pypdfium2 as pdfium
@@ -70,10 +119,10 @@ def _ocr_fallback(raw):
         use_gpu = os.getenv("DOCLING_OCR_GPU", "false").lower() == "true"
         _ocr_reader = easyocr.Reader(["en"], gpu=use_gpu, verbose=False)
 
-    pdf = pdfium.PdfDocument(io.BytesIO(raw))
     texts = []
     markdown = []
-    for page_index in range(len(pdf)):
+    pdf = pdfium.PdfDocument(io.BytesIO(document.tobytes()))
+    for page_index in page_indexes:
         page = pdf[page_index]
         bitmap = page.render(scale=1.5)
         image = bitmap.to_pil()
@@ -90,14 +139,7 @@ def _ocr_fallback(raw):
             })
         markdown.extend(lines)
         page.close()
-    return {
-        "nodes": _nodes({"texts": texts}),
-        "tables": [],
-        "images": [],
-        "warnings": [{"code": "NATIVE_PDF_TEXT_FAILED", "severity": "WARNING",
-                       "message": "Docling native text parsing failed; rendered-page OCR fallback used."}],
-        "rawText": "\n".join(markdown),
-    }
+    return texts, markdown
 
 def _ocr_lines(detections):
     ordered = []
@@ -125,23 +167,32 @@ def _looks_like_heading(text):
     if re.match(r"^(?:[-*•]|\d+[.)])\s", value):
         return False
     words = value.split()
-    return value.isupper() or (len(words) <= 8 and all(word[:1].isupper() for word in words if word))
+    if "\n" not in value and len(words) <= 8 and all(word[:1].isupper() for word in words if word):
+        return True
+    # Korean headings do not have case. Keep short, punctuation-free Hangul
+    # labels (e.g. 능력 판정, 감지, 기술) as headings as well.
+    return "\n" not in value and len(value) <= 32 and any("가" <= char <= "힣" for char in value)
 
 def _nodes(value, page=1, prefix="node"):
     """Map Docling's versioned dict shape to stable nodes; unknown fields ignored."""
     roots = []
     heading_stack = []
+    last_page = None
     items = value.get("texts", []) if isinstance(value, dict) else []
     for index, item in enumerate(items):
         text = item.get("text", "") if isinstance(item, dict) else str(item)
         if not text.strip():
             continue
+        current_page = _page(item, page)
+        if last_page is not None and current_page != last_page:
+            heading_stack.clear()
+        last_page = current_page
         label = str(item.get("label", "paragraph")).upper() if isinstance(item, dict) else "PARAGRAPH"
         is_heading = "SECTION" in label or "TITLE" in label or "HEADING" in label
         node = {
             "id": f"{prefix}-{index}",
             "type": "HEADING" if is_heading else "PARAGRAPH",
-            "page": _page(item, page),
+            "page": current_page,
             "text": text,
             "children": [],
         }
