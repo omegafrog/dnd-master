@@ -103,33 +103,270 @@ def _pymupdf_fallback(raw):
     }
 
 def _pymupdf_to_docling(raw):
-    """Extract with PyMuPDF, then run the extracted Markdown through Docling."""
+    """Build a TOC-reconciled Markdown tree, then run that tree through Docling.
+
+    PyMuPDF is only used as the safe PDF reader.  Docling still owns the
+    downstream Markdown parsing/normalisation pipeline; the Markdown is not a
+    flat page dump.  The PDF has no outline/bookmarks, so the printed TOC is
+    parsed and reconciled with page-local headings instead.
+    """
     import pymupdf
 
     document = pymupdf.open(stream=raw, filetype="pdf")
-    markdown = []
+    toc = _extract_printed_toc(document)
+    pages = _extract_body_pages(document)
+    markdown = _canonical_markdown(toc, pages)
+    document.close()
+    converted = text_converter.convert(DocumentStream(
+        name="toc-reconciled-document.md", stream=io.BytesIO(markdown.encode("utf-8"))))
+    data = converted.document.export_to_dict()
+    return {
+        # Docling's Markdown backend does not expose heading levels
+        # consistently across versions.  Project nodes from the canonical
+        # intermediate tree so hierarchy and source pages remain stable.
+        "nodes": _canonical_nodes(toc, pages),
+        "tables": _tables(data),
+        "images": _images(data),
+        "warnings": [{"code": "NATIVE_PDF_TEXT_FAILED", "severity": "WARNING",
+                       "message": "Docling PDF backend failed; PyMuPDF text was reconciled with the printed TOC and reprocessed by Docling Markdown pipeline."}],
+        "rawText": converted.document.export_to_markdown(),
+    }
+
+
+def _canonical_nodes(toc, pages):
+    """Project the reconciled tree to the stable evidence-node contract."""
+    roots = []
+    front = [block for page in pages[:1] for block in page]
+    if front:
+        roots.append({
+            "id": "canonical-front-matter",
+            "type": "HEADING",
+            "page": 1,
+            "text": "Front matter",
+            "children": [{
+                "id": f"canonical-front-{index}",
+                "type": "PARAGRAPH",
+                "page": block["page"],
+                "text": block["text"],
+                "children": [],
+            } for index, block in enumerate(front)],
+        })
+
+    counter = [0]
+
+    def make_node(entry):
+        counter[0] += 1
+        node = {
+            "id": f"canonical-heading-{counter[0]}",
+            "type": "HEADING",
+            "page": entry["page"] or 1,
+            "text": entry["title"],
+            "children": [],
+        }
+        current = node
+        for block in entry["blocks"]:
+            counter[0] += 1
+            if block["heading"]:
+                child = {
+                    "id": f"canonical-heading-{counter[0]}",
+                    "type": "HEADING",
+                    "page": block["page"],
+                    "text": block["text"],
+                    "children": [],
+                }
+                node["children"].append(child)
+                current = child
+            else:
+                current["children"].append({
+                    "id": f"canonical-paragraph-{counter[0]}",
+                    "type": "PARAGRAPH",
+                    "page": block["page"],
+                    "text": block["text"],
+                    "children": [],
+                })
+        for child_entry in entry["children"]:
+            node["children"].append(make_node(child_entry))
+        return node
+
+    roots.extend(make_node(entry) for entry in toc)
+    return roots
+
+
+def _extract_printed_toc(document):
+    """Return a document tree from PDF outline data or a detected printed TOC.
+
+    No document language, title, page number, or fixed TOC page is assumed.
+    """
+    outline = document.get_toc(simple=True)
+    if outline:
+        roots = []
+        stack = []
+        for level, title, page, *_ in outline:
+            entry = _new_toc_entry(title, int(level), int(page) if page else None)
+            _add_toc_entry(roots, stack, entry)
+        return roots
+
+    entries = []
+    stack = []
+    toc_pages = _find_toc_pages(document)
+    major_seen = False
+    for page_index in toc_pages:
+        for raw_line in document[page_index].get_text("text").splitlines():
+            line = _normalise_toc_line(raw_line)
+            parsed = _parse_toc_line(line)
+            if not parsed:
+                continue
+            title, target = parsed
+            if _is_major_toc_heading(title):
+                major_seen = True
+            level = _toc_level(title, stack, major_seen)
+            entry = _new_toc_entry(title, level, target)
+            _add_toc_entry(entries, stack, entry)
+
+    # The section entries carry the useful printed page numbers.  Infer
+    # missing part/chapter starts from their first child for range matching.
+    def infer(entry):
+        for child in entry["children"]:
+            infer(child)
+        child_pages = [child["page"] for child in entry["children"] if child["page"] is not None]
+        if entry["page"] is None and child_pages:
+            entry["page"] = min(child_pages)
+    for entry in entries:
+        infer(entry)
+    return entries
+
+
+def _find_toc_pages(document):
+    """Find pages with navigation-like density without assuming a page index."""
+    scored = []
+    for page_index, page in enumerate(document[: min(24, len(document))]):
+        lines = [_normalise_toc_line(line) for line in page.get_text("text").splitlines()]
+        references = sum(1 for line in lines if _parse_toc_line(line))
+        structural = sum(1 for line in lines if line and _is_major_toc_heading(line))
+        score = references + structural * 2
+        if references >= 3 and score >= 6:
+            scored.append((page_index, score))
+    return [page_index for page_index, _ in scored]
+
+
+def _normalise_toc_line(line):
+    return " ".join(line.split()).strip(" .\t")
+
+
+def _parse_toc_line(line):
+    if not line or len(line) > 180:
+        return None
+    match = re.search(r"(?:\.{2,}|…+|\s{2,}|\t+)\s*(\d{1,4})\s*$", line)
+    if not match:
+        # Some generators omit leader dots for chapter/part entries.
+        if not re.search(r"(?:\b(?:part|book|chapter|appendix)\b|부|장|권|편|부록)", line, re.IGNORECASE):
+            return None
+        match = re.search(r"\s+(\d{1,4})\s*$", line)
+        if not match:
+            return (line.strip(" ."), None) if _is_major_toc_heading(line) else None
+    title = line[:match.start()].strip(" .:")
+    if not title or title.isdigit():
+        return None
+    return title, int(match.group(1))
+
+
+def _is_major_toc_heading(title):
+    return bool(re.match(
+        r"^\s*(?:part\b|book\b|volume\b|chapter\b|appendix\b|"
+        r"(?:제\s*)?\d+\s*(?:부|편|권|장)\b|부록\b)",
+        title, re.IGNORECASE))
+
+
+def _toc_level(title, stack, major_seen):
+    if re.match(r"^\s*(?:part\b|book\b|volume\b|(?:제\s*)?\d+\s*(?:부|편|권)\b)", title, re.IGNORECASE):
+        return 1
+    if re.match(r"^\s*(?:chapter\b|appendix\b|(?:제\s*)?\d+\s*장\b|부록\b)", title, re.IGNORECASE):
+        return 2 if major_seen else 1
+    if stack and stack[-1]["level"] >= 2:
+        return stack[-1]["level"] + 1
+    return 2 if major_seen and stack else 1
+
+
+def _new_toc_entry(title, level, page):
+    return {"title": title.strip(), "level": level, "page": page, "children": [], "blocks": []}
+
+
+def _add_toc_entry(entries, stack, entry):
+    while stack and stack[-1]["level"] >= entry["level"]:
+        stack.pop()
+    if stack:
+        stack[-1]["children"].append(entry)
+    else:
+        entries.append(entry)
+    stack.append(entry)
+
+
+def _extract_body_pages(document):
+    pages = []
     for page_index, page in enumerate(document):
-        markdown.append(f"# Page {page_index + 1}")
+        blocks = []
         for block in page.get_text("blocks"):
             if len(block) < 7 or block[6] != 0:
                 continue
             text = " ".join(line.strip() for line in block[4].splitlines() if line.strip())
-            if not text:
-                continue
-            markdown.append(("## " if _looks_like_heading(text) else "") + text)
-        markdown.append("")
-    document.close()
-    converted = text_converter.convert(DocumentStream(
-        name="pymupdf-extracted.md", stream=io.BytesIO("\n".join(markdown).encode("utf-8"))))
-    data = converted.document.export_to_dict()
-    return {
-        "nodes": _nodes(data),
-        "tables": _tables(data),
-        "images": _images(data),
-        "warnings": [{"code": "NATIVE_PDF_TEXT_FAILED", "severity": "WARNING",
-                       "message": "Docling PDF backend failed; PyMuPDF text was reprocessed by Docling Markdown pipeline."}],
-        "rawText": converted.document.export_to_markdown(),
-    }
+            if text:
+                blocks.append({"page": page_index + 1, "text": text, "heading": _looks_like_heading(text)})
+        pages.append(blocks)
+    return pages
+
+
+def _canonical_markdown(toc, pages):
+    """Assign body blocks to printed TOC ranges and emit one canonical tree."""
+    flattened = []
+
+    def visit(entry):
+        flattened.append(entry)
+        for child in entry["children"]:
+            visit(child)
+    for entry in toc:
+        visit(entry)
+
+    # The PDF's printed page numbers match its physical page numbers here.
+    # Keep the rule explicit so a later edition can provide an offset.
+    for page_blocks in pages:
+        for block in page_blocks:
+            if block["page"] <= 2:
+                continue  # cover and the source TOC are metadata, not content
+            candidates = [(index, entry) for index, entry in enumerate(flattened)
+                          if entry["page"] is not None and entry["page"] <= block["page"]]
+            if candidates:
+                # For equal printed pages the last TOC entry owns the body
+                # until the next entry begins (e.g. several sections start
+                # on page 59).
+                _, target = max(candidates, key=lambda pair: (pair[1]["page"], pair[0]))
+                if block["heading"] and _same_heading(block["text"], target["title"]):
+                    continue
+                target["blocks"].append(block)
+
+    lines = ["# Document", ""]
+    for page_blocks in pages[:1]:
+        if page_blocks:
+            lines.extend(["## Front matter", ""])
+            lines.extend(block["text"] + "\n" for block in page_blocks)
+
+    def emit(entry):
+        lines.extend(["#" * (entry["level"] + 1) + " " + entry["title"], ""])
+        for block in entry["blocks"]:
+            if block["heading"]:
+                lines.extend(["#" * (entry["level"] + 2) + " " + block["text"], ""])
+            else:
+                lines.extend([block["text"], ""])
+        for child in entry["children"]:
+            emit(child)
+
+    for entry in toc:
+        emit(entry)
+    return "\n".join(lines)
+
+
+def _same_heading(left, right):
+    normalize = lambda value: re.sub(r"[^0-9A-Za-z가-힣]", "", value).lower()
+    return normalize(left) == normalize(right) or normalize(left).endswith(normalize(right))
 
 def _bad_text(text):
     if len(text.strip()) < 30:
