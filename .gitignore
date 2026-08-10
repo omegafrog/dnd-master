@@ -45,3 +45,4 @@ docs/plans/plans.md
 /.playwright-cli/
 docs/assets/
 output/
+/.venv-docling/

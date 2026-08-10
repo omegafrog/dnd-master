@@ -5,11 +5,18 @@ import io
 import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
-from docling.document_converter import DocumentConverter
-from docling.datamodel.base_models import DocumentStream
+from docling.document_converter import DocumentConverter, PdfFormatOption
+from docling.datamodel.base_models import DocumentStream, InputFormat
+from docling.datamodel.pipeline_options import PdfPipelineOptions
 
 app = FastAPI()
-converter = DocumentConverter()
+# The rulebook pipeline already has a legacy OCR fallback. Keeping Docling OCR
+# off avoids forcing the OCR model onto text PDFs and preserves their native
+# text/layout extraction (including this fixture's embedded font encoding).
+converter = DocumentConverter(
+    allowed_formats=[InputFormat.PDF, InputFormat.DOCX],
+    format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=PdfPipelineOptions(do_ocr=False))},
+)
 
 class ExtractRequest(BaseModel):
     format: str
