@@ -38,22 +38,26 @@ public final class RuleEvidenceProjectionApplicationService {
 
     public RuleEvidenceProjection projectAndStore(RulebookId documentId, long extractionVersion, DocumentNode root) {
         RuleEvidenceProjection projection = projector.project(documentId, extractionVersion, root);
-        Map<UUID, float[]> embeddings = new HashMap<>();
-        if (embeddingPort != null && embeddingDimension > 0) {
-            for (var unit : projection.units()) {
-                RulebookChunk chunk = new RulebookChunk(documentId, new ChunkId(unit.id()), 0,
-                        new ExtractedContentRange(0, unit.content().length()), unit.content(), null, null);
-                embeddings.put(unit.id(), embeddingPort.embed(List.of(chunk), embeddingModel, embeddingDimension).getFirst().vector());
-            }
-        }
-        repository.replace(documentId, extractionVersion, projection, embeddings);
+        repository.replace(documentId, extractionVersion, projection, embeddingsFor(documentId, projection));
         return projection;
     }
 
     public RuleEvidenceProjection projectCanonicalAndStore(RulebookId documentId, long extractionVersion,
                                                             NormalizedDocument document, CanonicalDocumentTree tree) {
         RuleEvidenceProjection projection = projector.projectCanonical(documentId, extractionVersion, document, tree);
-        repository.replace(documentId, extractionVersion, projection, Map.of());
+        repository.replace(documentId, extractionVersion, projection, embeddingsFor(documentId, projection));
         return projection;
+    }
+
+    private Map<UUID, float[]> embeddingsFor(RulebookId documentId, RuleEvidenceProjection projection) {
+        Map<UUID, float[]> embeddings = new HashMap<>();
+        if (embeddingPort == null || embeddingDimension <= 0) return embeddings;
+        int sequence = 0;
+        for (var unit : projection.units()) {
+            RulebookChunk chunk = new RulebookChunk(documentId, new ChunkId(unit.id()), sequence++,
+                    new ExtractedContentRange(0, unit.content().length()), unit.content(), null, null);
+            embeddings.put(unit.id(), embeddingPort.embed(List.of(chunk), embeddingModel, embeddingDimension).getFirst().vector());
+        }
+        return embeddings;
     }
 }

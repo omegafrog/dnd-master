@@ -17,6 +17,7 @@ import com.dndmaster.ruleknowledge.domain.document.evidence.StructuralEvidenceEx
 import com.dndmaster.ruleknowledge.domain.document.anchor.AnchorSkeletonResolver;
 import com.dndmaster.ruleknowledge.domain.document.hierarchy.CanonicalHierarchyResolver;
 import com.dndmaster.ruleknowledge.domain.document.hierarchy.HierarchyMetrics;
+import com.dndmaster.ruleknowledge.domain.document.hierarchy.CanonicalCutoverPolicy;
 import com.dndmaster.ruleknowledge.domain.index.IndexKey;
 import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
 import com.dndmaster.ruleknowledge.domain.rulebook.ExtractionResult;
@@ -53,6 +54,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
     private final int embeddingDimension;
     private final DocumentExtractionPort structuredExtractor;
     private final RuleEvidenceProjectionApplicationService evidenceProjectionService;
+    private final CanonicalCutoverPolicy canonicalCutoverPolicy;
 
     public RulebookPipelineApplicationService(
             RulebookRegistrationApplicationService registrationService,
@@ -63,7 +65,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             RulebookIndexingApplicationService indexingService,
             int embeddingDimension) {
         this(registrationService, registrationRepository, fileStorage, contentExtractor, sourcePreviewExtractor,
-                indexingService, embeddingDimension, null, null);
+                indexingService, embeddingDimension, null, null, CanonicalCutoverPolicy.shadowOnly());
     }
 
     public RulebookPipelineApplicationService(
@@ -76,6 +78,22 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             int embeddingDimension,
             DocumentExtractionPort structuredExtractor,
             RuleEvidenceProjectionApplicationService evidenceProjectionService) {
+        this(registrationService, registrationRepository, fileStorage, contentExtractor, sourcePreviewExtractor,
+                indexingService, embeddingDimension, structuredExtractor, evidenceProjectionService,
+                CanonicalCutoverPolicy.shadowOnly());
+    }
+
+    public RulebookPipelineApplicationService(
+            RulebookRegistrationApplicationService registrationService,
+            RulebookRegistrationRepository registrationRepository,
+            RulebookFileStorage fileStorage,
+            RulebookContentExtractor contentExtractor,
+            SourcePreviewExtractor sourcePreviewExtractor,
+            RulebookIndexingApplicationService indexingService,
+            int embeddingDimension,
+            DocumentExtractionPort structuredExtractor,
+            RuleEvidenceProjectionApplicationService evidenceProjectionService,
+            CanonicalCutoverPolicy canonicalCutoverPolicy) {
         this.registrationService = Objects.requireNonNull(registrationService, "registrationService must not be null");
         this.registrationRepository = Objects.requireNonNull(registrationRepository, "registrationRepository must not be null");
         this.fileStorage = Objects.requireNonNull(fileStorage, "fileStorage must not be null");
@@ -88,6 +106,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         this.embeddingDimension = embeddingDimension;
         this.structuredExtractor = structuredExtractor;
         this.evidenceProjectionService = evidenceProjectionService;
+        this.canonicalCutoverPolicy = Objects.requireNonNull(canonicalCutoverPolicy, "canonicalCutoverPolicy must not be null");
     }
 
     @Override
@@ -217,6 +236,12 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             HierarchyMetrics metrics = HierarchyMetrics.from(tree);
             LOGGER.info("Canonical hierarchy shadow: document={}, sourceNodes={}, confirmed={}, tentative={}, unresolved={}",
                     registration.rulebookId(), metrics.sourceNodes(), metrics.confirmed(), metrics.tentative(), metrics.unresolved());
+            if (canonicalCutoverPolicy.permits(metrics)) {
+                evidenceProjectionService.projectCanonicalAndStore(registration.rulebookId(), registration.version() + 1,
+                        document, tree);
+                LOGGER.info("Canonical hierarchy cutover: document={}", registration.rulebookId());
+                return;
+            }
         }
         var extracted = structuredExtractor.extract(registration.format(), content);
         if (extracted.nodes().isEmpty()) return;

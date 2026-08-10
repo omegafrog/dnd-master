@@ -164,6 +164,8 @@ public class RuleKnowledgeApiConfiguration {
             RulebookIndexingApplicationService indexingService,
             com.dndmaster.ruleknowledge.application.extraction.DocumentExtractionPort documentExtractionPort,
             com.dndmaster.ruleknowledge.application.evidence.RuleEvidenceProjectionApplicationService evidenceProjectionService,
+            @Value("${rule-knowledge.canonical-cutover.enabled:false}") boolean canonicalCutoverEnabled,
+            @Value("${rule-knowledge.canonical-cutover.minimum-confirmed-ratio:1.0}") double minimumConfirmedRatio,
             @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension) {
         return new RulebookPipelineApplicationService(
                 registrationService,
@@ -172,7 +174,9 @@ public class RuleKnowledgeApiConfiguration {
                 contentExtractor,
                 sourcePreviewExtractor,
                 indexingService,
-                embeddingDimension, documentExtractionPort, evidenceProjectionService);
+                embeddingDimension, documentExtractionPort, evidenceProjectionService,
+                new com.dndmaster.ruleknowledge.domain.document.hierarchy.CanonicalCutoverPolicy(
+                        canonicalCutoverEnabled, minimumConfirmedRatio));
     }
 
     @Bean
