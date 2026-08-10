@@ -22,6 +22,7 @@ converter = DocumentConverter(
     allowed_formats=[InputFormat.PDF, InputFormat.DOCX],
     format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_options)},
 )
+text_converter = DocumentConverter(allowed_formats=[InputFormat.MD])
 _ocr_reader = None
 
 class ExtractRequest(BaseModel):
@@ -52,8 +53,8 @@ def extract(request: ExtractRequest):
         logger.exception("Docling extraction failed")
         if request.format == "PDF":
             try:
-                logger.warning("Using PyMuPDF text fallback")
-                return _pymupdf_fallback(raw)
+                logger.warning("Using PyMuPDF text -> Docling pipeline fallback")
+                return _pymupdf_to_docling(raw)
             except Exception as fallback_exc:
                 logger.exception("Rendered-page OCR fallback failed")
                 raise HTTPException(status_code=422, detail="document extraction failed") from fallback_exc
@@ -99,6 +100,35 @@ def _pymupdf_fallback(raw):
         "warnings": [{"code": "NATIVE_PDF_TEXT_FAILED", "severity": "WARNING",
                        "message": "Docling native text parsing failed; PyMuPDF fallback used."}],
         "rawText": "\n".join(markdown),
+    }
+
+def _pymupdf_to_docling(raw):
+    """Extract with PyMuPDF, then run the extracted Markdown through Docling."""
+    import pymupdf
+
+    document = pymupdf.open(stream=raw, filetype="pdf")
+    markdown = []
+    for page_index, page in enumerate(document):
+        markdown.append(f"# Page {page_index + 1}")
+        for block in page.get_text("blocks"):
+            if len(block) < 7 or block[6] != 0:
+                continue
+            text = " ".join(line.strip() for line in block[4].splitlines() if line.strip())
+            if not text:
+                continue
+            markdown.append(("## " if _looks_like_heading(text) else "") + text)
+        markdown.append("")
+    document.close()
+    converted = text_converter.convert(DocumentStream(
+        name="pymupdf-extracted.md", stream=io.BytesIO("\n".join(markdown).encode("utf-8"))))
+    data = converted.document.export_to_dict()
+    return {
+        "nodes": _nodes(data),
+        "tables": _tables(data),
+        "images": _images(data),
+        "warnings": [{"code": "NATIVE_PDF_TEXT_FAILED", "severity": "WARNING",
+                       "message": "Docling PDF backend failed; PyMuPDF text was reprocessed by Docling Markdown pipeline."}],
+        "rawText": converted.document.export_to_markdown(),
     }
 
 def _bad_text(text):
