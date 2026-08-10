@@ -87,10 +87,11 @@ public final class PostgresEvidenceUnitRepository implements EvidenceUnitReposit
                 try (ResultSet rows = statement.executeQuery()) {
                     while (rows.next()) {
                         UUID from = rows.getObject("from_evidence_id", UUID.class);
-                        EvidenceUnit source = units.get(from);
-                        if (source != null) edges.add(new EvidenceEdge(from,
+                        UUID edgeId = rows.getObject("edge_id", UUID.class);
+                        edges.add(new EvidenceEdge(from,
                                 rows.getObject("to_evidence_id", UUID.class),
-                                EvidenceEdgeType.valueOf(rows.getString("edge_type")), source.sourceSpans()));
+                                EvidenceEdgeType.valueOf(rows.getString("edge_type")),
+                                loadEdgeSpans(connection, edgeId, documentId, extractionVersion)));
                     }
                 }
             }
@@ -172,6 +173,24 @@ public final class PostgresEvidenceUnitRepository implements EvidenceUnitReposit
                 }
             }
         }
+        return List.copyOf(spans);
+    }
+
+    private static List<SourceSpan> loadEdgeSpans(Connection c, UUID edgeId, RulebookId documentId, long version) throws SQLException {
+        List<SourceSpan> spans = new ArrayList<>();
+        String sql = "SELECT s.line_number, s.start_inclusive, s.end_exclusive, s.text, s.locator, s.page_number, s.left_coord, s.top_coord, s.right_coord, s.bottom_coord, s.reading_order FROM rule_evidence_edge_source_span l JOIN extraction_source_span s ON s.document_id = l.document_id AND s.version = l.extraction_version AND s.span_id = l.span_id WHERE l.edge_id = ? AND l.document_id = ? AND l.extraction_version = ? ORDER BY s.reading_order";
+        try (PreparedStatement statement = c.prepareStatement(sql)) {
+            statement.setObject(1, edgeId); statement.setObject(2, documentId.value()); statement.setLong(3, version);
+            try (ResultSet rows = statement.executeQuery()) {
+                while (rows.next()) {
+                    BoundingBox bounds = rows.getObject("left_coord") == null ? null : new BoundingBox(
+                            rows.getDouble("left_coord"), rows.getDouble("top_coord"), rows.getDouble("right_coord"), rows.getDouble("bottom_coord"));
+                    spans.add(new SourceSpan(rows.getInt("line_number"), rows.getInt("start_inclusive"), rows.getInt("end_exclusive"),
+                            rows.getString("text"), rows.getString("locator"), (Integer) rows.getObject("page_number"), bounds, rows.getInt("reading_order")));
+                }
+            }
+        }
+        if (spans.isEmpty()) throw new RuleVectorPersistenceException("evidence edge has no source span: " + edgeId, null);
         return List.copyOf(spans);
     }
 }

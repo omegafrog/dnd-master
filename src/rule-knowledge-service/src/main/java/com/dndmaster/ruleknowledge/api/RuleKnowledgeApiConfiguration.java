@@ -157,6 +157,8 @@ public class RuleKnowledgeApiConfiguration {
             RulebookContentExtractor contentExtractor,
             SourcePreviewExtractor sourcePreviewExtractor,
             RulebookIndexingApplicationService indexingService,
+            com.dndmaster.ruleknowledge.application.extraction.DocumentExtractionPort documentExtractionPort,
+            com.dndmaster.ruleknowledge.application.evidence.RuleEvidenceProjectionApplicationService evidenceProjectionService,
             @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension) {
         return new RulebookPipelineApplicationService(
                 registrationService,
@@ -165,7 +167,7 @@ public class RuleKnowledgeApiConfiguration {
                 contentExtractor,
                 sourcePreviewExtractor,
                 indexingService,
-                embeddingDimension);
+                embeddingDimension, documentExtractionPort, evidenceProjectionService);
     }
 
     @Bean
@@ -205,9 +207,11 @@ public class RuleKnowledgeApiConfiguration {
             com.dndmaster.ruleknowledge.application.indexing.RulebookIndexRepository indexRepository,
             ObjectMapper objectMapper,
             com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository definitionRepository,
+            com.dndmaster.ruleknowledge.application.evidence.EvidenceUnitRepository evidenceUnitRepository,
             @Value("${rule-knowledge.internal-token:}") String internalToken) {
         return new RuleKnowledgeController(
                 pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
-                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken);
+                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken,
+                evidenceUnitRepository);
     }
 }

@@ -10,6 +10,8 @@ import com.dndmaster.ruleknowledge.application.registration.RulebookRegistration
 import com.dndmaster.ruleknowledge.application.registration.SourcePreviewExtractor;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookFile;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
+import com.dndmaster.ruleknowledge.application.evidence.RuleEvidenceProjectionApplicationService;
+import com.dndmaster.ruleknowledge.application.extraction.DocumentExtractionPort;
 import com.dndmaster.ruleknowledge.domain.index.IndexKey;
 import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
 import com.dndmaster.ruleknowledge.domain.rulebook.ExtractionResult;
@@ -18,6 +20,8 @@ import com.dndmaster.ruleknowledge.domain.rulebook.FileSize;
 import com.dndmaster.ruleknowledge.domain.rulebook.ProcessingStatus;
 import com.dndmaster.ruleknowledge.domain.rulebook.Rulebook;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
+import com.dndmaster.ruleknowledge.domain.extraction.DocumentNode;
+import com.dndmaster.ruleknowledge.domain.extraction.DocumentNodeType;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
@@ -39,6 +43,8 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
     private final SourcePreviewExtractor sourcePreviewExtractor;
     private final RulebookIndexingApplicationService indexingService;
     private final int embeddingDimension;
+    private final DocumentExtractionPort structuredExtractor;
+    private final RuleEvidenceProjectionApplicationService evidenceProjectionService;
 
     public RulebookPipelineApplicationService(
             RulebookRegistrationApplicationService registrationService,
@@ -48,6 +54,20 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             SourcePreviewExtractor sourcePreviewExtractor,
             RulebookIndexingApplicationService indexingService,
             int embeddingDimension) {
+        this(registrationService, registrationRepository, fileStorage, contentExtractor, sourcePreviewExtractor,
+                indexingService, embeddingDimension, null, null);
+    }
+
+    public RulebookPipelineApplicationService(
+            RulebookRegistrationApplicationService registrationService,
+            RulebookRegistrationRepository registrationRepository,
+            RulebookFileStorage fileStorage,
+            RulebookContentExtractor contentExtractor,
+            SourcePreviewExtractor sourcePreviewExtractor,
+            RulebookIndexingApplicationService indexingService,
+            int embeddingDimension,
+            DocumentExtractionPort structuredExtractor,
+            RuleEvidenceProjectionApplicationService evidenceProjectionService) {
         this.registrationService = Objects.requireNonNull(registrationService, "registrationService must not be null");
         this.registrationRepository = Objects.requireNonNull(registrationRepository, "registrationRepository must not be null");
         this.fileStorage = Objects.requireNonNull(fileStorage, "fileStorage must not be null");
@@ -58,6 +78,8 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             throw new IllegalArgumentException("embeddingDimension must be positive");
         }
         this.embeddingDimension = embeddingDimension;
+        this.structuredExtractor = structuredExtractor;
+        this.evidenceProjectionService = evidenceProjectionService;
     }
 
     @Override
@@ -156,6 +178,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 }
                 return fail(registration, extractionResult, previewResult, describeExtractionFailure(extractionResult));
             }
+            projectRuleEvidence(registration, safeStoredContent);
             attemptIndexing(indexableRulebook(rulebook, previewResult), registration);
             StoredRulebookRegistration indexed = withStatus(
                     registration,
@@ -172,6 +195,16 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         } catch (RuntimeException exception) {
             return fail(registration, extractionResult, previewResult, describeFailure(exception));
         }
+    }
+
+    private void projectRuleEvidence(StoredRulebookRegistration registration, byte[] content) {
+        if (structuredExtractor == null || evidenceProjectionService == null
+                || (registration.format() != com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat.PDF
+                && registration.format() != com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat.DOCX)) return;
+        var extracted = structuredExtractor.extract(registration.format(), content);
+        if (extracted.nodes().isEmpty()) return;
+        DocumentNode root = new DocumentNode("root", DocumentNodeType.ROOT, 1, null, "", extracted.nodes(), List.of());
+        evidenceProjectionService.projectAndStore(registration.rulebookId(), registration.version() + 1, root);
     }
 
     private void attemptIndexing(Rulebook rulebook, StoredRulebookRegistration registration) {

@@ -23,6 +23,10 @@ import com.dndmaster.ruleknowledge.application.search.CharacterContextDocumentSc
 import com.dndmaster.ruleknowledge.application.search.CharacterContextEvidence;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchQuery;
 import com.dndmaster.ruleknowledge.application.retrieval.HybridRetrievalService;
+import com.dndmaster.ruleknowledge.application.evidence.EvidenceUnitRepository;
+import com.dndmaster.ruleknowledge.domain.evidence.AncestorExpansionPolicy;
+import com.dndmaster.ruleknowledge.domain.evidence.EvidenceUnit;
+import com.dndmaster.ruleknowledge.domain.evidence.RuleEvidenceProjection;
 import com.dndmaster.ruleknowledge.domain.rulebook.*;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -54,6 +58,7 @@ public class RuleKnowledgeController {
     private final ObjectMapper objectMapper;
     private final GameSystemDefinitionRepository definitionRepository;
     private final String internalToken;
+    private final EvidenceUnitRepository evidenceUnitRepository;
 
     public RuleKnowledgeController(
             RulebookPipelineApplicationService pipelineService,
@@ -81,6 +86,7 @@ public class RuleKnowledgeController {
         this.objectMapper = objectMapper;
         this.definitionRepository = null;
         this.internalToken = "";
+        this.evidenceUnitRepository = null;
     }
 
     public RuleKnowledgeController(
@@ -93,6 +99,21 @@ public class RuleKnowledgeController {
             ObjectMapper objectMapper,
             GameSystemDefinitionRepository definitionRepository,
             String internalToken) {
+        this(pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
+                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken, null);
+    }
+
+    public RuleKnowledgeController(
+            RulebookPipelineApplicationService pipelineService,
+            RulebookRegistrationRepository registrationRepository,
+            RuleEvidenceSearchApplicationService evidenceSearchService,
+            StorySourceSearchApplicationService storySourceSearchService,
+            CharacterContextSearchApplicationService characterContextSearchService,
+            RulebookIndexRepository indexRepository,
+            ObjectMapper objectMapper,
+            GameSystemDefinitionRepository definitionRepository,
+            String internalToken,
+            EvidenceUnitRepository evidenceUnitRepository) {
         this.pipelineService = pipelineService;
         this.batchUploadService = new BatchRulebookUploadApplicationService(pipelineService);
         this.registrationRepository = registrationRepository;
@@ -103,6 +124,7 @@ public class RuleKnowledgeController {
         this.objectMapper = objectMapper;
         this.definitionRepository = definitionRepository;
         this.internalToken = internalToken == null ? "" : internalToken;
+        this.evidenceUnitRepository = evidenceUnitRepository;
     }
 
     public RuleKnowledgeController(
@@ -319,6 +341,9 @@ public class RuleKnowledgeController {
                 .filter(registration -> registration.version() == scope.extractionVersion())
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatus.BAD_REQUEST, "document extraction version is not published")));
+        if (evidenceUnitRepository != null) {
+            return searchProjectedEvidence(request, authorizedRulebookIds);
+        }
         List<RulebookId> rulebookIds = authorizedRulebookIds.stream()
                 .map(RulebookId::new)
                 .toList();
@@ -345,6 +370,30 @@ public class RuleKnowledgeController {
                         r.locator(), r.excerpt(), r.score(), r.chapter(), r.section()))
                 .toList();
         return new EvidenceSearchResponse(request.ownerId(), evidence);
+    }
+
+    private EvidenceSearchResponse searchProjectedEvidence(EvidenceSearchRequest request, List<UUID> documentIds) {
+        List<EvidenceUnit> candidates = new java.util.ArrayList<>();
+        Map<UUID, RuleEvidenceProjection> projections = new java.util.HashMap<>();
+        for (RuleEvidenceScopeRequest scope : request.documents()) {
+            RuleEvidenceProjection projection = evidenceUnitRepository.load(new RulebookId(scope.documentId()), scope.extractionVersion());
+            projections.put(scope.documentId(), projection);
+            candidates.addAll(projection.units().stream().filter(unit -> unit.visibility().canExposeToPlayer()).toList());
+        }
+        List<HybridRetrievalService.RankedCandidate> ranked = new HybridRetrievalService().rerank(
+                candidates.stream().map(unit -> new com.dndmaster.ruleknowledge.application.retrieval.HybridSearchCandidate(
+                        unit.id(), lexicalScore(unit.content(), request.situation()), lexicalScore(unit.content(), request.situation()),
+                        unit.kind().name().equals("RULE") ? 1.0 : 0.5)).toList(), request.queryIntent(), request.limit() == null ? 5 : request.limit());
+        Map<UUID, EvidenceUnit> byId = candidates.stream().collect(java.util.stream.Collectors.toMap(EvidenceUnit::id, unit -> unit));
+        List<EvidenceUnit> expanded = new java.util.ArrayList<>();
+        for (var result : ranked) {
+            EvidenceUnit leaf = byId.get(result.evidenceId());
+            expanded.addAll(new AncestorExpansionPolicy(1).expand(leaf.id(),
+                    projections.get(leaf.documentId().value()), 200));
+        }
+        return new EvidenceSearchResponse(request.ownerId(), expanded.stream().distinct().limit(request.limit() == null ? 5 : request.limit())
+                .map(unit -> new EvidenceItem(unit.documentId().value(), unit.id(), unit.extractionVersion(),
+                        unit.sourceSpans().getFirst().locator(), unit.content(), 1.0, null, null)).toList());
     }
 
     private static double lexicalScore(String content, String query) {
