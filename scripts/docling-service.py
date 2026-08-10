@@ -2,28 +2,31 @@
 """Small engine-neutral Docling HTTP sidecar for rule-knowledge-service."""
 import base64
 import io
+import hashlib
 import logging
 import os
 import re
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from docling.document_converter import DocumentConverter, PdfFormatOption
-from docling.datamodel.base_models import DocumentStream, InputFormat
+from docling.datamodel.base_models import ConversionStatus, DocumentStream, InputFormat
 from docling.datamodel.pipeline_options import EasyOcrOptions, OcrMode, PdfPipelineOptions
 
 app = FastAPI()
 logger = logging.getLogger(__name__)
-# Some rulebook PDFs contain broken native text layers. Full-page OCR is
-# deliberately selected here so Docling does not trust those layers when
-# reconstructing the structured document.
-pdf_options = PdfPipelineOptions(do_ocr=True)
-pdf_options.ocr_options = EasyOcrOptions(lang=["en"], mode=OcrMode.FULL_PAGE)
+# Prefer usable native PDF text. OCR only layout regions without reliable
+# programmatic text; document-level partial failures use the page fallback.
+pdf_options = PdfPipelineOptions(do_ocr=False, force_backend_text=True)
 converter = DocumentConverter(
     allowed_formats=[InputFormat.PDF, InputFormat.DOCX],
     format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_options)},
 )
 text_converter = DocumentConverter(allowed_formats=[InputFormat.MD])
 _ocr_reader = None
+
+def _ocr_languages():
+    configured = os.getenv("DOCLING_OCR_LANGS", "en")
+    return [language.strip() for language in configured.split(",") if language.strip()] or ["en"]
 
 class ExtractRequest(BaseModel):
     format: str
@@ -40,15 +43,21 @@ def extract(request: ExtractRequest):
     try:
         raw = base64.b64decode(request.contentBase64, validate=True)
         suffix = {"PDF": ".pdf", "DOCX": ".docx", "PPTX": ".pptx"}.get(request.format, ".bin")
-        result = converter.convert(DocumentStream(name=f"upload{suffix}", stream=io.BytesIO(raw))).document
+        conversion = converter.convert(DocumentStream(name=f"upload{suffix}", stream=io.BytesIO(raw)))
+        if conversion.status != ConversionStatus.SUCCESS:
+            raise RuntimeError(
+                f"Docling returned {conversion.status}: {conversion.errors}")
+        result = conversion.document
         data = result.export_to_dict()
-        return {
+        return _normalised_response({
             "nodes": _nodes(data),
             "tables": _tables(data),
             "images": _images(data),
             "warnings": [],
             "rawText": result.export_to_markdown(),
-        }
+            "sourceIdentity": _source_identity(raw),
+            "source": data,
+        })
     except Exception as exc:
         logger.exception("Docling extraction failed")
         if request.format == "PDF":
@@ -103,34 +112,131 @@ def _pymupdf_fallback(raw):
     }
 
 def _pymupdf_to_docling(raw):
-    """Build a TOC-reconciled Markdown tree, then run that tree through Docling.
+    """Preserve a page-oriented raw tree after native Docling failure.
 
-    PyMuPDF is only used as the safe PDF reader.  Docling still owns the
-    downstream Markdown parsing/normalisation pipeline; the Markdown is not a
-    flat page dump.  The PDF has no outline/bookmarks, so the printed TOC is
-    parsed and reconciled with page-local headings instead.
+    Structure enrichment is intentionally skipped here.  TOC page numbers and
+    physical page numbers are not universally equivalent; guessing can lose
+    more evidence than a flat raw tree.
     """
     import pymupdf
 
     document = pymupdf.open(stream=raw, filetype="pdf")
-    toc = _extract_printed_toc(document)
     pages = _extract_body_pages(document)
-    markdown = _canonical_markdown(toc, pages)
+    markdown = _page_markdown(pages)
+    images = _pymupdf_images(document)
     document.close()
-    converted = text_converter.convert(DocumentStream(
-        name="toc-reconciled-document.md", stream=io.BytesIO(markdown.encode("utf-8"))))
-    data = converted.document.export_to_dict()
-    return {
-        # Docling's Markdown backend does not expose heading levels
-        # consistently across versions.  Project nodes from the canonical
-        # intermediate tree so hierarchy and source pages remain stable.
-        "nodes": _canonical_nodes(toc, pages),
-        "tables": _tables(data),
-        "images": _images(data),
+    return _normalised_response({
+        "nodes": _page_nodes(pages),
+        "tables": [],
+        "images": images,
         "warnings": [{"code": "NATIVE_PDF_TEXT_FAILED", "severity": "WARNING",
-                       "message": "Docling PDF backend failed; PyMuPDF text was reconciled with the printed TOC and reprocessed by Docling Markdown pipeline."}],
-        "rawText": converted.document.export_to_markdown(),
-    }
+                       "message": "Docling native extraction failed; preserved page tree with OCR only for unusable pages."}],
+        "rawText": markdown,
+        "sourceIdentity": _source_identity(raw),
+    })
+
+
+def _source_identity(raw):
+    return "sha256:" + hashlib.sha256(raw).hexdigest()
+
+
+def _normalised_response(response):
+    """Return stable shadow contract while retaining old compatibility fields."""
+    nodes = response.get("nodes", [])
+    elements = []
+    pages = {}
+
+    def visit(node, parent_id=None, order=0):
+        page = int(node.get("page", 1))
+        node_id = str(node["id"])
+        pages.setdefault(page, {"number": page})
+        span = node.get("sourceSpan") or {"sourceId": node_id, "page": page, "order": order}
+        elements.append({
+            "id": node_id,
+            "type": node.get("type", "UNKNOWN"),
+            "text": node.get("text", ""),
+            "page": page,
+            "order": order,
+            "parentId": parent_id,
+            "parserLevel": node.get("level"),
+            "childIds": [str(child["id"]) for child in node.get("children", [])],
+            "sourceSpan": span,
+            "style": node.get("style", ""),
+            "layout": node.get("layout", ""),
+        })
+        next_order = order + 1
+        for child in node.get("children", []):
+            next_order = visit(child, node_id, next_order)
+        return next_order
+
+    order = 0
+    for node in nodes:
+        order = visit(node, None, order)
+    result = {key: value for key, value in response.items() if key != "source"}
+    result.update({
+        "schemaVersion": "normalized-document.v1",
+        "extractor": "docling",
+        "extractorVersion": os.getenv("DOCLING_VERSION", "unknown"),
+        "sourceIdentity": response.get("sourceIdentity", "sha256:unknown"),
+        "pages": sorted(pages.values(), key=lambda page: page["number"]),
+        "elements": elements,
+        "outlines": response.get("outlines", []),
+        "parserRelations": response.get("parserRelations", []),
+    })
+    return result
+
+
+def _page_nodes(pages):
+    roots = []
+    for page_index, blocks in enumerate(pages, start=1):
+        children = []
+        for block_index, block in enumerate(blocks):
+            children.append({
+                "id": f"raw-page-{page_index}-block-{block_index}",
+                "type": "HEADING" if block["heading"] else "PARAGRAPH",
+                "page": page_index,
+                "text": block["text"],
+                "children": [],
+            })
+        roots.append({
+            "id": f"raw-page-{page_index}",
+            "type": "ROOT",
+            "page": page_index,
+            "text": f"Page {page_index}",
+            "children": children,
+        })
+    return roots
+
+
+def _page_markdown(pages):
+    lines = []
+    for page_index, blocks in enumerate(pages, start=1):
+        lines.extend([f"# Page {page_index}", ""])
+        for block in blocks:
+            prefix = "## " if block["heading"] else ""
+            lines.extend([prefix + block["text"], ""])
+    return "\n".join(lines)
+
+
+def _pymupdf_images(document):
+    images = []
+    for page_index, page in enumerate(document, start=1):
+        for image_index, info in enumerate(page.get_image_info(xrefs=True)):
+            xref = info.get("xref")
+            mime_type = "application/octet-stream"
+            if xref:
+                extracted = document.extract_image(xref)
+                if extracted.get("ext"):
+                    mime_type = f"image/{extracted['ext']}"
+            bbox = info.get("bbox", (0.0, 0.0, 0.0, 0.0))
+            images.append({
+                "id": f"pymupdf-image-{page_index}-{image_index}",
+                "page": page_index,
+                "bbox": {"left": bbox[0], "top": bbox[1], "right": bbox[2], "bottom": bbox[3]},
+                "mimeType": mime_type,
+                "caption": "",
+            })
+    return images
 
 
 def _canonical_nodes(toc, pages):
@@ -311,6 +417,20 @@ def _extract_body_pages(document):
             text = " ".join(line.strip() for line in block[4].splitlines() if line.strip())
             if text:
                 blocks.append({"page": page_index + 1, "text": text, "heading": _looks_like_heading(text)})
+        page_text = "\n".join(block["text"] for block in blocks)
+        if _bad_text(page_text):
+            ocr_texts, ocr_lines = _ocr_pages(document, [page_index])
+            blocks = [{
+                "page": page_index + 1,
+                "text": item["text"],
+                "heading": item.get("label") == "section_header",
+            } for item in ocr_texts]
+            if not blocks:
+                blocks = [{
+                    "page": page_index + 1,
+                    "text": text,
+                    "heading": _looks_like_heading(text),
+                } for text in ocr_lines if text.strip()]
         pages.append(blocks)
     return pages
 
@@ -384,7 +504,7 @@ def _ocr_pages(document, page_indexes):
     global _ocr_reader
     if _ocr_reader is None:
         use_gpu = os.getenv("DOCLING_OCR_GPU", "false").lower() == "true"
-        _ocr_reader = easyocr.Reader(["en"], gpu=use_gpu, verbose=False)
+        _ocr_reader = easyocr.Reader(_ocr_languages(), gpu=use_gpu, verbose=False)
 
     texts = []
     markdown = []
@@ -502,7 +622,31 @@ def _tables(value):
     return result
 
 def _images(value):
-    return []
+    result = []
+    pictures = value.get("pictures", []) if isinstance(value, dict) else []
+    for index, picture in enumerate(pictures):
+        if not isinstance(picture, dict):
+            continue
+        provenance = picture.get("prov", [])
+        source = provenance[0] if isinstance(provenance, list) and provenance else {}
+        bbox = source.get("bbox", {}) if isinstance(source, dict) else {}
+        image = picture.get("image")
+        mime_type = image.get("mimetype") if isinstance(image, dict) else None
+        self_ref = str(picture.get("self_ref", ""))
+        identifier = self_ref.rsplit("/", 1)[-1] if self_ref else str(index)
+        result.append({
+            "id": f"picture-{identifier}",
+            "page": source.get("page_no", 1),
+            "bbox": {
+                "left": bbox.get("l", 0.0),
+                "top": bbox.get("t", 0.0),
+                "right": bbox.get("r", 0.0),
+                "bottom": bbox.get("b", 0.0),
+            },
+            "mimeType": mime_type or "application/octet-stream",
+            "caption": "",
+        })
+    return result
 
 if __name__ == "__main__":
     import uvicorn

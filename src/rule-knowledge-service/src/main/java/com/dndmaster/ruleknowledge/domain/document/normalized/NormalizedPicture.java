@@ -1,0 +1,12 @@
+package com.dndmaster.ruleknowledge.domain.document.normalized;
+
+import com.dndmaster.ruleknowledge.domain.rulebook.BoundingBox;
+
+public record NormalizedPicture(String id, int page, BoundingBox boundingBox, String mimeType, String caption) {
+    public NormalizedPicture {
+        if (id == null || id.isBlank()) throw new IllegalArgumentException("id must not be blank");
+        if (page < 1) throw new IllegalArgumentException("page must be positive");
+        mimeType = mimeType == null ? "application/octet-stream" : mimeType;
+        caption = caption == null ? "" : caption;
+    }
+}
