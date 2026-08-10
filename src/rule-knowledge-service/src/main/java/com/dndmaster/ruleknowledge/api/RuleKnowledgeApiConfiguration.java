@@ -24,6 +24,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Primary;
 
 import javax.sql.DataSource;
 import java.nio.file.Path;
@@ -51,6 +52,16 @@ public class RuleKnowledgeApiConfiguration {
 
     @Bean
     RulebookContentExtractor rulebookContentExtractor(
+            com.dndmaster.ruleknowledge.application.ocr.OcrPort ocrPort,
+            com.dndmaster.ruleknowledge.application.extraction.DocumentExtractionPort documentExtractionPort) {
+        return new DoclingRulebookContentExtractor(documentExtractionPort, legacyContentExtractor(ocrPort));
+    }
+
+    RulebookContentExtractor rulebookContentExtractor(com.dndmaster.ruleknowledge.application.ocr.OcrPort ocrPort) {
+        return legacyContentExtractor(ocrPort);
+    }
+
+    private RulebookContentExtractor legacyContentExtractor(
             com.dndmaster.ruleknowledge.application.ocr.OcrPort ocrPort) {
         return new CompositeRulebookContentExtractor(Map.of(
                 RulebookFormat.PDF, new PdfRulebookContentExtractor(ocrPort),
@@ -67,6 +78,15 @@ public class RuleKnowledgeApiConfiguration {
                 RulebookFormat.DOCX, new DocxSourcePreviewExtractor(),
                 RulebookFormat.TXT, new TxtSourcePreviewExtractor(),
                 RulebookFormat.IMAGE, new ImageSourcePreviewExtractor(ocrPort)));
+    }
+
+    @Bean
+    @Primary
+    SourcePreviewExtractor doclingSourcePreviewExtractor(
+            com.dndmaster.ruleknowledge.application.ocr.OcrPort ocrPort,
+            com.dndmaster.ruleknowledge.application.extraction.DocumentExtractionPort documentExtractionPort) {
+        SourcePreviewExtractor fallback = sourcePreviewExtractor(ocrPort);
+        return new DoclingSourcePreviewExtractor(documentExtractionPort, fallback);
     }
 
     @Bean
