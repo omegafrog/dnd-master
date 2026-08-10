@@ -2,6 +2,7 @@ package com.dndmaster.ruleknowledge;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.ruleknowledge.domain.evidence.EvidenceEdgeType;
 import com.dndmaster.ruleknowledge.domain.evidence.EvidenceKind;
@@ -40,9 +41,25 @@ class RuleEvidenceProjectorTest {
         RuleEvidenceProjection projection = RuleEvidenceProjection.fixtureWithAncestorChain(5);
         var leaf = projection.units().getLast();
 
-        var expanded = new AncestorExpansionPolicy(10).expand(leaf.id(), projection, 6);
+        var expanded = new AncestorExpansionPolicy(6).expand(leaf.id(), projection, 6);
 
         assertEquals(3, expanded.size());
         assertEquals(leaf.id(), expanded.getFirst().id());
+    }
+
+    @Test
+    void unknownNodesAreFailClosed() {
+        DocumentNode raw = new DocumentNode("raw", DocumentNodeType.UNKNOWN, 1, null, "unclassified", List.of(), List.of());
+        var projection = new RuleEvidenceProjector().project(RulebookId.generate(), 1L, raw);
+        assertEquals(com.dndmaster.ruleknowledge.domain.evidence.EvidenceVisibility.UNKNOWN,
+                projection.units().getFirst().visibility());
+        assertTrue(!projection.units().getFirst().visibility().canExposeToPlayer());
+    }
+
+    @Test
+    void rejectsBudgetBelowConfiguredMinimum() {
+        var projection = RuleEvidenceProjection.fixtureWithAncestorChain(1);
+        assertThrows(IllegalArgumentException.class,
+                () -> new AncestorExpansionPolicy(10).expand(projection.units().getFirst().id(), projection, 9));
     }
 }

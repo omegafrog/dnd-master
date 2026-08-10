@@ -5,6 +5,7 @@ import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.adventure.SessionId;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 
@@ -14,6 +15,7 @@ public record RuntimeEvidenceSearchRequest(
         SessionId sessionId,
         UUID scenarioPackageId,
         List<UUID> knowledgeDocumentIds,
+        Map<UUID, Long> extractionVersions,
         ActiveSourceContext activeSourceContext,
         String action,
         RuntimeEvidenceType evidenceType,
@@ -24,9 +26,24 @@ public record RuntimeEvidenceSearchRequest(
         sessionId = Objects.requireNonNull(sessionId, "session id must not be null");
         scenarioPackageId = Objects.requireNonNull(scenarioPackageId, "scenario package id must not be null");
         knowledgeDocumentIds = List.copyOf(Objects.requireNonNull(knowledgeDocumentIds, "knowledge document ids must not be null"));
+        extractionVersions = Map.copyOf(Objects.requireNonNull(extractionVersions, "extraction versions must not be null"));
+        for (Map.Entry<UUID, Long> entry : extractionVersions.entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null || entry.getValue() <= 0) {
+                throw new IllegalArgumentException("extraction versions must be positive");
+            }
+        }
         action = required(action, "action");
         evidenceType = Objects.requireNonNull(evidenceType, "evidence type must not be null");
         if (limit <= 0) throw new IllegalArgumentException("limit must be positive");
+    }
+
+    public RuntimeEvidenceSearchRequest(
+            AdventureId adventureId, OwnerPlayerId ownerPlayerId, SessionId sessionId, UUID scenarioPackageId,
+            List<UUID> knowledgeDocumentIds, ActiveSourceContext activeSourceContext, String action,
+            RuntimeEvidenceType evidenceType, int limit) {
+        this(adventureId, ownerPlayerId, sessionId, scenarioPackageId, knowledgeDocumentIds,
+                activeSourceContext == null ? Map.of() : Map.of(activeSourceContext.knowledgeDocumentId().value(), activeSourceContext.extractionVersion()),
+                activeSourceContext, action, evidenceType, limit);
     }
 
     private static String required(String value, String name) {

@@ -4,6 +4,9 @@ import com.dndmaster.ruleknowledge.application.indexing.*;
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.*;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicationService;
+import com.dndmaster.ruleknowledge.application.evidence.EvidenceUnitRepository;
+import com.dndmaster.ruleknowledge.application.evidence.RuleEvidenceProjectionApplicationService;
+import com.dndmaster.ruleknowledge.domain.evidence.RuleEvidenceProjector;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchPort;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchPort;
@@ -15,6 +18,7 @@ import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookRe
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresGameSystemDefinitionRepository;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchPort;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorRuleEvidenceSearchRepository;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresEvidenceUnitRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorStorySourceSearchRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorCharacterContextSearchRepository;
 import com.dndmaster.ruleknowledge.infrastructure.storage.LocalFileSystemRulebookStorage;
@@ -97,6 +101,16 @@ public class RuleKnowledgeApiConfiguration {
     @Bean
     RulebookIndexRepository indexRepository(DataSource dataSource) {
         return new PostgresRulebookIndexRepository(dataSource);
+    }
+
+    @Bean
+    EvidenceUnitRepository evidenceUnitRepository(DataSource dataSource) {
+        return new PostgresEvidenceUnitRepository(dataSource);
+    }
+
+    @Bean
+    RuleEvidenceProjectionApplicationService ruleEvidenceProjectionApplicationService(EvidenceUnitRepository repository) {
+        return new RuleEvidenceProjectionApplicationService(new RuleEvidenceProjector(), repository);
     }
 
     @Bean

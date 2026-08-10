@@ -33,7 +33,7 @@ class RuleKnowledgeRetrievalAuthorizationTest {
         UUID id = UUID.randomUUID();
         MockMvc mockMvc = controllerWith(registration(id, FOREIGN, ProcessingStatus.INDEXED, DocumentType.RULEBOOK));
 
-        mockMvc.perform(post("/internal/v1/rule-evidence/search")
+        mockMvc.perform(post("/internal/v1/retrieval/rule-evidence")
                         .header("Authorization", "Bearer " + OWNER)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request(id)))
@@ -45,7 +45,7 @@ class RuleKnowledgeRetrievalAuthorizationTest {
         UUID id = UUID.randomUUID();
         MockMvc mockMvc = controllerWith(registration(id, OWNER, ProcessingStatus.PROCESSING, DocumentType.RULEBOOK));
 
-        mockMvc.perform(post("/internal/v1/rule-evidence/search")
+        mockMvc.perform(post("/internal/v1/retrieval/rule-evidence")
                         .header("Authorization", "Bearer " + OWNER)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request(id)))
@@ -56,7 +56,7 @@ class RuleKnowledgeRetrievalAuthorizationTest {
     void rejects_injected_rulebook_ids_not_registered_for_owner() throws Exception {
         MockMvc mockMvc = controllerWith(null);
 
-        mockMvc.perform(post("/internal/v1/rule-evidence/search")
+        mockMvc.perform(post("/internal/v1/retrieval/rule-evidence")
                         .header("Authorization", "Bearer " + OWNER)
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request(UUID.randomUUID())))
@@ -67,7 +67,7 @@ class RuleKnowledgeRetrievalAuthorizationTest {
     void rejects_malformed_bearer_credentials() throws Exception {
         MockMvc mockMvc = controllerWith(null);
 
-        mockMvc.perform(post("/internal/v1/rule-evidence/search")
+        mockMvc.perform(post("/internal/v1/retrieval/rule-evidence")
                         .header("Authorization", "Bearer not-a-uuid")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(request(UUID.randomUUID())))
@@ -107,7 +107,7 @@ class RuleKnowledgeRetrievalAuthorizationTest {
 
     private static String request(UUID id) {
         return """
-                {"ownerId":"%s","rulebookIds":["%s"],"situation":"find rule","queryIntent":"RULE","limit":1}
+                {"ownerId":"%s","documents":[{"documentId":"%s","extractionVersion":1}],"situation":"find rule","queryIntent":"RULE","limit":1}
                 """.formatted(OWNER, id);
     }
 

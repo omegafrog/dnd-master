@@ -27,7 +27,7 @@ class OpenApiSchemaTest {
                 "/internal/v1/adventures/{adventureId}/gm-context");
         assertPaths("rule-knowledge", "/api/v1/rulebooks", "/api/v1/rulebooks/{rulebookId}/source-preview", "/api/v1/rulebooks/rule-set", "/internal/v1/rulebooks",
                 "/internal/v1/rulebook-indexes", "/internal/v1/rulebooks/{rulebookId}/ownership",
-                "/internal/v1/rule-evidence/search");
+                "/internal/v1/retrieval/rule-evidence");
         assertPaths("character-management", "/internal/v1/character-sheets/{sheetId}");
         assertPaths("dice-roll", "/internal/v1/dice-rolls/player", "/internal/v1/dice-rolls/ai");
         assertPaths("combat-map", "/internal/v1/combat-maps/{mapId}/player-view",

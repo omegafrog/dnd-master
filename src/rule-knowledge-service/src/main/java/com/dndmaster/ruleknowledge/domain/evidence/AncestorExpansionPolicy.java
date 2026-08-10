@@ -5,16 +5,21 @@ import java.util.List;
 import java.util.UUID;
 
 public final class AncestorExpansionPolicy {
+    private final int minimumBudget;
+
     public AncestorExpansionPolicy(int minimumBudget) {
         if (minimumBudget <= 0) throw new IllegalArgumentException("minimumBudget must be positive");
+        this.minimumBudget = minimumBudget;
     }
 
     public List<EvidenceUnit> expand(UUID leafId, RuleEvidenceProjection projection, int budget) {
-        if (budget <= 0) throw new IllegalArgumentException("budget must be positive");
+        if (budget < minimumBudget) throw new IllegalArgumentException("budget below policy minimum");
         List<EvidenceUnit> result = new ArrayList<>();
+        java.util.Set<UUID> visited = new java.util.HashSet<>();
         UUID current = leafId;
         int used = 0;
         while (current != null) {
+            if (!visited.add(current)) break;
             EvidenceUnit unit = projection.unit(current);
             if (used + unit.tokenCount() > budget) break;
             result.add(unit);

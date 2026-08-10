@@ -17,7 +17,7 @@ class ConsumerProviderContractTest {
     @Test
     void consumer_paths_exist_in_canonical_provider_contracts() throws IOException {
         assertProviderPath("identity-access", "/internal/v1/auth/introspections");
-        assertProviderPath("rule-knowledge", "/internal/v1/rule-evidence/search");
+        assertProviderPath("rule-knowledge", "/internal/v1/retrieval/rule-evidence");
         assertProviderPath("character-management", "/internal/v1/character-sheets/{sheetId}");
         assertProviderPath("dice-roll", "/internal/v1/dice-rolls/player");
         assertProviderPath("combat-map", "/internal/v1/combat-maps/{mapId}/moves");

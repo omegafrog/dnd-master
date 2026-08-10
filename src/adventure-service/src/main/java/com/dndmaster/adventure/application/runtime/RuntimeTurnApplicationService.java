@@ -17,6 +17,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.transaction.annotation.Transactional;
@@ -257,12 +258,15 @@ public class RuntimeTurnApplicationService {
 
     private EvidencePack prefetchEvidence(
             SubmitRuntimeTurnCommand command, Adventure adventure, RuntimeBinding binding, ScenarioPackage scenarioPackage) {
+        Map<UUID, Long> extractionVersions = extractionVersions(adventure, scenarioPackage);
         List<UUID> knowledgeDocumentIds = knowledgeDocumentIds(adventure, scenarioPackage);
         List<RuntimeEvidence> storybook = scopedSearch(new RuntimeEvidenceSearchRequest(
                 adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), knowledgeDocumentIds,
+                extractionVersions,
                 binding.activeSourceContext(), command.action(), RuntimeEvidenceType.STORYBOOK, 5));
         List<RuntimeEvidence> rulebook = scopedSearch(new RuntimeEvidenceSearchRequest(
                 adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), knowledgeDocumentIds,
+                extractionVersions,
                 binding.activeSourceContext(), command.action(), RuntimeEvidenceType.RULEBOOK, 5));
         List<RuntimeEvidence> resolution = scenarioPackage.runtimeCandidates().stream()
                 .flatMap(unit -> resolutionEvidence(unit).stream())
@@ -310,6 +314,20 @@ public class RuntimeTurnApplicationService {
                 .map(document -> document.knowledgeDocumentId().value())
                 .distinct()
                 .toList();
+    }
+
+    private Map<UUID, Long> extractionVersions(Adventure adventure, ScenarioPackage scenarioPackage) {
+        SessionKnowledgeSet set = sessionKnowledgeSetRepository.findBySessionId(adventure.sessionId())
+                .orElseGet(() -> new SessionKnowledgeSet(adventure.sessionId(), List.of()));
+        Map<UUID, Long> available = scenarioPackage.documents().stream().collect(java.util.stream.Collectors.toMap(
+                document -> document.knowledgeDocumentId().value(),
+                com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection::extractionVersion,
+                (first, ignored) -> first));
+        if (set.knowledgeDocumentIds().isEmpty()) return Map.copyOf(available);
+        return set.knowledgeDocumentIds().stream()
+                .filter(id -> available.containsKey(id.value()))
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(
+                        id -> id.value(), id -> available.get(id.value())));
     }
 
     private static List<RuntimeEvidence> resolutionEvidence(ScenarioResolutionUnit unit) {

@@ -133,7 +133,7 @@ paths:
           content:
             application/json:
               schema: { $ref: './schemas/ownership-response.json' }
-  /internal/v1/rule-evidence/search:
+  /internal/v1/retrieval/rule-evidence:
     post:
       operationId: searchEvidence
       requestBody:

@@ -22,6 +22,7 @@ import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchAppl
 import com.dndmaster.ruleknowledge.application.search.CharacterContextDocumentScope;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextEvidence;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchQuery;
+import com.dndmaster.ruleknowledge.application.retrieval.HybridRetrievalService;
 import com.dndmaster.ruleknowledge.domain.rulebook.*;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -36,6 +37,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -302,13 +304,21 @@ public class RuleKnowledgeController {
         return new OwnershipResponse(rulebookId, playerId, owned);
     }
 
-    @PostMapping("/internal/v1/rule-evidence/search")
+    @PostMapping("/internal/v1/retrieval/rule-evidence")
     EvidenceSearchResponse searchEvidence(
             @RequestHeader("Authorization") String authorization,
             @RequestBody EvidenceSearchRequest request) {
         UUID authenticatedOwner = extractPlayerId(authorization);
         requireOwner(authenticatedOwner, request.ownerId());
-        List<UUID> authorizedRulebookIds = authorizeDocuments(request.ownerId(), request.rulebookIds(), DocumentType.RULEBOOK);
+        if (request.documents() == null || request.documents().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "documents must not be empty");
+        }
+        List<UUID> requestedIds = request.documents().stream().map(RuleEvidenceScopeRequest::documentId).toList();
+        List<UUID> authorizedRulebookIds = authorizeDocuments(request.ownerId(), requestedIds, DocumentType.RULEBOOK);
+        request.documents().forEach(scope -> registrationRepository.findById(new RulebookId(scope.documentId()))
+                .filter(registration -> registration.version() == scope.extractionVersion())
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST, "document extraction version is not published")));
         List<RulebookId> rulebookIds = authorizedRulebookIds.stream()
                 .map(RulebookId::new)
                 .toList();
@@ -319,17 +329,29 @@ public class RuleKnowledgeController {
                 request.queryIntent(),
                 request.limit() != null ? request.limit() : 5);
         List<RuleEvidenceResult> results = evidenceSearchService.search(query);
-        List<EvidenceItem> evidence = results.stream()
+        List<HybridRetrievalService.RankedCandidate> ranked = new HybridRetrievalService().rerank(
+                results.stream().map(result -> new com.dndmaster.ruleknowledge.application.retrieval.HybridSearchCandidate(
+                        result.chunkId().value(), result.score(), lexicalScore(result.excerpt(), request.situation()), 1.0))
+                        .toList(), request.queryIntent(), request.limit() != null ? request.limit() : 5);
+        Map<UUID, RuleEvidenceResult> byId = results.stream().collect(java.util.stream.Collectors.toMap(
+                result -> result.chunkId().value(), result -> result));
+        List<EvidenceItem> evidence = ranked.stream()
+                .map(rankedResult -> byId.get(rankedResult.evidenceId()))
+                .filter(Objects::nonNull)
                 .map(r -> new EvidenceItem(
-                        r.rulebookId().value(),
-                        r.chunkId().value(),
-                        r.locator(),
-                        r.excerpt(),
-                        r.score(),
-                        r.chapter(),
-                        r.section()))
+                        r.rulebookId().value(), r.chunkId().value(), request.documents().stream()
+                                .filter(scope -> scope.documentId().equals(r.rulebookId().value())).findFirst()
+                                .map(RuleEvidenceScopeRequest::extractionVersion).orElseThrow(),
+                        r.locator(), r.excerpt(), r.score(), r.chapter(), r.section()))
                 .toList();
         return new EvidenceSearchResponse(request.ownerId(), evidence);
+    }
+
+    private static double lexicalScore(String content, String query) {
+        String[] terms = query.toLowerCase(java.util.Locale.ROOT).split("\\s+");
+        String normalized = content.toLowerCase(java.util.Locale.ROOT);
+        return java.util.Arrays.stream(terms).filter(term -> normalized.contains(term)).count()
+                / (double) Math.max(1, terms.length);
     }
 
     @PostMapping("/internal/v1/story-sources/search")
@@ -530,8 +552,9 @@ public class RuleKnowledgeController {
     public record GameSystemDefinitionResponse(UUID rulebookId, long version, String definitionJson) {}
     public record GameSystemDefinitionRequest(long version, String definitionJson) {}
     public record RuleSetSaveRequest(List<UUID> knowledgeDocumentIds) {}
-    public record EvidenceSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, QueryIntent queryIntent, Integer limit) {}
-    public record EvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score, String chapter, String section) {}
+    public record EvidenceSearchRequest(UUID ownerId, List<RuleEvidenceScopeRequest> documents, String situation, QueryIntent queryIntent, Integer limit) {}
+    public record RuleEvidenceScopeRequest(UUID documentId, long extractionVersion) {}
+    public record EvidenceItem(UUID rulebookId, UUID chunkId, long extractionVersion, String locator, String excerpt, double score, String chapter, String section) {}
     public record EvidenceSearchResponse(UUID ownerId, List<EvidenceItem> evidence) {}
     public record StorySourceSearchRequest(
             UUID ownerId,

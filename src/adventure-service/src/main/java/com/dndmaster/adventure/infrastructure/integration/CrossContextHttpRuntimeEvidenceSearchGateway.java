@@ -33,17 +33,18 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
     public List<RuntimeEvidence> search(RuntimeEvidenceSearchRequest request) {
         try {
             if (request.evidenceType() == RuntimeEvidenceType.RULEBOOK) {
-                RuleSearchResponse response = post("internal/v1/rule-evidence/search",
-                    new RuleSearchRequest(request.ownerPlayerId().value(), request.knowledgeDocumentIds(),
+                RuleSearchResponse response = post("internal/v1/retrieval/rule-evidence",
+                    new RuleSearchRequest(request.ownerPlayerId().value(), request.knowledgeDocumentIds().stream()
+                            .map(id -> new RuleDocument(id, exactVersion(request, id))).toList(),
                                 request.action(), "RULE", request.limit()), request.ownerPlayerId().value(), RuleSearchResponse.class);
                 return response.evidence().stream()
                         .map(item -> new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
-                                new KnowledgeDocumentId(item.rulebookId()), 1L, item.locator(), item.excerpt()))
+                                new KnowledgeDocumentId(item.rulebookId()), item.extractionVersion(), item.locator(), item.excerpt()))
                         .toList();
             }
             StorySearchResponse response = post("internal/v1/story-sources/search",
                     new StorySearchRequest(request.ownerPlayerId().value(), request.knowledgeDocumentIds().stream()
-                            .map(id -> new StoryDocument(id, extractionVersion(request, id))).toList(),
+                            .map(id -> new StoryDocument(id, exactVersion(request, id))).toList(),
                             activeLocators(request), request.action(), request.limit()),
                     request.ownerPlayerId().value(), StorySearchResponse.class);
             return response.evidence().stream()
@@ -55,14 +56,16 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
         }
     }
 
-    private static long extractionVersion(RuntimeEvidenceSearchRequest request, UUID documentId) {
-        return request.activeSourceContext() != null
-                && request.activeSourceContext().knowledgeDocumentId().value().equals(documentId)
-                ? request.activeSourceContext().extractionVersion() : 1L;
-    }
-
     private static List<String> activeLocators(RuntimeEvidenceSearchRequest request) {
         return request.activeSourceContext() == null ? List.of() : List.of(request.activeSourceContext().locator());
+    }
+
+    private static long exactVersion(RuntimeEvidenceSearchRequest request, UUID documentId) {
+        Long version = request.extractionVersions().get(documentId);
+        if (version == null || version <= 0) {
+            throw new IllegalArgumentException("exact extraction version missing for document " + documentId);
+        }
+        return version;
     }
 
     private <T> T post(String path, Object payload, UUID ownerId, Class<T> responseType) throws Exception {
@@ -78,11 +81,12 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
         return objectMapper.readValue(response.body(), responseType);
     }
 
-    record RuleSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, String queryIntent, int limit) {}
+    record RuleSearchRequest(UUID ownerId, List<RuleDocument> documents, String situation, String queryIntent, int limit) {}
+    record RuleDocument(UUID documentId, long extractionVersion) {}
     record StorySearchRequest(UUID ownerId, List<StoryDocument> documents, List<String> activeLocators, String situation, int limit) {}
     record StoryDocument(UUID documentId, long extractionVersion) {}
     record RuleSearchResponse(UUID ownerId, List<RuleEvidenceItem> evidence) {}
-    record RuleEvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score, String chapter, String section) {}
+    record RuleEvidenceItem(UUID rulebookId, UUID chunkId, long extractionVersion, String locator, String excerpt, double score, String chapter, String section) {}
     record StorySearchResponse(UUID ownerId, List<StoryEvidenceItem> evidence) {}
     record StoryEvidenceItem(UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt, double score) {}
 }

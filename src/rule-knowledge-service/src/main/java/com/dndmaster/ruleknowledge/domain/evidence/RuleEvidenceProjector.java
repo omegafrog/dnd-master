@@ -24,8 +24,9 @@ public final class RuleEvidenceProjector {
             SourceSpan span = new SourceSpan(1, 0, node.text().length(), node.text(),
                     "page:" + node.page() + ":" + node.id(), node.page(), node.boundingBox(), units.size());
             EvidenceKind kind = node.type() == DocumentNodeType.UNKNOWN ? EvidenceKind.RAW : EvidenceKind.RULE;
-            units.add(new EvidenceUnit(id, documentId, version, kind, node.text(),
-                    EvidenceVisibility.PLAYER_VISIBLE, List.of(span)));
+            EvidenceVisibility visibility = node.type() == DocumentNodeType.UNKNOWN
+                    ? EvidenceVisibility.UNKNOWN : EvidenceVisibility.PLAYER_VISIBLE;
+            units.add(new EvidenceUnit(id, documentId, version, kind, node.text(), visibility, List.of(span)));
             if (parent != null) edges.add(new EvidenceEdge(id, parent, EvidenceEdgeType.PARENT, List.of(span)));
             current = id;
         }
