@@ -29,6 +29,16 @@ class ExtractionLifecycleTest {
     }
 
     @Test
+    void publicationRejectsVersionBuiltFromDifferentSourceHash() {
+        KnowledgeDocument document = document();
+        document.startExtraction(1);
+        ExtractionVersion version = new ExtractionVersion(document.metadata().id(), 1, "different-hash");
+        version.addSourceSpan(new SourceSpan(1, 0, 5, "hello", "page:1"));
+
+        assertThrows(IllegalArgumentException.class, () -> document.publish(version));
+    }
+
+    @Test
     void processingJobLeaseFailureAndRetryArePerDocument() {
         KnowledgeDocument first = document();
         KnowledgeDocument second = document();

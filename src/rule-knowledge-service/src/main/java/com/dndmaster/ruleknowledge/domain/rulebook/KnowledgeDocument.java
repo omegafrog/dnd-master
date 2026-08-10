@@ -39,6 +39,9 @@ public final class KnowledgeDocument {
                     && version.status() != ExtractionVersion.Status.VALIDATING)) {
             throw new IllegalStateException("version is not current draft");
         }
+        if (!contentHash.equals(version.contentHash())) {
+            throw new IllegalArgumentException("version content hash does not match document source");
+        }
         if (version.status() == ExtractionVersion.Status.DRAFT) version.beginValidation();
         version.publish(Instant.now());
         currentPublishedVersion = version;
