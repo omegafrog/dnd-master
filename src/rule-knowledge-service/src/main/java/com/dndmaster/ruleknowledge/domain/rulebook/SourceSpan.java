@@ -2,7 +2,19 @@ package com.dndmaster.ruleknowledge.domain.rulebook;
 
 import java.util.Objects;
 
-public record SourceSpan(int lineNumber, int startInclusive, int endExclusive, String text, String locator) {
+public record SourceSpan(
+        int lineNumber,
+        int startInclusive,
+        int endExclusive,
+        String text,
+        String locator,
+        Integer pageNumber,
+        BoundingBox bounds,
+        int readingOrder) {
+    public SourceSpan(int lineNumber, int startInclusive, int endExclusive, String text, String locator) {
+        this(lineNumber, startInclusive, endExclusive, text, locator, null, null, lineNumber - 1);
+    }
+
     public SourceSpan {
         if (lineNumber <= 0) {
             throw new IllegalArgumentException("lineNumber must be positive");
@@ -18,6 +30,12 @@ public record SourceSpan(int lineNumber, int startInclusive, int endExclusive, S
             locator = "line " + lineNumber + " chars " + startInclusive + "-" + endExclusive;
         } else {
             locator = locator.trim();
+        }
+        if (pageNumber != null && pageNumber <= 0) {
+            throw new IllegalArgumentException("pageNumber must be positive when present");
+        }
+        if (readingOrder < 0) {
+            throw new IllegalArgumentException("readingOrder must not be negative");
         }
     }
 }
