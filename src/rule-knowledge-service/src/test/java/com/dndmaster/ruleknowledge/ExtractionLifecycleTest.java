@@ -38,10 +38,16 @@ class ExtractionLifecycleTest {
         assertThrows(IllegalArgumentException.class, () -> job.fail("wrong-token", "OCR_TIMEOUT", Instant.now()));
         job.fail(leaseToken, "OCR_TIMEOUT", Instant.now());
         assertEquals(DocumentProcessingJob.Status.FAILED, job.status());
+        assertNull(job.leaseToken());
         DocumentProcessingJob retry = job.retry(Instant.now());
         assertNotEquals(job.attempt(), retry.attempt());
         assertEquals(DocumentProcessingJob.Status.QUEUED, retry.status());
         assertEquals(KnowledgeDocument.Status.REGISTERED, second.status());
+
+        DocumentProcessingJob completed = second.startJob();
+        completed.claim("worker-b", Duration.ofMinutes(5), Instant.now());
+        completed.complete(completed.leaseToken(), Instant.now());
+        assertNull(completed.leaseToken());
     }
 
     private static KnowledgeDocument document() {

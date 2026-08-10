@@ -83,8 +83,10 @@ CREATE TRIGGER extraction_version_append_only
 
 CREATE OR REPLACE FUNCTION reject_published_span_mutation() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
-    IF EXISTS (SELECT 1 FROM extraction_version v WHERE v.document_id = OLD.document_id
-        AND v.version = OLD.version AND v.status = 'PUBLISHED') THEN
+    IF (TG_OP = 'INSERT' AND EXISTS (SELECT 1 FROM extraction_version v WHERE v.document_id = NEW.document_id
+        AND v.version = NEW.version AND v.status = 'PUBLISHED'))
+        OR (TG_OP <> 'INSERT' AND EXISTS (SELECT 1 FROM extraction_version v WHERE v.document_id = OLD.document_id
+        AND v.version = OLD.version AND v.status = 'PUBLISHED')) THEN
         RAISE EXCEPTION 'source spans of published extraction versions are immutable';
     END IF;
     RETURN COALESCE(NEW, OLD);
@@ -92,7 +94,7 @@ END $$;
 
 DROP TRIGGER IF EXISTS extraction_span_append_only ON extraction_source_span;
 CREATE TRIGGER extraction_span_append_only
-    BEFORE UPDATE OR DELETE ON extraction_source_span
+    BEFORE INSERT OR UPDATE OR DELETE ON extraction_source_span
     FOR EACH ROW EXECUTE FUNCTION reject_published_span_mutation();
 
 CREATE INDEX IF NOT EXISTS extraction_version_published_idx

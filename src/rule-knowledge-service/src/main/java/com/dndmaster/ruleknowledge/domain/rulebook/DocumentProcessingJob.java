@@ -43,8 +43,8 @@ public final class DocumentProcessingJob {
         if (code == null || code.isBlank()) throw new IllegalArgumentException("failure code must not be blank");
         status = Status.FAILED;
         failureCode = code.trim();
-        leaseToken = null;
-        leaseExpiresAt = null;
+        this.leaseToken = null;
+        this.leaseExpiresAt = null;
     }
 
     public void fail(String code, Instant now) {
@@ -60,8 +60,8 @@ public final class DocumentProcessingJob {
     public void complete(String leaseToken, Instant now) {
         requireProcessing(leaseToken, now);
         status = Status.COMPLETED;
-        leaseToken = null;
-        leaseExpiresAt = null;
+        this.leaseToken = null;
+        this.leaseExpiresAt = null;
     }
 
     public void complete(Instant now) {
