@@ -2,20 +2,24 @@
 """Small engine-neutral Docling HTTP sidecar for rule-knowledge-service."""
 import base64
 import io
+import logging
 import os
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import DocumentStream, InputFormat
-from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.datamodel.pipeline_options import EasyOcrOptions, OcrMode, PdfPipelineOptions
 
 app = FastAPI()
-# The rulebook pipeline already has a legacy OCR fallback. Keeping Docling OCR
-# off avoids forcing the OCR model onto text PDFs and preserves their native
-# text/layout extraction (including this fixture's embedded font encoding).
+logger = logging.getLogger(__name__)
+# Some rulebook PDFs contain broken native text layers. Full-page OCR is
+# deliberately selected here so Docling does not trust those layers when
+# reconstructing the structured document.
+pdf_options = PdfPipelineOptions(do_ocr=True)
+pdf_options.ocr_options = EasyOcrOptions(lang=["en"], mode=OcrMode.FULL_PAGE)
 converter = DocumentConverter(
     allowed_formats=[InputFormat.PDF, InputFormat.DOCX],
-    format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=PdfPipelineOptions(do_ocr=False))},
+    format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_options)},
 )
 
 class ExtractRequest(BaseModel):
@@ -43,6 +47,7 @@ def extract(request: ExtractRequest):
             "rawText": result.export_to_markdown(),
         }
     except Exception as exc:
+        logger.exception("Docling extraction failed")
         raise HTTPException(status_code=422, detail="document extraction failed") from exc
 
 def _nodes(value, page=1, prefix="node"):
