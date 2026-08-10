@@ -4,6 +4,7 @@ import base64
 import io
 import logging
 import os
+import re
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from docling.document_converter import DocumentConverter, PdfFormatOption
@@ -21,6 +22,7 @@ converter = DocumentConverter(
     allowed_formats=[InputFormat.PDF, InputFormat.DOCX],
     format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=pdf_options)},
 )
+_ocr_reader = None
 
 class ExtractRequest(BaseModel):
     format: str
@@ -48,7 +50,82 @@ def extract(request: ExtractRequest):
         }
     except Exception as exc:
         logger.exception("Docling extraction failed")
+        if request.format == "PDF":
+            try:
+                logger.warning("Using rendered-page OCR fallback")
+                return _ocr_fallback(raw)
+            except Exception as fallback_exc:
+                logger.exception("Rendered-page OCR fallback failed")
+                raise HTTPException(status_code=422, detail="document extraction failed") from fallback_exc
         raise HTTPException(status_code=422, detail="document extraction failed") from exc
+
+def _ocr_fallback(raw):
+    """Bypass malformed native PDF text streams and rebuild page nodes from OCR."""
+    import easyocr
+    import numpy as np
+    import pypdfium2 as pdfium
+
+    global _ocr_reader
+    if _ocr_reader is None:
+        use_gpu = os.getenv("DOCLING_OCR_GPU", "false").lower() == "true"
+        _ocr_reader = easyocr.Reader(["en"], gpu=use_gpu, verbose=False)
+
+    pdf = pdfium.PdfDocument(io.BytesIO(raw))
+    texts = []
+    markdown = []
+    for page_index in range(len(pdf)):
+        page = pdf[page_index]
+        bitmap = page.render(scale=1.5)
+        image = bitmap.to_pil()
+        detections = _ocr_reader.readtext(np.asarray(image), detail=1, paragraph=False)
+        lines = _ocr_lines(detections)
+        for line_index, text in enumerate(lines):
+            texts.append({
+                "id": f"ocr-{page_index + 1}-{line_index}",
+                "label": "section_header" if _looks_like_heading(text) else "text",
+                "page": page_index + 1,
+                "text": text,
+                "children": [],
+                "prov": [{"page_no": page_index + 1}],
+            })
+        markdown.extend(lines)
+        page.close()
+    return {
+        "nodes": _nodes({"texts": texts}),
+        "tables": [],
+        "images": [],
+        "warnings": [{"code": "NATIVE_PDF_TEXT_FAILED", "severity": "WARNING",
+                       "message": "Docling native text parsing failed; rendered-page OCR fallback used."}],
+        "rawText": "\n".join(markdown),
+    }
+
+def _ocr_lines(detections):
+    ordered = []
+    for bbox, text, confidence in detections:
+        value = str(text).strip()
+        if not value or confidence < 0.25:
+            continue
+        top = min(point[1] for point in bbox)
+        left = min(point[0] for point in bbox)
+        height = max(point[1] for point in bbox) - top
+        ordered.append((top, left, height, value))
+    ordered.sort(key=lambda item: (item[0], item[1]))
+    lines = []
+    for top, left, height, value in ordered:
+        if lines and abs(top - lines[-1][0]) <= max(8, height * 0.6):
+            lines[-1][1].append((left, value))
+        else:
+            lines.append([top, [(left, value)]])
+    return [" ".join(value for _, value in sorted(parts)) for _, parts in lines]
+
+def _looks_like_heading(text):
+    value = text.strip()
+    if not value or len(value) > 90 or value[-1:] in ".,;:!?":
+        return False
+    if re.match(r"^(?:[-*•]|\d+[.)])\s", value):
+        return False
+    words = value.split()
+    return value.isupper() or (len(words) <= 8 and all(word[:1].isupper() for word in words if word))
 
 def _nodes(value, page=1, prefix="node"):
     """Map Docling's versioned dict shape to stable nodes; unknown fields ignored."""
