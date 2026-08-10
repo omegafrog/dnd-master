@@ -20,6 +20,7 @@ except ModuleNotFoundError:  # direct test/module loading
 
 app = FastAPI()
 logger = logging.getLogger(__name__)
+USER_ERROR_MESSAGE = "document extraction failed"
 # Prefer usable native PDF text. OCR only layout regions without reliable
 # programmatic text; document-level partial failures use the page fallback.
 pdf_options = PdfPipelineOptions(do_ocr=False, force_backend_text=True)
@@ -45,7 +46,8 @@ def health():
 @app.post("/extract")
 def extract(request: ExtractRequest):
     if request.format not in {"PDF", "DOCX"}:
-        raise HTTPException(status_code=415, detail="unsupported document format")
+        logger.warning("Unsupported extraction format: %s", request.format)
+        raise HTTPException(status_code=415, detail=USER_ERROR_MESSAGE)
     try:
         raw = base64.b64decode(request.contentBase64, validate=True)
         suffix = {"PDF": ".pdf", "DOCX": ".docx", "PPTX": ".pptx"}.get(request.format, ".bin")
@@ -72,10 +74,8 @@ def extract(request: ExtractRequest):
                 return _pymupdf_to_docling(raw)
             except Exception as fallback_exc:
                 logger.exception("Rendered-page OCR fallback failed")
-                classification = _classify_fallback_failure(fallback_exc)
-                raise HTTPException(status_code=422,
-                                    detail=f"document extraction failed: {classification}") from fallback_exc
-        raise HTTPException(status_code=422, detail="document extraction failed") from exc
+                raise HTTPException(status_code=422, detail=USER_ERROR_MESSAGE) from fallback_exc
+        raise HTTPException(status_code=422, detail=USER_ERROR_MESSAGE) from exc
 
 def _pymupdf_fallback(raw):
     """Use fast page text blocks and OCR only pages whose text is unusable."""

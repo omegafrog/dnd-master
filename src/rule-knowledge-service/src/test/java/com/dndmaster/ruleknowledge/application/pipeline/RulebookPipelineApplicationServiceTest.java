@@ -97,6 +97,7 @@ class RulebookPipelineApplicationServiceTest {
         StoredRulebookRegistration beta = harness.repository.findByOperationKey("upload-2").orElseThrow();
         assertEquals(ProcessingStatus.INDEXED, alpha.processingStatus());
         assertEquals(ProcessingStatus.FAILED, beta.processingStatus());
+        assertEquals("processing failed", beta.failureCode());
         assertEquals(1, harness.embeddingPort.failures);
 
         RulebookProcessingResult retried = harness.service.retry(beta.rulebookId());

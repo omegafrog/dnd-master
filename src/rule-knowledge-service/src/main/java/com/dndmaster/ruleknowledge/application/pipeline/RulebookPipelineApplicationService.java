@@ -31,8 +31,11 @@ import java.util.HexFormat;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class RulebookPipelineApplicationService implements RulebookUploadProcessor {
+    private static final Logger LOGGER = LoggerFactory.getLogger(RulebookPipelineApplicationService.class);
     private static final Duration PROCESSING_LEASE = Duration.ofMinutes(10);
     private static final int PENDING_BATCH_SIZE = 10;
 
@@ -260,14 +263,14 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
     }
 
     private static String describeExtractionFailure(ExtractionResult extractionResult) {
-        return extractionResult.failure()
-                .map(failure -> "extraction failed: " + failure.name())
-                .orElse("partial extraction requires confirmation");
+        String failure = extractionResult.failure().map(Enum::name).orElse("PARTIAL");
+        LOGGER.error("Rulebook extraction failed: {}", failure);
+        return "extraction failed";
     }
 
     private static String describeFailure(RuntimeException exception) {
-        String message = exception.getMessage();
-        return message != null && !message.isBlank() ? message : "processing failed";
+        LOGGER.error("Rulebook processing failed", exception);
+        return "processing failed";
     }
 
     private static StoredRulebookRegistration withStatus(
