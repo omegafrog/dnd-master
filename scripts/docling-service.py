@@ -11,6 +11,12 @@ from pydantic import BaseModel
 from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling.datamodel.base_models import ConversionStatus, DocumentStream, InputFormat
 from docling.datamodel.pipeline_options import EasyOcrOptions, OcrMode, PdfPipelineOptions
+try:
+    from document_extraction.pymupdf_adapter import PyMuPdfAdapter, PyMuPdfExtractionError
+except ModuleNotFoundError:  # direct test/module loading
+    import sys
+    sys.path.insert(0, os.path.dirname(__file__))
+    from document_extraction.pymupdf_adapter import PyMuPdfAdapter, PyMuPdfExtractionError
 
 app = FastAPI()
 logger = logging.getLogger(__name__)
@@ -66,7 +72,9 @@ def extract(request: ExtractRequest):
                 return _pymupdf_to_docling(raw)
             except Exception as fallback_exc:
                 logger.exception("Rendered-page OCR fallback failed")
-                raise HTTPException(status_code=422, detail="document extraction failed") from fallback_exc
+                classification = _classify_fallback_failure(fallback_exc)
+                raise HTTPException(status_code=422,
+                                    detail=f"document extraction failed: {classification}") from fallback_exc
         raise HTTPException(status_code=422, detail="document extraction failed") from exc
 
 def _pymupdf_fallback(raw):
@@ -112,28 +120,18 @@ def _pymupdf_fallback(raw):
     }
 
 def _pymupdf_to_docling(raw):
-    """Preserve a page-oriented raw tree after native Docling failure.
+    """Select explicit PyMuPDF adapter after Docling failure."""
+    result = PyMuPdfAdapter(page_recovery=_ocr_pages).extract(raw)
+    result["warnings"].insert(0, {
+        "code": "NATIVE_PDF_TEXT_FAILED", "severity": "WARNING",
+        "message": "Docling native extraction failed; PyMuPDF fallback preserved available evidence."})
+    return result
 
-    Structure enrichment is intentionally skipped here.  TOC page numbers and
-    physical page numbers are not universally equivalent; guessing can lose
-    more evidence than a flat raw tree.
-    """
-    import pymupdf
 
-    document = pymupdf.open(stream=raw, filetype="pdf")
-    pages = _extract_body_pages(document)
-    markdown = _page_markdown(pages)
-    images = _pymupdf_images(document)
-    document.close()
-    return _normalised_response({
-        "nodes": _page_nodes(pages),
-        "tables": [],
-        "images": images,
-        "warnings": [{"code": "NATIVE_PDF_TEXT_FAILED", "severity": "WARNING",
-                       "message": "Docling native extraction failed; preserved page tree with OCR only for unusable pages."}],
-        "rawText": markdown,
-        "sourceIdentity": _source_identity(raw),
-    })
+def _classify_fallback_failure(error):
+    if isinstance(error, PyMuPdfExtractionError):
+        return error.classification
+    return "UNPROCESSABLE"
 
 
 def _source_identity(raw):
