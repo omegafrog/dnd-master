@@ -616,7 +616,7 @@ def _tables(value):
     result = []
     for index, table in enumerate(value.get("tables", []) if isinstance(value, dict) else []):
         rows = table.get("data", {}).get("table_cells", []) if isinstance(table, dict) else []
-        result.append({"id": f"table-{index}", "page": 1, "rows": [[str(cell.get("text", "")) for cell in rows]]})
+        result.append({"id": f"table-{index}", "page": _page(table, 1), "rows": [[str(cell.get("text", "")) for cell in rows]]})
     return result
 
 def _images(value):
