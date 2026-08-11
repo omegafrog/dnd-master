@@ -290,7 +290,17 @@ public class RuntimeTurnApplicationService {
             if (!plan.selectedBranchId().isBlank() && !stage.branchIds().contains(plan.selectedBranchId())) {
                 throw new IllegalStateException("GM selected an unknown story branch");
             }
-            storyPlanRepository.save(current.advanceTo(current.currentStage() + 1));
+            int target = current.currentStage() + 1;
+            if (!plan.selectedBranchId().isBlank()) {
+                String destination = stage.branchTargets().get(plan.selectedBranchId());
+                if (destination != null && destination.startsWith("stage:")) {
+                    target = Integer.parseInt(destination.substring("stage:".length())) - 1;
+                } else if (destination != null) {
+                    target = current.stages().stream().filter(candidate -> candidate.endingIds().contains(destination))
+                            .map(candidate -> candidate.position() - 1).findFirst().orElse(target);
+                }
+            }
+            if (target > current.currentStage() && target < current.stages().size()) storyPlanRepository.save(current.advanceTo(target));
         });
     }
 

@@ -30,6 +30,7 @@ public final class AdventureStoryPlanRuntimeContext {
                 + "; boss=" + stage.boss()
                 + "; rewards=" + rewards
                 + "; availableBranches=" + branches
+                + "; branchTargets=" + stage.branchTargets()
                 + "; map=" + stage.mapAssetId() + "@" + stage.mapAssetLocator()
                 + "; grounding=" + stage.groundingStatus()
                 + "; evidence=" + evidence;

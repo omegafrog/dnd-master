@@ -8,6 +8,7 @@ import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStatus;
 import com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration;
 import com.dndmaster.adventure.domain.adventure.AdventureLength;
+import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanGraphValidator;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
@@ -60,6 +61,7 @@ public final class AdventureStoryPlanApplicationService {
                 configuration, sourceDocuments(session), resolutionEvidence(session), mapContexts(scenarioPackage), citations(scenarioPackage));
         List<AdventureStoryPlanStage> stages = generator.generate(request);
         validateMaps(stages, request.maps());
+        AdventureStoryPlanGraphValidator.validate(stages, configuration);
         AdventureStoryPlan plan = AdventureStoryPlan.ready(
                 previous == null ? java.util.UUID.randomUUID() : previous.planId(), session.id(),
                 session.scenarioPackageRevision(), session.version(), version, configuration, stages);

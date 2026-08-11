@@ -3,6 +3,7 @@ package com.dndmaster.adventure.infrastructure.integration;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration;
+import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanGraphValidator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -50,7 +51,9 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                 throw new IllegalStateException("AI returned an unknown source citation");
             }
             Map<UUID, AdventureStoryPlanGenerationPort.MapContext> maps = request.maps().stream().collect(Collectors.toMap(AdventureStoryPlanGenerationPort.MapContext::mapDefinitionId, item -> item));
-            return parsed.stages().stream().map(stage -> toDomain(stage, maps)).toList();
+            List<AdventureStoryPlanStage> stages = parsed.stages().stream().map(stage -> toDomain(stage, maps)).toList();
+            AdventureStoryPlanGraphValidator.validate(stages, configuration);
+            return stages;
         } catch (HttpTimeoutException e) { throw new IllegalStateException("story plan AI timed out after " + timeout, e); }
         catch (IOException e) { throw new IllegalStateException("story plan AI response malformed", e); }
         catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("story plan AI interrupted", e); }
@@ -79,19 +82,20 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                 stage.stageType() == null ? com.dndmaster.adventure.domain.adventure.AdventureStageType.EVENT : com.dndmaster.adventure.domain.adventure.AdventureStageType.valueOf(stage.stageType()),
                 stage.location(), mapId, map == null ? stage.mapAssetId() : map.assetId(), map == null ? stage.mapAssetLocator() : map.assetLocator(),
                 stage.enemies(), stage.boss(), stage.clearCondition(), stage.failureCondition(), stage.rewards(), stage.branchIds(), evidence, grounding, suggestions,
-                map == null ? "UNAVAILABLE" : map.safetyStatus(), map == null ? null : map.confidence());
+                map == null ? "UNAVAILABLE" : map.safetyStatus(), map == null ? null : map.confidence(), stage.branchTargets());
     }
     @JsonIgnoreProperties(ignoreUnknown = true) record Response(List<Stage> stages) {}
     @JsonIgnoreProperties(ignoreUnknown = true) record Stage(int position, String title, String goal, String conflict, String transitionCondition,
             List<String> npcOrClues, List<String> endingIds, String stageType, String location, String mapDefinitionId,
             String mapAssetId, String mapAssetLocator, List<String> enemies, String boss, String clearCondition, String failureCondition, List<String> rewards,
-            List<String> branchIds, List<SourceCitation> evidence) {
+            List<String> branchIds, java.util.Map<String, String> branchTargets, List<SourceCitation> evidence) {
         Stage {
             npcOrClues = npcOrClues == null ? List.of() : npcOrClues;
             endingIds = endingIds == null ? List.of() : endingIds;
             enemies = enemies == null ? List.of() : enemies;
             rewards = rewards == null ? List.of() : rewards;
             branchIds = branchIds == null ? endingIds : branchIds;
+            branchTargets = branchTargets == null ? java.util.Map.of() : branchTargets;
             evidence = evidence == null ? List.of() : evidence;
             mapAssetId = mapAssetId == null ? "" : mapAssetId;
             mapAssetLocator = mapAssetLocator == null ? "" : mapAssetLocator;

@@ -3,6 +3,7 @@ package com.dndmaster.adventure.domain.adventure;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.Map;
 import com.dndmaster.adventure.domain.scenario.StoryMapBinding;
 
 public record AdventureStoryPlanStage(
@@ -29,7 +30,8 @@ public record AdventureStoryPlanStage(
         AdventureGroundingStatus groundingStatus,
         List<String> aiSuggestions,
         String mapSafetyStatus,
-        Double mapConfidence) {
+        Double mapConfidence,
+        Map<String, String> branchTargets) {
     public AdventureStoryPlanStage(int position, String title, String goal, String conflict, String transitionCondition,
             List<String> npcOrClues, List<String> endingIds) {
         this(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, List.of());
@@ -37,7 +39,7 @@ public record AdventureStoryPlanStage(
     public AdventureStoryPlanStage(int position, String title, String goal, String conflict, String transitionCondition,
             List<String> npcOrClues, List<String> endingIds, List<StoryMapBinding> mapBindings) {
         this(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings,
-                AdventureStageType.EVENT, title, null, "", "", List.of(), "", transitionCondition, "", List.of(), endingIds, List.of(), AdventureGroundingStatus.AI_SUGGESTION, List.of(), "UNAVAILABLE", null);
+                AdventureStageType.EVENT, title, null, "", "", List.of(), "", transitionCondition, "", List.of(), endingIds, List.of(), AdventureGroundingStatus.AI_SUGGESTION, List.of(), "UNAVAILABLE", null, Map.of());
     }
     public AdventureStoryPlanStage {
         if (position < 1) throw new IllegalArgumentException("stage position must be positive");
@@ -63,6 +65,17 @@ public record AdventureStoryPlanStage(
         aiSuggestions = aiSuggestions == null ? List.of() : List.copyOf(aiSuggestions);
         mapSafetyStatus = mapSafetyStatus == null || mapSafetyStatus.isBlank() ? (mapDefinitionId == null ? "UNAVAILABLE" : "UNKNOWN") : mapSafetyStatus.trim();
         if (mapConfidence != null && (mapConfidence < 0 || mapConfidence > 1)) throw new IllegalArgumentException("map confidence must be between 0 and 1");
+        branchTargets = branchTargets == null ? Map.of() : Map.copyOf(branchTargets);
+    }
+
+    public AdventureStoryPlanStage(int position, String title, String goal, String conflict, String transitionCondition,
+            List<String> npcOrClues, List<String> endingIds, List<StoryMapBinding> mapBindings, AdventureStageType stageType,
+            String location, UUID mapDefinitionId, String mapAssetId, String mapAssetLocator, List<String> enemies, String boss,
+            String clearCondition, String failureCondition, List<String> rewards, List<String> branchIds, List<AdventurePlanEvidence> evidence,
+            AdventureGroundingStatus groundingStatus, List<String> aiSuggestions, String mapSafetyStatus, Double mapConfidence) {
+        this(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings, stageType, location, mapDefinitionId,
+                mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition, rewards, branchIds, evidence, groundingStatus,
+                aiSuggestions, mapSafetyStatus, mapConfidence, Map.of());
     }
 
     private static List<String> immutable(List<String> values) {

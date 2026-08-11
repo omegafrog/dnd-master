@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,7 +23,7 @@ public final class AdventureStoryPlanController {
     Response generate(@RequestBody Request request) {
         Configuration configuration = request.configuration() == null ? Configuration.defaults() : request.configuration();
         String prompt = "Create a tabletop adventure outline grounded only in the supplied source documents and evidence. "
-                + "Return JSON object only: {stages:[{position,title,stageType,location,goal,conflict,transitionCondition,enemies:[string],boss,clearCondition,failureCondition,rewards:[string],branchIds:[string],mapDefinitionId,mapAssetId,mapAssetLocator,evidence:[{documentType,documentId,extractionVersion,locator,quote,confidence}],npcOrClues:[string],endingIds:[string]}]}. "
+                + "Return JSON object only: {stages:[{position,title,stageType,location,goal,conflict,transitionCondition,enemies:[string],boss,clearCondition,failureCondition,rewards:[string],branchIds:[string],branchTargets:{branchId:'stage:2' or 'ending-id'},mapDefinitionId,mapAssetId,mapAssetLocator,evidence:[{documentType,documentId,extractionVersion,locator,quote,confidence}],npcOrClues:[string],endingIds:[string]}]}. "
                 + "Create " + configuration.minimumStages() + "-" + configuration.maximumStages() + " stages. Create exactly " + configuration.endingCount() + " distinct endingIds across the plan. Every ending must be reachable from a stage. "
                 + "Do not invent named rules, DCs, monsters, or facts absent from evidence. Documents=" + request.sourceDocuments()
                 + " Evidence=" + request.resolutionEvidence() + " citations=" + request.citations() + " maps=" + request.maps()
@@ -36,7 +38,7 @@ public final class AdventureStoryPlanController {
             for (JsonNode n : stages) {
                 List<String> endings = strings(n.get("endingIds")); if (endings.isEmpty()) throw new IllegalArgumentException("endingIds missing");
                 result.add(new Stage(n.path("position").asInt(result.size() + 1), required(n,"title"), text(n, "stageType", "EVENT"), text(n, "location", required(n, "title")), required(n,"goal"), required(n,"conflict"), required(n,"transitionCondition"), strings(n.get("npcOrClues")), endings,
-                        text(n, "mapDefinitionId", ""), text(n, "mapAssetId", ""), text(n, "mapAssetLocator", ""), strings(n.get("enemies")), text(n, "boss", ""), text(n, "clearCondition", required(n, "transitionCondition")), text(n, "failureCondition", ""), strings(n.get("rewards")), strings(n.get("branchIds")), citations(n.get("evidence"))));
+                        text(n, "mapDefinitionId", ""), text(n, "mapAssetId", ""), text(n, "mapAssetLocator", ""), strings(n.get("enemies")), text(n, "boss", ""), text(n, "clearCondition", required(n, "transitionCondition")), text(n, "failureCondition", ""), strings(n.get("rewards")), strings(n.get("branchIds")), maps(n.get("branchTargets")), citations(n.get("evidence"))));
             }
             if (result.size() < configuration.minimumStages() || result.size() > configuration.maximumStages()) throw new IllegalArgumentException("invalid stage count");
             if (result.stream().flatMap(s -> s.endingIds().stream()).distinct().count() != configuration.endingCount()) throw new IllegalArgumentException("invalid ending count");
@@ -47,6 +49,12 @@ public final class AdventureStoryPlanController {
     private static String required(JsonNode n, String key) { String v = n.path(key).asText("").trim(); if (v.isBlank()) throw new IllegalArgumentException(key + " missing"); return v; }
     private static List<String> strings(JsonNode n) { if (n == null || !n.isArray()) return List.of(); List<String> r = new ArrayList<>(); n.forEach(v -> { if (v.isTextual() && !v.asText().isBlank()) r.add(v.asText()); }); return List.copyOf(r); }
     private static String text(JsonNode node, String key, String fallback) { String value = node.path(key).asText("").trim(); return value.isBlank() ? fallback : value; }
+    private static Map<String, String> maps(JsonNode node) {
+        if (node == null || !node.isObject()) return Map.of();
+        Map<String, String> result = new HashMap<>();
+        node.fields().forEachRemaining(entry -> result.put(entry.getKey(), entry.getValue().asText()));
+        return Map.copyOf(result);
+    }
     private static List<SourceCitation> citations(JsonNode node) {
         if (node == null || !node.isArray()) return List.of();
         List<SourceCitation> result = new ArrayList<>();
@@ -79,5 +87,5 @@ public final class AdventureStoryPlanController {
     public record Response(List<Stage> stages) {}
     public record Stage(int position, String title, String stageType, String location, String goal, String conflict, String transitionCondition,
             List<String> npcOrClues, List<String> endingIds, String mapDefinitionId, String mapAssetId, String mapAssetLocator, List<String> enemies, String boss,
-            String clearCondition, String failureCondition, List<String> rewards, List<String> branchIds, List<SourceCitation> evidence) {}
+            String clearCondition, String failureCondition, List<String> rewards, List<String> branchIds, Map<String, String> branchTargets, List<SourceCitation> evidence) {}
 }

@@ -66,10 +66,11 @@ public final class AdventureStoryPlanController {
     public record GmStageView(int position, String title, String stageType, String location, String goal, String conflict,
             String clearCondition, String failureCondition, List<String> enemies, String boss, List<String> rewards, List<String> branchIds,
             UUID mapDefinitionId, String mapAssetId, String mapAssetLocator, String mapSafetyStatus, Double mapConfidence,
+            java.util.Map<String, String> branchTargets,
             String groundingStatus, List<String> aiSuggestions, List<EvidenceView> evidence) {
         static GmStageView from(com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage stage) {
             return new GmStageView(stage.position(), stage.title(), stage.stageType().name(), stage.location(), stage.goal(), stage.conflict(), stage.clearCondition(), stage.failureCondition(),
-                    stage.enemies(), stage.boss(), stage.rewards(), stage.branchIds(), stage.mapDefinitionId(), stage.mapAssetId(), stage.mapAssetLocator(), stage.mapSafetyStatus(), stage.mapConfidence(),
+                    stage.enemies(), stage.boss(), stage.rewards(), stage.branchIds(), stage.mapDefinitionId(), stage.mapAssetId(), stage.mapAssetLocator(), stage.mapSafetyStatus(), stage.mapConfidence(), stage.branchTargets(),
                     stage.groundingStatus().name(), stage.aiSuggestions(), stage.evidence().stream().map(item -> new EvidenceView(item.documentType(), item.documentId(), item.extractionVersion(), item.locator(), item.quote(), item.confidence())).toList());
         }
     }
