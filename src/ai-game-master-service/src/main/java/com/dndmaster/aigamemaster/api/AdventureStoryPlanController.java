@@ -19,14 +19,15 @@ public final class AdventureStoryPlanController {
     public AdventureStoryPlanController(SpringAiChatAdapter adapter, ObjectMapper mapper) { this.adapter = adapter; this.mapper = mapper; }
     @PostMapping("/internal/v1/gm/adventure-story-plan")
     Response generate(@RequestBody Request request) {
+        Configuration configuration = request.configuration() == null ? Configuration.defaults() : request.configuration();
         String prompt = "Create a tabletop adventure outline grounded only in the supplied source documents and evidence. "
                 + "Return JSON object only: {stages:[{position,title,goal,conflict,transitionCondition,npcOrClues:[string],endingIds:[string]}]}. "
-                + "Create 4-6 stages. Create at least 2 distinct endingIds across the plan. Every ending must be reachable from a stage. "
+                + "Create " + configuration.minimumStages() + "-" + configuration.maximumStages() + " stages. Create exactly " + configuration.endingCount() + " distinct endingIds across the plan. Every ending must be reachable from a stage. "
                 + "Do not invent named rules, DCs, monsters, or facts absent from evidence. Documents=" + request.sourceDocuments()
-                + " Evidence=" + request.resolutionEvidence() + " partySize=" + request.partySize();
-        return new Response(adapter.complete(request.operationId(), prompt, this::parse));
+                + " Evidence=" + request.resolutionEvidence() + " partySize=" + request.partySize() + " configuration=" + configuration;
+        return new Response(adapter.complete(request.operationId(), prompt, text -> parse(text, configuration)));
     }
-    private List<Stage> parse(String text) {
+    private List<Stage> parse(String text, Configuration configuration) {
         try {
             JsonNode root = mapper.readTree(extractObject(text)); JsonNode stages = root.get("stages");
             if (stages == null || !stages.isArray()) throw new IllegalArgumentException("stages missing");
@@ -35,14 +36,24 @@ public final class AdventureStoryPlanController {
                 List<String> endings = strings(n.get("endingIds")); if (endings.isEmpty()) throw new IllegalArgumentException("endingIds missing");
                 result.add(new Stage(n.path("position").asInt(result.size() + 1), required(n,"title"), required(n,"goal"), required(n,"conflict"), required(n,"transitionCondition"), strings(n.get("npcOrClues")), endings));
             }
-            if (result.size() < 2 || result.stream().flatMap(s -> s.endingIds().stream()).distinct().count() < 2) throw new IllegalArgumentException("multiple endings required");
+            if (result.size() < configuration.minimumStages() || result.size() > configuration.maximumStages()) throw new IllegalArgumentException("invalid stage count");
+            if (result.stream().flatMap(s -> s.endingIds().stream()).distinct().count() != configuration.endingCount()) throw new IllegalArgumentException("invalid ending count");
             return List.copyOf(result);
         } catch (Exception e) { throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI story plan response malformed", e); }
     }
     private static String extractObject(String text) { int a = text.indexOf('{'), b = text.lastIndexOf('}'); if (a < 0 || b < a) throw new IllegalArgumentException("JSON object missing"); return text.substring(a,b+1); }
     private static String required(JsonNode n, String key) { String v = n.path(key).asText("").trim(); if (v.isBlank()) throw new IllegalArgumentException(key + " missing"); return v; }
     private static List<String> strings(JsonNode n) { if (n == null || !n.isArray()) return List.of(); List<String> r = new ArrayList<>(); n.forEach(v -> { if (v.isTextual() && !v.asText().isBlank()) r.add(v.asText()); }); return List.copyOf(r); }
-    public record Request(String operationId, long packageRevision, int partySize, List<String> sourceDocuments, List<String> resolutionEvidence) {}
+    public record Request(String operationId, long packageRevision, int partySize, Configuration configuration, List<String> sourceDocuments, List<String> resolutionEvidence) {}
+    public record Configuration(int endingCount, String adventureLength) {
+        public Configuration {
+            if (endingCount < 1 || endingCount > 4) throw new IllegalArgumentException("ending count must be between 1 and 4");
+            if (!List.of("SHORT", "STANDARD", "LONG").contains(adventureLength)) throw new IllegalArgumentException("unknown adventure length");
+        }
+        static Configuration defaults() { return new Configuration(2, "STANDARD"); }
+        int minimumStages() { return switch (adventureLength) { case "SHORT" -> 3; case "STANDARD" -> 4; default -> 7; }; }
+        int maximumStages() { return switch (adventureLength) { case "SHORT" -> 4; case "STANDARD" -> 6; default -> 8; }; }
+    }
     public record Response(List<Stage> stages) {}
     public record Stage(int position, String title, String goal, String conflict, String transitionCondition, List<String> npcOrClues, List<String> endingIds) {}
 }

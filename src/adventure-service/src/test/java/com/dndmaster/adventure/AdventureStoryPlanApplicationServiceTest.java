@@ -7,6 +7,7 @@ import static org.mockito.Mockito.*;
 import com.dndmaster.adventure.application.session.AdventureSessionRepository;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanApplicationService;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
 import com.dndmaster.adventure.domain.adventure.*;
 import java.util.Optional;
 import java.util.UUID;
@@ -42,5 +43,39 @@ class AdventureStoryPlanApplicationServiceTest {
 
         assertThrows(IllegalStateException.class, () -> new AdventureStoryPlanApplicationService(plans, sessions).generate(session.id(), session.ownerPlayerId()));
         verify(plans, never()).save(any());
+    }
+
+    @Test
+    void forwards_requested_length_and_ending_count_to_generator_and_plan() {
+        var session = AdventureSession.create(SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 1, 1,
+                new AdventureSessionRuntimeConfiguration(new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), java.util.List.of(), "ollama", java.util.List.of("search"), "opening"));
+        session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT, false, false, false, false, false, false));
+        var sessions = mock(AdventureSessionRepository.class);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        var generator = mock(AdventureStoryPlanGenerationPort.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        when(plans.findBySessionId(session.id())).thenReturn(Optional.empty());
+        when(generator.generate(any())).thenReturn(java.util.List.of(
+                new AdventureStoryPlanStage(1, "One", "Goal", "Conflict", "Next", java.util.List.of(), java.util.List.of("ending-a")),
+                new AdventureStoryPlanStage(2, "Two", "Goal", "Conflict", "Next", java.util.List.of(), java.util.List.of("ending-b")),
+                new AdventureStoryPlanStage(3, "Three", "Goal", "Conflict", "Next", java.util.List.of(), java.util.List.of("ending-a")),
+                new AdventureStoryPlanStage(4, "Four", "Goal", "Conflict", "Next", java.util.List.of(), java.util.List.of("ending-b")),
+                new AdventureStoryPlanStage(5, "Five", "Goal", "Conflict", "Next", java.util.List.of(), java.util.List.of("ending-a")),
+                new AdventureStoryPlanStage(6, "Six", "Goal", "Conflict", "Next", java.util.List.of(), java.util.List.of("ending-b")),
+                new AdventureStoryPlanStage(7, "Seven", "Goal", "Conflict", "Next", java.util.List.of(), java.util.List.of("ending-a"))));
+
+        var configuration = new AdventurePlanConfiguration(2, AdventureLength.LONG);
+        var plan = new AdventureStoryPlanApplicationService(plans, sessions, null, generator)
+                .generate(session.id(), session.ownerPlayerId(), configuration);
+
+        var request = org.mockito.ArgumentCaptor.forClass(AdventureStoryPlanGenerationPort.Request.class);
+        verify(generator).generate(request.capture());
+        assertEquals(configuration, request.getValue().configuration());
+        assertEquals(configuration, plan.configuration());
+    }
+
+    @Test
+    void rejects_more_than_four_endings() {
+        assertThrows(IllegalArgumentException.class, () -> new AdventurePlanConfiguration(5, AdventureLength.STANDARD));
     }
 }

@@ -6,6 +6,8 @@ import com.dndmaster.adventure.domain.adventure.AdventureSession;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlan;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStatus;
+import com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration;
+import com.dndmaster.adventure.domain.adventure.AdventureLength;
 import com.dndmaster.adventure.domain.adventure.ControlMode;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.adventure.SessionId;
@@ -38,16 +40,20 @@ public final class AdventureStoryPlanApplicationService {
     }
 
     public AdventureStoryPlan generate(SessionId sessionId, OwnerPlayerId owner) {
+        return generate(sessionId, owner, AdventurePlanConfiguration.defaults());
+    }
+
+    public AdventureStoryPlan generate(SessionId sessionId, OwnerPlayerId owner, AdventurePlanConfiguration configuration) {
         AdventureSession session = requireSession(sessionId, owner);
         validateParty(session);
         AdventureStoryPlan previous = plans.findBySessionId(sessionId).orElse(null);
         long version = previous == null ? 1 : previous.version() + 1;
         List<AdventureStoryPlanStage> stages = generator.generate(new AdventureStoryPlanGenerationPort.Request(
                 UUID.randomUUID().toString(), session.scenarioPackageRevision(), session.party().size(),
-                sourceDocuments(session), resolutionEvidence(session)));
+                configuration, sourceDocuments(session), resolutionEvidence(session)));
         AdventureStoryPlan plan = AdventureStoryPlan.ready(
-                previous == null ? java.util.UUID.randomUUID() : previous.planId(),
-                session.id(), session.scenarioPackageRevision(), session.version(), version, stages);
+                previous == null ? java.util.UUID.randomUUID() : previous.planId(), session.id(),
+                session.scenarioPackageRevision(), session.version(), version, configuration, stages);
         plans.save(plan);
         return plan;
     }
@@ -77,11 +83,17 @@ public final class AdventureStoryPlanApplicationService {
     }
 
     private static List<AdventureStoryPlanStage> defaultStages() {
+        return defaultStages(AdventurePlanConfiguration.defaults());
+    }
+
+    private static List<AdventureStoryPlanStage> defaultStages(AdventurePlanConfiguration configuration) {
+        String firstEnding = "ending-1";
+        String finalEnding = configuration.endingCount() == 1 ? firstEnding : "ending-2";
         return List.of(
-                stage(1, "Beginning", "Discover the adventure premise", "An urgent problem demands action", "The party accepts a concrete lead"),
-                stage(2, "Escalation", "Pursue the lead", "Opposition reveals a larger threat", "The party obtains decisive evidence"),
-                stage(3, "Confrontation", "Choose how to resolve the threat", "The final obstacle tests the party", "The threat is defeated, transformed, or survives"),
-                stage(4, "Resolution", "Bring the journey to a meaningful close", "Consequences reshape the party's situation", "A planned ending is reached"));
+                stage(1, "Beginning", "Discover the adventure premise", "An urgent problem demands action", "The party accepts a concrete lead", firstEnding),
+                stage(2, "Escalation", "Pursue the lead", "Opposition reveals a larger threat", "The party obtains decisive evidence", firstEnding),
+                stage(3, "Confrontation", "Choose how to resolve the threat", "The final obstacle tests the party", "The threat is defeated, transformed, or survives", finalEnding),
+                stage(4, "Resolution", "Bring the journey to a meaningful close", "Consequences reshape the party's situation", "A planned ending is reached", finalEnding));
     }
 
     private List<String> sourceDocuments(AdventureSession session) {
@@ -93,7 +105,7 @@ public final class AdventureStoryPlanApplicationService {
         return packages.findById(session.scenarioPackageId()).map(p -> p.units().stream().map(u -> String.valueOf(u.sourceQuote())).filter(s -> !s.equals("null") && !s.isBlank()).limit(20).toList()).orElse(List.of());
     }
 
-    private static AdventureStoryPlanStage stage(int position, String title, String goal, String conflict, String transition) {
-        return new AdventureStoryPlanStage(position, title, goal, conflict, transition, List.of(), List.of("ending-" + position));
+    private static AdventureStoryPlanStage stage(int position, String title, String goal, String conflict, String transition, String ending) {
+        return new AdventureStoryPlanStage(position, title, goal, conflict, transition, List.of(), List.of(ending));
     }
 }

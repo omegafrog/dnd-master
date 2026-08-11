@@ -2,6 +2,7 @@ package com.dndmaster.adventure.infrastructure.integration;
 
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
+import com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -26,7 +27,14 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                     .timeout(timeout).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("story plan AI failed: " + response.statusCode());
             var parsed = mapper.readValue(response.body(), Response.class);
-            if (parsed.stages() == null || parsed.stages().size() < 2) throw new IllegalStateException("AI returned too few story stages");
+            if (parsed.stages() == null) throw new IllegalStateException("AI returned no story stages");
+            AdventurePlanConfiguration configuration = request.configuration();
+            if (parsed.stages().size() < configuration.adventureLength().minimumStages()
+                    || parsed.stages().size() > configuration.adventureLength().maximumStages()) {
+                throw new IllegalStateException("AI returned an invalid stage count for adventure length");
+            }
+            long endingCount = parsed.stages().stream().flatMap(stage -> stage.endingIds().stream()).distinct().count();
+            if (endingCount != configuration.endingCount()) throw new IllegalStateException("AI returned an invalid ending count");
             return parsed.stages().stream().map(stage -> new AdventureStoryPlanStage(stage.position(), stage.title(), stage.goal(), stage.conflict(), stage.transitionCondition(), stage.npcOrClues(), stage.endingIds())).toList();
         } catch (HttpTimeoutException e) { throw new IllegalStateException("story plan AI timed out after " + timeout, e); }
         catch (IOException e) { throw new IllegalStateException("story plan AI response malformed", e); }

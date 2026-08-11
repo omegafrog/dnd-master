@@ -11,6 +11,7 @@ public final class AdventureStoryPlan {
     private final long packageRevision;
     private final long partyRevision;
     private final long version;
+    private final AdventurePlanConfiguration configuration;
     private final AdventureStoryPlanStatus status;
     private final List<AdventureStoryPlanStage> stages;
     private final int currentStage;
@@ -18,7 +19,7 @@ public final class AdventureStoryPlan {
     private final Instant updatedAt;
 
     private AdventureStoryPlan(UUID planId, SessionId sessionId, long packageRevision, long partyRevision, long version,
-            AdventureStoryPlanStatus status, List<AdventureStoryPlanStage> stages, int currentStage,
+            AdventureStoryPlanStatus status, AdventurePlanConfiguration configuration, List<AdventureStoryPlanStage> stages, int currentStage,
             String failureReason, Instant updatedAt) {
         this.planId = Objects.requireNonNull(planId);
         this.sessionId = Objects.requireNonNull(sessionId);
@@ -27,6 +28,7 @@ public final class AdventureStoryPlan {
         this.partyRevision = partyRevision;
         this.version = version;
         this.status = Objects.requireNonNull(status);
+        this.configuration = Objects.requireNonNull(configuration);
         this.stages = List.copyOf(Objects.requireNonNull(stages));
         if (status == AdventureStoryPlanStatus.READY && this.stages.isEmpty()) throw new IllegalArgumentException("ready plan requires stages");
         if (currentStage < 0 || (!this.stages.isEmpty() && currentStage >= this.stages.size())) throw new IllegalArgumentException("invalid current stage");
@@ -36,22 +38,36 @@ public final class AdventureStoryPlan {
     }
 
     public static AdventureStoryPlan ready(SessionId sessionId, long partyRevision, long version, List<AdventureStoryPlanStage> stages) {
-        return ready(UUID.randomUUID(), sessionId, 1, partyRevision, version, stages);
+        return ready(UUID.randomUUID(), sessionId, 1, partyRevision, version, AdventurePlanConfiguration.defaults(), stages);
     }
 
     public static AdventureStoryPlan ready(UUID planId, SessionId sessionId, long packageRevision, long partyRevision, long version, List<AdventureStoryPlanStage> stages) {
-        return new AdventureStoryPlan(planId, sessionId, packageRevision, partyRevision, version, AdventureStoryPlanStatus.READY, stages, 0, null, Instant.now());
+        return ready(planId, sessionId, packageRevision, partyRevision, version, AdventurePlanConfiguration.defaults(), stages);
+    }
+
+    public static AdventureStoryPlan ready(UUID planId, SessionId sessionId, long packageRevision, long partyRevision, long version,
+            AdventurePlanConfiguration configuration, List<AdventureStoryPlanStage> stages) {
+        return new AdventureStoryPlan(planId, sessionId, packageRevision, partyRevision, version, AdventureStoryPlanStatus.READY,
+                configuration, stages, 0, null, Instant.now());
     }
 
     public static AdventureStoryPlan failed(UUID planId, SessionId sessionId, long packageRevision, long partyRevision, long version, String reason) {
-        return new AdventureStoryPlan(planId, sessionId, packageRevision, partyRevision, version, AdventureStoryPlanStatus.FAILED, List.of(), 0, reason, Instant.now());
+        return new AdventureStoryPlan(planId, sessionId, packageRevision, partyRevision, version, AdventureStoryPlanStatus.FAILED,
+                AdventurePlanConfiguration.defaults(), List.of(), 0, reason, Instant.now());
     }
 
     public static AdventureStoryPlan rehydrate(UUID planId, SessionId sessionId, long packageRevision, long partyRevision,
             long version, AdventureStoryPlanStatus status, List<AdventureStoryPlanStage> stages, int currentStage,
             String failureReason, Instant updatedAt) {
-        return new AdventureStoryPlan(planId, sessionId, packageRevision, partyRevision, version, status, stages,
-                currentStage, failureReason, updatedAt);
+        return rehydrate(planId, sessionId, packageRevision, partyRevision, version, status,
+                AdventurePlanConfiguration.defaults(), stages, currentStage, failureReason, updatedAt);
+    }
+
+    public static AdventureStoryPlan rehydrate(UUID planId, SessionId sessionId, long packageRevision, long partyRevision,
+            long version, AdventureStoryPlanStatus status, AdventurePlanConfiguration configuration,
+            List<AdventureStoryPlanStage> stages, int currentStage, String failureReason, Instant updatedAt) {
+        return new AdventureStoryPlan(planId, sessionId, packageRevision, partyRevision, version, status,
+                configuration, stages, currentStage, failureReason, updatedAt);
     }
 
     public UUID planId() { return planId; }
@@ -59,6 +75,7 @@ public final class AdventureStoryPlan {
     public long packageRevision() { return packageRevision; }
     public long partyRevision() { return partyRevision; }
     public long version() { return version; }
+    public AdventurePlanConfiguration configuration() { return configuration; }
     public AdventureStoryPlanStatus status() { return status; }
     public List<AdventureStoryPlanStage> stages() { return stages; }
     public int stageCount() { return stages.size(); }
