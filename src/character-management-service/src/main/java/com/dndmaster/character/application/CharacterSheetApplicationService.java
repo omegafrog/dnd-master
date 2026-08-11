@@ -36,10 +36,13 @@ public final class CharacterSheetApplicationService {
 
     public CharacterSheet createSheet(CreateCharacterSheetCommand command) {
         Objects.requireNonNull(command, "command must not be null");
-        if (!sessionPolicyPort.policyFor(command.sessionId()).acceptingCharacterSheets()) {
+        SessionCharacterPolicy sessionPolicy = sessionPolicyPort.policyFor(command.sessionId());
+        if (!sessionPolicy.acceptingCharacterSheets()) {
             throw new IllegalStateException("adventure session no longer accepts character sheets");
         }
-        SheetEdition applied = adventureEditionHttpPort.getAppliedEdition(command.sessionId().asAdventureId());
+        SheetEdition applied = sessionPolicy.characterEdition() == null
+                ? adventureEditionHttpPort.getAppliedEdition(command.sessionId().asAdventureId())
+                : SheetEdition.valueOf(sessionPolicy.characterEdition());
         var sheet = new CharacterSheet(
                 CharacterSheetId.generate(), command.sessionId(), command.ownerPlayerId(), command.requestedEdition(), command.data());
         sheet.authorizeOpen(new CharacterSheetOpenRequest(command.sessionId().asAdventureId(), applied, command.requestedEdition()));

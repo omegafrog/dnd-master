@@ -31,10 +31,11 @@ public final class CrossContextHttpSessionCharacterPolicyAdapter implements Sess
             HttpResponse<String> response = client.send(HttpRequest.newBuilder(baseUri.resolve(path)).timeout(timeout).header("X-Internal-Service", "character-management").GET().build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() / 100 != 2) throw new IllegalStateException("adventure session policy lookup failed: " + response.statusCode());
             PolicyView view = objectMapper.readValue(response.body(), PolicyView.class);
-            return new SessionCharacterPolicy(view.acceptingCharacterSheets(), view.nameMutable(), view.levelMutable(), view.raceMutable(), view.characterClassMutable(), view.backgroundMutable(), view.startingAbilitiesMutable());
+            return new SessionCharacterPolicy(view.acceptingCharacterSheets(), view.nameMutable(), view.levelMutable(), view.raceMutable(), view.characterClassMutable(), view.backgroundMutable(), view.startingAbilitiesMutable(), view.characterEdition());
         } catch (Exception exception) { throw new IllegalStateException("could not load adventure session character policy", exception); }
     }
 
     private record PolicyView(boolean acceptingCharacterSheets, boolean nameMutable, boolean levelMutable,
-            boolean raceMutable, boolean characterClassMutable, boolean backgroundMutable, boolean startingAbilitiesMutable) {}
+            boolean raceMutable, boolean characterClassMutable, boolean backgroundMutable, boolean startingAbilitiesMutable,
+            String characterEdition) {}
 }

@@ -111,7 +111,7 @@ class ScenarioPreparationControllerTest {
                 "node-race", null, "race", "종족", "SINGLE_SELECT", null,
                 List.of("Dwarf", "Elf"), List.of(), "EXTRACTED", true, "HIGH",
                 "Choose a race", List.of(), List.of(), List.of());
-        when(service.generateBlueprintDraft(eq(packageId), any(OwnerPlayerId.class))).thenReturn(
+        when(service.generateBlueprintDraft(eq(packageId), any(OwnerPlayerId.class), eq("DND_5E_2014"))).thenReturn(
                 new CharacterCreationBlueprintView(true, "draft", 1, 1, List.of(), 2,
                         List.of(), "NEEDS_REVIEW", List.of(node)));
 
@@ -121,6 +121,6 @@ class ScenarioPreparationControllerTest {
                 .andExpect(jsonPath("$.status").value("NEEDS_REVIEW"))
                 .andExpect(jsonPath("$.characterSheetTree[0].key").value("race"))
                 .andExpect(jsonPath("$.characterSheetTree[0].options[1]").value("Elf"));
-        verify(service).generateBlueprintDraft(eq(packageId), any(OwnerPlayerId.class));
+        verify(service).generateBlueprintDraft(eq(packageId), any(OwnerPlayerId.class), eq("DND_5E_2014"));
     }
 }

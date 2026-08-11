@@ -15,6 +15,7 @@ public final class AdventureSession {
     private final long scenarioPackageRevision;
     private final UUID blueprintId;
     private final long blueprintRevision;
+    private final String characterEdition;
     private final List<AdventurePartyMember> party;
     private final AdventureSessionRuntimeConfiguration runtimeConfiguration;
     private Status status;
@@ -22,7 +23,7 @@ public final class AdventureSession {
     private UUID startRequestId;
     private long version;
 
-    private AdventureSession(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, UUID blueprintId, long blueprintRevision, int characterLimit,
+    private AdventureSession(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, UUID blueprintId, long blueprintRevision, String characterEdition, int characterLimit,
             List<AdventurePartyMember> party, AdventureSessionRuntimeConfiguration runtimeConfiguration, Status status, AdventureId startedAdventureId, UUID startRequestId, long version) {
         this.id = Objects.requireNonNull(id, "session id must not be null");
         this.ownerPlayerId = Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
@@ -32,10 +33,12 @@ public final class AdventureSession {
         this.blueprintId = Objects.requireNonNull(blueprintId, "blueprint id must not be null");
         if (blueprintRevision < 1) throw new IllegalArgumentException("blueprint revision must be positive");
         this.blueprintRevision = blueprintRevision;
+        if (characterEdition == null || characterEdition.isBlank()) throw new IllegalArgumentException("character edition must not be blank");
+        this.characterEdition = characterEdition;
         if (characterLimit < 1) throw new IllegalArgumentException("character limit must be positive");
         this.characterLimit = characterLimit;
         this.party = new ArrayList<>(Objects.requireNonNull(party, "party must not be null"));
-        if (directPartySize() > characterLimit) throw new IllegalArgumentException("party exceeds character limit");
+        if (this.party.size() > characterLimit) throw new IllegalArgumentException("party exceeds character limit");
         this.runtimeConfiguration = runtimeConfiguration;
         this.status = Objects.requireNonNull(status, "session status must not be null");
         this.startedAdventureId = startedAdventureId;
@@ -48,41 +51,50 @@ public final class AdventureSession {
         return create(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, scenarioPackageId, 1, characterLimit);
     }
     public static AdventureSession create(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, UUID blueprintId, long blueprintRevision, int characterLimit) {
-        return new AdventureSession(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, blueprintId, blueprintRevision, characterLimit, List.of(), null, Status.DRAFT, null, null, 0);
+        return create(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, blueprintId, blueprintRevision, "DND_5E_2014", characterLimit);
+    }
+    public static AdventureSession create(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, UUID blueprintId, long blueprintRevision, String characterEdition, int characterLimit) {
+        return new AdventureSession(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, blueprintId, blueprintRevision, characterEdition, characterLimit, List.of(), null, Status.DRAFT, null, null, 0);
     }
     public static AdventureSession create(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, UUID blueprintId, long blueprintRevision, int characterLimit, AdventureSessionRuntimeConfiguration runtimeConfiguration) {
-        return new AdventureSession(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, blueprintId, blueprintRevision, characterLimit, List.of(), Objects.requireNonNull(runtimeConfiguration, "runtime configuration must not be null"), Status.DRAFT, null, null, 0);
+        return create(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, blueprintId, blueprintRevision, "DND_5E_2014", characterLimit, runtimeConfiguration);
+    }
+    public static AdventureSession create(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, UUID blueprintId, long blueprintRevision, String characterEdition, int characterLimit, AdventureSessionRuntimeConfiguration runtimeConfiguration) {
+        return new AdventureSession(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, blueprintId, blueprintRevision, characterEdition, characterLimit, List.of(), Objects.requireNonNull(runtimeConfiguration, "runtime configuration must not be null"), Status.DRAFT, null, null, 0);
     }
 
     public static AdventureSession create(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, int characterLimit,
             AdventureSessionRuntimeConfiguration runtimeConfiguration) {
-        return new AdventureSession(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, scenarioPackageId, 1, characterLimit, List.of(), Objects.requireNonNull(runtimeConfiguration, "runtime configuration must not be null"), Status.DRAFT, null, null, 0);
+        return new AdventureSession(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, scenarioPackageId, 1, "DND_5E_2014", characterLimit, List.of(), Objects.requireNonNull(runtimeConfiguration, "runtime configuration must not be null"), Status.DRAFT, null, null, 0);
     }
 
     public static AdventureSession rehydrate(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, int characterLimit,
             List<AdventurePartyMember> party, long version) {
-        return createRehydrated(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, scenarioPackageId, 1, characterLimit, party, null, Status.DRAFT, null, null, version);
+        return createRehydrated(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, scenarioPackageId, 1, "DND_5E_2014", characterLimit, party, null, Status.DRAFT, null, null, version);
     }
 
     public static AdventureSession rehydrate(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, int characterLimit,
             List<AdventurePartyMember> party, AdventureSessionRuntimeConfiguration runtimeConfiguration, long version) {
-        return createRehydrated(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, scenarioPackageId, 1, characterLimit, party, runtimeConfiguration, Status.DRAFT, null, null, version);
+        return createRehydrated(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, scenarioPackageId, 1, "DND_5E_2014", characterLimit, party, runtimeConfiguration, Status.DRAFT, null, null, version);
     }
     public static AdventureSession rehydrate(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, int characterLimit,
             List<AdventurePartyMember> party, AdventureSessionRuntimeConfiguration runtimeConfiguration, Status status, AdventureId startedAdventureId, UUID startRequestId, long version) {
-        return createRehydrated(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, scenarioPackageId, 1, characterLimit, party, runtimeConfiguration, status, startedAdventureId, startRequestId, version);
+        return createRehydrated(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, scenarioPackageId, 1, "DND_5E_2014", characterLimit, party, runtimeConfiguration, status, startedAdventureId, startRequestId, version);
     }
     public static AdventureSession rehydrate(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, UUID blueprintId, long blueprintRevision, int characterLimit, List<AdventurePartyMember> party, AdventureSessionRuntimeConfiguration runtimeConfiguration, Status status, AdventureId startedAdventureId, UUID startRequestId, long version) {
-        return createRehydrated(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, blueprintId, blueprintRevision, characterLimit, party, runtimeConfiguration, status, startedAdventureId, startRequestId, version);
+        return createRehydrated(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, blueprintId, blueprintRevision, "DND_5E_2014", characterLimit, party, runtimeConfiguration, status, startedAdventureId, startRequestId, version);
     }
-    private static AdventureSession createRehydrated(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, UUID blueprintId, long blueprintRevision, int characterLimit, List<AdventurePartyMember> party, AdventureSessionRuntimeConfiguration runtimeConfiguration, Status status, AdventureId startedAdventureId, UUID startRequestId, long version) {
-        return new AdventureSession(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, blueprintId, blueprintRevision, characterLimit, party, runtimeConfiguration, status, startedAdventureId, startRequestId, version);
+    public static AdventureSession rehydrate(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, UUID blueprintId, long blueprintRevision, String characterEdition, int characterLimit, List<AdventurePartyMember> party, AdventureSessionRuntimeConfiguration runtimeConfiguration, Status status, AdventureId startedAdventureId, UUID startRequestId, long version) {
+        return createRehydrated(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, blueprintId, blueprintRevision, characterEdition, characterLimit, party, runtimeConfiguration, status, startedAdventureId, startRequestId, version);
+    }
+    private static AdventureSession createRehydrated(SessionId id, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId, long scenarioPackageRevision, UUID blueprintId, long blueprintRevision, String characterEdition, int characterLimit, List<AdventurePartyMember> party, AdventureSessionRuntimeConfiguration runtimeConfiguration, Status status, AdventureId startedAdventureId, UUID startRequestId, long version) {
+        return new AdventureSession(id, ownerPlayerId, scenarioPackageId, scenarioPackageRevision, blueprintId, blueprintRevision, characterEdition, characterLimit, party, runtimeConfiguration, status, startedAdventureId, startRequestId, version);
     }
 
     public void addPartyMember(AdventurePartyMember member) {
         requireDraft();
         Objects.requireNonNull(member, "party member must not be null");
-        if (member.controlMode() == ControlMode.DIRECT && directPartySize() >= characterLimit) {
+        if (party.size() >= characterLimit) {
             throw new IllegalStateException("party exceeds storybook character limit");
         }
         if (party.stream().anyMatch(existing -> existing.characterSheetId().equals(member.characterSheetId()))) {
@@ -90,6 +102,12 @@ public final class AdventureSession {
         }
         party.add(member);
         version++;
+    }
+
+    /** Explicit candidate adoption is the only transition from AI proposal to party member. */
+    public void adoptAiCompanion(AiCompanionCandidate candidate, CharacterSheetId characterSheetId, ControlMode controlMode) {
+        Objects.requireNonNull(candidate, "candidate must not be null");
+        addPartyMember(new AdventurePartyMember(Objects.requireNonNull(characterSheetId), controlMode, false, false, false, false, false, false));
     }
 
     private int directPartySize() {
@@ -102,11 +120,6 @@ public final class AdventureSession {
         int index = indexOf(member.characterSheetId());
         if (index < 0) throw new IllegalArgumentException("character sheet is not in party");
         AdventurePartyMember current = party.get(index);
-        if (member.controlMode() == ControlMode.DIRECT
-                && current.controlMode() != ControlMode.DIRECT
-                && directPartySize() >= characterLimit) {
-            throw new IllegalStateException("party exceeds storybook character limit");
-        }
         party.set(index, member);
         version++;
     }
@@ -155,7 +168,8 @@ public final class AdventureSession {
     }
     public void validateStart() {
         if (runtimeConfiguration == null) throw new IllegalStateException("adventure session runtime configuration is required");
-        if (party.isEmpty()) throw new IllegalStateException("adventure session requires at least one party member");
+        if (party.size() != characterLimit) throw new IllegalStateException("adventure session requires the configured party capacity");
+        if (directPartySize() < 1) throw new IllegalStateException("adventure session requires the solo player's character");
     }
     private void requireDraft() { if (status != Status.DRAFT) throw new IllegalStateException("started adventure session party is frozen"); }
     private void requireStarted() { if (status != Status.STARTED) throw new IllegalStateException("adventure session is not started"); }
@@ -170,6 +184,7 @@ public final class AdventureSession {
     public long scenarioPackageRevision() { return scenarioPackageRevision; }
     public UUID blueprintId() { return blueprintId; }
     public long blueprintRevision() { return blueprintRevision; }
+    public String characterEdition() { return characterEdition; }
     public List<AdventurePartyMember> party() { return List.copyOf(party); }
     public AdventureSessionRuntimeConfiguration runtimeConfiguration() { return runtimeConfiguration; }
     public Status status() { return status; }

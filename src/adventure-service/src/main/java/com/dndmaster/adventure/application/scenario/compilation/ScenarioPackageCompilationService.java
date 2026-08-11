@@ -38,7 +38,7 @@ public final class ScenarioPackageCompilationService {
     private static final String COMPILER_VERSION = "resolution-compiler-v1";
     private static final String DICE_PATTERN = "(?i)\\d+d\\d+(?:\\s*[+-]\\s*\\d+)?";
     private static final Pattern CHARACTER_LIMIT_PATTERN = Pattern.compile(
-            "(?i)(?:최대|up\\s+to|maximum(?:\\s+of)?|max)\\s*(\\d+)\\s*(?:명|players?|users?)");
+            "(?i)(?:(?:exactly|must\\s+be\\s+(?:a\\s+)?party\\s+of|requires?\\s+(?:a\\s+)?party\\s+of|반드시|정확히|꼭)\\s+)?(?:(?:최대|up\\s+to|maximum(?:\\s+of)?|max|recommended|권장)\\s*)?(?:party\\s+of\\s*)?(\\d+)\\s*(?:명|players?|users?)(?:\\s*(?:exactly|must|required|반드시|정확히|꼭))?");
     private final ScenarioPackageRepository repository;
     private final ResolutionOverrideRepository overrideRepository;
     private final CharacterCreationBlueprintCompiler blueprintCompiler = new CharacterCreationBlueprintCompiler();

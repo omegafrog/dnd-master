@@ -84,6 +84,18 @@ class CharacterSheetApplicationServiceTest {
     }
 
     @Test
+    void rejectsSheetWhenItsSessionHasAPinnedDifferentEdition() {
+        AdventureId sessionId = adventure();
+        CharacterSheetApplicationService service = new CharacterSheetApplicationService(
+                new InMemoryRepository(), ignored -> SheetEdition.DND_5E_2024,
+                ignored -> new SessionCharacterPolicy(true, true, true, true, true, true, true, "DND_5E_2014"));
+
+        assertThrows(CharacterSheetEditionMismatchException.class, () -> service.createSheet(
+                new CreateCharacterSheetCommand(sessionId, SheetEdition.DND_5E_2024,
+                        new CharacterSheetData2024("Aria", 1, false))));
+    }
+
+    @Test
     void rejectsOperationWhenAdventureEditionHttpLookupFails() {
         CharacterSheetApplicationService service = service(
                 new InMemoryRepository(),

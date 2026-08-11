@@ -15,10 +15,18 @@ public record CharacterLimit(int maximumCharacters, ScenarioSourceReference evid
     }
 
     public static CharacterLimit defaultLimit() {
-        return new CharacterLimit(1, null, "");
+        // An absent storybook constraint must not silently turn a game into solo play.
+        // This is an upper bound for the party-size picker, not a mandated party size.
+        return new CharacterLimit(6, null, "");
     }
 
     public Optional<ScenarioSourceReference> source() {
         return Optional.ofNullable(evidence);
+    }
+
+    /** True only when the source explicitly mandates this exact party size. */
+    public boolean isExactPartySize() {
+        String normalized = sourceQuote.toLowerCase(java.util.Locale.ROOT);
+        return normalized.matches(".*(?:exactly|must\\s+be|requires?\\s+a\\s+party\\s+of|반드시|정확히|꼭).*");
     }
 }

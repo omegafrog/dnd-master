@@ -138,6 +138,19 @@ describe('HttpSetupApi', () => {
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ expectedRevision: 8, parentId: 'node-scores', key: 'con', label: 'CON' })
   })
 
+  it('generates a blueprint from the selected catalog rulebook revision', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ status: 200, ok: true, headers: new Headers(), json: async () => ({}) } as Response)
+    vi.stubGlobal('fetch', fetchMock)
+    const api = new HttpSetupApi(() => 'owner-token')
+
+    await api.generateBlueprintDraft?.('package-1', 'catalog-5e', 2)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/scenario-packages/package-1/character-blueprint/draft?catalogRulebookId=catalog-5e&catalogExtractionVersion=2',
+      expect.any(Object),
+    )
+  })
+
   it('creates a character sheet through the internal character endpoint', async () => {
     const fetchMock = vi.fn(async () => ({
       status: 200,

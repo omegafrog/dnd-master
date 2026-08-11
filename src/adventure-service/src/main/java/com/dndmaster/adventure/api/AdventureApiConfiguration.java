@@ -115,8 +115,10 @@ public class AdventureApiConfiguration {
             CharacterSheetOwnershipPort ownershipPort,
             AdventureStoryPlanRepository storyPlanRepository,
             SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
-            AdventurePrologueApplicationService prologueService) {
-        return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository, runtimeBindingApplicationService, new AdventureSessionStartCoordinator(startOutboxRepository), ownershipPort, storyPlanRepository, sessionKnowledgeSetRepository, prologueService);
+            AdventurePrologueApplicationService prologueService,
+            com.dndmaster.adventure.application.session.AiCompanionGenerationPort aiCompanionGenerationPort,
+            com.dndmaster.adventure.application.session.AiCompanionSheetCreationPort aiCompanionSheetCreationPort) {
+        return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository, runtimeBindingApplicationService, new AdventureSessionStartCoordinator(startOutboxRepository), ownershipPort, storyPlanRepository, sessionKnowledgeSetRepository, prologueService, aiCompanionGenerationPort, aiCompanionSheetCreationPort);
     }
 
     @Bean
@@ -324,6 +326,22 @@ public class AdventureApiConfiguration {
     @Bean
     CharacterSheetOwnershipPort characterSheetOwnershipPort(ObjectMapper objectMapper, @Value("${adventure.integration.character-management.base-url:http://127.0.0.1:8080/}") String baseUrl, @Value("${adventure.integration.internal-token:local-dev-internal-token}") String token) {
         return new CrossContextHttpCharacterSheetOwnershipGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(10), objectMapper, token);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.session.AiCompanionGenerationPort aiCompanionGenerationPort(ObjectMapper objectMapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:local-dev-internal-token}") String token) {
+        return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAiCompanionGenerationGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(30), objectMapper, token);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.session.AiCompanionSheetCreationPort aiCompanionSheetCreationPort(
+            ObjectMapper objectMapper, @Value("${adventure.integration.character-management.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:local-dev-internal-token}") String token) {
+        return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAiCompanionCharacterSheetGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(15), objectMapper, token);
     }
 
     @Bean

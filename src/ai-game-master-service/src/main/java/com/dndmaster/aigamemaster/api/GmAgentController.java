@@ -104,6 +104,28 @@ public final class GmAgentController {
         });
     }
 
+    @PostMapping("/internal/v1/gm/companion-candidates")
+    CompanionCandidateResponse companionCandidate(@RequestHeader(value = "X-Internal-Token", required = false) String token,
+                                                   @RequestBody CompanionCandidateRequest request) {
+        requestGuard.internal(token);
+        if (request == null || request.sessionId() == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "sessionId required");
+        try {
+            var parser = (com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<CompanionCandidateResponse>) json -> {
+                try {
+                    CompanionCandidateResponse result = mapper.readValue(json, CompanionCandidateResponse.class);
+                    if (blank(result.name()) || blank(result.race()) || blank(result.characterClass()) || blank(result.sheetSummary())) {
+                        throw new IllegalArgumentException("candidate fields required");
+                    }
+                    return result;
+                } catch (Exception exception) { throw new com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException("companion candidate invalid"); }
+            };
+            return request.provider() == null || request.provider().isBlank()
+                    ? adapter.complete("companion-candidate:" + request.sessionId() + ":" + UUID.randomUUID(), companionPrompt(request), parser)
+                    : adapter.complete("companion-candidate:" + request.sessionId() + ":" + UUID.randomUUID(), companionPrompt(request), parser,
+                            new GmProviderRequest(request.provider(), request.model(), request.reasoning()));
+        } catch (RuntimeException failure) { throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "GM companion candidate unavailable", failure); }
+    }
+
     @PostMapping("/internal/v1/gm/quality-evaluation")
     GmQualityEvaluationService.EvaluationReport evaluateQuality(
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
@@ -120,6 +142,15 @@ public final class GmAgentController {
                 sessionId=%s sourceTurnId=%s context=%s exactTail=%s snapshotReferences=%s
                 """.formatted(r.sessionId(), r.sourceTurnId(), r.context(), r.exactTail(), r.snapshotReferences());
     }
+    private static String companionPrompt(CompanionCandidateRequest request) {
+        return """
+                Return exactly one JSON object and no markdown with name,race,characterClass,sheetSummary.
+                Create a legal D&D 5e (2014) level-1 fighter companion. Allowed races: 드워프, 엘프, 하플링, 인간.
+                characterClass must be 파이터. Summary must be one concise Korean sentence.
+                Do not use copyrighted character names. sessionId=%s
+                """.formatted(request.sessionId());
+    }
+    private static boolean blank(String value) { return value == null || value.isBlank(); }
 
     private static String prompt(Request r) {
         return """
@@ -142,6 +173,8 @@ public final class GmAgentController {
                           List<?> storybook, List<?> rulebook, List<?> resolution, List<String> recentTurns,
                           List<String> characterSnapshots, String storyPlanContext, String provider, String model,
                           String reasoning) {}
+    public record CompanionCandidateRequest(UUID sessionId, String provider, String model, String reasoning) {}
+    public record CompanionCandidateResponse(String name, String race, String characterClass, String sheetSummary) {}
 
     public record CompactionRequest(UUID sessionId, UUID sourceTurnId, String context, Object exactTail, Object snapshotReferences) {}
 

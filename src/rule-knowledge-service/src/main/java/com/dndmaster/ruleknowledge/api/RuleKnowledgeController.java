@@ -408,13 +408,14 @@ public class RuleKnowledgeController {
         }
         Map<DocumentType, List<CharacterContextDocumentScope>> scope = new java.util.EnumMap<>(DocumentType.class);
         Set<String> seen = new HashSet<>();
+        boolean catalogScope = isCatalogScope(request.documents().stream().map(CharacterContextScopeRequest::documentId).toList());
         for (CharacterContextScopeRequest document : request.documents()) {
             if (!seen.add(document.documentId() + ":" + document.extractionVersion())) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope must not contain duplicates");
             }
             StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(document.documentId()))
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "document is not registered"));
-            if (!registration.ownerPlayerId().value().equals(request.ownerId())) {
+            if (!catalogScope && !registration.ownerPlayerId().value().equals(request.ownerId())) {
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN, "document does not belong to authenticated player");
             }
             if (registration.processingStatus() != ProcessingStatus.INDEXED
@@ -430,7 +431,7 @@ public class RuleKnowledgeController {
         }
         Map<DocumentType, Double> thresholds = request.thresholds() == null ? Map.of() : request.thresholds();
         List<CharacterContextEvidence> evidence = characterContextSearchService.search(new CharacterContextSearchQuery(
-                new OwnerPlayerId(request.ownerId()), scope, thresholds, request.situation(),
+                new OwnerPlayerId(catalogScope ? CATALOG_OWNER : request.ownerId()), scope, thresholds, request.situation(),
                 request.tokenBudget() == null ? 2000 : request.tokenBudget()));
         return new CharacterContextSearchResponse(request.ownerId(), evidence.stream()
                 .map(result -> new CharacterContextEvidenceItem(

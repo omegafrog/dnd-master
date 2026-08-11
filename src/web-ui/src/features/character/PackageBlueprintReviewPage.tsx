@@ -5,9 +5,19 @@ import { CharacterInputTree } from './CharacterInputTree'
 
 type PackageSetupApi = {
   getPlayPreparation: NonNullable<SetupApi['getPlayPreparation']>
+  generateBlueprintDraft?: SetupApi['generateBlueprintDraft']
   resolveBlueprint?: SetupApi['resolveBlueprint']
   addBlueprintChild?: SetupApi['addBlueprintChild']
   publishBlueprint?: SetupApi['publishBlueprint']
+}
+
+type CatalogRulebook = {
+  catalogRevisionId: string
+  displayName: string
+  edition: string
+  rulebookId: string | null
+  status: string
+  extractionVersion: number
 }
 
 type SessionApi = Pick<AdventureSessionApi, 'create'>
@@ -29,6 +39,9 @@ export function PackageBlueprintReviewPage({
   const [saveStates, setSaveStates] = useState<Record<string, SaveState>>({})
   const [message, setMessage] = useState('')
   const [creatingSession, setCreatingSession] = useState(false)
+  const [catalogRulebooks, setCatalogRulebooks] = useState<CatalogRulebook[]>([])
+  const [selectedCatalogRulebookId, setSelectedCatalogRulebookId] = useState('')
+  const [generatingDraft, setGeneratingDraft] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -37,6 +50,20 @@ export function PackageBlueprintReviewPage({
       .catch(error => { if (active) setMessage(error instanceof Error ? error.message : '캐릭터 생성 설정을 불러오지 못했습니다.') })
     return () => { active = false }
   }, [packageId, setupApi])
+
+  useEffect(() => {
+    let active = true
+    void fetch('/api/v1/rulebook-catalog')
+      .then(response => response.ok ? response.json() : [])
+      .then((items: CatalogRulebook[]) => {
+        if (!active) return
+        const ready = items.filter(item => item.status === 'READY' && item.rulebookId && item.extractionVersion > 0)
+        setCatalogRulebooks(ready)
+        if (ready.length === 1) setSelectedCatalogRulebookId(ready[0].rulebookId!)
+      })
+      .catch(() => { if (active) setCatalogRulebooks([]) })
+    return () => { active = false }
+  }, [])
 
   const nodes = useMemo(() => flatten(preparation?.characterCreationBlueprint.roots ?? []), [preparation])
   const dirtyCount = Object.values(saveStates).filter(state => state === 'DIRTY' || state === 'ERROR').length
@@ -90,6 +117,26 @@ export function PackageBlueprintReviewPage({
     }
   }
 
+  async function generateDraft() {
+    const selected = catalogRulebooks.find(item => item.rulebookId === selectedCatalogRulebookId)
+    if (!selected || !setupApi.generateBlueprintDraft) {
+      setMessage('기본 스키마에 사용할 공개 룰북을 선택하세요.')
+      return
+    }
+    setGeneratingDraft(true)
+    try {
+      await setupApi.generateBlueprintDraft(packageId, selected.rulebookId!, selected.extractionVersion)
+      setPreparation(await setupApi.getPlayPreparation(packageId))
+      setValues({})
+      setSaveStates({})
+      setMessage('룰북 기본 스키마와 스토리북 추가 필드를 새로 추출했습니다. 스토리북 제안을 검토하세요.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '캐릭터 시트 스키마를 생성하지 못했습니다.')
+    } finally {
+      setGeneratingDraft(false)
+    }
+  }
+
   async function createSession() {
     const blueprint = preparation?.characterCreationBlueprint
     if (!blueprint?.available || blueprint.status !== 'PUBLISHED' || blueprint.revision == null) return
@@ -116,7 +163,17 @@ export function PackageBlueprintReviewPage({
       <h2 id="package-blueprint-review-heading">캐릭터 생성 설정 검토</h2>
       <p>시나리오 패키지 {packageId}</p>
       <p><a href="#/setup">새 패키지 만들기</a></p>
-      <p>스토리북 제안과 추가 필드를 검토합니다. 실제 캐릭터 선택은 다음 캐릭터 생성 페이지에서 진행합니다.</p>
+      <p>룰북은 기본 시트 구조와 선택지를 만들고, 스토리북은 별도의 검토 가능한 추가 필드를 제안합니다.</p>
+      <label>
+        기본 룰북
+        <select aria-label="기본 룰북" value={selectedCatalogRulebookId} onChange={event => setSelectedCatalogRulebookId(event.target.value)}>
+          <option value="">선택하세요</option>
+          {catalogRulebooks.map(rulebook => <option key={rulebook.catalogRevisionId} value={rulebook.rulebookId!}>{rulebook.displayName} · {rulebook.edition}</option>)}
+        </select>
+      </label>
+      <button type="button" onClick={() => void generateDraft()} disabled={generatingDraft || !selectedCatalogRulebookId}>
+        {generatingDraft ? '룰북·스토리북 분석 중…' : '룰북으로 기본 스키마 생성'}
+      </button>
       {message && <p role="status">{message}</p>}
       {preparation.blockers.length > 0 && (
         <ul aria-label="준비 차단 사유">{preparation.blockers.map(blocker => <li key={blocker}>{blocker}</li>)}</ul>

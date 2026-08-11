@@ -64,6 +64,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
   const [sessions, setSessions] = useState<AdventureSessionView[]>([])
   const [compilation, setCompilation] = useState<ScenarioCompilationView | null>(null)
   const [compilationFailure, setCompilationFailure] = useState<string | null>(null)
+  const [partySize, setPartySize] = useState(4)
   const [runtimeOptions, setRuntimeOptions] = useState<RuntimeOptionsView | null>(null)
   const [selectedEngineId, setSelectedEngineId] = useState('')
   const [selectedToolIds, setSelectedToolIds] = useState<string[]>([])
@@ -249,7 +250,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
     if (!scenarioPackage || !sessionApi?.create || !api.getPlayPreparation) return
     try {
       const preparation = await api.getPlayPreparation(scenarioPackage.packageId)
-      const session = await sessionApi.create({ scenarioPackageId: scenarioPackage.packageId, blueprintId: scenarioPackage.packageId, blueprintRevision: preparation.characterCreationBlueprint.revision ?? 0 })
+      const session = await sessionApi.create({ scenarioPackageId: scenarioPackage.packageId, blueprintId: scenarioPackage.packageId, blueprintRevision: preparation.characterCreationBlueprint.revision ?? 0, partySize: Math.min(partySize, scenarioPackage.characterLimit.maximumCharacters) })
       window.location.hash = `#/sessions/${session.sessionId}/party`
     } catch (error) {
       onError(error instanceof Error ? error.message : '모험 세션을 만들지 못했습니다.')
@@ -317,6 +318,14 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
             <div role="status">
               <p>패키지 {scenarioPackage.packageId} · {scenarioPackage.reportStatus}</p>
               <p>캐릭터 한도: {scenarioPackage.characterLimit.maximumCharacters}명</p>
+              <label>
+                파티 인원
+                <Select aria-label="파티 인원" value={partySize} onChange={event => setPartySize(Number(event.currentTarget.value))}>
+                  {Array.from({ length: scenarioPackage.characterLimit.maximumCharacters }, (_, index) => index + 1).map(size => (
+                    <option key={size} value={size}>{size}명</option>
+                  ))}
+                </Select>
+              </label>
               <Button type="button" onClick={() => { window.location.hash = `#/scenario-packages/${scenarioPackage.packageId}/character-blueprint` }}>
                 캐릭터 생성 시작
               </Button>
@@ -325,7 +334,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
               </Button>
               {scenarioPackage.characterLimit.source ? (
                 <p>한도 근거: {scenarioPackage.characterLimit.source.locator} · {scenarioPackage.characterLimit.sourceQuote}</p>
-              ) : <p>한도 근거: 추출되지 않아 기본값 1명 적용</p>}
+              ) : <p>고정 인원 조건이 없어 1~{scenarioPackage.characterLimit.maximumCharacters}명 중 선택할 수 있습니다.</p>}
               {scenarioPackage.warnings.length > 0 ? <ul>{scenarioPackage.warnings.map(warning => <li key={warning}>{warning}</li>)}</ul> : null}
             </div>
           ) : null}

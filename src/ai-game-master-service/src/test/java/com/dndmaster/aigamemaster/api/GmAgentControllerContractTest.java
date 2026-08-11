@@ -2,6 +2,7 @@ package com.dndmaster.aigamemaster.api;
 
 import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.util.List;
 import java.util.UUID;
@@ -9,6 +10,35 @@ import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
 
 class GmAgentControllerContractTest {
+    @Test
+    void generates_a_validated_companion_candidate_from_the_configured_agent() {
+        var controller = new GmAgentController(new com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt,
+                                             com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                return parser.parse("{\"name\":\"브린\",\"race\":\"드워프\",\"characterClass\":\"파이터\",\"sheetSummary\":\"방패로 전열을 지키는 1레벨 전사.\"}");
+            }
+        }, new com.fasterxml.jackson.databind.ObjectMapper(), new ApiRequestGuard("token"));
+
+        var candidate = controller.companionCandidate("token",
+                new GmAgentController.CompanionCandidateRequest(UUID.randomUUID(), null, null, null));
+
+        assertEquals("브린", candidate.name());
+        assertEquals("파이터", candidate.characterClass());
+    }
+
+    @Test
+    void rejects_incomplete_companion_candidate_output() {
+        var controller = new GmAgentController(new com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt,
+                                             com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                return parser.parse("{\"name\":\"브린\"}");
+            }
+        }, new com.fasterxml.jackson.databind.ObjectMapper(), new ApiRequestGuard("token"));
+
+        var error = assertThrows(ResponseStatusException.class, () -> controller.companionCandidate("token",
+                new GmAgentController.CompanionCandidateRequest(UUID.randomUUID(), null, null, null)));
+        assertEquals(503, error.getStatusCode().value());
+    }
     @Test
     void provider_failure_is_not_committed_as_a_successful_fallback() {
         var controller = new GmAgentController(new com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter() {

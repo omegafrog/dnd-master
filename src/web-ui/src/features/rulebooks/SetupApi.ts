@@ -139,7 +139,8 @@ export type CharacterCreationBlueprintView = {
   storybookDocumentCount: number
   diagnostics: string[]
   revision?: number
-  status?: 'DRAFT' | 'NEEDS_REVIEW' | 'READY' | 'PUBLISHED'
+  status?: 'DRAFT' | 'NEEDS_REVIEW' | 'READY' | 'PUBLISHED' | 'UNAVAILABLE'
+  edition?: 'DND_5E_2014' | 'DND_5E_2024'
   fields?: Array<{
     key: string
     options: string[]
@@ -393,7 +394,7 @@ export interface SetupApi {
   getScenarioCompilation?(compilationId: string): Promise<ScenarioCompilationView>
   getScenarioPackage?(packageId: string): Promise<ScenarioPackageView>
   getPlayPreparation?(scenarioPackageId: string): Promise<PlayPreparationView>
-  generateBlueprintDraft?(scenarioPackageId: string): Promise<CharacterCreationBlueprintView>
+  generateBlueprintDraft?(scenarioPackageId: string, catalogRulebookId?: string, catalogExtractionVersion?: number): Promise<CharacterCreationBlueprintView>
   resolveBlueprint?(scenarioPackageId: string, fieldKey: string, value: string, expectedRevision?: number): Promise<unknown>
   addBlueprintChild?(scenarioPackageId: string, expectedRevision: number, parentId: string, key: string, label: string): Promise<unknown>
   addBlueprintOption?(scenarioPackageId: string, expectedRevision: number, fieldKey: string, option: string): Promise<unknown>
@@ -443,7 +444,7 @@ export class HttpSetupApi implements SetupApi {
       idempotencyKey: document.idempotencyKey,
       documentType: document.documentType,
       originalFilename: document.file.name,
-    })))], { type: 'application/json' }))
+    })))], { type: 'application/json' }), 'documents.json')
     documents.forEach(document => body.append('files', document.file, document.file.name))
     return request<{ documents: BatchRulebookView[] }>(`/api/v1/rulebooks?ownerPlayerId=${ownerId}`, {
       method: 'POST',
@@ -579,8 +580,12 @@ export class HttpSetupApi implements SetupApi {
     }, '플레이 준비 상태를 불러오지 못했습니다.')
   }
 
-  generateBlueprintDraft(scenarioPackageId: string) {
-    return request<CharacterCreationBlueprintView>(`/api/v1/scenario-packages/${scenarioPackageId}/character-blueprint/draft`, {
+  generateBlueprintDraft(scenarioPackageId: string, catalogRulebookId?: string, catalogExtractionVersion?: number) {
+    const params = new URLSearchParams()
+    if (catalogRulebookId) params.set('catalogRulebookId', catalogRulebookId)
+    if (catalogExtractionVersion) params.set('catalogExtractionVersion', String(catalogExtractionVersion))
+    const suffix = params.size > 0 ? `?${params}` : ''
+    return request<CharacterCreationBlueprintView>(`/api/v1/scenario-packages/${scenarioPackageId}/character-blueprint/draft${suffix}`, {
       method: 'POST', headers: this.authHeaders(),
     }, '인덱스에서 캐릭터 시트 초안을 생성하지 못했습니다.')
   }

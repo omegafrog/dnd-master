@@ -46,9 +46,9 @@ public class CharacterSheetController {
                 edition,
                 "DND_5E_2014",
                 1,
-                List.of("드워프", "엘프", "하플링", "인간"),
-                List.of("바바리안", "바드", "클레릭", "드루이드", "파이터", "몽크", "팔라딘", "레인저", "로그", "소서러", "워락", "위저드"),
-                List.of("수행사제", "사기꾼", "범죄자", "연예인", "민중 영웅", "길드 장인", "은둔자", "귀족", "이방인", "현자", "선원", "군인", "부랑아"));
+                Dnd5e2014CharacterContract.RACES,
+                Dnd5e2014CharacterContract.CLASSES,
+                Dnd5e2014CharacterContract.BACKGROUNDS);
     }
 
     @PostMapping("/internal/v1/adventure-sessions/{sessionId}/character-builds/evaluate")
@@ -77,6 +77,20 @@ public class CharacterSheetController {
                 SheetEdition.valueOf(request.edition()),
                 parseData(request.edition(), request.characterName(), request.level(), request.inspiration(), request.race(), request.characterClass(), request.background(), startingAbilities(request), derivedStatistics, request.characterBuild(), request.characterState())));
         return CharacterSheetResponse.from(sheet);
+    }
+
+    @PostMapping("/internal/v1/adventure-sessions/{sessionId}/ai-companion-sheets")
+    CharacterSheetResponse createAiCompanionSheet(@PathVariable UUID sessionId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody AiCompanionSheetRequest request) {
+        if (requestGuard == null) throw new IllegalStateException("request guard is not configured");
+        requestGuard.internal(token);
+        CharacterSheetRequest sheet = new CharacterSheetRequest(sessionId, request.ownerPlayerId(), "DND_5E_2014",
+                request.name(), 1, false, request.race(), "파이터", "군인",
+                "strength=15,dexterity=14,constitution=13,intelligence=12,wisdom=10,charisma=8", null,
+                "{\"schemaVersion\":1,\"skillProficiencies\":[\"운동\",\"지각\"],\"expertise\":[],\"equipmentSelections\":{\"pack\":\"dungeoneer\"},\"ruleChoices\":{},\"equippedItems\":{},\"ownedEquipment\":[],\"ownedWeaponIds\":[]}",
+                "{\"equippedItems\":{}}", Map.of("aiCandidateId", request.candidateId().toString(), "summary", request.sheetSummary()));
+        return createCharacterSheet(sessionId, sheet);
     }
 
     @GetMapping("/internal/v1/character-sheets/{sheetId}")
@@ -184,6 +198,8 @@ public class CharacterSheetController {
 
     public record CharacterSheetsDeletionRequest(UUID sessionId, java.util.List<UUID> characterSheetIds) {}
     public record CopyCharacterSheetRequest(UUID ownerPlayerId) {}
+    public record AiCompanionSheetRequest(UUID ownerPlayerId, UUID candidateId, String name, String race,
+                                          String characterClass, String sheetSummary) {}
     public record CharacterSheetSummaryResponse(UUID characterSheetId, String characterName, int level, String race, String characterClass, String background) {
         static CharacterSheetSummaryResponse from(CharacterSheet sheet) {
             return new CharacterSheetSummaryResponse(sheet.id().value(), sheet.data().characterName(), sheet.data().level(), sheet.data().race(), sheet.data().characterClass(), sheet.data().background());
