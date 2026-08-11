@@ -6,6 +6,8 @@ import { Select } from '../../components/ui/select'
 import type { KnowledgeDocumentView, ScenarioBundleRole, ScenarioBundleView, ScenarioPackageView, SetupApi } from './SetupApi'
 import type { AdventureSessionApi, AdventureSessionView } from '../adventure-session/AdventureSessionApi'
 
+type CatalogRulebook = { catalogRevisionId: string; displayName: string; edition: string; rulebookId: string | null; revisionNumber: number; status: string }
+
 const roles: Array<[ScenarioBundleRole, string]> = [
   ['RULEBOOK', '룰북'],
   ['MAIN_SCENARIO', '메인 시나리오'],
@@ -27,6 +29,8 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
   const [message, setMessage] = useState('')
   const [saving, setSaving] = useState(false)
   const [creatingSessionFor, setCreatingSessionFor] = useState<string | null>(null)
+  const [catalogRulebooks, setCatalogRulebooks] = useState<CatalogRulebook[]>([])
+  const [selectedCatalogRulebookIds, setSelectedCatalogRulebookIds] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     window.localStorage.setItem('dnd-selected-bundle-id', bundleId)
@@ -54,6 +58,12 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
     return () => { active = false }
   }, [api, bundleId, playerId, sessionApi])
 
+  useEffect(() => {
+    void fetch('/api/v1/rulebook-catalog').then(response => response.ok ? response.json() : []).then((items: CatalogRulebook[]) => {
+      setCatalogRulebooks(items.filter(item => item.status === 'READY' && item.rulebookId))
+    }).catch(() => setCatalogRulebooks([]))
+  }, [])
+
   const selectedDocuments = useMemo(() => documents.filter(document => selectedIds.has(document.knowledgeDocumentId)), [documents, selectedIds])
 
   function toggleDocument(documentId: string) {
@@ -61,6 +71,15 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
       const next = new Set(current)
       if (next.has(documentId)) next.delete(documentId)
       else next.add(documentId)
+      return next
+    })
+  }
+
+  function toggleCatalogRulebook(rulebookId: string) {
+    setSelectedCatalogRulebookIds(current => {
+      const next = new Set(current)
+      if (next.has(rulebookId)) next.delete(rulebookId)
+      else next.add(rulebookId)
       return next
     })
   }
@@ -85,6 +104,7 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
   }
 
   async function createAdventure(packageId: string) {
+    if (selectedCatalogRulebookIds.size === 0) { setMessage('공유 룰북을 하나 이상 선택하세요.'); return }
     if (!api.getPlayPreparation) return
     setCreatingSessionFor(packageId)
     setMessage('모험 세션을 준비하고 있습니다.')
@@ -94,6 +114,14 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
         scenarioPackageId: packageId,
         blueprintId: packageId,
         blueprintRevision: preparation.characterCreationBlueprint.revision ?? 0,
+        runtimeConfiguration: {
+          scenarioId: packageId,
+          ruleSetId: crypto.randomUUID(),
+          rulebookIds: [...selectedCatalogRulebookIds],
+          engineId: 'ollama',
+          toolIds: ['search', 'move'],
+          initialScene: 'opening',
+        },
       })
       window.location.hash = `#/sessions/${session.sessionId}/party`
     } catch (error) {
@@ -112,6 +140,7 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
         <h2 id="bundle-detail-title">번들 구성요소</h2>
         <p>{bundle.bundleId} · 현재 리비전 v{bundle.currentRevision}</p>
       </div>
+      <section className="setup-panel" aria-labelledby="catalog-selection-heading"><h3 id="catalog-selection-heading">공유 룰북 revision</h3>{catalogRulebooks.length === 0 ? <p>공개된 룰북이 없습니다.</p> : <ul>{catalogRulebooks.map(rulebook => <li key={rulebook.catalogRevisionId}><label><Checkbox checked={selectedCatalogRulebookIds.has(rulebook.rulebookId!)} onCheckedChange={() => toggleCatalogRulebook(rulebook.rulebookId!)} />{rulebook.displayName} · revision {rulebook.revisionNumber}</label></li>)}</ul>}</section>
       <Button type="button" onClick={() => void save()} disabled={saving || selectedDocuments.length === 0}>
         {saving ? '저장 중…' : '번들 변경사항 저장'}
       </Button>

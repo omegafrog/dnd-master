@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { AdventureSessionApi, AdventureSessionView, AdventureStoryPlanView } from './AdventureSessionApi'
 
-type StoryPlanApi = Pick<AdventureSessionApi, 'read' | 'readStoryPlan' | 'generateStoryPlan' | 'retryStoryPlan' | 'start'>
+type StoryPlanApi = Pick<AdventureSessionApi, 'read' | 'readStoryPlan' | 'generateStoryPlan' | 'retryStoryPlan' | 'start' | 'saveAppliedRuleSet'>
 
 export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; sessionId: string }) {
   const [session, setSession] = useState<AdventureSessionView | null>(null)
@@ -27,6 +27,11 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
   async function start() {
     if (!session || !plan || plan.status !== 'READY') return
     try {
+      const configuration = session.runtimeConfiguration
+      if (!configuration || configuration.rulebookIds.length === 0) throw new Error('공유 룰북을 하나 이상 선택하세요.')
+      const catalog = await fetch('/api/v1/rulebook-catalog').then(response => response.ok ? response.json() : []) as Array<{ rulebookId?: string; edition?: string }>
+      const edition = catalog.find(item => item.rulebookId && configuration.rulebookIds.includes(item.rulebookId))?.edition ?? 'DND_5E_2014'
+      await api.saveAppliedRuleSet(adventureId, configuration.ruleSetId, edition, configuration.rulebookIds)
       const started = await api.start(sessionId, session.version, adventureId)
       if (started.adventureId) window.location.hash = `#/adventures/${started.adventureId}`
     } catch (error) { setMessage(error instanceof Error ? error.message : '모험을 시작하지 못했습니다.') }

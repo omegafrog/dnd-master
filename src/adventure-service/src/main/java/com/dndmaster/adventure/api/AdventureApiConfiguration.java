@@ -955,27 +955,17 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    RulebookOwnershipHttpPort rulebookOwnershipHttpPort() {
-        return (rulebookId, owner) -> true;
+    RulebookOwnershipHttpPort rulebookOwnershipHttpPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long timeoutSeconds) {
+        return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRulebookOwnershipAdapter(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper);
     }
 
     @Bean
-    AppliedRuleSetRepository appliedRuleSetRepository() {
-        return new AppliedRuleSetRepository() {
-            private final java.util.Map<com.dndmaster.adventure.domain.ruleset.RuleSetId,
-                    com.dndmaster.adventure.domain.ruleset.AppliedRuleSet> store = new java.util.concurrent.ConcurrentHashMap<>();
-
-            @Override
-            public java.util.Optional<com.dndmaster.adventure.domain.ruleset.AppliedRuleSet> findById(
-                    com.dndmaster.adventure.domain.ruleset.RuleSetId id) {
-                return java.util.Optional.ofNullable(store.get(id));
-            }
-
-            @Override
-            public void save(com.dndmaster.adventure.domain.ruleset.AppliedRuleSet ruleSet) {
-                store.put(ruleSet.id(), ruleSet);
-            }
-        };
+    AppliedRuleSetRepository appliedRuleSetRepository(DataSource dataSource) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresAppliedRuleSetRepository(dataSource);
     }
 
     @Bean

@@ -100,6 +100,9 @@ export class AdventureSessionApi {
     this.startKeys.set(sessionId, requestId)
     return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/start`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match-Version': String(version), 'Idempotency-Key': requestId }, body: JSON.stringify({ adventureId }) })
   }
+  saveAppliedRuleSet(adventureId: string, ruleSetId: string, edition: string, rulebookIds: string[]) {
+    return this.request<{ ruleSetId: string }>(`/api/v1/adventures/${adventureId}/applied-rule-set`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ruleSetId, edition, rulebookIds }) })
+  }
   complete(sessionId: string, version: number) { return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/complete`, { method: 'POST', headers: { 'If-Match-Version': String(version) } }) }
   delete(sessionId: string, version: number) { return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}`, { method: 'DELETE', headers: { 'If-Match-Version': String(version) } }) }
   readStoryPlan(sessionId: string) { return this.request<AdventureStoryPlanView>(`/api/v1/adventure-sessions/${sessionId}/story-plan`) }
