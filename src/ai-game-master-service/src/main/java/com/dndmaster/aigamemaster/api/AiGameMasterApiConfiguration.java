@@ -11,6 +11,14 @@ import com.dndmaster.aigamemaster.infrastructure.ai.CharacterTagCompletionPort;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionRouter;
 import com.dndmaster.aigamemaster.configuration.GmProviderProperties;
+import com.dndmaster.aigamemaster.configuration.LocalOllamaProperties;
+import com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint;
+import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointRegistry;
+import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointStore;
+import com.dndmaster.aigamemaster.infrastructure.endpoint.InMemoryAgentEndpointStore;
+import com.dndmaster.aigamemaster.infrastructure.endpoint.JdbcAgentEndpointStore;
+import org.springframework.beans.factory.ObjectProvider;
+import javax.sql.DataSource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,6 +29,23 @@ import java.util.UUID;
 
 @Configuration(proxyBeanMethods = false)
 public class AiGameMasterApiConfiguration {
+
+    @Bean
+    AgentEndpointStore agentEndpointStore(ObjectProvider<DataSource> dataSource) {
+        DataSource available = dataSource.getIfAvailable();
+        return available == null ? new InMemoryAgentEndpointStore() : new JdbcAgentEndpointStore(available);
+    }
+
+    @Bean
+    AgentEndpointRegistry agentEndpointRegistry(AgentEndpointStore store, GmProviderProperties defaults, LocalOllamaProperties localOllama) {
+        AgentEndpointRegistry registry = new AgentEndpointRegistry(store);
+        if (registry.list().isEmpty()) {
+            AgentEndpoint.Provider provider = defaults.provider().equals("ollama") ? AgentEndpoint.Provider.OLLAMA : AgentEndpoint.Provider.OPENAI_COMPATIBLE;
+            registry.save(new AgentEndpoint(UUID.randomUUID(), "default", provider, provider == AgentEndpoint.Provider.OLLAMA ? localOllama.baseUrl() : defaults.baseUrl(), defaults.model(),
+                    provider == AgentEndpoint.Provider.OPENAI_COMPATIBLE ? "OPENAI_API_KEY" : null, true, java.time.Instant.now()));
+        }
+        return registry;
+    }
 
     @Bean
     SceneModelPort sceneModelPort(SpringAiChatAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper mapper) {
@@ -113,9 +138,9 @@ public class AiGameMasterApiConfiguration {
 
     @Bean
     @Primary
-    GmCompletionAdapter gmCompletionAdapter(SpringAiChatAdapter ollama, GmProviderProperties properties) {
+    GmCompletionAdapter gmCompletionAdapter(SpringAiChatAdapter ollama, GmProviderProperties properties, AgentEndpointRegistry endpointRegistry) {
         properties.validate();
-        return new GmCompletionRouter(ollama, properties);
+        return new GmCompletionRouter(ollama, properties, endpointRegistry);
     }
 
     @Bean
