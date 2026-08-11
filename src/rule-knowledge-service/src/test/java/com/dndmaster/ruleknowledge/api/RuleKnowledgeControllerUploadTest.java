@@ -27,7 +27,7 @@ import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 class RuleKnowledgeControllerUploadTest {
     @Test
-    void batchUploadAcceptsJsonDocumentsAndMatchingFiles() throws Exception {
+    void batchUploadAcceptsStorybookDocumentsAndMatchingFiles() throws Exception {
         RulebookPipelineApplicationService pipelineService = mock(RulebookPipelineApplicationService.class);
         RulebookRegistrationRepository registrationRepository = mock(RulebookRegistrationRepository.class);
         RuleEvidenceSearchApplicationService evidenceSearchService = mock(RuleEvidenceSearchApplicationService.class);
@@ -51,19 +51,19 @@ class RuleKnowledgeControllerUploadTest {
                                 "documents.json",
                                 "application/json",
                                 """
-                                        [{"idempotencyKey":"op-1","documentType":"RULEBOOK","originalFilename":"rules.pdf"}]
+                                        [{"idempotencyKey":"op-1","documentType":"STORYBOOK","originalFilename":"story.pdf"}]
                                         """.getBytes(StandardCharsets.UTF_8)))
                         .file(new MockMultipartFile(
                                 "files",
-                                "rules.pdf",
+                                "story.pdf",
                                 "application/pdf",
                                 "rules".getBytes(StandardCharsets.UTF_8)))
                         .param("ownerPlayerId", ownerId.toString())
                         .header("Authorization", "Bearer " + ownerId))
                 .andExpect(status().isAccepted())
                 .andExpect(jsonPath("$.documents[0].status").value("ACCEPTED"))
-                .andExpect(jsonPath("$.documents[0].originalFilename").value("rules.pdf"))
-                .andExpect(jsonPath("$.documents[0].documentType").value("RULEBOOK"));
+                .andExpect(jsonPath("$.documents[0].originalFilename").value("story.pdf"))
+                .andExpect(jsonPath("$.documents[0].documentType").value("STORYBOOK"));
 
         verify(pipelineService).process(any(UploadRulebookCommand.class));
     }

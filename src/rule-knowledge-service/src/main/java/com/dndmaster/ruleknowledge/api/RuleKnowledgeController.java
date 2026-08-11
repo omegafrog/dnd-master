@@ -9,6 +9,8 @@ import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicat
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
 import com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository;
+import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRepository;
+import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRevision;
 import com.dndmaster.ruleknowledge.domain.definition.GameSystemDefinitionRevision;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceResult;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicationService;
@@ -42,6 +44,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping
 public class RuleKnowledgeController {
+    private static final UUID CATALOG_OWNER = UUID.fromString("00000000-0000-0000-0000-000000000005");
     private final BatchRulebookUploadApplicationService batchUploadService;
     private final RulebookPipelineApplicationService pipelineService;
     private final RulebookRegistrationRepository registrationRepository;
@@ -52,6 +55,7 @@ public class RuleKnowledgeController {
     private final ObjectMapper objectMapper;
     private final GameSystemDefinitionRepository definitionRepository;
     private final String internalToken;
+    private final CatalogRulebookRepository catalogRepository;
 
     public RuleKnowledgeController(
             RulebookPipelineApplicationService pipelineService,
@@ -79,6 +83,7 @@ public class RuleKnowledgeController {
         this.objectMapper = objectMapper;
         this.definitionRepository = null;
         this.internalToken = "";
+        this.catalogRepository = null;
     }
 
     public RuleKnowledgeController(
@@ -91,6 +96,21 @@ public class RuleKnowledgeController {
             ObjectMapper objectMapper,
             GameSystemDefinitionRepository definitionRepository,
             String internalToken) {
+        this(pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
+                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken, null);
+    }
+
+    public RuleKnowledgeController(
+            RulebookPipelineApplicationService pipelineService,
+            RulebookRegistrationRepository registrationRepository,
+            RuleEvidenceSearchApplicationService evidenceSearchService,
+            StorySourceSearchApplicationService storySourceSearchService,
+            CharacterContextSearchApplicationService characterContextSearchService,
+            RulebookIndexRepository indexRepository,
+            ObjectMapper objectMapper,
+            GameSystemDefinitionRepository definitionRepository,
+            String internalToken,
+            CatalogRulebookRepository catalogRepository) {
         this.pipelineService = pipelineService;
         this.batchUploadService = new BatchRulebookUploadApplicationService(pipelineService);
         this.registrationRepository = registrationRepository;
@@ -101,6 +121,7 @@ public class RuleKnowledgeController {
         this.objectMapper = objectMapper;
         this.definitionRepository = definitionRepository;
         this.internalToken = internalToken == null ? "" : internalToken;
+        this.catalogRepository = catalogRepository;
     }
 
     public RuleKnowledgeController(
@@ -136,6 +157,11 @@ public class RuleKnowledgeController {
         for (int index = 0; index < files.size(); index++) {
             MultipartFile file = files.get(index);
             UploadDocumentRequest document = uploadDocuments.get(index);
+            if (document.documentType() != DocumentType.STORYBOOK) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "user uploads accept STORYBOOK only; rulebooks are selected from the shared catalog");
+            }
             String originalFilename = file.getOriginalFilename() != null ? file.getOriginalFilename() : document.originalFilename();
             items.add(new BatchUploadItem(
                     document.idempotencyKey(),
@@ -267,6 +293,9 @@ public class RuleKnowledgeController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "knowledgeDocumentIds must not be empty");
         }
         Set<UUID> selectedKnowledgeDocumentIds = new HashSet<>(knowledgeDocumentIds);
+        if (isCatalogScope(knowledgeDocumentIds)) {
+            return ResponseEntity.noContent().build();
+        }
         Set<UUID> ownedKnowledgeDocumentIds = registrationRepository.findByOwner(new OwnerPlayerId(ownerId)).stream()
                 .map(registration -> registration.knowledgeDocumentId().value())
                 .collect(java.util.stream.Collectors.toSet());
@@ -296,7 +325,7 @@ public class RuleKnowledgeController {
 
     @GetMapping("/internal/v1/rulebooks/{rulebookId}/ownership")
     OwnershipResponse rulebookOwnership(@PathVariable UUID rulebookId, @RequestParam UUID playerId) {
-        boolean owned = registrationRepository.findById(new RulebookId(rulebookId))
+        boolean owned = isCatalogScope(List.of(rulebookId)) || registrationRepository.findById(new RulebookId(rulebookId))
                 .map(r -> r.ownerPlayerId().value().equals(playerId))
                 .orElse(false);
         return new OwnershipResponse(rulebookId, playerId, owned);
@@ -308,12 +337,15 @@ public class RuleKnowledgeController {
             @RequestBody EvidenceSearchRequest request) {
         UUID authenticatedOwner = extractPlayerId(authorization);
         requireOwner(authenticatedOwner, request.ownerId());
-        List<UUID> authorizedRulebookIds = authorizeDocuments(request.ownerId(), request.rulebookIds(), DocumentType.RULEBOOK);
+        boolean catalogScope = isCatalogScope(request.rulebookIds());
+        List<UUID> authorizedRulebookIds = catalogScope
+                ? request.rulebookIds()
+                : authorizeDocuments(request.ownerId(), request.rulebookIds(), DocumentType.RULEBOOK);
         List<RulebookId> rulebookIds = authorizedRulebookIds.stream()
                 .map(RulebookId::new)
                 .toList();
         SearchRuleEvidenceQuery query = new SearchRuleEvidenceQuery(
-                new OwnerPlayerId(request.ownerId()),
+                new OwnerPlayerId(catalogScope ? CATALOG_OWNER : request.ownerId()),
                 rulebookIds,
                 request.situation(),
                 request.queryIntent(),
@@ -494,6 +526,23 @@ public class RuleKnowledgeController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document type is not allowed");
         }
         return List.copyOf(authorized);
+    }
+
+    /** Published revisions are selectable; any READY revision remains readable to preserve existing adventure pins. */
+    private boolean isCatalogScope(List<UUID> documentIds) {
+        if (catalogRepository == null || documentIds == null || documentIds.isEmpty()
+                || new HashSet<>(documentIds).size() != documentIds.size()) return false;
+        try {
+            Set<UUID> published = catalogRepository.findAll().stream()
+                    .filter(item -> item.status() == com.dndmaster.ruleknowledge.domain.catalog.CatalogRevisionStatus.READY)
+                    .map(CatalogRulebookRevision::rulebookId)
+                    .filter(java.util.Objects::nonNull)
+                    .collect(java.util.stream.Collectors.toSet());
+            return published.containsAll(documentIds);
+        } catch (RuntimeException unavailable) {
+            // Legacy installations may not have run the catalog migration yet; owned documents still work.
+            return false;
+        }
     }
 
     private static RulebookFormat resolveFormat(String filename) {

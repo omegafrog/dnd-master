@@ -1,7 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useState } from 'react'
 import type {
   BatchRulebookView,
-  DocumentType,
   KnowledgeDocumentView,
   RulebookUploadDraft,
   ScenarioBundleView,
@@ -14,7 +13,6 @@ import { Button } from '../../components/ui/button'
 import { Card, CardContent } from '../../components/ui/card'
 import { Checkbox } from '../../components/ui/checkbox'
 import { Input } from '../../components/ui/input'
-import { Select } from '../../components/ui/select'
 
 const batchStatusText: Record<BatchRulebookView['status'], string> = {
   ACCEPTED: '사용 준비 완료',
@@ -34,12 +32,8 @@ const knowledgeStatusText: Record<KnowledgeDocumentView['status'], string> = {
   REJECTED: '실패',
 }
 
-const documentTypeLabel: Record<DocumentType, string> = {
-  RULEBOOK: 'RULEBOOK',
-  STORYBOOK: 'STORYBOOK',
-}
-
 type PendingDocument = RulebookUploadDraft & { originalFilename: string }
+type CatalogRulebook = { catalogRevisionId: string; edition: string; displayName: string; rulebookId: string | null; revisionNumber: number; status: string }
 
 function createIdempotencyKey(file: File, index: number) {
   const random = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -70,6 +64,7 @@ export function RulebookSetup({
   const [selectedBundle, setSelectedBundle] = useState<ScenarioBundleView | null>(null)
   const [deletingBundleId, setDeletingBundleId] = useState<string | null>(null)
   const [deletingBundles, setDeletingBundles] = useState(false)
+  const [catalogRulebooks, setCatalogRulebooks] = useState<CatalogRulebook[]>([])
 
   const refreshDocuments = useCallback(async () => {
     try {
@@ -97,6 +92,12 @@ export function RulebookSetup({
   useEffect(() => {
     void refreshBundles()
   }, [refreshBundles])
+
+  useEffect(() => {
+    void fetch('/api/v1/rulebook-catalog').then(response => response.ok ? response.json() : []).then((items: CatalogRulebook[]) => {
+      setCatalogRulebooks(items.filter(item => item.status === 'READY' && item.rulebookId))
+    }).catch(() => setCatalogRulebooks([]))
+  }, [])
 
   async function openBundle(bundleId: string) {
     try {
@@ -160,10 +161,6 @@ export function RulebookSetup({
     setDeletingBundles(false)
   }
 
-  function updateDraftType(index: number, documentType: DocumentType) {
-    setDrafts(current => current.map((draft, draftIndex) => draftIndex === index ? { ...draft, documentType } : draft))
-  }
-
   function toggleSelected(rulebookId: string) {
     setSelectedIds(prev => {
       const next = new Set(prev)
@@ -181,13 +178,6 @@ export function RulebookSetup({
     try {
       const uploaded = await api.uploadRulebooks(drafts, playerId)
       setResults(uploaded)
-      setSelectedIds(prev => {
-        const next = new Set(prev)
-        uploaded.forEach(result => {
-          if (result.status === 'ACCEPTED' && result.knowledgeDocumentId) next.add(result.knowledgeDocumentId)
-        })
-        return next
-      })
       await refreshDocuments()
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '자료를 업로드하지 못했습니다.')
@@ -232,8 +222,12 @@ export function RulebookSetup({
     <Container className="setup-page">
       <div className="page-heading"><div><p className="eyebrow">ADVENTURE WORKSHOP</p><h1>자료와 모험 설정</h1><p>룰북과 시나리오 자료를 준비하고 플레이 가능한 번들을 만드세요.</p></div></div>
       <p role="status" aria-live="polite">{message}</p>
+      <section className="setup-panel setup-upload-panel" aria-labelledby="catalog-rulebook-heading">
+        <h2 id="catalog-rulebook-heading">공유 룰북 선택</h2>
+        {catalogRulebooks.length === 0 ? <p>사용 가능한 공유 룰북이 없습니다. 관리자가 색인·공개하면 여기에 표시됩니다.</p> : <ul aria-label="공유 룰북 목록">{catalogRulebooks.map(rulebook => <li key={rulebook.catalogRevisionId}><label><Input type="checkbox" checked={selectedIds.has(rulebook.rulebookId!)} onChange={() => toggleSelected(rulebook.rulebookId!)} />{rulebook.displayName} · revision {rulebook.revisionNumber}</label></li>)}</ul>}
+      </section>
       <section className="setup-panel setup-upload-panel" aria-labelledby="rulebook-heading">
-        <h2 id="rulebook-heading">자료 업로드</h2>
+        <h2 id="rulebook-heading">스토리북 업로드</h2>
         <form onSubmit={upload}>
           <label>
             자료 파일
@@ -247,7 +241,7 @@ export function RulebookSetup({
                 setDrafts(files.map((file, index) => ({
                   file,
                   originalFilename: file.name,
-                  documentType: 'RULEBOOK',
+                  documentType: 'STORYBOOK',
                   idempotencyKey: createIdempotencyKey(file, index),
                 })))
               }}
@@ -255,25 +249,6 @@ export function RulebookSetup({
           </label>
           <Button type="submit" disabled={uploading || drafts.length === 0}>{uploading ? '업로드 중…' : '자료 업로드'}</Button>
         </form>
-        {drafts.length > 0 && (
-          <ul aria-label="자료 유형 선택">
-            {drafts.map((draft, index) => (
-              <li key={draft.idempotencyKey}>
-                <label>
-                  {draft.originalFilename} 유형
-                  <Select
-                    aria-label={`${draft.originalFilename} 유형`}
-                    value={draft.documentType}
-                    onChange={event => updateDraftType(index, event.currentTarget.value as DocumentType)}
-                  >
-                    <option value="RULEBOOK">{documentTypeLabel.RULEBOOK}</option>
-                    <option value="STORYBOOK">{documentTypeLabel.STORYBOOK}</option>
-                  </Select>
-                </label>
-              </li>
-            ))}
-          </ul>
-        )}
         <ul aria-label="자료 처리 상태">
           {results.map(result => (
             <li key={result.knowledgeDocumentId ?? `${result.originalFilename}-${result.status}`}>

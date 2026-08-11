@@ -9,6 +9,7 @@ import { HttpRuleGuidanceApi } from '../features/rule-guidance/RuleGuidanceApi'
 import { RuleEvidence } from '../features/rule-guidance/RuleEvidence'
 import { HttpSetupApi } from '../features/rulebooks/SetupApi'
 import { RulebookSetup } from '../features/rulebooks/RulebookSetup'
+import { BackofficePage } from '../features/backoffice/BackofficePage'
 import { BundleDetailPage } from '../features/rulebooks/BundleDetailPage'
 import { CharacterSheetView } from '../features/character/CharacterSheetView'
 import { CharacterCreationPage } from '../features/character/CharacterCreationPage'
@@ -99,11 +100,12 @@ export function AppShell() {
   const creatorRoute = route.page === 'character-blueprint' || route.page === 'character-create'
   const initials = auth.session.playerName.slice(0, 1).toUpperCase()
   return <div className="app-shell">
-    <header className="app-header"><a href="#main">본문으로 건너뛰기</a><Brand /><nav aria-label="주요 메뉴"><a className={route.page === 'setup' ? 'active' : undefined} aria-current={route.page === 'setup' ? 'page' : undefined} href="#/setup">자료 설정</a><a className={route.page === 'adventures' || route.page === 'adventure' ? 'active' : undefined} aria-current={route.page === 'adventures' || route.page === 'adventure' ? 'page' : undefined} href="#/adventures">모험 목록</a>{selectedBundleId && <a className="selected-bundle-toolbar" href={`#/bundles/${selectedBundleId}`} title={`${selectedBundleId} 번들 화면`}>현재 번들 <span>{shortId(selectedBundleId)}</span></a>}<details className="account-menu"><summary role="button" aria-label="계정 메뉴"><span className="account-avatar" aria-hidden="true">{initials}</span><span className="account-name">{auth.session.playerName}</span></summary><div className="account-menu-panel"><a href="#/profile">내 정보</a><button type="button" onClick={() => void auth.logout()}>로그아웃</button></div></details></nav></header>
+    <header className="app-header"><a href="#main">본문으로 건너뛰기</a><Brand /><nav aria-label="주요 메뉴"><a className={route.page === 'setup' ? 'active' : undefined} aria-current={route.page === 'setup' ? 'page' : undefined} href="#/setup">자료 설정</a><a className={route.page === 'adventures' || route.page === 'adventure' ? 'active' : undefined} aria-current={route.page === 'adventures' || route.page === 'adventure' ? 'page' : undefined} href="#/adventures">모험 목록</a>{selectedBundleId && <a className="selected-bundle-toolbar" href={`#/bundles/${selectedBundleId}`} title={`${selectedBundleId} 번들 화면`}>현재 번들 <span>{shortId(selectedBundleId)}</span></a>}<details className="account-menu"><summary role="button" aria-label="계정 메뉴"><span className="account-avatar" aria-hidden="true">{initials}</span><span className="account-name">{auth.session.playerName}</span></summary><div className="account-menu-panel"><a href="#/profile">내 정보</a><a href="#/backoffice">백오피스</a><button type="button" onClick={() => void auth.logout()}>로그아웃</button></div></details></nav></header>
     <main id="main" className={creatorRoute ? 'creator-main' : `app-content app-page-${route.page}`}>
       <div className="app-notices"><p role="status" aria-live="polite">{auth.message}</p><p className="welcome-message">{auth.session.playerName}님 환영합니다!</p></div>
       {route.page === 'login' && <section className="welcome-card"><p className="eyebrow">ADVENTURE AWAITS</p><h2>모험 준비가 완료되었습니다</h2><a className="text-link" href="#/setup">자료 설정으로 이동</a></section>}
       {route.page === 'profile' && <ProfilePage session={auth.session} />}
+      {route.page === 'backoffice' && <BackofficePage session={auth.session} />}
       {route.page === 'setup' && <RulebookSetup api={setupApi} playerId={playerId} sessionApi={sessionApi} asMain={false} />}
       {route.page === 'bundle' && <BundleDetailPage bundleId={route.bundleId} api={setupApi} playerId={playerId} sessionApi={sessionApi} />}
       {route.page === 'adventures' && <SavedAdventurePanel playApi={playApi} setupApi={setupApi} playerId={playerId} />}

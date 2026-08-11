@@ -15,7 +15,7 @@ import type {
 
 class FakeSetupApi implements SetupApi {
   uploadError = ''
-  uploadCalls: Array<{ ownerId: string; documents: string[] }> = []
+  uploadCalls: Array<{ ownerId: string; documents: string[]; types: string[] }> = []
   private knowledgeDocuments: KnowledgeDocumentView[]
   private preview: SourcePreviewView = {
     rulebookId: 'doc-1',
@@ -49,7 +49,7 @@ class FakeSetupApi implements SetupApi {
   }
 
   async uploadRulebooks(documents: RulebookUploadDraft[], ownerId: string) {
-    this.uploadCalls.push({ ownerId, documents: documents.map(document => document.file.name) })
+    this.uploadCalls.push({ ownerId, documents: documents.map(document => document.file.name), types: documents.map(document => document.documentType) })
     if (this.uploadError) throw new Error(this.uploadError)
     return this.results
   }
@@ -92,7 +92,7 @@ class FakeSetupApi implements SetupApi {
 }
 
 describe('rulebook and adventure setup', () => {
-  it('uploads mixed documents and shows per-file status', async () => {
+  it('uploads user documents as storybooks only', async () => {
     const api = new FakeSetupApi()
     const user = userEvent.setup()
     render(<RulebookSetup api={api} playerId="p1" />)
@@ -102,11 +102,12 @@ describe('rulebook and adventure setup', () => {
         new File(['story'], 'campaign.md', { type: 'text/markdown' }),
       ] },
     })
-    await user.selectOptions(screen.getByLabelText('phb.pdf 유형'), 'RULEBOOK')
-    await user.selectOptions(screen.getByLabelText('campaign.md 유형'), 'STORYBOOK')
     await user.click(screen.getByRole('button', { name: '자료 업로드' }))
 
-    expect(await screen.findByRole('checkbox', { name: 'phb.pdf' })).toBeChecked()
+    expect(api.uploadCalls[0].types).toEqual(['STORYBOOK', 'STORYBOOK'])
+    expect(screen.queryByLabelText('phb.pdf 유형')).not.toBeInTheDocument()
+
+    expect(await screen.findByRole('checkbox', { name: 'phb.pdf' })).not.toBeChecked()
     expect(screen.getByText((_, element) => element?.tagName === 'LI' && element.textContent?.includes('사용 준비 완료') === true)).toBeInTheDocument()
     expect(screen.getByText((_, element) => element?.tagName === 'LI' && element.textContent?.includes('검증 실패') === true)).toBeInTheDocument()
   })

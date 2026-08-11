@@ -11,6 +11,10 @@ import com.dndmaster.ruleknowledge.application.registration.RulebookRegistration
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchApplicationService;
+import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRepository;
+import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRevision;
+import com.dndmaster.ruleknowledge.domain.catalog.CatalogRevisionStatus;
+import com.dndmaster.ruleknowledge.domain.catalog.RulebookEdition;
 import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
 import com.dndmaster.ruleknowledge.domain.rulebook.ProcessingStatus;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat;
@@ -85,6 +89,26 @@ class RuleKnowledgeRetrievalAuthorizationTest {
                         .content("""
                                 {"ownerId":"%s","documents":[{"documentId":"%s","extractionVersion":1}],"situation":"find lore","limit":1}
                                 """.formatted(OWNER, id)))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void accepts_only_published_catalog_rulebook_ids_for_shared_rule_search() throws Exception {
+        UUID catalogRulebook = UUID.randomUUID();
+        CatalogRulebookRepository catalog = mock(CatalogRulebookRepository.class);
+        when(catalog.findAll()).thenReturn(List.of(new CatalogRulebookRevision(
+                UUID.randomUUID(), RulebookEdition.DND_5E_2014, "D&D 5e", catalogRulebook, 1,
+                CatalogRevisionStatus.READY, true, null, Instant.now(), Instant.now())));
+        RuleKnowledgeController controller = new RuleKnowledgeController(
+                mock(RulebookPipelineApplicationService.class), mock(RulebookRegistrationRepository.class),
+                mock(RuleEvidenceSearchApplicationService.class), storySearch(), null, null,
+                new com.fasterxml.jackson.databind.ObjectMapper(), null, "", catalog);
+        MockMvc mockMvc = MockMvcBuilders.standaloneSetup(controller)
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(new com.fasterxml.jackson.databind.ObjectMapper()))
+                .build();
+        mockMvc.perform(post("/internal/v1/rule-evidence/search")
+                        .header("Authorization", "Bearer " + OWNER).contentType(MediaType.APPLICATION_JSON)
+                        .content(request(catalogRulebook)))
                 .andExpect(status().isOk());
     }
 
