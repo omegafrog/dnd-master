@@ -72,7 +72,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
   const [sourceQuery, setSourceQuery] = useState('')
   const [sourceResults, setSourceResults] = useState<StorySourceEvidenceView[]>([])
   const [searchingSources, setSearchingSources] = useState(false)
-  const canCompile = Boolean(api.compileScenarioBundle || (api.startScenarioCompilation && api.getScenarioCompilation && api.getScenarioPackage))
+  const canCompile = Boolean(api.startScenarioCompilation && api.getScenarioCompilation && api.getScenarioPackage)
 
   useEffect(() => {
     if (initialBundle) {
@@ -235,9 +235,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
         setScenarioPackage(await api.getScenarioPackage(published.packageId))
         return
       }
-      if (!api.compileScenarioBundle) return
-      setCompilation(null)
-      setScenarioPackage(await api.compileScenarioBundle(bundle.bundleId, playerId))
+      throw new Error('자동 컴파일 작업 API를 사용할 수 없습니다.')
     } catch (error) {
       const message = error instanceof Error ? error.message : '시나리오 패키지 컴파일에 실패했습니다.'
       setCompilationFailure(message)

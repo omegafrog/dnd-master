@@ -134,7 +134,7 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
             com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection document) {
         try {
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve(
-                            "api/v1/rulebooks/" + document.knowledgeDocumentId() + "/source-preview"))
+                            "api/v1/rulebooks/" + document.knowledgeDocumentId().value() + "/source-preview"))
                     .timeout(timeout).GET().build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {

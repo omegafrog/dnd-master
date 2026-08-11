@@ -389,7 +389,6 @@ export interface SetupApi {
   listScenarioPackages?(bundleId: string): Promise<ScenarioPackageView[]>
   deleteScenarioBundle?(bundleId: string): Promise<void>
   listScenarioBundles?(): Promise<ScenarioBundleView[]>
-  compileScenarioBundle?(bundleId: string, ownerId: string): Promise<ScenarioPackageView>
   startScenarioCompilation?(bundleId: string, ownerId: string, inputFingerprint: string): Promise<ScenarioCompilationView>
   getScenarioCompilation?(compilationId: string): Promise<ScenarioCompilationView>
   getScenarioPackage?(packageId: string): Promise<ScenarioPackageView>
@@ -546,14 +545,6 @@ export class HttpSetupApi implements SetupApi {
     return request<ScenarioBundleView[]>('/api/v1/adventures/scenario-bundles', {
       headers: this.authHeaders(),
     })
-  }
-
-  compileScenarioBundle(bundleId: string, ownerId: string) {
-    return request<ScenarioPackageView>(`/api/v1/adventures/scenario-bundles/${bundleId}/compilations`, {
-      method: 'POST',
-      headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ playerId: ownerId, candidates: [] }),
-    }, '시나리오 패키지 컴파일에 실패했습니다.')
   }
 
   startScenarioCompilation(bundleId: string, ownerId: string, inputFingerprint: string) {

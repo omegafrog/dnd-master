@@ -57,7 +57,8 @@ public class ScenarioCompilationController {
                 ? List.of()
                 : request.overrides().stream().map(ScenarioCompilationController::override).toList();
         if (candidates.isEmpty() && overrides.isEmpty()) {
-            return PackageResponse.from(service.compile(new ScenarioBundleId(bundleId), owner));
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "use compilation-jobs for automatic candidate extraction");
         }
         return PackageResponse.from(service.compile(new ScenarioBundleId(bundleId), owner, candidates, overrides));
     }
