@@ -94,7 +94,7 @@ public final class HttpGmAgentPort implements GmAgentPort {
 
     record Response(String scene, String npcState, String judgment, String narration, ActiveSource proposedActiveSourceContext,
                    List<Evidence> citedEvidence, List<String> warnings, String provider, String model, String reasoning, List<String> stateDelta,
-                   List<ToolCall> toolCalls) {
+                   List<ToolCall> toolCalls, boolean advanceStoryPlan, String selectedBranchId) {
         record ToolCall(String toolName, String argumentsJson, boolean required) {
             GmToolCall toDomain() { return new GmToolCall(toolName, argumentsJson, required); }
         }
@@ -107,7 +107,7 @@ public final class HttpGmAgentPort implements GmAgentPort {
             List<GmToolCall> calls = r.toolCalls == null ? List.of() : r.toolCalls.stream().map(ToolCall::toDomain).toList();
             return new GmPlanResult(new RuntimePlan(r.scene, r.npcState, r.judgment, r.narration,
                     r.proposedActiveSourceContext == null ? null : r.proposedActiveSourceContext.toDomain(), citations,
-                    r.warnings == null ? List.of() : r.warnings, r.provider, r.model, r.reasoning), r.provider, r.model, r.reasoning,
+                    r.warnings == null ? List.of() : r.warnings, r.provider, r.model, r.reasoning, r.advanceStoryPlan, r.selectedBranchId), r.provider, r.model, r.reasoning,
                     r.stateDelta == null ? List.of() : r.stateDelta, calls);
         }
     }

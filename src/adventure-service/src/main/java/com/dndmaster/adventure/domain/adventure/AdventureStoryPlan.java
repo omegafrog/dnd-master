@@ -82,4 +82,10 @@ public final class AdventureStoryPlan {
     public int currentStage() { return currentStage; }
     public String failureReason() { return failureReason; }
     public Instant updatedAt() { return updatedAt; }
+
+    public AdventureStoryPlan advanceTo(int nextStage) {
+        if (nextStage < currentStage || nextStage >= stages.size()) throw new IllegalArgumentException("invalid story plan transition");
+        return new AdventureStoryPlan(planId, sessionId, packageRevision, partyRevision, version + 1, status,
+                configuration, stages, nextStage, failureReason, Instant.now());
+    }
 }

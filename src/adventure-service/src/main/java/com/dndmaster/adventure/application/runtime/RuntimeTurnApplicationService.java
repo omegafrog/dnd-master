@@ -161,6 +161,7 @@ public class RuntimeTurnApplicationService {
         if (!safety.approved()) {
             throw new IllegalStateException("narration safety rejected: " + safety.reason());
         }
+        advanceStoryPlanIfRequested(adventure.sessionId(), plan);
 
         ActiveSourceContext activeSourceContext = plan.proposedActiveSourceContext() != null
                 ? plan.proposedActiveSourceContext()
@@ -277,13 +278,20 @@ public class RuntimeTurnApplicationService {
             return checkpoint + continuityContextProvider.load(adventure.sessionId().value()).map(StoryContinuityContext::promptText).orElse("");
         }
         if (storyPlanRepository == null) return checkpoint;
-        return checkpoint + storyPlanRepository.findBySessionId(adventure.sessionId()).map(plan -> {
-            if (plan.stages().isEmpty()) return "planVersion=" + plan.version() + "; status=" + plan.status();
-            var stage = plan.stages().get(plan.currentStage());
-            return "planVersion=" + plan.version() + "; status=" + plan.status() + "; stage=" + stage.position() + ":" + stage.title()
-                    + "; goal=" + stage.goal() + "; conflict=" + stage.conflict()
-                    + "; transition=" + stage.transitionCondition();
-        }).orElse("");
+        return checkpoint + storyPlanRepository.findBySessionId(adventure.sessionId())
+                .map(AdventureStoryPlanRuntimeContext::format).orElse("");
+    }
+
+    private void advanceStoryPlanIfRequested(com.dndmaster.adventure.domain.adventure.SessionId sessionId, RuntimePlan plan) {
+        if (!plan.advanceStoryPlan() || storyPlanRepository == null) return;
+        storyPlanRepository.findBySessionId(sessionId).ifPresent(current -> {
+            if (current.stages().isEmpty() || current.currentStage() >= current.stages().size() - 1) return;
+            var stage = current.stages().get(current.currentStage());
+            if (!plan.selectedBranchId().isBlank() && !stage.branchIds().contains(plan.selectedBranchId())) {
+                throw new IllegalStateException("GM selected an unknown story branch");
+            }
+            storyPlanRepository.save(current.advanceTo(current.currentStage() + 1));
+        });
     }
 
     private List<RuntimeEvidence> scopedSearch(RuntimeEvidenceSearchRequest request) {

@@ -1,6 +1,6 @@
 # 034-3 런타임 분기 연계
 
-Status: `planned`
+Status: `in-progress`
 
 Dependencies: `034-2`
 

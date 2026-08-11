@@ -63,7 +63,7 @@ public final class GmAgentController {
                     response = new Response(response.scene(), response.npcState(), response.judgment(),
                             response.narration(), null, response.citedEvidence(), response.warnings(),
                             response.provider(), response.model(), response.reasoning(), response.stateDelta(),
-                            response.toolCalls());
+                            response.toolCalls(), response.advanceStoryPlan(), response.selectedBranchId());
                 }
                 return requireComplete(response);
             } catch (Exception exception) {
@@ -157,7 +157,7 @@ public final class GmAgentController {
                 SYSTEM: You are a read-only game master. Use only supplied locked evidence and context.
                 Never reveal hidden data. Never invent rules, rolls, or state changes.
                 Return JSON only with fields scene,npcState,judgment,narration,proposedActiveSourceContext,
-                citedEvidence,warnings,provider,model,reasoning,stateDelta,toolCalls. stateDelta MUST be [] .
+                citedEvidence,warnings,provider,model,reasoning,stateDelta,toolCalls,advanceStoryPlan,selectedBranchId. stateDelta MUST be [] .
                 toolCalls may contain only dice.roll or character.update; each call has toolName,argumentsJson,required.
                 Every rule claim needs a citation from supplied evidence.
                 adventureId=%s packageId=%s bindingVersion=%s action=%s
@@ -207,11 +207,11 @@ public final class GmAgentController {
 
     public record Response(String scene, String npcState, String judgment, String narration, Object proposedActiveSourceContext,
                            List<?> citedEvidence, List<String> warnings, String provider, String model, String reasoning,
-                           List<String> stateDelta, List<ToolCall> toolCalls) {
+                           List<String> stateDelta, List<ToolCall> toolCalls, boolean advanceStoryPlan, String selectedBranchId) {
         public Response(String scene, String npcState, String judgment, String narration, Object proposedActiveSourceContext,
                         List<?> citedEvidence, List<String> warnings, String provider, String model, String reasoning,
                         List<String> stateDelta) {
-            this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings, provider, model, reasoning, stateDelta, List.of());
+            this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings, provider, model, reasoning, stateDelta, List.of(), false, "");
         }
         public record ToolCall(String toolName, String argumentsJson, boolean required) {}
     }
