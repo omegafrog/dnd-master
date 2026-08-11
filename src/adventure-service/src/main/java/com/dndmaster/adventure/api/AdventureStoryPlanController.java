@@ -9,6 +9,8 @@ import com.dndmaster.adventure.domain.adventure.AdventureLength;
 import java.util.UUID;
 import java.util.List;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @RequestMapping("/api/v1/adventure-sessions/{sessionId}/story-plan")
@@ -43,8 +45,12 @@ public final class AdventureStoryPlanController {
 
     public record ConfigurationRequest(Integer endingCount, String adventureLength) {
         AdventurePlanConfiguration toDomain() {
-            return new AdventurePlanConfiguration(endingCount == null ? 2 : endingCount,
-                    adventureLength == null ? AdventureLength.STANDARD : AdventureLength.valueOf(adventureLength));
+            try {
+                return new AdventurePlanConfiguration(endingCount == null ? 2 : endingCount,
+                        adventureLength == null ? AdventureLength.STANDARD : AdventureLength.valueOf(adventureLength));
+            } catch (IllegalArgumentException exception) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid adventure plan configuration", exception);
+            }
         }
     }
 }

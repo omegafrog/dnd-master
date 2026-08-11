@@ -78,4 +78,21 @@ class AdventureStoryPlanApplicationServiceTest {
     void rejects_more_than_four_endings() {
         assertThrows(IllegalArgumentException.class, () -> new AdventurePlanConfiguration(5, AdventureLength.STANDARD));
     }
+
+    @Test
+    void compatibility_generator_honors_long_configuration() {
+        var session = AdventureSession.create(SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 1, 1,
+                new AdventureSessionRuntimeConfiguration(new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), java.util.List.of(), "ollama", java.util.List.of("search"), "opening"));
+        session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT, false, false, false, false, false, false));
+        var sessions = mock(AdventureSessionRepository.class);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        when(plans.findBySessionId(session.id())).thenReturn(Optional.empty());
+
+        var plan = new AdventureStoryPlanApplicationService(plans, sessions)
+                .generate(session.id(), session.ownerPlayerId(), new AdventurePlanConfiguration(4, AdventureLength.LONG));
+
+        assertEquals(7, plan.stageCount());
+        assertEquals(4, plan.stages().stream().flatMap(stage -> stage.endingIds().stream()).distinct().count());
+    }
 }

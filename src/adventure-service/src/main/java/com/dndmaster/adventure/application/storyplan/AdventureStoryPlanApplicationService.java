@@ -12,6 +12,7 @@ import com.dndmaster.adventure.domain.adventure.ControlMode;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.adventure.SessionId;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Objects;
 import java.util.UUID;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
@@ -23,7 +24,7 @@ public final class AdventureStoryPlanApplicationService {
     private final AdventureStoryPlanGenerationPort generator;
 
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions) {
-        this(plans, sessions, null, request -> defaultStages());
+        this(plans, sessions, null, request -> defaultStages(request.configuration()));
     }
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
             ScenarioPackageRepository packages, AdventureStoryPlanGenerationPort generator) {
@@ -87,13 +88,18 @@ public final class AdventureStoryPlanApplicationService {
     }
 
     private static List<AdventureStoryPlanStage> defaultStages(AdventurePlanConfiguration configuration) {
-        String firstEnding = "ending-1";
-        String finalEnding = configuration.endingCount() == 1 ? firstEnding : "ending-2";
-        return List.of(
-                stage(1, "Beginning", "Discover the adventure premise", "An urgent problem demands action", "The party accepts a concrete lead", firstEnding),
-                stage(2, "Escalation", "Pursue the lead", "Opposition reveals a larger threat", "The party obtains decisive evidence", firstEnding),
-                stage(3, "Confrontation", "Choose how to resolve the threat", "The final obstacle tests the party", "The threat is defeated, transformed, or survives", finalEnding),
-                stage(4, "Resolution", "Bring the journey to a meaningful close", "Consequences reshape the party's situation", "A planned ending is reached", finalEnding));
+        int stageCount = switch (configuration.adventureLength()) {
+            case SHORT -> 3;
+            case STANDARD -> 4;
+            case LONG -> 7;
+        };
+        List<AdventureStoryPlanStage> stages = new ArrayList<>();
+        for (int position = 1; position <= stageCount; position++) {
+            String title = position == 1 ? "Beginning" : position == stageCount ? "Resolution" : position == stageCount - 1 ? "Confrontation" : "Escalation";
+            String ending = "ending-" + (((position - 1) % configuration.endingCount()) + 1);
+            stages.add(stage(position, title, "Advance the adventure", "Opposition demands a meaningful choice", "The party reaches the next lead", ending));
+        }
+        return List.copyOf(stages);
     }
 
     private List<String> sourceDocuments(AdventureSession session) {
