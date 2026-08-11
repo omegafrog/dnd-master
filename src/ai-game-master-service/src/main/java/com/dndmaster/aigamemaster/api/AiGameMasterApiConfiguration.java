@@ -99,8 +99,10 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
-    AdventureStoryPlanController aiAdventureStoryPlanController(SpringAiChatAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
-        return new AdventureStoryPlanController(adapter, objectMapper);
+    AdventureStoryPlanController aiAdventureStoryPlanController(SpringAiChatAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+            @org.springframework.beans.factory.annotation.Value("${local-ai.ollama.base-url:http://127.0.0.1:11434}") String ollamaBaseUrl,
+            @org.springframework.beans.factory.annotation.Value("${local-ai.ollama.chat-model:qwen3:8b}") String ollamaModel) {
+        return new AdventureStoryPlanController(adapter, objectMapper, ollamaBaseUrl, ollamaModel);
     }
 
     @Bean

@@ -13,12 +13,24 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.beans.factory.annotation.Value;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 
 /** Generates a source-aware outline. JSON is validated before crossing the service boundary. */
 @RestController("aiAdventureStoryPlanController")
 public final class AdventureStoryPlanController {
     private final SpringAiChatAdapter adapter; private final ObjectMapper mapper;
-    public AdventureStoryPlanController(SpringAiChatAdapter adapter, ObjectMapper mapper) { this.adapter = adapter; this.mapper = mapper; }
+    private final HttpClient httpClient = HttpClient.newHttpClient();
+    private final URI ollamaBaseUrl; private final String ollamaModel;
+    public AdventureStoryPlanController(SpringAiChatAdapter adapter, ObjectMapper mapper,
+            @Value("${local-ai.ollama.base-url:http://127.0.0.1:11434}") String ollamaBaseUrl,
+            @Value("${local-ai.ollama.chat-model:qwen3:8b}") String ollamaModel) {
+        this.adapter = adapter; this.mapper = mapper; this.ollamaBaseUrl = URI.create(ollamaBaseUrl); this.ollamaModel = ollamaModel;
+    }
     @PostMapping("/internal/v1/gm/adventure-story-plan")
     Response generate(@RequestBody Request request) {
         Configuration configuration = request.configuration() == null ? Configuration.defaults() : request.configuration();
@@ -28,7 +40,17 @@ public final class AdventureStoryPlanController {
                 + "Do not invent named rules, DCs, monsters, or facts absent from evidence. Documents=" + request.sourceDocuments()
                 + " Evidence=" + request.resolutionEvidence() + " citations=" + request.citations() + " maps=" + request.maps()
                 + " partySize=" + request.partySize() + " configuration=" + configuration;
-        return new Response(adapter.complete(request.operationId(), prompt, text -> parse(text, configuration)));
+        try {
+            String body = mapper.writeValueAsString(Map.of("model", ollamaModel, "prompt", prompt,
+                    "stream", false, "think", false, "format", "json", "options", Map.of("num_predict", 512)));
+            HttpResponse<String> response = httpClient.send(HttpRequest.newBuilder(ollamaBaseUrl.resolve("/api/generate"))
+                    .timeout(Duration.ofMinutes(10)).header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("Ollama returned HTTP " + response.statusCode());
+            JsonNode envelope = mapper.readTree(response.body());
+            return new Response(parse(envelope.path("response").asText(), configuration));
+        } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("Ollama story plan interrupted", e); }
+          catch (Exception e) { throw new IllegalStateException("Ollama story plan generation failed", e); }
     }
     private List<Stage> parse(String text, Configuration configuration) {
         try {
