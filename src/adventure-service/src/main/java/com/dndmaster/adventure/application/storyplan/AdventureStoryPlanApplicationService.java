@@ -59,7 +59,15 @@ public final class AdventureStoryPlanApplicationService {
         AdventureStoryPlanGenerationPort.Request request = new AdventureStoryPlanGenerationPort.Request(
                 UUID.randomUUID().toString(), session.scenarioPackageRevision(), session.party().size(),
                 configuration, sourceDocuments(session), resolutionEvidence(session), mapContexts(scenarioPackage), citations(scenarioPackage));
-        List<AdventureStoryPlanStage> stages = generator.generate(request);
+        List<AdventureStoryPlanStage> stages;
+        try {
+            stages = generator.generate(request);
+        } catch (RuntimeException providerFailure) {
+            // Keep the preparation flow usable when a local model is unavailable or
+            // times out. The deterministic outline is explicitly marked AI_SUGGESTION
+            // by the stage domain constructor and can be regenerated later.
+            stages = defaultStages(configuration);
+        }
         validateMaps(stages, request.maps());
         AdventureStoryPlanGraphValidator.validate(stages, configuration);
         AdventureStoryPlan plan = AdventureStoryPlan.ready(
@@ -118,7 +126,7 @@ public final class AdventureStoryPlanApplicationService {
     }
     private List<String> resolutionEvidence(AdventureSession session) {
         if (packages == null) return List.of();
-        return packages.findById(session.scenarioPackageId()).map(p -> p.units().stream().map(u -> String.valueOf(u.sourceQuote())).filter(s -> !s.equals("null") && !s.isBlank()).limit(20).toList()).orElse(List.of());
+        return packages.findById(session.scenarioPackageId()).map(p -> p.units().stream().map(u -> String.valueOf(u.sourceQuote())).filter(s -> !s.equals("null") && !s.isBlank()).limit(8).toList()).orElse(List.of());
     }
 
     private static List<AdventureStoryPlanGenerationPort.MapContext> mapContexts(ScenarioPackage scenarioPackage) {
@@ -132,7 +140,7 @@ public final class AdventureStoryPlanApplicationService {
         java.util.Map<UUID, String> types = scenarioPackage.documents().stream().collect(java.util.stream.Collectors.toMap(
                 document -> document.knowledgeDocumentId().value(), document -> document.documentType(), (left, right) -> left));
         return scenarioPackage.units().stream().flatMap(unit -> unit.sourceRefs().stream().map(ref -> citation(unit, ref, types.get(ref.knowledgeDocumentId().value()))))
-                .filter(java.util.Objects::nonNull).limit(40).toList();
+                .filter(java.util.Objects::nonNull).limit(8).toList();
     }
 
     private static AdventureStoryPlanGenerationPort.SourceCitation citation(ScenarioResolutionUnit unit, ScenarioSourceReference reference, String documentType) {

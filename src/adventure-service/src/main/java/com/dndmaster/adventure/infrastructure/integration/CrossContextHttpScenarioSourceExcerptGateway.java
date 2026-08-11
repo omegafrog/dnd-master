@@ -44,7 +44,11 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
     @Override
     public List<ResolutionExtractionPort.SourceExcerpt> load(ScenarioSourceBundle bundle) {
         try {
+            // The story-source endpoint authorizes STORYBOOK documents only. A scenario
+            // bundle also contains shared catalog rulebooks, which are handled separately
+            // below via source previews; sending them in the mixed request causes a 403.
             List<DocumentRequest> documents = new java.util.ArrayList<>(bundle.currentRevision().documents().stream()
+                    .filter(document -> "STORYBOOK".equalsIgnoreCase(document.documentType()))
                     .map(document -> new DocumentRequest(document.knowledgeDocumentId().value(), document.extractionVersion()))
                     .toList());
             List<OwnedRulebookDocument> rulebooks = loadOwnedRulebooks(bundle.ownerPlayerId().value());
