@@ -12,7 +12,7 @@ Dependency chain: `033-1 → 033-2`.
 ## 034 — RAG-grounded adventure plan
 
 1. [034-1 모험 길이·결말 설정과 생성 계약](034-1-adventure-plan-configuration.md) — `completed`
-2. [034-2 근거 기반 모험 노드](034-2-grounded-adventure-plan-nodes.md) — `ready-for-agent`
-3. [034-3 런타임 분기 연계](034-3-adventure-plan-runtime-branches.md) — `planned`
+2. [034-2 근거 기반 모험 노드](034-2-grounded-adventure-plan-nodes.md) — `completed`
+3. [034-3 런타임 분기 연계](034-3-adventure-plan-runtime-branches.md) — `ready-for-agent`
 
 Dependency chain: `034-1 → 034-2 → 034-3`.

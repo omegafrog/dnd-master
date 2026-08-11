@@ -39,9 +39,20 @@ public final class AdventureStoryPlanController {
     private OwnerPlayerId owner() { return new OwnerPlayerId(playerResolver.playerId()); }
 
     public record PlanView(UUID planId, long packageRevision, long partyRevision, long version, String status, int currentStage, int stageCount,
-            int endingCount, String adventureLength, String failureReason) {
-        static PlanView from(AdventureStoryPlan plan) { return new PlanView(plan.planId(), plan.packageRevision(), plan.partyRevision(), plan.version(), plan.status().name(), plan.currentStage(), plan.stageCount(), plan.configuration().endingCount(), plan.configuration().adventureLength().name(), plan.failureReason()); }
+            int endingCount, String adventureLength, List<StageView> stages, String failureReason) {
+        static PlanView from(AdventureStoryPlan plan) { return new PlanView(plan.planId(), plan.packageRevision(), plan.partyRevision(), plan.version(), plan.status().name(), plan.currentStage(), plan.stageCount(), plan.configuration().endingCount(), plan.configuration().adventureLength().name(), plan.stages().stream().map(StageView::from).toList(), plan.failureReason()); }
     }
+
+    public record StageView(int position, String title, String stageType, String location, String goal, String conflict,
+            String clearCondition, String failureCondition, List<String> enemies, String boss, List<String> rewards,
+            List<String> branchIds, UUID mapDefinitionId, String mapAssetId, String mapAssetLocator, List<EvidenceView> evidence) {
+        static StageView from(com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage stage) {
+            return new StageView(stage.position(), stage.title(), stage.stageType().name(), stage.location(), stage.goal(), stage.conflict(),
+                    stage.clearCondition(), stage.failureCondition(), stage.enemies(), stage.boss(), stage.rewards(), stage.branchIds(), stage.mapDefinitionId(), stage.mapAssetId(), stage.mapAssetLocator(),
+                    stage.evidence().stream().map(item -> new EvidenceView(item.documentType(), item.documentId(), item.extractionVersion(), item.locator(), item.quote(), item.confidence())).toList());
+        }
+    }
+    public record EvidenceView(String documentType, UUID documentId, long extractionVersion, String locator, String quote, double confidence) {}
 
     public record ConfigurationRequest(Integer endingCount, String adventureLength) {
         AdventurePlanConfiguration toDomain() {

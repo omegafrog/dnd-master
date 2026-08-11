@@ -14,6 +14,9 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
+import java.util.UUID;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 public final class CrossContextHttpAdventureStoryPlanGenerationGateway implements AdventureStoryPlanGenerationPort {
     private final HttpClient client; private final URI baseUri; private final Duration timeout; private final ObjectMapper mapper;
@@ -35,11 +38,35 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             }
             long endingCount = parsed.stages().stream().flatMap(stage -> stage.endingIds().stream()).distinct().count();
             if (endingCount != configuration.endingCount()) throw new IllegalStateException("AI returned an invalid ending count");
-            return parsed.stages().stream().map(stage -> new AdventureStoryPlanStage(stage.position(), stage.title(), stage.goal(), stage.conflict(), stage.transitionCondition(), stage.npcOrClues(), stage.endingIds())).toList();
+            Set<String> knownCitations = request.citations().stream().map(item -> item.documentId() + ":" + item.locator()).collect(Collectors.toSet());
+            if (!knownCitations.isEmpty() && parsed.stages().stream().anyMatch(stage -> stage.evidence().isEmpty())) {
+                throw new IllegalStateException("AI returned a story stage without source evidence");
+            }
+            if (parsed.stages().stream().flatMap(stage -> stage.evidence().stream()).anyMatch(item -> !knownCitations.contains(item.documentId() + ":" + item.locator()))) {
+                throw new IllegalStateException("AI returned an unknown source citation");
+            }
+            return parsed.stages().stream().map(stage -> new AdventureStoryPlanStage(stage.position(), stage.title(), stage.goal(), stage.conflict(), stage.transitionCondition(), stage.npcOrClues(), stage.endingIds(), List.of(),
+                    stage.stageType() == null ? com.dndmaster.adventure.domain.adventure.AdventureStageType.EVENT : com.dndmaster.adventure.domain.adventure.AdventureStageType.valueOf(stage.stageType()),
+                    stage.location(), stage.mapDefinitionId() == null || stage.mapDefinitionId().isBlank() ? null : UUID.fromString(stage.mapDefinitionId()), stage.mapAssetId(), stage.mapAssetLocator(),
+                    stage.enemies(), stage.boss(), stage.clearCondition(), stage.failureCondition(), stage.rewards(), stage.branchIds(),
+                    stage.evidence().stream().map(item -> new com.dndmaster.adventure.domain.adventure.AdventurePlanEvidence(item.documentType(), UUID.fromString(item.documentId()), item.extractionVersion(), item.locator(), item.quote(), item.confidence())).toList())).toList();
         } catch (HttpTimeoutException e) { throw new IllegalStateException("story plan AI timed out after " + timeout, e); }
         catch (IOException e) { throw new IllegalStateException("story plan AI response malformed", e); }
         catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("story plan AI interrupted", e); }
     }
     @JsonIgnoreProperties(ignoreUnknown = true) record Response(List<Stage> stages) {}
-    @JsonIgnoreProperties(ignoreUnknown = true) record Stage(int position, String title, String goal, String conflict, String transitionCondition, List<String> npcOrClues, List<String> endingIds) {}
+    @JsonIgnoreProperties(ignoreUnknown = true) record Stage(int position, String title, String goal, String conflict, String transitionCondition,
+            List<String> npcOrClues, List<String> endingIds, String stageType, String location, String mapDefinitionId,
+            String mapAssetId, String mapAssetLocator, List<String> enemies, String boss, String clearCondition, String failureCondition, List<String> rewards,
+            List<String> branchIds, List<SourceCitation> evidence) {
+        Stage {
+            npcOrClues = npcOrClues == null ? List.of() : npcOrClues;
+            endingIds = endingIds == null ? List.of() : endingIds;
+            enemies = enemies == null ? List.of() : enemies;
+            rewards = rewards == null ? List.of() : rewards;
+            branchIds = branchIds == null ? endingIds : branchIds;
+            evidence = evidence == null ? List.of() : evidence;
+        }
+    }
+    @JsonIgnoreProperties(ignoreUnknown = true) record SourceCitation(String documentType, String documentId, long extractionVersion, String locator, String quote, double confidence) {}
 }

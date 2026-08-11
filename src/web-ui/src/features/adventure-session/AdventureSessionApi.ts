@@ -69,6 +69,24 @@ export type AdventureStoryPlanView = {
   stageCount: number
   endingCount: number
   adventureLength: 'SHORT' | 'STANDARD' | 'LONG'
+  stages: Array<{
+    position: number
+    title: string
+    stageType: string
+    location: string
+    goal: string
+    conflict: string
+    clearCondition: string
+    failureCondition: string
+    enemies: string[]
+    boss: string
+    rewards: string[]
+    branchIds: string[]
+    mapDefinitionId: string | null
+    mapAssetId: string
+    mapAssetLocator: string
+    evidence: Array<{ documentType: string; documentId: string; extractionVersion: number; locator: string; quote: string; confidence: number }>
+  }>
   failureReason: string | null
 }
 

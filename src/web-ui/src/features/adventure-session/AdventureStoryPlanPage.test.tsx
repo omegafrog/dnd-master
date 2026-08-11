@@ -8,7 +8,7 @@ describe('AdventureStoryPlanPage configuration', () => {
     const api = {
       read: vi.fn().mockResolvedValue({ sessionId: 's', version: 1, party: [{ characterSheetId: 'c' }], runtimeConfiguration: null }),
       readStoryPlan: vi.fn().mockRejectedValue(new Error('not found')),
-      generateStoryPlan: vi.fn().mockResolvedValue({ planId: 'p', packageRevision: 1, partyRevision: 1, version: 1, status: 'READY', currentStage: 0, stageCount: 7, endingCount: 3, adventureLength: 'LONG', failureReason: null }),
+      generateStoryPlan: vi.fn().mockResolvedValue({ planId: 'p', packageRevision: 1, partyRevision: 1, version: 1, status: 'READY', currentStage: 0, stageCount: 7, endingCount: 3, adventureLength: 'LONG', stages: [], failureReason: null }),
       retryStoryPlan: vi.fn(), start: vi.fn(), saveAppliedRuleSet: vi.fn(),
     }
     render(<AdventureStoryPlanPage api={api} sessionId="s" />)

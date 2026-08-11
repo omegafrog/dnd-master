@@ -8,6 +8,11 @@ import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStatus;
 import com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration;
 import com.dndmaster.adventure.domain.adventure.AdventureLength;
+import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
+import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
+import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
+import java.util.Set;
+import java.util.UUID;
 import com.dndmaster.adventure.domain.adventure.ControlMode;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.adventure.SessionId;
@@ -49,9 +54,12 @@ public final class AdventureStoryPlanApplicationService {
         validateParty(session);
         AdventureStoryPlan previous = plans.findBySessionId(sessionId).orElse(null);
         long version = previous == null ? 1 : previous.version() + 1;
-        List<AdventureStoryPlanStage> stages = generator.generate(new AdventureStoryPlanGenerationPort.Request(
+        ScenarioPackage scenarioPackage = packages == null ? null : packages.findById(session.scenarioPackageId()).orElse(null);
+        AdventureStoryPlanGenerationPort.Request request = new AdventureStoryPlanGenerationPort.Request(
                 UUID.randomUUID().toString(), session.scenarioPackageRevision(), session.party().size(),
-                configuration, sourceDocuments(session), resolutionEvidence(session)));
+                configuration, sourceDocuments(session), resolutionEvidence(session), mapContexts(scenarioPackage), citations(scenarioPackage));
+        List<AdventureStoryPlanStage> stages = generator.generate(request);
+        validateMaps(stages, request.maps());
         AdventureStoryPlan plan = AdventureStoryPlan.ready(
                 previous == null ? java.util.UUID.randomUUID() : previous.planId(), session.id(),
                 session.scenarioPackageRevision(), session.version(), version, configuration, stages);
@@ -109,6 +117,33 @@ public final class AdventureStoryPlanApplicationService {
     private List<String> resolutionEvidence(AdventureSession session) {
         if (packages == null) return List.of();
         return packages.findById(session.scenarioPackageId()).map(p -> p.units().stream().map(u -> String.valueOf(u.sourceQuote())).filter(s -> !s.equals("null") && !s.isBlank()).limit(20).toList()).orElse(List.of());
+    }
+
+    private static List<AdventureStoryPlanGenerationPort.MapContext> mapContexts(ScenarioPackage scenarioPackage) {
+        if (scenarioPackage == null) return List.of();
+        return scenarioPackage.mapDefinitions().stream().map(map -> new AdventureStoryPlanGenerationPort.MapContext(
+                map.id(), map.assetId(), map.assetLocator(), map.source().locator(), map.confidence(), map.safetyStatus().name())).toList();
+    }
+
+    private static List<AdventureStoryPlanGenerationPort.SourceCitation> citations(ScenarioPackage scenarioPackage) {
+        if (scenarioPackage == null) return List.of();
+        java.util.Map<UUID, String> types = scenarioPackage.documents().stream().collect(java.util.stream.Collectors.toMap(
+                document -> document.knowledgeDocumentId().value(), document -> document.documentType(), (left, right) -> left));
+        return scenarioPackage.units().stream().flatMap(unit -> unit.sourceRefs().stream().map(ref -> citation(unit, ref, types.get(ref.knowledgeDocumentId().value()))))
+                .filter(java.util.Objects::nonNull).limit(40).toList();
+    }
+
+    private static AdventureStoryPlanGenerationPort.SourceCitation citation(ScenarioResolutionUnit unit, ScenarioSourceReference reference, String documentType) {
+        if (documentType == null || unit.sourceQuote().isBlank()) return null;
+        return new AdventureStoryPlanGenerationPort.SourceCitation(documentType, reference.knowledgeDocumentId().value(),
+                reference.extractionVersion(), reference.locator(), unit.sourceQuote(), unit.status().name().equals("COMPLETE") ? 1.0 : .5);
+    }
+
+    private static void validateMaps(List<AdventureStoryPlanStage> stages, List<AdventureStoryPlanGenerationPort.MapContext> maps) {
+        Set<UUID> known = maps.stream().map(AdventureStoryPlanGenerationPort.MapContext::mapDefinitionId).collect(java.util.stream.Collectors.toSet());
+        stages.stream().map(AdventureStoryPlanStage::mapDefinitionId).filter(java.util.Objects::nonNull).forEach(id -> {
+            if (!known.contains(id)) throw new IllegalStateException("story plan references an unknown map definition");
+        });
     }
 
     private static AdventureStoryPlanStage stage(int position, String title, String goal, String conflict, String transition, String ending) {

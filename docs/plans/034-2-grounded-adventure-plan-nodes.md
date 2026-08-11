@@ -1,6 +1,6 @@
 # 034-2 근거 기반 모험 노드
 
-Status: `planned`
+Status: `completed`
 
 Dependencies: `034-1`
 
