@@ -83,11 +83,8 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
         <div className="story-plan-node-heading"><span>{stage.position}</span><div><small>{stage.stageType} · {stage.location}</small><h2>{stage.title}</h2></div></div>
         <p>{stage.goal}</p>
         {stage.mapDefinitionId && <p className="story-plan-map">맵: {stage.mapAssetId || stage.mapDefinitionId} {stage.mapAssetLocator && `· ${stage.mapAssetLocator}`}</p>}
-        {stage.enemies.length > 0 && <p><strong>적:</strong> {stage.enemies.join(', ')}</p>}
-        {stage.boss && <p><strong>보스:</strong> {stage.boss}</p>}
-        <p><strong>클리어:</strong> {stage.clearCondition}</p>
         {stage.rewards.length > 0 && <p><strong>보상:</strong> {stage.rewards.join(', ')}</p>}
-        <small className="story-plan-evidence">근거 {stage.evidence.length}개</small>
+        <small className="story-plan-evidence">{stage.groundingStatus === 'GROUNDED' ? `RAG 근거 ${stage.evidenceCount}개` : 'AI 제안 · GM 검토 필요'}</small>
       </li>)}
     </ol>}
     {plan.status === 'FAILED' && <><p role="alert">{plan.failureReason || '계획 생성에 실패했습니다.'}</p><button type="button" onClick={() => void retry()}>다시 생성</button></>}

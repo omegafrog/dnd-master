@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
 import com.dndmaster.adventure.domain.adventure.AdventurePlanEvidence;
+import com.dndmaster.adventure.domain.adventure.AdventureGroundingStatus;
 import com.dndmaster.adventure.domain.adventure.AdventureStageType;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import java.util.List;
@@ -17,7 +18,8 @@ class AdventureStoryPlanStageTest {
         var evidence = new AdventurePlanEvidence("STORYBOOK", documentId, 3, "page:4", "The old well hides a key", .92);
         var stage = new AdventureStoryPlanStage(1, "The Well", "Find the key", "The well is guarded", "The key is recovered",
                 List.of("Miller"), List.of("ending-a"), List.of(), AdventureStageType.DUNGEON, "Old Well", null, "", "",
-                List.of("goblin"), "Goblin Keeper", "Recover the key", "The party retreats", List.of("silver key"), List.of("branch-a"), List.of(evidence));
+                List.of("goblin"), "Goblin Keeper", "Recover the key", "The party retreats", List.of("silver key"), List.of("branch-a"), List.of(evidence),
+                AdventureGroundingStatus.GROUNDED, List.of(), "SAFE", .92);
 
         assertEquals(AdventureStageType.DUNGEON, stage.stageType());
         assertEquals("Old Well", stage.location());

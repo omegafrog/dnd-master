@@ -75,17 +75,15 @@ export type AdventureStoryPlanView = {
     stageType: string
     location: string
     goal: string
-    conflict: string
-    clearCondition: string
-    failureCondition: string
-    enemies: string[]
-    boss: string
     rewards: string[]
-    branchIds: string[]
     mapDefinitionId: string | null
     mapAssetId: string
     mapAssetLocator: string
-    evidence: Array<{ documentType: string; documentId: string; extractionVersion: number; locator: string; quote: string; confidence: number }>
+    groundingStatus: 'GROUNDED' | 'AI_SUGGESTION'
+    aiSuggestions: string[]
+    mapSafetyStatus: string
+    mapConfidence: number | null
+    evidenceCount: number
   }>
   failureReason: string | null
 }

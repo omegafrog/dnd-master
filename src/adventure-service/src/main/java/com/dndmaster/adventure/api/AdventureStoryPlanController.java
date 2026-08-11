@@ -26,6 +26,9 @@ public final class AdventureStoryPlanController {
     @GetMapping("/history")
     List<PlanView> history(@PathVariable UUID sessionId) { return service.readHistory(new SessionId(sessionId), owner()).stream().map(PlanView::from).toList(); }
 
+    @GetMapping("/gm")
+    GmPlanView gm(@PathVariable UUID sessionId) { return GmPlanView.from(service.read(new SessionId(sessionId), owner())); }
+
     @PostMapping
     PlanView generate(@PathVariable UUID sessionId, @RequestBody(required = false) ConfigurationRequest request) {
         return PlanView.from(service.generate(new SessionId(sessionId), owner(), request == null ? AdventurePlanConfiguration.defaults() : request.toDomain()));
@@ -43,16 +46,33 @@ public final class AdventureStoryPlanController {
         static PlanView from(AdventureStoryPlan plan) { return new PlanView(plan.planId(), plan.packageRevision(), plan.partyRevision(), plan.version(), plan.status().name(), plan.currentStage(), plan.stageCount(), plan.configuration().endingCount(), plan.configuration().adventureLength().name(), plan.stages().stream().map(StageView::from).toList(), plan.failureReason()); }
     }
 
-    public record StageView(int position, String title, String stageType, String location, String goal, String conflict,
-            String clearCondition, String failureCondition, List<String> enemies, String boss, List<String> rewards,
-            List<String> branchIds, UUID mapDefinitionId, String mapAssetId, String mapAssetLocator, List<EvidenceView> evidence) {
+    public record StageView(int position, String title, String stageType, String location, String goal,
+            List<String> rewards, UUID mapDefinitionId, String mapAssetId, String mapAssetLocator,
+            String groundingStatus, List<String> aiSuggestions, String mapSafetyStatus, Double mapConfidence, int evidenceCount) {
         static StageView from(com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage stage) {
-            return new StageView(stage.position(), stage.title(), stage.stageType().name(), stage.location(), stage.goal(), stage.conflict(),
-                    stage.clearCondition(), stage.failureCondition(), stage.enemies(), stage.boss(), stage.rewards(), stage.branchIds(), stage.mapDefinitionId(), stage.mapAssetId(), stage.mapAssetLocator(),
-                    stage.evidence().stream().map(item -> new EvidenceView(item.documentType(), item.documentId(), item.extractionVersion(), item.locator(), item.quote(), item.confidence())).toList());
+            return new StageView(stage.position(), stage.title(), stage.stageType().name(), stage.location(), stage.goal(), stage.rewards(), stage.mapDefinitionId(), stage.mapAssetId(), stage.mapAssetLocator(),
+                    stage.groundingStatus().name(), stage.aiSuggestions(), stage.mapSafetyStatus(), stage.mapConfidence(), stage.evidence().size());
         }
     }
     public record EvidenceView(String documentType, UUID documentId, long extractionVersion, String locator, String quote, double confidence) {}
+
+    public record GmPlanView(UUID planId, long packageRevision, long partyRevision, long version, String status, int currentStage,
+            int endingCount, String adventureLength, List<GmStageView> stages, String failureReason) {
+        static GmPlanView from(AdventureStoryPlan plan) {
+            return new GmPlanView(plan.planId(), plan.packageRevision(), plan.partyRevision(), plan.version(), plan.status().name(), plan.currentStage(),
+                    plan.configuration().endingCount(), plan.configuration().adventureLength().name(), plan.stages().stream().map(GmStageView::from).toList(), plan.failureReason());
+        }
+    }
+    public record GmStageView(int position, String title, String stageType, String location, String goal, String conflict,
+            String clearCondition, String failureCondition, List<String> enemies, String boss, List<String> rewards, List<String> branchIds,
+            UUID mapDefinitionId, String mapAssetId, String mapAssetLocator, String mapSafetyStatus, Double mapConfidence,
+            String groundingStatus, List<String> aiSuggestions, List<EvidenceView> evidence) {
+        static GmStageView from(com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage stage) {
+            return new GmStageView(stage.position(), stage.title(), stage.stageType().name(), stage.location(), stage.goal(), stage.conflict(), stage.clearCondition(), stage.failureCondition(),
+                    stage.enemies(), stage.boss(), stage.rewards(), stage.branchIds(), stage.mapDefinitionId(), stage.mapAssetId(), stage.mapAssetLocator(), stage.mapSafetyStatus(), stage.mapConfidence(),
+                    stage.groundingStatus().name(), stage.aiSuggestions(), stage.evidence().stream().map(item -> new EvidenceView(item.documentType(), item.documentId(), item.extractionVersion(), item.locator(), item.quote(), item.confidence())).toList());
+        }
+    }
 
     public record ConfigurationRequest(Integer endingCount, String adventureLength) {
         AdventurePlanConfiguration toDomain() {
