@@ -77,6 +77,13 @@ public final class AdventureStoryPlanController {
                 - Hazards: [hazards and affected areas]
                 - State flags set: [flags]
                 - State flags required: [flags]
+                - Required checks:
+                  - Trigger: [when the roll is requested]
+                  - Check type: [ability check | skill check | saving throw | attack | initiative | none]
+                  - Ability or skill: [name or none]
+                  - DC or dice: [only if supported by evidence; otherwise GM adjudication]
+                  - Success: [result]
+                  - Failure: [result or fail-forward consequence]
                 - Source notes: [grounding from supplied documents]
 
                 ## Stage 2: [stage name]
@@ -96,7 +103,7 @@ public final class AdventureStoryPlanController {
                 + "Return the completed Markdown document only. Replace every bracketed placeholder with concrete content; do not leave placeholders. "
                 + "Keep the headings and field labels stable so another agent can read the plan. "
                 + "Create " + configuration.minimumStages() + "-" + configuration.maximumStages() + " stages and exactly " + configuration.endingCount() + " endings; duplicate or remove the sample stage/ending sections as needed. "
-                + "Do not invent named rules, DCs, monsters, or facts absent from evidence. Documents=" + request.sourceDocuments()
+                + "Do not invent named rules, DCs, monsters, or facts absent from evidence. For a check without an evidenced DC, write 'GM adjudication' rather than inventing a number. Include checks only when a trigger exists. Documents=" + request.sourceDocuments()
                 + " Evidence=" + request.resolutionEvidence() + " citations=" + request.citations() + " maps=" + request.maps()
                 + " partySize=" + request.partySize() + " configuration=" + configuration + "\n\nTEMPLATE:\n" + template;
         try {
@@ -172,7 +179,8 @@ public final class AdventureStoryPlanController {
     private static List<String> placementNotes(String body) {
         List<String> notes = new ArrayList<>();
         for (String label : List.of("Purpose", "Entry condition", "Exit condition", "Map asset", "Map usage", "Player spawn",
-                "Enemy placement", "Boss placement", "NPC placement", "Interactive objects", "Hazards", "State flags set", "State flags required", "Source notes")) {
+                "Enemy placement", "Boss placement", "NPC placement", "Interactive objects", "Hazards", "State flags set", "State flags required",
+                "Trigger", "Check type", "Ability or skill", "DC or dice", "Success", "Failure", "Source notes")) {
             String value = value(body, label, "");
             if (!value.isBlank() && !value.startsWith("[")) notes.add("MAP_" + label.toUpperCase(java.util.Locale.ROOT).replace(' ', '_') + ": " + value);
         }
