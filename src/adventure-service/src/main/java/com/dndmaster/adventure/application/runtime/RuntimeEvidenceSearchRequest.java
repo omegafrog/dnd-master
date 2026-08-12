@@ -7,6 +7,7 @@ import com.dndmaster.adventure.domain.adventure.SessionId;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.Map;
 
 public record RuntimeEvidenceSearchRequest(
         AdventureId adventureId,
@@ -17,13 +18,23 @@ public record RuntimeEvidenceSearchRequest(
         ActiveSourceContext activeSourceContext,
         String action,
         RuntimeEvidenceType evidenceType,
-        int limit) {
+        int limit,
+        Map<UUID, Long> extractionVersions) {
+    public RuntimeEvidenceSearchRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, SessionId sessionId,
+                                         UUID scenarioPackageId, List<UUID> knowledgeDocumentIds,
+                                         ActiveSourceContext activeSourceContext, String action,
+                                         RuntimeEvidenceType evidenceType, int limit) {
+        this(adventureId, ownerPlayerId, sessionId, scenarioPackageId, knowledgeDocumentIds,
+                activeSourceContext, action, evidenceType, limit, Map.of());
+    }
+
     public RuntimeEvidenceSearchRequest {
         adventureId = Objects.requireNonNull(adventureId, "adventure id must not be null");
         ownerPlayerId = Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
         sessionId = Objects.requireNonNull(sessionId, "session id must not be null");
         scenarioPackageId = Objects.requireNonNull(scenarioPackageId, "scenario package id must not be null");
         knowledgeDocumentIds = List.copyOf(Objects.requireNonNull(knowledgeDocumentIds, "knowledge document ids must not be null"));
+        extractionVersions = Map.copyOf(Objects.requireNonNull(extractionVersions, "extraction versions must not be null"));
         action = required(action, "action");
         evidenceType = Objects.requireNonNull(evidenceType, "evidence type must not be null");
         if (limit <= 0) throw new IllegalArgumentException("limit must be positive");

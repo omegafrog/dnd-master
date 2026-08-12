@@ -81,10 +81,17 @@ public final class GmAgentController {
                 normalizeArrayField(normalized, "warnings");
                 com.fasterxml.jackson.databind.JsonNode citations = normalized.get("citedEvidence");
                 if (citations.isArray() && java.util.stream.StreamSupport.stream(citations.spliterator(), false)
-                        .anyMatch(item -> !item.isObject())) {
+                        .anyMatch(item -> !validCitation(item))) {
                     normalized.putArray("citedEvidence");
                     ((com.fasterxml.jackson.databind.node.ArrayNode) normalized.get("warnings"))
                             .add("Provider citation format was invalid; unsupported citations were discarded.");
+                }
+                com.fasterxml.jackson.databind.JsonNode active = normalized.get("proposedActiveSourceContext");
+                if (active != null && active.isObject()
+                        && (active.path("knowledgeDocumentId").isMissingNode()
+                        || active.path("locator").asText().isBlank()
+                        || active.path("excerpt").asText().isBlank())) {
+                    normalized.putNull("proposedActiveSourceContext");
                 }
                 com.fasterxml.jackson.databind.JsonNode advancePlan = normalized.get("advanceStoryPlan");
                 if (advancePlan == null || advancePlan.isNull()) normalized.put("advanceStoryPlan", false);
@@ -132,6 +139,16 @@ public final class GmAgentController {
                 || (value.isObject() && value.size() == 0)) {
             node.putArray(field);
         }
+    }
+
+    private static boolean validCitation(com.fasterxml.jackson.databind.JsonNode item) {
+        if (item == null || !item.isObject()
+                || !item.hasNonNull("knowledgeDocumentId")
+                || !item.path("extractionVersion").canConvertToLong()
+                || !item.path("locator").isTextual() || item.path("locator").asText().isBlank()
+                || !item.path("excerpt").isTextual() || item.path("excerpt").asText().isBlank()) return false;
+        try { java.util.UUID.fromString(item.path("knowledgeDocumentId").asText()); return true; }
+        catch (IllegalArgumentException ignored) { return false; }
     }
 
     private static String repairPrompt(Request r) {

@@ -17,6 +17,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.transaction.annotation.Transactional;
@@ -275,12 +276,19 @@ public class RuntimeTurnApplicationService {
     private EvidencePack prefetchEvidence(
             SubmitRuntimeTurnCommand command, Adventure adventure, RuntimeBinding binding, ScenarioPackage scenarioPackage) {
         List<UUID> knowledgeDocumentIds = knowledgeDocumentIds(adventure, scenarioPackage);
+        List<UUID> storybookDocumentIds = documentIdsOfType(scenarioPackage, "STORYBOOK", knowledgeDocumentIds);
+        List<UUID> rulebookDocumentIds = documentIdsOfType(scenarioPackage, "RULEBOOK", knowledgeDocumentIds);
+        Map<UUID, Long> extractionVersions = scenarioPackage.documents().stream()
+                .collect(java.util.stream.Collectors.toMap(document -> document.knowledgeDocumentId().value(),
+                        com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection::extractionVersion, (a, b) -> a));
+        extractionVersions = extractionVersions.entrySet().stream().filter(entry -> entry.getValue() > 1)
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
         List<RuntimeEvidence> storybook = scopedSearch(new RuntimeEvidenceSearchRequest(
-                adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), knowledgeDocumentIds,
-                binding.activeSourceContext(), command.action(), RuntimeEvidenceType.STORYBOOK, 5));
-        List<RuntimeEvidence> rulebook = scopedSearch(new RuntimeEvidenceSearchRequest(
-                adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), knowledgeDocumentIds,
-                binding.activeSourceContext(), command.action(), RuntimeEvidenceType.RULEBOOK, 5));
+                adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), storybookDocumentIds,
+                binding.activeSourceContext(), command.action(), RuntimeEvidenceType.STORYBOOK, 5, extractionVersions));
+        List<RuntimeEvidence> rulebook = rulebookDocumentIds.isEmpty() ? List.of() : scopedSearch(new RuntimeEvidenceSearchRequest(
+                adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), rulebookDocumentIds,
+                binding.activeSourceContext(), command.action(), RuntimeEvidenceType.RULEBOOK, 5, extractionVersions));
         List<RuntimeEvidence> resolution = scenarioPackage.runtimeCandidates().stream()
                 .flatMap(unit -> resolutionEvidence(unit).stream())
                 .filter(evidence -> knowledgeDocumentIds.contains(evidence.knowledgeDocumentId().value()))
@@ -289,6 +297,15 @@ public class RuntimeTurnApplicationService {
             throw new IllegalStateException("storybook evidence is required for a runtime GM turn");
         }
         return new EvidencePack(storybook, rulebook, resolution);
+    }
+
+    private static List<UUID> documentIdsOfType(ScenarioPackage scenarioPackage, String type, List<UUID> selected) {
+        return scenarioPackage.documents().stream()
+                .filter(document -> type.equalsIgnoreCase(document.documentType()))
+                .map(document -> document.knowledgeDocumentId().value())
+                .filter(selected::contains)
+                .distinct()
+                .toList();
     }
 
     private String storyPlanContext(Adventure adventure) {

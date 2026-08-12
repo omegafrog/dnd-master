@@ -389,7 +389,10 @@ class RuntimeTurnApplicationServiceTest {
                 bundleId, 1, "fingerprint",
                 List.of(new ScenarioBundleDocumentSelection(
                         storyId, ScenarioBundleDocumentRole.MAIN_SCENARIO, KnowledgeDocumentStatus.INDEXED,
-                        "story.txt", "STORYBOOK", 1)),
+                        "story.txt", "STORYBOOK", 1),
+                        new ScenarioBundleDocumentSelection(
+                                rulebookId, ScenarioBundleDocumentRole.RULEBOOK, KnowledgeDocumentStatus.INDEXED,
+                                "rules.txt", "RULEBOOK", 1)),
                 units,
                 new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()));
     }
