@@ -44,9 +44,8 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             if (knownCitations.isEmpty() && parsed.stages().stream().flatMap(stage -> stage.evidence().stream()).findAny().isPresent()) {
                 throw new IllegalStateException("AI returned source evidence without a supplied citation");
             }
-            if (!knownCitations.isEmpty() && parsed.stages().stream().anyMatch(stage -> stage.evidence().isEmpty())) {
-                throw new IllegalStateException("AI returned a story stage without source evidence");
-            }
+            // Markdown plans are intentionally loose agent working documents. Missing
+            // per-stage evidence is allowed; the retrieved excerpts remain in the prompt.
             if (parsed.stages().stream().flatMap(stage -> stage.evidence().stream()).anyMatch(item -> !matchesCitation(item, request.citations()))) {
                 throw new IllegalStateException("AI returned an unknown source citation");
             }

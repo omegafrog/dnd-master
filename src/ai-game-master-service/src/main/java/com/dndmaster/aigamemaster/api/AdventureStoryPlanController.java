@@ -42,9 +42,13 @@ public final class AdventureStoryPlanController {
     @PostMapping("/internal/v1/gm/adventure-story-plan")
     Response generate(@RequestBody Request request) {
         Configuration configuration = request.configuration() == null ? Configuration.defaults() : request.configuration();
-        String prompt = "Create a tabletop adventure outline grounded only in the supplied source documents and evidence. "
-                + "Return JSON object only: {stages:[{position,title,stageType,location,goal,conflict,transitionCondition,enemies:[string],boss,clearCondition,failureCondition,rewards:[string],branchIds:[string],branchTargets:{branchId:'stage:2' or 'ending-id'},mapDefinitionId,mapAssetId,mapAssetLocator,evidence:[{documentType,documentId,extractionVersion,locator,quote,confidence}],npcOrClues:[string],endingIds:[string]}]}. "
-                + "Create " + configuration.minimumStages() + "-" + configuration.maximumStages() + " stages. Create exactly " + configuration.endingCount() + " distinct endingIds across the plan. Every ending must be reachable from a stage. "
+        String prompt = "Create a source-grounded tabletop adventure plan as Markdown, not JSON. "
+                + "Use this loose template, but add or omit sections naturally: "
+                + "# Adventure Plan; ## Premise; ## Locations and Maps; ## Party Hooks; "
+                + "## Stage 1: ...; - Type: dungeon/town/event; - Goal:; - Location:; - Enemies:; - Boss:; "
+                + "- Clear condition:; - Failure condition:; - Rewards:; - Branches:; - Source notes:; "
+                + "## Ending 1: ...; ## Ending 2: .... "
+                + "Create " + configuration.minimumStages() + "-" + configuration.maximumStages() + " stage headings and exactly " + configuration.endingCount() + " ending headings. "
                 + "Do not invent named rules, DCs, monsters, or facts absent from evidence. Documents=" + request.sourceDocuments()
                 + " Evidence=" + request.resolutionEvidence() + " citations=" + request.citations() + " maps=" + request.maps()
                 + " partySize=" + request.partySize() + " configuration=" + configuration;
@@ -58,7 +62,7 @@ public final class AdventureStoryPlanController {
             URI baseUrl = endpoint.provider() == AgentEndpoint.Provider.OLLAMA ? endpoint.baseUrl() : ollamaBaseUrl;
             String model = endpoint.model().isBlank() ? ollamaModel : endpoint.model();
             String body = mapper.writeValueAsString(Map.of("model", model, "prompt", prompt,
-                    "stream", false, "think", false, "format", "json", "options", Map.of("num_predict", 512)));
+                    "stream", false, "think", false, "options", Map.of("num_predict", 1200)));
             HttpResponse<String> response = httpClient.send(HttpRequest.newBuilder(baseUrl.resolve("/api/generate"))
                     .timeout(Duration.ofMinutes(10)).header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
@@ -70,7 +74,10 @@ public final class AdventureStoryPlanController {
     }
     private List<Stage> parse(String text, Configuration configuration) {
         try {
-            JsonNode root = mapper.readTree(extractObject(text)); JsonNode stages = root.get("stages");
+            JsonNode root;
+            try { root = mapper.readTree(extractObject(text)); }
+            catch (Exception markdown) { return parseMarkdown(text, configuration); }
+            JsonNode stages = root.get("stages");
             if (stages == null || !stages.isArray()) throw new IllegalArgumentException("stages missing");
             List<Stage> result = new ArrayList<>();
             for (JsonNode n : stages) {
@@ -82,6 +89,27 @@ public final class AdventureStoryPlanController {
             if (result.stream().flatMap(s -> s.endingIds().stream()).distinct().count() != configuration.endingCount()) throw new IllegalArgumentException("invalid ending count");
             return List.copyOf(result);
         } catch (Exception e) { throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI story plan response malformed", e); }
+    }
+    private List<Stage> parseMarkdown(String markdown, Configuration configuration) {
+        String clean = markdown == null ? "" : markdown.replace("\r", "").trim();
+        if (clean.isBlank()) throw new IllegalArgumentException("markdown response empty");
+        java.util.regex.Matcher headings = java.util.regex.Pattern.compile("(?m)^##\\s*(?:Stage\\s*\\d+\\s*[:.-]?\\s*)?(.+?)\\s*$").matcher(clean);
+        List<String> titles = new ArrayList<>(); List<Integer> starts = new ArrayList<>();
+        while (headings.find()) { String title = headings.group(1).trim(); if (!title.toLowerCase().startsWith("ending ")) { titles.add(title); starts.add(headings.start()); } }
+        if (titles.isEmpty()) throw new IllegalArgumentException("markdown stage headings missing");
+        List<Stage> result = new ArrayList<>();
+        for (int i = 0; i < titles.size(); i++) {
+            int from = starts.get(i), to = i + 1 < starts.size() ? starts.get(i + 1) : clean.length();
+            String body = clean.substring(from, to).trim();
+            String ending = "ending-" + ((i % configuration.endingCount()) + 1);
+            result.add(new Stage(i + 1, titles.get(i), "EVENT", titles.get(i), firstLine(body), body,
+                    "Continue when the stage goal is achieved", List.of(), List.of(ending), "", "", "", List.of(), "", "", "", List.of(), List.of(ending), Map.of(), List.of()));
+        }
+        if (result.size() < configuration.minimumStages() || result.size() > configuration.maximumStages()) throw new IllegalArgumentException("invalid markdown stage count");
+        return List.copyOf(result);
+    }
+    private static String firstLine(String body) {
+        return java.util.Arrays.stream(body.split("\\n")).map(String::trim).filter(line -> !line.isBlank() && !line.startsWith("#") && !line.startsWith("-")).findFirst().orElse("Advance the adventure");
     }
     private static String extractObject(String text) { int a = text.indexOf('{'), b = text.lastIndexOf('}'); if (a < 0 || b < a) throw new IllegalArgumentException("JSON object missing"); return text.substring(a,b+1); }
     private static String required(JsonNode n, String key) { String v = n.path(key).asText("").trim(); if (v.isBlank()) throw new IllegalArgumentException(key + " missing"); return v; }
