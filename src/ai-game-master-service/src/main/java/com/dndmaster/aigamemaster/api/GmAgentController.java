@@ -243,6 +243,9 @@ public final class GmAgentController {
                 extractionVersion and locator into citedEvidence. Do not emit an empty citedEvidence when storybook is non-empty.
                 Preserve currentScene and unresolved facts across turns. Change scene only when the supplied storybook
                 or resolution evidence establishes the transition. End narration with one concrete player-facing choice.
+                For story-plan advancement, advanceStoryPlan MUST be false unless the player explicitly completed a
+                transition condition. If it is true, selectedBranchId MUST be copied exactly from a branch ID present
+                in the supplied storyPlan; never invent branch IDs. If no valid branch ID is visible, keep it false.
                 adventureId=%s packageId=%s bindingVersion=%s action=%s
                 currentScene=%s npcState=%s pendingAction=%s latestJudgment=%s
                 storybook=%s rulebook=%s resolution=%s recentTurns=%s characters=%s storyPlan=%s
