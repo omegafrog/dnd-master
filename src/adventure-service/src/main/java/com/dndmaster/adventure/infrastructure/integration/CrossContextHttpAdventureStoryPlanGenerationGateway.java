@@ -30,7 +30,11 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             var body = mapper.writeValueAsString(request);
             var response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/adventure-story-plan"))
                     .timeout(timeout).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("story plan AI failed: " + response.statusCode());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                String detail = response.body() == null ? "" : response.body().replaceAll("\\s+", " ");
+                if (detail.length() > 1200) detail = detail.substring(0, 1200);
+                throw new IllegalStateException("story plan AI failed: " + response.statusCode() + " body=" + detail);
+            }
             var parsed = mapper.readValue(response.body(), Response.class);
             if (parsed.stages() == null) throw new IllegalStateException("AI returned no story stages");
             AdventurePlanConfiguration configuration = request.configuration();
