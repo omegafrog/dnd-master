@@ -56,7 +56,10 @@ public final class AdventureStoryPlanController {
 
                 ## Stage 1: [stage name]
                 - Type: [dungeon | town | event]
+                - Purpose: [combat | exploration | puzzle | social | travel | rest]
                 - Location: [location]
+                - Entry condition: [condition]
+                - Exit condition: [condition]
                 - Goal: [goal]
                 - Enemies: [enemies]
                 - Boss: [boss or none]
@@ -64,6 +67,16 @@ public final class AdventureStoryPlanController {
                 - Failure condition: [condition]
                 - Rewards: [rewards]
                 - Branches: [branch choices and destinations]
+                - Map asset: [map filename, page, or none]
+                - Map usage: [tactical map | reference image | no map]
+                - Player spawn: [semantic area or coordinates]
+                - Enemy placement: [enemy, count, semantic area or coordinates]
+                - Boss placement: [semantic area or coordinates]
+                - NPC placement: [name and semantic area or coordinates]
+                - Interactive objects: [objects and locations]
+                - Hazards: [hazards and affected areas]
+                - State flags set: [flags]
+                - State flags required: [flags]
                 - Source notes: [grounding from supplied documents]
 
                 ## Stage 2: [stage name]
@@ -138,7 +151,7 @@ public final class AdventureStoryPlanController {
             String ending = "ending-" + ((i % configuration.endingCount()) + 1);
             result.add(new Stage(i + 1, titles.get(i), value(body, "Type", "EVENT").toUpperCase(java.util.Locale.ROOT), value(body, "Location", titles.get(i)), value(body, "Goal", firstLine(body)),
                     value(body, "Conflict", body), value(body, "Clear condition", "Continue when the stage goal is achieved"),
-                    List.of(value(body, "Source notes", "")).stream().filter(s -> !s.isBlank()).toList(), List.of(ending), "", "", "", split(value(body, "Enemies", "")),
+                    placementNotes(body), List.of(ending), "", "", "", split(value(body, "Enemies", "")),
                     value(body, "Boss", ""), value(body, "Clear condition", ""), value(body, "Failure condition", ""), split(value(body, "Rewards", "")), split(value(body, "Branches", "")), Map.of(), List.of()));
         }
         if (result.size() < configuration.minimumStages() || result.size() > configuration.maximumStages()) throw new IllegalArgumentException("invalid markdown stage count");
@@ -155,6 +168,15 @@ public final class AdventureStoryPlanController {
         if (value == null || value.isBlank() || value.equalsIgnoreCase("none")) return List.of();
         return java.util.Arrays.stream(value.split("[,;]\\s*|\\s+\\+\\s+"))
                 .map(String::trim).filter(s -> !s.isBlank()).toList();
+    }
+    private static List<String> placementNotes(String body) {
+        List<String> notes = new ArrayList<>();
+        for (String label : List.of("Purpose", "Entry condition", "Exit condition", "Map asset", "Map usage", "Player spawn",
+                "Enemy placement", "Boss placement", "NPC placement", "Interactive objects", "Hazards", "State flags set", "State flags required", "Source notes")) {
+            String value = value(body, label, "");
+            if (!value.isBlank() && !value.startsWith("[")) notes.add("MAP_" + label.toUpperCase(java.util.Locale.ROOT).replace(' ', '_') + ": " + value);
+        }
+        return List.copyOf(notes);
     }
     private static String extractObject(String text) { int a = text.indexOf('{'), b = text.lastIndexOf('}'); if (a < 0 || b < a) throw new IllegalArgumentException("JSON object missing"); return text.substring(a,b+1); }
     private static String required(JsonNode n, String key) { String v = n.path(key).asText("").trim(); if (v.isBlank()) throw new IllegalArgumentException(key + " missing"); return v; }
