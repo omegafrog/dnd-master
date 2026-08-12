@@ -21,6 +21,13 @@ public final class GmFinalValidator {
         if (result.plan().citedEvidence().stream().anyMatch(citation -> !allowed.contains(citation))) {
             throw new IllegalStateException("GM citation is outside selected evidence");
         }
+        if (!evidencePack.storybook().isEmpty() && result.plan().citedEvidence().isEmpty()) {
+            throw new IllegalStateException("storybook evidence must be cited for every GM turn");
+        }
+        if (!Objects.equals(result.plan().scene(), currentContext.currentScene())
+                && result.plan().citedEvidence().stream().noneMatch(evidencePack.storybook()::contains)) {
+            throw new IllegalStateException("scene transition requires a storybook citation");
+        }
         if (result.plan().proposedActiveSourceContext() != null && allowed.stream().noneMatch(evidence ->
                 evidence.knowledgeDocumentId().equals(result.plan().proposedActiveSourceContext().knowledgeDocumentId())
                         && evidence.extractionVersion() == result.plan().proposedActiveSourceContext().extractionVersion()

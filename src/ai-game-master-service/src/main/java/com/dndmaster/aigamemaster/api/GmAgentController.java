@@ -222,6 +222,10 @@ public final class GmAgentController {
                 citedEvidence,warnings,provider,model,reasoning,stateDelta,toolCalls,advanceStoryPlan,selectedBranchId. stateDelta MUST be [] .
                 toolCalls may contain only dice.roll or character.update; each call has toolName,argumentsJson,required.
                 Every rule claim needs a citation from supplied evidence.
+                Ground the turn in at least one supplied storybook item: copy its exact knowledgeDocumentId,
+                extractionVersion and locator into citedEvidence. Do not emit an empty citedEvidence when storybook is non-empty.
+                Preserve currentScene and unresolved facts across turns. Change scene only when the supplied storybook
+                or resolution evidence establishes the transition. End narration with one concrete player-facing choice.
                 adventureId=%s packageId=%s bindingVersion=%s action=%s
                 currentScene=%s npcState=%s pendingAction=%s latestJudgment=%s
                 storybook=%s rulebook=%s resolution=%s recentTurns=%s characters=%s storyPlan=%s

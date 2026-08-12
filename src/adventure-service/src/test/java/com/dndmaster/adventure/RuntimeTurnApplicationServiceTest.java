@@ -95,7 +95,10 @@ class RuntimeTurnApplicationServiceTest {
                 new InMemoryAdventureRepository(adventure),
                 new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId())),
                 new InMemoryPackageRepository(scenarioPackage), new InMemoryRuntimeTurnRepository(),
-                request -> List.of(),
+                request -> request.evidenceType() == RuntimeEvidenceType.STORYBOOK
+                        ? List.of(new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
+                        new KnowledgeDocumentId(request.knowledgeDocumentIds().get(0)), 1, "page:1", "The next scene begins."))
+                        : List.of(),
                 request -> new RuntimePlan("next scene", null, "await player choice", "The GM advances the scene.", null, List.of(), List.of()),
                 new AllowingSafetyPort(true), new InMemorySessionKnowledgeSetRepository());
 

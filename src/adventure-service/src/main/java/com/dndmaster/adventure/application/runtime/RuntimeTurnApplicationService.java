@@ -285,6 +285,9 @@ public class RuntimeTurnApplicationService {
                 .flatMap(unit -> resolutionEvidence(unit).stream())
                 .filter(evidence -> knowledgeDocumentIds.contains(evidence.knowledgeDocumentId().value()))
                 .toList();
+        if (storybook.isEmpty()) {
+            throw new IllegalStateException("storybook evidence is required for a runtime GM turn");
+        }
         return new EvidencePack(storybook, rulebook, resolution);
     }
 
@@ -321,14 +324,9 @@ public class RuntimeTurnApplicationService {
     }
 
     private List<RuntimeEvidence> scopedSearch(RuntimeEvidenceSearchRequest request) {
-        try {
-            return evidenceSearchPort.search(request).stream()
-                    .filter(evidence -> request.knowledgeDocumentIds().contains(evidence.knowledgeDocumentId().value()))
-                    .toList();
-        } catch (RuntimeException ignored) {
-            // Evidence search is enrichment; a provider turn can still proceed with no citations.
-            return List.of();
-        }
+        return evidenceSearchPort.search(request).stream()
+                .filter(evidence -> request.knowledgeDocumentIds().contains(evidence.knowledgeDocumentId().value()))
+                .toList();
     }
 
     private List<UUID> knowledgeDocumentIds(Adventure adventure, ScenarioPackage scenarioPackage) {
