@@ -35,7 +35,7 @@ public final class AdventureStoryPlanController {
             @Value("${local-ai.ollama.chat-model:qwen3:8b}") String ollamaModel,
             @Value("${ai.codex.executable:codex}") String codexExecutable,
             @Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
-            @Value("${ai.codex.timeout:PT10M}") Duration codexTimeout) {
+            @Value("${ai.codex.timeout:PT5M}") Duration codexTimeout) {
         this.adapter = adapter; this.mapper = mapper; this.endpointRegistry = endpointRegistry; this.ollamaBaseUrl = URI.create(ollamaBaseUrl); this.ollamaModel = ollamaModel;
         this.codexExecutable = codexExecutable; this.codexWorkDirectory = java.nio.file.Path.of(codexWorkDirectory); this.codexTimeout = codexTimeout;
     }

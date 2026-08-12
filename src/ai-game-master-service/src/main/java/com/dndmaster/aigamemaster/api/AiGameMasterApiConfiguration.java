@@ -105,7 +105,7 @@ public class AiGameMasterApiConfiguration {
             @org.springframework.beans.factory.annotation.Value("${local-ai.ollama.chat-model:qwen3:8b}") String ollamaModel,
             @org.springframework.beans.factory.annotation.Value("${ai.codex.executable:codex}") String codexExecutable,
             @org.springframework.beans.factory.annotation.Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
-            @org.springframework.beans.factory.annotation.Value("${ai.codex.timeout:PT10M}") java.time.Duration codexTimeout) {
+            @org.springframework.beans.factory.annotation.Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout) {
         return new AdventureStoryPlanController(adapter, objectMapper, endpointRegistry, ollamaBaseUrl, ollamaModel, codexExecutable, codexWorkDirectory, codexTimeout);
     }
 
@@ -147,7 +147,7 @@ public class AiGameMasterApiConfiguration {
     GmCompletionAdapter gmCompletionAdapter(SpringAiChatAdapter ollama, GmProviderProperties properties, AgentEndpointRegistry endpointRegistry,
                                              @Value("${ai.codex.executable:codex}") String codexExecutable,
                                              @Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
-                                             @Value("${ai.codex.timeout:PT10M}") java.time.Duration codexTimeout) {
+                                             @Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout) {
         properties.validate();
         return new GmCompletionRouter(ollama, properties, endpointRegistry, codexExecutable, java.nio.file.Path.of(codexWorkDirectory), codexTimeout);
     }
