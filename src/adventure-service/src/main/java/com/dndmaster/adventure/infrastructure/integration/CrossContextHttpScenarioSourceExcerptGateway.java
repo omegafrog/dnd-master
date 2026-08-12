@@ -114,9 +114,10 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
                 .timeout(timeout).GET().build();
         HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
         if (response.statusCode() < 200 || response.statusCode() >= 300) return List.of();
-        CatalogRulebooksResponse result = objectMapper.readValue(response.body(), CatalogRulebooksResponse.class);
-        if (result.rulebooks() == null) return List.of();
-        return result.rulebooks().stream()
+        List<CatalogRulebookDocument> result = objectMapper.readValue(response.body(),
+                objectMapper.getTypeFactory().constructCollectionType(List.class, CatalogRulebookDocument.class));
+        if (result == null) return List.of();
+        return result.stream()
                 .filter(item -> "READY".equalsIgnoreCase(item.status()) && item.rulebookId() != null)
                 .map(item -> new OwnedRulebookDocument(java.util.UUID.fromString(item.rulebookId()), "RULEBOOK", "INDEXED", item.extractionVersion()))
                 .toList();
@@ -233,8 +234,6 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
     record Excerpt(java.util.UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
     record OwnedRulebooksResponse(List<OwnedRulebookDocument> rulebooks) {}
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    record CatalogRulebooksResponse(List<CatalogRulebookDocument> rulebooks) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
     record CatalogRulebookDocument(String rulebookId, String status, long extractionVersion) {}
     @JsonIgnoreProperties(ignoreUnknown = true)

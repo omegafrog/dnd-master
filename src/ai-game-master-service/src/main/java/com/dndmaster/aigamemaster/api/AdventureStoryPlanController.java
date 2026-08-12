@@ -127,9 +127,9 @@ public final class AdventureStoryPlanController {
     private List<Stage> parseMarkdown(String markdown, Configuration configuration) {
         String clean = markdown == null ? "" : markdown.replace("\r", "").trim();
         if (clean.isBlank()) throw new IllegalArgumentException("markdown response empty");
-        java.util.regex.Matcher headings = java.util.regex.Pattern.compile("(?m)^##\\s*(?:Stage\\s*\\d+\\s*[:.-]?\\s*)?(.+?)\\s*$").matcher(clean);
+        java.util.regex.Matcher headings = java.util.regex.Pattern.compile("(?mi)^##\\s*Stage\\s*\\d+\\s*[:.-]?\\s*(.+?)\\s*$").matcher(clean);
         List<String> titles = new ArrayList<>(); List<Integer> starts = new ArrayList<>();
-        while (headings.find()) { String title = headings.group(1).trim(); if (!title.toLowerCase().startsWith("ending ")) { titles.add(title); starts.add(headings.start()); } }
+        while (headings.find()) { String title = headings.group(1).trim(); titles.add(title); starts.add(headings.start()); }
         if (titles.isEmpty()) throw new IllegalArgumentException("markdown stage headings missing");
         List<Stage> result = new ArrayList<>();
         for (int i = 0; i < titles.size(); i++) {
