@@ -94,7 +94,12 @@ public final class GmAgentController {
                     normalized.putNull("proposedActiveSourceContext");
                 }
                 com.fasterxml.jackson.databind.JsonNode advancePlan = normalized.get("advanceStoryPlan");
-                if (advancePlan == null || advancePlan.isNull()) normalized.put("advanceStoryPlan", false);
+            if (advancePlan == null || advancePlan.isNull()) normalized.put("advanceStoryPlan", false);
+            // Branch transitions are committed only by the deterministic runtime after it
+            // validates a known branch id. The free-form GM adapter must never request an
+            // unverified transition (the plan context can be abbreviated in the prompt).
+            normalized.put("advanceStoryPlan", false);
+            normalized.put("selectedBranchId", "");
                 if (advancePlan != null && advancePlan.isObject()) {
                     normalized.put("advanceStoryPlan", true);
                 }
