@@ -20,6 +20,8 @@ import com.dndmaster.adventure.domain.adventure.SessionId;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Objects;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.util.UUID;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort;
@@ -28,6 +30,7 @@ import com.dndmaster.adventure.application.scenario.ScenarioBundleRepository;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 
 public final class AdventureStoryPlanApplicationService {
+    private static final Logger LOGGER = LoggerFactory.getLogger(AdventureStoryPlanApplicationService.class);
     private final AdventureStoryPlanRepository plans;
     private final AdventureSessionRepository sessions;
     private final ScenarioPackageRepository packages;
@@ -75,10 +78,8 @@ public final class AdventureStoryPlanApplicationService {
         try {
             stages = generator.generate(request);
         } catch (RuntimeException providerFailure) {
-            // Keep the preparation flow usable when a local model is unavailable or
-            // times out. The deterministic outline is explicitly marked AI_SUGGESTION
-            // by the stage domain constructor and can be regenerated later.
-            stages = defaultStages(configuration);
+            LOGGER.error("story plan generation failed; no fallback will be persisted", providerFailure);
+            throw providerFailure;
         }
         validateMaps(stages, request.maps());
         AdventureStoryPlanGraphValidator.validate(stages, configuration);
