@@ -31,6 +31,7 @@ public final class ResolutionCandidateController {
     private static final Pattern EXPLICIT_DC = Pattern.compile(
             "(?i)\\bDC\\s*(\\d+)\\s+([A-Za-z]+(?:\\s*\\([^)]*\\))?)\\s+(sa\\s*ving\\s+throw(?:s)?|check(?:s)?)");
     private static final Pattern DICE = Pattern.compile("(?i)\\b(\\d+d\\d+(?:\\s*[+-]\\s*\\d+)?)\\b");
+    private static final Pattern ANY_DC = Pattern.compile("(?i)\\bDC\\s*(\\d+)\\b");
     private final SpringAiChatAdapter adapter;
     private final ObjectMapper objectMapper;
     private final AgentEndpointRegistry endpointRegistry;
@@ -140,6 +141,18 @@ public final class ResolutionCandidateController {
                         "GM_REFERENCE", quote,
                         List.of(new SourceRef(excerpt.documentId(), excerpt.extractionVersion(), excerpt.locator())),
                         null, "deterministic-source-pattern-v1"));
+            }
+            if (candidates.stream().noneMatch(candidate -> candidate.sourceRefs().stream().anyMatch(ref -> ref.documentId().equals(excerpt.documentId()) && ref.extractionVersion() == excerpt.extractionVersion() && ref.locator().equals(excerpt.locator())))) {
+                Matcher dc = ANY_DC.matcher(excerpt.text());
+                if (dc.find()) {
+                    int start = Math.max(0, excerpt.text().lastIndexOf('.', dc.start()) + 1);
+                    int end = excerpt.text().indexOf('.', dc.end());
+                    if (end < 0) end = Math.min(excerpt.text().length(), dc.end() + 240);
+                    String quote = excerpt.text().substring(start, end + (end < excerpt.text().length() && excerpt.text().charAt(end) == '.' ? 1 : 0)).strip();
+                    String kind = quote.toLowerCase(Locale.ROOT).contains("saving throw") ? "SAVING_THROW" : "SKILL_ABILITY_CHECK";
+                    candidates.add(new Candidate(kind, null, Integer.valueOf(dc.group(1)), diceExpression(excerpt.text(), dc.end()), "GM_REFERENCE", quote,
+                            List.of(new SourceRef(excerpt.documentId(), excerpt.extractionVersion(), excerpt.locator())), null, "deterministic-source-pattern-v2"));
+                }
             }
         }
         return List.copyOf(candidates);
