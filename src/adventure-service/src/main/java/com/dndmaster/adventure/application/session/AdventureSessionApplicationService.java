@@ -136,14 +136,16 @@ public final class AdventureSessionApplicationService {
                 || !session.blueprintId().equals(session.scenarioPackageId())
                 || blueprint.revision() != session.blueprintRevision()) throw new IllegalStateException("scenario package or blueprint changed since session draft");
         session.validateStart();
-        storyPlanRepository.findBySessionId(session.id()).ifPresentOrElse(plan -> {
-            boolean partyLockMatches = session.status() == AdventureSession.Status.STARTING
-                    ? plan.partyRevision() <= session.version()
-                    : plan.partyRevision() == session.version();
-            if (plan.status() != AdventureStoryPlanStatus.READY || plan.packageRevision() != session.scenarioPackageRevision() || !partyLockMatches) {
-                throw new IllegalStateException("adventure story plan is not ready for current party");
-            }
-        }, () -> { if (storyPlanRepository != MISSING_STORY_PLAN_REPOSITORY) throw new IllegalStateException("adventure story plan is required"); });
+        var storyPlan = storyPlanRepository.findBySessionId(session.id())
+                .orElseThrow(() -> new IllegalStateException("adventure story plan is required"));
+        boolean partyLockMatches = session.status() == AdventureSession.Status.STARTING
+                ? storyPlan.partyRevision() <= session.version()
+                : storyPlan.partyRevision() == session.version();
+        if (storyPlan.status() != AdventureStoryPlanStatus.READY
+                || storyPlan.packageRevision() != session.scenarioPackageRevision()
+                || !partyLockMatches) {
+            throw new IllegalStateException("adventure story plan is not ready for current party");
+        }
         var configuration = session.runtimeConfiguration();
         if (configuration == null) throw new IllegalStateException("adventure session runtime configuration is required");
         boolean newlyStarting = session.beginStart(adventureId, requestId);

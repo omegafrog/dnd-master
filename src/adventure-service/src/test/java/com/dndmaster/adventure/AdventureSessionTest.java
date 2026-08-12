@@ -144,6 +144,46 @@ class AdventureSessionTest {
     }
 
     @Test
+    void refuses_to_start_when_story_plan_is_missing_without_mutating_session_or_runtime() {
+        var owner = new OwnerPlayerId(UUID.randomUUID());
+        var packageId = ScenarioBundleId.generate();
+        var blueprint = new com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint(
+                1, com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.PUBLISHED,
+                List.of(), List.of());
+        var scenarioPackage = ScenarioPackage.publish(packageId, 1, "fingerprint",
+                List.of(), List.of(), new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()),
+                new CharacterLimit(1, null, ""), blueprint);
+        var packages = mock(ScenarioPackageRepository.class);
+        when(packages.findById(scenarioPackage.packageId())).thenReturn(java.util.Optional.of(scenarioPackage));
+        var session = AdventureSession.create(SessionId.generate(), owner, scenarioPackage.packageId(), 1,
+                scenarioPackage.packageId(), 1, 1,
+                new AdventureSessionRuntimeConfiguration(new ScenarioId(scenarioPackage.packageId()),
+                        new RuleSetId(packageId.value()), List.of(), "ollama", List.of(), "opening"));
+        session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT,
+                true, true, true, true, true, true));
+
+        var sessions = mock(AdventureSessionRepository.class);
+        when(sessions.findById(session.id())).thenReturn(java.util.Optional.of(session));
+        var adventures = mock(AdventureRepository.class);
+        var coordinator = mock(AdventureSessionStartCoordinator.class);
+        var plans = mock(com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository.class);
+        when(plans.findBySessionId(session.id())).thenReturn(java.util.Optional.empty());
+        var service = new AdventureSessionApplicationService(sessions, packages, adventures,
+                mock(RuntimeBindingApplicationService.class), coordinator,
+                mock(com.dndmaster.adventure.application.session.CharacterSheetOwnershipPort.class), plans,
+                mock(SessionKnowledgeSetRepository.class));
+
+        var failure = assertThrows(IllegalStateException.class,
+                () -> service.start(session.id(), owner, session.version(), UUID.randomUUID(), AdventureId.generate()));
+
+        assertEquals("adventure story plan is required", failure.getMessage());
+        assertEquals(AdventureSession.Status.DRAFT, session.status());
+        verify(sessions, never()).save(any(), anyLong());
+        verify(adventures, never()).save(any());
+        verify(coordinator, never()).prepare(any(), any(), any(), any());
+    }
+
+    @Test
     void records_starting_before_external_runtime_creation_and_completes_once() {
         AdventureSession session = configuredSession();
         session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT, true, true, true, true, true, true));
