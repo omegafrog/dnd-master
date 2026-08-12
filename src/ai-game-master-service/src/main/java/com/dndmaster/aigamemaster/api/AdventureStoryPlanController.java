@@ -1,6 +1,9 @@
 package com.dndmaster.aigamemaster.api;
 
 import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
+import com.dndmaster.aigamemaster.infrastructure.ai.CodexCliStoryPlanAdapter;
+import com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint;
+import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.ArrayList;
@@ -23,13 +26,18 @@ import java.time.Duration;
 /** Generates a source-aware outline. JSON is validated before crossing the service boundary. */
 @RestController("aiAdventureStoryPlanController")
 public final class AdventureStoryPlanController {
-    private final SpringAiChatAdapter adapter; private final ObjectMapper mapper;
+    private final SpringAiChatAdapter adapter; private final ObjectMapper mapper; private final AgentEndpointRegistry endpointRegistry;
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final URI ollamaBaseUrl; private final String ollamaModel;
-    public AdventureStoryPlanController(SpringAiChatAdapter adapter, ObjectMapper mapper,
+    private final String codexExecutable; private final java.nio.file.Path codexWorkDirectory; private final Duration codexTimeout;
+    public AdventureStoryPlanController(SpringAiChatAdapter adapter, ObjectMapper mapper, AgentEndpointRegistry endpointRegistry,
             @Value("${local-ai.ollama.base-url:http://127.0.0.1:11434}") String ollamaBaseUrl,
-            @Value("${local-ai.ollama.chat-model:qwen3:8b}") String ollamaModel) {
-        this.adapter = adapter; this.mapper = mapper; this.ollamaBaseUrl = URI.create(ollamaBaseUrl); this.ollamaModel = ollamaModel;
+            @Value("${local-ai.ollama.chat-model:qwen3:8b}") String ollamaModel,
+            @Value("${ai.codex.executable:codex}") String codexExecutable,
+            @Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
+            @Value("${ai.codex.timeout:PT10M}") Duration codexTimeout) {
+        this.adapter = adapter; this.mapper = mapper; this.endpointRegistry = endpointRegistry; this.ollamaBaseUrl = URI.create(ollamaBaseUrl); this.ollamaModel = ollamaModel;
+        this.codexExecutable = codexExecutable; this.codexWorkDirectory = java.nio.file.Path.of(codexWorkDirectory); this.codexTimeout = codexTimeout;
     }
     @PostMapping("/internal/v1/gm/adventure-story-plan")
     Response generate(@RequestBody Request request) {
@@ -41,9 +49,17 @@ public final class AdventureStoryPlanController {
                 + " Evidence=" + request.resolutionEvidence() + " citations=" + request.citations() + " maps=" + request.maps()
                 + " partySize=" + request.partySize() + " configuration=" + configuration;
         try {
-            String body = mapper.writeValueAsString(Map.of("model", ollamaModel, "prompt", prompt,
+            AgentEndpoint endpoint = endpointRegistry.active();
+            if (endpoint.provider() == AgentEndpoint.Provider.CODEX_CLI) {
+                String response = new CodexCliStoryPlanAdapter(codexExecutable, endpoint.model(), codexWorkDirectory, codexTimeout)
+                        .complete(request.operationId(), prompt);
+                return new Response(parse(response, configuration));
+            }
+            URI baseUrl = endpoint.provider() == AgentEndpoint.Provider.OLLAMA ? endpoint.baseUrl() : ollamaBaseUrl;
+            String model = endpoint.model().isBlank() ? ollamaModel : endpoint.model();
+            String body = mapper.writeValueAsString(Map.of("model", model, "prompt", prompt,
                     "stream", false, "think", false, "format", "json", "options", Map.of("num_predict", 512)));
-            HttpResponse<String> response = httpClient.send(HttpRequest.newBuilder(ollamaBaseUrl.resolve("/api/generate"))
+            HttpResponse<String> response = httpClient.send(HttpRequest.newBuilder(baseUrl.resolve("/api/generate"))
                     .timeout(Duration.ofMinutes(10)).header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("Ollama returned HTTP " + response.statusCode());

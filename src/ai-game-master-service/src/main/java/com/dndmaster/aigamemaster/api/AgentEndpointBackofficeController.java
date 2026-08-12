@@ -18,9 +18,10 @@ import org.springframework.web.server.ResponseStatusException;
 @RestController
 @RequestMapping("/api/v1/backoffice/agent-endpoints")
 public final class AgentEndpointBackofficeController {
-    private final AgentEndpointRegistry registry; private final Set<String> adminIds;
-    public AgentEndpointBackofficeController(AgentEndpointRegistry registry, @Value("${ai-game-master.backoffice.admin-player-ids:}") String ids) {
-        this.registry = registry; this.adminIds = ids.isBlank() ? Set.of() : Set.of(ids.split(","));
+    private final AgentEndpointRegistry registry; private final Set<String> adminIds; private final String codexExecutable;
+    public AgentEndpointBackofficeController(AgentEndpointRegistry registry, @Value("${ai-game-master.backoffice.admin-player-ids:}") String ids,
+                                             @Value("${ai.codex.executable:codex}") String codexExecutable) {
+        this.registry = registry; this.adminIds = ids.isBlank() ? Set.of() : Set.of(ids.split(",")); this.codexExecutable = codexExecutable;
     }
     @GetMapping List<EndpointView> list(@RequestHeader("Authorization") String authorization) { requireAdmin(authorization); return registry.list().stream().map(EndpointView::from).toList(); }
     @PutMapping("/{endpointId}") EndpointView save(@RequestHeader("Authorization") String authorization, @PathVariable UUID endpointId, @RequestBody EndpointRequest request) {
@@ -32,6 +33,7 @@ public final class AgentEndpointBackofficeController {
         requireAdmin(authorization);
         AgentEndpoint endpoint = registry.list().stream().filter(value -> value.id().equals(endpointId)).findFirst().orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND));
         try {
+            if (endpoint.provider() == AgentEndpoint.Provider.CODEX_CLI) return codexHealth();
             String path = endpoint.provider() == AgentEndpoint.Provider.OLLAMA ? "/api/tags" : "/v1/models";
             HttpRequest.Builder request = HttpRequest.newBuilder(endpoint.baseUrl().resolve(path)).timeout(Duration.ofSeconds(5)).GET();
             if (endpoint.provider() == AgentEndpoint.Provider.OPENAI_COMPATIBLE) {
@@ -42,6 +44,12 @@ public final class AgentEndpointBackofficeController {
             int status = HttpClient.newHttpClient().send(request.build(), java.net.http.HttpResponse.BodyHandlers.discarding()).statusCode();
             return new HealthView(status >= 200 && status < 300, status, status >= 200 && status < 300 ? null : "provider returned HTTP " + status);
         } catch (Exception error) { return new HealthView(false, null, error.getClass().getSimpleName()); }
+    }
+    private HealthView codexHealth() throws Exception {
+        Process process = new ProcessBuilder(codexExecutable, "login", "status").redirectErrorStream(true).start();
+        boolean finished = process.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+        if (!finished) { process.destroyForcibly(); return new HealthView(false, null, "codex login status timed out"); }
+        return new HealthView(process.exitValue() == 0, null, process.exitValue() == 0 ? null : "Codex OAuth session unavailable");
     }
     private void requireAdmin(String authorization) { String id = authorization != null && authorization.startsWith("Bearer ") ? authorization.substring(7) : ""; if (!adminIds.contains(id)) throw new ResponseStatusException(HttpStatus.FORBIDDEN, "ADMIN role is required"); }
     record EndpointRequest(String name, AgentEndpoint.Provider provider, String baseUrl, String model, String secretEnvironmentVariable, boolean active) {}

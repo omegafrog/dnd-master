@@ -40,7 +40,8 @@ public class AiGameMasterApiConfiguration {
     AgentEndpointRegistry agentEndpointRegistry(AgentEndpointStore store, GmProviderProperties defaults, LocalOllamaProperties localOllama) {
         AgentEndpointRegistry registry = new AgentEndpointRegistry(store);
         if (registry.list().isEmpty()) {
-            AgentEndpoint.Provider provider = defaults.provider().equals("ollama") ? AgentEndpoint.Provider.OLLAMA : AgentEndpoint.Provider.OPENAI_COMPATIBLE;
+            AgentEndpoint.Provider provider = defaults.provider().equals("ollama") ? AgentEndpoint.Provider.OLLAMA
+                    : defaults.provider().equals("codex-cli") ? AgentEndpoint.Provider.CODEX_CLI : AgentEndpoint.Provider.OPENAI_COMPATIBLE;
             registry.save(new AgentEndpoint(UUID.randomUUID(), "default", provider, provider == AgentEndpoint.Provider.OLLAMA ? localOllama.baseUrl() : defaults.baseUrl(), defaults.model(),
                     provider == AgentEndpoint.Provider.OPENAI_COMPATIBLE ? "OPENAI_API_KEY" : null, true, java.time.Instant.now()));
         }
@@ -99,10 +100,13 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
-    AdventureStoryPlanController aiAdventureStoryPlanController(SpringAiChatAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+    AdventureStoryPlanController aiAdventureStoryPlanController(SpringAiChatAdapter adapter, AgentEndpointRegistry endpointRegistry, com.fasterxml.jackson.databind.ObjectMapper objectMapper,
             @org.springframework.beans.factory.annotation.Value("${local-ai.ollama.base-url:http://127.0.0.1:11434}") String ollamaBaseUrl,
-            @org.springframework.beans.factory.annotation.Value("${local-ai.ollama.chat-model:qwen3:8b}") String ollamaModel) {
-        return new AdventureStoryPlanController(adapter, objectMapper, ollamaBaseUrl, ollamaModel);
+            @org.springframework.beans.factory.annotation.Value("${local-ai.ollama.chat-model:qwen3:8b}") String ollamaModel,
+            @org.springframework.beans.factory.annotation.Value("${ai.codex.executable:codex}") String codexExecutable,
+            @org.springframework.beans.factory.annotation.Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
+            @org.springframework.beans.factory.annotation.Value("${ai.codex.timeout:PT10M}") java.time.Duration codexTimeout) {
+        return new AdventureStoryPlanController(adapter, objectMapper, endpointRegistry, ollamaBaseUrl, ollamaModel, codexExecutable, codexWorkDirectory, codexTimeout);
     }
 
     @Bean
@@ -140,9 +144,12 @@ public class AiGameMasterApiConfiguration {
 
     @Bean
     @Primary
-    GmCompletionAdapter gmCompletionAdapter(SpringAiChatAdapter ollama, GmProviderProperties properties, AgentEndpointRegistry endpointRegistry) {
+    GmCompletionAdapter gmCompletionAdapter(SpringAiChatAdapter ollama, GmProviderProperties properties, AgentEndpointRegistry endpointRegistry,
+                                             @Value("${ai.codex.executable:codex}") String codexExecutable,
+                                             @Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
+                                             @Value("${ai.codex.timeout:PT10M}") java.time.Duration codexTimeout) {
         properties.validate();
-        return new GmCompletionRouter(ollama, properties, endpointRegistry);
+        return new GmCompletionRouter(ollama, properties, endpointRegistry, codexExecutable, java.nio.file.Path.of(codexWorkDirectory), codexTimeout);
     }
 
     @Bean

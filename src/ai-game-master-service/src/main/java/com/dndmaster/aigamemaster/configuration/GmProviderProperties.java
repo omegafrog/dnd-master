@@ -15,7 +15,7 @@ public record GmProviderProperties(String provider, String model, String reasoni
         timeout = timeout == null ? Duration.ofSeconds(90) : timeout;
     }
     public void validate() {
-        if (!provider.equals("ollama") && !provider.equals("openai")) throw new IllegalStateException("unsupported GM provider: " + provider);
+        if (!provider.equals("ollama") && !provider.equals("openai") && !provider.equals("codex-cli")) throw new IllegalStateException("unsupported GM provider: " + provider);
         if (timeout.isNegative() || timeout.isZero()) throw new IllegalStateException("GM provider timeout must be positive");
         if (provider.equals("openai") && apiKey.isBlank()) throw new IllegalStateException("OPENAI_API_KEY required for ai.gm.provider=openai");
     }
