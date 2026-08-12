@@ -123,8 +123,12 @@ public class AiGameMasterApiConfiguration {
     @Bean
     ResolutionCandidateController resolutionCandidateController(
             com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter adapter,
-            com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
-        return new ResolutionCandidateController(adapter, objectMapper);
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+            AgentEndpointRegistry endpointRegistry,
+            @org.springframework.beans.factory.annotation.Value("${ai.codex.executable:codex}") String codexExecutable,
+            @org.springframework.beans.factory.annotation.Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
+            @org.springframework.beans.factory.annotation.Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout) {
+        return new ResolutionCandidateController(adapter, objectMapper, endpointRegistry, codexExecutable, codexWorkDirectory, codexTimeout);
     }
 
     @Bean
