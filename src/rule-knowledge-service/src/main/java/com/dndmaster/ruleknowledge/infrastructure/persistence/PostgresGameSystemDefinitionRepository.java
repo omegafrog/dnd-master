@@ -39,12 +39,15 @@ public final class PostgresGameSystemDefinitionRepository implements GameSystemD
     public void save(GameSystemDefinitionRevision revision) {
         try (var c = dataSource.getConnection(); var s = c.prepareStatement("INSERT INTO game_system_definition_revision(definition_id,rulebook_id,definition_version,status,definition_json,published_at) VALUES (?,?,?,?,?,?)")) {
             s.setObject(1, revision.definitionId()); s.setObject(2, revision.rulebookId()); s.setLong(3, revision.version());
-            s.setString(4, revision.status().name()); s.setString(5, revision.definitionJson()); s.setObject(6, revision.publishedAt()); s.executeUpdate();
+            s.setString(4, revision.status().name()); s.setString(5, revision.definitionJson());
+            s.setTimestamp(6, revision.publishedAt() == null ? null : java.sql.Timestamp.from(revision.publishedAt()));
+            s.executeUpdate();
         } catch (SQLException e) { throw new RuntimeException("could not save game system definition", e); }
     }
 
     private static GameSystemDefinitionRevision read(java.sql.ResultSet row) throws SQLException {
         return new GameSystemDefinitionRevision(row.getObject(1, UUID.class), row.getObject(2, UUID.class), row.getLong(3),
-                GameSystemDefinitionStatus.valueOf(row.getString(4)), row.getString(5), row.getObject(6, java.time.Instant.class));
+                GameSystemDefinitionStatus.valueOf(row.getString(4)), row.getString(5),
+                row.getTimestamp(6) == null ? null : row.getTimestamp(6).toInstant());
     }
 }

@@ -12,6 +12,8 @@ import com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
 import com.dndmaster.ruleknowledge.domain.rulebook.ProcessingStatus;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
+import com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository;
+import com.dndmaster.ruleknowledge.domain.definition.GameSystemDefinitionRevision;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.Set;
@@ -34,11 +36,13 @@ public final class RulebookCatalogBackofficeController {
     private final CatalogRulebookRepository repository;
     private final RulebookPipelineApplicationService pipeline;
     private final RulebookRegistrationRepository registrations;
+    private final GameSystemDefinitionRepository definitions;
     private final Set<String> adminIds;
 
     public RulebookCatalogBackofficeController(CatalogRulebookRepository repository, RulebookPipelineApplicationService pipeline, RulebookRegistrationRepository registrations,
+            GameSystemDefinitionRepository definitions,
             @Value("${rule-knowledge.backoffice.admin-player-ids:}") String adminPlayerIds) {
-        this.repository = repository; this.pipeline = pipeline; this.registrations = registrations;
+        this.repository = repository; this.pipeline = pipeline; this.registrations = registrations; this.definitions = definitions;
         this.adminIds = Set.of(adminPlayerIds.split(","));
     }
 
@@ -54,7 +58,20 @@ public final class RulebookCatalogBackofficeController {
         CatalogRulebookRevision published = new CatalogRulebookRevision(current.id(), current.edition(), current.displayName(), current.rulebookId(),
                 current.revisionNumber(), CatalogRevisionStatus.READY, true, null, current.createdAt(), Instant.now());
         repository.publish(published);
+        ensureSystemDefinition(published);
         return published;
+    }
+
+    private void ensureSystemDefinition(CatalogRulebookRevision catalog) {
+        if (catalog.edition() != RulebookEdition.DND_5E_2014 || catalog.rulebookId() == null
+                || definitions.findPublished(catalog.rulebookId()).isPresent()) return;
+        definitions.save(GameSystemDefinitionRevision.draft(catalog.rulebookId(), 1, """
+                {"edition":"DND_5E_2014","time":{"secondsPerTurn":6},
+                 "characterCreation":{"levelRange":{"min":1,"max":20},
+                 "abilityScores":["strength","dexterity","constitution","intelligence","wisdom","charisma"],
+                 "proficiencyBonus":{"level1":2}},
+                 "combat":{"initiative":"dexterity","actionEconomy":"action_bonus_reaction"}}
+                """).publish());
     }
 
     @PostMapping(consumes = "multipart/form-data")

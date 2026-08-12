@@ -207,6 +207,9 @@ public final class ScenarioPreparationApplicationService {
         blueprint = restoreGroundedCandidates(blueprint, edition, candidates);
         long definitionVersion = rulebooks.stream().map(document -> gameSystemDefinitionPort.findByRulebook(document.knowledgeDocumentId().value()))
                 .flatMap(java.util.Optional::stream).map(GameSystemDefinitionPort.Definition::version).findFirst().orElse(0L);
+        if (catalogRulebookId != null && definitionVersion < 1) {
+            throw new IllegalStateException("published game system definition is required for the selected catalog rulebook");
+        }
         blueprint = blueprint.withProvenance(new BlueprintProvenance(definitionVersion, bundle.currentRevision().revision(),
                 sourceDocuments.stream().map(document -> document.documentType().toUpperCase()).distinct().toList(), edition));
         packageRepository.saveBlueprint(packageId, blueprint);
