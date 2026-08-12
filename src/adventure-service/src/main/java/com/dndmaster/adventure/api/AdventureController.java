@@ -116,6 +116,28 @@ public class AdventureController {
         return RuntimeTurnResponse.from(result);
     }
 
+    /**
+     * Lets the GM advance the scene without fabricating a player message. This is
+     * used immediately after session start and whenever the UI asks the GM to
+     * continue the current beat.
+     */
+    @PostMapping("/api/v1/adventures/{adventureId}/gm-turns")
+    RuntimeTurnResponse continueGmTurn(
+            @PathVariable UUID adventureId,
+            @RequestBody(required = false) GmContinuationRequest request) {
+        UUID owner = playerResolver.playerId();
+        GmContinuationRequest input = request == null ? new GmContinuationRequest(null, null, null, null) : request;
+        String action = input.instruction() == null || input.instruction().isBlank()
+                ? "Continue the current adventure beat, reveal the next meaningful consequence, and end with a clear player-facing choice."
+                : input.instruction();
+        RuntimeTurnResult result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
+                new AdventureId(adventureId), new OwnerPlayerId(owner),
+                input.turnId() == null ? UUID.randomUUID() : input.turnId(),
+                input.commandId() == null ? UUID.randomUUID() : input.commandId(),
+                action, input.expectedVersion() == null ? -1 : input.expectedVersion(), null, -1, true, true));
+        return RuntimeTurnResponse.from(result);
+    }
+
     @PostMapping("/api/v1/adventures/{adventureId}/turns")
     public ResponseEntity<RuntimeTurnResponse> submitTypedTurn(
             @PathVariable UUID adventureId,
@@ -265,6 +287,8 @@ public class AdventureController {
 
     public record StreamMessageRequest(UUID playerId, UUID turnId, UUID commandId, String action) {}
 
+    public record GmContinuationRequest(UUID turnId, UUID commandId, Long expectedVersion, String instruction) {}
+
     public record GmTurnRequest(UUID turnId, GmInputRequest input) {}
 
     public record GmInputRequest(String type, String text, UUID mapId, Long mapVersion, String action, String question) {
@@ -290,6 +314,9 @@ public class AdventureController {
             String currentScene,
             List<String> sourceRefs,
             List<String> warnings,
+            String provider,
+            String model,
+            String reasoning,
             long version) {
         static RuntimeTurnResponse from(RuntimeTurnResult result) {
             return new RuntimeTurnResponse(
@@ -302,6 +329,9 @@ public class AdventureController {
                     result.context().currentScene(),
                     result.turn().citations(),
                     result.turn().warnings(),
+                    result.turn().plan().provider(),
+                    result.turn().plan().model(),
+                    result.turn().plan().reasoning(),
                     result.version());
         }
     }

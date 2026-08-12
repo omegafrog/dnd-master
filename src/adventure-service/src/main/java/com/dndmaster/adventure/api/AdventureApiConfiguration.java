@@ -199,7 +199,7 @@ public class AdventureApiConfiguration {
     @Bean
     ProviderTokenEstimator providerTokenEstimator() {
         return new ProviderTokenEstimator(Map.of("legacy", 8192, "local", 8192, "remote", 128000,
-                "ollama", 8192, "openai", 128000));
+                "ollama", 8192, "openai", 128000, "codex-cli", 128000));
     }
 
     @Bean
