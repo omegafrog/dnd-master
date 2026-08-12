@@ -42,16 +42,50 @@ public final class AdventureStoryPlanController {
     @PostMapping("/internal/v1/gm/adventure-story-plan")
     Response generate(@RequestBody Request request) {
         Configuration configuration = request.configuration() == null ? Configuration.defaults() : request.configuration();
-        String prompt = "Create a source-grounded tabletop adventure plan as Markdown, not JSON. "
-                + "Use this loose template, but add or omit sections naturally: "
-                + "# Adventure Plan; ## Premise; ## Locations and Maps; ## Party Hooks; "
-                + "## Stage 1: ...; - Type: dungeon/town/event; - Goal:; - Location:; - Enemies:; - Boss:; "
-                + "- Clear condition:; - Failure condition:; - Rewards:; - Branches:; - Source notes:; "
-                + "## Ending 1: ...; ## Ending 2: .... "
-                + "Create " + configuration.minimumStages() + "-" + configuration.maximumStages() + " stage headings and exactly " + configuration.endingCount() + " ending headings. "
+        String template = """
+                # Adventure Plan
+
+                ## Premise
+                [one paragraph]
+
+                ## Locations and Maps
+                [locations, map assets, and how each map is used]
+
+                ## Party Hooks
+                [why this party is involved]
+
+                ## Stage 1: [stage name]
+                - Type: [dungeon | town | event]
+                - Location: [location]
+                - Goal: [goal]
+                - Enemies: [enemies]
+                - Boss: [boss or none]
+                - Clear condition: [condition]
+                - Failure condition: [condition]
+                - Rewards: [rewards]
+                - Branches: [branch choices and destinations]
+                - Source notes: [grounding from supplied documents]
+
+                ## Stage 2: [stage name]
+                [repeat the exact fields above for every stage]
+
+                ## Ending 1: [ending name]
+                - Resolution: [what happens]
+                - Requirements: [what must be true]
+                - Rewards: [final rewards]
+
+                ## Ending 2: [ending name]
+                - Resolution: [what happens]
+                - Requirements: [what must be true]
+                - Rewards: [final rewards]
+                """;
+        String prompt = "Create a source-grounded tabletop adventure plan by filling the Markdown template below. "
+                + "Return the completed Markdown document only. Replace every bracketed placeholder with concrete content; do not leave placeholders. "
+                + "Keep the headings and field labels stable so another agent can read the plan. "
+                + "Create " + configuration.minimumStages() + "-" + configuration.maximumStages() + " stages and exactly " + configuration.endingCount() + " endings; duplicate or remove the sample stage/ending sections as needed. "
                 + "Do not invent named rules, DCs, monsters, or facts absent from evidence. Documents=" + request.sourceDocuments()
                 + " Evidence=" + request.resolutionEvidence() + " citations=" + request.citations() + " maps=" + request.maps()
-                + " partySize=" + request.partySize() + " configuration=" + configuration;
+                + " partySize=" + request.partySize() + " configuration=" + configuration + "\n\nTEMPLATE:\n" + template;
         try {
             AgentEndpoint endpoint = endpointRegistry.active();
             if (endpoint.provider() == AgentEndpoint.Provider.CODEX_CLI) {
@@ -102,14 +136,25 @@ public final class AdventureStoryPlanController {
             int from = starts.get(i), to = i + 1 < starts.size() ? starts.get(i + 1) : clean.length();
             String body = clean.substring(from, to).trim();
             String ending = "ending-" + ((i % configuration.endingCount()) + 1);
-            result.add(new Stage(i + 1, titles.get(i), "EVENT", titles.get(i), firstLine(body), body,
-                    "Continue when the stage goal is achieved", List.of(), List.of(ending), "", "", "", List.of(), "", "", "", List.of(), List.of(ending), Map.of(), List.of()));
+            result.add(new Stage(i + 1, titles.get(i), value(body, "Type", "EVENT").toUpperCase(java.util.Locale.ROOT), value(body, "Location", titles.get(i)), value(body, "Goal", firstLine(body)),
+                    value(body, "Conflict", body), value(body, "Clear condition", "Continue when the stage goal is achieved"),
+                    List.of(value(body, "Source notes", "")).stream().filter(s -> !s.isBlank()).toList(), List.of(ending), "", "", "", split(value(body, "Enemies", "")),
+                    value(body, "Boss", ""), value(body, "Clear condition", ""), value(body, "Failure condition", ""), split(value(body, "Rewards", "")), split(value(body, "Branches", "")), Map.of(), List.of()));
         }
         if (result.size() < configuration.minimumStages() || result.size() > configuration.maximumStages()) throw new IllegalArgumentException("invalid markdown stage count");
         return List.copyOf(result);
     }
     private static String firstLine(String body) {
         return java.util.Arrays.stream(body.split("\\n")).map(String::trim).filter(line -> !line.isBlank() && !line.startsWith("#") && !line.startsWith("-")).findFirst().orElse("Advance the adventure");
+    }
+    private static String value(String body, String label, String fallback) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?im)^\\s*-\\s*" + java.util.regex.Pattern.quote(label) + "\\s*:\\s*(.+?)\\s*$").matcher(body);
+        return m.find() ? m.group(1).trim() : fallback;
+    }
+    private static List<String> split(String value) {
+        if (value == null || value.isBlank() || value.equalsIgnoreCase("none")) return List.of();
+        return java.util.Arrays.stream(value.split("[,;]\\s*|\\s+\\+\\s+"))
+                .map(String::trim).filter(s -> !s.isBlank()).toList();
     }
     private static String extractObject(String text) { int a = text.indexOf('{'), b = text.lastIndexOf('}'); if (a < 0 || b < a) throw new IllegalArgumentException("JSON object missing"); return text.substring(a,b+1); }
     private static String required(JsonNode n, String key) { String v = n.path(key).asText("").trim(); if (v.isBlank()) throw new IllegalArgumentException(key + " missing"); return v; }
