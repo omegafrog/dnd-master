@@ -87,7 +87,9 @@ public final class GmAgentController {
                             .add("Provider citation format was invalid; unsupported citations were discarded.");
                 }
                 com.fasterxml.jackson.databind.JsonNode active = normalized.get("proposedActiveSourceContext");
-                if (active != null && active.isObject()
+                if (active != null && !active.isObject()) {
+                    normalized.putNull("proposedActiveSourceContext");
+                } else if (active != null && active.isObject()
                         && (active.path("knowledgeDocumentId").isMissingNode()
                         || active.path("locator").asText().isBlank()
                         || active.path("excerpt").asText().isBlank())) {
@@ -98,11 +100,12 @@ public final class GmAgentController {
             // Branch transitions are committed only by the deterministic runtime after it
             // validates a known branch id. The free-form GM adapter must never request an
             // unverified transition (the plan context can be abbreviated in the prompt).
-            normalized.put("advanceStoryPlan", false);
-            normalized.put("selectedBranchId", "");
                 if (advancePlan != null && advancePlan.isObject()) {
                     normalized.put("advanceStoryPlan", true);
                 }
+                // Never trust a free-form branch object without deterministic validation.
+                normalized.put("advanceStoryPlan", false);
+                normalized.put("selectedBranchId", "");
                 if (!normalized.has("scene") || normalized.get("scene").isNull()
                         || normalized.get("scene").asText().isBlank()) normalized.put("scene", "current");
                 if (!normalized.has("judgment") || normalized.get("judgment").isNull()
