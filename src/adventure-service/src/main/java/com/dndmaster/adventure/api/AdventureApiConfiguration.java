@@ -312,8 +312,10 @@ public class AdventureApiConfiguration {
 
     @Bean
     AdventureStoryPlanApplicationService adventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
-            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packages, AdventureStoryPlanGenerationPort generator) {
-        return new AdventureStoryPlanApplicationService(plans, sessions, packages, generator);
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packages, AdventureStoryPlanGenerationPort generator,
+            ScenarioBundleRepository bundles,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort sourceExcerptPort) {
+        return new AdventureStoryPlanApplicationService(plans, sessions, packages, generator, bundles, sourceExcerptPort);
     }
 
     @Bean

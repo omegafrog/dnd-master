@@ -22,11 +22,17 @@ import java.util.ArrayList;
 import java.util.Objects;
 import java.util.UUID;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
+import com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort;
+import com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort;
+import com.dndmaster.adventure.application.scenario.ScenarioBundleRepository;
+import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 
 public final class AdventureStoryPlanApplicationService {
     private final AdventureStoryPlanRepository plans;
     private final AdventureSessionRepository sessions;
     private final ScenarioPackageRepository packages;
+    private final ScenarioBundleRepository bundles;
+    private final ScenarioSourceExcerptPort sourceExcerptPort;
     private final AdventureStoryPlanGenerationPort generator;
 
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions) {
@@ -34,8 +40,14 @@ public final class AdventureStoryPlanApplicationService {
     }
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
             ScenarioPackageRepository packages, AdventureStoryPlanGenerationPort generator) {
+        this(plans, sessions, packages, generator, null, null);
+    }
+    public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
+            ScenarioPackageRepository packages, AdventureStoryPlanGenerationPort generator,
+            ScenarioBundleRepository bundles, ScenarioSourceExcerptPort sourceExcerptPort) {
         this.plans = Objects.requireNonNull(plans); this.sessions = Objects.requireNonNull(sessions);
         this.packages = packages; this.generator = Objects.requireNonNull(generator);
+        this.bundles = bundles; this.sourceExcerptPort = sourceExcerptPort;
     }
 
     public AdventureStoryPlan read(SessionId sessionId, OwnerPlayerId owner) {
@@ -58,7 +70,7 @@ public final class AdventureStoryPlanApplicationService {
         ScenarioPackage scenarioPackage = packages == null ? null : packages.findById(session.scenarioPackageId()).orElse(null);
         AdventureStoryPlanGenerationPort.Request request = new AdventureStoryPlanGenerationPort.Request(
                 UUID.randomUUID().toString(), session.scenarioPackageRevision(), session.party().size(),
-                configuration, sourceDocuments(session), resolutionEvidence(session), mapContexts(scenarioPackage), citations(scenarioPackage));
+                configuration, sourceDocuments(session), resolutionEvidence(session), mapContexts(scenarioPackage), citations(session, scenarioPackage));
         List<AdventureStoryPlanStage> stages;
         try {
             stages = generator.generate(request);
@@ -125,8 +137,25 @@ public final class AdventureStoryPlanApplicationService {
         return packages.findById(session.scenarioPackageId()).map(p -> p.documents().stream().map(d -> d.originalFilename()).toList()).orElse(List.of());
     }
     private List<String> resolutionEvidence(AdventureSession session) {
-        if (packages == null) return List.of();
-        return packages.findById(session.scenarioPackageId()).map(p -> p.units().stream().map(u -> String.valueOf(u.sourceQuote())).filter(s -> !s.equals("null") && !s.isBlank()).limit(8).toList()).orElse(List.of());
+        List<String> evidence = new ArrayList<>();
+        if (packages != null) {
+            packages.findById(session.scenarioPackageId()).ifPresent(p -> evidence.addAll(p.units().stream()
+                    .map(u -> String.valueOf(u.sourceQuote())).filter(s -> !s.equals("null") && !s.isBlank()).limit(8).toList()));
+        }
+        if (bundles != null && sourceExcerptPort != null && packages != null) {
+            packages.findById(session.scenarioPackageId()).flatMap(p -> bundles.findById(p.bundleId()))
+                    .ifPresent(bundle -> appendIndexedExcerpts(evidence, bundle));
+        }
+        return evidence.stream().filter(s -> s != null && !s.isBlank()).distinct().limit(8).toList();
+    }
+
+    private void appendIndexedExcerpts(List<String> evidence, ScenarioSourceBundle bundle) {
+        try {
+            sourceExcerptPort.load(bundle).stream().map(ResolutionExtractionPort.SourceExcerpt::text)
+                    .filter(s -> s != null && !s.isBlank()).limit(12).forEach(evidence::add);
+        } catch (RuntimeException ignored) {
+            // Existing compiled evidence remains usable if the retrieval gateway is unavailable.
+        }
     }
 
     private static List<AdventureStoryPlanGenerationPort.MapContext> mapContexts(ScenarioPackage scenarioPackage) {
@@ -135,12 +164,23 @@ public final class AdventureStoryPlanApplicationService {
                 map.id(), map.assetId(), map.assetLocator(), map.source().locator(), map.confidence(), map.safetyStatus().name())).toList();
     }
 
-    private static List<AdventureStoryPlanGenerationPort.SourceCitation> citations(ScenarioPackage scenarioPackage) {
+    private List<AdventureStoryPlanGenerationPort.SourceCitation> citations(AdventureSession session, ScenarioPackage scenarioPackage) {
         if (scenarioPackage == null) return List.of();
         java.util.Map<UUID, String> types = scenarioPackage.documents().stream().collect(java.util.stream.Collectors.toMap(
                 document -> document.knowledgeDocumentId().value(), document -> document.documentType(), (left, right) -> left));
-        return scenarioPackage.units().stream().flatMap(unit -> unit.sourceRefs().stream().map(ref -> citation(unit, ref, types.get(ref.knowledgeDocumentId().value()))))
-                .filter(java.util.Objects::nonNull).limit(8).toList();
+        List<AdventureStoryPlanGenerationPort.SourceCitation> result = new ArrayList<>(scenarioPackage.units().stream()
+                .flatMap(unit -> unit.sourceRefs().stream().map(ref -> citation(unit, ref, types.get(ref.knowledgeDocumentId().value()))))
+                .filter(java.util.Objects::nonNull).toList());
+        if (bundles != null && sourceExcerptPort != null) {
+            bundles.findById(scenarioPackage.bundleId()).ifPresent(bundle -> {
+                java.util.Map<UUID, String> bundleTypes = bundle.currentRevision().documents().stream().collect(java.util.stream.Collectors.toMap(
+                        document -> document.knowledgeDocumentId().value(), document -> document.documentType(), (left, right) -> left));
+                sourceExcerptPort.load(bundle).stream().limit(12).forEach(excerpt -> result.add(new AdventureStoryPlanGenerationPort.SourceCitation(
+                        bundleTypes.getOrDefault(excerpt.documentId().value(), "STORYBOOK"), excerpt.documentId().value(),
+                        excerpt.extractionVersion(), excerpt.locator(), excerpt.text(), .9)));
+            });
+        }
+        return result.stream().filter(java.util.Objects::nonNull).distinct().limit(20).toList();
     }
 
     private static AdventureStoryPlanGenerationPort.SourceCitation citation(ScenarioResolutionUnit unit, ScenarioSourceReference reference, String documentType) {

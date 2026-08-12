@@ -36,7 +36,8 @@ public final class CodexCliStoryPlanAdapter implements StoryPlanCompletionPort {
             output = Files.createTempFile("dnd-codex-story-plan-", ".json");
             List<String> command = new ArrayList<>(List.of(executable, "exec", "--ephemeral",
                     "--skip-git-repo-check", "--ignore-user-config", "--ignore-rules", "--sandbox", "read-only",
-                    "--model", model, "--cd", workDirectory.toString(), "--output-last-message", output.toString(), "-"));
+                    "--model", model, "--cd", workDirectory.toString(), "--output-last-message", output.toString(),
+                    "-c", "model_reasoning_effort=\"none\"", "-"));
             Process process = new ProcessBuilder(command).redirectErrorStream(true).start();
             try (OutputStream stdin = process.getOutputStream()) { stdin.write(prompt.getBytes(StandardCharsets.UTF_8)); }
             java.io.ByteArrayOutputStream logs = new java.io.ByteArrayOutputStream();
