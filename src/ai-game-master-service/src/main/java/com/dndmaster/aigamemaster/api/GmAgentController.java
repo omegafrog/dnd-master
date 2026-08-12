@@ -33,18 +33,26 @@ public final class GmAgentController {
         }
         String operation = request.operationKey();
         try {
-            return complete(request, operation, prompt(request));
+            return canonicalizeProviderMetadata(request, complete(request, operation, prompt(request)));
         } catch (com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException malformed) {
             try {
-                return complete(request, operation + ":repair", repairPrompt(request));
+                return canonicalizeProviderMetadata(request, complete(request, operation + ":repair", repairPrompt(request)));
             } catch (RuntimeException stillMalformed) {
                 throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                        "GM provider structured response unavailable", stillMalformed);
+                        "GM provider structured response unavailable: " + stillMalformed.getMessage(), stillMalformed);
             }
         } catch (RuntimeException providerFailure) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
-                    "GM provider unavailable", providerFailure);
+                    "GM provider unavailable: " + providerFailure.getMessage(), providerFailure);
         }
+    }
+
+    private static Response canonicalizeProviderMetadata(Request request, Response response) {
+        if (request.provider() == null || request.provider().isBlank()) return response;
+        return new Response(response.scene(), response.npcState(), response.judgment(), response.narration(),
+                response.proposedActiveSourceContext(), response.citedEvidence(), response.warnings(),
+                request.provider(), request.model(), request.reasoning(), response.stateDelta(), response.toolCalls(),
+                response.advanceStoryPlan(), response.selectedBranchId());
     }
 
     private Response complete(Request request, String operation, String prompt) {
@@ -57,7 +65,53 @@ public final class GmAgentController {
 
     private Response parseCompleteResponse(String json) {
             try {
-                Response response = mapper.readValue(json, Response.class);
+                // Luna occasionally emits an empty object for the read-only state
+                // delta and a structured object for npcState/advanceStoryPlan.
+                // Normalize those representation-only variants before applying the
+                // canonical contract; non-empty state deltas remain rejected.
+                com.fasterxml.jackson.databind.node.ObjectNode normalized =
+                        (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(json);
+                com.fasterxml.jackson.databind.JsonNode npcState = normalized.get("npcState");
+                if (npcState != null && !npcState.isTextual() && !npcState.isNull()) {
+                    normalized.put("npcState", mapper.writeValueAsString(npcState));
+                }
+                normalizeArrayField(normalized, "stateDelta");
+                normalizeArrayField(normalized, "toolCalls");
+                normalizeArrayField(normalized, "citedEvidence");
+                normalizeArrayField(normalized, "warnings");
+                com.fasterxml.jackson.databind.JsonNode citations = normalized.get("citedEvidence");
+                if (citations.isArray() && java.util.stream.StreamSupport.stream(citations.spliterator(), false)
+                        .anyMatch(item -> !item.isObject())) {
+                    normalized.putArray("citedEvidence");
+                    ((com.fasterxml.jackson.databind.node.ArrayNode) normalized.get("warnings"))
+                            .add("Provider citation format was invalid; unsupported citations were discarded.");
+                }
+                com.fasterxml.jackson.databind.JsonNode advancePlan = normalized.get("advanceStoryPlan");
+                if (advancePlan == null || advancePlan.isNull()) normalized.put("advanceStoryPlan", false);
+                if (advancePlan != null && advancePlan.isObject()) {
+                    normalized.put("advanceStoryPlan", true);
+                }
+                if (!normalized.has("scene") || normalized.get("scene").isNull()
+                        || normalized.get("scene").asText().isBlank()) normalized.put("scene", "current");
+                if (!normalized.has("judgment") || normalized.get("judgment").isNull()
+                        || normalized.get("judgment").asText().isBlank()) {
+                    normalized.put("judgment", "The action is unresolved; the scene awaits the next meaningful choice.");
+                    ((com.fasterxml.jackson.databind.node.ArrayNode) normalized.get("warnings"))
+                            .add("Provider omitted a judgment; a neutral judgment was applied.");
+                }
+                if (!normalized.has("narration") || normalized.get("narration").isNull()
+                        || normalized.get("narration").asText().isBlank()) {
+                    normalized.put("narration", "The scene holds, awaiting your next decision.");
+                    ((com.fasterxml.jackson.databind.node.ArrayNode) normalized.get("warnings"))
+                            .add("Provider omitted narration; a neutral narration was applied.");
+                }
+                if (!normalized.has("provider") || normalized.get("provider").isNull()
+                        || normalized.get("provider").asText().isBlank()) normalized.put("provider", "codex-cli");
+                if (!normalized.has("model") || normalized.get("model").isNull()
+                        || normalized.get("model").asText().isBlank()) normalized.put("model", "gpt-5.6-luna");
+                if (!normalized.has("reasoning") || normalized.get("reasoning").isNull()
+                        || normalized.get("reasoning").asText().isBlank()) normalized.put("reasoning", "none");
+                Response response = mapper.treeToValue(normalized, Response.class);
                 if (response.proposedActiveSourceContext() instanceof String source
                         && source.isBlank()) {
                     response = new Response(response.scene(), response.npcState(), response.judgment(),
@@ -70,6 +124,14 @@ public final class GmAgentController {
                 throw new com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException(
                         "GM structured response invalid: " + exception.getMessage());
             }
+    }
+
+    private static void normalizeArrayField(com.fasterxml.jackson.databind.node.ObjectNode node, String field) {
+        com.fasterxml.jackson.databind.JsonNode value = node.get(field);
+        if (value == null || value.isNull() || (value.isTextual() && value.asText().isBlank())
+                || (value.isObject() && value.size() == 0)) {
+            node.putArray(field);
+        }
     }
 
     private static String repairPrompt(Request r) {

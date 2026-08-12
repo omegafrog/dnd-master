@@ -176,7 +176,9 @@ public class RuntimeTurnApplicationService {
         AdventureContext nextContext = new AdventureContext(plan.scene(), plan.npcState(), command.action(), plan.judgment());
         List<ConversationEntry> conversation = new ArrayList<>(adventure.conversation());
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.narration()));
-        conversation.add(new ConversationEntry(conversation.size(), "PLAYER", command.action()));
+        if (!command.gmOnly()) {
+            conversation.add(new ConversationEntry(conversation.size(), "PLAYER", command.action()));
+        }
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.judgment()));
 
         long nextVersion = adventure.version() + 1 + (command.turnCharacterSheetId() == null ? 0 : 1);
@@ -215,13 +217,27 @@ public class RuntimeTurnApplicationService {
     }
 
     private String providerSelection(UUID sessionId, String field) {
-        if (providerBindingRepository == null) return "";
+        if (providerBindingRepository == null) return defaultProviderSelection(field);
         ProviderBinding binding = providerBindingRepository.current(sessionId).orElse(null);
-        if (binding == null) return "";
+        if (binding == null) return defaultProviderSelection(field);
         return switch (field) {
-            case "provider" -> binding.selection().provider();
-            case "model" -> binding.selection().model();
-            case "reasoning" -> binding.selection().reasoning();
+            case "provider" -> blankOrDefault(binding.selection().provider(), field);
+            case "model" -> blankOrDefault(binding.selection().model(), field);
+            case "reasoning" -> blankOrDefault(binding.selection().reasoning(), field);
+            default -> "";
+        };
+    }
+
+    private static String blankOrDefault(String value, String field) {
+        return value == null || value.isBlank() ? defaultProviderSelection(field) : value;
+    }
+
+    /** Keep runtime turns executable during migration when an old session has no binding row. */
+    private static String defaultProviderSelection(String field) {
+        return switch (field) {
+            case "provider" -> "codex-cli";
+            case "model" -> "gpt-5.6-luna";
+            case "reasoning" -> "none";
             default -> "";
         };
     }

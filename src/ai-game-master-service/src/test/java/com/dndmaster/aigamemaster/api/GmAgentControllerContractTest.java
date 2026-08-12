@@ -63,6 +63,25 @@ class GmAgentControllerContractTest {
     }
 
     @Test
+    void normalizes_luna_empty_object_variants_without_allowing_state_mutation() {
+        var controller = new GmAgentController(new com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt,
+                                             com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                return parser.parse("{\"scene\":\"opening\",\"npcState\":{},\"judgment\":\"choose\","
+                        + "\"narration\":\"A bell rings.\",\"proposedActiveSourceContext\":null,"
+                        + "\"citedEvidence\":[],\"warnings\":[],\"provider\":\"codex-cli\","
+                        + "\"model\":\"gpt-5.6-luna\",\"reasoning\":\"none\",\"stateDelta\":{},"
+                        + "\"toolCalls\":[],\"advanceStoryPlan\":{\"currentBeat\":\"opening\"}}");
+            }
+        }, new com.fasterxml.jackson.databind.ObjectMapper(), new ApiRequestGuard("token"));
+
+        var response = controller.plan("token", request());
+
+        assertEquals("opening", response.scene());
+        assertEquals("gpt-5.6-luna", response.model());
+    }
+
+    @Test
     void rejects_missing_or_mutating_structured_response_fields() {
         assertThrows(IllegalArgumentException.class, () -> GmAgentController.requireComplete(
                 new GmAgentController.Response("scene", "npc", "judgment", "narration", null,

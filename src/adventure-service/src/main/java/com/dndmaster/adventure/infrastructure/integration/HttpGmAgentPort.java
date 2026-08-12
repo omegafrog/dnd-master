@@ -54,13 +54,13 @@ public final class HttpGmAgentPort implements GmAgentPort {
                     .header("Authorization", "Bearer " + context.ownerPlayerId().value())
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() / 100 != 2) throw new IllegalStateException("GM agent returned " + response.statusCode());
+            if (response.statusCode() / 100 != 2) throw new IllegalStateException("GM agent returned " + response.statusCode() + ": " + response.body());
             return Response.toResult(mapper.readValue(response.body(), Response.class));
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("GM agent interrupted", exception);
         } catch (Exception exception) {
-            throw new IllegalStateException("GM agent call failed", exception);
+            throw new IllegalStateException("GM agent call failed: " + exception.getMessage(), exception);
         }
     }
 
