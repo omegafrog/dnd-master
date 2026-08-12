@@ -51,12 +51,15 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
                     .filter(document -> "STORYBOOK".equalsIgnoreCase(document.documentType()))
                     .map(document -> new DocumentRequest(document.knowledgeDocumentId().value(), document.extractionVersion()))
                     .toList());
-            List<OwnedRulebookDocument> rulebooks = loadOwnedRulebooks(bundle.ownerPlayerId().value());
+            List<OwnedRulebookDocument> rulebooks = new ArrayList<>(loadOwnedRulebooks(bundle.ownerPlayerId().value()));
+            rulebooks.addAll(loadCatalogRulebooks());
             List<ResolutionExtractionPort.SourceExcerpt> rulebookExcerpts = rulebooks.stream()
                     .filter(document -> "RULEBOOK".equalsIgnoreCase(document.documentType())
                             && "INDEXED".equalsIgnoreCase(document.status()))
                     .flatMap(document -> loadRulebookExcerpts(document).stream())
-                    .toList();
+                    .collect(java.util.stream.Collectors.collectingAndThen(
+                            java.util.stream.Collectors.toMap(document -> document.documentId(), document -> document, (left, right) -> left),
+                            values -> new ArrayList<>(values.values())));
             String body = objectMapper.writeValueAsString(new ExcerptRequest(
                     bundle.ownerPlayerId().value(),
                     documents));
@@ -104,6 +107,19 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
         }
         OwnedRulebooksResponse result = objectMapper.readValue(response.body(), OwnedRulebooksResponse.class);
         return result.rulebooks() == null ? List.of() : result.rulebooks();
+    }
+
+    private List<OwnedRulebookDocument> loadCatalogRulebooks() throws IOException, InterruptedException {
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("api/v1/rulebook-catalog"))
+                .timeout(timeout).GET().build();
+        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() < 200 || response.statusCode() >= 300) return List.of();
+        CatalogRulebooksResponse result = objectMapper.readValue(response.body(), CatalogRulebooksResponse.class);
+        if (result.rulebooks() == null) return List.of();
+        return result.rulebooks().stream()
+                .filter(item -> "READY".equalsIgnoreCase(item.status()) && item.rulebookId() != null)
+                .map(item -> new OwnedRulebookDocument(java.util.UUID.fromString(item.rulebookId()), "RULEBOOK", "INDEXED", item.extractionVersion()))
+                .toList();
     }
 
     private List<ResolutionExtractionPort.SourceExcerpt> loadRulebookExcerpts(OwnedRulebookDocument document) {
@@ -217,6 +233,10 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
     record Excerpt(java.util.UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
     record OwnedRulebooksResponse(List<OwnedRulebookDocument> rulebooks) {}
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record CatalogRulebooksResponse(List<CatalogRulebookDocument> rulebooks) {}
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record CatalogRulebookDocument(String rulebookId, String status, long extractionVersion) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
     record OwnedRulebookDocument(
             java.util.UUID knowledgeDocumentId, String documentType, String status, long extractionVersion) {}
