@@ -77,6 +77,9 @@ public final class GmAgentController {
                 }
                 normalizeArrayField(normalized, "stateDelta");
                 normalizeArrayField(normalized, "toolCalls");
+                // Tool calls from the free-form provider are not executable until a
+                // typed command is explicitly submitted; discard malformed calls here.
+                normalized.putArray("toolCalls");
                 normalizeArrayField(normalized, "citedEvidence");
                 normalizeArrayField(normalized, "warnings");
                 com.fasterxml.jackson.databind.JsonNode citations = normalized.get("citedEvidence");
