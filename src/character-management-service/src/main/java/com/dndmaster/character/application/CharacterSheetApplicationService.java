@@ -75,6 +75,13 @@ public final class CharacterSheetApplicationService {
         return sheet;
     }
 
+    /** Internal runtime reads need metadata only; edition negotiation belongs to user-facing reads. */
+    public CharacterSheet readForRuntime(CharacterSheetId id) {
+        // Start orchestration reads the sheet before the Adventure aggregate exists;
+        // ownership and lifecycle checks happen at party binding/start validation.
+        return load(id);
+    }
+
     public CharacterSheet verifySessionOwnership(CharacterSheetId id, SessionId sessionId, java.util.UUID ownerPlayerId) {
         CharacterSheet sheet = load(id);
         if (!sheet.sessionId().equals(sessionId)) throw new IllegalStateException("character sheet belongs to another session");

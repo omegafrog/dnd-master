@@ -102,6 +102,11 @@ public class CharacterSheetController {
         return CharacterSheetResponse.from(sheet);
     }
 
+    @GetMapping("/internal/v1/character-sheets/{sheetId}/runtime")
+    CharacterSheetResponse getRuntimeCharacterSheet(@PathVariable UUID sheetId) {
+        return CharacterSheetResponse.from(characterSheetService.readForRuntime(new CharacterSheetId(sheetId)));
+    }
+
     @GetMapping("/internal/v1/character-sheets")
     List<CharacterSheetSummaryResponse> listCharacterSheets(@RequestParam UUID ownerPlayerId) {
         return characterSheetService.listSheetsOwnedBy(ownerPlayerId).stream().map(CharacterSheetSummaryResponse::from).toList();
