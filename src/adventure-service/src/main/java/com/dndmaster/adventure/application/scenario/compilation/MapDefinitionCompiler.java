@@ -16,7 +16,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class MapDefinitionCompiler {
-    private static final Pattern VALUE = Pattern.compile("(?i)([a-z]+)=([^\\s]+)");
+    private static final Pattern VALUE = Pattern.compile("(?i)([a-z]+)=(?:\"([^\"]+)\"|([^\\s]+))");
 
     Compilation compile(ScenarioSourceBundle bundle, List<ResolutionExtractionPort.SourceExcerpt> excerpts) {
         List<MapDefinition> result = new ArrayList<>();
@@ -30,6 +30,7 @@ final class MapDefinitionCompiler {
                 throw new IllegalArgumentException("map source excerpt is outside locked bundle extraction version");
             }
             for (ResolutionExtractionPort.SourceExcerpt excerpt : scoped) {
+                if (excerpt.locator() == null || !excerpt.locator().startsWith("asset:")) continue;
                 String text = excerpt.text() == null ? "" : excerpt.text();
                 if (!text.matches("(?is).*\\bMAP\\b.*")) continue;
                 String asset = value(text, "asset", document.originalFilename());
@@ -55,7 +56,7 @@ final class MapDefinitionCompiler {
 
     private static String value(String text, String key, String fallback) {
         Matcher matcher = VALUE.matcher(text);
-        while (matcher.find()) if (matcher.group(1).equalsIgnoreCase(key)) return matcher.group(2);
+        while (matcher.find()) if (matcher.group(1).equalsIgnoreCase(key)) return matcher.group(2) != null ? matcher.group(2) : matcher.group(3);
         return fallback;
     }
     private static List<String> values(String text, String key) {

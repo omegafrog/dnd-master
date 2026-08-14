@@ -32,10 +32,11 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
             if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("combat map view failed");
             Payload payload = mapper.readValue(response.body(), Payload.class);
             return Optional.of(new View(payload.mapId(), new Grid(payload.grid().width(), payload.grid().height(), payload.grid().cellSize(), payload.grid().distanceUnit()),
-                    payload.tokens(), payload.obstacles(), payload.layers(), payload.version()));
+                    payload.tokens(), payload.obstacles(), payload.layers(), payload.current(), payload.explored(), payload.version()));
         } catch (IOException exception) { throw new IllegalStateException("combat map view transport failed", exception); }
         catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("combat map view interrupted", exception); }
     }
 
-    private record Payload(UUID mapId, Grid grid, List<Token> tokens, List<Obstacle> obstacles, List<Layer> layers, long version) {}
+    private record Payload(UUID mapId, Grid grid, List<Token> tokens, List<Obstacle> obstacles, List<Layer> layers,
+            List<Position> current, List<Position> explored, long version) {}
 }

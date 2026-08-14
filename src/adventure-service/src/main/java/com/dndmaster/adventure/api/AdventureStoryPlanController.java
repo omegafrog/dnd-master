@@ -11,14 +11,21 @@ import java.util.List;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
+import com.dndmaster.adventure.application.session.AdventureSessionApplicationService;
+import com.dndmaster.adventure.application.runtime.TacticalMapActivationApplicationService;
 
 @RestController
 @RequestMapping("/api/v1/adventure-sessions/{sessionId}/story-plan")
 public final class AdventureStoryPlanController {
     private final AdventureStoryPlanApplicationService service;
+    private final AdventureSessionApplicationService sessions;
+    private final TacticalMapActivationApplicationService mapActivation;
     private final AuthenticatedPlayerResolver playerResolver;
 
-    public AdventureStoryPlanController(AdventureStoryPlanApplicationService service, AuthenticatedPlayerResolver playerResolver) { this.service = service; this.playerResolver = playerResolver; }
+    public AdventureStoryPlanController(AdventureStoryPlanApplicationService service, AdventureSessionApplicationService sessions,
+            TacticalMapActivationApplicationService mapActivation, AuthenticatedPlayerResolver playerResolver) {
+        this.service = service; this.sessions = sessions; this.mapActivation = mapActivation; this.playerResolver = playerResolver;
+    }
 
     @GetMapping
     PlanView read(@PathVariable UUID sessionId) { return PlanView.from(service.read(new SessionId(sessionId), owner())); }
@@ -39,6 +46,21 @@ public final class AdventureStoryPlanController {
         return PlanView.from(service.generate(new SessionId(sessionId), owner(), request == null ? AdventurePlanConfiguration.defaults() : request.toDomain()));
     }
 
+    @PostMapping("/stages/{position}/activate-map")
+    MapActivationView activateMap(@PathVariable UUID sessionId, @PathVariable int position) {
+        var session = sessions.read(new SessionId(sessionId), owner());
+        if (session.startedAdventureId() == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "adventure must be started before map activation");
+        var plan = service.read(new SessionId(sessionId), owner());
+        var stage = plan.stages().stream().filter(item -> item.position() == position).findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "story plan stage not found"));
+        if (stage.mapDefinitionId() == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "stage has no tactical map");
+        var activation = mapActivation.activateDefinition(session.scenarioPackageId(), session.startedAdventureId().value(), owner().value(),
+                session.runtimeConfiguration().ruleSetId().value(), stage.mapDefinitionId(), stage.playerSpawnX(), stage.playerSpawnY());
+        return new MapActivationView(position, stage.mapDefinitionId(), stage.mapAssetId(), stage.mapAssetLocator(), activation.combatMapId().orElse(null));
+    }
+
+    public record MapActivationView(int stagePosition, UUID mapDefinitionId, String assetId, String assetLocator, UUID combatMapId) {}
+
     private OwnerPlayerId owner() { return new OwnerPlayerId(playerResolver.playerId()); }
 
     public record PlanView(UUID planId, long packageRevision, long partyRevision, long version, String status, int currentStage, int stageCount,
@@ -48,10 +70,12 @@ public final class AdventureStoryPlanController {
 
     public record StageView(int position, String title, String stageType, String location, String goal,
             List<String> rewards, UUID mapDefinitionId, String mapAssetId, String mapAssetLocator,
-            String groundingStatus, List<String> aiSuggestions, String mapSafetyStatus, Double mapConfidence, int evidenceCount) {
+            String groundingStatus, List<String> aiSuggestions, String mapSafetyStatus, Double mapConfidence, int evidenceCount,
+            int playerSpawnX, int playerSpawnY, String playerSpawnConfidence, String playerSpawnRationale) {
         static StageView from(com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage stage) {
             return new StageView(stage.position(), stage.title(), stage.stageType().name(), stage.location(), stage.goal(), stage.rewards(), stage.mapDefinitionId(), stage.mapAssetId(), stage.mapAssetLocator(),
-                    stage.groundingStatus().name(), stage.aiSuggestions(), stage.mapSafetyStatus(), stage.mapConfidence(), stage.evidence().size());
+                    stage.groundingStatus().name(), stage.aiSuggestions(), stage.mapSafetyStatus(), stage.mapConfidence(), stage.evidence().size(),
+                    stage.playerSpawnX(), stage.playerSpawnY(), stage.playerSpawnConfidence(), stage.playerSpawnRationale());
         }
     }
     public record EvidenceView(String documentType, UUID documentId, long extractionVersion, String locator, String quote, double confidence) {}

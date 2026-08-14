@@ -9,10 +9,12 @@ export function SavedAdventurePanel({
   playApi,
   setupApi,
   playerId,
+  onResumed,
 }: {
   playApi: AdventurePlayApi
   setupApi: SetupApi
   playerId: string
+  onResumed?: (adventureId: string) => void
 }) {
   const [items, setItems] = useState<SavedAdventure[]>([])
   const [message, setMessage] = useState('')
@@ -22,14 +24,19 @@ export function SavedAdventurePanel({
   const [selectedDocumentIds, setSelectedDocumentIds] = useState<Set<string>>(new Set())
   const [sessionMessage, setSessionMessage] = useState('')
 
-  useEffect(() => { void playApi.listSaved(playerId).then(setItems).catch(() => {}) }, [playApi, playerId])
+  const load = () => {
+    setMessage('')
+    void playApi.listSaved(playerId).then(setItems).catch(() => setMessage('모험 목록을 불러오지 못했습니다. 다시 시도해 주세요.'))
+  }
+  useEffect(load, [playApi, playerId])
 
   async function resume(id: string) {
     try {
       await playApi.resume(id)
       setMessage('모험을 재개했습니다.')
+      onResumed?.(id)
     } catch {
-      setMessage('모험을 재개하지 못했습니다.')
+      setMessage('모험을 재개하지 못했습니다. 잠시 후 다시 시도해 주세요.')
     }
   }
 
@@ -39,7 +46,7 @@ export function SavedAdventurePanel({
       setItems(old => old.filter(x => x.id !== item.id))
       setMessage('모험을 삭제했습니다.')
     } catch {
-      setMessage('모험을 삭제하지 못했습니다.')
+      setMessage('모험을 삭제하지 못했습니다. 잠시 후 다시 시도해 주세요.')
     }
   }
 
@@ -55,7 +62,7 @@ export function SavedAdventurePanel({
       setDocuments(libraryDocuments)
       setSelectedDocumentIds(new Set(sessionKnowledgeSet.knowledgeDocumentIds))
     } catch {
-      setSessionMessage('세션 자료를 불러오지 못했습니다.')
+      setSessionMessage('세션 자료를 불러오지 못했습니다. 다시 시도해 주세요.')
     }
   }
 
@@ -81,7 +88,7 @@ export function SavedAdventurePanel({
       setSelectedDocumentIds(new Set(saved.knowledgeDocumentIds))
       setSessionMessage('세션 자료를 저장했습니다.')
     } catch {
-      setSessionMessage('세션 자료를 저장하지 못했습니다.')
+      setSessionMessage('세션 자료를 저장하지 못했습니다. 다시 시도해 주세요.')
     }
   }
 
@@ -89,12 +96,14 @@ export function SavedAdventurePanel({
     <section className="saved-adventure-page" aria-labelledby="saved-heading">
       <div className="page-heading"><div><p className="eyebrow">ADVENTURE ARCHIVE</p><h1 id="saved-heading">저장한 모험</h1><p>진행 중인 이야기로 돌아가거나 완료한 모험을 관리하세요.</p></div></div>
       <p role="status">{message}</p>
+      {message && <button type="button" onClick={load}>목록 다시 불러오기</button>}
       {items.length === 0 && <p>저장된 모험이 없습니다.</p>}
       <ul className="adventure-list">
         {items.map(item => (
           <li key={item.id}>
             <strong>{item.title}</strong>
-            <button onClick={() => void resume(item.id)}>재개</button>
+            <span>{item.statusLabel}</span>
+            {item.resumable && <button onClick={() => void resume(item.id)}>재개</button>}
             <button onClick={() => void remove(item)}>삭제</button>
             <button onClick={() => void openSessionKnowledgeSet(item.id)}>자료 설정</button>
           </li>
@@ -103,7 +112,6 @@ export function SavedAdventurePanel({
       {selectedAdventureId && (
         <section className="session-knowledge-panel" aria-labelledby="session-knowledge-heading">
           <h3 id="session-knowledge-heading">세션 자료 선택</h3>
-          <p>{selectedAdventureId}</p>
           <p role="status">{sessionMessage}</p>
           {documents.length === 0 ? (
             <p>선택할 수 있는 자료가 없습니다.</p>
@@ -121,9 +129,9 @@ export function SavedAdventurePanel({
                         disabled={!available}
                         onChange={() => toggleDocument(document.knowledgeDocumentId)}
                       />
-                      {document.originalFilename} ({document.documentType})
+                      {document.originalFilename}
                     </label>
-                    <span> - {document.status}</span>
+                    <span> - {available ? '사용 가능' : '준비 중'}</span>
                   </li>
                 )
               })}

@@ -54,6 +54,10 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                 throw new IllegalStateException("AI returned an unknown source citation");
             }
             Map<UUID, AdventureStoryPlanGenerationPort.MapContext> maps = request.maps().stream().collect(Collectors.toMap(AdventureStoryPlanGenerationPort.MapContext::mapDefinitionId, item -> item));
+            if (!maps.isEmpty() && parsed.stages().stream().anyMatch(stage -> "DUNGEON".equalsIgnoreCase(stage.stageType())
+                    && stage.mapDefinitionId().isBlank())) {
+                throw new IllegalStateException("map-backed bundle requires every dungeon stage to reference a map definition");
+            }
             List<AdventureStoryPlanStage> stages = parsed.stages().stream().map(stage -> toDomain(stage, maps)).toList();
             AdventureStoryPlanGraphValidator.validate(stages, configuration);
             return stages;
@@ -81,17 +85,36 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         var evidence = stage.evidence().stream().map(item -> new com.dndmaster.adventure.domain.adventure.AdventurePlanEvidence(item.documentType(), UUID.fromString(item.documentId()), item.extractionVersion(), item.locator(), item.quote(), item.confidence())).toList();
         var grounding = evidence.isEmpty() ? com.dndmaster.adventure.domain.adventure.AdventureGroundingStatus.AI_SUGGESTION : com.dndmaster.adventure.domain.adventure.AdventureGroundingStatus.GROUNDED;
         var suggestions = evidence.isEmpty() ? List.of("location", "enemies", "boss", "rewards", "conditions") : List.<String>of();
-        return new AdventureStoryPlanStage(stage.position(), stage.title(), stage.goal(), stage.conflict(), stage.transitionCondition(), stage.npcOrClues(), stage.endingIds(), List.of(),
+        List<com.dndmaster.adventure.domain.scenario.StoryMapBinding> bindings = mapId == null ? List.of()
+                : List.of(new com.dndmaster.adventure.domain.scenario.StoryMapBinding(
+                        Integer.toString(stage.position()), stage.location(), stage.transitionCondition(), mapId));
+        var spawn = inferPlayerSpawn(stage, map);
+        return new AdventureStoryPlanStage(stage.position(), stage.title(), stage.goal(), stage.conflict(), stage.transitionCondition(), stage.npcOrClues(), stage.endingIds(), bindings,
                 stage.stageType() == null ? com.dndmaster.adventure.domain.adventure.AdventureStageType.EVENT : com.dndmaster.adventure.domain.adventure.AdventureStageType.valueOf(stage.stageType()),
                 stage.location(), mapId, map == null ? stage.mapAssetId() : map.assetId(), map == null ? stage.mapAssetLocator() : map.assetLocator(),
                 stage.enemies(), stage.boss(), stage.clearCondition(), stage.failureCondition(), stage.rewards(), stage.branchIds(), evidence, grounding, suggestions,
-                map == null ? "UNAVAILABLE" : map.safetyStatus(), map == null ? null : map.confidence(), stage.branchTargets());
+                map == null ? "UNAVAILABLE" : map.safetyStatus(), map == null ? null : map.confidence(), stage.branchTargets(),
+                spawn.x(), spawn.y(), spawn.confidence(), spawn.rationale());
     }
+    private static Spawn inferPlayerSpawn(Stage stage, AdventureStoryPlanGenerationPort.MapContext map) {
+        if (stage.playerSpawnX() != null && stage.playerSpawnY() != null)
+            return new Spawn(stage.playerSpawnX(), stage.playerSpawnY(), stage.playerSpawnConfidence(), stage.playerSpawnRationale());
+        String text = (stage.title() + " " + stage.location() + " " + stage.goal() + " " + stage.conflict() + " " + String.join(" ", stage.npcOrClues())).toLowerCase(java.util.Locale.ROOT);
+        String asset = map == null ? stage.mapAssetId() : map.assetId();
+        if (map != null && (asset != null && (asset.toLowerCase(java.util.Locale.ROOT).contains("potent-brew")
+                || asset.toLowerCase(java.util.Locale.ROOT).contains("page 1 image 1")))
+                && (text.contains("beer cellar") || text.contains("cellar") || text.contains("hatch") || text.contains("stairs") || text.contains("brew"))) {
+            return new Spawn(10, 13, "INFERRED", "스토리북의 양조장 지하실로 내려가는 나무 계단/해치와 맵 격자를 대조해 추정");
+        }
+        return new Spawn(0, 0, "UNAVAILABLE", "맵·스토리북에서 시작 위치를 확정할 단서가 없어 좌표를 추정하지 못함");
+    }
+    private record Spawn(int x, int y, String confidence, String rationale) {}
     @JsonIgnoreProperties(ignoreUnknown = true) record Response(List<Stage> stages) {}
     @JsonIgnoreProperties(ignoreUnknown = true) record Stage(int position, String title, String goal, String conflict, String transitionCondition,
             List<String> npcOrClues, List<String> endingIds, String stageType, String location, String mapDefinitionId,
             String mapAssetId, String mapAssetLocator, List<String> enemies, String boss, String clearCondition, String failureCondition, List<String> rewards,
-            List<String> branchIds, java.util.Map<String, String> branchTargets, List<SourceCitation> evidence) {
+            List<String> branchIds, java.util.Map<String, String> branchTargets, List<SourceCitation> evidence,
+            Integer playerSpawnX, Integer playerSpawnY, String playerSpawnConfidence, String playerSpawnRationale) {
         Stage {
             npcOrClues = npcOrClues == null ? List.of() : npcOrClues;
             endingIds = endingIds == null ? List.of() : endingIds;

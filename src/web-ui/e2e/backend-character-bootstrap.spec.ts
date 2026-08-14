@@ -84,7 +84,6 @@ async function login(request: APIRequestContext) {
 
 async function uploadDocuments(request: APIRequestContext) {
   const inputs = [
-    { path: rulebookPath!, documentType: 'RULEBOOK', role: 'RULEBOOK' },
     ...storybooks.map(storybook => ({ ...storybook, documentType: 'STORYBOOK' })),
   ]
   const buffers = await Promise.all(inputs.map(input => readFile(input.path)))
@@ -127,10 +126,21 @@ async function uploadDocuments(request: APIRequestContext) {
     expect(document.status, document.failureReason).toBe('ACCEPTED')
   })
 
-  return body.documents.map((document, index) => ({
+  const uploaded = body.documents.map((document, index) => ({
     knowledgeDocumentId: document.knowledgeDocumentId!,
     role: inputs[index].role,
   }))
+
+  const catalogResponse = await request.get(`${backend}/api/v1/rulebook-catalog`)
+  expect(catalogResponse.ok(), await catalogResponse.text()).toBeTruthy()
+  const catalog = await catalogResponse.json() as Array<{
+    edition: string
+    rulebookId: string | null
+    status: string
+  }>
+  const rulebook = catalog.find(item => item.edition === 'DND_5E_2014' && item.status === 'READY' && item.rulebookId)
+  expect(rulebook, 'published DND_5E_2014 catalog rulebook is required').toBeTruthy()
+  return [{ knowledgeDocumentId: rulebook!.rulebookId!, role: 'RULEBOOK' }, ...uploaded]
 }
 
 async function waitForDocuments(request: APIRequestContext, ids: string[]) {

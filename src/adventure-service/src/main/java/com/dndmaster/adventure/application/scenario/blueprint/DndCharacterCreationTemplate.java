@@ -59,7 +59,10 @@ public final class DndCharacterCreationTemplate {
         CharacterCreationBlueprintStatus status = reviewRequired
                 ? CharacterCreationBlueprintStatus.NEEDS_REVIEW
                 : CharacterCreationBlueprintStatus.READY;
-        return new CharacterCreationBlueprint(extracted.revision(), status, fields, diagnostics);
+        // Preserve provenance attached by the extraction/compiler pipeline.  The template only
+        // changes the field contract/status; it must not manufacture a new, ungrounded blueprint.
+        return new CharacterCreationBlueprint(extracted.revision(), status, fields, diagnostics,
+                extracted.provenance());
     }
 
     private static CharacterCreationBlueprint.Field mergeProposal(

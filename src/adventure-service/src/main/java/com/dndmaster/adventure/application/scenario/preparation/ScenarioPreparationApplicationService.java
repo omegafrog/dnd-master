@@ -207,11 +207,12 @@ public final class ScenarioPreparationApplicationService {
         blueprint = restoreGroundedCandidates(blueprint, edition, candidates);
         long definitionVersion = rulebooks.stream().map(document -> gameSystemDefinitionPort.findByRulebook(document.knowledgeDocumentId().value()))
                 .flatMap(java.util.Optional::stream).map(GameSystemDefinitionPort.Definition::version).findFirst().orElse(0L);
-        if (catalogRulebookId != null && definitionVersion < 1) {
-            throw new IllegalStateException("published game system definition is required for the selected catalog rulebook");
+        if (definitionVersion < 1) {
+            throw new IllegalStateException("published game system definition is required before character blueprint generation");
         }
         blueprint = blueprint.withProvenance(new BlueprintProvenance(definitionVersion, bundle.currentRevision().revision(),
                 sourceDocuments.stream().map(document -> document.documentType().toUpperCase()).distinct().toList(), edition));
+        requireDefinitionProvenance(blueprint);
         packageRepository.saveBlueprint(packageId, blueprint);
         return toView(blueprint, sourceDocuments);
     }
@@ -322,12 +323,7 @@ public final class ScenarioPreparationApplicationService {
                                         : spec.retrievalQuery(),
                                 java.util.Map.of(sourceType, .25), 0));
                 List<CharacterInputTagExtractionPort.SourceExcerpt> topicExcerpts = excerptList(evidence);
-                if (topicExcerpts.isEmpty()) {
-                    LOGGER.info("character_blueprint_refine_skipped packageId={} field={} reason=no_topic_excerpts elapsedMs={}",
-                            packageId, candidate.key(), (System.nanoTime() - startedAt) / 1_000_000);
-                    refined.add(candidate);
-                    continue;
-                }
+                if (topicExcerpts.isEmpty()) throw new IllegalStateException("character blueprint extraction evidence is missing for field " + candidate.key());
                 List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> result = characterTagExtraction.extract(
                         new CharacterInputTagExtractionPort.Request(
                                 packageId + ":character-blueprint-refine:" + candidate.key() + ":" + UUID.randomUUID(),
@@ -336,18 +332,17 @@ public final class ScenarioPreparationApplicationService {
                                         ? "Keep key exactly '" + candidate.key() + "'."
                                         : spec.extractionPolicy() + " Keep key exactly '" + spec.key() + "'.")
                                         + " Decide FREE_TEXT, SINGLE_SELECT, or MULTI_SELECT from excerpts. If selectable, include one optionDetails object per option with description, sourceQuote, and evidence."));
-                var selected = result == null ? candidate : result.stream()
+                if (result == null) throw new IllegalStateException("character blueprint extraction returned no result for field " + candidate.key());
+                var selected = result.stream()
                         .filter(item -> item.key().equals(candidate.key()))
-                        .findFirst().map(item -> withSourceType(item, sourceType)).orElse(candidate);
+                        .findFirst().map(item -> withSourceType(item, sourceType))
+                        .orElseThrow(() -> new IllegalStateException("character blueprint extraction omitted field " + candidate.key()));
                 LOGGER.info("character_blueprint_refine_finished packageId={} field={} excerpts={} mode={} options={} optionDetails={} elapsedMs={}",
                         packageId, candidate.key(), topicExcerpts.size(), selected.inputMode(), selected.options().size(),
                         selected.optionDetails().size(), (System.nanoTime() - startedAt) / 1_000_000);
                 refined.add(selected);
             } catch (RuntimeException exception) {
-                LOGGER.warn("character_blueprint_refine_failed packageId={} field={} reason={}",
-                        packageId, candidate.key(), exception.getMessage());
-                // A failed topic lookup must not discard the grounded first-stage field.
-                refined.add(candidate);
+                throw new IllegalStateException("character blueprint extraction failed for field " + candidate.key(), exception);
             }
         }
         return List.copyOf(refined);
@@ -536,7 +531,9 @@ public final class ScenarioPreparationApplicationService {
                 && scenarioPackage.runtimeCandidates().isEmpty())) {
             throw new IllegalStateException("scenario package is not ready for blueprint publication");
         }
-        CharacterCreationBlueprint published = requireBlueprint(scenarioPackage).publish();
+        CharacterCreationBlueprint current = requireBlueprint(scenarioPackage);
+        requireDefinitionProvenance(current);
+        CharacterCreationBlueprint published = current.publish();
         packageRepository.saveBlueprint(packageId, published);
         return published;
     }
@@ -546,6 +543,14 @@ public final class ScenarioPreparationApplicationService {
             throw new IllegalStateException("character creation blueprint is unavailable");
         }
         return scenarioPackage.characterCreationBlueprint();
+    }
+
+    private static void requireDefinitionProvenance(CharacterCreationBlueprint blueprint) {
+        var provenance = blueprint.provenance();
+        if (provenance == null || provenance.gameSystemDefinitionVersion() < 1
+                || provenance.sourceRevision() < 1 || provenance.sourceTypes().isEmpty()) {
+            throw new IllegalStateException("character blueprint definition provenance is required");
+        }
     }
 
     private static void requireCurrentBundleRevision(ScenarioPackage scenarioPackage, ScenarioSourceBundle bundle) {

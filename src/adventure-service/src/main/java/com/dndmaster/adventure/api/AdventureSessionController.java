@@ -4,6 +4,8 @@ import com.dndmaster.adventure.application.session.AdventureSessionApplicationSe
 import com.dndmaster.adventure.application.runtime.GmProviderBindingService;
 import com.dndmaster.adventure.application.runtime.GmProviderSelection;
 import com.dndmaster.adventure.application.runtime.ProviderBinding;
+import com.dndmaster.adventure.application.runtime.TacticalMapActivationApplicationService;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanApplicationService;
 import com.dndmaster.adventure.domain.adventure.*;
 import java.util.List;
 import java.util.UUID;
@@ -15,7 +17,10 @@ public final class AdventureSessionController {
     private final AdventureSessionApplicationService service;
     private final AuthenticatedPlayerResolver playerResolver;
     private final GmProviderBindingService providerBindings;
-    public AdventureSessionController(AdventureSessionApplicationService service, AuthenticatedPlayerResolver playerResolver, GmProviderBindingService providerBindings) { this.service = service; this.playerResolver = playerResolver; this.providerBindings = providerBindings; }
+    private final AdventureStoryPlanApplicationService storyPlans;
+    private final TacticalMapActivationApplicationService mapActivation;
+    public AdventureSessionController(AdventureSessionApplicationService service, AuthenticatedPlayerResolver playerResolver, GmProviderBindingService providerBindings,
+            AdventureStoryPlanApplicationService storyPlans, TacticalMapActivationApplicationService mapActivation) { this.service = service; this.playerResolver = playerResolver; this.providerBindings = providerBindings; this.storyPlans = storyPlans; this.mapActivation = mapActivation; }
     @PostMapping SessionView create(@RequestBody CreateSessionRequest request) { return SessionView.from(service.create(owner(), request.scenarioPackageId(), request.blueprintId(), request.blueprintRevision(), request.runtimeConfiguration(), request.partySize())); }
     @GetMapping List<SessionView> list(@RequestParam UUID scenarioPackageId) { return service.listByScenarioPackageId(scenarioPackageId, owner()).stream().map(SessionView::from).toList(); }
     @GetMapping("/{sessionId}") SessionView read(@PathVariable UUID sessionId) { return SessionView.from(service.read(new SessionId(sessionId), owner())); }
@@ -36,8 +41,13 @@ public final class AdventureSessionController {
     }
     @PutMapping("/{sessionId}/party/{characterSheetId}") SessionView replace(@PathVariable UUID sessionId, @PathVariable UUID characterSheetId, @RequestHeader("If-Match-Version") long version, @RequestBody PartyMemberRequest request) { return SessionView.from(service.replaceMember(new SessionId(sessionId), owner(), version, request.toDomain(characterSheetId))); }
     @DeleteMapping("/{sessionId}/party/{characterSheetId}") SessionView remove(@PathVariable UUID sessionId, @PathVariable UUID characterSheetId, @RequestHeader("If-Match-Version") long version) { return SessionView.from(service.removeMember(new SessionId(sessionId), owner(), version, new CharacterSheetId(characterSheetId))); }
-    @PostMapping("/{sessionId}/start") SessionView start(@PathVariable UUID sessionId, @RequestHeader("If-Match-Version") long version, @RequestHeader("Idempotency-Key") UUID requestId, @RequestBody StartRequest request) { return SessionView.from(service.start(new SessionId(sessionId), owner(), version, requestId, new AdventureId(request.adventureId()))); }
+    @PostMapping("/{sessionId}/start") SessionView start(@PathVariable UUID sessionId, @RequestHeader("If-Match-Version") long version, @RequestHeader("Idempotency-Key") UUID requestId, @RequestBody StartRequest request) {
+        AdventureSession started = service.start(new SessionId(sessionId), owner(), version, requestId, new AdventureId(request.adventureId()));
+        activateCurrentStageMap(started);
+        return SessionView.from(started);
+    }
     @PostMapping("/{sessionId}/complete") SessionView complete(@PathVariable UUID sessionId, @RequestHeader("If-Match-Version") long version) { return SessionView.from(service.complete(new SessionId(sessionId), owner(), version)); }
+    @PostMapping("/{sessionId}/start/recover") SessionView recoverStart(@PathVariable UUID sessionId, @RequestHeader("If-Match-Version") long version) { return SessionView.from(service.recoverFailedStart(new SessionId(sessionId), owner(), version)); }
     @DeleteMapping("/{sessionId}") SessionView delete(@PathVariable UUID sessionId, @RequestHeader("If-Match-Version") long version) { return SessionView.from(service.delete(new SessionId(sessionId), owner(), version)); }
     @GetMapping("/internal/{sessionId}/character-policy") CharacterPolicyView characterPolicy(@PathVariable UUID sessionId, @RequestHeader(value = "X-Internal-Service", required = false) String internalService, @RequestParam(required = false) UUID characterSheetId) {
         if (!"character-management".equals(internalService)) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN, "internal service header required");
@@ -50,7 +60,14 @@ public final class AdventureSessionController {
                 mutable || member.backgroundMutableAfterStart(), mutable || member.startingAbilitiesMutableAfterStart(), session.characterEdition());
     }
     private OwnerPlayerId owner() { return new OwnerPlayerId(playerResolver.playerId()); }
-    private static GmProviderSelection defaultProvider() { return new GmProviderSelection("ollama", "qwen3:8b", "medium"); }
+    private void activateCurrentStageMap(AdventureSession session) {
+        var plan = storyPlans.read(session.id(), owner());
+        var stage = plan.stages().stream().filter(item -> item.position() == plan.currentStage() + 1).findFirst().orElse(null);
+        if (stage == null || stage.mapDefinitionId() == null || session.startedAdventureId() == null) return;
+        mapActivation.activateDefinition(session.scenarioPackageId(), session.startedAdventureId().value(), owner().value(),
+                session.runtimeConfiguration().ruleSetId().value(), stage.mapDefinitionId(), stage.playerSpawnX(), stage.playerSpawnY());
+    }
+    private static GmProviderSelection defaultProvider() { return new GmProviderSelection("codex-cli", "gpt-5.6-luna", "medium"); }
     public record CreateSessionRequest(UUID scenarioPackageId, UUID blueprintId, long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration, Integer partySize) {}
     public record StartRequest(UUID adventureId) {}
     public record GmProviderRequest(String provider, String model, String reasoning) {

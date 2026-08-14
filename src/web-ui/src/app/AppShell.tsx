@@ -5,8 +5,6 @@ import { HttpAdventureApi } from '../features/adventure/AdventureApi'
 import { AdventureStream } from '../features/adventure/AdventureStream'
 import { HttpAdventurePlayApi } from '../features/saved-adventures/AdventurePlayApi'
 import { SavedAdventurePanel } from '../features/saved-adventures/SavedAdventurePanel'
-import { HttpRuleGuidanceApi } from '../features/rule-guidance/RuleGuidanceApi'
-import { RuleEvidence } from '../features/rule-guidance/RuleEvidence'
 import { HttpSetupApi } from '../features/rulebooks/SetupApi'
 import { RulebookSetup } from '../features/rulebooks/RulebookSetup'
 import { BackofficePage } from '../features/backoffice/BackofficePage'
@@ -14,11 +12,11 @@ import { BundleDetailPage } from '../features/rulebooks/BundleDetailPage'
 import { CharacterSheetView } from '../features/character/CharacterSheetView'
 import { CharacterCreationPage } from '../features/character/CharacterCreationPage'
 import { PackageBlueprintReviewPage } from '../features/character/PackageBlueprintReviewPage'
-import { RoleDiceRoller } from '../features/dice/RoleDiceRoller'
 import { CombatMapView } from '../features/combat-map/CombatMapView'
 import { AdventureSessionApi } from '../features/adventure-session/AdventureSessionApi'
 import { AdventureSessionPanel } from '../features/adventure-session/AdventureSessionPanel'
 import { AdventureStoryPlanPage } from '../features/adventure-session/AdventureStoryPlanPage'
+import { AiEndpointSettings } from '../features/profile/AiEndpointSettings'
 import { parseRoute, type Route } from './route'
 
 export function AppShell() {
@@ -96,11 +94,10 @@ export function AppShell() {
   const getPlayerId = () => playerId
   const adventureApi = new HttpAdventureApi(getToken, getPlayerId)
   const playApi = new HttpAdventurePlayApi(getToken)
-  const guidanceApi = new HttpRuleGuidanceApi(getToken, getPlayerId)
   const creatorRoute = route.page === 'character-blueprint' || route.page === 'character-create'
   const initials = auth.session.playerName.slice(0, 1).toUpperCase()
   return <div className="app-shell">
-    <header className="app-header"><a href="#main">본문으로 건너뛰기</a><Brand /><nav aria-label="주요 메뉴"><a className={route.page === 'setup' ? 'active' : undefined} aria-current={route.page === 'setup' ? 'page' : undefined} href="#/setup">자료 설정</a><a className={route.page === 'adventures' || route.page === 'adventure' ? 'active' : undefined} aria-current={route.page === 'adventures' || route.page === 'adventure' ? 'page' : undefined} href="#/adventures">모험 목록</a>{selectedBundleId && <a className="selected-bundle-toolbar" href={`#/bundles/${selectedBundleId}`} title={`${selectedBundleId} 번들 화면`}>현재 번들 <span>{shortId(selectedBundleId)}</span></a>}<details className="account-menu"><summary role="button" aria-label="계정 메뉴"><span className="account-avatar" aria-hidden="true">{initials}</span><span className="account-name">{auth.session.playerName}</span></summary><div className="account-menu-panel"><a href="#/profile">내 정보</a><a href="#/backoffice">백오피스</a><button type="button" onClick={() => void auth.logout()}>로그아웃</button></div></details></nav></header>
+    <header className="app-header"><a href="#main">본문으로 건너뛰기</a><Brand /><nav aria-label="주요 메뉴"><a className={route.page === 'setup' ? 'active' : undefined} aria-current={route.page === 'setup' ? 'page' : undefined} href="#/setup">자료 설정</a><a className={route.page === 'adventures' || route.page === 'adventure' ? 'active' : undefined} aria-current={route.page === 'adventures' || route.page === 'adventure' ? 'page' : undefined} href="#/adventures">모험 목록</a>{selectedBundleId && <a className="selected-bundle-toolbar" href={`#/bundles/${selectedBundleId}`} title={`${selectedBundleId} 자료 화면`}>현재 자료 <span>{shortId(selectedBundleId)}</span></a>}<details className="account-menu"><summary role="button" aria-label="계정 메뉴"><span className="account-avatar" aria-hidden="true">{initials}</span><span className="account-name">{auth.session.playerName}</span></summary><div className="account-menu-panel"><a href="#/profile">내 설정</a><a href="#/backoffice">백오피스</a><button type="button" onClick={() => void auth.logout()}>로그아웃</button></div></details></nav></header>
     <main id="main" className={creatorRoute ? 'creator-main' : `app-content app-page-${route.page}`}>
       <div className="app-notices"><p role="status" aria-live="polite">{auth.message}</p><p className="welcome-message">{auth.session.playerName}님 환영합니다!</p></div>
       {route.page === 'login' && <section className="welcome-card"><p className="eyebrow">ADVENTURE AWAITS</p><h2>모험 준비가 완료되었습니다</h2><a className="text-link" href="#/setup">자료 설정으로 이동</a></section>}
@@ -108,8 +105,8 @@ export function AppShell() {
       {route.page === 'backoffice' && <BackofficePage session={auth.session} />}
       {route.page === 'setup' && <RulebookSetup api={setupApi} playerId={playerId} sessionApi={sessionApi} asMain={false} />}
       {route.page === 'bundle' && <BundleDetailPage bundleId={route.bundleId} api={setupApi} playerId={playerId} sessionApi={sessionApi} />}
-      {route.page === 'adventures' && <SavedAdventurePanel playApi={playApi} setupApi={setupApi} playerId={playerId} />}
-      {route.page === 'adventure' && <><div className="page-heading"><div><p className="eyebrow">ACTIVE ADVENTURE</p><h1>모험 진행 중</h1></div><span className="page-id">{shortId(route.adventureId)}</span></div><div className="adventure-workspace"><AdventureStream adventureId={route.adventureId} api={adventureApi} /><div className="adventure-tools"><RoleDiceRoller adventureId={route.adventureId} api={playApi} /><RuleEvidence adventureId={route.adventureId} api={guidanceApi} /><CombatMapView adventureId={route.adventureId} api={playApi} /></div></div></>}
+      {route.page === 'adventures' && <SavedAdventurePanel playApi={playApi} setupApi={setupApi} playerId={playerId} onResumed={adventureId => { window.location.hash = `#/adventures/${adventureId}` }} />}
+      {route.page === 'adventure' && <><div className="page-heading"><div><p className="eyebrow">ACTIVE ADVENTURE</p><h1>모험 진행 중</h1></div><span className="page-id">{shortId(route.adventureId)}</span></div><div className="adventure-workspace"><section className="adventure-map-main" aria-label="현재 전장"><CombatMapView adventureId={route.adventureId} api={playApi} /></section><aside className="adventure-side-panel" aria-label="모험 대화"><AdventureStream adventureId={route.adventureId} api={adventureApi} /></aside></div></>}
       {route.page === 'character' && <CharacterSheetView sheetId={route.sheetId} api={playApi} />}
       {(route.page === 'session' || route.page === 'party') && <AdventureSessionPanel api={sessionApi} ownerPlayerId={playerId} sessionId={route.sessionId} />}
       {route.page === 'story-plan' && <AdventureStoryPlanPage api={sessionApi} sessionId={route.sessionId} />}
@@ -129,5 +126,5 @@ function shortId(value: string) {
 }
 
 function ProfilePage({ session }: { session: NonNullable<ReturnType<typeof useAuth>['session']> }) {
-  return <section aria-labelledby="profile-title" className="profile-page"><p className="eyebrow">PLAYER PROFILE</p><h1 id="profile-title">내 정보</h1><dl><dt>이름</dt><dd>{session.playerName}</dd><dt>플레이어 ID</dt><dd>{session.playerId}</dd><dt>인증 만료</dt><dd>{new Date(session.expiresAt).toLocaleString('ko-KR')}</dd></dl></section>
+  return <section aria-labelledby="profile-title" className="profile-page"><div className="page-heading"><div><p className="eyebrow">PLAYER SETTINGS</p><h1 id="profile-title">내 설정</h1></div></div><section className="setup-panel"><h2>내 정보</h2><dl><dt>이름</dt><dd>{session.playerName}</dd><dt>플레이어 ID</dt><dd>{session.playerId}</dd><dt>인증 만료</dt><dd>{new Date(session.expiresAt).toLocaleString('ko-KR')}</dd></dl></section><AiEndpointSettings session={session} /></section>
 }

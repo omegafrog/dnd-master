@@ -7,8 +7,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 @ConfigurationProperties("ai.gm")
 public record GmProviderProperties(String provider, String model, String reasoning, URI baseUrl, String apiKey, Duration timeout) {
     public GmProviderProperties {
-        provider = provider == null || provider.isBlank() ? "ollama" : provider.trim().toLowerCase();
-        model = model == null || model.isBlank() ? "qwen3:8b" : model.trim();
+        provider = provider == null || provider.isBlank() ? "codex-cli" : provider.trim().toLowerCase();
+        model = model == null || model.isBlank() ? "gpt-5.6-luna" : model.trim();
         reasoning = reasoning == null || reasoning.isBlank() ? "medium" : reasoning.trim().toLowerCase();
         baseUrl = baseUrl == null ? URI.create("https://api.openai.com/") : baseUrl;
         apiKey = apiKey == null ? "" : apiKey.trim();

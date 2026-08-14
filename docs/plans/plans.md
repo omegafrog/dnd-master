@@ -2,17 +2,15 @@
 
 Tracker: GitHub Issues — `omegafrog/dnd-master`
 
-## 033 — Edition-specific character creation contract
+Parent Issue: [#160](https://github.com/omegafrog/dnd-master/issues/160)
 
-1. [033-1 판본별 캐릭터 생성 계약](033-1-edition-specific-character-creation-contract.md) — [#154](https://github.com/omegafrog/dnd-master/issues/154) — `completed`
-2. [033-2 판본 계약 기반 UI·시트 검증 통합](033-2-edition-contract-ui-and-sheet-validation.md) — [#155](https://github.com/omegafrog/dnd-master/issues/155) — `completed`
+## 035 — 자료 준비와 모험 시작 흐름 개선
 
-Dependency chain: `033-1 → 033-2`.
+1. [035-1 모험 자료 계약과 삭제 보호](035-1-scenario-bundle-contract-and-delete-protection.md) — [#156](https://github.com/omegafrog/dnd-master/issues/156) — `completed`
+2. [035-2 자료 준비 상태와 진행률](035-2-document-readiness-and-progress.md) — [#157](https://github.com/omegafrog/dnd-master/issues/157) — `completed`
+3. [035-3 게임 준비 팝업과 AI endpoint 사전 확인](035-3-preparation-modal-and-endpoint-preflight.md) — [#158](https://github.com/omegafrog/dnd-master/issues/158) — `completed`
+4. [035-4 모험 목록과 전체 용어·내비게이션 UX](035-4-adventure-vocabulary-and-navigation-ux.md) — [#159](https://github.com/omegafrog/dnd-master/issues/159) — `completed`
 
-## 034 — RAG-grounded adventure plan
+Dependency chain: `035-1 → 035-2 → 035-3 → 035-4`.
 
-1. [034-1 모험 길이·결말 설정과 생성 계약](034-1-adventure-plan-configuration.md) — `completed`
-2. [034-2 근거 기반 모험 노드](034-2-grounded-adventure-plan-nodes.md) — `completed`
-3. [034-3 런타임 분기 연계](034-3-adventure-plan-runtime-branches.md) — `completed`
-
-Dependency chain: `034-1 → 034-2 → 034-3`.
+Cross-dependencies: `035-1 → 035-3`, `035-1 → 035-4`.

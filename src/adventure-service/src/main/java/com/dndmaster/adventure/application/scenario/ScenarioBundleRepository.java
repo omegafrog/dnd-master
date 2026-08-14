@@ -13,6 +13,8 @@ public interface ScenarioBundleRepository {
         throw new UnsupportedOperationException("scenario bundle deletion is not supported by this repository");
     }
 
+    default boolean hasActiveAdventureReferences(ScenarioBundleId bundleId) { return false; }
+
     default List<ScenarioSourceBundle> findByOwnerId(UUID ownerPlayerId) {
         return List.of();
     }

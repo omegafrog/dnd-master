@@ -159,10 +159,21 @@ public final class AdventureStoryPlanApplicationService {
         }
     }
 
-    private static List<AdventureStoryPlanGenerationPort.MapContext> mapContexts(ScenarioPackage scenarioPackage) {
+    private List<AdventureStoryPlanGenerationPort.MapContext> mapContexts(ScenarioPackage scenarioPackage) {
         if (scenarioPackage == null) return List.of();
-        return scenarioPackage.mapDefinitions().stream().map(map -> new AdventureStoryPlanGenerationPort.MapContext(
-                map.id(), map.assetId(), map.assetLocator(), map.source().locator(), map.confidence(), map.safetyStatus().name())).toList();
+        List<String> related = new ArrayList<>();
+        if (bundles != null && sourceExcerptPort != null) {
+            bundles.findById(scenarioPackage.bundleId()).ifPresent(bundle -> {
+                try {
+                    sourceExcerptPort.load(bundle).stream()
+                            .map(ResolutionExtractionPort.SourceExcerpt::text)
+                            .filter(text -> text != null && text.matches("(?is).*\\b(cellar|corridor|tower|dungeon|brewery|trap|staircase)\\b.*"))
+                            .limit(8).forEach(text -> related.add(text.replaceAll("\\s+", " ").trim()));
+                } catch (RuntimeException ignored) { }
+            });
+        }
+        return scenarioPackage.mapDefinitions().stream().filter(com.dndmaster.adventure.domain.scenario.MapDefinition::autoActivatable).map(map -> new AdventureStoryPlanGenerationPort.MapContext(
+                map.id(), map.assetId(), map.assetLocator(), map.source().locator(), map.confidence(), map.safetyStatus().name(), List.copyOf(related))).toList();
     }
 
     private List<AdventureStoryPlanGenerationPort.SourceCitation> citations(AdventureSession session, ScenarioPackage scenarioPackage) {

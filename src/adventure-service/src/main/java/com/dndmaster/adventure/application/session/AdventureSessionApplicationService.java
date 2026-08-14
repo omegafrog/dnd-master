@@ -174,6 +174,13 @@ public final class AdventureSessionApplicationService {
         repository.save(session, expectedVersion);
         return session;
     }
+    public AdventureSession recoverFailedStart(SessionId id, OwnerPlayerId owner, long expectedVersion) {
+        AdventureSession session = authorize(load(id), owner);
+        requireVersion(session, expectedVersion);
+        session.recoverFailedStart();
+        repository.save(session, expectedVersion);
+        return session;
+    }
     public AdventureSession delete(SessionId id, OwnerPlayerId owner, long expectedVersion) {
         AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion);
         session.delete();

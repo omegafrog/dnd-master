@@ -39,6 +39,11 @@ public final class ResolutionCandidateController {
     private final Path codexWorkDirectory;
     private final Duration codexTimeout;
 
+    /** Backward-compatible constructor for deterministic parser tests. */
+    public ResolutionCandidateController(SpringAiChatAdapter adapter, ObjectMapper objectMapper) {
+        this(adapter, objectMapper, null, "codex", ".", Duration.ofMinutes(5));
+    }
+
     public ResolutionCandidateController(SpringAiChatAdapter adapter, ObjectMapper objectMapper,
             AgentEndpointRegistry endpointRegistry,
             @Value("${ai.codex.executable:codex}") String codexExecutable,

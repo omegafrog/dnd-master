@@ -190,14 +190,31 @@ public class RuleKnowledgeController {
                 .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null, null, 0L, List.of(), null));
     }
 
-    private IndexProgressView progressFor(StoredRulebookRegistration registration) {
-        if (indexRepository == null) return null;
-        return indexRepository.progressFor(
-                        registration.rulebookId(), "v1-" + registration.contentHash())
-                .map(progress -> new IndexProgressView(
-                        progress.totalChunks(), progress.completedChunks(), progress.remainingChunks(),
-                        progress.status(), progress.lastError(), progress.leaseOwner(), progress.leaseUntil()))
-                .orElse(null);
+    private DocumentProgressView progressFor(StoredRulebookRegistration registration) {
+        if (registration.processingStatus() == ProcessingStatus.INDEXED
+                || registration.processingStatus() == ProcessingStatus.PARTIAL_CONFIRMED) {
+            return new DocumentProgressView("READY", 100, null, null, null);
+        }
+        if (registration.processingStatus() == ProcessingStatus.FAILED
+                || registration.processingStatus() == ProcessingStatus.NEEDS_INPUT
+                || registration.processingStatus() == ProcessingStatus.REJECTED) {
+            return new DocumentProgressView("FAILED", 0, null, null, registration.failureCode());
+        }
+        if (indexRepository != null) {
+            var indexProgress = indexRepository.progressFor(registration.rulebookId(), "v1-" + registration.contentHash());
+            if (indexProgress.isPresent()) {
+                var progress = indexProgress.get();
+                int percent = progress.totalChunks() == 0
+                        ? 50
+                        : 50 + (int) Math.round(50.0 * progress.completedChunks() / progress.totalChunks());
+                return new DocumentProgressView("EMBEDDING", percent, progress.completedChunks(), progress.totalChunks(), progress.lastError());
+            }
+        }
+        return switch (registration.processingStatus()) {
+            case EXTRACTED, PARTIAL_AWAITING_CONFIRMATION -> new DocumentProgressView("CHUNKING", 50, null, null, null);
+            case PROCESSING -> new DocumentProgressView("EXTRACTING", 25, null, null, null);
+            default -> new DocumentProgressView("QUEUED", 0, null, null, null);
+        };
     }
 
     @GetMapping("/api/v1/rulebooks/{rulebookId}/source-preview")
@@ -283,6 +300,18 @@ public class RuleKnowledgeController {
         }
     }
 
+    @DeleteMapping("/api/v1/rulebooks/{rulebookId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void deleteRulebook(@PathVariable UUID rulebookId, @RequestHeader("Authorization") String authorization) {
+        try {
+            pipelineService.delete(new RulebookId(rulebookId), new OwnerPlayerId(extractPlayerId(authorization)));
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, exception.getMessage(), exception);
+        } catch (SecurityException exception) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, exception.getMessage(), exception);
+        }
+    }
+
     @PostMapping("/api/v1/rulebooks/rule-set")
     ResponseEntity<Void> saveRuleSet(
             @RequestHeader("Authorization") String authorization,
@@ -313,7 +342,7 @@ public class RuleKnowledgeController {
                 .map(r -> new RulebookSummary(
                         r.rulebookId().value(), r.knowledgeDocumentId().value(), r.processingStatus().name(),
                         r.format().name(), r.documentType(), r.originalFilename(), r.failureCode(),
-                        r.version(), warningsFor(r)))
+                        r.version(), warningsFor(r), progressFor(r)))
                 .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
         if (catalogRepository != null) {
             catalogRepository.findAll().stream()
@@ -324,7 +353,7 @@ public class RuleKnowledgeController {
                                 .map(StoredRulebookRegistration::version).orElse(0L);
                         if (extractionVersion > 0 && summaries.stream().noneMatch(existing -> existing.knowledgeDocumentId().equals(item.rulebookId()))) {
                             summaries.add(new RulebookSummary(item.rulebookId(), item.rulebookId(), "INDEXED", "PDF", DocumentType.RULEBOOK,
-                                    item.displayName(), null, extractionVersion, List.of()));
+                                    item.displayName(), null, extractionVersion, List.of(), new DocumentProgressView("READY", 100, null, null, null)));
                         }
                     });
         }
@@ -576,17 +605,17 @@ public class RuleKnowledgeController {
     public record RulebookStatusResponse(
             UUID rulebookId, UUID knowledgeDocumentId, String status, DocumentType documentType,
             String originalFilename, String failureReason, long extractionVersion, List<String> warnings,
-            IndexProgressView progress) {}
-    public record IndexProgressView(
-            int totalChunks, int completedChunks, int remainingChunks, String status,
-            String lastError, String leaseOwner, java.time.Instant leaseUntil) {}
+            DocumentProgressView progress) {}
+    public record DocumentProgressView(
+            String stage, int percent, Integer completedUnits, Integer totalUnits, String error) {}
     public record SourcePreviewResponse(
             UUID rulebookId, UUID knowledgeDocumentId, DocumentType documentType, String originalFilename,
             RulebookFormat format, String status, String content, long extractionVersion, List<String> warnings,
             List<PreviewSpanView> spans, List<PreviewAssetView> assets) {}
     public record RulebookSummary(
             UUID rulebookId, UUID knowledgeDocumentId, String status, String format,
-            DocumentType documentType, String originalFilename, String failureReason, long extractionVersion, List<String> warnings) {}
+            DocumentType documentType, String originalFilename, String failureReason, long extractionVersion, List<String> warnings,
+            DocumentProgressView progress) {}
     public record OwnedRulebooksResponse(UUID ownerId, List<RulebookSummary> rulebooks) {}
     public record OwnedIndexesResponse(UUID ownerId, List<?> indexes) {}
     public record OwnershipResponse(UUID rulebookId, UUID playerId, boolean owned) {}

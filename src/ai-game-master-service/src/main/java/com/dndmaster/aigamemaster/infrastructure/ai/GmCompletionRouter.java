@@ -16,6 +16,7 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
     private final String codexExecutable;
     private final Path codexWorkDirectory;
     private final Duration codexTimeout;
+    private final CodexAppServerClient codexAppServer;
 
     public GmCompletionRouter(SpringAiChatAdapter ollama, GmProviderProperties defaults) {
         this(ollama, defaults, null);
@@ -31,6 +32,7 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
         this.codexExecutable = codexExecutable;
         this.codexWorkDirectory = codexWorkDirectory;
         this.codexTimeout = codexTimeout;
+        this.codexAppServer = CodexAppServerClient.shared(codexExecutable, codexWorkDirectory, codexTimeout, new com.fasterxml.jackson.databind.ObjectMapper());
     }
 
     @Override
@@ -55,8 +57,7 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
                     : new RemoteOllamaGmProvider(HttpClient.newHttpClient(), endpoint.baseUrl(), model, defaults.timeout()).complete(routedOperation, prompt, parser);
             case "openai" -> new OpenAiGmProvider(HttpClient.newHttpClient(), endpoint == null ? defaults.baseUrl() : endpoint.baseUrl(), endpoint == null ? defaults.apiKey() : System.getenv(endpoint.secretEnvironmentVariable()),
                     model, provider.reasoning(), defaults.timeout()).complete(routedOperation, prompt, parser);
-            case "codex-cli" -> parser.parse(new CodexCliStoryPlanAdapter(codexExecutable, model, codexWorkDirectory, codexTimeout)
-                    .complete(routedOperation, prompt));
+            case "codex-cli" -> parser.parse(codexAppServer.complete(routedOperation, prompt, model));
             default -> throw new IllegalArgumentException("unsupported GM provider: " + provider.provider());
         };
     }

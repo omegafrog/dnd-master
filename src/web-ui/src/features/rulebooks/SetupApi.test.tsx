@@ -6,6 +6,16 @@ afterEach(() => {
 })
 
 describe('HttpSetupApi', () => {
+  it('preflights the active endpoint and exposes Codex login state', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 'endpoint-1', provider: 'CODEX_CLI', active: true }]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ healthy: false, detail: 'Codex OAuth session unavailable' }), { status: 200 }))
+    await expect(new HttpSetupApi(() => 'owner-token').preflightAgentEndpoint()).resolves.toMatchObject({
+      configured: true, connected: false, state: 'LOGIN_REQUIRED', provider: 'CODEX_CLI',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    fetchMock.mockRestore()
+  })
   it('deletes a scenario bundle through the authenticated API', async () => {
     const fetchMock = vi.fn(async () => ({ status: 204, ok: true, headers: new Headers() } as Response))
     vi.stubGlobal('fetch', fetchMock)

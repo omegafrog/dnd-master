@@ -3,6 +3,10 @@ import type { AdventureSessionApi, AdventureSessionView, AiCompanionCandidate, C
 
 type SessionApi = Pick<AdventureSessionApi, 'read' | 'listOwnedCharacters' | 'copyOwnedCharacter' | 'addMember' | 'removeMember' | 'complete' | 'delete'> & Partial<Pick<AdventureSessionApi, 'generateAiCandidate' | 'adoptAiCandidate' | 'replaceMember' | 'readGmProvider' | 'switchGmProvider'>>
 
+const sessionStatusLabel: Record<AdventureSessionView['status'], string> = {
+  DRAFT: '준비 중', STARTING: '시작하는 중', STARTED: '진행 중', COMPLETED: '완료', DELETED: '삭제됨',
+}
+
 export function AdventureSessionPanel({ api, ownerPlayerId, sessionId }: { api: SessionApi; ownerPlayerId: string; sessionId: string }) {
   const [session, setSession] = useState<AdventureSessionView | null>(null)
   const [characters, setCharacters] = useState<CharacterSheetSummary[]>([])
@@ -57,7 +61,7 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId }: { api: 
   return <section className="session-page" aria-labelledby="session-party-heading">
     <div className="page-heading party-heading">
       <div><p className="eyebrow">ADVENTURE ASSEMBLY</p><h1 id="session-party-heading">모험을 함께할 파티</h1><p>플레이어 캐릭터를 먼저 정하고, 남은 자리는 직접 만든 동료 또는 AI 제안으로 채우세요.</p></div>
-      <span className="status-chip">{session.status === 'DRAFT' ? '준비 중' : session.status} · {session.party.length}/{session.characterLimit}명</span>
+      <span className="status-chip">{sessionStatusLabel[session.status]} · {session.party.length}/{session.characterLimit}명</span>
     </div>
 
     <ol className="party-progress" aria-label="모험 준비 단계">
@@ -92,7 +96,7 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId }: { api: 
       </aside>}
     </div>
 
-    {provider && api.switchGmProvider && <details className="party-provider-settings"><summary>GM 연결 설정 <span>{provider.provider} · {provider.model}</span></summary><div><label>Provider<select aria-label="GM provider" value={providerForm.provider} onChange={event => { const value = event.currentTarget.value; setProviderForm(current => ({ ...current, provider: value })) }}><option value="ollama">ollama</option><option value="openai">openai</option></select></label><label>Model<input aria-label="GM model" value={providerForm.model} onChange={event => { const value = event.currentTarget.value; setProviderForm(current => ({ ...current, model: value })) }} /></label><label>Reasoning<select aria-label="GM reasoning" value={providerForm.reasoning} onChange={event => { const value = event.currentTarget.value; setProviderForm(current => ({ ...current, reasoning: value })) }}><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label><button type="button" onClick={() => void switchProvider()}>연결 변경</button></div></details>}
+    {provider && api.switchGmProvider && <details className="party-provider-settings"><summary>GM 연결 설정 <span>{provider.provider} · {provider.model}</span></summary><div><label>연결 방식<select aria-label="GM provider" value={providerForm.provider} onChange={event => { const value = event.currentTarget.value; setProviderForm(current => ({ ...current, provider: value })) }}><option value="codex-cli">Codex OAuth</option><option value="openai">OpenAI 호환</option></select></label><label>모델<input aria-label="GM model" value={providerForm.model} onChange={event => { const value = event.currentTarget.value; setProviderForm(current => ({ ...current, model: value })) }} /></label><label>Reasoning<select aria-label="GM reasoning" value={providerForm.reasoning} onChange={event => { const value = event.currentTarget.value; setProviderForm(current => ({ ...current, reasoning: value })) }}><option value="low">low</option><option value="medium">medium</option><option value="high">high</option></select></label><button type="button" onClick={() => void switchProvider()}>연결 변경</button></div></details>}
     {!frozen && <div className="session-primary-action"><div><p className="eyebrow">NEXT STEP</p><strong>모험 계획</strong><p>{partyFull ? '파티가 준비되었습니다. AI GM이 플레이용 계획을 준비합니다.' : `파티 정원 ${session.characterLimit}명에 맞춰야 합니다.`}</p>{!partyFull && <p>모든 자리를 채우면 다음 단계로 갈 수 있습니다.</p>}{!session.runtimeConfiguration && <p>런타임 설정이 없어 계획을 만들 수 없습니다.</p>}</div><button type="button" onClick={() => { window.location.hash = `#/sessions/${sessionId}/story-plan` }} disabled={!partyFull || !session.runtimeConfiguration}>모험 계획 만들기 <span aria-hidden="true">→</span></button></div>}
     {frozen && <p className="session-frozen-note">시작 후 파티와 제어 방식은 변경할 수 없습니다. 종료된 세션의 시트는 비활성화됩니다.</p>}
     {session.status === 'STARTED' && <div className="session-end-actions"><button type="button" disabled={pendingEnd !== null} onClick={() => setPendingEnd('complete')}>세션 완료</button><button type="button" disabled={pendingEnd !== null} onClick={() => setPendingEnd('delete')}>세션 삭제</button></div>}

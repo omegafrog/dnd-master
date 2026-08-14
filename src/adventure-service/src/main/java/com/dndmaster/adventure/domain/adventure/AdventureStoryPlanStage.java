@@ -31,7 +31,11 @@ public record AdventureStoryPlanStage(
         List<String> aiSuggestions,
         String mapSafetyStatus,
         Double mapConfidence,
-        Map<String, String> branchTargets) {
+        Map<String, String> branchTargets,
+        Integer playerSpawnX,
+        Integer playerSpawnY,
+        String playerSpawnConfidence,
+        String playerSpawnRationale) {
     public AdventureStoryPlanStage(int position, String title, String goal, String conflict, String transitionCondition,
             List<String> npcOrClues, List<String> endingIds) {
         this(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, List.of());
@@ -39,7 +43,7 @@ public record AdventureStoryPlanStage(
     public AdventureStoryPlanStage(int position, String title, String goal, String conflict, String transitionCondition,
             List<String> npcOrClues, List<String> endingIds, List<StoryMapBinding> mapBindings) {
         this(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings,
-                AdventureStageType.EVENT, title, null, "", "", List.of(), "", transitionCondition, "", List.of(), endingIds, List.of(), AdventureGroundingStatus.AI_SUGGESTION, List.of(), "UNAVAILABLE", null, Map.of());
+                AdventureStageType.EVENT, title, null, "", "", List.of(), "", transitionCondition, "", List.of(), endingIds, List.of(), AdventureGroundingStatus.AI_SUGGESTION, List.of(), "UNAVAILABLE", null, Map.of(), 0, 0, "UNAVAILABLE", "");
     }
     public AdventureStoryPlanStage {
         if (position < 1) throw new IllegalArgumentException("stage position must be positive");
@@ -66,6 +70,11 @@ public record AdventureStoryPlanStage(
         mapSafetyStatus = mapSafetyStatus == null || mapSafetyStatus.isBlank() ? (mapDefinitionId == null ? "UNAVAILABLE" : "UNKNOWN") : mapSafetyStatus.trim();
         if (mapConfidence != null && (mapConfidence < 0 || mapConfidence > 1)) throw new IllegalArgumentException("map confidence must be between 0 and 1");
         branchTargets = branchTargets == null ? Map.of() : Map.copyOf(branchTargets);
+        playerSpawnX = playerSpawnX == null ? 0 : playerSpawnX;
+        playerSpawnY = playerSpawnY == null ? 0 : playerSpawnY;
+        if (playerSpawnX < 0 || playerSpawnY < 0) throw new IllegalArgumentException("player spawn coordinates must be non-negative");
+        playerSpawnConfidence = playerSpawnConfidence == null || playerSpawnConfidence.isBlank() ? "UNAVAILABLE" : playerSpawnConfidence.trim();
+        playerSpawnRationale = playerSpawnRationale == null ? "" : playerSpawnRationale.trim();
     }
 
     public AdventureStoryPlanStage(int position, String title, String goal, String conflict, String transitionCondition,
@@ -75,7 +84,19 @@ public record AdventureStoryPlanStage(
             AdventureGroundingStatus groundingStatus, List<String> aiSuggestions, String mapSafetyStatus, Double mapConfidence) {
         this(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings, stageType, location, mapDefinitionId,
                 mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition, rewards, branchIds, evidence, groundingStatus,
-                aiSuggestions, mapSafetyStatus, mapConfidence, Map.of());
+                aiSuggestions, mapSafetyStatus, mapConfidence, Map.of(), 0, 0, "UNAVAILABLE", "");
+    }
+
+    /** Compatibility overload for callers compiled before player-spawn metadata was added. */
+    public AdventureStoryPlanStage(int position, String title, String goal, String conflict, String transitionCondition,
+            List<String> npcOrClues, List<String> endingIds, List<StoryMapBinding> mapBindings, AdventureStageType stageType,
+            String location, UUID mapDefinitionId, String mapAssetId, String mapAssetLocator, List<String> enemies, String boss,
+            String clearCondition, String failureCondition, List<String> rewards, List<String> branchIds, List<AdventurePlanEvidence> evidence,
+            AdventureGroundingStatus groundingStatus, List<String> aiSuggestions, String mapSafetyStatus, Double mapConfidence,
+            Map<String, String> branchTargets) {
+        this(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings, stageType, location,
+                mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition, rewards, branchIds,
+                evidence, groundingStatus, aiSuggestions, mapSafetyStatus, mapConfidence, branchTargets, 0, 0, "UNAVAILABLE", "");
     }
 
     private static List<String> immutable(List<String> values) {

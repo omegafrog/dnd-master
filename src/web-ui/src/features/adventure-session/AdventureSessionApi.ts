@@ -88,6 +88,8 @@ export type AdventureStoryPlanView = {
   failureReason: string | null
 }
 
+export type StageMapActivation = { stagePosition: number; mapDefinitionId: string; assetId: string; assetLocator: string; combatMapId: string }
+
 export type GmProviderView = {
   sessionId: string
   provider: string
@@ -148,8 +150,10 @@ export class AdventureSessionApi {
     return this.request<{ ruleSetId: string }>(`/api/v1/adventures/${adventureId}/applied-rule-set`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ruleSetId, edition, rulebookIds }) })
   }
   complete(sessionId: string, version: number) { return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/complete`, { method: 'POST', headers: { 'If-Match-Version': String(version) } }) }
+  recoverStart(sessionId: string, version: number) { return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/start/recover`, { method: 'POST', headers: { 'If-Match-Version': String(version) } }) }
   delete(sessionId: string, version: number) { return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}`, { method: 'DELETE', headers: { 'If-Match-Version': String(version) } }) }
   readStoryPlan(sessionId: string) { return this.request<AdventureStoryPlanView>(`/api/v1/adventure-sessions/${sessionId}/story-plan`) }
   generateStoryPlan(sessionId: string, configuration: { endingCount: number; adventureLength: AdventureStoryPlanView['adventureLength'] }) { return this.request<AdventureStoryPlanView>(`/api/v1/adventure-sessions/${sessionId}/story-plan`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(configuration) }) }
   retryStoryPlan(sessionId: string, configuration: { endingCount: number; adventureLength: AdventureStoryPlanView['adventureLength'] }) { return this.request<AdventureStoryPlanView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/retry`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(configuration) }) }
+  activateStageMap(sessionId: string, position: number) { return this.request<StageMapActivation>(`/api/v1/adventure-sessions/${sessionId}/story-plan/stages/${position}/activate-map`, { method: 'POST' }) }
 }

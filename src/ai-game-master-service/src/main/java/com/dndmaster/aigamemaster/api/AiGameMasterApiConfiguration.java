@@ -10,6 +10,7 @@ import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.CharacterTagCompletionPort;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionRouter;
+import com.dndmaster.aigamemaster.infrastructure.ai.CodexAppServerClient;
 import com.dndmaster.aigamemaster.configuration.GmProviderProperties;
 import com.dndmaster.aigamemaster.configuration.LocalOllamaProperties;
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint;
@@ -46,6 +47,15 @@ public class AiGameMasterApiConfiguration {
                     provider == AgentEndpoint.Provider.OPENAI_COMPATIBLE ? "OPENAI_API_KEY" : null, true, java.time.Instant.now()));
         }
         return registry;
+    }
+
+    @Bean(destroyMethod = "close")
+    CodexAppServerClient codexAppServerClient(
+            @Value("${ai.codex.executable:codex}") String codexExecutable,
+            @Value("${ai.codex.work-directory:/tmp}") String codexWorkDirectory,
+            @Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+        return CodexAppServerClient.shared(codexExecutable, java.nio.file.Path.of(codexWorkDirectory), codexTimeout, objectMapper);
     }
 
     @Bean

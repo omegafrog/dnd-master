@@ -165,8 +165,8 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
             if (preview.assets() == null) return List.of();
             return preview.assets().stream().filter(Objects::nonNull).map(asset ->
                     new ResolutionExtractionPort.SourceExcerpt(document.knowledgeDocumentId(), document.extractionVersion(),
-                            "asset:" + asset.locator(), "MAP asset=" + asset.locator()
-                                    + " image=" + asset.locator() + " confidence=0.9 safety=SAFE"))
+                            "asset:" + asset.locator(), "MAP asset=\"" + asset.locator()
+                                    + "\" image=\"" + asset.locator() + "\" confidence=0.9 safety=SAFE"))
                     .toList();
         } catch (IOException exception) {
             throw new ResolutionExtractionException("map source preview lookup failed", exception);

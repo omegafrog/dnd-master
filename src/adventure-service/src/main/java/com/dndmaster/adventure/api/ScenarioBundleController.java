@@ -7,6 +7,7 @@ import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
+import com.dndmaster.adventure.domain.scenario.RulebookEdition;
 import java.util.List;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
@@ -37,8 +38,12 @@ public class ScenarioBundleController {
             @RequestBody ScenarioBundleRequest request) {
         OwnerPlayerId owner = new OwnerPlayerId(playerResolver.playerId());
         authorize(owner, request.playerId());
-        return ScenarioBundleResponse.from(service.createBundle(owner, request.documents().stream().map(draft ->
-                new BundleDocumentDraft(new KnowledgeDocumentId(draft.knowledgeDocumentId()), draft.role())).toList()));
+        List<BundleDocumentDraft> documents = request.documents().stream().map(draft ->
+                new BundleDocumentDraft(new KnowledgeDocumentId(draft.knowledgeDocumentId()), draft.role())).toList();
+        ScenarioSourceBundle bundle = request.name() == null && request.rulebookEdition() == null
+                ? service.createBundle(owner, documents)
+                : service.createBundle(owner, request.name(), request.rulebookEdition(), documents);
+        return ScenarioBundleResponse.from(bundle);
     }
 
     @PostMapping("/api/v1/adventures/scenario-bundles/{bundleId}/revisions")
@@ -47,12 +52,13 @@ public class ScenarioBundleController {
             @RequestBody ScenarioBundleRequest request) {
         OwnerPlayerId owner = new OwnerPlayerId(playerResolver.playerId());
         authorize(owner, request.playerId());
-        return ScenarioBundleResponse.from(service.reviseBundle(
-                new ScenarioBundleId(bundleId),
-                owner,
-                request.documents().stream()
+        List<BundleDocumentDraft> documents = request.documents().stream()
                         .map(draft -> new BundleDocumentDraft(new KnowledgeDocumentId(draft.knowledgeDocumentId()), draft.role()))
-                        .toList()));
+                        .toList();
+        ScenarioSourceBundle bundle = request.name() == null && request.rulebookEdition() == null
+                ? service.reviseBundle(new ScenarioBundleId(bundleId), owner, documents)
+                : service.reviseBundle(new ScenarioBundleId(bundleId), owner, request.name(), request.rulebookEdition(), documents);
+        return ScenarioBundleResponse.from(bundle);
     }
 
     @GetMapping("/api/v1/adventures/scenario-bundles/{bundleId}")
@@ -81,7 +87,7 @@ public class ScenarioBundleController {
         }
     }
 
-    public record ScenarioBundleRequest(UUID playerId, List<ScenarioBundleDocumentRequest> documents) {}
+    public record ScenarioBundleRequest(UUID playerId, String name, RulebookEdition rulebookEdition, List<ScenarioBundleDocumentRequest> documents) {}
 
     public record ScenarioBundleDocumentRequest(UUID knowledgeDocumentId, ScenarioBundleDocumentRole role) {}
 
@@ -96,12 +102,16 @@ public class ScenarioBundleController {
     public record ScenarioBundleResponse(
             UUID bundleId,
             UUID ownerPlayerId,
+            String name,
+            RulebookEdition rulebookEdition,
             long currentRevision,
             List<ScenarioBundleDocumentResponse> documents) {
         static ScenarioBundleResponse from(ScenarioSourceBundle bundle) {
             return new ScenarioBundleResponse(
                     bundle.id().value(),
                     bundle.ownerPlayerId().value(),
+                    bundle.name(),
+                    bundle.rulebookEdition(),
                     bundle.currentRevision().revision(),
                     bundle.currentRevision().documents().stream()
                             .map(document -> new ScenarioBundleDocumentResponse(

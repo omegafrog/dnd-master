@@ -14,11 +14,18 @@ public final class CombatMapViewService {
     }
     public CombatMap prepareUploaded(MapOwnerId owner, AdventureId adventure, RuleSetId rules, UploadedMapSource source) { return saveNew(owner, adventure, rules, filePort.prepare(source)); }
     public CombatMap prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules, String description) {
-        if (description == null || description.isBlank()) throw new IllegalArgumentException("description required");
-        return saveNew(owner, adventure, rules, aiPort.generate(description.trim()));
+        return prepareGenerated(owner, adventure, rules, description, 0, 0);
     }
-    private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data) {
-        CombatMap map = new CombatMap(new MapId(UUID.randomUUID()), adventure, rules, data.grid(), new PlayerId(owner.value()), data.tokens(), data.obstacles(), data.layers(), 0, null);
+    public CombatMap prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules, String description, int spawnX, int spawnY) {
+        if (description == null || description.isBlank()) throw new IllegalArgumentException("description required");
+        return saveNew(owner, adventure, rules, aiPort.generate(description.trim()), spawnX, spawnY);
+    }
+    private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data) { return saveNew(owner, adventure, rules, data, 0, 0); }
+    private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data, int spawnX, int spawnY) {
+        List<CombatToken> tokens = data.tokens().isEmpty()
+                ? List.of(new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER, new GridPosition(spawnX, spawnY), TokenController.PLAYER, new PlayerId(owner.value())))
+                : data.tokens();
+        CombatMap map = new CombatMap(new MapId(UUID.randomUUID()), adventure, rules, data.grid(), new PlayerId(owner.value()), tokens, data.obstacles(), data.layers(), 0, null);
         map.refreshVisibility(0);
         store.insert(owner, map); return map;
     }

@@ -23,6 +23,11 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
     return () => { cancelled = true }
   }, [adventureId, api])
 
+  // Opening narration is an ordinary GM message. Do not split it into a
+  // separate "opening scene" card, which duplicated the conversation and
+  // encouraged internal stage metadata to leak into the player view.
+  const historyMessages = messages
+
   useEffect(() => {
     if (!api.subscribeEvents) return
     return api.subscribeEvents(adventureId, projectionVersion.current, event => {
@@ -84,21 +89,39 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
   return (
     <section className="adventure-stream" aria-labelledby="conversation-heading">
       <h2 id="conversation-heading">모험 대화</h2>
+      {messages.length > 0 && <h3 className="sr-only">첫 장면</h3>}
       <p role="status">{projectionStatus === 'processing' ? '턴 처리 중' : projectionStatus === 'failed' ? '턴 처리 실패' : activeControlMode === 'AGENT' ? '에이전트 캐릭터 차례 — 자동 진행 중' : '직접 플레이 입력 대기 중'}</p>
-      <ol aria-label="대화 기록">
-        {messages.map((message, index) => (
-          <li key={index}>
-            <strong>{message.speaker}</strong>: {message.text}
+      <ol className={historyMessages.length === 0 ? 'opening-only' : undefined} aria-label="대화 기록">
+        {historyMessages.map((message, index) => (
+          <li key={index} className={`adventure-chat-message ${message.speaker === '플레이어' ? 'player' : 'gm'}`}>
+            <span className="adventure-chat-speaker">{message.speaker}</span>
+            <ChatMessage text={playerNarration(message.text)} />
           </li>
         ))}
       </ol>
       <p role="alert">{notice}</p>
       <form onSubmit={send} aria-disabled={activeControlMode === 'AGENT'}>
-        <label>행동 또는 대화<input name="message" required /></label>
-        <button type="submit" disabled={sending || activeControlMode === 'AGENT'}>보내기</button>
+        <label>무엇을 하시겠어요?<input name="message" required /></label>
+        <button type="submit" disabled={sending || activeControlMode === 'AGENT'}>행동 보내기</button>
       </form>
     </section>
   )
+}
+
+function playerNarration(text: string) {
+  if (!text.includes('## Stage')) return text
+  const visible = text.split('## Stage')[0].trim()
+  return visible || '주변을 둘러보니 뭔가 심상치 않은 일이 벌어지고 있어요. 어떻게 움직일까요?'
+}
+
+function ChatMessage({ text }: { text: string }) {
+  const match = text.match(/^(.*?)(?:\n\s*\n)?선택지:\s*\n((?:\s*\d+[.)]\s+.+(?:\n|$))+)/s)
+  if (!match) return <p>{text}</p>
+  const choices = match[2].trim().split(/\n/).map(line => line.replace(/^\s*\d+[.)]\s+/, '').trim()).filter(Boolean)
+  return <>
+    <p>{match[1].trim()}</p>
+    <div className="adventure-choice-block"><strong>선택지</strong><ol aria-label="선택지">{choices.map((choice, index) => <li key={`${index}-${choice}`}>{choice}</li>)}</ol></div>
+  </>
 }
 
 function speakerLabel(speaker: string) {

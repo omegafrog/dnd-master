@@ -161,8 +161,8 @@ export function PackageBlueprintReviewPage({
   return (
     <section aria-labelledby="package-blueprint-review-heading">
       <h2 id="package-blueprint-review-heading">캐릭터 생성 설정 검토</h2>
-      <p>시나리오 패키지 {packageId}</p>
-      <p><a href="#/setup">새 패키지 만들기</a></p>
+      <p>모험 준비 결과 {packageId}</p>
+      <p><a href="#/setup">새 모험 준비 시작</a></p>
       <p>룰북은 기본 시트 구조와 선택지를 만들고, 스토리북은 별도의 검토 가능한 추가 필드를 제안합니다.</p>
       <label>
         기본 룰북

@@ -22,6 +22,10 @@ public interface AdventureStoryPlanGenerationPort {
         }
     }
 
-    record MapContext(UUID mapDefinitionId, String assetId, String assetLocator, String sourceLocator, double confidence, String safetyStatus) {}
+    record MapContext(UUID mapDefinitionId, String assetId, String assetLocator, String sourceLocator, double confidence, String safetyStatus, List<String> relatedEvidence) {
+        public MapContext(UUID mapDefinitionId, String assetId, String assetLocator, String sourceLocator, double confidence, String safetyStatus) {
+            this(mapDefinitionId, assetId, assetLocator, sourceLocator, confidence, safetyStatus, List.of());
+        }
+    }
     record SourceCitation(String documentType, UUID documentId, long extractionVersion, String locator, String quote, double confidence) {}
 }
