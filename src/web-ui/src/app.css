@@ -362,6 +362,12 @@ body:has(.creator-main) { background:#f4f1eb; }
 .modal-dialog-heading h2 { margin:.15rem 0 0; font-family:Georgia,serif; }
 .preparation-modal .scenario-setup { margin:0; border:0; padding:0; background:transparent; box-shadow:none; }
 .preparation-modal .scenario-setup > h2 { display:none; }
+.preparation-progress { margin:.8rem 0; padding:.75rem; border:1px solid #d8c5a6; border-radius:7px; background:rgb(255 253 248 / 72%); }
+.preparation-progress-heading { display:flex; justify-content:space-between; gap:.75rem; margin-bottom:.45rem; color:#5f503f; font-size:.72rem; }
+.preparation-progress-heading strong { color:#1d6257; }
+.preparation-progress p { margin:.5rem 0 0; color:#766b5d; font-size:.67rem; }
+.ui-progress { position:relative; height:.55rem; overflow:hidden; border-radius:999px; background:#e4dbce; }
+.ui-progress-indicator { width:100%; height:100%; border-radius:inherit; background:#2c766c; transition:transform .3s ease; }
 .spell-picker { width:min(38rem,100%); max-height:min(80vh,42rem); overflow:auto; padding:1.2rem; border:1px solid #c8ad82; border-radius:8px; background:linear-gradient(135deg,#fffaf0,#f0e2cb); box-shadow:0 1rem 3rem rgb(0 0 0 / 28%); }
 .spell-picker-head { display:flex; justify-content:space-between; align-items:start; border-bottom:1px solid #d8c5a6; padding-bottom:.7rem; }.spell-picker-head small { color:#8a6c3e; letter-spacing:.1em; }.spell-picker-head h2 { margin:.15rem 0 0; font-family:Georgia,serif; }.spell-picker-head button { border:0; background:transparent; font-size:1.5rem; color:#6e5636; }
 .spell-picker-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.55rem; margin:1rem 0; }.spell-picker-grid label { display:grid; grid-template-columns:1.2rem 1fr; gap:.15rem .45rem; padding:.65rem; border:1px solid #d9c7ac; border-radius:5px; background:#fffdfa; cursor:pointer; }.spell-picker-grid label.selected { border-color:#1d6257; background:#edf5f0; }.spell-picker-grid input { grid-row:span 2; accent-color:#1d6257; }.spell-picker-grid span { font-weight:700; }.spell-picker-grid small { color:#897862; }
@@ -846,7 +852,6 @@ body {
 .app-content { width:min(100%,88rem); max-width:88rem; padding:1.7rem clamp(1rem,3vw,2.4rem) 3rem; }
 .app-notices { display:flex; min-height:1.7rem; justify-content:flex-end; align-items:center; gap:1rem; margin-bottom:.35rem; color:var(--color-muted); }
 .app-notices [role='status']:empty { display:none; }
-.welcome-message { margin:0; font-size:.75rem; }
 .eyebrow { margin:0 0 .28rem; color:var(--color-accent); font-size:.68rem; font-weight:800; letter-spacing:.16em; text-transform:uppercase; }
 .page-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:1.5rem; margin-bottom:1rem; padding:0 0 .9rem; border-bottom:1px solid var(--color-border); }
 .page-heading h1,.page-heading h2 { margin:0; color:#28231e; font:700 clamp(1.65rem,3vw,2.15rem)/1.15 Georgia,'Times New Roman','Noto Sans KR Variable',sans-serif; letter-spacing:-.025em; }
@@ -938,7 +943,11 @@ body {
 .setup-upload-panel .uploaded-document-select { display:inline-flex; flex:0 0 auto; align-items:center; margin:0; }
 .setup-upload-panel .uploaded-document-select .ui-input[type='checkbox'] { width:1.05rem; height:1.05rem; margin:0; }
 .setup-upload-panel .uploaded-document-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.setup-upload-panel .uploaded-document-actions { display:flex; align-items:center; gap:.4rem; margin-left:auto; flex:0 0 auto; }
+.setup-upload-panel .uploaded-document-row > span:not(.uploaded-document-name):not(.uploaded-document-progress):not(.uploaded-document-actions) { flex:0 0 auto; align-self:center; color:#766b5d; font-size:.58rem; font-weight:400; line-height:1.1; white-space:nowrap; }
+.setup-upload-panel .uploaded-document-progress { display:inline-flex; flex:0 0 8.5rem; flex-direction:column; align-items:flex-end; gap:.18rem; margin-left:auto; color:#766b5d; font-size:.58rem; font-weight:400; line-height:1.1; }
+.setup-upload-panel .uploaded-document-progress > span { font-size:.58rem; font-weight:400; }
+.setup-upload-panel .uploaded-document-progress .ui-progress { width:100%; height:.35rem; }
+.setup-upload-panel .uploaded-document-actions { display:flex; align-items:center; gap:.4rem; margin-left:0; flex:0 0 auto; }
 .setup-bundle-list .ui-card-content { padding:0; }
 .bundle-list-heading { padding-bottom:.75rem; border-bottom:1px solid var(--color-border); }
 .bundle-list-heading h2 { margin:0; }

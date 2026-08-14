@@ -45,7 +45,7 @@ describe('authentication flow', () => {
 
     expect(api.credentials).toEqual({ email: 'hero@example.com', password: 'swordfish' })
     expect(screen.getByRole('navigation', { name: '주요 메뉴' })).toBeInTheDocument()
-    expect(screen.getByText('Minsc님 환영합니다!')).toBeInTheDocument()
+    expect(screen.queryByText('Minsc님 환영합니다!')).not.toBeInTheDocument()
   })
 
   it('logs out through the Identity public API and returns to login', async () => {
@@ -90,7 +90,7 @@ describe('authentication flow', () => {
     render(<App identityApi={new FakeIdentityApi()} />)
 
     expect(screen.getByRole('navigation', { name: '주요 메뉴' })).toBeInTheDocument()
-    expect(screen.getByText('Minsc님 환영합니다!')).toBeInTheDocument()
+    expect(screen.queryByText('Minsc님 환영합니다!')).not.toBeInTheDocument()
   })
 
   it('expires authentication, hides navigation, and announces reauthentication', async () => {

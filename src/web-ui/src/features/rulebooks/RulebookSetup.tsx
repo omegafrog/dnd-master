@@ -20,19 +20,6 @@ const batchStatusText: Record<BatchRulebookView['status'], string> = {
   VALIDATION_FAILED: '검증 실패',
 }
 
-const knowledgeStatusText: Record<KnowledgeDocumentView['status'], string> = {
-  UPLOADED: '대기 중',
-  NEEDS_INPUT: '추가 입력 필요',
-  QUEUED: '대기 중',
-  PROCESSING: '자료 준비 중',
-  INDEXED: '사용 준비 완료',
-  FAILED: '자료 준비 실패',
-  EXTRACTED: '자료 확인 완료',
-  PARTIAL_AWAITING_CONFIRMATION: '확인 필요',
-  PARTIAL_CONFIRMED: '사용 준비 완료',
-  REJECTED: '자료 사용 불가',
-}
-
 const indexingFinishedStatuses = new Set<KnowledgeDocumentView['status']>(['INDEXED', 'PARTIAL_CONFIRMED'])
 
 type PendingDocument = RulebookUploadDraft & { originalFilename: string }
@@ -269,7 +256,7 @@ export function RulebookSetup({
       <p role="status" aria-live="polite">{message}</p>
       <section className="setup-panel setup-catalog-panel" aria-labelledby="catalog-rulebook-heading">
         <h2 id="catalog-rulebook-heading">룰북 선택</h2>
-        {catalogRulebooks.length === 0 ? <p>사용 가능한 룰북이 없습니다. 관리자가 준비하면 여기에 표시됩니다.</p> : <ul aria-label="룰북 목록">{catalogRulebooks.map(rulebook => <li key={rulebook.catalogRevisionId}><label><Checkbox aria-label={`${rulebook.displayName} 선택`} checked={selectedIds.has(rulebook.rulebookId!)} onCheckedChange={() => toggleSelected(rulebook.rulebookId!)} />{rulebook.displayName} · revision {rulebook.revisionNumber}</label></li>)}</ul>}
+        {catalogRulebooks.length === 0 ? <p>사용 가능한 룰북이 없습니다. 관리자가 준비하면 여기에 표시됩니다.</p> : <ul aria-label="룰북 목록">{catalogRulebooks.map(rulebook => <li key={rulebook.catalogRevisionId}><label><Checkbox checked={selectedIds.has(rulebook.rulebookId!)} onCheckedChange={() => toggleSelected(rulebook.rulebookId!)} />{rulebook.displayName} · revision {rulebook.revisionNumber}</label></li>)}</ul>}
       </section>
       <section className="setup-panel setup-upload-panel" aria-labelledby="rulebook-heading">
         <h2 id="rulebook-heading">스토리북 업로드</h2>
@@ -352,7 +339,6 @@ export function RulebookSetup({
                   />
                 </label>
                 <span className="uploaded-document-name">{document.originalFilename}</span>
-                <span> - {knowledgeStatusText[document.status]}</span>
                 {document.progress ? (
                   <span className="uploaded-document-progress">
                     <span>{document.progress.stage} {document.progress.percent}%</span>
@@ -456,6 +442,7 @@ export function RulebookSetup({
           onError={setMessage}
           sessionApi={sessionApi}
           availableDocuments={documents.filter(document => selectedUploadedIds.has(document.knowledgeDocumentId))}
+          rulebookDocumentId={selectedIds.size === 1 ? [...selectedIds][0] : undefined}
           initialBundle={selectedBundle}
           onBundleSaved={savedBundle => {
             window.localStorage.setItem('dnd-selected-bundle-id', savedBundle.bundleId)

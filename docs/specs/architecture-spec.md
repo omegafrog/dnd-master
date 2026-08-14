@@ -7,25 +7,26 @@
 | 항목 | 대상 |
 |---|---|
 | Product Spec | `docs/specs/product-spec.md` |
-| Use Cases | UC-01~UC-08 |
-| Domain | 자료 준비, 모험 자료 구성, 게임 준비, 모험 세션 보호 |
-| Bounded Contexts | Document Knowledge, Scenario Preparation, Adventure Runtime, AI Game Master |
-| Existing Services | `rule-knowledge-service`, `adventure-service`, `web-ui` |
-| External Dependencies | AI endpoint, PostgreSQL, 파일 저장소, 임베딩/추출 어댑터 |
-| Affected Data | Knowledge Document, Scenario Source Bundle, Scenario Package, Adventure Session |
+| Use Cases | UC-01~UC-07 |
+| Domain | 캐릭터 생성 설정 검토·저장·게시 |
+| Bounded Contexts | Scenario Preparation, Rulebook Catalog, Web UI |
+| Existing Services | `adventure-service`, `web-ui` |
+| External Dependencies | PostgreSQL, rulebook catalog API |
+| Affected Data | `CharacterCreationBlueprint`, `PlayPreparationView`, blueprint revision |
 
 ## 1.2 Product Spec Mapping
 
 | Product Spec 항목 | Architecture 요소 |
 |---|---|
-| 룰북 별도 선택 | `RulebookEdition` 입력과 `ScenarioSourceBundle` 연결 |
-| 파일별 역할 선택 | `ScenarioBundleDocumentSelection` |
-| 비동기 자료 처리 | `RulebookProcessingWorker` 및 문서 상태 조회 |
-| shadcn Progress | 웹 UI 상태 어댑터와 자료 처리 read model |
-| 이름 있는 모험 자료 | `ScenarioSourceBundle.name` 및 API DTO |
-| 게임 준비 팝업 | `ScenarioCompilation` 조회/폴링 상태 |
-| 삭제 보호 | Scenario Bundle과 Adventure Session 간 참조 검사 |
-| AI 연결 지연 | 게임 준비 명령의 preflight 검증 |
+| 3단계 흐름 | `PackageBlueprintReviewPage` 상태 기반 화면 단계 |
+| 룰북 자동 선택 | `/api/v1/rulebook-catalog` read model |
+| 룰북·스토리북 분리 검토 | `BlueprintReviewViewModel`의 base fields/proposals/applied projection |
+| 제안별 적용·제외 | `StorybookProposalView`와 proposal decision adapter |
+| 설정 생성 실패 일관성 | `CharacterCreationBlueprint` 상태와 UI rendering gate |
+| 섹션별 완료율 | `CharacterInputTree` 입력 상태 집계 |
+| 항목 저장 상태 | `resolveBlueprint` 호출 상태 어댑터 |
+| 게시 전 검증 | `publishBlueprint` precondition과 UI validation summary |
+| 내부 용어 제거 | UI view-model label mapper |
 
 # 2. Domain Flow
 
@@ -33,29 +34,31 @@
 
 ```plantuml
 @startuml
-title Prepare and Start Adventure
+title Character Creation Blueprint Review
 start
-:Solo Player selects RulebookEdition;
-:Solo Player selects ready Storybook documents;
-:Solo Player assigns roles per document;
-:Save Scenario Source Bundle;
-if (Rulebook exactly one and all documents ready?) then (yes)
-  :Scenario Bundle Saved;
-  :Open Game Preparation modal;
-  if (AI endpoint healthy?) then (yes)
-    :Start Scenario Compilation;
-    :Extract / structure / compile / publish Scenario Package;
-    if (Compilation published?) then (yes)
-      :Create Adventure Session;
-      :Open party and character flow;
-    else (no)
-      :Show retryable preparation failure;
-    endif
-  else (no)
-    :Redirect to AI endpoint settings;
+:Player opens package review;
+:Load PlayPreparationView;
+if (Blueprint exists?) then (no)
+  :Show generation state;
+  :Load ready rulebook catalog;
+  :Player selects rulebook;
+  :Generate blueprint draft;
+  if (Generation succeeded?) then (no)
+    :Show actionable failure;
+    stop
   endif
+endif
+:Show sectioned blueprint review;
+:Show rulebook base fields separately from storybook proposals;
+:Player accepts or rejects each storybook proposal;
+:Build applied blueprint projection;
+:Player changes field;
+:Resolve blueprint field;
+if (Required fields complete?) then (yes)
+  :Publish blueprint;
+  :Create character session entry;
 else (no)
-  :Reject with field-level validation;
+  :Show incomplete field summary;
 endif
 stop
 @enduml
@@ -65,63 +68,57 @@ stop
 
 | Command | Actor | Target | Input | Preconditions | Result |
 |---|---|---|---|---|---|
-| `UploadStorybooks` | Solo Player | Document Knowledge | files, owner | accepted file type/size | documents queued |
-| `SelectRulebookEdition` | Solo Player | Web UI draft | 5e/5.5e | exactly one | draft updated |
-| `SelectScenarioDocuments` | Solo Player | Web UI draft | document IDs | document ready | draft updated |
-| `AssignDocumentRole` | Solo Player | Web UI draft | document ID, role | document selected | draft updated |
-| `CreateScenarioBundle` | Solo Player | Scenario Bundle | name, edition, selections | all invariants | bundle revision saved |
-| `StartGamePreparation` | Solo Player | Scenario Package | bundle ID, endpoint | endpoint healthy | compilation started |
-| `RetryDocumentProcessing` | Solo Player | Knowledge Document | document ID | retryable failure | document requeued |
-| `DeleteScenarioBundle` | Solo Player | Scenario Bundle | bundle ID | no active session | bundle deleted |
-| `ResumeAdventure` | Solo Player | Adventure Session | session ID | owner and resumable | session opened |
+| GenerateBlueprintDraft | Player | Scenario Preparation | package ID, catalog rulebook ID, extraction version | package owned, rulebook READY | blueprint draft or failure |
+| ResolveBlueprintField | Player | CharacterCreationBlueprint | package ID, field key, value, expected revision | field exists, revision matches | updated blueprint revision |
+| AddBlueprintChild | Player | CharacterCreationBlueprint | parent ID, key, label, expected revision | parent editable, key valid | updated blueprint revision |
+| PublishBlueprint | Player | CharacterCreationBlueprint | package ID | all required fields resolved, blueprint READY | PUBLISHED blueprint |
+| CreateCharacterSession | Player | Adventure Session | package ID, blueprint revision | blueprint PUBLISHED | session draft |
 
 ## 2.3 Domain Events
 
 | Domain Event | Producer | Trigger | Payload | Consumers |
 |---|---|---|---|---|
-| `StorybookUploadAccepted` | Document Knowledge | upload accepted | document IDs | web UI |
-| `DocumentProcessingStatusChanged` | Document Knowledge | worker state change | document ID, status, progress | web UI |
-| `ScenarioBundleSaved` | Scenario Preparation | valid save | bundle ID, revision, name | setup UI, bundle list |
-| `ScenarioCompilationStarted` | Scenario Preparation | preparation command | bundle ID, compilation ID | preparation modal |
-| `ScenarioPackagePublished` | Scenario Preparation | compilation completed | package ID, bundle revision | session creation |
-| `ScenarioBundleDeletionRejected` | Scenario Preparation | active session exists | bundle ID, session IDs | setup UI |
+| BlueprintDraftGenerated | Scenario Preparation | draft generation succeeds | package ID, revision, status | web UI |
+| BlueprintFieldResolved | CharacterCreationBlueprint | field value accepted | field key, revision | web UI |
+| BlueprintPublished | CharacterCreationBlueprint | publish succeeds | package ID, revision | session flow |
 
 ## 2.4 Policies
 
 | Policy | Trigger Event | Decision | Emitted Command | Owner |
 |---|---|---|---|---|
-| `DocumentReadyForSelection` | processing status changed | only ready statuses are selectable | none | Document Knowledge contract |
-| `MainScenarioCardinality` | role assignment | at most one main scenario | reject/update selection | Scenario Preparation |
-| `BundleDeletionProtection` | delete request | reject when active session references bundle | `ScenarioBundleDeletionRejected` | Scenario Preparation |
-| `PreparationEndpointPreflight` | preparation request | endpoint must be connected | redirect/failure | Scenario Preparation |
+| AutoSelectSingleRulebook | catalog loaded | exactly one READY rulebook | GenerateBlueprintDraft after user confirmation or automatic start | web UI |
+| KeepStorybookProposalsUnapplied | storybook candidates loaded | proposal has not been accepted | keep proposal outside applied blueprint | Web UI / Scenario Preparation |
+| RequireProposalDecisionBeforePublish | publish requested | undecided proposals exist | block publish and show undecided list | Scenario Preparation |
+| ShowStorybookEmptyOrFailureState | extraction completed or failed | no proposals or unusable evidence | show document-scoped empty/failure state | Web UI |
+| BlockPublishWithMissingRequiredFields | publish requested | unresolved required fields exist | none; return validation failure | Scenario Preparation |
+| RefreshAfterRevisionConflict | revision conflict | server has newer revision | reload preparation and mark local dirty fields | web UI |
 
 ## 2.5 Read Models
 
 | Read Model | Consumer | Source | Fields | Owner |
 |---|---|---|---|---|
-| `KnowledgeDocumentPreparationView` | setup UI | document registration/worker state | filename, type, status, progress, error, version | Document Knowledge |
-| `ScenarioBundleSummaryView` | setup UI | scenario bundle | name, edition, revision, document count, preparation status | Scenario Preparation |
-| `PreparationStatusView` | modal | compilation/package | stage, progress, retryability, failure message | Scenario Preparation |
-| `AdventureSummaryView` | adventure list | adventure session | name, status, last activity, resumable | Adventure Runtime |
+| PlayPreparationView | review page | scenario package preparation API | status, blockers, blueprint, character limit | adventure-service |
+| RulebookCatalogView | rulebook selector | catalog API | display name, edition, ID, extraction version, status | rulebook catalog |
+| StorybookProposalView | review page | preparation API / adapter | proposal ID, source document, label, description, quote, evidence, decision | adventure-service + web-ui |
+| BlueprintReviewViewModel | UI | PlayPreparationView + proposal state | base fields, proposals, applied fields, sections, labels, completion counts, save states | web-ui |
 
 ## 2.6 External Interactions
 
 | External System | Trigger | Input | Output | Failure |
 |---|---|---|---|---|
-| File storage | upload/delete document | owner, document bytes | stored file/delete result | storage error |
-| Extraction adapter | document queued | file reference | extracted spans/assets | extraction failure |
-| Embedding/index adapter | extraction complete | chunks | index result | index failure |
-| AI endpoint | game preparation preflight/compile | bounded preparation request | candidate/compile result | unavailable/auth expired |
-| PostgreSQL | all durable commands | domain state | persisted state | conflict/constraint error |
+| Rulebook Catalog API | page load | none | READY rulebooks | empty state |
+| Scenario Preparation API | generate/resolve/publish | package and blueprint command | updated blueprint | localized error state |
+| Adventure Session API | create character flow | package and blueprint revision | session ID | retryable message |
 
 ## 2.7 Hotspots
 
 | Hotspot | Options | Decision |
 |---|---|---|
-| Rulebook identity | catalog revision vs fixed edition value | Keep catalog revision as technical identity; expose only 5e/5.5e in UI and persist explicit edition on bundle. |
-| Progress source | client estimate vs server stage | Server reports stage/status; UI maps stage to shadcn Progress. |
-| Delete behavior | cascade vs block | Block when an active adventure references the bundle. |
-| Preparation UI | route vs modal | Modal from each bundle card; preparation state remains server-owned. |
+| Completion percentage source | backend exact progress / UI aggregate | UI aggregate from required and visible fields for initial version |
+| Save strategy | per-field / whole form | retain per-field API and expose explicit per-field state |
+| Proposal persistence | merge immediately / stage decision | stage proposal decisions and include only accepted proposals in applied projection; publish remains the server authority |
+| Add custom child UI | browser prompt / inline dialog | replace prompt with accessible dialog in a later P1 slice |
+| Section navigation | nested accordion only / summary navigation | summary navigation plus collapsible sections |
 
 # 3. DDD Architecture
 
@@ -129,27 +126,23 @@ stop
 
 | Bounded Context | Responsibility | Owned Model | Owned Data |
 |---|---|---|---|
-| Document Knowledge | 원본 파일, 추출, 인덱싱, 준비 상태 | Knowledge Document, Processing Job | rulebook/document, chunks, index |
-| Scenario Preparation | 룰북·스토리북 조합, 역할, 컴파일, 패키지 발행 | Scenario Source Bundle, Scenario Package, Compilation | bundle, bundle revision, package, compilation |
-| Adventure Runtime | 세션 생성·재개·진행, bundle 참조 보호 | Adventure Session, Runtime Binding | sessions, adventure state |
-| AI Game Master | 제한된 자료를 사용한 후보/서술 생성 | provider request/result | provider-owned state only |
+| Scenario Preparation | generate, resolve, validate, publish blueprint | `CharacterCreationBlueprint`, `PlayPreparationView` | blueprint and revision tables |
+| Rulebook Catalog | expose usable rulebook revisions | catalog read model | catalog revision metadata |
+| Web UI | compose review flow and local interaction state | `BlueprintReviewViewModel` | none; transient browser state |
+| Adventure Runtime | create session after publication | adventure session | session data |
 
 ## 3.2 Context Map
 
 ```plantuml
 @startuml
-rectangle "Document Knowledge" as knowledge
+rectangle "Rulebook Catalog" as catalog
 rectangle "Scenario Preparation" as preparation
+rectangle "Web UI" as ui
 rectangle "Adventure Runtime" as runtime
-rectangle "AI Game Master" as gm
-rectangle "AI Endpoint" as endpoint
-
-knowledge --> preparation : document status / source evidence
-preparation --> runtime : published Scenario Package
-preparation --> gm : bounded preparation request
-gm --> preparation : candidate result
-runtime --> knowledge : session document scope / evidence query
-gm --> endpoint : provider request
+catalog --> ui : catalog read API
+preparation --> ui : preparation API
+ui --> preparation : blueprint commands
+ui --> runtime : create session
 @enduml
 ```
 
@@ -157,343 +150,149 @@ gm --> endpoint : provider request
 
 | Aggregate | Root | Responsibility | Commands | Invariants |
 |---|---|---|---|---|
-| `KnowledgeDocument` | document registration | document lifecycle and readiness | upload, retry, delete | owner authorization; status transitions |
-| `ScenarioSourceBundle` | bundle | named, revisioned source selection | create, revise, delete | exactly one rulebook edition; at least one storybook; one main scenario max; all selected docs ready |
-| `ScenarioCompilation` | compilation | preparation job lifecycle | start, poll, retry | one active compilation per bundle revision; published package immutable |
-| `AdventureSession` | session | playable adventure ownership and lifecycle | create, resume, complete | references immutable bundle/package; active session protects bundle deletion |
+| CharacterCreationBlueprint | blueprint | own fields, revision, diagnostics, publication state | resolve, add child, publish | revision match; required fields before publish; published immutable |
+| ScenarioPackage | package | provide preparation context and blockers | read preparation | package owned and available |
+| AdventureSession | session | start character creation/play flow | create draft | blueprint must be published |
 
 ## 3.4 Entities and Value Objects
 
-| Type | Kind | Constraint |
+| Type | Kind | Responsibility |
 |---|---|---|
-| `RulebookEdition` | value object/enum | `DND_5E_2014` or `DND_5E_2024`, UI labels `D&D 5판`/`D&D 5.5판` |
-| `ScenarioBundleName` | value object | required, trimmed, length-limited |
-| `ScenarioBundleDocumentSelection` | entity | document ID, role, source extraction version |
-| `DocumentRole` | value object/enum | allowed scenario roles; RULEBOOK is not a storybook role |
-| `PreparationStatus` | value object/enum | preparing, ready, failed, retryable |
+| `CharacterInputNode` | Entity | field identity, parent, value, input mode, diagnostics |
+| `StorybookProposal` | Entity | storybook-derived candidate, source evidence, and user decision |
+| `ProposalDecision` | Value/state | `UNDECIDED`, `APPLIED`, `EXCLUDED`, `NEEDS_EVIDENCE` |
+| `CharacterCreationBlueprintStatus` | Value/state | `DRAFT`, `NEEDS_REVIEW`, `READY`, `PUBLISHED` semantics |
+| `BlueprintRevision` | Value object | optimistic concurrency boundary |
+| `BlueprintReviewViewModel` | UI model | translate internal node state into labels, sections, completion, save status |
 
 ## 3.5 Business Rule Ownership
 
 | Business Rule | Owner | Enforcement Point |
 |---|---|---|
-| Exactly one rulebook edition | `ScenarioSourceBundle` | create/revise application service and domain validation |
-| Main scenario max one | `ScenarioSourceBundle` | role selection validation |
-| Selected documents must be ready | Scenario Preparation | document lookup gateway + bundle command |
-| Active session blocks deletion | Scenario Preparation/Runtime policy | bundle application service before repository delete |
-| Endpoint required for preparation | Scenario Preparation | preparation preflight |
+| only owned package can be edited | application service | `ScenarioPreparationController` + service |
+| expected revision must match | aggregate/service | `resolveBlueprint`, `addBlueprintChild` |
+| required fields must be resolved before publish | aggregate | `publishBlueprint` |
+| only accepted storybook proposals enter applied configuration | application service/aggregate | proposal decision projection and `publishBlueprint` |
+| proposal without source evidence cannot be applied | application service | proposal validation before apply/publish |
+| published blueprint is immutable | aggregate | blueprint transition methods |
+| only published blueprint starts session | runtime application service | session creation command |
 
-## 3.6 Aggregate State Transitions
+## 3.6 State Transitions
 
 | Current | Command/Event | Next | Owner | Preconditions |
 |---|---|---|---|---|
-| queued | worker starts | processing | Knowledge Document | job accepted |
-| processing | extraction/index succeeds | indexed/ready | Knowledge Document | all required stages succeed |
-| processing | failure | failed | Knowledge Document | failure recorded |
-| draft | create bundle | saved | Scenario Source Bundle | valid name, edition, selections |
-| saved | start preparation | preparing | Scenario Compilation | endpoint preflight passes |
-| preparing | publish | ready | Scenario Compilation | package validation passes |
-| preparing | failure | failed | Scenario Compilation | retryability recorded |
-| saved/ready | delete request + active session | unchanged | Scenario Bundle | deletion rejected |
-
-## 3.7 Repository Boundaries
-
-| Repository | Aggregate | Operations | Consistency Boundary |
-|---|---|---|---|
-| `KnowledgeDocumentRepository` | KnowledgeDocument | list, find, save, delete, status | document lifecycle |
-| `ScenarioBundleRepository` | ScenarioSourceBundle | create, revise, find, list, delete | bundle revision |
-| `ScenarioCompilationRepository` | ScenarioCompilation | start, find, update | compilation job |
-| `AdventureSessionRepository` | AdventureSession | create, list, find, active references | session lifecycle |
+| absent | GenerateBlueprintDraft | NEEDS_REVIEW or failure | Scenario Preparation | usable rulebook |
+| NEEDS_REVIEW | ResolveBlueprintField | NEEDS_REVIEW | Blueprint | revision matches |
+| NEEDS_REVIEW | PublishBlueprint | PUBLISHED | Blueprint | required fields complete |
+| PUBLISHED | CreateCharacterSession | session DRAFT | Adventure Runtime | published revision |
 
 # 4. Program Design
 
-## 4.1 Major Components and Responsibilities
+## 4.1 Program Structure
+
+```plantuml
+@startuml
+component PackageBlueprintReviewPage as page
+component BlueprintReviewViewModel as vm
+component CharacterInputTree as tree
+interface SetupApi as api
+component ScenarioPreparationController as controller
+component ScenarioPreparationService as service
+database BlueprintRepository as repo
+page --> vm
+page --> tree
+vm --> api
+api --> controller
+controller --> service
+service --> repo
+@enduml
+```
+
+## 4.2 Major Components and Responsibilities
 
 | Component | Responsibility | Must Not Do |
 |---|---|---|
-| `RulebookSetup` | 자료 목록, 룰북 선택, 업로드, Progress, 파일 선택 | bundle 규칙을 자체적으로 재구현하지 않음 |
-| `ScenarioSetup` | 파일별 역할, 이름, 저장 검증 | 업로드/인덱싱 작업을 직접 실행하지 않음 |
-| `PreparationModal` | 준비 상태 표시와 명령 실행 | 서버 상태를 임의 추정하지 않음 |
-| `RuleKnowledgeController` | 문서 API 경계 | 시나리오 bundle 생성하지 않음 |
-| `ScenarioBundleController` | bundle CRUD API 경계 | 파일 추출을 직접 수행하지 않음 |
-| `ScenarioCompilationController` | 준비 시작/상태 조회 | 클라이언트용 상태 문구를 직접 조합하지 않음 |
-| `ScenarioBundleApplicationService` | bundle 규칙과 삭제 보호 | UI 표현을 결정하지 않음 |
-| `RulebookProcessingWorker` | 비동기 문서 처리 | bundle 저장을 수행하지 않음 |
+| `PackageBlueprintReviewPage.tsx` | page state, step rendering, user messages, command orchestration | domain validation or raw API error rendering |
+| `StorybookProposalList.tsx` | source-grouped proposal cards, evidence, apply/exclude actions, empty/failure states | direct persistence or blueprint publication decisions |
+| `CharacterInputTree.tsx` | section and field presentation, value events | persistence or publication decisions |
+| `SetupApi.ts` | typed HTTP contracts and error translation | UI layout decisions |
+| `ScenarioPreparationController` | authenticated command boundary | label formatting |
+| `ScenarioPreparationApplicationService` | load aggregate, apply command, persist | browser-specific state |
+| `CharacterCreationBlueprint` | transitions and invariants | HTTP or UI concerns |
 
-## 4.2 Target Application Flow
+## 4.3 Application Flow
 
 ```plantuml
 @startuml
 start
-:RulebookSetup loads documents and edition catalog;
-:User selects edition and storybooks;
-:ScenarioSetup validates name, roles, readiness;
-:ScenarioBundleController creates bundle;
-:Bundle card opens PreparationModal;
-:PreparationModal calls preflight and compilation API;
-:ScenarioCompilationController starts job;
-:Worker/application service publishes package;
-:Modal shows ready state;
-:User creates session;
+:PackageBlueprintReviewPage loads preparation;
+if (generation required?) then (yes)
+  :load catalog;
+  :select one rulebook;
+  :SetupApi.generateBlueprintDraft;
+endif
+:map API view to review view model;
+:render base fields, proposal list, and applied projection;
+:render section summary and fields;
+:field change marks DIRTY;
+:SetupApi.resolveBlueprint;
+if (required fields complete?) then (yes)
+  :publishBlueprint;
+  :create session;
+else (no)
+  :show missing fields;
+endif
 stop
 @enduml
 ```
 
-## 4.3 Component Call Contracts
+## 4.4 Component Call Contracts
 
-| Order | Caller | Callee | Operation | Failure |
-|---:|---|---|---|---|
-| 1 | `RulebookSetup` | Knowledge API | list/upload/status/delete | auth, validation, processing |
-| 2 | `ScenarioSetup` | Bundle API | create/revise | invalid edition/role/readiness |
-| 3 | `PreparationModal` | Preparation API | preflight/start/status | endpoint unavailable, compilation failed |
-| 4 | `ScenarioBundleApplicationService` | Session repository | find active references | repository failure |
-| 5 | Session UI | Adventure Session API | create/resume | package not playable |
+| Order | Caller | Callee | Operation | Output | Failure |
+|---:|---|---|---|---|---|
+| 1 | page | `getPlayPreparation` | load package state | preparation view | translated load error |
+| 2 | page | catalog API | load READY rulebooks | catalog list | empty/error state |
+| 3 | page | `generateBlueprintDraft` | create settings | blueprint view | actionable generation error |
+| 4 | field | `resolveBlueprint` | save value + revision | updated blueprint | field save error or conflict |
+| 5 | page | `publishBlueprint` | publish settings | published blueprint | missing field/conflict error |
+| 6 | page | session API | create draft session | session ID | retryable session error |
 
-## 4.4 API Contract Direction
+## 4.5 Major Types
 
-### `POST /api/v1/scenario-bundles`
-
-```json
-{
-  "name": "Most Potent Brew",
-  "rulebookEdition": "DND_5E_2014",
-  "documents": [
-    {"knowledgeDocumentId": "...", "role": "MAIN_SCENARIO"},
-    {"knowledgeDocumentId": "...", "role": "MAP"}
-  ]
-}
-```
-
-Errors:
-
-- `400 BUNDLE_NAME_REQUIRED`
-- `400 RULEBOOK_EDITION_REQUIRED`
-- `400 INVALID_DOCUMENT_ROLE`
-- `409 DOCUMENT_NOT_READY`
-- `409 MAIN_SCENARIO_ALREADY_SELECTED`
-
-### `DELETE /api/v1/scenario-bundles/{bundleId}`
-
-Errors:
-
-- `403 FORBIDDEN`
-- `404 NOT_FOUND`
-- `409 ACTIVE_ADVENTURE_REFERENCES_BUNDLE`
-
-### `GET /api/v1/knowledge-documents/{id}/status`
-
-The response must provide canonical processing status and, when available, stage and progress fields. The UI maps these to Korean labels and shadcn Progress without exposing backend enums as primary copy.
-
-## 4.5 Status Mapping
-
-| Backend state | UI state | Selectable | Save-eligible |
-|---|---|---:|---:|
-| `QUEUED` | 준비 대기 중 | no | no |
-| `PROCESSING` | 자료 준비 중 | no | no |
-| `EXTRACTED` | 내용 확인 필요 | no/confirmation path | no |
-| `INDEXED` | 사용 준비 완료 | yes | yes |
-| `PARTIAL_CONFIRMED` | 사용 준비 완료 | yes | yes |
-| `FAILED` | 자료 준비 실패 | no | no |
-| `REJECTED` | 자료 사용 불가 | no | no |
-
-## 4.6 UI State Ownership
-
-- Server owns document, bundle, compilation, package, and session states.
-- `RulebookSetup` owns only current selection and upload draft state.
-- `ScenarioSetup` owns only bundle draft state and field validation.
-- `PreparationModal` owns open/closed presentation state; it reads preparation state from the API.
-- Polling resumes whenever the server reports a non-terminal status, including after page reload.
-- A closed modal does not cancel server-side preparation.
-
-# 5. Technical Architecture
-
-## 5.1 Service and Module Mapping
-
-| Bounded Context | Program Component | Service | Module |
-|---|---|---|---|
-| Document Knowledge | upload/status UI and worker | `rule-knowledge-service` | `src/rule-knowledge-service` |
-| Scenario Preparation | bundle and compilation APIs | `adventure-service` | `src/adventure-service` |
-| Adventure Runtime | session list/resume/start | `adventure-service` | adventure/session modules |
-| Presentation | setup/profile/adventure UI | `web-ui` | `src/web-ui` |
-
-## 5.2 Existing Touchpoints
-
-- UI: `RulebookSetup.tsx`, `ScenarioSetup.tsx`, `SetupApi.ts`, `SavedAdventurePanel.tsx`, `AiEndpointSettings.tsx`.
-- Document API: `RuleKnowledgeController.java`, `RulebookPipelineApplicationService.java`, `RulebookProcessingWorker.java`.
-- Bundle API: `ScenarioBundleController.java`, `ScenarioBundleApplicationService.java`, `ScenarioSourceBundle.java`, `ScenarioBundleRepository.java`.
-- Preparation API: `ScenarioCompilationController.java`, `ScenarioPreparationController.java`, `ScenarioPreparationApplicationService.java`.
-- Runtime protection: `AdventureSessionRepository` and its PostgreSQL implementation.
-
-## 5.3 Data Changes
-
-| Target | Action | Change |
+| Type | Kind | Responsibility |
 |---|---|---|
-| Scenario bundle aggregate | Modify | add required user-facing name and explicit rulebook edition |
-| Bundle create/revise DTO | Modify | accept name, edition, storybook selections and roles |
-| Bundle summary DTO | Modify | return name, edition label, status, document count |
-| Bundle delete application service | Modify | check active adventure/session references before delete |
-| Document status DTO | Modify | expose canonical stage/progress where available |
-| API error contract | Modify | stable user-actionable error codes for readiness/conflict/preflight |
+| `PlayPreparationView` | DTO | package readiness and blueprint payload |
+| `CharacterCreationBlueprintView` | DTO | status, roots, diagnostics, revision |
+| `CharacterInputNodeView` | DTO | field metadata and nested children |
+| `StorybookProposalView` | DTO/UI type | source document, proposal content, evidence, decision, applyability |
+| `BlueprintReviewViewModel` | UI type | base fields, proposals, applied fields, user labels, section counts, dirty/save states |
+| `SaveState` | UI state | DIRTY, SAVING, SAVED, ERROR |
 
-## 5.4 External Dependency Isolation
+## 4.6 File and Test Seams
 
-| Dependency | Port | Adapter | Conversion |
-|---|---|---|---|
-| Extraction engine | `RulebookContentExtractor` | extractor adapters | to document processing result |
-| Embedding/index | `EmbeddingPort`/index port | vector adapters | to processing status |
-| AI provider | agent endpoint port | Ollama/OpenAI/Codex adapters | to preflight/compile result |
-| Storage | file storage port | local/filesystem adapter | to document file reference |
+- Page: `src/web-ui/src/features/character/PackageBlueprintReviewPage.tsx`
+- Tree: `src/web-ui/src/features/character/CharacterInputTree.tsx`
+- API: `src/web-ui/src/features/rulebooks/SetupApi.ts`
+- Backend boundary: `src/adventure-service/src/main/java/com/dndmaster/adventure/api/ScenarioPreparationController.java`
+- Blueprint domain: `src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/CharacterCreationBlueprint.java`
+- Existing page tests: `src/web-ui/src/features/character/PackageBlueprintReviewPage.test.tsx`
 
-# 6. Runtime Design
+## 4.7 Risks and Migration Notes
 
-## 6.1 Document Processing
+- Existing API exposes raw status and diagnostics; label translation must remain UI-only and preserve machine-readable values for logic.
+- Existing API does not currently expose a first-class proposal collection; the adapter or preparation DTO must provide source-grouped proposals without forcing the UI to infer them from diagnostic strings.
+- Proposal decisions must be represented separately from resolved blueprint values so an unapplied suggestion cannot leak into the published configuration.
+- Existing per-field commands use revision numbers; a central form submit would weaken the current concurrency boundary and is out of scope.
+- The current add-child flow uses `window.prompt`; replacing it requires a focused dialog component and validation contract.
+- Completion counts depend on node metadata. Required/optional semantics must be explicit before blocking publish.
+- A storybook with no candidates, failed extraction, or missing evidence must be distinguishable; an empty proposal list must not be treated as successful extraction without a status and source-document summary.
+- Existing character creation routes and published blueprint contracts remain unchanged.
 
-1. Upload endpoint persists each file and returns a document ID immediately.
-2. Worker transitions the document through queued and processing stages.
-3. Extraction, chunking, embedding, and indexing update the document status.
-4. UI polls all non-terminal documents, not only documents uploaded in the current browser session.
-5. Terminal state is ready, failed, or rejected.
+## 4.8 Existing Route and Persistence Constraints
 
-## 6.2 Game Preparation
-
-1. UI requests endpoint preflight.
-2. Server validates owner, bundle revision, document readiness, and endpoint availability.
-3. Server creates or reuses an idempotent compilation for the bundle revision.
-4. UI polls the compilation status until published or failed.
-5. Published package is immutable and becomes the only input for session creation.
-
-## 6.3 Idempotency and Concurrency
-
-| Operation | Key/Control | Requirement |
-|---|---|---|
-| Upload | per-file idempotency key | duplicate upload must not create duplicate document |
-| Bundle save | bundle revision/command key | repeated submission must not create unintended duplicate revision |
-| Preparation | `bundleId + revision + endpoint configuration` | one active compilation per revision |
-| Delete bundle | transaction plus active reference check | no deletion race with session creation |
-
-# 7. Error Handling and Recovery
-
-| Failure | Category | Retryable | Caller Result |
-|---|---|---:|---|
-| extraction/index failure | processing | yes | file-level `다시 처리` |
-| document not ready | domain conflict | no until ready | save blocked with reason |
-| endpoint unavailable | external/preflight | yes after settings fix | preparation blocked with settings action |
-| compilation failure | preparation | usually yes | modal shows retry and detail |
-| active adventure reference | domain conflict | no | deletion blocked with linked adventure summary |
-| stale page state | consistency | yes | refresh/poll current server state |
-
-All API failures require a stable error code, a Korean user message, and an optional technical detail that is hidden by default.
-
-# 8. Security
-
-| Entry Point | Authentication | Authorization |
-|---|---|---|
-| document upload/list/delete | player session | document owner |
-| bundle create/revise/list/delete | player session | bundle owner |
-| compilation start/status | player session | bundle owner |
-| session create/resume | player session | session owner |
-| AI endpoint settings | player session | profile owner |
-
-Raw provider secrets must not be returned to the browser. Codex OAuth tokens remain server-side/local-runtime managed according to the existing endpoint boundary.
-
-# 9. Observability
-
-| Metric | Type | Labels |
-|---|---|---|
-| document processing duration | histogram | document type, file format, terminal status |
-| document processing failures | counter | stage, reason |
-| bundle save rejections | counter | reason |
-| compilation duration | histogram | edition, result |
-| compilation failures | counter | stage, retryable |
-| deletion rejections | counter | active session count |
-
-Every long-running operation should log owner-safe IDs, status transitions, attempt number, and correlation ID without logging document contents or secrets.
-
-# 10. Change Boundaries
-
-## 10.1 Allowed Changes
-
-- Add bundle name and explicit rulebook edition to scenario bundle contracts and persistence.
-- Add canonical processing/preparation status mappings.
-- Replace native progress presentation with shadcn Progress.
-- Move selection and preparation orchestration behind clear UI components.
-- Add active-session reference check before bundle deletion.
-- Add API errors for readiness, preflight, and deletion conflicts.
-
-## 10.2 Forbidden Changes
-
-- Do not merge multiple rulebooks into one bundle.
-- Do not allow client-side rule resolution or package mutation.
-- Do not delete active adventures as a side effect of bundle deletion.
-- Do not make AI endpoint configuration a prerequisite for file upload or bundle save.
-- Do not expose provider secrets, raw document contents, or raw internal error payloads by default.
-
-# 11. Verification Requirements
-
-## 11.1 Domain Verification
-
-- Bundle rejects zero or multiple rulebook editions.
-- Bundle rejects unready selected documents.
-- Bundle rejects more than one main scenario.
-- Bundle requires a nonblank name.
-- Bundle deletion rejects an active adventure reference.
-
-## 11.2 Program Verification
-
-- UI selection state includes the fixed rulebook edition and storybook selections in the save request.
-- File role changes remain per-document and survive save/reload.
-- Polling resumes for pre-existing non-terminal documents after reload.
-- shadcn Progress reflects server-reported processing stage/progress.
-- Preparation modal can close and reopen without losing the server job.
-- User-facing error mapping hides raw backend fields.
-
-## 11.3 Technical Contract Verification
-
-- Controller tests cover bundle name/edition request and validation errors.
-- Repository/application tests cover active-session deletion conflict.
-- Pipeline tests cover status progression and retry.
-- Web tests cover save gating, role cardinality, progress rendering, and deletion messages.
-- Integration tests cover published package to session creation.
-
-## 11.4 Agent Verifier Criteria
-
-- [ ] Product Spec IDs are implemented without widening scope.
-- [ ] Rulebook cardinality is enforced in the domain/application boundary.
-- [ ] Document readiness is checked server-side, not only by UI disabling.
-- [ ] Active adventure deletion protection is server-side and transactional.
-- [ ] Status and error contracts have stable mappings.
-- [ ] Bundle revision/package immutability is preserved.
-- [ ] Existing document processing and runtime bounded contexts remain separated.
-
-# 12. Alternatives and Trade-offs
-
-| Decision | Option | Result |
-|---|---|---|
-| Rulebook UI | merge into file roles | rejected: fixed game system should remain explicit |
-| Rulebook identity | expose catalog revision | rejected for primary UI; retain internally |
-| Progress | native progress estimate | rejected; use server stage and shadcn Progress |
-| Bundle naming | UUID only | rejected; add required user-facing name |
-| Delete protection | cascade active adventures | rejected; unsafe data loss |
-| Delete protection | block with explanation | adopted |
-| Endpoint timing | require before upload | rejected; unnecessary coupling |
-| Endpoint timing | check at game preparation | adopted |
-
-# 13. Risks and Open Questions
-
-## 13.1 Risks
-
-| Risk | Impact | Probability | Mitigation |
-|---|---|---|---|
-| edition identity differs between catalog and runtime | High | Medium | one explicit bundle edition plus adapter mapping |
-| status mapping drifts | Medium | High | canonical contract and mapping tests |
-| delete/session race | High | Medium | transactional reference check and integration test |
-| UI remains an orchestration monolith | Medium | High | separate selection, upload status, bundle card, preparation modal components |
-| existing bundles lack names | Medium | High | migration/default generated name and editable label |
-
-## 13.2 Open Questions
-
-| Question | Blocking | Resolution |
-|---|---|---|
-| Existing bundle name migration | No | generate a readable fallback from first main scenario filename |
-| Exact 5e/5.5e catalog mapping | Yes for implementation | map UI edition to approved catalog revision server-side |
-| Server progress granularity | No | start with stage-based percentage; add byte/page progress only if available |
-| Active adventure definition | Yes for deletion | treat `CREATED`, `IN_PROGRESS`, and resumable non-terminal sessions as active |
+- `/scenario-packages/{packageId}/character-blueprint` is the package-level review entry point wired to `PackageBlueprintReviewPage`.
+- `/sessions/{sessionId}/character-blueprint` currently enters the session-level character flow; the redesign must not silently change this route's session ownership semantics.
+- `CharacterBlueprintReviewPage.tsx` is an alternate, currently unrouted review implementation. It must either be retired or explicitly made the shared review component before implementation tickets are created.
+- `CharacterInputTree.tsx` currently infers grouping from field-key prefixes. Section completion counts require either a stable UI grouping adapter or explicit section metadata in `CharacterInputNodeView`; the first implementation should prefer an adapter to avoid changing blueprint persistence.
+- Blueprint JSON and revision history are persisted by `PostgresScenarioPackageRepository` in the existing scenario package blueprint tables. The UX redesign does not introduce a second draft store.
+- Existing API contracts remain the source of truth: `getPlayPreparation`, `generateBlueprintDraft`, `resolveBlueprint`, `addBlueprintChild`, and `publishBlueprint`.

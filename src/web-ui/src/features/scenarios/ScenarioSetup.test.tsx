@@ -295,6 +295,7 @@ describe('ScenarioSetup', () => {
     await user.click(screen.getByRole('button', { name: '게임 준비 시작' }))
 
     expect(await screen.findByText('게임 준비 상태 REQUESTED · 시도 0')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: '게임 준비 진행률' })).toHaveAttribute('aria-valuenow', '10')
     expect(await screen.findByText('게임 준비 상태 WAITING_RETRY · 시도 1')).toBeInTheDocument()
     expect(await screen.findByText('모험 준비 결과 package-1 · COMPLETE')).toBeInTheDocument()
     expect(api.getScenarioCompilation).toHaveBeenCalled()
