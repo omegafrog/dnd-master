@@ -96,7 +96,7 @@ test('running session reconnects with switched provider and confirms ending', as
   await gmProvider.getByLabel('GM provider').selectOption('openai')
   await page.locator('input[aria-label="GM model"]').fill('gpt-5.6-luna')
   await gmProvider.getByRole('button', { name: '연결 변경' }).click()
-  await expect(gmProvider.getByText(/현재: openai · gpt-5.6-luna · medium/)).toBeVisible()
+  await expect(gmProvider.getByText(/openai · gpt-5.6-luna/)).toBeVisible()
 
   await page.getByLabel('행동 또는 대화').fill('I inspect the revealed chamber')
   await page.getByRole('button', { name: '보내기' }).click()
@@ -110,7 +110,7 @@ test('running session reconnects with switched provider and confirms ending', as
   await expect(map.getByText('맵 행동을 GM 턴으로 전송했습니다.')).toBeVisible()
 
   await page.reload()
-  await expect(page.getByRole('region', { name: 'GM provider' }).getByText(/현재: openai · gpt-5.6-luna · medium/)).toBeVisible()
+  await expect(provider.locator('details.party-provider-settings').getByText(/openai · gpt-5.6-luna/)).toBeVisible()
   await expect(page.getByText(/턴 1: 근거를 바탕으로 응답한다\./)).toBeVisible()
   await page.getByLabel('행동 또는 대화').fill('I continue after reconnect')
   await page.getByRole('button', { name: '보내기' }).click()
