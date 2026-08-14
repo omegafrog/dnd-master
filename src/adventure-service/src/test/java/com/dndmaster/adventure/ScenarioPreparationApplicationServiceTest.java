@@ -83,7 +83,7 @@ class ScenarioPreparationApplicationServiceTest {
         });
 
         var draft = new ScenarioPreparationApplicationService(packages, bundles, fixtureRuntimeOptions(), search, tags,
-                new CharacterCreationBlueprintCompiler()).generateBlueprintDraft(scenarioPackage.packageId(), owner());
+                new CharacterCreationBlueprintCompiler(), fixtureGameSystemDefinitionPort()).generateBlueprintDraft(scenarioPackage.packageId(), owner());
 
         var race = draft.fields().stream().filter(field -> field.key().equals("race")).findFirst().orElseThrow();
         var title = draft.fields().stream().filter(field -> field.key().equals("campaign_title")).findFirst()
@@ -175,7 +175,7 @@ class ScenarioPreparationApplicationServiceTest {
                 "The campaign permits only Eladrin and Shifter heroes.", "STORYBOOK")));
 
         var service = new ScenarioPreparationApplicationService(packages, bundles, fixtureRuntimeOptions(), search, tags,
-                new CharacterCreationBlueprintCompiler());
+                new CharacterCreationBlueprintCompiler(), fixtureGameSystemDefinitionPort());
 
         var draft = service.generateBlueprintDraft(scenarioPackage.packageId(), owner());
 
@@ -225,7 +225,7 @@ class ScenarioPreparationApplicationServiceTest {
         });
 
         var service = new ScenarioPreparationApplicationService(packages, bundles, fixtureRuntimeOptions(), search, tags,
-                new CharacterCreationBlueprintCompiler());
+                new CharacterCreationBlueprintCompiler(), fixtureGameSystemDefinitionPort());
 
         var draft = service.generateBlueprintDraft(scenarioPackage.packageId(), owner());
 
@@ -267,7 +267,7 @@ class ScenarioPreparationApplicationServiceTest {
         });
 
         var draft = new ScenarioPreparationApplicationService(packages, bundles, fixtureRuntimeOptions(), search, tags,
-                new CharacterCreationBlueprintCompiler()).generateBlueprintDraft(scenarioPackage.packageId(), owner());
+                new CharacterCreationBlueprintCompiler(), fixtureGameSystemDefinitionPort()).generateBlueprintDraft(scenarioPackage.packageId(), owner());
 
         var race = draft.fields().stream().filter(field -> field.key().equals("race")).findFirst().orElseThrow();
         assertEquals("RULEBOOK", race.sourceType());
@@ -285,7 +285,7 @@ class ScenarioPreparationApplicationServiceTest {
         when(packages.findById(scenarioPackage.packageId())).thenReturn(Optional.of(scenarioPackage));
         when(bundles.findById(scenarioPackage.bundleId())).thenReturn(Optional.of(bundleWithOnlyRulebook()));
         var service = new ScenarioPreparationApplicationService(packages, bundles, fixtureRuntimeOptions(), search, tags,
-                new CharacterCreationBlueprintCompiler());
+                new CharacterCreationBlueprintCompiler(), fixtureGameSystemDefinitionPort());
 
         var draft = service.generateBlueprintDraft(scenarioPackage.packageId(), owner());
 
@@ -312,7 +312,7 @@ class ScenarioPreparationApplicationServiceTest {
         when(packages.findById(scenarioPackage.packageId())).thenReturn(Optional.of(scenarioPackage));
         when(bundles.findById(scenarioPackage.bundleId())).thenReturn(Optional.of(bundleWithOnlyRulebook()));
         var service = new ScenarioPreparationApplicationService(packages, bundles, fixtureRuntimeOptions(), search, tags,
-                new CharacterCreationBlueprintCompiler());
+                new CharacterCreationBlueprintCompiler(), fixtureGameSystemDefinitionPort());
 
         var draft = service.generateBlueprintDraft(scenarioPackage.packageId(), owner(), "DND_4E");
 
@@ -464,6 +464,15 @@ class ScenarioPreparationApplicationServiceTest {
         return new RuntimeOptionCatalogPort() {
             @Override public RuntimeOptionsView read(OwnerPlayerId ownerPlayerId) {
                 return new RuntimeOptionsView("ollama", List.of(), List.of(), List.of());
+            }
+        };
+    }
+
+    private static com.dndmaster.adventure.application.runtime.GameSystemDefinitionPort fixtureGameSystemDefinitionPort() {
+        return new com.dndmaster.adventure.application.runtime.GameSystemDefinitionPort() {
+            @Override public Optional<Definition> find(UUID ignored) { return Optional.empty(); }
+            @Override public Optional<Definition> findByRulebook(UUID ignored) {
+                return Optional.of(new Definition(1, "{}"));
             }
         };
     }

@@ -154,9 +154,11 @@ public final class ResolutionCandidateController {
                     int end = excerpt.text().indexOf('.', dc.end());
                     if (end < 0) end = Math.min(excerpt.text().length(), dc.end() + 240);
                     String quote = excerpt.text().substring(start, end + (end < excerpt.text().length() && excerpt.text().charAt(end) == '.' ? 1 : 0)).strip();
-                    String kind = quote.toLowerCase(Locale.ROOT).contains("saving throw") ? "SAVING_THROW" : "SKILL_ABILITY_CHECK";
-                    candidates.add(new Candidate(kind, null, Integer.valueOf(dc.group(1)), diceExpression(excerpt.text(), dc.end()), "GM_REFERENCE", quote,
-                            List.of(new SourceRef(excerpt.documentId(), excerpt.extractionVersion(), excerpt.locator())), null, "deterministic-source-pattern-v2"));
+                    if (EXPLICIT_DC.matcher(quote).find()) {
+                        String kind = quote.toLowerCase(Locale.ROOT).contains("saving throw") ? "SAVING_THROW" : "SKILL_ABILITY_CHECK";
+                        candidates.add(new Candidate(kind, null, Integer.valueOf(dc.group(1)), diceExpression(excerpt.text(), dc.end()), "GM_REFERENCE", quote,
+                                List.of(new SourceRef(excerpt.documentId(), excerpt.extractionVersion(), excerpt.locator())), null, "deterministic-source-pattern-v2"));
+                    }
                 }
             }
         }

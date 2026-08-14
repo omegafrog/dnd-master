@@ -336,7 +336,7 @@ public final class ScenarioPreparationApplicationService {
                 var selected = result.stream()
                         .filter(item -> item.key().equals(candidate.key()))
                         .findFirst().map(item -> withSourceType(item, sourceType))
-                        .orElseThrow(() -> new IllegalStateException("character blueprint extraction omitted field " + candidate.key()));
+                        .orElseGet(() -> withSourceType(candidate, sourceType));
                 LOGGER.info("character_blueprint_refine_finished packageId={} field={} excerpts={} mode={} options={} optionDetails={} elapsedMs={}",
                         packageId, candidate.key(), topicExcerpts.size(), selected.inputMode(), selected.options().size(),
                         selected.optionDetails().size(), (System.nanoTime() - startedAt) / 1_000_000);

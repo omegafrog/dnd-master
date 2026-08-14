@@ -33,7 +33,8 @@ class OllamaStartupPreflightTest {
 
     @Test
     void acceptsLoopbackRuntimeWithBothRequiredModelsWithoutPulling() {
-        server.stubFor(get("/api/tags").willReturn(okJson("{\"models\":[{\"name\":\"qwen3:8b\"},{\"name\":\"qwen3-embedding:0.6b\"}]}")));
+        server.stubFor(get("/api/tags").willReturn(okJson("{\"models\":[{\"name\":\"" + LocalOllamaProperties.DEFAULT_CHAT_MODEL
+                + "\"},{\"name\":\"" + LocalOllamaProperties.DEFAULT_EMBEDDING_MODEL + "\"}]}")));
 
         assertDoesNotThrow(() -> new OllamaStartupPreflight(properties(), new OllamaStartupPreflight.HttpOllamaModelInventory()).verify());
         server.verify(getRequestedFor(urlEqualTo("/api/tags")));
