@@ -9,6 +9,14 @@ test('published package review creates a character session from the API fixture'
   await expect(page.getByRole('heading', { name: '룰북 기본 스키마' })).toBeVisible()
   await expect(page.getByText('읽기 전용')).toBeVisible()
   await expect(page.getByText('사용 예정', { exact: true })).toBeVisible()
+
+  const proposal = page.getByRole('article', { name: '스토리 속 성향' })
+  await expect(proposal.getByText('질서 선 성향으로 묘사됩니다.')).toBeVisible()
+  await expect(proposal.getByText('storybook.txt', { exact: true })).toBeVisible()
+  await expect(proposal.getByText('현재 상태: 사용 예정', { exact: true })).toBeVisible()
+  await proposal.getByText('원문 근거 보기', { exact: true }).click()
+  await expect(proposal.getByText('질서 선의 수호자였다.', { exact: true })).toHaveCount(2)
+
   await expect(page.getByRole('button', { name: '캐릭터 생성 시작' })).toBeVisible()
   await page.getByRole('button', { name: '캐릭터 생성 시작' }).click()
 
