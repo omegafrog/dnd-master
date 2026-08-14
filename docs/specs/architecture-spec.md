@@ -7,26 +7,22 @@
 | 항목 | 대상 |
 |---|---|
 | Product Spec | `docs/specs/product-spec.md` |
-| Use Cases | UC-01~UC-07 |
-| Domain | 캐릭터 생성 설정 검토·저장·게시 |
-| Bounded Contexts | Scenario Preparation, Rulebook Catalog, Web UI |
-| Existing Services | `adventure-service`, `web-ui` |
-| External Dependencies | PostgreSQL, rulebook catalog API |
-| Affected Data | `CharacterCreationBlueprint`, `PlayPreparationView`, blueprint revision |
+| Use Cases | UC-01~UC-06 |
+| Domain | 룰북 기본 스키마와 스토리북 제안의 검토·결정·확정 |
+| Bounded Contexts | Scenario Preparation, Rulebook Catalog, Web UI, Adventure Runtime |
+| Existing Services | `adventure-service`, `rule-knowledge-service`, `web-ui` |
+| External Dependencies | PostgreSQL, 룰북 카탈로그 API |
+| Affected Data | `CharacterCreationBlueprint`, storybook proposal decision, blueprint revision |
 
 ## 1.2 Product Spec Mapping
 
-| Product Spec 항목 | Architecture 요소 |
+| Product Spec | Architecture 요소 |
 |---|---|
-| 3단계 흐름 | `PackageBlueprintReviewPage` 상태 기반 화면 단계 |
-| 룰북 자동 선택 | `/api/v1/rulebook-catalog` read model |
-| 룰북·스토리북 분리 검토 | `BlueprintReviewViewModel`의 base fields/proposals/applied projection |
-| 제안별 적용·제외 | `StorybookProposalView`와 proposal decision adapter |
-| 설정 생성 실패 일관성 | `CharacterCreationBlueprint` 상태와 UI rendering gate |
-| 섹션별 완료율 | `CharacterInputTree` 입력 상태 집계 |
-| 항목 저장 상태 | `resolveBlueprint` 호출 상태 어댑터 |
-| 게시 전 검증 | `publishBlueprint` precondition과 UI validation summary |
-| 내부 용어 제거 | UI view-model label mapper |
+| 룰북 기본 스키마 읽기 전용 | `BaseSchemaView` UI projection |
+| 스토리북 제안 사용/제외 | `StorybookProposal` decision model and command |
+| 제안 없음·실패·근거 부족 | extraction state and proposal read model |
+| 미결정 제안 확정 차단 | application service and aggregate precondition |
+| 확정 후 캐릭터 생성 | published blueprint revision → session boundary |
 
 # 2. Domain Flow
 
@@ -34,32 +30,29 @@
 
 ```plantuml
 @startuml
-title Character Creation Blueprint Review
+title Character Creation Settings Review
 start
 :Player opens package review;
-:Load PlayPreparationView;
-if (Blueprint exists?) then (no)
-  :Show generation state;
-  :Load ready rulebook catalog;
-  :Player selects rulebook;
-  :Generate blueprint draft;
-  if (Generation succeeded?) then (no)
-    :Show actionable failure;
+:Load rulebook base schema and storybook extraction result;
+if (Load succeeded?) then (no)
+  :Show actionable failure and retry;
+  stop
+endif
+:Show read-only base schema;
+:Show storybook proposals grouped by source;
+if (Proposals exist?) then (yes)
+  :Player chooses use or exclude for each proposal;
+  if (All proposals decided?) then (no)
+    :Show remaining decisions;
     stop
   endif
-endif
-:Show sectioned blueprint review;
-:Show rulebook base fields separately from storybook proposals;
-:Player accepts or rejects each storybook proposal;
-:Build applied blueprint projection;
-:Player changes field;
-:Resolve blueprint field;
-if (Required fields complete?) then (yes)
-  :Publish blueprint;
-  :Create character session entry;
 else (no)
-  :Show incomplete field summary;
+  :Show successful empty state;
 endif
+:Build applied projection;
+:Player confirms settings;
+:Publish blueprint revision;
+:Enter character creation;
 stop
 @enduml
 ```
@@ -68,68 +61,65 @@ stop
 
 | Command | Actor | Target | Input | Preconditions | Result |
 |---|---|---|---|---|---|
-| GenerateBlueprintDraft | Player | Scenario Preparation | package ID, catalog rulebook ID, extraction version | package owned, rulebook READY | blueprint draft or failure |
-| ResolveBlueprintField | Player | CharacterCreationBlueprint | package ID, field key, value, expected revision | field exists, revision matches | updated blueprint revision |
-| AddBlueprintChild | Player | CharacterCreationBlueprint | parent ID, key, label, expected revision | parent editable, key valid | updated blueprint revision |
-| PublishBlueprint | Player | CharacterCreationBlueprint | package ID | all required fields resolved, blueprint READY | PUBLISHED blueprint |
-| CreateCharacterSession | Player | Adventure Session | package ID, blueprint revision | blueprint PUBLISHED | session draft |
+| ReadCharacterCreationSettings | Player | Scenario Preparation | package ID | package accessible | base schema and proposal view |
+| DecideStorybookProposal | Player | CharacterCreationBlueprint | package ID, proposal ID, decision, expected revision | proposal has identity; apply requires evidence | updated decision projection |
+| ConfirmCharacterCreationSettings | Player | CharacterCreationBlueprint | package ID, expected revision | every proposal decided; base schema valid | published blueprint revision |
+| CreateCharacterSession | Player | Adventure Runtime | package ID, published blueprint revision | blueprint is published | character creation session |
 
 ## 2.3 Domain Events
 
 | Domain Event | Producer | Trigger | Payload | Consumers |
 |---|---|---|---|---|
-| BlueprintDraftGenerated | Scenario Preparation | draft generation succeeds | package ID, revision, status | web UI |
-| BlueprintFieldResolved | CharacterCreationBlueprint | field value accepted | field key, revision | web UI |
-| BlueprintPublished | CharacterCreationBlueprint | publish succeeds | package ID, revision | session flow |
+| StorybookProposalDecided | CharacterCreationBlueprint | use/exclude decision accepted | proposal ID, decision, revision | review UI |
+| CharacterCreationSettingsConfirmed | CharacterCreationBlueprint | all decisions complete and publish succeeds | package ID, revision, applied proposal IDs | session flow |
 
 ## 2.4 Policies
 
-| Policy | Trigger Event | Decision | Emitted Command | Owner |
-|---|---|---|---|---|
-| AutoSelectSingleRulebook | catalog loaded | exactly one READY rulebook | GenerateBlueprintDraft after user confirmation or automatic start | web UI |
-| KeepStorybookProposalsUnapplied | storybook candidates loaded | proposal has not been accepted | keep proposal outside applied blueprint | Web UI / Scenario Preparation |
-| RequireProposalDecisionBeforePublish | publish requested | undecided proposals exist | block publish and show undecided list | Scenario Preparation |
-| ShowStorybookEmptyOrFailureState | extraction completed or failed | no proposals or unusable evidence | show document-scoped empty/failure state | Web UI |
-| BlockPublishWithMissingRequiredFields | publish requested | unresolved required fields exist | none; return validation failure | Scenario Preparation |
-| RefreshAfterRevisionConflict | revision conflict | server has newer revision | reload preparation and mark local dirty fields | web UI |
+| Policy | Trigger | Decision | Owner |
+|---|---|---|---|
+| KeepBaseSchemaReadOnly | review loaded | base fields are never editable in review | Web UI |
+| RequireEvidenceForApply | apply requested | reject proposal without source evidence | Scenario Preparation |
+| RequireAllProposalDecisions | confirm requested | block if any proposal is undecided | Scenario Preparation |
+| PublishAppliedProjectionOnly | confirm succeeds | persist base schema plus applied proposals only | Scenario Preparation |
+| BlockSessionBeforeConfirmation | session requested | reject unpublished blueprint | Adventure Runtime |
 
 ## 2.5 Read Models
 
-| Read Model | Consumer | Source | Fields | Owner |
+| Read Model | Consumer | Source | Required Fields | Owner |
 |---|---|---|---|---|
-| PlayPreparationView | review page | scenario package preparation API | status, blockers, blueprint, character limit | adventure-service |
-| RulebookCatalogView | rulebook selector | catalog API | display name, edition, ID, extraction version, status | rulebook catalog |
-| StorybookProposalView | review page | preparation API / adapter | proposal ID, source document, label, description, quote, evidence, decision | adventure-service + web-ui |
-| BlueprintReviewViewModel | UI | PlayPreparationView + proposal state | base fields, proposals, applied fields, sections, labels, completion counts, save states | web-ui |
+| `PlayPreparationView` | existing preparation UI | scenario package | readiness, blueprint, character limit | Scenario Preparation |
+| `CharacterSettingsReviewView` | review page | preparation + extraction metadata | base schema, proposals, empty/failure state, revision | Scenario Preparation |
+| `StorybookProposalView` | proposal cards | storybook extraction | ID, label, description, source document, quote, evidence, decision | Scenario Preparation |
+| `AppliedSettingsSummary` | confirmation panel | review decision projection | base schema included, applied IDs, excluded IDs, unresolved count | Scenario Preparation |
 
 ## 2.6 External Interactions
 
 | External System | Trigger | Input | Output | Failure |
 |---|---|---|---|---|
-| Rulebook Catalog API | page load | none | READY rulebooks | empty state |
-| Scenario Preparation API | generate/resolve/publish | package and blueprint command | updated blueprint | localized error state |
-| Adventure Session API | create character flow | package and blueprint revision | session ID | retryable message |
+| Rulebook Catalog API | review load | edition/package context | base schema metadata | no usable catalog revision |
+| Scenario Preparation API | review/decision/confirm | package, proposal decision, revision | updated review view | validation or revision conflict |
+| Adventure Session API | after confirmation | package and published blueprint revision | session ID | unpublished or stale blueprint |
 
-## 2.7 Hotspots
+## 2.7 Hotspots and Decisions
 
 | Hotspot | Options | Decision |
 |---|---|---|
-| Completion percentage source | backend exact progress / UI aggregate | UI aggregate from required and visible fields for initial version |
-| Save strategy | per-field / whole form | retain per-field API and expose explicit per-field state |
-| Proposal persistence | merge immediately / stage decision | stage proposal decisions and include only accepted proposals in applied projection; publish remains the server authority |
-| Add custom child UI | browser prompt / inline dialog | replace prompt with accessible dialog in a later P1 slice |
-| Section navigation | nested accordion only / summary navigation | summary navigation plus collapsible sections |
+| Proposal source of truth | infer from diagnostics / explicit API projection | explicit proposal collection; UI must not infer from diagnostic strings |
+| Base schema presentation | render full editable tree / read-only summary | read-only grouped summary; actual values are entered in character creation |
+| Proposal decisions | merge into fields immediately / separate staged decisions | separate decision state until confirmation |
+| Empty result | hide proposal area / explicit success state | explicit “추가할 내용 없음” with analyzed document summary |
+| Confirmation wording | 게시 / 설정 확정 | user-facing “캐릭터 생성에 사용할 설정 확정”; API may retain publish terminology |
 
 # 3. DDD Architecture
 
 ## 3.1 Bounded Contexts
 
-| Bounded Context | Responsibility | Owned Model | Owned Data |
+| Context | Responsibility | Owned Model | Owned Data |
 |---|---|---|---|
-| Scenario Preparation | generate, resolve, validate, publish blueprint | `CharacterCreationBlueprint`, `PlayPreparationView` | blueprint and revision tables |
-| Rulebook Catalog | expose usable rulebook revisions | catalog read model | catalog revision metadata |
-| Web UI | compose review flow and local interaction state | `BlueprintReviewViewModel` | none; transient browser state |
-| Adventure Runtime | create session after publication | adventure session | session data |
+| Rulebook Catalog | edition-specific base schema and choices | `RulebookCharacterSchema` | catalog schema revisions |
+| Scenario Preparation | extract proposals, track decisions, validate and publish applied settings | `CharacterCreationBlueprint`, `StorybookProposal` | blueprint revisions and proposal decisions |
+| Web UI | present base schema, proposals and transient decision state | `CharacterSettingsReviewViewModel` | none; local pending state only |
+| Adventure Runtime | create sessions from confirmed settings | `AdventureSession` | session data |
 
 ## 3.2 Context Map
 
@@ -139,10 +129,11 @@ rectangle "Rulebook Catalog" as catalog
 rectangle "Scenario Preparation" as preparation
 rectangle "Web UI" as ui
 rectangle "Adventure Runtime" as runtime
-catalog --> ui : catalog read API
-preparation --> ui : preparation API
-ui --> preparation : blueprint commands
-ui --> runtime : create session
+catalog --> preparation : base schema contract
+preparation --> ui : review read model
+ui --> preparation : decision / confirm commands
+preparation --> runtime : published blueprint revision
+runtime --> ui : session entry
 @enduml
 ```
 
@@ -150,41 +141,41 @@ ui --> runtime : create session
 
 | Aggregate | Root | Responsibility | Commands | Invariants |
 |---|---|---|---|---|
-| CharacterCreationBlueprint | blueprint | own fields, revision, diagnostics, publication state | resolve, add child, publish | revision match; required fields before publish; published immutable |
-| ScenarioPackage | package | provide preparation context and blockers | read preparation | package owned and available |
-| AdventureSession | session | start character creation/play flow | create draft | blueprint must be published |
+| `CharacterCreationBlueprint` | blueprint revision | own applied settings and publication state | decide proposal, confirm | base schema always present; only evidenced proposals can apply; all proposals decided before publish; published immutable |
+| `ScenarioPackage` | package | own preparation scope and source documents | read review | package and current revision are consistent |
+| `AdventureSession` | session | begin character creation from confirmed settings | create | blueprint revision must be published |
 
 ## 3.4 Entities and Value Objects
 
 | Type | Kind | Responsibility |
 |---|---|---|
-| `CharacterInputNode` | Entity | field identity, parent, value, input mode, diagnostics |
-| `StorybookProposal` | Entity | storybook-derived candidate, source evidence, and user decision |
-| `ProposalDecision` | Value/state | `UNDECIDED`, `APPLIED`, `EXCLUDED`, `NEEDS_EVIDENCE` |
-| `CharacterCreationBlueprintStatus` | Value/state | `DRAFT`, `NEEDS_REVIEW`, `READY`, `PUBLISHED` semantics |
-| `BlueprintRevision` | Value object | optimistic concurrency boundary |
-| `BlueprintReviewViewModel` | UI model | translate internal node state into labels, sections, completion, save status |
+| `StorybookProposal` | entity | stable proposal identity, content, source and decision |
+| `ProposalDecision` | value | `UNDECIDED`, `APPLIED`, `EXCLUDED`, `NEEDS_EVIDENCE` |
+| `BlueprintRevision` | value | optimistic concurrency boundary |
+| `CharacterSettingsReviewViewModel` | UI model | separate base schema, proposals, summary and labels |
 
 ## 3.5 Business Rule Ownership
 
-| Business Rule | Owner | Enforcement Point |
+| Rule | Owner | Enforcement |
 |---|---|---|
-| only owned package can be edited | application service | `ScenarioPreparationController` + service |
-| expected revision must match | aggregate/service | `resolveBlueprint`, `addBlueprintChild` |
-| required fields must be resolved before publish | aggregate | `publishBlueprint` |
-| only accepted storybook proposals enter applied configuration | application service/aggregate | proposal decision projection and `publishBlueprint` |
-| proposal without source evidence cannot be applied | application service | proposal validation before apply/publish |
-| published blueprint is immutable | aggregate | blueprint transition methods |
-| only published blueprint starts session | runtime application service | session creation command |
+| base schema is always included | Scenario Preparation | applied projection builder |
+| base schema is read-only in review | Web UI | `BaseSchemaPanel` has no mutation callbacks |
+| proposal apply requires evidence | aggregate/application service | decision command validation |
+| all proposals must be decided | aggregate/application service | confirm command precondition |
+| excluded proposal is omitted | aggregate | applied projection builder |
+| published settings are immutable | `CharacterCreationBlueprint` | publish transition |
+| session requires published settings | Adventure Runtime | session creation boundary |
 
 ## 3.6 State Transitions
 
 | Current | Command/Event | Next | Owner | Preconditions |
 |---|---|---|---|---|
-| absent | GenerateBlueprintDraft | NEEDS_REVIEW or failure | Scenario Preparation | usable rulebook |
-| NEEDS_REVIEW | ResolveBlueprintField | NEEDS_REVIEW | Blueprint | revision matches |
-| NEEDS_REVIEW | PublishBlueprint | PUBLISHED | Blueprint | required fields complete |
-| PUBLISHED | CreateCharacterSession | session DRAFT | Adventure Runtime | published revision |
+| review loaded | no proposal found | `CONFIRMABLE` | preparation | extraction completed successfully |
+| proposal `UNDECIDED` | decide use | `APPLIED` | blueprint | evidence exists |
+| proposal `UNDECIDED` | decide exclude | `EXCLUDED` | blueprint | proposal exists |
+| any unresolved proposal | confirm | rejected | blueprint | all proposals must be decided |
+| confirmable | confirm | `PUBLISHED` | blueprint | base schema valid and revision matches |
+| `PUBLISHED` | create session | session draft | runtime | published revision supplied |
 
 # 4. Program Design
 
@@ -193,18 +184,20 @@ ui --> runtime : create session
 ```plantuml
 @startuml
 component PackageBlueprintReviewPage as page
-component BlueprintReviewViewModel as vm
-component CharacterInputTree as tree
+component CharacterSettingsReviewViewModel as vm
+component BaseSchemaPanel as base
+component StorybookProposalList as proposals
 interface SetupApi as api
 component ScenarioPreparationController as controller
 component ScenarioPreparationService as service
-database BlueprintRepository as repo
+component CharacterCreationBlueprint as aggregate
 page --> vm
-page --> tree
+vm --> base
+vm --> proposals
 vm --> api
 api --> controller
 controller --> service
-service --> repo
+service --> aggregate
 @enduml
 ```
 
@@ -212,35 +205,37 @@ service --> repo
 
 | Component | Responsibility | Must Not Do |
 |---|---|---|
-| `PackageBlueprintReviewPage.tsx` | page state, step rendering, user messages, command orchestration | domain validation or raw API error rendering |
-| `StorybookProposalList.tsx` | source-grouped proposal cards, evidence, apply/exclude actions, empty/failure states | direct persistence or blueprint publication decisions |
-| `CharacterInputTree.tsx` | section and field presentation, value events | persistence or publication decisions |
-| `SetupApi.ts` | typed HTTP contracts and error translation | UI layout decisions |
-| `ScenarioPreparationController` | authenticated command boundary | label formatting |
-| `ScenarioPreparationApplicationService` | load aggregate, apply command, persist | browser-specific state |
-| `CharacterCreationBlueprint` | transitions and invariants | HTTP or UI concerns |
+| `PackageBlueprintReviewPage.tsx` | load review model, compose page states and confirmation flow | infer proposal identity from diagnostics |
+| `BaseSchemaPanel` | read-only grouped display of rulebook schema | issue mutation commands |
+| `StorybookProposalList` | source-grouped cards, evidence, use/exclude decisions, empty/failure states | publish or create sessions |
+| `AppliedSettingsSummary` | show what will be included and unresolved count | edit base schema |
+| `SetupApi.ts` | typed review/decision/confirm contracts | contain presentation logic |
+| `ScenarioPreparationApplicationService` | build review projection, validate decisions, publish applied projection | know browser layout |
+| `CharacterCreationBlueprint` | own revision and state transitions | HTTP or user-facing labels |
 
 ## 4.3 Application Flow
 
 ```plantuml
 @startuml
 start
-:PackageBlueprintReviewPage loads preparation;
-if (generation required?) then (yes)
-  :load catalog;
-  :select one rulebook;
-  :SetupApi.generateBlueprintDraft;
+:Page requests CharacterSettingsReviewView;
+if (request failed?) then (yes)
+  :Show retryable failure;
+  stop
 endif
-:map API view to review view model;
-:render base fields, proposal list, and applied projection;
-:render section summary and fields;
-:field change marks DIRTY;
-:SetupApi.resolveBlueprint;
-if (required fields complete?) then (yes)
-  :publishBlueprint;
-  :create session;
+:Render read-only base schema;
+:Render proposal cards;
+if (proposal exists?) then (yes)
+  :Player decides use/exclude;
+  :Submit decision with expected revision;
+  :Refresh review model;
+endif
+if (all decisions complete?) then (yes)
+  :Show applied settings summary;
+  :Confirm settings;
+  :Navigate to character creation;
 else (no)
-  :show missing fields;
+  :Show unresolved proposal count;
 endif
 stop
 @enduml
@@ -250,49 +245,43 @@ stop
 
 | Order | Caller | Callee | Operation | Output | Failure |
 |---:|---|---|---|---|---|
-| 1 | page | `getPlayPreparation` | load package state | preparation view | translated load error |
-| 2 | page | catalog API | load READY rulebooks | catalog list | empty/error state |
-| 3 | page | `generateBlueprintDraft` | create settings | blueprint view | actionable generation error |
-| 4 | field | `resolveBlueprint` | save value + revision | updated blueprint | field save error or conflict |
-| 5 | page | `publishBlueprint` | publish settings | published blueprint | missing field/conflict error |
-| 6 | page | session API | create draft session | session ID | retryable session error |
+| 1 | review page | preparation API | `getCharacterSettingsReview` | review view | load failure |
+| 2 | proposal card | preparation API | `decideStorybookProposal` | refreshed review view | invalid evidence or revision conflict |
+| 3 | confirmation panel | preparation API | `confirmCharacterSettings` | published blueprint revision | unresolved proposal or validation error |
+| 4 | page | session API | `createSession` | session ID | unpublished/stale revision |
 
 ## 4.5 Major Types
 
 | Type | Kind | Responsibility |
 |---|---|---|
-| `PlayPreparationView` | DTO | package readiness and blueprint payload |
-| `CharacterCreationBlueprintView` | DTO | status, roots, diagnostics, revision |
-| `CharacterInputNodeView` | DTO | field metadata and nested children |
-| `StorybookProposalView` | DTO/UI type | source document, proposal content, evidence, decision, applyability |
-| `BlueprintReviewViewModel` | UI type | base fields, proposals, applied fields, user labels, section counts, dirty/save states |
-| `SaveState` | UI state | DIRTY, SAVING, SAVED, ERROR |
+| `CharacterSettingsReviewView` | DTO | base schema, proposal list, extraction state, revision and summary |
+| `BaseSchemaView` | DTO | read-only edition and grouped base fields |
+| `StorybookProposalView` | DTO | proposal content, source, evidence and decision |
+| `AppliedSettingsSummary` | DTO | included/excluded/unresolved counts and item IDs |
+| `CharacterSettingsReviewViewModel` | UI type | user labels, loading/error/empty states and pending decisions |
 
-## 4.6 File and Test Seams
+## 4.6 Existing Code Seams and Required Changes
 
-- Page: `src/web-ui/src/features/character/PackageBlueprintReviewPage.tsx`
-- Tree: `src/web-ui/src/features/character/CharacterInputTree.tsx`
-- API: `src/web-ui/src/features/rulebooks/SetupApi.ts`
-- Backend boundary: `src/adventure-service/src/main/java/com/dndmaster/adventure/api/ScenarioPreparationController.java`
-- Blueprint domain: `src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/CharacterCreationBlueprint.java`
-- Existing page tests: `src/web-ui/src/features/character/PackageBlueprintReviewPage.test.tsx`
+- Entry route: `/scenario-packages/{packageId}/character-blueprint` is wired from `src/web-ui/src/app/AppShell.tsx`.
+- Current page implementation: `src/web-ui/src/features/character/PackageBlueprintReviewPage.tsx`.
+- Current field renderer: `src/web-ui/src/features/character/CharacterInputTree.tsx`; it renders all nodes as inputs and infers origin from diagnostic text, which conflicts with this design.
+- Current API types: `src/web-ui/src/features/rulebooks/SetupApi.ts`; `CharacterCreationBlueprintView` exposes roots and diagnostics but no first-class proposal list or proposal decision.
+- Current domain: `src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/CharacterCreationBlueprint.java`; it supports field resolution and publication but not an explicit proposal decision model.
+- Current preparation service: `src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/ScenarioPreparationApplicationService.java`; it combines rulebook and storybook candidate discovery into one blueprint.
+- Current tests: `src/web-ui/src/features/character/PackageBlueprintReviewPage.test.tsx` and `src/web-ui/src/features/character/CharacterInputTree.test.tsx`.
 
-## 4.7 Risks and Migration Notes
+## 4.7 Persistence and Migration Constraints
 
-- Existing API exposes raw status and diagnostics; label translation must remain UI-only and preserve machine-readable values for logic.
-- Existing API does not currently expose a first-class proposal collection; the adapter or preparation DTO must provide source-grouped proposals without forcing the UI to infer them from diagnostic strings.
-- Proposal decisions must be represented separately from resolved blueprint values so an unapplied suggestion cannot leak into the published configuration.
-- Existing per-field commands use revision numbers; a central form submit would weaken the current concurrency boundary and is out of scope.
-- The current add-child flow uses `window.prompt`; replacing it requires a focused dialog component and validation contract.
-- Completion counts depend on node metadata. Required/optional semantics must be explicit before blocking publish.
-- A storybook with no candidates, failed extraction, or missing evidence must be distinguishable; an empty proposal list must not be treated as successful extraction without a status and source-document summary.
-- Existing character creation routes and published blueprint contracts remain unchanged.
+- Do not create a second browser-owned draft store; proposal decisions must be persisted with the blueprint revision or represented as a server-owned staged revision.
+- Existing field revision and optimistic concurrency behavior must remain intact.
+- Existing published blueprint consumers and character creation routes remain compatible.
+- If proposal decisions are added to the API, older `CharacterCreationBlueprintView` clients must receive a safe empty proposal list rather than infer proposals from diagnostics.
+- The published projection must retain provenance for included storybook proposals.
 
-## 4.8 Existing Route and Persistence Constraints
+## 4.8 Risks and Non-goals
 
-- `/scenario-packages/{packageId}/character-blueprint` is the package-level review entry point wired to `PackageBlueprintReviewPage`.
-- `/sessions/{sessionId}/character-blueprint` currently enters the session-level character flow; the redesign must not silently change this route's session ownership semantics.
-- `CharacterBlueprintReviewPage.tsx` is an alternate, currently unrouted review implementation. It must either be retired or explicitly made the shared review component before implementation tickets are created.
-- `CharacterInputTree.tsx` currently infers grouping from field-key prefixes. Section completion counts require either a stable UI grouping adapter or explicit section metadata in `CharacterInputNodeView`; the first implementation should prefer an adapter to avoid changing blueprint persistence.
-- Blueprint JSON and revision history are persisted by `PostgresScenarioPackageRepository` in the existing scenario package blueprint tables. The UX redesign does not introduce a second draft store.
-- Existing API contracts remain the source of truth: `getPlayPreparation`, `generateBlueprintDraft`, `resolveBlueprint`, `addBlueprintChild`, and `publishBlueprint`.
+- Inferring proposal identity from diagnostic strings is brittle and must be removed from the new contract.
+- Treating every extracted field as user-editable will continue to blur review and character creation; the base panel must not expose mutation callbacks.
+- Empty extraction and failed extraction must have distinct states.
+- Replacing the current `window.prompt` child-field flow is not required for this slice because adding custom character fields is outside the clarified review purpose.
+- The actual character creation page remains responsible for entering character-specific values.
