@@ -153,6 +153,28 @@ describe('PackageBlueprintReviewPage', () => {
     expect(screen.queryByRole('button', { name: '사용하기' })).not.toBeInTheDocument()
   })
 
+  it('disables use but still allows exclusion when the proposal has no evidence', async () => {
+    render(
+      <PackageBlueprintReviewPage
+        packageId="package-1"
+        setupApi={{
+          getPlayPreparation: async () => preparation({
+            storybookExtractionState: 'INSUFFICIENT_EVIDENCE',
+            storybookProposals: [proposal({ sourceQuote: '', evidence: [], readinessState: 'INSUFFICIENT_EVIDENCE' })],
+          }),
+          useStorybookProposal: vi.fn(),
+          excludeStorybookProposal: vi.fn(),
+        }}
+        sessionApi={{ create: vi.fn() }}
+        onSessionCreated={vi.fn()}
+      />,
+    )
+
+    const useButton = await screen.findByRole('button', { name: '사용하기' })
+    expect(useButton).toBeDisabled()
+    expect(screen.getByRole('button', { name: '제외하기' })).toBeEnabled()
+  })
+
   it('uses proposal identity for unique card ids and deterministic evidence keys', async () => {
     renderReview(async () => preparation({
       storybookProposals: [
@@ -187,5 +209,29 @@ describe('PackageBlueprintReviewPage', () => {
       blueprintRevision: 8,
     }))
     await waitFor(() => expect(onSessionCreated).toHaveBeenCalledWith('session-created-1'))
+  })
+
+  it('persists a proposal decision and refetches the review at the returned revision', async () => {
+    const getPlayPreparation = vi.fn()
+      .mockResolvedValueOnce(preparation())
+      .mockResolvedValueOnce(preparation({
+        revision: 9,
+        storybookProposals: [proposal({ decisionState: 'APPLIED' })],
+      }))
+    const useStorybookProposal = vi.fn().mockResolvedValue(undefined)
+    render(
+      <PackageBlueprintReviewPage
+        packageId="package-1"
+        setupApi={{ getPlayPreparation, useStorybookProposal }}
+        sessionApi={{ create: vi.fn() }}
+        onSessionCreated={vi.fn()}
+      />,
+    )
+
+    await userEvent.click(await screen.findByRole('button', { name: '사용하기' }))
+
+    await waitFor(() => expect(useStorybookProposal).toHaveBeenCalledWith('package-1', 'proposal-internal-1', 8))
+    await waitFor(() => expect(getPlayPreparation).toHaveBeenCalledTimes(2))
+    expect(await screen.findByText('사용 예정')).toBeInTheDocument()
   })
 })

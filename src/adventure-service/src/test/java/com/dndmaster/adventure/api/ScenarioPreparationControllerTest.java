@@ -103,6 +103,44 @@ class ScenarioPreparationControllerTest {
     }
 
     @Test
+    void proposalUseCommandCarriesProposalIdAndExpectedRevision() throws Exception {
+        UUID ownerId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+        UUID packageId = UUID.fromString("66666666-6666-6666-6666-666666666666");
+        when(playerSessionLookupPort.resolvePlayerId("token")).thenReturn(Optional.of(ownerId));
+        when(service.useStorybookProposal(eq(packageId), any(OwnerPlayerId.class), eq(8L), eq("proposal-1")))
+                .thenReturn(new CharacterCreationBlueprintView(true, "review", 1, 1, List.of(), 9,
+                        List.of(), "NEEDS_REVIEW", List.of()));
+
+        mockMvc.perform(post("/api/v1/scenario-packages/{scenarioPackageId}/character-blueprint/proposals/{proposalId}/use", packageId, "proposal-1")
+                        .header("Authorization", "Bearer token")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"expectedRevision\":8}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.revision").value(9));
+
+        verify(service).useStorybookProposal(eq(packageId), any(OwnerPlayerId.class), eq(8L), eq("proposal-1"));
+    }
+
+    @Test
+    void proposalExcludeCommandUsesTheSameOptimisticRevisionBoundary() throws Exception {
+        UUID ownerId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+        UUID packageId = UUID.fromString("66666666-6666-6666-6666-666666666666");
+        when(playerSessionLookupPort.resolvePlayerId("token")).thenReturn(Optional.of(ownerId));
+        when(service.excludeStorybookProposal(eq(packageId), any(OwnerPlayerId.class), eq(8L), eq("proposal-1")))
+                .thenReturn(new CharacterCreationBlueprintView(true, "review", 1, 1, List.of(), 9,
+                        List.of(), "NEEDS_REVIEW", List.of()));
+
+        mockMvc.perform(post("/api/v1/scenario-packages/{scenarioPackageId}/character-blueprint/proposals/{proposalId}/exclude", packageId, "proposal-1")
+                        .header("Authorization", "Bearer token")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"expectedRevision\":8}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.revision").value(9));
+
+        verify(service).excludeStorybookProposal(eq(packageId), any(OwnerPlayerId.class), eq(8L), eq("proposal-1"));
+    }
+
+    @Test
     void blueprintDraftEndpointReturnsCharacterSheetTreeForReview() throws Exception {
         UUID ownerId = UUID.fromString("55555555-5555-5555-5555-555555555555");
         UUID packageId = UUID.fromString("66666666-6666-6666-6666-666666666666");

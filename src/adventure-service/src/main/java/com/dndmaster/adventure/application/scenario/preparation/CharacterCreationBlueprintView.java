@@ -17,19 +17,29 @@ public record CharacterCreationBlueprintView(
         String edition,
         RulebookBaseSchemaView baseSchema,
         List<StorybookProposalView> storybookProposals,
-        StorybookExtractionState storybookExtractionState) {
+        StorybookExtractionState storybookExtractionState,
+        AppliedSettingsSummaryView appliedSettingsSummary) {
     public CharacterCreationBlueprintView(boolean available, String summary, int rulebookDocumentCount,
                                           int storybookDocumentCount, List<String> diagnostics, long revision,
                                           List<FieldView> fields, String status, List<NodeView> roots) {
         this(available, summary, rulebookDocumentCount, storybookDocumentCount, diagnostics, revision, fields,
-                status, roots, "DND_5E_2014", RulebookBaseSchemaView.from(fields), List.of(), StorybookExtractionState.NO_PROPOSALS);
+                status, roots, "DND_5E_2014", RulebookBaseSchemaView.from(fields), List.of(),
+                StorybookExtractionState.NO_PROPOSALS, AppliedSettingsSummaryView.empty());
     }
     public CharacterCreationBlueprintView(boolean available, String summary, int rulebookDocumentCount,
                                           int storybookDocumentCount, List<String> diagnostics, long revision,
                                           List<FieldView> fields, String status, List<NodeView> roots, String edition) {
         this(available, summary, rulebookDocumentCount, storybookDocumentCount, diagnostics, revision, fields,
                 status, roots, edition, new RulebookBaseSchemaView(edition, RulebookBaseSchemaView.from(fields).fields()),
-                List.of(), StorybookExtractionState.NO_PROPOSALS);
+                List.of(), StorybookExtractionState.NO_PROPOSALS, AppliedSettingsSummaryView.empty());
+    }
+    public CharacterCreationBlueprintView(boolean available, String summary, int rulebookDocumentCount,
+                                          int storybookDocumentCount, List<String> diagnostics, long revision,
+                                          List<FieldView> fields, String status, List<NodeView> roots, String edition,
+                                          RulebookBaseSchemaView baseSchema, List<StorybookProposalView> storybookProposals,
+                                          StorybookExtractionState storybookExtractionState) {
+        this(available, summary, rulebookDocumentCount, storybookDocumentCount, diagnostics, revision, fields, status,
+                roots, edition, baseSchema, storybookProposals, storybookExtractionState, AppliedSettingsSummaryView.empty());
     }
     public CharacterCreationBlueprintView {
         diagnostics = List.copyOf(diagnostics);
@@ -40,6 +50,7 @@ public record CharacterCreationBlueprintView(
         baseSchema = Objects.requireNonNull(baseSchema, "base schema must not be null");
         storybookProposals = List.copyOf(storybookProposals);
         storybookExtractionState = Objects.requireNonNull(storybookExtractionState, "storybook extraction state must not be null");
+        appliedSettingsSummary = Objects.requireNonNull(appliedSettingsSummary, "applied settings summary must not be null");
     }
 
     public CharacterCreationBlueprintView(boolean available, String summary, int rulebookDocumentCount,
@@ -53,7 +64,8 @@ public record CharacterCreationBlueprintView(
 
     public static CharacterCreationBlueprintView blocked(List<String> diagnostics, StorybookExtractionState extractionState) {
         return new CharacterCreationBlueprintView(false, null, 0, 0, diagnostics, 0, List.of(), "NEEDS_REVIEW", List.of(),
-                "DND_5E_2014", RulebookBaseSchemaView.from(List.of()), List.of(), extractionState);
+                "DND_5E_2014", RulebookBaseSchemaView.from(List.of()), List.of(), extractionState,
+                AppliedSettingsSummaryView.empty());
     }
 
     public record RulebookBaseSchemaView(String edition, List<FieldView> fields) {
@@ -73,6 +85,19 @@ public record CharacterCreationBlueprintView(
     public enum StorybookExtractionState {
         NO_PROPOSALS, PROPOSALS_AVAILABLE, EXTRACTION_FAILED, INSUFFICIENT_EVIDENCE,
         EXTRACTION_PARTIAL_AWAITING_CONFIRMATION, EXTRACTION_PARTIAL_CONFIRMED, EXTRACTION_MIXED
+    }
+
+    public record AppliedSettingsSummaryView(boolean baseSchemaIncluded, List<String> appliedProposalIds,
+                                             List<String> excludedProposalIds, int unresolvedProposalCount) {
+        public AppliedSettingsSummaryView {
+            appliedProposalIds = List.copyOf(appliedProposalIds == null ? List.of() : appliedProposalIds);
+            excludedProposalIds = List.copyOf(excludedProposalIds == null ? List.of() : excludedProposalIds);
+            if (unresolvedProposalCount < 0) throw new IllegalArgumentException("unresolved proposal count must not be negative");
+        }
+
+        public static AppliedSettingsSummaryView empty() {
+            return new AppliedSettingsSummaryView(true, List.of(), List.of(), 0);
+        }
     }
 
     public record StorybookProposalView(String proposalId, String key, String label, String description,

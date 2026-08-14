@@ -19,6 +19,8 @@ import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus;
 import com.dndmaster.adventure.domain.scenario.CharacterInputNode;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintRevisionConflictException;
 import com.dndmaster.adventure.domain.scenario.BlueprintProvenance;
+import com.dndmaster.adventure.domain.scenario.ProposalDecisionState;
+import com.dndmaster.adventure.domain.scenario.StorybookProposalDecision;
 import com.dndmaster.adventure.application.runtime.GameSystemDefinitionPort;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -215,6 +217,7 @@ public final class ScenarioPreparationApplicationService {
         blueprint = blueprint.withProvenance(new BlueprintProvenance(definitionVersion, bundle.currentRevision().revision(),
                 sourceDocuments.stream().map(document -> document.documentType().toUpperCase()).distinct().toList(), edition));
         requireDefinitionProvenance(blueprint);
+        blueprint = synchronizeProposalDecisions(blueprint, sourceDocuments);
         packageRepository.saveBlueprint(packageId, blueprint);
         return toView(blueprint, sourceDocuments);
     }
@@ -443,6 +446,41 @@ public final class ScenarioPreparationApplicationService {
         return resolveBlueprint(packageId, ownerPlayerId, 0, fieldKey, value);
     }
 
+    public CharacterCreationBlueprintView useStorybookProposal(UUID packageId, OwnerPlayerId ownerPlayerId,
+                                                                long expectedRevision, String proposalId) {
+        return decideStorybookProposal(packageId, ownerPlayerId, expectedRevision, proposalId,
+                ProposalDecisionState.APPLIED);
+    }
+
+    public CharacterCreationBlueprintView excludeStorybookProposal(UUID packageId, OwnerPlayerId ownerPlayerId,
+                                                                   long expectedRevision, String proposalId) {
+        return decideStorybookProposal(packageId, ownerPlayerId, expectedRevision, proposalId,
+                ProposalDecisionState.EXCLUDED);
+    }
+
+    private CharacterCreationBlueprintView decideStorybookProposal(UUID packageId, OwnerPlayerId ownerPlayerId,
+                                                                    long expectedRevision, String proposalId,
+                                                                    ProposalDecisionState state) {
+        ScenarioPackage scenarioPackage = packageRepository.findById(packageId)
+                .orElseThrow(ScenarioBundleNotFoundException::new);
+        ScenarioSourceBundle bundle = bundleRepository.findById(scenarioPackage.bundleId())
+                .orElseThrow(ScenarioBundleNotFoundException::new);
+        bundle.authorize(ownerPlayerId);
+        requireCurrentBundleRevision(scenarioPackage, bundle);
+        CharacterCreationBlueprint current = requireBlueprint(scenarioPackage);
+        requireBlueprintRevision(current, expectedRevision);
+        List<ScenarioBundleDocumentSelection> documents = bundle.currentRevision().documents();
+        CharacterCreationBlueprintView currentView = toView(current, documents);
+        CharacterCreationBlueprintView.StorybookProposalView proposal = currentView.storybookProposals().stream()
+                .filter(item -> item.proposalId().equals(proposalId)).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("unknown storybook proposal: " + proposalId));
+        CharacterCreationBlueprint synchronizedBlueprint = synchronizeProposalDecisions(current, documents);
+        CharacterCreationBlueprint updated = synchronizedBlueprint.decideProposal(proposalId, state,
+                "READY".equals(proposal.readinessState()));
+        packageRepository.saveBlueprint(packageId, updated);
+        return toView(updated, documents);
+    }
+
     public CharacterCreationBlueprint resolveBlueprint(UUID packageId, OwnerPlayerId ownerPlayerId,
                                                        long expectedRevision, String fieldKey, String value) {
         ScenarioPackage scenarioPackage = packageRepository.findById(packageId)
@@ -606,20 +644,30 @@ public final class ScenarioPreparationApplicationService {
                     ScenarioPreparationApplicationService::canonicalRepresentative);
         }
         List<CharacterCreationBlueprintView.StorybookProposalView> proposals = uniqueStorybookFields.values().stream()
-                .map(field -> toProposal(field, documents)).toList();
+                .map(field -> toProposal(blueprint, field, documents)).toList();
         CharacterCreationBlueprintView.StorybookExtractionState extractionState = storybookExtractionState(documents, proposals);
+        List<String> appliedProposalIds = proposals.stream()
+                .filter(proposal -> "APPLIED".equals(proposal.decisionState()))
+                .map(CharacterCreationBlueprintView.StorybookProposalView::proposalId).toList();
+        List<String> excludedProposalIds = proposals.stream()
+                .filter(proposal -> "EXCLUDED".equals(proposal.decisionState()))
+                .map(CharacterCreationBlueprintView.StorybookProposalView::proposalId).toList();
+        var appliedSummary = new CharacterCreationBlueprintView.AppliedSettingsSummaryView(
+                true, appliedProposalIds, excludedProposalIds,
+                proposals.size() - appliedProposalIds.size() - excludedProposalIds.size());
         return new CharacterCreationBlueprintView(
-                blueprint.status().name().equals("READY") || blueprint.status().name().equals("PUBLISHED"),
+                true,
                 "CharacterCreationBlueprint revision " + blueprint.revision(), (int) rulebooks, (int) storybooks,
                 blueprint.diagnostics(), blueprint.revision(), fields, blueprint.status().name(),
                 blueprint.roots().stream().map(ScenarioPreparationApplicationService::toNodeView).toList(),
                 blueprint.provenance().edition(),
                 new CharacterCreationBlueprintView.RulebookBaseSchemaView(blueprint.provenance().edition(), baseFields),
-                proposals, extractionState);
+                proposals, extractionState, appliedSummary);
     }
 
     private static CharacterCreationBlueprintView.StorybookProposalView toProposal(
-            CharacterCreationBlueprintView.FieldView field, List<ScenarioBundleDocumentSelection> documents) {
+            CharacterCreationBlueprint blueprint, CharacterCreationBlueprintView.FieldView field,
+            List<ScenarioBundleDocumentSelection> documents) {
         var evidence = field.evidence().stream()
                 .map(reference -> new CharacterCreationBlueprintView.StorybookProposalView.SourceEvidence(
                         reference.locator(), evidenceQuote(field, reference)))
@@ -630,10 +678,22 @@ public final class ScenarioPreparationApplicationService {
                 .findFirst().map(document -> new CharacterCreationBlueprintView.StorybookProposalView.SourceDocument(
                         reference.knowledgeDocumentId(), document.originalFilename(), reference.extractionVersion()))).orElse(null);
         boolean hasEvidence = source != null && !field.sourceQuote().isBlank() && !evidence.isEmpty();
+        String proposalId = StorybookProposalId.stableId(field, source);
+        String decision = blueprint.proposalDecisions().stream().filter(item -> item.proposalId().equals(proposalId))
+                .map(item -> item.state().name()).findFirst().orElse(hasEvidence ? "UNDECIDED" : "NEEDS_EVIDENCE");
         return new CharacterCreationBlueprintView.StorybookProposalView(
-                StorybookProposalId.stableId(field, source),
-                field.key(), field.label(), proposalDescription(field), source, field.sourceQuote(), evidence,
-                "UNDECIDED", hasEvidence ? "READY" : "INSUFFICIENT_EVIDENCE");
+                proposalId, field.key(), field.label(), proposalDescription(field), source, field.sourceQuote(), evidence,
+                decision, hasEvidence ? "READY" : "INSUFFICIENT_EVIDENCE");
+    }
+
+    private static CharacterCreationBlueprint synchronizeProposalDecisions(
+            CharacterCreationBlueprint blueprint, List<ScenarioBundleDocumentSelection> documents) {
+        CharacterCreationBlueprintView view = toView(blueprint, documents);
+        List<StorybookProposalDecision> decisions = view.storybookProposals().stream()
+                .map(proposal -> new StorybookProposalDecision(proposal.proposalId(), proposal.key(),
+                        ProposalDecisionState.valueOf(proposal.decisionState())))
+                .toList();
+        return blueprint.withProposalDecisions(decisions);
     }
 
     private static String proposalDescription(CharacterCreationBlueprintView.FieldView field) {

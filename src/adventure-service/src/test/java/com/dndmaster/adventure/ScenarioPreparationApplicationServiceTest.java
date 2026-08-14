@@ -456,7 +456,7 @@ class ScenarioPreparationApplicationServiceTest {
         assertTrue(!json.at("/characterCreationBlueprint/storybookProposals/0/proposalId").asText()
                 .equals(json.at("/characterCreationBlueprint/storybookProposals/1/proposalId").asText()));
         assertEquals("INSUFFICIENT_EVIDENCE", json.at("/characterCreationBlueprint/storybookExtractionState").asText());
-        assertEquals("UNDECIDED", json.at("/characterCreationBlueprint/storybookProposals/0/decisionState").asText());
+        assertEquals("NEEDS_EVIDENCE", json.at("/characterCreationBlueprint/storybookProposals/0/decisionState").asText());
         assertEquals("INSUFFICIENT_EVIDENCE", json.at("/characterCreationBlueprint/storybookProposals/0/readinessState").asText());
     }
 

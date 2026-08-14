@@ -5,6 +5,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioBundleAccessDeniedExcepti
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleNotFoundException;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleValidationException;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintRevisionConflictException;
+import com.dndmaster.adventure.domain.scenario.StorybookProposalEvidenceRequiredException;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDeletionConflictException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -27,6 +28,13 @@ public final class ScenarioExceptionHandler {
     @ExceptionHandler(ScenarioBundleValidationException.class)
     public ResponseEntity<Void> validation(ScenarioBundleValidationException exception) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+    }
+
+    @ExceptionHandler(StorybookProposalEvidenceRequiredException.class)
+    public ResponseEntity<Map<String, String>> proposalEvidenceRequired(StorybookProposalEvidenceRequiredException exception) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                "error", "STORYBOOK_PROPOSAL_EVIDENCE_REQUIRED",
+                "message", exception.getMessage()));
     }
 
     @ExceptionHandler(ScenarioBundleDeletionConflictException.class)

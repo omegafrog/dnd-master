@@ -26,6 +26,16 @@ class CharacterSettingsReviewContractTest {
     }
 
     @Test
+    void exposes_applied_excluded_and_unresolved_summary() {
+        var summary = new CharacterCreationBlueprintView.AppliedSettingsSummaryView(
+                true, List.of("proposal-applied"), List.of("proposal-excluded"), 1);
+
+        assertEquals(List.of("proposal-applied"), summary.appliedProposalIds());
+        assertEquals(List.of("proposal-excluded"), summary.excludedProposalIds());
+        assertEquals(1, summary.unresolvedProposalCount());
+    }
+
+    @Test
     void keeps_legacy_blueprint_constructor_compatible_while_exposing_base_schema_contract() {
         var view = new CharacterCreationBlueprintView(true, "legacy", 1, 0, List.of());
 

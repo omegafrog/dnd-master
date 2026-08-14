@@ -175,6 +175,12 @@ export type CharacterCreationBlueprintView = {
   baseSchema?: RulebookBaseSchemaView
   storybookProposals?: StorybookProposalView[]
   storybookExtractionState?: StorybookExtractionState
+  appliedSettingsSummary?: {
+    baseSchemaIncluded: boolean
+    appliedProposalIds: string[]
+    excludedProposalIds: string[]
+    unresolvedProposalCount: number
+  }
 }
 
 export type RulebookBaseSchemaView = {
@@ -450,6 +456,8 @@ export interface SetupApi {
   resolveBlueprint?(scenarioPackageId: string, fieldKey: string, value: string, expectedRevision?: number): Promise<unknown>
   addBlueprintChild?(scenarioPackageId: string, expectedRevision: number, parentId: string, key: string, label: string): Promise<unknown>
   addBlueprintOption?(scenarioPackageId: string, expectedRevision: number, fieldKey: string, option: string): Promise<unknown>
+  useStorybookProposal?(scenarioPackageId: string, proposalId: string, expectedRevision: number): Promise<CharacterCreationBlueprintView>
+  excludeStorybookProposal?(scenarioPackageId: string, proposalId: string, expectedRevision: number): Promise<CharacterCreationBlueprintView>
   publishBlueprint?(scenarioPackageId: string): Promise<unknown>
   getRuntimeOptions?(): Promise<RuntimeOptionsView>
   createCharacterSheet?(draft: CharacterCreationDraft): Promise<CreatedCharacterSheetView>
@@ -469,11 +477,21 @@ export type StorySourceScopeView = {
 
 async function request<T>(path: string, init: RequestInit, badRequestMessage = '지원하지 않거나 손상된 파일입니다.'): Promise<T> {
   const response = await fetch(path, init)
-  if (response.status === 400) throw new Error(badRequestMessage)
-  if (response.status === 409) throw new Error('재처리할 수 없는 상태입니다.')
+  if (response.status === 400) {
+    const error = new Error(badRequestMessage) as Error & { status?: number }
+    error.status = response.status
+    throw error
+  }
+  if (response.status === 409) {
+    const error = new Error('최신 검토 결과가 있어 다시 불러옵니다.') as Error & { status?: number }
+    error.status = response.status
+    throw error
+  }
   if (!response.ok) {
     const detail = await response.text()
-    throw new Error(detail || `요청을 처리하지 못했습니다. (HTTP ${response.status})`)
+    const error = new Error(detail || `요청을 처리하지 못했습니다. (HTTP ${response.status})`) as Error & { status?: number }
+    error.status = response.status
+    throw error
   }
   if (response.status === 204) return undefined as T
   return response.json() as Promise<T>
@@ -648,6 +666,20 @@ export class HttpSetupApi implements SetupApi {
     return request<PlayPreparationView>(`/api/v1/scenario-packages/${scenarioPackageId}/play-preparation`, {
       headers: this.authHeaders(),
     }, '플레이 준비 상태를 불러오지 못했습니다.')
+  }
+
+  useStorybookProposal(scenarioPackageId: string, proposalId: string, expectedRevision: number) {
+    return request<CharacterCreationBlueprintView>(`/api/v1/scenario-packages/${scenarioPackageId}/character-blueprint/proposals/${encodeURIComponent(proposalId)}/use`, {
+      method: 'POST', headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision }),
+    }, '스토리북 제안을 사용하기로 저장하지 못했습니다.')
+  }
+
+  excludeStorybookProposal(scenarioPackageId: string, proposalId: string, expectedRevision: number) {
+    return request<CharacterCreationBlueprintView>(`/api/v1/scenario-packages/${scenarioPackageId}/character-blueprint/proposals/${encodeURIComponent(proposalId)}/exclude`, {
+      method: 'POST', headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ expectedRevision }),
+    }, '스토리북 제안을 제외하기로 저장하지 못했습니다.')
   }
 
   generateBlueprintDraft(scenarioPackageId: string, catalogRulebookId?: string, catalogExtractionVersion?: number) {

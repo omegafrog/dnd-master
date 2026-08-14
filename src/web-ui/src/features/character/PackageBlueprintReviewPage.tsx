@@ -11,6 +11,8 @@ import type {
 type PackageSetupApi = {
   getPlayPreparation: NonNullable<SetupApi['getPlayPreparation']>
   generateBlueprintDraft?: SetupApi['generateBlueprintDraft']
+  useStorybookProposal?: SetupApi['useStorybookProposal']
+  excludeStorybookProposal?: SetupApi['excludeStorybookProposal']
 }
 
 type CatalogRulebook = {
@@ -40,6 +42,7 @@ export function PackageBlueprintReviewPage({
   const [selectedCatalogRulebookId, setSelectedCatalogRulebookId] = useState('')
   const [generatingDraft, setGeneratingDraft] = useState(false)
   const [creatingSession, setCreatingSession] = useState(false)
+  const [pendingProposalId, setPendingProposalId] = useState<string | null>(null)
   const [message, setMessage] = useState('')
 
   useEffect(() => {
@@ -91,6 +94,21 @@ export function PackageBlueprintReviewPage({
   function retry() {
     setMessage('')
     setReloadToken(token => token + 1)
+  }
+
+  async function decideProposal(proposalId: string, decision: 'APPLIED' | 'EXCLUDED') {
+    const command = decision === 'APPLIED' ? setupApi.useStorybookProposal : setupApi.excludeStorybookProposal
+    if (!command || blueprint.revision == null) return
+    setPendingProposalId(proposalId)
+    try {
+      await command(packageId, proposalId, blueprint.revision)
+      setMessage(decision === 'APPLIED' ? '제안을 사용하기로 저장했습니다.' : '제안을 제외하기로 저장했습니다.')
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '제안 결정을 저장하지 못했습니다.')
+    } finally {
+      setPendingProposalId(null)
+      setReloadToken(token => token + 1)
+    }
   }
 
   if (!preparation) {
@@ -172,7 +190,13 @@ export function PackageBlueprintReviewPage({
         <>
           <div className="character-review-layout">
             <BaseSchemaPanel schema={blueprint.baseSchema} />
-            <StorybookProposalPanel blueprint={blueprint} />
+            <StorybookProposalPanel
+              blueprint={blueprint}
+              canUse={Boolean(setupApi.useStorybookProposal)}
+              canExclude={Boolean(setupApi.excludeStorybookProposal)}
+              pendingProposalId={pendingProposalId}
+              onDecision={decideProposal}
+            />
           </div>
           <AppliedSettingsSummary blueprint={blueprint} />
           {blueprint.status === 'PUBLISHED' && (
@@ -227,7 +251,19 @@ function BaseSchemaPanel({ schema }: { schema: RulebookBaseSchemaView }) {
   )
 }
 
-function StorybookProposalPanel({ blueprint }: { blueprint: CharacterCreationBlueprintView }) {
+function StorybookProposalPanel({
+  blueprint,
+  canUse,
+  canExclude,
+  pendingProposalId,
+  onDecision,
+}: {
+  blueprint: CharacterCreationBlueprintView
+  canUse: boolean
+  canExclude: boolean
+  pendingProposalId: string | null
+  onDecision: (proposalId: string, decision: 'APPLIED' | 'EXCLUDED') => void
+}) {
   const proposals = blueprint.storybookProposals ?? []
   const extractionState = blueprint.storybookExtractionState
   const evidenceNeeded = proposals.filter(proposal => proposal.readinessState === 'INSUFFICIENT_EVIDENCE').length
@@ -276,7 +312,16 @@ function StorybookProposalPanel({ blueprint }: { blueprint: CharacterCreationBlu
               <section className="character-review-source-group" key={group.label} aria-labelledby={`source-${slugify(group.label)}`}>
                 <h3 id={`source-${slugify(group.label)}`}>{group.label}</h3>
                 <div className="character-review-proposal-list">
-                  {group.proposals.map(item => <StorybookProposalCard key={item.proposalId} proposal={item} />)}
+                  {group.proposals.map(item => (
+                    <StorybookProposalCard
+                      key={item.proposalId}
+                      proposal={item}
+                      canUse={canUse}
+                      canExclude={canExclude}
+                      pending={pendingProposalId === item.proposalId}
+                      onDecision={onDecision}
+                    />
+                  ))}
                 </div>
               </section>
             ))}
@@ -287,8 +332,21 @@ function StorybookProposalPanel({ blueprint }: { blueprint: CharacterCreationBlu
   )
 }
 
-function StorybookProposalCard({ proposal }: { proposal: StorybookProposalView }) {
-  const needsEvidence = proposal.readinessState === 'INSUFFICIENT_EVIDENCE'
+function StorybookProposalCard({
+  proposal,
+  canUse,
+  canExclude,
+  pending,
+  onDecision,
+}: {
+  proposal: StorybookProposalView
+  canUse: boolean
+  canExclude: boolean
+  pending: boolean
+  onDecision: (proposalId: string, decision: 'APPLIED' | 'EXCLUDED') => void
+}) {
+  const evidenceUnavailable = proposal.readinessState === 'INSUFFICIENT_EVIDENCE'
+  const needsEvidence = evidenceUnavailable && proposal.decisionState !== 'EXCLUDED'
   const status = needsEvidence ? '근거 확인 필요' : decisionLabel(proposal.decisionState)
   return (
     <article className="character-review-proposal-card" aria-labelledby={`proposal-${proposal.proposalId}`}>
@@ -304,7 +362,7 @@ function StorybookProposalCard({ proposal }: { proposal: StorybookProposalView }
       </dl>
       <details>
         <summary>원문 근거 보기</summary>
-        {needsEvidence ? (
+        {evidenceUnavailable ? (
           <p className="character-review-evidence-missing">사용할 수 있는 원문 근거가 아직 없습니다.</p>
         ) : (
           <div className="character-review-evidence">
@@ -317,15 +375,28 @@ function StorybookProposalCard({ proposal }: { proposal: StorybookProposalView }
           </div>
         )}
       </details>
+      {(canUse || canExclude) && (
+        <div className="character-review-proposal-actions">
+          {canUse && <button type="button" onClick={() => onDecision(proposal.proposalId, 'APPLIED')} disabled={pending || evidenceUnavailable}>
+            {pending ? '저장 중…' : '사용하기'}
+          </button>}
+          {canExclude && <button type="button" onClick={() => onDecision(proposal.proposalId, 'EXCLUDED')} disabled={pending}>
+              제외하기
+            </button>}
+        </div>
+      )}
     </article>
   )
 }
 
 function AppliedSettingsSummary({ blueprint }: { blueprint: CharacterCreationBlueprintView }) {
   const proposals = blueprint.storybookProposals ?? []
-  const applied = proposals.filter(proposal => proposal.decisionState === 'APPLIED').length
-  const excluded = proposals.filter(proposal => proposal.decisionState === 'EXCLUDED').length
-  const unresolved = proposals.filter(proposal => proposal.decisionState === 'UNDECIDED' || proposal.decisionState === 'NEEDS_EVIDENCE').length
+  const applied = blueprint.appliedSettingsSummary?.appliedProposalIds.length
+    ?? proposals.filter(proposal => proposal.decisionState === 'APPLIED').length
+  const excluded = blueprint.appliedSettingsSummary?.excludedProposalIds.length
+    ?? proposals.filter(proposal => proposal.decisionState === 'EXCLUDED').length
+  const unresolved = blueprint.appliedSettingsSummary?.unresolvedProposalCount
+    ?? proposals.filter(proposal => proposal.decisionState === 'UNDECIDED' || proposal.decisionState === 'NEEDS_EVIDENCE').length
   return (
     <section className="character-review-summary" aria-labelledby="applied-settings-heading">
       <div>

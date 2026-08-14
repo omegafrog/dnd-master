@@ -30,6 +30,7 @@ class CharacterSettingsReviewSchemaTest {
                    "sourceDocument":{"knowledgeDocumentId":"doc-1","originalFilename":"story.pdf","extractionVersion":3},
                    "sourceQuote":"Only elves.","evidence":[{"locator":"page:4","excerpt":"Only elves."}],
                    "decisionState":"UNDECIDED","readinessState":"READY"}],
+                 "appliedSettingsSummary":{"baseSchemaIncluded":true,"appliedProposalIds":[],"excludedProposalIds":[],"unresolvedProposalCount":1},
                  "storybookExtractionState":"PROPOSALS_AVAILABLE"}
                 """);
         JsonNode invalid = JSON.readTree("""
