@@ -45,6 +45,7 @@ class CharacterSettingsReviewContractTest {
 
         assertEquals(List.of("race"), RulebookBaseSchemaView.from(List.of(template, storybook, handout)).fields().stream()
                 .map(CharacterCreationBlueprintView.FieldView::key).toList());
+        assertTrue(new RulebookBaseSchemaView("DND_5E_2014", List.of(handout)).fields().isEmpty());
     }
 
     @Test
@@ -61,11 +62,11 @@ class CharacterSettingsReviewContractTest {
 
     @Test
     void disambiguates_duplicate_unresolved_field_keys_deterministically() {
-        String first = StorybookProposalView.stableId("UNRESOLVED", 0, "race");
-        String second = StorybookProposalView.stableId("UNRESOLVED", 0, "race");
+        String first = StorybookProposalView.stableId("UNRESOLVED", 0, "race", "race|true|SINGLE_SELECT|Elf|");
+        String second = StorybookProposalView.stableId("UNRESOLVED", 0, "race", "race|true|SINGLE_SELECT|Dwarf|");
 
-        assertEquals(first, second);
-        assertEquals(first, StorybookProposalView.stableId("UNRESOLVED", 0, "race"));
+        assertTrue(!first.equals(second));
+        assertEquals(first, StorybookProposalView.stableId("UNRESOLVED", 0, "race", "race|true|SINGLE_SELECT|Elf|"));
     }
 
     @Test

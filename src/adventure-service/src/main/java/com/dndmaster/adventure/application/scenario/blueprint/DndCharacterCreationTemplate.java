@@ -73,7 +73,7 @@ public final class DndCharacterCreationTemplate {
             List<String> diagnostics = union(base.diagnostics(), discovered.diagnostics(), List.of(STORY_PROPOSAL));
             return new CharacterCreationBlueprint.Field(base.key(), base.options(), base.required(), "STORYBOOK",
                     discovered.evidence(), "CONFLICT_REVIEW", diagnostics, base.inputMode(), suggestions,
-                    discovered.sourceQuote(), base.label(), base.value(), base.nodeId(), base.parentNodeId(),
+                    discovered.sourceQuote(), discovered.label(), base.value(), base.nodeId(), base.parentNodeId(),
                     discovered.confidence(), discovered.optionDetails());
         }
         if ("RULEBOOK".equals(discovered.sourceType()) && !discovered.options().isEmpty()) {

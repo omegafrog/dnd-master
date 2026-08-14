@@ -65,6 +65,18 @@ class DndCharacterCreationTemplateTest {
     }
 
     @Test
+    void preserves_storybook_candidate_label_when_overlaying_a_template_field() {
+        CharacterCreationBlueprint extracted = new CharacterCreationBlueprint(1, CharacterCreationBlueprintStatus.NEEDS_REVIEW,
+                List.of(new CharacterCreationBlueprint.Field("race", List.of("엘프"), true, "STORYBOOK", List.of(STORYBOOK),
+                        "CONFLICT_REVIEW", List.of(), InputMode.SINGLE_SELECT, List.of(), "Only elves.",
+                        "Campaign race", null, "race-node", null, "HIGH")), List.of());
+
+        CharacterCreationBlueprint blueprint = DndCharacterCreationTemplate.apply("DND_5E_2014", extracted);
+
+        assertEquals("Campaign race", blueprint.field("race").label());
+    }
+
+    @Test
     void addsScenarioOnlyStorybookFieldAsOptionalProposal() {
         CharacterCreationBlueprint extracted = new CharacterCreationBlueprintCompiler().compile(1, List.of(
                 new CharacterCreationBlueprintCompiler.FieldCandidate("scenario.personal_secret",

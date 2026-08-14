@@ -59,7 +59,8 @@ public record CharacterCreationBlueprintView(
     public record RulebookBaseSchemaView(String edition, List<FieldView> fields) {
         public RulebookBaseSchemaView {
             edition = edition == null || edition.isBlank() ? "DND_5E_2014" : edition;
-            fields = List.copyOf(fields);
+            fields = fields.stream().filter(field -> "RULEBOOK".equalsIgnoreCase(field.sourceType())
+                    || "TEMPLATE".equalsIgnoreCase(field.sourceType())).toList();
         }
 
         public static RulebookBaseSchemaView from(List<FieldView> fields) {
@@ -93,7 +94,13 @@ public record CharacterCreationBlueprintView(
 
         /** Identity is tied to the grounded source revision and field key, never extracted text. */
         public static String stableId(String knowledgeDocumentId, long extractionVersion, String fieldKey) {
-            return java.util.UUID.nameUUIDFromBytes((knowledgeDocumentId + "|" + extractionVersion + "|" + fieldKey)
+            return stableId(knowledgeDocumentId, extractionVersion, fieldKey, "");
+        }
+
+        public static String stableId(String knowledgeDocumentId, long extractionVersion, String fieldKey,
+                                     String candidateIdentity) {
+            return java.util.UUID.nameUUIDFromBytes((knowledgeDocumentId + "|" + extractionVersion + "|" + fieldKey
+                    + "|" + candidateIdentity)
                     .getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
         }
 
@@ -115,17 +122,24 @@ public record CharacterCreationBlueprintView(
     public record FieldView(String key, List<String> options, boolean required, String sourceType,
                             String inputStatus, List<String> diagnostics, String inputMode, String value,
                             List<String> suggestions, String sourceQuote,
-                            List<SourceReferenceView> evidence, List<OptionDetailView> optionDetails) {
+                            List<SourceReferenceView> evidence, List<OptionDetailView> optionDetails, String label) {
         public FieldView(String key, List<String> options, boolean required, String sourceType,
                          String inputStatus, List<String> diagnostics, String inputMode, String value,
                          List<String> suggestions, String sourceQuote, List<SourceReferenceView> evidence) {
             this(key, options, required, sourceType, inputStatus, diagnostics, inputMode, value, suggestions,
-                    sourceQuote, evidence, List.of());
+                    sourceQuote, evidence, List.of(), key);
+        }
+        public FieldView(String key, List<String> options, boolean required, String sourceType,
+                         String inputStatus, List<String> diagnostics, String inputMode, String value,
+                         List<String> suggestions, String sourceQuote, List<SourceReferenceView> evidence,
+                         List<OptionDetailView> optionDetails) {
+            this(key, options, required, sourceType, inputStatus, diagnostics, inputMode, value, suggestions,
+                    sourceQuote, evidence, optionDetails, key);
         }
         public FieldView(String key, List<String> options, boolean required, String sourceType,
                          String inputStatus, List<String> diagnostics) {
             this(key, options, required, sourceType, inputStatus, diagnostics,
-                    options.isEmpty() ? "FREE_TEXT" : "SINGLE_SELECT", null, List.of(), "", List.of());
+                    options.isEmpty() ? "FREE_TEXT" : "SINGLE_SELECT", null, List.of(), "", List.of(), List.of(), key);
         }
 
         public record SourceReferenceView(String knowledgeDocumentId, long extractionVersion, String locator) {}
@@ -142,6 +156,7 @@ public record CharacterCreationBlueprintView(
             evidence = List.copyOf(evidence);
             optionDetails = List.copyOf(optionDetails);
             value = value == null || value.isBlank() ? null : value;
+            label = label == null || label.isBlank() ? key : label;
         }
     }
 

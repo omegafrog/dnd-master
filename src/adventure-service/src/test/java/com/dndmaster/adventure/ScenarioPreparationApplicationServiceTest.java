@@ -452,10 +452,40 @@ class ScenarioPreparationApplicationServiceTest {
         assertEquals("race", json.at("/characterCreationBlueprint/baseSchema/fields/0/key").asText());
         assertTrue(json.at("/characterCreationBlueprint/storybookProposals").isArray());
         assertEquals("alignment", json.at("/characterCreationBlueprint/storybookProposals/0/key").asText());
-        assertEquals(1, json.at("/characterCreationBlueprint/storybookProposals").size());
+        assertEquals(2, json.at("/characterCreationBlueprint/storybookProposals").size());
+        assertTrue(!json.at("/characterCreationBlueprint/storybookProposals/0/proposalId").asText()
+                .equals(json.at("/characterCreationBlueprint/storybookProposals/1/proposalId").asText()));
         assertEquals("INSUFFICIENT_EVIDENCE", json.at("/characterCreationBlueprint/storybookExtractionState").asText());
         assertEquals("UNDECIDED", json.at("/characterCreationBlueprint/storybookProposals/0/decisionState").asText());
         assertEquals("INSUFFICIENT_EVIDENCE", json.at("/characterCreationBlueprint/storybookProposals/0/readinessState").asText());
+    }
+
+    @Test
+    void serializes_candidate_label_description_and_per_evidence_quote() throws Exception {
+        var packages = mock(ScenarioPackageRepository.class);
+        var bundles = mock(ScenarioBundleRepository.class);
+        var storybook = new KnowledgeDocumentId(storybookDocumentId());
+        var evidence = new ScenarioSourceReference(storybook, 1, "page:8");
+        var blueprint = new CharacterCreationBlueprint(1, CharacterCreationBlueprintStatus.NEEDS_REVIEW,
+                List.of(new CharacterCreationBlueprint.Field("alignment", List.of("Grove-bound"), true, "STORYBOOK",
+                        List.of(evidence), "CONFLICT_REVIEW", List.of(), com.dndmaster.adventure.domain.scenario.InputMode.SINGLE_SELECT,
+                        List.of(), "Field quote", "Seasonal alignment", null, "proposal", null, "HIGH",
+                        List.of(new CharacterCreationBlueprint.Field.OptionDetail("Grove-bound", "Grove-bound",
+                                "Candidate description", "Option evidence quote", List.of(evidence))))), List.of());
+        var scenarioPackage = ScenarioPackage.publish(new ScenarioBundleId(bundleId()), 4, "fp-proposal-metadata",
+                bundleWithRulebook().currentRevision().documents(), List.of(validUnit()),
+                new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()),
+                com.dndmaster.adventure.domain.scenario.CharacterLimit.defaultLimit(), blueprint);
+        when(packages.findById(scenarioPackage.packageId())).thenReturn(Optional.of(scenarioPackage));
+        when(bundles.findById(scenarioPackage.bundleId())).thenReturn(Optional.of(bundleWithRulebook()));
+
+        JsonNode json = new ObjectMapper().valueToTree(new ScenarioPreparationApplicationService(packages, bundles, fixtureRuntimeOptions())
+                .read(scenarioPackage.packageId(), owner()));
+        JsonNode proposal = json.at("/characterCreationBlueprint/storybookProposals/0");
+
+        assertEquals("Seasonal alignment", proposal.at("/label").asText());
+        assertEquals("Candidate description", proposal.at("/description").asText());
+        assertEquals("Option evidence quote", proposal.at("/evidence/0/excerpt").asText());
     }
 
     @Test
