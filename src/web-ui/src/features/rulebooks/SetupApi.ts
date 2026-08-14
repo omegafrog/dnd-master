@@ -39,6 +39,10 @@ export type KnowledgeDocumentView = {
   extractionVersion?: number
   warnings?: string[]
   failureReason?: string | null
+  progress?: {
+    stage: 'EXTRACTING' | 'INDEXING' | 'READY'
+    percent: number
+  }
 }
 
 export type ScenarioBundleRole =
@@ -63,6 +67,8 @@ export type ScenarioBundleDocumentView = {
 export type ScenarioBundleView = {
   bundleId: string
   ownerPlayerId?: string
+  name?: string
+  rulebookEdition?: 'DND_5E_2014' | 'DND_5E_2024' | null
   currentRevision: number
   documents: ScenarioBundleDocumentView[]
 }
@@ -372,6 +378,7 @@ export interface SetupApi {
   uploadRulebooks(documents: RulebookUploadDraft[], ownerId: string): Promise<BatchRulebookView[]>
   getRulebookStatus(rulebookId: string): Promise<RulebookView>
   retryKnowledgeDocument(knowledgeDocumentId: string): Promise<RulebookView>
+  deleteKnowledgeDocument?(knowledgeDocumentId: string): Promise<void>
   getSourcePreview(knowledgeDocumentId: string): Promise<SourcePreviewView>
   uploadScenario?(file: File): Promise<{
     id: string

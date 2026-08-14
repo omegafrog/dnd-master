@@ -111,5 +111,6 @@ export type CreateAdventureSessionRequest = {
   scenarioPackageId: string
   blueprintId: string
   blueprintRevision: number
+  partySize?: number
   runtimeConfiguration?: AdventureSessionView['runtimeConfiguration']
 }
