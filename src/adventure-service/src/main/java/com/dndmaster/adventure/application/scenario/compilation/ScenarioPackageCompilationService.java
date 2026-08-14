@@ -37,8 +37,9 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class ScenarioPackageCompilationService {
-    private static final String COMPILER_VERSION = "resolution-compiler-v1";
+    private static final String COMPILER_VERSION = "resolution-compiler-v2";
     private static final String DICE_PATTERN = "(?i)\\d+d\\d+(?:\\s*[+-]\\s*\\d+)?";
+    private static final String RECHARGE_PATTERN = "\\d+\\s*-\\s*\\d+";
     private static final Pattern CHARACTER_LIMIT_PATTERN = Pattern.compile(
             "(?i)(?:(?:exactly|must\\s+be\\s+(?:a\\s+)?party\\s+of|requires?\\s+(?:a\\s+)?party\\s+of|반드시|정확히|꼭)\\s+)?(?:(?:최대|up\\s+to|maximum(?:\\s+of)?|max|recommended|권장)\\s*)?(?:party\\s+of\\s*)?(\\d+)\\s*(?:명|players?|users?)(?:\\s*(?:exactly|must|required|반드시|정확히|꼭))?");
     private final ScenarioPackageRepository repository;
@@ -417,8 +418,11 @@ public final class ScenarioPackageCompilationService {
                     invalid.add("DC is outside supported range");
                 }
             }
-            case DICE_ROLL, DAMAGE_ROLL, HEALING_ROLL, INITIATIVE_ROLL, RECHARGE_ROLL -> {
+            case DICE_ROLL, DAMAGE_ROLL, HEALING_ROLL, INITIATIVE_ROLL -> {
                 if (!validDice(candidate.diceExpression())) invalid.add("dice expression is invalid");
+            }
+            case RECHARGE_ROLL -> {
+                if (!validRecharge(candidate.diceExpression())) invalid.add("recharge range is invalid");
             }
             case RANDOM_TABLE -> {
                 if (!validDice(candidate.diceExpression())) invalid.add("dice expression is invalid");
@@ -461,6 +465,14 @@ public final class ScenarioPackageCompilationService {
         int dice = Integer.parseInt(parts[0]);
         int sides = Integer.parseInt(parts[1].replaceFirst("[+-].*", ""));
         return dice > 0 && sides > 0 && dice <= 100 && sides <= 1000;
+    }
+
+    private static boolean validRecharge(String expression) {
+        if (expression == null || !expression.matches(RECHARGE_PATTERN)) return false;
+        String[] parts = expression.replace(" ", "").split("-");
+        int minimum = Integer.parseInt(parts[0]);
+        int maximum = Integer.parseInt(parts[1]);
+        return minimum >= 1 && maximum <= 20 && minimum <= maximum;
     }
 
     private static String fingerprint(ScenarioSourceBundle bundle, List<ResolutionCandidate> candidates) {
