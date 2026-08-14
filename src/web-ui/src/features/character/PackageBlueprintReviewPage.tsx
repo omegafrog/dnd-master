@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { AdventureSessionApi } from '../adventure-session/AdventureSessionApi'
 import type {
+  BlueprintPublicationView,
   CharacterCreationBlueprintView,
   PlayPreparationView,
   RulebookBaseSchemaView,
@@ -13,6 +14,7 @@ type PackageSetupApi = {
   generateBlueprintDraft?: SetupApi['generateBlueprintDraft']
   useStorybookProposal?: SetupApi['useStorybookProposal']
   excludeStorybookProposal?: SetupApi['excludeStorybookProposal']
+  publishBlueprint?: SetupApi['publishBlueprint']
 }
 
 type CatalogRulebook = {
@@ -44,6 +46,9 @@ export function PackageBlueprintReviewPage({
   const [creatingSession, setCreatingSession] = useState(false)
   const [pendingProposalId, setPendingProposalId] = useState<string | null>(null)
   const [message, setMessage] = useState('')
+  const [confirming, setConfirming] = useState(false)
+  const [confirmationResult, setConfirmationResult] = useState<BlueprintPublicationView | null>(null)
+  const [retrySession, setRetrySession] = useState(false)
 
   useEffect(() => {
     let active = true
@@ -129,9 +134,22 @@ export function PackageBlueprintReviewPage({
   }
 
   const blueprint = preparation.characterCreationBlueprint
+  const summary = blueprint.appliedSettingsSummary
+  const unresolved = summary?.unresolvedProposalCount ?? (blueprint.storybookProposals ?? [])
+    .filter(proposal => proposal.decisionState === 'UNDECIDED' || proposal.decisionState === 'NEEDS_EVIDENCE').length
+  const baseSchema = blueprint.baseSchema
+  const baseSchemaValid = blueprint.baseSchemaValid ?? Boolean(
+    baseSchema && baseSchema.fields.length > 0
+      && baseSchema.fields.every(field => field.diagnostics.length === 0
+        && field.inputStatus !== 'MANUAL_INPUT_REQUIRED'
+        && field.inputStatus !== 'CONFLICT_REVIEW'),
+  )
+  const canConfirm = blueprint.status !== 'PUBLISHED' && unresolved === 0 && baseSchemaValid
+
   async function createSession() {
     if (!blueprint.available || blueprint.status !== 'PUBLISHED' || blueprint.revision == null) return
     setCreatingSession(true)
+    setRetrySession(false)
     try {
       const session = await sessionApi.create({
         scenarioPackageId: packageId,
@@ -141,8 +159,26 @@ export function PackageBlueprintReviewPage({
       onSessionCreated(session.sessionId)
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '세션 초안을 생성하지 못했습니다.')
+      setRetrySession(true)
+      setReloadToken(token => token + 1)
     } finally {
       setCreatingSession(false)
+    }
+  }
+
+  async function confirmSettings() {
+    if (!setupApi.publishBlueprint || !canConfirm) return
+    setConfirming(true)
+    try {
+      const result = await setupApi.publishBlueprint(packageId)
+      setConfirmationResult(result)
+      setMessage('캐릭터 생성에 사용할 설정을 확정했습니다.')
+      setReloadToken(token => token + 1)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '설정을 확정하지 못했습니다.')
+      setReloadToken(token => token + 1)
+    } finally {
+      setConfirming(false)
     }
   }
 
@@ -192,13 +228,34 @@ export function PackageBlueprintReviewPage({
             <BaseSchemaPanel schema={blueprint.baseSchema} />
             <StorybookProposalPanel
               blueprint={blueprint}
-              canUse={Boolean(setupApi.useStorybookProposal)}
-              canExclude={Boolean(setupApi.excludeStorybookProposal)}
+              canUse={blueprint.status !== 'PUBLISHED' && Boolean(setupApi.useStorybookProposal)}
+              canExclude={blueprint.status !== 'PUBLISHED' && Boolean(setupApi.excludeStorybookProposal)}
               pendingProposalId={pendingProposalId}
               onDecision={decideProposal}
             />
           </div>
           <AppliedSettingsSummary blueprint={blueprint} />
+          {confirmationResult && (
+            <section className="character-review-confirmation-result" aria-labelledby="confirmation-result-heading" role="status">
+              <h2 id="confirmation-result-heading">설정이 확정되었습니다</h2>
+              <p>게시된 설정 revision: {confirmationResult.publishedRevision}</p>
+              <ul>
+                <li>룰북 기본 내용: 포함</li>
+                <li>사용 예정 제안: {confirmationResult.appliedSettingsSummary.appliedProposalIds.length}개</li>
+                <li>제외 예정 제안: {confirmationResult.appliedSettingsSummary.excludedProposalIds.length}개</li>
+              </ul>
+            </section>
+          )}
+          {setupApi.publishBlueprint && blueprint.status !== 'PUBLISHED' && (
+            <section className="character-review-confirmation" aria-label="캐릭터 생성 설정 확정">
+              <h2>캐릭터 생성에 사용할 설정 확정</h2>
+              {!baseSchemaValid && <p role="alert">룰북 기본 내용을 먼저 확인해야 합니다.</p>}
+              {unresolved > 0 && <p role="status">결정이 필요한 제안이 {unresolved}개 있습니다.</p>}
+              <button type="button" onClick={() => void confirmSettings()} disabled={confirming || !canConfirm}>
+                {confirming ? '확정 중…' : '캐릭터 생성에 사용할 설정 확정'}
+              </button>
+            </section>
+          )}
           {blueprint.status === 'PUBLISHED' && (
             <section className="character-review-next-action" aria-label="캐릭터 생성">
               <h2>캐릭터 생성으로 이동</h2>
@@ -206,6 +263,7 @@ export function PackageBlueprintReviewPage({
               <button type="button" onClick={() => void createSession()} disabled={creatingSession}>
                 {creatingSession ? '캐릭터 생성 준비 중…' : '캐릭터 생성 시작'}
               </button>
+              {retrySession && <button type="button" onClick={() => void createSession()} disabled={creatingSession}>다시 시도</button>}
             </section>
           )}
         </>
@@ -309,8 +367,8 @@ function StorybookProposalPanel({
           )}
           <div className="character-review-source-groups">
             {groupBySource(proposals).map(group => (
-              <section className="character-review-source-group" key={group.label} aria-labelledby={`source-${slugify(group.label)}`}>
-                <h3 id={`source-${slugify(group.label)}`}>{group.label}</h3>
+              <section className="character-review-source-group" key={group.label} aria-labelledby={sourceGroupId(group.label)}>
+                <h3 id={sourceGroupId(group.label)}>{group.label}</h3>
                 <div className="character-review-proposal-list">
                   {group.proposals.map(item => (
                     <StorybookProposalCard
@@ -409,7 +467,7 @@ function AppliedSettingsSummary({ blueprint }: { blueprint: CharacterCreationBlu
         <li><span>제외 예정 제안</span><strong>{excluded}개</strong></li>
         <li><span>결정이 필요한 제안</span><strong>{unresolved}개</strong></li>
       </ul>
-      <p>제안 사용·제외와 설정 확정은 이후 단계에서 연결됩니다.</p>
+      <p>모든 제안 결정을 마치면 룰북 기본 내용과 사용 예정 제안을 확정할 수 있습니다.</p>
     </section>
   )
 }
@@ -439,4 +497,9 @@ function decisionLabel(decisionState: StorybookProposalView['decisionState']) {
 
 function slugify(value: string) {
   return value.replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-|-$/g, '') || 'item'
+}
+
+function sourceGroupId(value: string) {
+  const codePoints = Array.from(value).map(character => character.codePointAt(0)!.toString(16)).join('-')
+  return `source-${slugify(value)}-${codePoints || 'item'}`
 }

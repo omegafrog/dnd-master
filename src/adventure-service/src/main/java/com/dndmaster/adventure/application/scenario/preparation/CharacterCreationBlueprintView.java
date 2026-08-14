@@ -100,6 +100,13 @@ public record CharacterCreationBlueprintView(
         }
     }
 
+    @JsonProperty("baseSchemaValid")
+    public boolean baseSchemaValid() {
+        return !baseSchema.fields().isEmpty() && baseSchema.fields().stream().allMatch(field -> field.diagnostics().isEmpty()
+                && !"MANUAL_INPUT_REQUIRED".equals(field.inputStatus())
+                && !"CONFLICT_REVIEW".equals(field.inputStatus()));
+    }
+
     public record StorybookProposalView(String proposalId, String key, String label, String description,
                                         SourceDocument sourceDocument, String sourceQuote,
                                         List<SourceEvidence> evidence, String decisionState,

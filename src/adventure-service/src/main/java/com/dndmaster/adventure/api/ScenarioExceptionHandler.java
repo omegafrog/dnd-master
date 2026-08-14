@@ -6,6 +6,8 @@ import com.dndmaster.adventure.domain.scenario.ScenarioBundleNotFoundException;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleValidationException;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintRevisionConflictException;
 import com.dndmaster.adventure.domain.scenario.StorybookProposalEvidenceRequiredException;
+import com.dndmaster.adventure.domain.scenario.StorybookProposalNotFoundException;
+import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintPublicationBlockedException;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDeletionConflictException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -35,6 +37,21 @@ public final class ScenarioExceptionHandler {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
                 "error", "STORYBOOK_PROPOSAL_EVIDENCE_REQUIRED",
                 "message", exception.getMessage()));
+    }
+
+    @ExceptionHandler(StorybookProposalNotFoundException.class)
+    public ResponseEntity<Map<String, String>> proposalNotFound(StorybookProposalNotFoundException exception) {
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(Map.of(
+                "error", "STORYBOOK_PROPOSAL_NOT_FOUND",
+                "message", "더 이상 존재하지 않는 스토리북 제안입니다. 최신 검토 결과를 다시 불러오세요."));
+    }
+
+    @ExceptionHandler(CharacterCreationBlueprintPublicationBlockedException.class)
+    public ResponseEntity<Map<String, Object>> publicationBlocked(CharacterCreationBlueprintPublicationBlockedException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                "error", "BLUEPRINT_PUBLICATION_BLOCKED",
+                "message", exception.getMessage(),
+                "retryable", true));
     }
 
     @ExceptionHandler(ScenarioBundleDeletionConflictException.class)

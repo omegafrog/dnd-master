@@ -5,6 +5,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -22,9 +24,11 @@ import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import com.dndmaster.adventure.domain.scenario.StorybookProposalEvidenceRequiredException;
+import com.dndmaster.adventure.domain.scenario.StorybookProposalNotFoundException;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
@@ -34,7 +38,15 @@ class StorybookProposalDecisionApplicationServiceTest {
         var packages = mock(ScenarioPackageRepository.class);
         var bundles = mock(ScenarioBundleRepository.class);
         var scenarioPackage = packageWithEvidence();
-        when(packages.findById(scenarioPackage.packageId())).thenReturn(Optional.of(scenarioPackage));
+        var latestBlueprint = new AtomicReference<>(scenarioPackage.characterCreationBlueprint());
+        when(packages.findById(scenarioPackage.packageId())).thenAnswer(invocation -> Optional.of(ScenarioPackage.rehydrate(
+                scenarioPackage.packageId(), scenarioPackage.bundleId(), scenarioPackage.bundleRevision(),
+                scenarioPackage.inputFingerprint(), scenarioPackage.documents(), scenarioPackage.units(),
+                scenarioPackage.report(), scenarioPackage.characterLimit(), latestBlueprint.get())));
+        doAnswer(invocation -> {
+            latestBlueprint.set(invocation.getArgument(1));
+            return null;
+        }).when(packages).saveBlueprint(eq(scenarioPackage.packageId()), any());
         when(bundles.findById(scenarioPackage.bundleId())).thenReturn(Optional.of(bundle(scenarioPackage)));
         var service = new ScenarioPreparationApplicationService(packages, bundles, runtimeOptions());
         String proposalId = service.read(scenarioPackage.packageId(), owner()).characterCreationBlueprint()
@@ -71,6 +83,43 @@ class StorybookProposalDecisionApplicationServiceTest {
                 .storybookProposals().get(0).proposalId();
         assertThrows(StorybookProposalEvidenceRequiredException.class,
                 () -> service.useStorybookProposal(noEvidence.packageId(), owner(), 1, unresolvedId));
+
+        assertThrows(StorybookProposalNotFoundException.class,
+                () -> service.useStorybookProposal(scenarioPackage.packageId(), owner(), 1, "unknown-proposal"));
+    }
+
+    @Test
+    void confirms_only_after_all_decisions_and_returns_applied_projection_summary() {
+        var packages = mock(ScenarioPackageRepository.class);
+        var bundles = mock(ScenarioBundleRepository.class);
+        var scenarioPackage = packageWithEvidence();
+        var latestBlueprint = new AtomicReference<>(scenarioPackage.characterCreationBlueprint());
+        when(packages.findById(scenarioPackage.packageId())).thenAnswer(invocation -> Optional.of(ScenarioPackage.rehydrate(
+                scenarioPackage.packageId(), scenarioPackage.bundleId(), scenarioPackage.bundleRevision(),
+                scenarioPackage.inputFingerprint(), scenarioPackage.documents(), scenarioPackage.units(),
+                scenarioPackage.report(), scenarioPackage.characterLimit(), latestBlueprint.get())));
+        doAnswer(invocation -> {
+            latestBlueprint.set(invocation.getArgument(1));
+            return null;
+        }).when(packages).saveBlueprint(eq(scenarioPackage.packageId()), any());
+        when(bundles.findById(scenarioPackage.bundleId())).thenReturn(Optional.of(bundle(scenarioPackage)));
+        var service = new ScenarioPreparationApplicationService(packages, bundles, runtimeOptions());
+        String proposalId = service.read(scenarioPackage.packageId(), owner()).characterCreationBlueprint()
+                .storybookProposals().get(0).proposalId();
+
+        assertThrows(IllegalStateException.class,
+                () -> service.publishBlueprint(scenarioPackage.packageId(), owner()));
+
+        service.useStorybookProposal(scenarioPackage.packageId(), owner(), 1, proposalId);
+        var result = service.publishBlueprint(scenarioPackage.packageId(), owner());
+
+        assertEquals(3, result.publishedRevision());
+        assertEquals(List.of(proposalId), result.appliedSettingsSummary().appliedProposalIds());
+        assertEquals(0, result.appliedSettingsSummary().unresolvedProposalCount());
+        var saved = ArgumentCaptor.forClass(CharacterCreationBlueprint.class);
+        verify(packages, atLeastOnce()).saveBlueprint(eq(scenarioPackage.packageId()), saved.capture());
+        assertEquals(List.of("race", "alignment"), saved.getValue().fields().stream()
+                .map(CharacterCreationBlueprint.Field::key).toList());
     }
 
     private static ScenarioPackage packageWithEvidence() {
@@ -79,24 +128,28 @@ class StorybookProposalDecisionApplicationServiceTest {
                 List.of(new ScenarioSourceReference(document, 1, "page:4")), "EXTRACTED", List.of(),
                 com.dndmaster.adventure.domain.scenario.InputMode.SINGLE_SELECT, List.of(), "Only elves.",
                 "성향", null, "alignment-node", null, "HIGH");
+        var base = new CharacterCreationBlueprint.Field("race", List.of("Elf"), true, "RULEBOOK",
+                List.of(), "EXTRACTED", List.of());
         return ScenarioPackage.publish(new ScenarioBundleId(bundleId()), 1, "proposal-decision-evidence",
                 List.of(documentSelection(document)), List.of(),
                 new ScenarioCompilationReport(com.dndmaster.adventure.domain.scenario.ResolutionStatus.COMPLETE, List.of()),
                 com.dndmaster.adventure.domain.scenario.CharacterLimit.defaultLimit(),
-                new CharacterCreationBlueprint(1, CharacterCreationBlueprintStatus.NEEDS_REVIEW, List.of(field), List.of(),
-                        new BlueprintProvenance(1, 1, List.of("STORYBOOK"))));
+                new CharacterCreationBlueprint(1, CharacterCreationBlueprintStatus.NEEDS_REVIEW, List.of(base, field), List.of(),
+                        new BlueprintProvenance(1, 1, List.of("RULEBOOK", "STORYBOOK"))));
     }
 
     private static ScenarioPackage packageWithoutEvidence() {
         var document = new KnowledgeDocumentId(UUID.fromString("22222222-2222-2222-2222-222222222222"));
         var field = new CharacterCreationBlueprint.Field("alignment", List.of("Lawful Good"), true, "STORYBOOK",
                 List.of(), "EXTRACTED", List.of());
+        var base = new CharacterCreationBlueprint.Field("race", List.of("Elf"), true, "RULEBOOK",
+                List.of(), "EXTRACTED", List.of());
         return ScenarioPackage.publish(new ScenarioBundleId(bundleId()), 1, "proposal-decision-no-evidence",
                 List.of(documentSelection(document)), List.of(),
                 new ScenarioCompilationReport(com.dndmaster.adventure.domain.scenario.ResolutionStatus.COMPLETE, List.of()),
                 com.dndmaster.adventure.domain.scenario.CharacterLimit.defaultLimit(),
-                new CharacterCreationBlueprint(1, CharacterCreationBlueprintStatus.NEEDS_REVIEW, List.of(field), List.of(),
-                        new BlueprintProvenance(1, 1, List.of("STORYBOOK"))));
+                new CharacterCreationBlueprint(1, CharacterCreationBlueprintStatus.NEEDS_REVIEW, List.of(base, field), List.of(),
+                        new BlueprintProvenance(1, 1, List.of("RULEBOOK", "STORYBOOK"))));
     }
 
     private static com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection documentSelection(KnowledgeDocumentId id) {

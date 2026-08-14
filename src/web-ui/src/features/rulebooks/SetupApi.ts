@@ -181,6 +181,12 @@ export type CharacterCreationBlueprintView = {
     excludedProposalIds: string[]
     unresolvedProposalCount: number
   }
+  baseSchemaValid?: boolean
+}
+
+export type BlueprintPublicationView = {
+  publishedRevision: number
+  appliedSettingsSummary: NonNullable<CharacterCreationBlueprintView['appliedSettingsSummary']>
 }
 
 export type RulebookBaseSchemaView = {
@@ -458,7 +464,7 @@ export interface SetupApi {
   addBlueprintOption?(scenarioPackageId: string, expectedRevision: number, fieldKey: string, option: string): Promise<unknown>
   useStorybookProposal?(scenarioPackageId: string, proposalId: string, expectedRevision: number): Promise<CharacterCreationBlueprintView>
   excludeStorybookProposal?(scenarioPackageId: string, proposalId: string, expectedRevision: number): Promise<CharacterCreationBlueprintView>
-  publishBlueprint?(scenarioPackageId: string): Promise<unknown>
+  publishBlueprint?(scenarioPackageId: string): Promise<BlueprintPublicationView>
   getRuntimeOptions?(): Promise<RuntimeOptionsView>
   createCharacterSheet?(draft: CharacterCreationDraft): Promise<CreatedCharacterSheetView>
   bindRuntimeBinding?(adventureId: string, ownerId: string, draft: RuntimeBindingDraft): Promise<RuntimeBindingView>
@@ -477,20 +483,28 @@ export type StorySourceScopeView = {
 
 async function request<T>(path: string, init: RequestInit, badRequestMessage = '지원하지 않거나 손상된 파일입니다.'): Promise<T> {
   const response = await fetch(path, init)
+  const bodyText = response.ok || response.status === 204 ? '' : await response.text()
+  let body: { error?: string; message?: string; retryable?: boolean } = {}
+  try { body = bodyText ? JSON.parse(bodyText) as typeof body : {} } catch { /* plain-text response */ }
   if (response.status === 400) {
-    const error = new Error(badRequestMessage) as Error & { status?: number }
+    const error = new Error(body.message || bodyText || badRequestMessage) as Error & { status?: number; code?: string; retryable?: boolean }
     error.status = response.status
+    error.code = body.error
+    error.retryable = body.retryable ?? false
     throw error
   }
   if (response.status === 409) {
-    const error = new Error('최신 검토 결과가 있어 다시 불러옵니다.') as Error & { status?: number }
+    const error = new Error(body.message || bodyText || '최신 검토 결과가 있어 다시 불러옵니다.') as Error & { status?: number; code?: string; retryable?: boolean }
     error.status = response.status
+    error.code = body.error
+    error.retryable = body.retryable ?? true
     throw error
   }
   if (!response.ok) {
-    const detail = await response.text()
-    const error = new Error(detail || `요청을 처리하지 못했습니다. (HTTP ${response.status})`) as Error & { status?: number }
+    const error = new Error(body.message || bodyText || `요청을 처리하지 못했습니다. (HTTP ${response.status})`) as Error & { status?: number; code?: string; retryable?: boolean }
     error.status = response.status
+    error.code = body.error
+    error.retryable = body.retryable ?? false
     throw error
   }
   if (response.status === 204) return undefined as T
@@ -711,7 +725,7 @@ export class HttpSetupApi implements SetupApi {
   }
 
   publishBlueprint(scenarioPackageId: string) {
-    return request<unknown>(`/api/v1/scenario-packages/${scenarioPackageId}/character-blueprint/publish`, {
+    return request<BlueprintPublicationView>(`/api/v1/scenario-packages/${scenarioPackageId}/character-blueprint/publish`, {
       method: 'POST', headers: this.authHeaders(),
     }, 'Blueprint 게시에 실패했습니다.')
   }

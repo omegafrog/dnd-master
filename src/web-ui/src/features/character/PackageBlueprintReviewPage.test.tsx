@@ -57,6 +57,7 @@ function preparation(overrides: Partial<PlayPreparationView['characterCreationBl
       },
       storybookProposals: [proposal()],
       storybookExtractionState: 'PROPOSALS_AVAILABLE',
+      baseSchemaValid: true,
       ...overrides,
     },
   }
@@ -209,6 +210,72 @@ describe('PackageBlueprintReviewPage', () => {
       blueprintRevision: 8,
     }))
     await waitFor(() => expect(onSessionCreated).toHaveBeenCalledWith('session-created-1'))
+  })
+
+  it('blocks confirmation until the base schema and every proposal are valid', async () => {
+    const publishBlueprint = vi.fn()
+    render(
+      <PackageBlueprintReviewPage
+        packageId="package-1"
+        setupApi={{ getPlayPreparation: async () => preparation(), publishBlueprint }}
+        sessionApi={{ create: vi.fn() }}
+        onSessionCreated={vi.fn()}
+      />,
+    )
+
+    const confirm = await screen.findByRole('button', { name: '캐릭터 생성에 사용할 설정 확정' })
+    expect(confirm).toBeDisabled()
+    expect(publishBlueprint).not.toHaveBeenCalled()
+
+    render(
+      <PackageBlueprintReviewPage
+        packageId="package-1"
+        setupApi={{ getPlayPreparation: async () => preparation({ storybookProposals: [], storybookExtractionState: 'NO_PROPOSALS', baseSchemaValid: false }), publishBlueprint }}
+        sessionApi={{ create: vi.fn() }}
+        onSessionCreated={vi.fn()}
+      />,
+    )
+    expect(await screen.findByRole('button', { name: '캐릭터 생성에 사용할 설정 확정' })).toBeDisabled()
+    expect(screen.getByText('룰북 기본 내용을 먼저 확인해야 합니다.')).toBeInTheDocument()
+  })
+
+  it('shows the confirmation result summary and enables character creation only after publication', async () => {
+    const getPlayPreparation = vi.fn()
+      .mockResolvedValueOnce(preparation({ storybookProposals: [], storybookExtractionState: 'NO_PROPOSALS' }))
+      .mockResolvedValueOnce(preparation({ storybookProposals: [], storybookExtractionState: 'NO_PROPOSALS', status: 'PUBLISHED', revision: 9 }))
+    const publishBlueprint = vi.fn().mockResolvedValue({
+      publishedRevision: 9,
+      appliedSettingsSummary: { baseSchemaIncluded: true, appliedProposalIds: [], excludedProposalIds: ['proposal-internal-1'], unresolvedProposalCount: 0 },
+    })
+    render(
+      <PackageBlueprintReviewPage
+        packageId="package-1"
+        setupApi={{ getPlayPreparation, publishBlueprint }}
+        sessionApi={{ create: vi.fn() }}
+        onSessionCreated={vi.fn()}
+      />,
+    )
+
+    await userEvent.click(await screen.findByRole('button', { name: '캐릭터 생성에 사용할 설정 확정' }))
+
+    await waitFor(() => expect(publishBlueprint).toHaveBeenCalledWith('package-1'))
+    expect(await screen.findByRole('heading', { name: '설정이 확정되었습니다' })).toBeInTheDocument()
+    expect(screen.getByText('게시된 설정 revision: 9')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '캐릭터 생성 시작' })).toBeEnabled()
+  })
+
+  it('uses collision-safe accessible ids for source groups with colliding slugs', async () => {
+    const { container } = renderReview(async () => preparation({
+      storybookProposals: [
+        proposal({ sourceDocument: { knowledgeDocumentId: 'doc-1', originalFilename: 'story/book.pdf', extractionVersion: 1 } }),
+        proposal({ proposalId: 'proposal-internal-2', sourceDocument: { knowledgeDocumentId: 'doc-2', originalFilename: 'story book.pdf', extractionVersion: 1 } }),
+      ],
+    }))
+
+    await screen.findAllByText('story/book.pdf', { exact: true })
+    const sourceGroups = [...container.querySelectorAll('.character-review-source-group')]
+    expect(sourceGroups).toHaveLength(2)
+    expect(new Set(sourceGroups.map(group => group.getAttribute('aria-labelledby'))).size).toBe(2)
   })
 
   it('persists a proposal decision and refetches the review at the returned revision', async () => {

@@ -76,6 +76,15 @@ public record CharacterCreationBlueprint(
                 || decision.state() == ProposalDecisionState.NEEDS_EVIDENCE).count();
     }
 
+    public boolean baseSchemaValid() {
+        List<Field> baseFields = fields.stream()
+                .filter(field -> !"STORYBOOK".equalsIgnoreCase(field.sourceType()))
+                .toList();
+        return !baseFields.isEmpty() && baseFields.stream().allMatch(field -> field.diagnostics().isEmpty()
+                && !"MANUAL_INPUT_REQUIRED".equals(field.inputStatus())
+                && !"CONFLICT_REVIEW".equals(field.inputStatus()));
+    }
+
 
     public Field field(String key) {
         return fields.stream().filter(field -> field.key().equals(key)).findFirst()
@@ -270,10 +279,14 @@ public record CharacterCreationBlueprint(
     }
 
     public CharacterCreationBlueprint publish() {
-        if (status != CharacterCreationBlueprintStatus.READY) {
-            throw new IllegalStateException("blueprint has unresolved review items");
+        if (unresolvedProposalCount() > 0) {
+            throw new CharacterCreationBlueprintPublicationBlockedException("storybook proposals require a decision before publication");
         }
-        return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.PUBLISHED, fields, diagnostics, provenance, proposalDecisions);
+        if (!baseSchemaValid()) {
+            throw new CharacterCreationBlueprintPublicationBlockedException("rulebook base schema is invalid");
+        }
+        return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.PUBLISHED,
+                appliedProjection(), diagnostics, provenance, proposalDecisions);
     }
 
     public record Field(String key, List<String> options, boolean required, String sourceType,

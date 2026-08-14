@@ -69,7 +69,11 @@ class AdventureSessionTest {
         var scenarioPackage = ScenarioPackage.publish(bundleId, 1, "fingerprint", List.of(
                 new ScenarioBundleDocumentSelection(new KnowledgeDocumentId(rulebookId), ScenarioBundleDocumentRole.RULEBOOK,
                         KnowledgeDocumentStatus.INDEXED, "rules.pdf", "RULEBOOK", 1)), List.of(),
-                new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()), CharacterLimit.defaultLimit());
+                new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()), CharacterLimit.defaultLimit(),
+                new com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint(1,
+                        com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.PUBLISHED,
+                        List.of(new com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint.Field(
+                                "race", List.of("Elf"), true, "RULEBOOK", List.of(), "EXTRACTED", List.of())), List.of()));
         when(packages.findById(scenarioPackage.packageId())).thenReturn(java.util.Optional.of(scenarioPackage));
         var sessions = mock(AdventureSessionRepository.class);
         var service = new AdventureSessionApplicationService(sessions, packages, mock(AdventureRepository.class),
@@ -81,6 +85,24 @@ class AdventureSessionTest {
         assertEquals(bundleId.value(), session.runtimeConfiguration().ruleSetId().value());
         assertEquals(List.of(rulebookId), session.runtimeConfiguration().rulebookIds());
         assertEquals("opening", session.runtimeConfiguration().initialScene());
+    }
+
+    @Test
+    void rejects_session_creation_from_an_unpublished_blueprint_revision() {
+        var packages = mock(ScenarioPackageRepository.class);
+        var scenarioPackage = ScenarioPackage.publish(ScenarioBundleId.generate(), 1, "fingerprint", List.of(), List.of(),
+                new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()), CharacterLimit.defaultLimit(),
+                new com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint(4,
+                        com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.NEEDS_REVIEW,
+                        List.of(new com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint.Field(
+                                "race", List.of("Elf"), true, "RULEBOOK", List.of(), "EXTRACTED", List.of())), List.of()));
+        when(packages.findById(scenarioPackage.packageId())).thenReturn(java.util.Optional.of(scenarioPackage));
+        var service = new AdventureSessionApplicationService(mock(AdventureSessionRepository.class), packages,
+                mock(AdventureRepository.class), mock(RuntimeBindingApplicationService.class),
+                mock(AdventureSessionStartCoordinator.class));
+
+        assertThrows(IllegalStateException.class, () -> service.create(new OwnerPlayerId(UUID.randomUUID()),
+                scenarioPackage.packageId(), scenarioPackage.packageId(), 4, null));
     }
 
     @Test

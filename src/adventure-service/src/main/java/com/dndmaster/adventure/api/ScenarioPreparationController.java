@@ -88,7 +88,7 @@ public class ScenarioPreparationController {
     }
 
     @PostMapping("/scenario-packages/{scenarioPackageId}/character-blueprint/publish")
-    com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint publishBlueprint(@PathVariable UUID scenarioPackageId) {
+    com.dndmaster.adventure.application.scenario.preparation.BlueprintPublicationResult publishBlueprint(@PathVariable UUID scenarioPackageId) {
         return service.publishBlueprint(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()));
     }
 

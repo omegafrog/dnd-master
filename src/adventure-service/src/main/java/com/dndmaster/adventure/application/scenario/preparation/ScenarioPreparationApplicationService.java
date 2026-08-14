@@ -21,6 +21,7 @@ import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintRevisio
 import com.dndmaster.adventure.domain.scenario.BlueprintProvenance;
 import com.dndmaster.adventure.domain.scenario.ProposalDecisionState;
 import com.dndmaster.adventure.domain.scenario.StorybookProposalDecision;
+import com.dndmaster.adventure.domain.scenario.StorybookProposalNotFoundException;
 import com.dndmaster.adventure.application.runtime.GameSystemDefinitionPort;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -473,7 +474,7 @@ public final class ScenarioPreparationApplicationService {
         CharacterCreationBlueprintView currentView = toView(current, documents);
         CharacterCreationBlueprintView.StorybookProposalView proposal = currentView.storybookProposals().stream()
                 .filter(item -> item.proposalId().equals(proposalId)).findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("unknown storybook proposal: " + proposalId));
+                .orElseThrow(() -> new StorybookProposalNotFoundException(proposalId));
         CharacterCreationBlueprint synchronizedBlueprint = synchronizeProposalDecisions(current, documents);
         CharacterCreationBlueprint updated = synchronizedBlueprint.decideProposal(proposalId, state,
                 "READY".equals(proposal.readinessState()));
@@ -559,7 +560,7 @@ public final class ScenarioPreparationApplicationService {
         return updated;
     }
 
-    public CharacterCreationBlueprint publishBlueprint(UUID packageId, OwnerPlayerId ownerPlayerId) {
+    public BlueprintPublicationResult publishBlueprint(UUID packageId, OwnerPlayerId ownerPlayerId) {
         ScenarioPackage scenarioPackage = packageRepository.findById(packageId)
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         ScenarioSourceBundle bundle = bundleRepository.findById(scenarioPackage.bundleId())
@@ -573,9 +574,12 @@ public final class ScenarioPreparationApplicationService {
         }
         CharacterCreationBlueprint current = requireBlueprint(scenarioPackage);
         requireDefinitionProvenance(current);
-        CharacterCreationBlueprint published = current.publish();
+        List<ScenarioBundleDocumentSelection> documents = bundle.currentRevision().documents();
+        CharacterCreationBlueprint synchronizedBlueprint = synchronizeProposalDecisions(current, documents);
+        CharacterCreationBlueprintView review = toView(synchronizedBlueprint, documents);
+        CharacterCreationBlueprint published = synchronizedBlueprint.publish();
         packageRepository.saveBlueprint(packageId, published);
-        return published;
+        return new BlueprintPublicationResult(published.revision(), review.appliedSettingsSummary());
     }
 
     private static CharacterCreationBlueprint requireBlueprint(ScenarioPackage scenarioPackage) {
