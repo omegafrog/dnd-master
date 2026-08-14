@@ -115,22 +115,45 @@ public class AdventureApiConfiguration {
             CharacterSheetOwnershipPort ownershipPort,
             AdventureStoryPlanRepository storyPlanRepository,
             SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
-            AdventurePrologueApplicationService prologueService) {
-        return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository, runtimeBindingApplicationService, new AdventureSessionStartCoordinator(startOutboxRepository), ownershipPort, storyPlanRepository, sessionKnowledgeSetRepository, prologueService);
+            AdventurePrologueApplicationService prologueService,
+            com.dndmaster.adventure.application.session.AiCompanionGenerationPort aiCompanionGenerationPort,
+            com.dndmaster.adventure.application.session.AiCompanionSheetCreationPort aiCompanionSheetCreationPort) {
+        return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository, runtimeBindingApplicationService, new AdventureSessionStartCoordinator(startOutboxRepository), ownershipPort, storyPlanRepository, sessionKnowledgeSetRepository, prologueService, aiCompanionGenerationPort, aiCompanionSheetCreationPort);
     }
 
     @Bean
     AdventurePrologueApplicationService adventurePrologueApplicationService(AdventureRepository adventures,
-            AdventureStoryPlanRepository plans, CharacterSheetReadPort sheets, AdventurePrologueGenerationPort generator) {
-        return new AdventurePrologueApplicationService(adventures, plans, sheets, generator);
+            AdventureStoryPlanRepository plans, CharacterSheetReadPort sheets, AdventurePrologueGenerationPort generator,
+            GmAgentPort gmAgentPort) {
+        return new AdventurePrologueApplicationService(adventures, plans, sheets, generator, gmAgentPort);
     }
 
     @Bean
     AdventurePrologueGenerationPort adventurePrologueGenerationPort() {
         return request -> {
-            var names = request.party().stream().map(snapshot -> snapshot.name() + " (레벨 " + snapshot.level() + ")").toList();
             var stage = request.stage();
-            return String.format("%s. %s. %s. 함께한 모험가: %s. 근거: %s.", stage.title(), stage.goal(), stage.conflict(), String.join(", ", names), String.join(", ", request.evidence()));
+            // Player-facing prose only. Stage type, checks, enemy/boss placement,
+            // branches, rewards and map metadata stay GM-internal. Grounded
+            // story clues are woven into natural table-talk instead of dumped.
+            var clues = stage.npcOrClues().stream().filter(value -> value != null && !value.isBlank())
+                    .limit(3).toList();
+            var sourceDetails = stage.evidence().stream()
+                    .map(item -> item.quote()).filter(value -> value != null && !value.isBlank())
+                    .limit(2).toList();
+            StringBuilder narration = new StringBuilder();
+            narration.append(stage.location()).append("에 도착했어요. ")
+                    .append(stage.goal()).append(" ");
+            if (!stage.conflict().isBlank()) {
+                narration.append(stage.conflict()).append(" ");
+            }
+            if (!clues.isEmpty()) {
+                narration.append("주변에서 ").append(String.join(", ", clues)).append(" 같은 단서가 눈에 들어옵니다. ");
+            }
+            if (!sourceDetails.isEmpty()) {
+                narration.append(String.join(" ", sourceDetails)).append(" ");
+            }
+            narration.append("일행은 잠시 숨을 고르고 주변을 살펴봅니다. 어떻게 해볼까요?");
+            return narration.toString();
         };
     }
 
@@ -197,7 +220,7 @@ public class AdventureApiConfiguration {
     @Bean
     ProviderTokenEstimator providerTokenEstimator() {
         return new ProviderTokenEstimator(Map.of("legacy", 8192, "local", 8192, "remote", 128000,
-                "ollama", 8192, "openai", 128000));
+                "ollama", 8192, "openai", 128000, "codex-cli", 128000));
     }
 
     @Bean
@@ -310,8 +333,10 @@ public class AdventureApiConfiguration {
 
     @Bean
     AdventureStoryPlanApplicationService adventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
-            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packages, AdventureStoryPlanGenerationPort generator) {
-        return new AdventureStoryPlanApplicationService(plans, sessions, packages, generator);
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packages, AdventureStoryPlanGenerationPort generator,
+            ScenarioBundleRepository bundles,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort sourceExcerptPort) {
+        return new AdventureStoryPlanApplicationService(plans, sessions, packages, generator, bundles, sourceExcerptPort);
     }
 
     @Bean
@@ -324,6 +349,22 @@ public class AdventureApiConfiguration {
     @Bean
     CharacterSheetOwnershipPort characterSheetOwnershipPort(ObjectMapper objectMapper, @Value("${adventure.integration.character-management.base-url:http://127.0.0.1:8080/}") String baseUrl, @Value("${adventure.integration.internal-token:local-dev-internal-token}") String token) {
         return new CrossContextHttpCharacterSheetOwnershipGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(10), objectMapper, token);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.session.AiCompanionGenerationPort aiCompanionGenerationPort(ObjectMapper objectMapper,
+            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:local-dev-internal-token}") String token) {
+        return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAiCompanionGenerationGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(30), objectMapper, token);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.session.AiCompanionSheetCreationPort aiCompanionSheetCreationPort(
+            ObjectMapper objectMapper, @Value("${adventure.integration.character-management.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:local-dev-internal-token}") String token) {
+        return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAiCompanionCharacterSheetGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(15), objectMapper, token);
     }
 
     @Bean
@@ -454,9 +495,10 @@ public class AdventureApiConfiguration {
     @Bean
     com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService scenarioPackageCompilationService(
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository repository,
-            com.dndmaster.adventure.application.scenario.compilation.ResolutionOverrideRepository overrideRepository) {
+            com.dndmaster.adventure.application.scenario.compilation.ResolutionOverrideRepository overrideRepository,
+            GameSystemDefinitionPort gameSystemDefinitionPort) {
         return new com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService(
-                repository, overrideRepository);
+                repository, overrideRepository, gameSystemDefinitionPort);
     }
 
     @Bean
@@ -915,6 +957,21 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.runtime.TacticalMapPreparationPort tacticalMapPreparationPort(
+            @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            ObjectMapper objectMapper) {
+        return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpTacticalMapPreparationGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(10), objectMapper);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.runtime.TacticalMapActivationApplicationService tacticalMapActivationApplicationService(
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packages,
+            com.dndmaster.adventure.application.runtime.TacticalMapPreparationPort preparation) {
+        return new com.dndmaster.adventure.application.runtime.TacticalMapActivationApplicationService(packages, preparation);
+    }
+
+    @Bean
     AiCombatPort aiCombatPort() {
         return new AiCombatPort() {
             @Override
@@ -955,27 +1012,17 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    RulebookOwnershipHttpPort rulebookOwnershipHttpPort() {
-        return (rulebookId, owner) -> true;
+    RulebookOwnershipHttpPort rulebookOwnershipHttpPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long timeoutSeconds) {
+        return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRulebookOwnershipAdapter(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper);
     }
 
     @Bean
-    AppliedRuleSetRepository appliedRuleSetRepository() {
-        return new AppliedRuleSetRepository() {
-            private final java.util.Map<com.dndmaster.adventure.domain.ruleset.RuleSetId,
-                    com.dndmaster.adventure.domain.ruleset.AppliedRuleSet> store = new java.util.concurrent.ConcurrentHashMap<>();
-
-            @Override
-            public java.util.Optional<com.dndmaster.adventure.domain.ruleset.AppliedRuleSet> findById(
-                    com.dndmaster.adventure.domain.ruleset.RuleSetId id) {
-                return java.util.Optional.ofNullable(store.get(id));
-            }
-
-            @Override
-            public void save(com.dndmaster.adventure.domain.ruleset.AppliedRuleSet ruleSet) {
-                store.put(ruleSet.id(), ruleSet);
-            }
-        };
+    AppliedRuleSetRepository appliedRuleSetRepository(DataSource dataSource) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresAppliedRuleSetRepository(dataSource);
     }
 
     @Bean
@@ -1000,9 +1047,10 @@ public class AdventureApiConfiguration {
             AuthenticatedPlayerResolver playerResolver,
             org.springframework.beans.factory.ObjectProvider<CombatMapPort> combatMapPort,
             ObjectMapper objectMapper,
-            org.springframework.beans.factory.ObjectProvider<CombatMapViewPort> combatMapViewPort) {
+            org.springframework.beans.factory.ObjectProvider<CombatMapViewPort> combatMapViewPort,
+            AdventureStoryPlanApplicationService storyPlanService) {
         return new AdventureController(
-                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, scenarioService, playerResolver, combatMapPort, objectMapper, combatMapViewPort);
+                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, scenarioService, playerResolver, combatMapPort, objectMapper, combatMapViewPort, storyPlanService);
     }
 
     @Bean

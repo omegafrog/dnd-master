@@ -24,6 +24,18 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                    preview_spans, preview_assets
               FROM rulebook_registration WHERE rulebook_id = ?
             """;
+
+    @Override
+    public void deleteById(RulebookId id) {
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(
+                        "DELETE FROM rulebook_registration WHERE rulebook_id = ?")) {
+            statement.setObject(1, id.value());
+            statement.executeUpdate();
+        } catch (SQLException exception) {
+            throw new RuntimeException("could not delete rulebook registration", exception);
+        }
+    }
     private static final String FIND_BY_OPERATION_KEY = """
             SELECT rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
                    storage_key, processing_status, extraction_status, extracted_content,

@@ -41,6 +41,34 @@ class TacticalMapActivationApplicationServiceTest {
         assertTrue(!result.textFallback());
     }
 
+    @Test
+    void preparesPlanSelectedDefinitionEvenWithoutLegacyStoryBinding() {
+        var mapId = UUID.randomUUID();
+        var documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        var map = new MapDefinition(mapId, "brewery", "page 1 image 1", new MapDefinition.MapGrid(0, 0, 1, 0, "5ft"),
+                List.of(), List.of(), List.of(), new MapSourceReference(documentId, 1, "asset:page 1 image 1"), .9, MapSafetyStatus.SAFE);
+        var packageVersion = ScenarioPackage.publishWithMaps(ScenarioBundleId.generate(), 1, "plan-map", List.of(), List.of(),
+                new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()),
+                com.dndmaster.adventure.domain.scenario.CharacterLimit.defaultLimit(), null, List.of(map), List.of());
+        var preparedId = UUID.randomUUID();
+        var seenRuleSet = new UUID[1];
+        var seenSpawn = new int[2];
+        var service = new TacticalMapActivationApplicationService(new PackageRepository(packageVersion),
+                new TacticalMapPreparationPort() {
+                    public UUID prepare(UUID adventureId, UUID ownerId, MapDefinition definition) { return preparedId; }
+                    public UUID prepare(UUID adventureId, UUID ownerId, UUID ruleSetId, MapDefinition definition) { seenRuleSet[0] = ruleSetId; return preparedId; }
+                    public UUID prepare(UUID adventureId, UUID ownerId, UUID ruleSetId, MapDefinition definition, int x, int y) { seenRuleSet[0] = ruleSetId; seenSpawn[0] = x; seenSpawn[1] = y; return preparedId; }
+                });
+
+        var ruleSetId = UUID.randomUUID();
+        var result = service.activateDefinition(packageVersion.packageId(), UUID.randomUUID(), UUID.randomUUID(), ruleSetId, mapId, 10, 13);
+
+        assertEquals(Optional.of(preparedId), result.combatMapId());
+        assertEquals(ruleSetId, seenRuleSet[0]);
+        assertEquals(10, seenSpawn[0]);
+        assertEquals(13, seenSpawn[1]);
+    }
+
     private record PackageRepository(ScenarioPackage value) implements ScenarioPackageRepository {
         public Optional<ScenarioPackage> findByInputFingerprint(String ignored) { return Optional.empty(); }
         public Optional<ScenarioPackage> findById(UUID id) { return id.equals(value.packageId()) ? Optional.of(value) : Optional.empty(); }

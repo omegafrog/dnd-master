@@ -57,6 +57,39 @@ class BundleMapCompilationTest {
                         List.of(new ResolutionExtractionPort.SourceExcerpt(documentId, 5, "asset:map-1", "MAP asset=map-1"))));
     }
 
+    @Test
+    void preservesQuotedMapAssetLocatorsContainingSpaces() {
+        var documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        var bundle = ScenarioSourceBundle.create(new ScenarioBundleId(UUID.randomUUID()),
+                new OwnerPlayerId(UUID.randomUUID()), new ScenarioSourceBundleRevision(1, List.of(
+                        new ScenarioBundleDocumentSelection(documentId, ScenarioBundleDocumentRole.MAP,
+                                com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus.INDEXED,
+                                "map.pdf", "PDF", 2))));
+
+        var result = new ScenarioPackageCompilationService(new PackageRepository()).compile(bundle, List.of(),
+                List.of(new ResolutionExtractionPort.SourceExcerpt(documentId, 2, "asset:page 1 image 1",
+                        "MAP asset=\"page 1 image 1\" image=\"page 1 image 1\" confidence=0.9 safety=SAFE")));
+
+        assertEquals("page 1 image 1", result.mapDefinitions().getFirst().assetId());
+        assertEquals("page 1 image 1", result.mapDefinitions().getFirst().assetLocator());
+    }
+
+    @Test
+    void ignoresMapWordsInOrdinaryDocumentText() {
+        var documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        var bundle = ScenarioSourceBundle.create(new ScenarioBundleId(UUID.randomUUID()),
+                new OwnerPlayerId(UUID.randomUUID()), new ScenarioSourceBundleRevision(1, List.of(
+                        new ScenarioBundleDocumentSelection(documentId, ScenarioBundleDocumentRole.MAP,
+                                com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus.INDEXED,
+                                "map.pdf", "PDF", 2))));
+
+        var result = new ScenarioPackageCompilationService(new PackageRepository()).compile(bundle, List.of(),
+                List.of(new ResolutionExtractionPort.SourceExcerpt(documentId, 2, "document:page-1",
+                        "A Most Potent Brew - Map")));
+
+        assertEquals(0, result.mapDefinitions().size());
+    }
+
     private static final class PackageRepository implements ScenarioPackageRepository {
         private final Map<String, com.dndmaster.adventure.domain.scenario.ScenarioPackage> packages = new HashMap<>();
         public Optional<com.dndmaster.adventure.domain.scenario.ScenarioPackage> findByInputFingerprint(String key) { return Optional.ofNullable(packages.get(key)); }

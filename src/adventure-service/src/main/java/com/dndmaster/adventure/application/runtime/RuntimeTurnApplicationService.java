@@ -17,6 +17,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
 import org.springframework.transaction.annotation.Transactional;
@@ -161,6 +162,7 @@ public class RuntimeTurnApplicationService {
         if (!safety.approved()) {
             throw new IllegalStateException("narration safety rejected: " + safety.reason());
         }
+        advanceStoryPlanIfRequested(adventure.sessionId(), plan);
 
         ActiveSourceContext activeSourceContext = plan.proposedActiveSourceContext() != null
                 ? plan.proposedActiveSourceContext()
@@ -175,7 +177,9 @@ public class RuntimeTurnApplicationService {
         AdventureContext nextContext = new AdventureContext(plan.scene(), plan.npcState(), command.action(), plan.judgment());
         List<ConversationEntry> conversation = new ArrayList<>(adventure.conversation());
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.narration()));
-        conversation.add(new ConversationEntry(conversation.size(), "PLAYER", command.action()));
+        if (!command.gmOnly()) {
+            conversation.add(new ConversationEntry(conversation.size(), "PLAYER", command.action()));
+        }
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.judgment()));
 
         long nextVersion = adventure.version() + 1 + (command.turnCharacterSheetId() == null ? 0 : 1);
@@ -214,13 +218,27 @@ public class RuntimeTurnApplicationService {
     }
 
     private String providerSelection(UUID sessionId, String field) {
-        if (providerBindingRepository == null) return "";
+        if (providerBindingRepository == null) return defaultProviderSelection(field);
         ProviderBinding binding = providerBindingRepository.current(sessionId).orElse(null);
-        if (binding == null) return "";
+        if (binding == null) return defaultProviderSelection(field);
         return switch (field) {
-            case "provider" -> binding.selection().provider();
-            case "model" -> binding.selection().model();
-            case "reasoning" -> binding.selection().reasoning();
+            case "provider" -> blankOrDefault(binding.selection().provider(), field);
+            case "model" -> blankOrDefault(binding.selection().model(), field);
+            case "reasoning" -> blankOrDefault(binding.selection().reasoning(), field);
+            default -> "";
+        };
+    }
+
+    private static String blankOrDefault(String value, String field) {
+        return value == null || value.isBlank() ? defaultProviderSelection(field) : value;
+    }
+
+    /** Keep runtime turns executable during migration when an old session has no binding row. */
+    private static String defaultProviderSelection(String field) {
+        return switch (field) {
+            case "provider" -> "codex-cli";
+            case "model" -> "gpt-5.6-luna";
+            case "reasoning" -> "none";
             default -> "";
         };
     }
@@ -258,17 +276,36 @@ public class RuntimeTurnApplicationService {
     private EvidencePack prefetchEvidence(
             SubmitRuntimeTurnCommand command, Adventure adventure, RuntimeBinding binding, ScenarioPackage scenarioPackage) {
         List<UUID> knowledgeDocumentIds = knowledgeDocumentIds(adventure, scenarioPackage);
+        List<UUID> storybookDocumentIds = documentIdsOfType(scenarioPackage, "STORYBOOK", knowledgeDocumentIds);
+        List<UUID> rulebookDocumentIds = documentIdsOfType(scenarioPackage, "RULEBOOK", knowledgeDocumentIds);
+        Map<UUID, Long> extractionVersions = scenarioPackage.documents().stream()
+                .collect(java.util.stream.Collectors.toMap(document -> document.knowledgeDocumentId().value(),
+                        com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection::extractionVersion, (a, b) -> a));
+        extractionVersions = extractionVersions.entrySet().stream().filter(entry -> entry.getValue() > 1)
+                .collect(java.util.stream.Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
         List<RuntimeEvidence> storybook = scopedSearch(new RuntimeEvidenceSearchRequest(
-                adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), knowledgeDocumentIds,
-                binding.activeSourceContext(), command.action(), RuntimeEvidenceType.STORYBOOK, 5));
-        List<RuntimeEvidence> rulebook = scopedSearch(new RuntimeEvidenceSearchRequest(
-                adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), knowledgeDocumentIds,
-                binding.activeSourceContext(), command.action(), RuntimeEvidenceType.RULEBOOK, 5));
+                adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), storybookDocumentIds,
+                binding.activeSourceContext(), command.action(), RuntimeEvidenceType.STORYBOOK, 5, extractionVersions));
+        List<RuntimeEvidence> rulebook = rulebookDocumentIds.isEmpty() ? List.of() : scopedSearch(new RuntimeEvidenceSearchRequest(
+                adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), rulebookDocumentIds,
+                binding.activeSourceContext(), command.action(), RuntimeEvidenceType.RULEBOOK, 5, extractionVersions));
         List<RuntimeEvidence> resolution = scenarioPackage.runtimeCandidates().stream()
                 .flatMap(unit -> resolutionEvidence(unit).stream())
                 .filter(evidence -> knowledgeDocumentIds.contains(evidence.knowledgeDocumentId().value()))
                 .toList();
+        if (storybook.isEmpty()) {
+            throw new IllegalStateException("storybook evidence is required for a runtime GM turn");
+        }
         return new EvidencePack(storybook, rulebook, resolution);
+    }
+
+    private static List<UUID> documentIdsOfType(ScenarioPackage scenarioPackage, String type, List<UUID> selected) {
+        return scenarioPackage.documents().stream()
+                .filter(document -> type.equalsIgnoreCase(document.documentType()))
+                .map(document -> document.knowledgeDocumentId().value())
+                .filter(selected::contains)
+                .distinct()
+                .toList();
     }
 
     private String storyPlanContext(Adventure adventure) {
@@ -277,24 +314,36 @@ public class RuntimeTurnApplicationService {
             return checkpoint + continuityContextProvider.load(adventure.sessionId().value()).map(StoryContinuityContext::promptText).orElse("");
         }
         if (storyPlanRepository == null) return checkpoint;
-        return checkpoint + storyPlanRepository.findBySessionId(adventure.sessionId()).map(plan -> {
-            if (plan.stages().isEmpty()) return "planVersion=" + plan.version() + "; status=" + plan.status();
-            var stage = plan.stages().get(plan.currentStage());
-            return "planVersion=" + plan.version() + "; status=" + plan.status() + "; stage=" + stage.position() + ":" + stage.title()
-                    + "; goal=" + stage.goal() + "; conflict=" + stage.conflict()
-                    + "; transition=" + stage.transitionCondition();
-        }).orElse("");
+        return checkpoint + storyPlanRepository.findBySessionId(adventure.sessionId())
+                .map(AdventureStoryPlanRuntimeContext::format).orElse("");
+    }
+
+    private void advanceStoryPlanIfRequested(com.dndmaster.adventure.domain.adventure.SessionId sessionId, RuntimePlan plan) {
+        if (!plan.advanceStoryPlan() || storyPlanRepository == null) return;
+        storyPlanRepository.findBySessionId(sessionId).ifPresent(current -> {
+            if (current.stages().isEmpty() || current.currentStage() >= current.stages().size() - 1) return;
+            var stage = current.stages().get(current.currentStage());
+            if (!plan.selectedBranchId().isBlank() && !stage.branchIds().contains(plan.selectedBranchId())) {
+                throw new IllegalStateException("GM selected an unknown story branch");
+            }
+            int target = current.currentStage() + 1;
+            if (!plan.selectedBranchId().isBlank()) {
+                String destination = stage.branchTargets().get(plan.selectedBranchId());
+                if (destination != null && destination.startsWith("stage:")) {
+                    target = Integer.parseInt(destination.substring("stage:".length())) - 1;
+                } else if (destination != null) {
+                    target = current.stages().stream().filter(candidate -> candidate.endingIds().contains(destination))
+                            .map(candidate -> candidate.position() - 1).findFirst().orElse(target);
+                }
+            }
+            if (target > current.currentStage() && target < current.stages().size()) storyPlanRepository.save(current.advanceTo(target));
+        });
     }
 
     private List<RuntimeEvidence> scopedSearch(RuntimeEvidenceSearchRequest request) {
-        try {
-            return evidenceSearchPort.search(request).stream()
-                    .filter(evidence -> request.knowledgeDocumentIds().contains(evidence.knowledgeDocumentId().value()))
-                    .toList();
-        } catch (RuntimeException ignored) {
-            // Evidence search is enrichment; a provider turn can still proceed with no citations.
-            return List.of();
-        }
+        return evidenceSearchPort.search(request).stream()
+                .filter(evidence -> request.knowledgeDocumentIds().contains(evidence.knowledgeDocumentId().value()))
+                .toList();
     }
 
     private List<UUID> knowledgeDocumentIds(Adventure adventure, ScenarioPackage scenarioPackage) {

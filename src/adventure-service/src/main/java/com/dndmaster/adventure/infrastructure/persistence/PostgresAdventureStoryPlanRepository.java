@@ -4,6 +4,8 @@ import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepositor
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlan;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStatus;
+import com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration;
+import com.dndmaster.adventure.domain.adventure.AdventureLength;
 import com.dndmaster.adventure.domain.adventure.SessionId;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -30,19 +32,19 @@ public final class PostgresAdventureStoryPlanRepository implements AdventureStor
     }
 
     @Override public void save(AdventureStoryPlan plan) {
-        try (Connection c = dataSource.getConnection(); PreparedStatement s = c.prepareStatement("INSERT INTO adventure_story_plan(plan_id, session_id, package_revision, party_revision, plan_version, status, current_stage, stages_json, failure_reason, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (session_id) DO UPDATE SET plan_id=EXCLUDED.plan_id, package_revision=EXCLUDED.package_revision, party_revision=EXCLUDED.party_revision, plan_version=EXCLUDED.plan_version, status=EXCLUDED.status, current_stage=EXCLUDED.current_stage, stages_json=EXCLUDED.stages_json, failure_reason=EXCLUDED.failure_reason, updated_at=EXCLUDED.updated_at")) {
+        try (Connection c = dataSource.getConnection(); PreparedStatement s = c.prepareStatement("INSERT INTO adventure_story_plan(plan_id, session_id, package_revision, party_revision, plan_version, status, ending_count, adventure_length, current_stage, stages_json, failure_reason, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (session_id) DO UPDATE SET plan_id=EXCLUDED.plan_id, package_revision=EXCLUDED.package_revision, party_revision=EXCLUDED.party_revision, plan_version=EXCLUDED.plan_version, status=EXCLUDED.status, ending_count=EXCLUDED.ending_count, adventure_length=EXCLUDED.adventure_length, current_stage=EXCLUDED.current_stage, stages_json=EXCLUDED.stages_json, failure_reason=EXCLUDED.failure_reason, updated_at=EXCLUDED.updated_at")) {
             String stages = mapper.writeValueAsString(plan.stages());
-            s.setObject(1, plan.planId()); s.setObject(2, plan.sessionId().value()); s.setLong(3, plan.packageRevision()); s.setLong(4, plan.partyRevision()); s.setLong(5, plan.version()); s.setString(6, plan.status().name()); s.setInt(7, plan.currentStage()); s.setString(8, stages); s.setString(9, plan.failureReason()); s.setObject(10, java.sql.Timestamp.from(plan.updatedAt())); s.executeUpdate();
-            try (PreparedStatement h = c.prepareStatement("INSERT INTO adventure_story_plan_history(history_id, plan_id, session_id, package_revision, party_revision, plan_version, status, current_stage, stages_json, failure_reason, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)") ) {
-                h.setObject(1, UUID.randomUUID()); h.setObject(2, plan.planId()); h.setObject(3, plan.sessionId().value()); h.setLong(4, plan.packageRevision()); h.setLong(5, plan.partyRevision()); h.setLong(6, plan.version()); h.setString(7, plan.status().name()); h.setInt(8, plan.currentStage()); h.setString(9, stages); h.setString(10, plan.failureReason()); h.setObject(11, java.sql.Timestamp.from(plan.updatedAt())); h.executeUpdate();
+            s.setObject(1, plan.planId()); s.setObject(2, plan.sessionId().value()); s.setLong(3, plan.packageRevision()); s.setLong(4, plan.partyRevision()); s.setLong(5, plan.version()); s.setString(6, plan.status().name()); s.setInt(7, plan.configuration().endingCount()); s.setString(8, plan.configuration().adventureLength().name()); s.setInt(9, plan.currentStage()); s.setString(10, stages); s.setString(11, plan.failureReason()); s.setObject(12, java.sql.Timestamp.from(plan.updatedAt())); s.executeUpdate();
+            try (PreparedStatement h = c.prepareStatement("INSERT INTO adventure_story_plan_history(history_id, plan_id, session_id, package_revision, party_revision, plan_version, status, ending_count, adventure_length, current_stage, stages_json, failure_reason, recorded_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)") ) {
+                h.setObject(1, UUID.randomUUID()); h.setObject(2, plan.planId()); h.setObject(3, plan.sessionId().value()); h.setLong(4, plan.packageRevision()); h.setLong(5, plan.partyRevision()); h.setLong(6, plan.version()); h.setString(7, plan.status().name()); h.setInt(8, plan.configuration().endingCount()); h.setString(9, plan.configuration().adventureLength().name()); h.setInt(10, plan.currentStage()); h.setString(11, stages); h.setString(12, plan.failureReason()); h.setObject(13, java.sql.Timestamp.from(plan.updatedAt())); h.executeUpdate();
             }
         } catch (Exception e) { throw new AdventurePersistenceException("could not save adventure story plan", e); }
     }
 
     @Override public List<AdventureStoryPlan> readHistory(SessionId sessionId) {
-        try (Connection c = dataSource.getConnection(); PreparedStatement s = c.prepareStatement("SELECT plan_id, session_id, package_revision, party_revision, plan_version, status, current_stage, stages_json, failure_reason, recorded_at FROM adventure_story_plan_history WHERE session_id=? ORDER BY plan_version")) {
+        try (Connection c = dataSource.getConnection(); PreparedStatement s = c.prepareStatement("SELECT plan_id, session_id, package_revision, party_revision, plan_version, status, ending_count, adventure_length, current_stage, stages_json, failure_reason, recorded_at FROM adventure_story_plan_history WHERE session_id=? ORDER BY plan_version")) {
             s.setObject(1, sessionId.value()); List<AdventureStoryPlan> result = new java.util.ArrayList<>();
-            try (ResultSet rows = s.executeQuery()) { while (rows.next()) result.add(AdventureStoryPlan.rehydrate(rows.getObject("plan_id", UUID.class), new SessionId(rows.getObject("session_id", UUID.class)), rows.getLong("package_revision"), rows.getLong("party_revision"), rows.getLong("plan_version"), AdventureStoryPlanStatus.valueOf(rows.getString("status")), mapper.readValue(rows.getString("stages_json"), new TypeReference<List<AdventureStoryPlanStage>>() {}), rows.getInt("current_stage"), rows.getString("failure_reason"), rows.getTimestamp("recorded_at").toInstant())); }
+            try (ResultSet rows = s.executeQuery()) { while (rows.next()) result.add(AdventureStoryPlan.rehydrate(rows.getObject("plan_id", UUID.class), new SessionId(rows.getObject("session_id", UUID.class)), rows.getLong("package_revision"), rows.getLong("party_revision"), rows.getLong("plan_version"), AdventureStoryPlanStatus.valueOf(rows.getString("status")), new AdventurePlanConfiguration(rows.getInt("ending_count"), AdventureLength.valueOf(rows.getString("adventure_length"))), mapper.readValue(rows.getString("stages_json"), new TypeReference<List<AdventureStoryPlanStage>>() {}), rows.getInt("current_stage"), rows.getString("failure_reason"), rows.getTimestamp("recorded_at").toInstant())); }
             return result;
         } catch (Exception e) { throw new AdventurePersistenceException("could not load story plan history", e); }
     }
@@ -53,6 +55,7 @@ public final class PostgresAdventureStoryPlanRepository implements AdventureStor
             return AdventureStoryPlan.rehydrate(id, new SessionId(row.getObject("session_id", UUID.class)),
                     row.getLong("package_revision"), row.getLong("party_revision"), row.getLong("plan_version"),
                     AdventureStoryPlanStatus.valueOf(row.getString("status")),
+                    new AdventurePlanConfiguration(row.getInt("ending_count"), AdventureLength.valueOf(row.getString("adventure_length"))),
                     mapper.readValue(row.getString("stages_json"), new TypeReference<List<AdventureStoryPlanStage>>() {}),
                     row.getInt("current_stage"), row.getString("failure_reason"), row.getTimestamp("updated_at").toInstant());
         } catch (Exception e) { throw new SQLException("could not parse adventure story plan", e); }

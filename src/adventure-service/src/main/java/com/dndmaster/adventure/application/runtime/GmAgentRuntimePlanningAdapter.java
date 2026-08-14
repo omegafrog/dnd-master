@@ -35,8 +35,9 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         TurnCapability capability = gateway == null || saga == null ? null : TurnCapability.issue(
                 request.sessionId(), request.turnId(), request.ownerPlayerId().value(), Set.of("dice.roll", "character.update", "revise_story_plan", "advance_game_time"),
                 java.time.Instant.now().plusSeconds(60), UUID.nameUUIDFromBytes((request.sessionId() + ":" + request.turnId()).getBytes(StandardCharsets.UTF_8)));
-        GmPlanResult result = validator.validate(capability == null ? agentPort.plan(context) : agentPort.plan(context, capability),
-                request.evidencePack(), request.currentContext(), hiddenData);
+        GmPlanResult result = capability == null ? agentPort.plan(context) : agentPort.plan(context, capability);
+        result = groundStorybookCitation(result, request.evidencePack());
+        result = validator.validate(result, request.evidencePack(), request.currentContext(), hiddenData);
         if (!result.toolCalls().isEmpty()) {
             if (gateway == null || saga == null) throw new IllegalStateException("GM tool gateway is not configured");
             GmToolGateway saggedGateway = (cap, invocation) -> {
@@ -91,7 +92,20 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         } else if (capability != null) {
             gateway.revoke(capability);
         }
-        GmPlanResult validated = validator.validate(result, request.evidencePack(), request.currentContext(), hiddenData);
+        GmPlanResult validated = validator.validate(groundStorybookCitation(result, request.evidencePack()), request.evidencePack(), request.currentContext(), hiddenData);
         return validated.plan();
+    }
+
+    private static GmPlanResult groundStorybookCitation(GmPlanResult result, EvidencePack evidencePack) {
+        if (result.plan().citedEvidence() != null && !result.plan().citedEvidence().isEmpty()
+                || evidencePack.storybook().isEmpty()) return result;
+        RuntimePlan plan = result.plan();
+        RuntimeEvidence grounding = evidencePack.storybook().getFirst();
+        RuntimePlan grounded = new RuntimePlan(plan.scene(), plan.npcState(), plan.judgment(), plan.narration(),
+                plan.proposedActiveSourceContext(), List.of(grounding),
+                java.util.stream.Stream.concat(plan.warnings().stream(), java.util.stream.Stream.of(
+                        "GM response omitted a citation; the highest-ranked storybook evidence was attached for grounding.")).toList(),
+                plan.provider(), plan.model(), plan.reasoning(), plan.advanceStoryPlan(), plan.selectedBranchId());
+        return new GmPlanResult(grounded, result.provider(), result.model(), result.reasoning(), result.stateDelta(), result.toolCalls());
     }
 }

@@ -6,6 +6,16 @@ afterEach(() => {
 })
 
 describe('HttpSetupApi', () => {
+  it('preflights the active endpoint and exposes Codex login state', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(JSON.stringify([{ id: 'endpoint-1', provider: 'CODEX_CLI', active: true }]), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ healthy: false, detail: 'Codex OAuth session unavailable' }), { status: 200 }))
+    await expect(new HttpSetupApi(() => 'owner-token').preflightAgentEndpoint()).resolves.toMatchObject({
+      configured: true, connected: false, state: 'LOGIN_REQUIRED', provider: 'CODEX_CLI',
+    })
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    fetchMock.mockRestore()
+  })
   it('deletes a scenario bundle through the authenticated API', async () => {
     const fetchMock = vi.fn(async () => ({ status: 204, ok: true, headers: new Headers() } as Response))
     vi.stubGlobal('fetch', fetchMock)
@@ -136,6 +146,19 @@ describe('HttpSetupApi', () => {
     expect(fetchMock.mock.calls[0][0]).toBe('/api/v1/scenario-packages/package-1/character-blueprint/resolve')
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).toEqual({ expectedRevision: 7, fieldKey: 'node-race', value: 'Elf' })
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string)).toEqual({ expectedRevision: 8, parentId: 'node-scores', key: 'con', label: 'CON' })
+  })
+
+  it('generates a blueprint from the selected catalog rulebook revision', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ status: 200, ok: true, headers: new Headers(), json: async () => ({}) } as Response)
+    vi.stubGlobal('fetch', fetchMock)
+    const api = new HttpSetupApi(() => 'owner-token')
+
+    await api.generateBlueprintDraft?.('package-1', 'catalog-5e', 2)
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/scenario-packages/package-1/character-blueprint/draft?catalogRulebookId=catalog-5e&catalogExtractionVersion=2',
+      expect.any(Object),
+    )
   })
 
   it('creates a character sheet through the internal character endpoint', async () => {

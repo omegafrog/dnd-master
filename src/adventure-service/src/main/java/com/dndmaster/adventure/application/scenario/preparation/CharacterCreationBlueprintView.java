@@ -12,12 +12,20 @@ public record CharacterCreationBlueprintView(
         long revision,
         List<FieldView> fields,
         String status,
-        List<NodeView> roots) {
+        List<NodeView> roots,
+        String edition) {
+    public CharacterCreationBlueprintView(boolean available, String summary, int rulebookDocumentCount,
+                                          int storybookDocumentCount, List<String> diagnostics, long revision,
+                                          List<FieldView> fields, String status, List<NodeView> roots) {
+        this(available, summary, rulebookDocumentCount, storybookDocumentCount, diagnostics, revision, fields,
+                status, roots, "DND_5E_2014");
+    }
     public CharacterCreationBlueprintView {
         diagnostics = List.copyOf(diagnostics);
         fields = List.copyOf(fields);
         status = status == null ? "DRAFT" : status;
         roots = List.copyOf(roots);
+        edition = edition == null || edition.isBlank() ? "DND_5E_2014" : edition;
     }
 
     public CharacterCreationBlueprintView(boolean available, String summary, int rulebookDocumentCount,

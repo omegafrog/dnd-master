@@ -36,10 +36,13 @@ public final class CharacterSheetApplicationService {
 
     public CharacterSheet createSheet(CreateCharacterSheetCommand command) {
         Objects.requireNonNull(command, "command must not be null");
-        if (!sessionPolicyPort.policyFor(command.sessionId()).acceptingCharacterSheets()) {
+        SessionCharacterPolicy sessionPolicy = sessionPolicyPort.policyFor(command.sessionId());
+        if (!sessionPolicy.acceptingCharacterSheets()) {
             throw new IllegalStateException("adventure session no longer accepts character sheets");
         }
-        SheetEdition applied = adventureEditionHttpPort.getAppliedEdition(command.sessionId().asAdventureId());
+        SheetEdition applied = sessionPolicy.characterEdition() == null
+                ? adventureEditionHttpPort.getAppliedEdition(command.sessionId().asAdventureId())
+                : SheetEdition.valueOf(sessionPolicy.characterEdition());
         var sheet = new CharacterSheet(
                 CharacterSheetId.generate(), command.sessionId(), command.ownerPlayerId(), command.requestedEdition(), command.data());
         sheet.authorizeOpen(new CharacterSheetOpenRequest(command.sessionId().asAdventureId(), applied, command.requestedEdition()));
@@ -70,6 +73,13 @@ public final class CharacterSheetApplicationService {
         SheetEdition applied = adventureEditionHttpPort.getAppliedEdition(sheet.adventureId());
         sheet.authorizeOpen(new CharacterSheetOpenRequest(sheet.adventureId(), applied, requestedEdition));
         return sheet;
+    }
+
+    /** Internal runtime reads need metadata only; edition negotiation belongs to user-facing reads. */
+    public CharacterSheet readForRuntime(CharacterSheetId id) {
+        // Start orchestration reads the sheet before the Adventure aggregate exists;
+        // ownership and lifecycle checks happen at party binding/start validation.
+        return load(id);
     }
 
     public CharacterSheet verifySessionOwnership(CharacterSheetId id, SessionId sessionId, java.util.UUID ownerPlayerId) {

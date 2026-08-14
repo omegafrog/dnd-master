@@ -23,7 +23,7 @@ class FakeSetupApi implements SetupApi {
       knowledgeDocumentId: 'doc-1',
       documentType: 'STORYBOOK',
       originalFilename: 'main.pdf',
-      status: 'EXTRACTED',
+      status: 'INDEXED',
       format: 'PDF',
       extractionVersion: 3,
       warnings: [],
@@ -41,7 +41,7 @@ class FakeSetupApi implements SetupApi {
       knowledgeDocumentId: 'doc-3',
       documentType: 'RULEBOOK',
       originalFilename: 'rules.pdf',
-      status: 'EXTRACTED',
+      status: 'INDEXED',
       format: 'PDF',
       extractionVersion: 1,
       warnings: [],
@@ -69,13 +69,13 @@ class FakeSetupApi implements SetupApi {
   async listKnowledgeDocuments() { return this.documents }
   async createScenarioBundle() {
     return bundle('bundle-1', 1, [
-      { knowledgeDocumentId: 'doc-1', documentType: 'STORYBOOK', originalFilename: 'main.pdf', status: 'EXTRACTED', role: 'MAIN_SCENARIO', extractionVersion: 3 },
+      { knowledgeDocumentId: 'doc-1', documentType: 'STORYBOOK', originalFilename: 'main.pdf', status: 'INDEXED', role: 'MAIN_SCENARIO', extractionVersion: 3 },
       { knowledgeDocumentId: 'doc-2', documentType: 'STORYBOOK', originalFilename: 'handout.pdf', status: 'PARTIAL_CONFIRMED', role: 'HANDOUT', extractionVersion: 7 },
-      { knowledgeDocumentId: 'doc-3', documentType: 'RULEBOOK', originalFilename: 'rules.pdf', status: 'EXTRACTED', role: 'RULEBOOK', extractionVersion: 1 },
+      { knowledgeDocumentId: 'doc-3', documentType: 'RULEBOOK', originalFilename: 'rules.pdf', status: 'INDEXED', role: 'RULEBOOK', extractionVersion: 1 },
     ])
   }
   async reviseScenarioBundle() { return bundle('bundle-1', 2, [
-    { knowledgeDocumentId: 'doc-1', documentType: 'STORYBOOK', originalFilename: 'main.pdf', status: 'EXTRACTED', role: 'REFERENCE', extractionVersion: 3 },
+    { knowledgeDocumentId: 'doc-1', documentType: 'STORYBOOK', originalFilename: 'main.pdf', status: 'INDEXED', role: 'REFERENCE', extractionVersion: 3 },
   ]) }
   async getScenarioBundle() { return bundle('bundle-1', 1, []) }
   async createCharacterSheet(): Promise<CreatedCharacterSheetView> {
@@ -232,7 +232,7 @@ describe('ScenarioSetup', () => {
     ], { 'str-1': '12', 'str-2': '14' })).toEqual(['str=12', 'group.str=14'])
   })
 
-  it('lets the owner save a bundle and compile it without rendering play prep in setup', async () => {
+  it('saves a bundle without rendering game preparation in setup', async () => {
     const api = new FakeSetupApi()
     const user = userEvent.setup()
     render(<ScenarioSetup api={api} playerId="owner-1" onError={() => {}} />)
@@ -240,24 +240,18 @@ describe('ScenarioSetup', () => {
     expect(await screen.findByText('main.pdf')).toBeInTheDocument()
     expect(screen.getByText('rules.pdf')).toBeInTheDocument()
     expect(screen.getByLabelText('rules.pdf 역할')).toHaveValue('RULEBOOK')
-    expect(screen.getByText('handout.pdf: 추출 경고가 있어 컴파일 위험이 있습니다.')).toBeInTheDocument()
-    expect(screen.getByText('failed-main.pdf: 컴파일 위험 — document parser stopped')).toBeInTheDocument()
+    expect(screen.getByText('handout.pdf: 자료를 읽는 중 확인이 필요한 부분이 있습니다.')).toBeInTheDocument()
+    expect(screen.getByText('failed-main.pdf: 준비에 문제가 있습니다 — document parser stopped')).toBeInTheDocument()
 
     await user.selectOptions(screen.getByLabelText('main.pdf 역할'), 'MAIN_SCENARIO')
     await user.selectOptions(screen.getByLabelText('handout.pdf 역할'), 'HANDOUT')
-    await user.click(screen.getByRole('button', { name: '시나리오 번들 저장' }))
+    await user.click(screen.getByRole('button', { name: '모험 자료 저장' }))
 
-    expect(await screen.findByText('번들 저장 완료: bundle-1 v1')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: '시나리오 패키지 컴파일' }))
-
-    expect(await screen.findByText('패키지 package-1 · COMPLETE')).toBeInTheDocument()
-    expect(screen.getByText('캐릭터 한도: 2명')).toBeInTheDocument()
-    expect(screen.getByText('한도 근거: page:1 · 최대 2명')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: '캐릭터 생성 시작' })).toBeInTheDocument()
-    expect(screen.queryByText('플레이 준비')).not.toBeInTheDocument()
-    expect(screen.getByLabelText('런타임 엔진')).toHaveValue('ollama')
-    expect(screen.getByLabelText('search')).toBeChecked()
-    expect(screen.getByLabelText('move')).toBeChecked()
+    expect(screen.queryByText('저장된 모험 자료')).not.toBeInTheDocument()
+    expect(screen.queryByText('게임 준비 시작')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('런타임 엔진')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('search')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('move')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('모험 ID')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('룰북 ID 목록')).not.toBeInTheDocument()
     expect(screen.queryByLabelText('캐릭터 시트 ID')).not.toBeInTheDocument()
@@ -296,15 +290,13 @@ describe('ScenarioSetup', () => {
     ]
     api.getScenarioCompilation = vi.fn(async () => statuses.shift() ?? statuses[statuses.length - 1])
     const user = userEvent.setup()
-    render(<ScenarioSetup api={api} playerId="owner-1" onError={() => {}} />)
+    render(<ScenarioSetup api={api} playerId="owner-1" onError={() => {}} initialBundle={bundle('bundle-1', 1, [])} preparationOnly />)
 
-    await screen.findByText('main.pdf')
-    await user.click(screen.getByRole('button', { name: '시나리오 번들 저장' }))
-    await user.click(screen.getByRole('button', { name: '시나리오 패키지 컴파일' }))
+    await user.click(screen.getByRole('button', { name: '게임 준비 시작' }))
 
-    expect(await screen.findByText('컴파일 상태 REQUESTED · 시도 0')).toBeInTheDocument()
-    expect(await screen.findByText('컴파일 상태 WAITING_RETRY · 시도 1')).toBeInTheDocument()
-    expect(await screen.findByText('패키지 package-1 · COMPLETE')).toBeInTheDocument()
+    expect(await screen.findByText('게임 준비 상태 REQUESTED · 시도 0')).toBeInTheDocument()
+    expect(await screen.findByText('게임 준비 상태 WAITING_RETRY · 시도 1')).toBeInTheDocument()
+    expect(await screen.findByText('모험 준비 결과 package-1 · COMPLETE')).toBeInTheDocument()
     expect(api.getScenarioCompilation).toHaveBeenCalled()
   }, 10000)
 

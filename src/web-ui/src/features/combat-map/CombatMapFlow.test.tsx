@@ -46,6 +46,19 @@ it('shows character sheet, rolls dice, and shows combat map', async () => {
   expect(await screen.findByText('현재 맵 상태: authoritative-map')).toBeInTheDocument()
 })
 
+it('renders the supplied map asset below a transparent tactical grid', async () => {
+  const api = fakeApi()
+  api.getCombatMap = async () => ({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0,
+    grid: { width: 20, height: 20 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 0, y: 0 }],
+    layers: [{ type: 'MAP_IMAGE', value: '/assets/maps/a-potent-brew-map.png' }],
+  })
+  render(<CombatMapView adventureId="a1" api={api} />)
+  const map = await screen.findByLabelText('tactical-map')
+  expect(map).toHaveStyle({ backgroundImage: 'url(/assets/maps/a-potent-brew-map.png)' })
+  expect(map.querySelectorAll('button')).toHaveLength(400)
+})
+
 it('keeps a drag candidate local until confirmed, and cancel sends nothing', async () => {
   const api = fakeApi()
   const user = userEvent.setup()

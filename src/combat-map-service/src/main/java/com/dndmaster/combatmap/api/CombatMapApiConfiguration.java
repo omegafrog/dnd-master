@@ -10,6 +10,9 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import javax.sql.DataSource;
+import javax.imageio.ImageIO;
+import java.io.ByteArrayInputStream;
+import java.util.Base64;
 import java.util.List;
 import java.util.Set;
 
@@ -80,11 +83,35 @@ public class CombatMapApiConfiguration {
 
     @Bean
     MapFilePreparationPort mapFilePreparationPort() {
-        return source -> new PreparedMapData(
-                new GridSpec(20, 20, 30, 5),
-                List.of(),
-                Set.of(),
-                List.of());
+        return source -> {
+            try {
+                var image = decodeImage(source);
+                if (image == null) throw new IllegalArgumentException("map image format is not supported");
+                var detected = new MapGridDetector().detect(image);
+                String contentType = source.filename().toLowerCase().endsWith(".jpg") || source.filename().toLowerCase().endsWith(".jpeg") ? "image/jpeg" : "image/png";
+                String dataUrl = "data:" + contentType + ";base64," + Base64.getEncoder().encodeToString(renderPng(source));
+                return new PreparedMapData(new GridSpec(detected.width(), detected.height(), detected.cellSize(), 5), List.of(), Set.of(),
+                        List.of(new MapLayer("MAP_IMAGE", dataUrl, LayerVisibility.PLAYER_VISIBLE),
+                                new MapLayer("GRID_BOUNDS", detected.boundsValue(image.getWidth(), image.getHeight()), LayerVisibility.PLAYER_VISIBLE)));
+            } catch (java.io.IOException exception) { throw new IllegalArgumentException("map image cannot be decoded", exception); }
+        };
+    }
+
+    private static java.awt.image.BufferedImage decodeImage(UploadedMapSource source) throws java.io.IOException {
+        var image = ImageIO.read(new ByteArrayInputStream(source.content()));
+        if (image != null) return image;
+        if (!source.filename().toLowerCase().endsWith(".pdf")) return null;
+        try (var document = org.apache.pdfbox.Loader.loadPDF(source.content())) {
+            return new org.apache.pdfbox.rendering.PDFRenderer(document).renderImageWithDPI(0, 144);
+        }
+    }
+
+    private static byte[] renderPng(UploadedMapSource source) throws java.io.IOException {
+        if (!source.filename().toLowerCase().endsWith(".pdf")) return source.content();
+        try (var document = org.apache.pdfbox.Loader.loadPDF(source.content()); var output = new java.io.ByteArrayOutputStream()) {
+            ImageIO.write(new org.apache.pdfbox.rendering.PDFRenderer(document).renderImageWithDPI(0, 144), "png", output);
+            return output.toByteArray();
+        }
     }
 
     @Bean
@@ -93,7 +120,10 @@ public class CombatMapApiConfiguration {
                 new GridSpec(20, 20, 30, 5),
                 List.of(),
                 Set.of(),
-                List.of());
+                scenarioDescription != null && (scenarioDescription.contains("A_Potent_Brew_Map")
+                        || scenarioDescription.contains("page 1 image 1"))
+                        ? List.of(new MapLayer("MAP_IMAGE", "/assets/maps/a-potent-brew-map.png", LayerVisibility.PLAYER_VISIBLE))
+                        : List.of());
     }
 
     @Bean

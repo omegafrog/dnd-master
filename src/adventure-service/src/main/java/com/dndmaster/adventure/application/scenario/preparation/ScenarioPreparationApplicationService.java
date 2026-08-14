@@ -144,18 +144,44 @@ public final class ScenarioPreparationApplicationService {
     }
 
     public CharacterCreationBlueprintView generateBlueprintDraft(UUID packageId, OwnerPlayerId ownerPlayerId, String edition) {
+        return generateBlueprintDraft(packageId, ownerPlayerId, edition, null, 0);
+    }
+
+    /**
+     * Builds a creation schema from a shared catalog rulebook plus the package's storybooks.
+     * Catalog rulebooks deliberately do not become bundle documents: they are global sources
+     * selected at setup time, while storybooks remain private bundle content.
+     */
+    public CharacterCreationBlueprintView generateBlueprintDraft(UUID packageId, OwnerPlayerId ownerPlayerId,
+                                                                  String edition, UUID catalogRulebookId,
+                                                                  long catalogExtractionVersion) {
         ScenarioPackage scenarioPackage = packageRepository.findById(packageId)
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         ScenarioSourceBundle bundle = bundleRepository.findById(scenarioPackage.bundleId())
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         bundle.authorize(ownerPlayerId);
         requireCurrentBundleRevision(scenarioPackage, bundle);
+        if ("DND_5E_2024".equalsIgnoreCase(edition)) {
+            return new CharacterCreationBlueprintView(false, "D&D 5.5e (2024) rulebook contract unavailable",
+                    0, 0, List.of("DND_5E_2024 rulebook contract is not published"), 0, List.of(), "UNAVAILABLE", List.of(),
+                    "DND_5E_2024");
+        }
         List<ScenarioBundleDocumentSelection> storybooks = bundle.currentRevision().documents().stream()
                 .filter(document -> "STORYBOOK".equalsIgnoreCase(document.documentType()))
                 .toList();
         List<ScenarioBundleDocumentSelection> rulebooks = bundle.currentRevision().documents().stream()
                 .filter(document -> "RULEBOOK".equalsIgnoreCase(document.documentType()))
                 .toList();
+        if (catalogRulebookId != null) {
+            if (catalogExtractionVersion <= 0) {
+                throw new IllegalArgumentException("catalog rulebook extraction version must be positive");
+            }
+            rulebooks = List.of(new ScenarioBundleDocumentSelection(
+                    new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(catalogRulebookId),
+                    ScenarioBundleDocumentRole.REFERENCE,
+                    com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus.INDEXED,
+                    "shared-catalog-rulebook", "RULEBOOK", catalogExtractionVersion));
+        }
 
         List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> candidates = new ArrayList<>();
         // RULEBOOK supplies base-sheet choices. STORYBOOK independently supplies campaign additions
@@ -178,13 +204,17 @@ public final class ScenarioPreparationApplicationService {
         CharacterCreationBlueprint blueprint = DndCharacterCreationTemplate.apply(edition,
                 blueprintCompiler.compileAgent(nextBlueprintRevision, candidates));
         blueprint = normalizeSystemAgnosticManualFields(blueprint, edition, candidates);
-        blueprint = restoreGroundedCandidates(blueprint, candidates);
+        blueprint = restoreGroundedCandidates(blueprint, edition, candidates);
         long definitionVersion = rulebooks.stream().map(document -> gameSystemDefinitionPort.findByRulebook(document.knowledgeDocumentId().value()))
                 .flatMap(java.util.Optional::stream).map(GameSystemDefinitionPort.Definition::version).findFirst().orElse(0L);
+        if (definitionVersion < 1) {
+            throw new IllegalStateException("published game system definition is required before character blueprint generation");
+        }
         blueprint = blueprint.withProvenance(new BlueprintProvenance(definitionVersion, bundle.currentRevision().revision(),
-                sourceDocuments.stream().map(document -> document.documentType().toUpperCase()).distinct().toList()));
+                sourceDocuments.stream().map(document -> document.documentType().toUpperCase()).distinct().toList(), edition));
+        requireDefinitionProvenance(blueprint);
         packageRepository.saveBlueprint(packageId, blueprint);
-        return toView(blueprint, storybooks);
+        return toView(blueprint, sourceDocuments);
     }
 
     private static CharacterCreationBlueprint normalizeSystemAgnosticManualFields(
@@ -211,7 +241,9 @@ public final class ScenarioPreparationApplicationService {
 
     private static CharacterCreationBlueprint restoreGroundedCandidates(
             CharacterCreationBlueprint blueprint,
+            String edition,
             List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> candidates) {
+        if ("DND_5E_2014".equalsIgnoreCase(edition)) return blueprint;
         Map<String, CharacterInputTagExtractionPort.CharacterInputTagCandidate> selected = new LinkedHashMap<>();
         for (CharacterInputTagExtractionPort.CharacterInputTagCandidate candidate : candidates) {
             if (candidate == null || candidate.evidence().isEmpty()) continue;
@@ -291,12 +323,7 @@ public final class ScenarioPreparationApplicationService {
                                         : spec.retrievalQuery(),
                                 java.util.Map.of(sourceType, .25), 0));
                 List<CharacterInputTagExtractionPort.SourceExcerpt> topicExcerpts = excerptList(evidence);
-                if (topicExcerpts.isEmpty()) {
-                    LOGGER.info("character_blueprint_refine_skipped packageId={} field={} reason=no_topic_excerpts elapsedMs={}",
-                            packageId, candidate.key(), (System.nanoTime() - startedAt) / 1_000_000);
-                    refined.add(candidate);
-                    continue;
-                }
+                if (topicExcerpts.isEmpty()) throw new IllegalStateException("character blueprint extraction evidence is missing for field " + candidate.key());
                 List<CharacterInputTagExtractionPort.CharacterInputTagCandidate> result = characterTagExtraction.extract(
                         new CharacterInputTagExtractionPort.Request(
                                 packageId + ":character-blueprint-refine:" + candidate.key() + ":" + UUID.randomUUID(),
@@ -305,18 +332,17 @@ public final class ScenarioPreparationApplicationService {
                                         ? "Keep key exactly '" + candidate.key() + "'."
                                         : spec.extractionPolicy() + " Keep key exactly '" + spec.key() + "'.")
                                         + " Decide FREE_TEXT, SINGLE_SELECT, or MULTI_SELECT from excerpts. If selectable, include one optionDetails object per option with description, sourceQuote, and evidence."));
-                var selected = result == null ? candidate : result.stream()
+                if (result == null) throw new IllegalStateException("character blueprint extraction returned no result for field " + candidate.key());
+                var selected = result.stream()
                         .filter(item -> item.key().equals(candidate.key()))
-                        .findFirst().map(item -> withSourceType(item, sourceType)).orElse(candidate);
+                        .findFirst().map(item -> withSourceType(item, sourceType))
+                        .orElseGet(() -> withSourceType(candidate, sourceType));
                 LOGGER.info("character_blueprint_refine_finished packageId={} field={} excerpts={} mode={} options={} optionDetails={} elapsedMs={}",
                         packageId, candidate.key(), topicExcerpts.size(), selected.inputMode(), selected.options().size(),
                         selected.optionDetails().size(), (System.nanoTime() - startedAt) / 1_000_000);
                 refined.add(selected);
             } catch (RuntimeException exception) {
-                LOGGER.warn("character_blueprint_refine_failed packageId={} field={} reason={}",
-                        packageId, candidate.key(), exception.getMessage());
-                // A failed topic lookup must not discard the grounded first-stage field.
-                refined.add(candidate);
+                throw new IllegalStateException("character blueprint extraction failed for field " + candidate.key(), exception);
             }
         }
         return List.copyOf(refined);
@@ -505,7 +531,9 @@ public final class ScenarioPreparationApplicationService {
                 && scenarioPackage.runtimeCandidates().isEmpty())) {
             throw new IllegalStateException("scenario package is not ready for blueprint publication");
         }
-        CharacterCreationBlueprint published = requireBlueprint(scenarioPackage).publish();
+        CharacterCreationBlueprint current = requireBlueprint(scenarioPackage);
+        requireDefinitionProvenance(current);
+        CharacterCreationBlueprint published = current.publish();
         packageRepository.saveBlueprint(packageId, published);
         return published;
     }
@@ -515,6 +543,14 @@ public final class ScenarioPreparationApplicationService {
             throw new IllegalStateException("character creation blueprint is unavailable");
         }
         return scenarioPackage.characterCreationBlueprint();
+    }
+
+    private static void requireDefinitionProvenance(CharacterCreationBlueprint blueprint) {
+        var provenance = blueprint.provenance();
+        if (provenance == null || provenance.gameSystemDefinitionVersion() < 1
+                || provenance.sourceRevision() < 1 || provenance.sourceTypes().isEmpty()) {
+            throw new IllegalStateException("character blueprint definition provenance is required");
+        }
     }
 
     private static void requireCurrentBundleRevision(ScenarioPackage scenarioPackage, ScenarioSourceBundle bundle) {
@@ -540,6 +576,13 @@ public final class ScenarioPreparationApplicationService {
     private static CharacterCreationBlueprintView toView(CharacterCreationBlueprint blueprint,
                                                           List<ScenarioBundleDocumentSelection> documents) {
         long rulebooks = documents.stream().filter(document -> "RULEBOOK".equalsIgnoreCase(document.documentType())).count();
+        // Shared catalog rulebooks are intentionally outside the private bundle. Once their
+        // grounded fields are persisted, include those evidence documents in the read model too.
+        rulebooks = Math.max(rulebooks, blueprint.fields().stream()
+                .filter(field -> "RULEBOOK".equalsIgnoreCase(field.sourceType()))
+                .flatMap(field -> field.evidence().stream())
+                .map(reference -> reference.knowledgeDocumentId().value())
+                .distinct().count());
         long storybooks = documents.stream().filter(document -> "STORYBOOK".equalsIgnoreCase(document.documentType())).count();
         return new CharacterCreationBlueprintView(
                 blueprint.status().name().equals("READY") || blueprint.status().name().equals("PUBLISHED"),
@@ -551,7 +594,8 @@ public final class ScenarioPreparationApplicationService {
                                         .map(reference -> new CharacterCreationBlueprintView.FieldView.SourceReferenceView(
                                                 reference.knowledgeDocumentId().value().toString(), reference.extractionVersion(), reference.locator()))
                                         .toList(), optionDetails(field.optionDetails()))).toList(), blueprint.status().name(),
-                blueprint.roots().stream().map(ScenarioPreparationApplicationService::toNodeView).toList());
+                blueprint.roots().stream().map(ScenarioPreparationApplicationService::toNodeView).toList(),
+                blueprint.provenance().edition());
     }
 
     private static CharacterCreationBlueprintView.NodeView toNodeView(CharacterInputNode node) {

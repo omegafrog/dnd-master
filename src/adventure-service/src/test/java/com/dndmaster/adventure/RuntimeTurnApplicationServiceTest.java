@@ -87,6 +87,31 @@ class RuntimeTurnApplicationServiceTest {
     }
 
     @Test
+    void gm_only_turn_advances_scene_without_persisting_a_fake_player_message() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        ScenarioPackage scenarioPackage = scenarioPackage(new KnowledgeDocumentId(UUID.randomUUID()), new KnowledgeDocumentId(UUID.randomUUID()));
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
+                new InMemoryAdventureRepository(adventure),
+                new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId())),
+                new InMemoryPackageRepository(scenarioPackage), new InMemoryRuntimeTurnRepository(),
+                request -> request.evidenceType() == RuntimeEvidenceType.STORYBOOK
+                        ? List.of(new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
+                        new KnowledgeDocumentId(request.knowledgeDocumentIds().get(0)), 1, "page:1", "The next scene begins."))
+                        : List.of(),
+                request -> new RuntimePlan("next scene", null, "await player choice", "The GM advances the scene.", null, List.of(), List.of()),
+                new AllowingSafetyPort(true), new InMemorySessionKnowledgeSetRepository());
+
+        RuntimeTurnResult result = service.submitTurn(new SubmitRuntimeTurnCommand(
+                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Continue the current beat", 0,
+                null, -1, true, true));
+
+        assertEquals(2, result.conversation().size());
+        assertTrue(result.conversation().stream().noneMatch(entry -> "PLAYER".equals(entry.speaker())));
+        assertEquals(1, result.version());
+    }
+
+    @Test
     void persisted_document_selection_survives_runtime_restart_and_limits_retrieval() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
         Adventure adventure = adventure(owner);
@@ -364,7 +389,10 @@ class RuntimeTurnApplicationServiceTest {
                 bundleId, 1, "fingerprint",
                 List.of(new ScenarioBundleDocumentSelection(
                         storyId, ScenarioBundleDocumentRole.MAIN_SCENARIO, KnowledgeDocumentStatus.INDEXED,
-                        "story.txt", "STORYBOOK", 1)),
+                        "story.txt", "STORYBOOK", 1),
+                        new ScenarioBundleDocumentSelection(
+                                rulebookId, ScenarioBundleDocumentRole.RULEBOOK, KnowledgeDocumentStatus.INDEXED,
+                                "rules.txt", "RULEBOOK", 1)),
                 units,
                 new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()));
     }

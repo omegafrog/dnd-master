@@ -6,6 +6,8 @@ import com.dndmaster.adventure.domain.scenario.InputMode;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 
 /**
  * Edition-owned character creation skeleton.
@@ -22,7 +24,7 @@ public final class DndCharacterCreationTemplate {
     private DndCharacterCreationTemplate() {}
 
     public static CharacterCreationBlueprint apply(String edition, CharacterCreationBlueprint extracted) {
-        List<FieldSpec> template = supportsDnd5e(edition) ? DND_5E_FIELDS : CORE_FIELDS;
+        List<FieldSpec> template = supportsDnd5e2014(edition) ? DND_5E_2014_FIELDS : CORE_FIELDS;
         List<CharacterCreationBlueprint.Field> fields = new ArrayList<>();
         boolean reviewRequired = false;
 
@@ -57,7 +59,10 @@ public final class DndCharacterCreationTemplate {
         CharacterCreationBlueprintStatus status = reviewRequired
                 ? CharacterCreationBlueprintStatus.NEEDS_REVIEW
                 : CharacterCreationBlueprintStatus.READY;
-        return new CharacterCreationBlueprint(extracted.revision(), status, fields, diagnostics);
+        // Preserve provenance attached by the extraction/compiler pipeline.  The template only
+        // changes the field contract/status; it must not manufacture a new, ungrounded blueprint.
+        return new CharacterCreationBlueprint(extracted.revision(), status, fields, diagnostics,
+                extracted.provenance());
     }
 
     private static CharacterCreationBlueprint.Field mergeProposal(
@@ -72,16 +77,15 @@ public final class DndCharacterCreationTemplate {
                     discovered.confidence(), discovered.optionDetails());
         }
         if ("RULEBOOK".equals(discovered.sourceType()) && !discovered.options().isEmpty()) {
-            List<String> options = base.inputMode() == InputMode.FREE_TEXT
-                    ? base.options() : union(base.options(), discovered.options());
-            List<String> diagnostics = discovered.options().stream().allMatch(base.options()::contains)
+            List<String> unresolved = unresolvedRulebookOptions(base.key(), discovered.options());
+            List<String> diagnostics = unresolved.isEmpty()
                     ? base.diagnostics()
                     : union(base.diagnostics(), discovered.diagnostics(), List.of(RULE_EXTENSION));
             String status = diagnostics.contains(RULE_EXTENSION) ? "CONFLICT_REVIEW" : base.inputStatus();
-            return new CharacterCreationBlueprint.Field(base.key(), options, base.required(), "TEMPLATE",
-                    discovered.evidence(), status, diagnostics, base.inputMode(), base.suggestions(),
+            return new CharacterCreationBlueprint.Field(base.key(), base.options(), base.required(), "TEMPLATE",
+                    discovered.evidence(), status, diagnostics, base.inputMode(), union(base.suggestions(), unresolved),
                     discovered.sourceQuote(), base.label(), base.value(), base.nodeId(), base.parentNodeId(),
-                    discovered.confidence(), discovered.optionDetails());
+                    discovered.confidence(), base.optionDetails());
         }
         return base;
     }
@@ -248,15 +252,35 @@ public final class DndCharacterCreationTemplate {
         }
     }
 
-    private static boolean supportsDnd5e(String edition) {
-        return edition != null && edition.trim().toUpperCase(java.util.Locale.ROOT).startsWith("DND_5E");
+    private static List<String> unresolvedRulebookOptions(String key, List<String> options) {
+        return options.stream().filter(option -> !canonicalOption(key, option)).toList();
+    }
+
+    private static boolean canonicalOption(String key, String option) {
+        String normalized = option == null ? "" : option.trim().toLowerCase(Locale.ROOT);
+        if (normalized.isBlank()) return false;
+        if (baseOptions(key).contains(option)) return true;
+        return CANONICAL_RULEBOOK_ALIASES.getOrDefault(key, Map.of()).containsKey(normalized);
+    }
+
+    private static List<String> baseOptions(String key) {
+        return switch (key) {
+            case "race" -> List.of("드워프", "엘프", "인간", "하플링");
+            case "class" -> List.of("로그", "위저드", "클레릭", "파이터");
+            case "background" -> List.of("수행사제", "사기꾼", "범죄자", "연예인", "민중 영웅", "길드 장인", "은둔자", "귀족", "이방인", "현자", "선원", "군인", "부랑아");
+            default -> List.of();
+        };
+    }
+
+    private static boolean supportsDnd5e2014(String edition) {
+        return "DND_5E_2014".equalsIgnoreCase(edition) || "DND_5E".equalsIgnoreCase(edition);
     }
 
     private static final List<FieldSpec> CORE_FIELDS = List.of(
             new FieldSpec("name", "이름", InputMode.FREE_TEXT, true),
             new FieldSpec("level", "레벨", InputMode.FREE_TEXT, true));
 
-    private static final List<FieldSpec> DND_5E_FIELDS = List.of(
+    private static final List<FieldSpec> DND_5E_2014_FIELDS = List.of(
             new FieldSpec("name", "이름", InputMode.FREE_TEXT, true),
             new FieldSpec("race", "종족", InputMode.SINGLE_SELECT, true),
             new FieldSpec("subrace", "하위 종족", InputMode.SINGLE_SELECT, false),
@@ -298,4 +322,15 @@ public final class DndCharacterCreationTemplate {
             new FieldSpec("equipment", "장비", InputMode.FIXED_VALUE, false),
             new FieldSpec("other_proficiencies_languages", "기타 숙련 및 언어", InputMode.FIXED_VALUE, false),
             new FieldSpec("features_traits", "특성 및 특징", InputMode.FIXED_VALUE, false));
+
+    private static final Map<String, Map<String, String>> CANONICAL_RULEBOOK_ALIASES = Map.of(
+            "race", Map.of("dwarf", "드워프", "elf", "엘프", "halfling", "하플링", "human", "인간"),
+            "class", Map.of("cleric", "클레릭", "fighter", "파이터", "rogue", "로그", "wizard", "위저드"),
+            "background", Map.ofEntries(
+                    Map.entry("acolyte", "수행사제"), Map.entry("charlatan", "사기꾼"),
+                    Map.entry("criminal", "범죄자"), Map.entry("entertainer", "연예인"),
+                    Map.entry("folk hero", "민중 영웅"), Map.entry("guild artisan", "길드 장인"),
+                    Map.entry("hermit", "은둔자"), Map.entry("noble", "귀족"),
+                    Map.entry("outlander", "이방인"), Map.entry("sage", "현자"), Map.entry("sailor", "선원"),
+                    Map.entry("soldier", "군인"), Map.entry("urchin", "부랑아")));
 }

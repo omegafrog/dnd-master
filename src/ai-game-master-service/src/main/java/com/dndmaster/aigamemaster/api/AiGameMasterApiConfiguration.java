@@ -10,7 +10,16 @@ import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.CharacterTagCompletionPort;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionRouter;
+import com.dndmaster.aigamemaster.infrastructure.ai.CodexAppServerClient;
 import com.dndmaster.aigamemaster.configuration.GmProviderProperties;
+import com.dndmaster.aigamemaster.configuration.LocalOllamaProperties;
+import com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint;
+import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointRegistry;
+import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointStore;
+import com.dndmaster.aigamemaster.infrastructure.endpoint.InMemoryAgentEndpointStore;
+import com.dndmaster.aigamemaster.infrastructure.endpoint.JdbcAgentEndpointStore;
+import org.springframework.beans.factory.ObjectProvider;
+import javax.sql.DataSource;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.beans.factory.annotation.Value;
@@ -21,6 +30,33 @@ import java.util.UUID;
 
 @Configuration(proxyBeanMethods = false)
 public class AiGameMasterApiConfiguration {
+
+    @Bean
+    AgentEndpointStore agentEndpointStore(ObjectProvider<DataSource> dataSource) {
+        DataSource available = dataSource.getIfAvailable();
+        return available == null ? new InMemoryAgentEndpointStore() : new JdbcAgentEndpointStore(available);
+    }
+
+    @Bean
+    AgentEndpointRegistry agentEndpointRegistry(AgentEndpointStore store, GmProviderProperties defaults, LocalOllamaProperties localOllama) {
+        AgentEndpointRegistry registry = new AgentEndpointRegistry(store);
+        if (registry.list().isEmpty()) {
+            AgentEndpoint.Provider provider = defaults.provider().equals("ollama") ? AgentEndpoint.Provider.OLLAMA
+                    : defaults.provider().equals("codex-cli") ? AgentEndpoint.Provider.CODEX_CLI : AgentEndpoint.Provider.OPENAI_COMPATIBLE;
+            registry.save(new AgentEndpoint(UUID.randomUUID(), "default", provider, provider == AgentEndpoint.Provider.OLLAMA ? localOllama.baseUrl() : defaults.baseUrl(), defaults.model(),
+                    provider == AgentEndpoint.Provider.OPENAI_COMPATIBLE ? "OPENAI_API_KEY" : null, true, java.time.Instant.now()));
+        }
+        return registry;
+    }
+
+    @Bean(destroyMethod = "close")
+    CodexAppServerClient codexAppServerClient(
+            @Value("${ai.codex.executable:codex}") String codexExecutable,
+            @Value("${ai.codex.work-directory:/tmp}") String codexWorkDirectory,
+            @Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
+        return CodexAppServerClient.shared(codexExecutable, java.nio.file.Path.of(codexWorkDirectory), codexTimeout, objectMapper);
+    }
 
     @Bean
     SceneModelPort sceneModelPort(SpringAiChatAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper mapper) {
@@ -74,8 +110,13 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
-    AdventureStoryPlanController aiAdventureStoryPlanController(SpringAiChatAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
-        return new AdventureStoryPlanController(adapter, objectMapper);
+    AdventureStoryPlanController aiAdventureStoryPlanController(SpringAiChatAdapter adapter, AgentEndpointRegistry endpointRegistry, com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+            @org.springframework.beans.factory.annotation.Value("${local-ai.ollama.base-url:http://127.0.0.1:11434}") String ollamaBaseUrl,
+            @org.springframework.beans.factory.annotation.Value("${local-ai.ollama.chat-model:qwen3:8b}") String ollamaModel,
+            @org.springframework.beans.factory.annotation.Value("${ai.codex.executable:codex}") String codexExecutable,
+            @org.springframework.beans.factory.annotation.Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
+            @org.springframework.beans.factory.annotation.Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout) {
+        return new AdventureStoryPlanController(adapter, objectMapper, endpointRegistry, ollamaBaseUrl, ollamaModel, codexExecutable, codexWorkDirectory, codexTimeout);
     }
 
     @Bean
@@ -92,8 +133,12 @@ public class AiGameMasterApiConfiguration {
     @Bean
     ResolutionCandidateController resolutionCandidateController(
             com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter adapter,
-            com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
-        return new ResolutionCandidateController(adapter, objectMapper);
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+            AgentEndpointRegistry endpointRegistry,
+            @org.springframework.beans.factory.annotation.Value("${ai.codex.executable:codex}") String codexExecutable,
+            @org.springframework.beans.factory.annotation.Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
+            @org.springframework.beans.factory.annotation.Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout) {
+        return new ResolutionCandidateController(adapter, objectMapper, endpointRegistry, codexExecutable, codexWorkDirectory, codexTimeout);
     }
 
     @Bean
@@ -113,9 +158,12 @@ public class AiGameMasterApiConfiguration {
 
     @Bean
     @Primary
-    GmCompletionAdapter gmCompletionAdapter(SpringAiChatAdapter ollama, GmProviderProperties properties) {
+    GmCompletionAdapter gmCompletionAdapter(SpringAiChatAdapter ollama, GmProviderProperties properties, AgentEndpointRegistry endpointRegistry,
+                                             @Value("${ai.codex.executable:codex}") String codexExecutable,
+                                             @Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
+                                             @Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout) {
         properties.validate();
-        return new GmCompletionRouter(ollama, properties);
+        return new GmCompletionRouter(ollama, properties, endpointRegistry, codexExecutable, java.nio.file.Path.of(codexWorkDirectory), codexTimeout);
     }
 
     @Bean

@@ -2,22 +2,15 @@
 
 Tracker: GitHub Issues — `omegafrog/dnd-master`
 
-Parent: [#114 — AI GM Runtime](https://github.com/omegafrog/dnd-master/issues/114)
+Parent Issue: [#160](https://github.com/omegafrog/dnd-master/issues/160)
 
-Status vocabulary: `pending` → `ready-for-agent` → `in-progress` → `completed`.
+## 035 — 자료 준비와 모험 시작 흐름 개선
 
-## 032 — AI GM Runtime
+1. [035-1 모험 자료 계약과 삭제 보호](035-1-scenario-bundle-contract-and-delete-protection.md) — [#156](https://github.com/omegafrog/dnd-master/issues/156) — `completed`
+2. [035-2 자료 준비 상태와 진행률](035-2-document-readiness-and-progress.md) — [#157](https://github.com/omegafrog/dnd-master/issues/157) — `completed`
+3. [035-3 게임 준비 팝업과 AI endpoint 사전 확인](035-3-preparation-modal-and-endpoint-preflight.md) — [#158](https://github.com/omegafrog/dnd-master/issues/158) — `completed`
+4. [035-4 모험 목록과 전체 용어·내비게이션 UX](035-4-adventure-vocabulary-and-navigation-ux.md) — [#159](https://github.com/omegafrog/dnd-master/issues/159) — `completed`
 
-1. [032-1 Typed GM Turn lifecycle](032-1-typed-gm-turn-lifecycle.md) — [#115](https://github.com/omegafrog/dnd-master/issues/115) — `completed`
-2. [032-2 Atomic commit and SSE projection](032-2-atomic-commit-and-sse-projection.md) — [#116](https://github.com/omegafrog/dnd-master/issues/116) — `completed`
-3. [032-3 Provider-neutral GM agent loop](032-3-provider-neutral-gm-agent-loop.md) — [#117](https://github.com/omegafrog/dnd-master/issues/117) — `completed`
-4. [032-4 Capability-scoped tool Saga](032-4-capability-scoped-tool-saga.md) — [#118](https://github.com/omegafrog/dnd-master/issues/118) — `completed`
-5. [032-5 Story continuity, facts, and game clock](032-5-story-continuity-facts-and-game-clock.md) — [#119](https://github.com/omegafrog/dnd-master/issues/119) — `completed`
-   - [032-5a Rulebook template and blueprint layering](032-5a-rulebook-template-and-blueprint-layering.md) — `completed`
-6. [032-6 Bundle map compilation and activation](032-6-bundle-map-compilation-and-activation.md) — [#120](https://github.com/omegafrog/dnd-master/issues/120) — `completed`
-7. [032-7 Confirmed grid-map interaction](032-7-confirmed-grid-map-interaction.md) — [#121](https://github.com/omegafrog/dnd-master/issues/121) — `completed`
-8. [032-8 Fog of war and hidden tokens](032-8-fog-of-war-and-hidden-tokens.md) — [#122](https://github.com/omegafrog/dnd-master/issues/122) — `completed`
-9. [032-9 GM context compaction and resume](032-9-gm-context-compaction-and-resume.md) — [#123](https://github.com/omegafrog/dnd-master/issues/123) — `completed`
-10. [032-10 GM provider quality gate and full journey](032-10-gm-provider-quality-gate-and-full-journey.md) — [#124](https://github.com/omegafrog/dnd-master/issues/124) — `completed`
+Dependency chain: `035-1 → 035-2 → 035-3 → 035-4`.
 
-Dependency chain: `032-1 → 032-2 → 032-3 → 032-4 → 032-5a → 032-5`; `032-2 → 032-6`; `032-4 + 032-6 → 032-7`; `032-5 + 032-7 → 032-8`; `032-5 + 032-8 → 032-9`; all → `032-10`.
+Cross-dependencies: `035-1 → 035-3`, `035-1 → 035-4`.

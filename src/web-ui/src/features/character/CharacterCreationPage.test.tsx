@@ -34,7 +34,7 @@ const session = {
   runtimeConfiguration: null,
 };
 
-function renderPage() {
+function renderPage(preparationOverride = preparation) {
   const createCharacterSheet = vi.fn().mockResolvedValue({
     characterSheetId: "sheet-1",
     adventureId: "adventure-1",
@@ -45,7 +45,7 @@ function renderPage() {
     version: 0,
   });
   const setupApi = {
-    getPlayPreparation: vi.fn().mockResolvedValue(preparation),
+    getPlayPreparation: vi.fn().mockResolvedValue(preparationOverride),
     createCharacterSheet,
   };
   const sessionApi = {
@@ -185,8 +185,62 @@ describe("CharacterCreationPage", () => {
     expect(build.raceBonus).toEqual([1, 1, 1, 1, 1, 1]);
     expect(build.schemaVersion).toBe(1);
     expect(build.skillProficiencies.length).toBeGreaterThanOrEqual(2);
-    expect(build.equipmentSelections).toEqual({ equipmentBundle: "dungeon-explorer" });
-    expect(build.equippedItems).toEqual({ armor: "가죽 갑옷", shield: false });
+    expect(build.equipmentSelections).toEqual({
+      equipmentBundle: "wizard-start",
+      armor: "",
+      weaponAndShield: "",
+      rangedWeapon: "",
+    });
+    expect(build.equippedItems).toEqual({ armor: "", shield: false, mainHandWeaponId: "quarterstaff" });
     expect(build.learnedSpells).toHaveLength(6);
+  });
+
+  it("uses the complete 2014 fighter starting equipment instead of generic preview armor", async () => {
+    const user = userEvent.setup();
+    const { createCharacterSheet } = renderPage();
+    await user.type(await screen.findByPlaceholderText("이름을 입력하세요"), "마린 발렌");
+    await user.selectOptions(screen.getByLabelText("종족"), "인간");
+    await user.selectOptions(screen.getByLabelText("직업"), "파이터");
+    await user.click(screen.getByRole("button", { name: "능력치" }));
+    for (const [label, value] of [
+      ["근력 능력치", "15"],
+      ["민첩 능력치", "14"],
+      ["건강 능력치", "13"],
+      ["지능 능력치", "12"],
+      ["지혜 능력치", "10"],
+      ["매력 능력치", "8"],
+    ]) {
+      await user.selectOptions(screen.getByLabelText(label), value);
+    }
+    await user.click(screen.getByRole("button", { name: "캐릭터 저장하기 →" }));
+
+    const build = JSON.parse(createCharacterSheet.mock.calls[0][0].characterBuild) as {
+      ownedEquipment: string[];
+      ownedWeaponIds: string[];
+      equippedItems: { armor: string; shield: boolean; mainHandWeaponId?: string };
+    };
+    expect(build.ownedEquipment).toEqual(expect.arrayContaining([
+      "체인 메일", "방패", "라이트 크로스보우", "볼트 20개", "던전 탐험가 팩",
+    ]));
+    expect(build.ownedEquipment).not.toContain("가죽 갑옷");
+    expect(build.ownedWeaponIds).toEqual(expect.arrayContaining(["longsword", "light-crossbow"]));
+    expect(build.equippedItems).toEqual({ armor: "체인 메일", shield: true, mainHandWeaponId: "longsword" });
+  });
+
+  it("does not submit a 2024 blueprint through the 2014 character-sheet contract", async () => {
+    const unavailablePreparation = {
+      ...preparation,
+      characterCreationBlueprint: {
+        ...preparation.characterCreationBlueprint,
+        available: false,
+        status: "UNAVAILABLE" as const,
+        edition: "DND_5E_2024" as const,
+      },
+    };
+    const { createCharacterSheet } = renderPage(unavailablePreparation);
+
+    const saveButton = await screen.findByRole("button", { name: "판본 계약 준비 중" });
+    expect((saveButton as HTMLButtonElement).disabled).toBe(true);
+    expect(createCharacterSheet).not.toHaveBeenCalled();
   });
 });

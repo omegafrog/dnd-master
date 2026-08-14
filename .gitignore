@@ -45,3 +45,6 @@ docs/plans/plans.md
 /.playwright-cli/
 docs/assets/
 output/
+
+# Local uploaded knowledge-document originals
+/data/rulebooks/

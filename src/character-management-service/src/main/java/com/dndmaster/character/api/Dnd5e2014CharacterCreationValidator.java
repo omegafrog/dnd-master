@@ -28,6 +28,17 @@ final class Dnd5e2014CharacterCreationValidator {
             "바드", 2, "클레릭", 3, "드루이드", 2, "소서러", 4, "워락", 2, "위저드", 3);
     private static final Map<String, Integer> FIRST_LEVEL_SPELL_MINIMUMS = Map.of(
             "바드", 4, "클레릭", 1, "드루이드", 1, "소서러", 2, "워락", 2, "위저드", 6);
+    private static final Map<String, StartingEquipmentProfile> STARTING_EQUIPMENT = Map.of(
+            "파이터", new StartingEquipmentProfile(
+                    Set.of("체인 메일", "방패", "라이트 크로스보우", "볼트 20개", "던전 탐험가 팩"),
+                    Set.of("longsword", "light-crossbow")),
+            "로그", new StartingEquipmentProfile(
+                    Set.of("가죽 갑옷", "단검", "숏소드", "도둑 도구", "도둑의 꾸러미"),
+                    Set.of("dagger", "shortsword")),
+            "위저드", new StartingEquipmentProfile(
+                    Set.of("지팡이", "구성 요소 주머니", "학자의 꾸러미"), Set.of("quarterstaff")),
+            "클레릭", new StartingEquipmentProfile(
+                    Set.of("스케일 메일", "방패", "메이스", "성표", "사제의 꾸러미"), Set.of("mace")));
 
     private Dnd5e2014CharacterCreationValidator() {}
 
@@ -36,7 +47,11 @@ final class Dnd5e2014CharacterCreationValidator {
         List<String> errors = new ArrayList<>();
         if (request.characterName() == null || request.characterName().isBlank()) errors.add("NAME_REQUIRED");
         if (request.level() != 1) errors.add("NEW_CHARACTER_LEVEL_MUST_BE_ONE");
+        if (!Dnd5e2014CharacterContract.RACES.contains(request.race())) errors.add("UNSUPPORTED_RACE");
         if (!CLASS_SKILL_MINIMUMS.containsKey(request.characterClass())) errors.add("UNSUPPORTED_CLASS");
+        if (!Dnd5e2014CharacterContract.BACKGROUNDS.contains(request.background()) && !"학자".equals(request.background())) {
+            errors.add("UNSUPPORTED_BACKGROUND");
+        }
         validateStandardArray(request.startingAbilities(), errors);
         JsonNode build = parseRequiredObject(request.characterBuild(), "CHARACTER_BUILD_REQUIRED", errors);
         if (build != null) validateBuild(request.characterClass(), build, errors);
@@ -109,6 +124,7 @@ final class Dnd5e2014CharacterCreationValidator {
 
         JsonNode equipmentSelections = build.path("equipmentSelections");
         if (!equipmentSelections.isObject() || equipmentSelections.isEmpty()) errors.add("EQUIPMENT_SELECTIONS_REQUIRED");
+        validateStartingEquipment(characterClass, build, errors);
         if (!build.path("ruleChoices").isObject()) errors.add("RULE_CHOICES_REQUIRED");
         if (!build.path("equippedItems").isObject()) errors.add("EQUIPPED_ITEMS_REQUIRED");
 
@@ -119,6 +135,17 @@ final class Dnd5e2014CharacterCreationValidator {
         int spellMinimum = FIRST_LEVEL_SPELL_MINIMUMS.getOrDefault(characterClass, 0);
         if (spellMinimum > 0 && uniqueTextCount(build.path("learnedOrPreparedSpells")) < spellMinimum) {
             errors.add("FIRST_LEVEL_SPELL_COUNT_MISMATCH");
+        }
+    }
+
+    private static void validateStartingEquipment(String characterClass, JsonNode build, List<String> errors) {
+        JsonNode selections = build.path("equipmentSelections");
+        if (!selections.has("armor") && !selections.has("weaponAndShield") && !selections.has("rangedWeapon")) return;
+        Set<String> equipment = textValues(build.path("ownedEquipment"));
+        Set<String> weapons = textValues(build.path("ownedWeaponIds"));
+        StartingEquipmentProfile profile = STARTING_EQUIPMENT.get(characterClass);
+        if (profile != null && (!equipment.containsAll(profile.equipment()) || !weapons.containsAll(profile.weapons()))) {
+            errors.add(characterClass.toUpperCase(java.util.Locale.ROOT) + "_STARTING_EQUIPMENT_MISMATCH");
         }
     }
 
@@ -137,4 +164,6 @@ final class Dnd5e2014CharacterCreationValidator {
     private static ResponseStatusException badRequest(List<String> errors) {
         return new ResponseStatusException(HttpStatus.BAD_REQUEST, String.join(",", errors));
     }
+
+    private record StartingEquipmentProfile(Set<String> equipment, Set<String> weapons) {}
 }

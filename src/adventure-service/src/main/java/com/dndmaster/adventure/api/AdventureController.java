@@ -9,6 +9,7 @@ import com.dndmaster.adventure.application.progress.AdventureProgressApplication
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
 import com.dndmaster.adventure.application.runtime.GmTurnRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnResult;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanApplicationService;
 import com.dndmaster.adventure.application.runtime.SubmitRuntimeTurnCommand;
 import com.dndmaster.adventure.application.saved.CreateAdventureCommand;
 import com.dndmaster.adventure.application.saved.SavedAdventureApplicationService;
@@ -48,6 +49,7 @@ public class AdventureController {
     private final CombatMapPort combatMapPort;
     private final com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort;
     private final ObjectMapper objectMapper;
+    private final AdventureStoryPlanApplicationService storyPlanService;
 
     public AdventureController(
             SavedAdventureApplicationService savedAdventureService,
@@ -63,7 +65,8 @@ public class AdventureController {
             AuthenticatedPlayerResolver playerResolver,
             ObjectProvider<CombatMapPort> combatMapPort,
             ObjectMapper objectMapper,
-            ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapViewPort> combatMapViewPort) {
+            ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapViewPort> combatMapViewPort,
+            AdventureStoryPlanApplicationService storyPlanService) {
         this.savedAdventureService = savedAdventureService;
         this.runtimeTurnService = runtimeTurnService;
         this.adventureRepository = adventureRepository;
@@ -73,6 +76,7 @@ public class AdventureController {
         this.sessionEventRepository = sessionEventRepository;
         this.guidanceService = guidanceService;
         this.combatService = combatService;
+        this.storyPlanService = storyPlanService;
         this.scenarioService = scenarioService;
         this.playerResolver = playerResolver;
         this.combatMapPort = combatMapPort.getIfAvailable(() -> command -> {
@@ -113,6 +117,28 @@ public class AdventureController {
                 request.turnId(),
                 request.commandId(),
                 request.action()));
+        return RuntimeTurnResponse.from(result);
+    }
+
+    /**
+     * Lets the GM advance the scene without fabricating a player message. This is
+     * used immediately after session start and whenever the UI asks the GM to
+     * continue the current beat.
+     */
+    @PostMapping("/api/v1/adventures/{adventureId}/gm-turns")
+    RuntimeTurnResponse continueGmTurn(
+            @PathVariable UUID adventureId,
+            @RequestBody(required = false) GmContinuationRequest request) {
+        UUID owner = playerResolver.playerId();
+        GmContinuationRequest input = request == null ? new GmContinuationRequest(null, null, null, null) : request;
+        String action = input.instruction() == null || input.instruction().isBlank()
+                ? "Continue the current adventure beat, reveal the next meaningful consequence, and end with a clear player-facing choice."
+                : input.instruction();
+        RuntimeTurnResult result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
+                new AdventureId(adventureId), new OwnerPlayerId(owner),
+                input.turnId() == null ? UUID.randomUUID() : input.turnId(),
+                input.commandId() == null ? UUID.randomUUID() : input.commandId(),
+                action, input.expectedVersion() == null ? -1 : input.expectedVersion(), null, -1, true, true));
         return RuntimeTurnResponse.from(result);
     }
 
@@ -181,9 +207,19 @@ public class AdventureController {
         if (!adventure.ownerPlayerId().value().equals(playerResolver.playerId())) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
         }
+        // A combat map is visible only while the current story stage declares one.
+        // An old/preview activation must not leak into a town or event stage.
+        var plan = storyPlanService.read(adventure.sessionId(), new OwnerPlayerId(playerResolver.playerId()));
+        var currentStage = plan.stages().stream()
+                .filter(stage -> stage.position() == plan.currentStage() + 1)
+                .findFirst().orElse(null);
+        if (currentStage == null || currentStage.mapDefinitionId() == null) {
+            return new CombatMapResponse(adventureId, "stage-without-map", adventure.version(), null, null,
+                    List.of(), List.of(), List.of(), List.of(), List.of(), null);
+        }
         var projection = combatMapViewPort.playerView(adventureId, playerResolver.playerId());
         return projection.map(view -> CombatMapResponse.from(adventureId, adventure.version(), view))
-                .orElseGet(() -> new CombatMapResponse(adventureId, "map-view", adventure.version(), null, null, List.of(), List.of(), List.of(), null));
+                .orElseGet(() -> new CombatMapResponse(adventureId, "map-view", adventure.version(), null, null, List.of(), List.of(), List.of(), List.of(), List.of(), null));
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/dice-rolls")
@@ -265,6 +301,8 @@ public class AdventureController {
 
     public record StreamMessageRequest(UUID playerId, UUID turnId, UUID commandId, String action) {}
 
+    public record GmContinuationRequest(UUID turnId, UUID commandId, Long expectedVersion, String instruction) {}
+
     public record GmTurnRequest(UUID turnId, GmInputRequest input) {}
 
     public record GmInputRequest(String type, String text, UUID mapId, Long mapVersion, String action, String question) {
@@ -290,6 +328,9 @@ public class AdventureController {
             String currentScene,
             List<String> sourceRefs,
             List<String> warnings,
+            String provider,
+            String model,
+            String reasoning,
             long version) {
         static RuntimeTurnResponse from(RuntimeTurnResult result) {
             return new RuntimeTurnResponse(
@@ -302,6 +343,9 @@ public class AdventureController {
                     result.context().currentScene(),
                     result.turn().citations(),
                     result.turn().warnings(),
+                    result.turn().plan().provider(),
+                    result.turn().plan().model(),
+                    result.turn().plan().reasoning(),
                     result.version());
         }
     }
@@ -339,9 +383,11 @@ public class AdventureController {
             com.dndmaster.adventure.application.combat.CombatMapViewPort.Grid grid,
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Token> tokens,
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Obstacle> obstacles,
-            List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Layer> layers, Long version) {
+            List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Layer> layers,
+            List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> current,
+            List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> explored, Long version) {
         static CombatMapResponse from(UUID adventureId, long sessionVersion, com.dndmaster.adventure.application.combat.CombatMapViewPort.View view) {
-            return new CombatMapResponse(adventureId, "authoritative-map", sessionVersion, view.mapId(), view.grid(), view.tokens(), view.obstacles(), view.layers(), view.version());
+            return new CombatMapResponse(adventureId, "authoritative-map", sessionVersion, view.mapId(), view.grid(), view.tokens(), view.obstacles(), view.layers(), view.current(), view.explored(), view.version());
         }
     }
     public record DiceRollRequest(

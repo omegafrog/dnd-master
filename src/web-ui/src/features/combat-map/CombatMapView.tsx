@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type CSSProperties } from 'react'
 import type { AdventurePlayApi, CombatMapView as CombatMapState } from '../saved-adventures/AdventurePlayApi'
 import { actionCandidate, moveCandidate, type MapInteractionCandidate } from './MapInteractionCandidate'
 
@@ -47,15 +47,30 @@ export function CombatMapView({ adventureId, api }: { adventureId: string; api: 
   }
 
   const grid = map?.grid ?? { width: 0, height: 0 }
+  const mapImage = map?.layers?.find(layer => layer.type === 'MAP_IMAGE')?.value
+  const gridBounds = map?.layers?.find(layer => layer.type === 'GRID_BOUNDS')?.value?.split(',').map(Number)
+  const mapStyle: CSSProperties | undefined = mapImage ? {
+    backgroundImage: `url(${mapImage})`,
+    ...(gridBounds && gridBounds.length >= 6 ? {
+      '--grid-top': `${(gridBounds[1] / gridBounds[5]) * 100}%`,
+      '--grid-right': `${((gridBounds[4] - gridBounds[0] - gridBounds[2]) / gridBounds[4]) * 100}%`,
+      '--grid-bottom': `${((gridBounds[5] - gridBounds[1] - gridBounds[3]) / gridBounds[5]) * 100}%`,
+      '--grid-left': `${(gridBounds[0] / gridBounds[4]) * 100}%`,
+    } : {}),
+  } as CSSProperties : undefined
+  // A combat map is stage-scoped.  The backend returns an empty projection for
+  // event/town stages; keep the entire tactical panel out of the player UI in
+  // that state instead of showing a permanent "no map" panel.
+  if (!map || !map.mapId) return null
   return (
     <section className="adventure-tool map-panel" aria-labelledby="map-heading">
       <h2 id="map-heading">플레이어 전투 맵</h2>
       <p>모험 ID: {adventureId}</p>
       <p role="status">{map ? `현재 맵 상태: ${map.status}` : '전투 맵을 불러오는 중…'}</p>
-      {map?.mapId && map.tokens ? (
+      {map.tokens ? (
         <div className="tactical-map-window">
           <button type="button" aria-pressed={locationMode} onClick={() => setLocationMode(current => !current)}>위치 선택</button>
-          <div aria-label="tactical-map" data-map-id={map.mapId} data-version={map.version ?? 0}>
+          <div aria-label="tactical-map" data-map-id={map.mapId} data-version={map.version ?? 0} className="tactical-map" style={mapStyle}>
             {Array.from({ length: grid.width * grid.height }, (_, index) => {
               const cell = { x: index % grid.width, y: Math.floor(index / grid.width) }
               const token = map.tokens?.find(item => item.x === cell.x && item.y === cell.y)
@@ -64,7 +79,7 @@ export function CombatMapView({ adventureId, api }: { adventureId: string; api: 
               const visible = map.current?.some(item => item.x === cell.x && item.y === cell.y) ?? true
               const explored = map.explored?.some(item => item.x === cell.x && item.y === cell.y) ?? visible
               return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={visible && token ? `${token.type} ${token.x},${token.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={visible ? 'current' : explored ? 'explored' : 'hidden'} data-last-seen={token?.lastSeen ? 'true' : 'false'} disabled={blocked || !visible} draggable={token?.type === 'PLAYER'} onDragStart={() => { if (token?.type === 'PLAYER') setSelectedToken(token.id) }} onClick={() => { if (token?.type === 'PLAYER') setSelectedToken(token.id); else chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => chooseCell(cell)}>
-                {visible && token ? `${token.type} (${token.x},${token.y})` : door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '장애물' : visible ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
+                {visible && token ? `${token.type} (${token.x},${token.y})` : door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '장애물' : visible && !mapImage ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
               </button>
             })}
           </div>
@@ -73,7 +88,7 @@ export function CombatMapView({ adventureId, api }: { adventureId: string; api: 
             ['ENEMY', '▲', '적대 몬스터'], ['BOSS', '★', '보스'], ['TRAP', '⚠', '발견된 함정'], ['OBJECT', '■', '상호작용 오브젝트'],
           ].map(([type, icon, label]) => <span key={type} className={`legend-token legend-${type.toLowerCase()}`}><span aria-hidden="true">{icon}</span><span>{label}</span></span>)}</aside>
         </div>
-      ) : map && <p role="note">현재 장면에 사용할 안전한 맵이 없습니다. 텍스트로 계속 진행합니다.</p>}
+      ) : null}
       {map?.tokens?.filter(token => token.type !== 'PLAYER' && !token.lastSeen).map(token => <button key={`target-${token.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'TARGET', { x: token.x, y: token.y }, token.id)) }}>대상 선택: {token.type}</button>)}
       {map?.objects?.map(object => <button key={`object-${object.id}`} type="button" onClick={() => { const player = map.tokens?.find(item => item.type === 'PLAYER'); if (player) setCandidate(actionCandidate(map.mapId ?? '', map.version ?? 0, player.id, 'INTERACT', { x: object.x, y: object.y }, object.id)) }}>상호작용: {object.type}</button>)}
       {candidate && <div role="dialog" aria-label="맵 행동 확인"><p>{candidate.action === 'MOVE' && candidate.from && candidate.to ? `이동: (${candidate.from.x},${candidate.from.y}) → (${candidate.to.x},${candidate.to.y})` : `맵 행동: ${candidate.action}`}</p><button type="button" disabled={submitting} onClick={() => void confirm()}>확인</button><button type="button" disabled={submitting} onClick={() => { setCandidate(null); setSelectedToken(null) }}>취소</button></div>}

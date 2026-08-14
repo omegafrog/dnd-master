@@ -22,11 +22,22 @@ it('renders sent conversation and acknowledges delivery', async () => {
   }
   const user = userEvent.setup()
   render(<AdventureStream adventureId="a1" api={api} />)
-  await user.type(screen.getByLabelText('행동 또는 대화'), 'Open it')
-  await user.click(screen.getByRole('button', { name: '보내기' }))
+  await user.type(screen.getByLabelText('무엇을 하시겠어요?'), 'Open it')
+  await user.click(screen.getByRole('button', { name: '행동 보내기' }))
   expect(sent).toEqual(['Open it'])
-  expect(await screen.findByText((_, node) => node?.textContent === '플레이어: Open it')).toBeInTheDocument()
-  expect(await screen.findByText((_, node) => node?.textContent === 'AI 게임 마스터: 근거를 바탕으로 응답한다.')).toBeInTheDocument()
+  expect(await screen.findByText('Open it')).toBeInTheDocument()
+  expect(await screen.findByText('근거를 바탕으로 응답한다.')).toBeInTheDocument()
+})
+
+it('renders GM choices as a separate ordered list', async () => {
+  const api: AdventureApi = {
+    async readConversation() { return { adventureId: 'a1', version: 1, entries: [{ sequence: 0, speaker: 'AI_GAME_MASTER', content: '문 앞에 서 있습니다.\n\n선택지:\n1. 문을 엽니다.\n2. 주변을 살핍니다.' }] } },
+    async sendMessage() { throw new Error('not used') },
+  }
+  render(<AdventureStream adventureId="a1" api={api} />)
+  expect(await screen.findByText('선택지')).toBeInTheDocument()
+  expect(screen.getByRole('list', { name: '선택지' })).toBeInTheDocument()
+  expect(screen.getByText('문을 엽니다.')).toBeInTheDocument()
 })
 
 it('hydrates persisted conversation on mount', async () => {
@@ -35,7 +46,8 @@ it('hydrates persisted conversation on mount', async () => {
     async sendMessage() { throw new Error('not used') },
   }
   render(<AdventureStream adventureId="a1" api={api} />)
-  await waitFor(() => expect(screen.getAllByRole('listitem').some(item => item.textContent?.includes('저장된 프롤로그'))).toBe(true))
+  await waitFor(() => expect(screen.getByRole('heading', { name: '첫 장면' })).toBeInTheDocument())
+  expect(screen.getByText('저장된 프롤로그')).toBeInTheDocument()
 })
 
 it('uses the persisted conversation version for the next turn', async () => {
@@ -49,11 +61,11 @@ it('uses the persisted conversation version for the next turn', async () => {
   }
   const user = userEvent.setup()
   render(<AdventureStream adventureId="a1" api={api} />)
-  const input = await screen.findByRole('textbox', { name: '행동 또는 대화' })
+  const input = await screen.findByRole('textbox', { name: '무엇을 하시겠어요?' })
   await user.type(input, '조사한다')
-  await user.click(screen.getByRole('button', { name: '보내기' }))
+  await user.click(screen.getByRole('button', { name: '행동 보내기' }))
   expect(receivedVersion).toBe(4)
-  expect(await screen.findByText((_, node) => node?.textContent === 'AI 게임 마스터: GM 응답')).toBeInTheDocument()
+  expect(await screen.findByText('GM 응답')).toBeInTheDocument()
 })
 
 it('announces failure when message send fails', async () => {
@@ -62,8 +74,8 @@ it('announces failure when message send fails', async () => {
   }
   const user = userEvent.setup()
   render(<AdventureStream adventureId="a1" api={api} />)
-  await user.type(screen.getByLabelText('행동 또는 대화'), 'Kick the door')
-  await user.click(screen.getByRole('button', { name: '보내기' }))
+  await user.type(screen.getByLabelText('무엇을 하시겠어요?'), 'Kick the door')
+  await user.click(screen.getByRole('button', { name: '행동 보내기' }))
   expect(await screen.findByRole('alert')).toHaveTextContent('메시지를 전송하지 못했습니다')
   expect(screen.getByRole('status')).toHaveTextContent('턴 처리 실패')
 })
@@ -72,10 +84,10 @@ it('waits for direct input while agent turns progress automatically', () => {
   const api: AdventureApi = { async sendMessage() { throw new Error('must not send') } }
   const { rerender } = render(<AdventureStream adventureId="a1" api={api} controlMode="DIRECT" />)
   expect(screen.getByRole('status')).toHaveTextContent('직접 플레이 입력 대기')
-  expect(screen.getByRole('button', { name: '보내기' })).toBeEnabled()
+  expect(screen.getByRole('button', { name: '행동 보내기' })).toBeEnabled()
   rerender(<AdventureStream adventureId="a1" api={api} controlMode="AGENT" />)
   expect(screen.getByRole('status')).toHaveTextContent('에이전트 캐릭터 차례')
-  expect(screen.getByRole('button', { name: '보내기' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '행동 보내기' })).toBeDisabled()
 })
 
 it('shows processing and failed projection states from the event stream', async () => {
@@ -86,8 +98,8 @@ it('shows processing and failed projection states from the event stream', async 
   }
   const user = userEvent.setup()
   render(<AdventureStream adventureId="a1" api={api} />)
-  await user.type(screen.getByLabelText('행동 또는 대화'), 'Open')
-  await user.click(screen.getByRole('button', { name: '보내기' }))
+  await user.type(screen.getByLabelText('무엇을 하시겠어요?'), 'Open')
+  await user.click(screen.getByRole('button', { name: '행동 보내기' }))
   expect(screen.getByRole('status')).toHaveTextContent('턴 처리 중')
   await act(async () => { publish?.({ version: 2, type: 'GM_TURN_FAILED', payload: 'failure' }) })
   expect(await screen.findByRole('status')).toHaveTextContent('턴 처리 실패')

@@ -8,10 +8,16 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.ArrayList;
 import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
+import com.dndmaster.aigamemaster.infrastructure.ai.CodexCliStoryPlanAdapter;
+import com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint;
+import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.beans.factory.annotation.Value;
+import java.time.Duration;
+import java.nio.file.Path;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -25,12 +31,30 @@ public final class ResolutionCandidateController {
     private static final Pattern EXPLICIT_DC = Pattern.compile(
             "(?i)\\bDC\\s*(\\d+)\\s+([A-Za-z]+(?:\\s*\\([^)]*\\))?)\\s+(sa\\s*ving\\s+throw(?:s)?|check(?:s)?)");
     private static final Pattern DICE = Pattern.compile("(?i)\\b(\\d+d\\d+(?:\\s*[+-]\\s*\\d+)?)\\b");
+    private static final Pattern ANY_DC = Pattern.compile("(?i)\\bDC\\s*(\\d+)\\b");
     private final SpringAiChatAdapter adapter;
     private final ObjectMapper objectMapper;
+    private final AgentEndpointRegistry endpointRegistry;
+    private final String codexExecutable;
+    private final Path codexWorkDirectory;
+    private final Duration codexTimeout;
 
+    /** Backward-compatible constructor for deterministic parser tests. */
     public ResolutionCandidateController(SpringAiChatAdapter adapter, ObjectMapper objectMapper) {
+        this(adapter, objectMapper, null, "codex", ".", Duration.ofMinutes(5));
+    }
+
+    public ResolutionCandidateController(SpringAiChatAdapter adapter, ObjectMapper objectMapper,
+            AgentEndpointRegistry endpointRegistry,
+            @Value("${ai.codex.executable:codex}") String codexExecutable,
+            @Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
+            @Value("${ai.codex.timeout:PT5M}") Duration codexTimeout) {
         this.adapter = adapter;
         this.objectMapper = objectMapper;
+        this.endpointRegistry = endpointRegistry;
+        this.codexExecutable = codexExecutable;
+        this.codexWorkDirectory = Path.of(codexWorkDirectory);
+        this.codexTimeout = codexTimeout;
     }
 
     @PostMapping("/internal/v1/gm/resolution-candidates")
@@ -42,15 +66,39 @@ public final class ResolutionCandidateController {
                 + "kind must be one of SKILL_ABILITY_CHECK,SAVING_THROW,PASSIVE_THRESHOLD,DICE_ROLL,ATTACK_ROLL,DAMAGE_ROLL,HEALING_ROLL,OPPOSED_CHECK,INITIATIVE_ROLL,RECHARGE_ROLL,RANDOM_TABLE,SPECIAL_ROLL. "
                 + "visibility must be GM_REFERENCE or PLAYER_SAFE. Keep sourceRefs only when the excerpt supplies an exact object reference. "
                 + "Do not invent values or references. Output JSON only. Excerpts: " + request.excerpts();
-        List<Candidate> candidates = adapter.complete(request.operationId(), prompt, this::parseModel);
+        List<Candidate> candidates;
+        AgentEndpoint endpoint = endpointRegistry.active();
+        if (endpoint.provider() == AgentEndpoint.Provider.CODEX_CLI) {
+            String response = new CodexCliStoryPlanAdapter(codexExecutable, endpoint.model(), codexWorkDirectory, codexTimeout)
+                    .complete(request.operationId(), prompt);
+            candidates = parseModel(response);
+        } else {
+            candidates = adapter.complete(request.operationId(), prompt, this::parseModel);
+        }
         if (!candidates.isEmpty()) {
-            List<Candidate> deduplicated = deduplicate(candidates);
+            List<Candidate> verified = candidates.stream().filter(candidate -> verifiedAgainstExcerpts(candidate, request.excerpts())).toList();
+            List<Candidate> deduplicated = deduplicate(verified);
             log.info("resolution_candidate_ai_result operationId={} aiCandidates={} deduplicated={} excerpts={}", request.operationId(), candidates.size(), deduplicated.size(), request.excerpts().size());
             return new Response(deduplicated);
         }
         List<Candidate> fallback = deduplicate(fallbackCandidates(request.excerpts()));
         log.warn("resolution_candidate_ai_empty operationId={} fallbackCandidates={} excerpts={} excerptSummaries={}", request.operationId(), fallback.size(), request.excerpts().size(), request.excerpts().stream().map(e -> e.locator() + ":" + (e.text() == null ? 0 : e.text().length()) + ":" + (e.text() == null ? "" : e.text().substring(0, Math.min(100, e.text().length())).replaceAll("\\s+", " "))).toList());
         return new Response(fallback);
+    }
+
+    private static boolean verifiedAgainstExcerpts(Candidate candidate, List<Excerpt> excerpts) {
+        if (candidate == null || candidate.sourceQuote() == null || candidate.sourceQuote().isBlank()
+                || candidate.sourceRefs() == null || candidate.sourceRefs().isEmpty()) return false;
+        String quote = normalize(candidate.sourceQuote());
+        return candidate.sourceRefs().stream().anyMatch(ref -> excerpts.stream().anyMatch(excerpt ->
+                ref != null && excerpt != null && ref.documentId().equals(excerpt.documentId())
+                        && ref.extractionVersion() == excerpt.extractionVersion()
+                        && ref.locator().equals(excerpt.locator())
+                        && normalize(excerpt.text()).contains(quote)));
+    }
+
+    private static String normalize(String value) {
+        return value == null ? "" : value.strip().replaceAll("(?U)\\s+", " ").toLowerCase(Locale.ROOT);
     }
 
     List<Candidate> parseModel(String text) {
@@ -98,6 +146,20 @@ public final class ResolutionCandidateController {
                         "GM_REFERENCE", quote,
                         List.of(new SourceRef(excerpt.documentId(), excerpt.extractionVersion(), excerpt.locator())),
                         null, "deterministic-source-pattern-v1"));
+            }
+            if (candidates.stream().noneMatch(candidate -> candidate.sourceRefs().stream().anyMatch(ref -> ref.documentId().equals(excerpt.documentId()) && ref.extractionVersion() == excerpt.extractionVersion() && ref.locator().equals(excerpt.locator())))) {
+                Matcher dc = ANY_DC.matcher(excerpt.text());
+                if (dc.find()) {
+                    int start = Math.max(0, excerpt.text().lastIndexOf('.', dc.start()) + 1);
+                    int end = excerpt.text().indexOf('.', dc.end());
+                    if (end < 0) end = Math.min(excerpt.text().length(), dc.end() + 240);
+                    String quote = excerpt.text().substring(start, end + (end < excerpt.text().length() && excerpt.text().charAt(end) == '.' ? 1 : 0)).strip();
+                    if (EXPLICIT_DC.matcher(quote).find()) {
+                        String kind = quote.toLowerCase(Locale.ROOT).contains("saving throw") ? "SAVING_THROW" : "SKILL_ABILITY_CHECK";
+                        candidates.add(new Candidate(kind, null, Integer.valueOf(dc.group(1)), diceExpression(excerpt.text(), dc.end()), "GM_REFERENCE", quote,
+                                List.of(new SourceRef(excerpt.documentId(), excerpt.extractionVersion(), excerpt.locator())), null, "deterministic-source-pattern-v2"));
+                    }
+                }
             }
         }
         return List.copyOf(candidates);

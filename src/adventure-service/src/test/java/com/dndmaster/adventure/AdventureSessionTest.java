@@ -1,6 +1,7 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.adventure.domain.adventure.AdventurePartyMember;
@@ -47,6 +48,17 @@ class AdventureSessionTest {
                 SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 1, 1, configuration);
 
         assertEquals(configuration, session.runtimeConfiguration());
+    }
+
+    @Test
+    void retains_the_character_edition_bound_when_the_session_was_created() {
+        AdventureSession session = AdventureSession.create(
+                SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 1,
+                UUID.randomUUID(), 2, "DND_5E_2024", 1,
+                new AdventureSessionRuntimeConfiguration(new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
+                        List.of(), "ollama", List.of(), "opening-scene"));
+
+        assertEquals("DND_5E_2024", session.characterEdition());
     }
 
     @Test
@@ -115,6 +127,7 @@ class AdventureSessionTest {
         AdventureSession session = configuredSession();
         AdventurePartyMember member = new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT, true, true, true, true, true, true);
         session.addPartyMember(member);
+        session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.AGENT, true, true, true, true, true, true));
         UUID requestId = UUID.randomUUID();
         AdventureId adventureId = AdventureId.generate();
 
@@ -131,9 +144,50 @@ class AdventureSessionTest {
     }
 
     @Test
+    void refuses_to_start_when_story_plan_is_missing_without_mutating_session_or_runtime() {
+        var owner = new OwnerPlayerId(UUID.randomUUID());
+        var packageId = ScenarioBundleId.generate();
+        var blueprint = new com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint(
+                1, com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.PUBLISHED,
+                List.of(), List.of());
+        var scenarioPackage = ScenarioPackage.publish(packageId, 1, "fingerprint",
+                List.of(), List.of(), new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()),
+                new CharacterLimit(1, null, ""), blueprint);
+        var packages = mock(ScenarioPackageRepository.class);
+        when(packages.findById(scenarioPackage.packageId())).thenReturn(java.util.Optional.of(scenarioPackage));
+        var session = AdventureSession.create(SessionId.generate(), owner, scenarioPackage.packageId(), 1,
+                scenarioPackage.packageId(), 1, 1,
+                new AdventureSessionRuntimeConfiguration(new ScenarioId(scenarioPackage.packageId()),
+                        new RuleSetId(packageId.value()), List.of(), "ollama", List.of(), "opening"));
+        session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT,
+                true, true, true, true, true, true));
+
+        var sessions = mock(AdventureSessionRepository.class);
+        when(sessions.findById(session.id())).thenReturn(java.util.Optional.of(session));
+        var adventures = mock(AdventureRepository.class);
+        var coordinator = mock(AdventureSessionStartCoordinator.class);
+        var plans = mock(com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository.class);
+        when(plans.findBySessionId(session.id())).thenReturn(java.util.Optional.empty());
+        var service = new AdventureSessionApplicationService(sessions, packages, adventures,
+                mock(RuntimeBindingApplicationService.class), coordinator,
+                mock(com.dndmaster.adventure.application.session.CharacterSheetOwnershipPort.class), plans,
+                mock(SessionKnowledgeSetRepository.class));
+
+        var failure = assertThrows(IllegalStateException.class,
+                () -> service.start(session.id(), owner, session.version(), UUID.randomUUID(), AdventureId.generate()));
+
+        assertEquals("adventure story plan is required", failure.getMessage());
+        assertEquals(AdventureSession.Status.DRAFT, session.status());
+        verify(sessions, never()).save(any(), anyLong());
+        verify(adventures, never()).save(any());
+        verify(coordinator, never()).prepare(any(), any(), any(), any());
+    }
+
+    @Test
     void records_starting_before_external_runtime_creation_and_completes_once() {
         AdventureSession session = configuredSession();
         session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT, true, true, true, true, true, true));
+        session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.AGENT, true, true, true, true, true, true));
         AdventureId adventureId = AdventureId.generate();
         UUID requestId = UUID.randomUUID();
 
@@ -151,7 +205,7 @@ class AdventureSessionTest {
     }
 
     @Test
-    void permits_ai_companion_beyond_single_player_storybook_limit() {
+    void counts_ai_companions_toward_total_storybook_party_capacity() {
         AdventureSession session = AdventureSession.create(
                 SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 1, 1);
         AdventurePartyMember first = new AdventurePartyMember(
@@ -160,13 +214,9 @@ class AdventureSessionTest {
         session.addPartyMember(first);
 
         assertEquals(1, session.party().size());
-        session.addPartyMember(new AdventurePartyMember(
-                new CharacterSheetId(UUID.randomUUID()), ControlMode.AGENT, true, true, true, true, true, true));
-        assertEquals(2, session.party().size());
-        assertThrows(IllegalStateException.class, () -> session.addPartyMember(new AdventurePartyMember(
-                new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT, true, true, true, true, true, true)));
-        session.removePartyMember(first.characterSheetId());
         assertEquals(1, session.party().size());
+        assertThrows(IllegalStateException.class, () -> session.addPartyMember(new AdventurePartyMember(
+                new CharacterSheetId(UUID.randomUUID()), ControlMode.AGENT, true, true, true, true, true, true)));
     }
 
     @Test
@@ -180,17 +230,19 @@ class AdventureSessionTest {
         AdventureSession session = configuredSession();
         CharacterSheetId sheetId = new CharacterSheetId(UUID.randomUUID());
         session.addPartyMember(new AdventurePartyMember(sheetId, ControlMode.DIRECT, true, true, true, true, true, true));
+        session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.AGENT, true, true, true, true, true, true));
         session.start(AdventureId.generate(), UUID.randomUUID());
 
-        assertEquals(List.of(sheetId), session.complete());
+        assertTrue(session.complete().contains(sheetId));
         assertEquals(AdventureSession.Status.COMPLETED, session.status());
         assertThrows(IllegalStateException.class, () -> session.addPartyMember(
                 new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT, true, true, true, true, true, true)));
 
         AdventureSession deleted = configuredSession();
         deleted.addPartyMember(new AdventurePartyMember(sheetId, ControlMode.DIRECT, true, true, true, true, true, true));
+        deleted.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.AGENT, true, true, true, true, true, true));
         deleted.start(AdventureId.generate(), UUID.randomUUID());
-        assertEquals(List.of(sheetId), deleted.delete());
+        assertTrue(deleted.delete().contains(sheetId));
         assertEquals(AdventureSession.Status.DELETED, deleted.status());
     }
 }

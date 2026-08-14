@@ -8,15 +8,33 @@ import { SavedAdventurePanel } from './SavedAdventurePanel'
 import { toSavedAdventure } from './AdventurePlayApi'
 
 it('maps the backend adventureId contract to the UI id contract', () => {
-  expect(toSavedAdventure({ adventureId: 'adventure-1', status: 'SAVED', version: 4 })).toEqual({
-    id: 'adventure-1', title: 'SAVED', updatedAt: '', version: 4,
+  expect(toSavedAdventure({ adventureId: 'adventure-1', name: '고성의 밤', status: 'SAVED', version: 4 })).toEqual({
+    id: 'adventure-1', title: '고성의 밤', statusLabel: '진행 중인 모험', resumable: true, updatedAt: '', version: 4,
   })
+})
+
+it('shows user-facing adventure states and only offers resume for resumable adventures', async () => {
+  const api = {
+    async listSaved() { return [
+      { id: 'active', title: '고성의 밤', statusLabel: '진행 중인 모험', resumable: true, updatedAt: '', version: 1 },
+      { id: 'done', title: '끝난 여정', statusLabel: '완료한 모험', resumable: false, updatedAt: '', version: 2 },
+    ] },
+    async resume() {}, async deleteAdventure() {}, async getSessionKnowledgeSet() { throw new Error() },
+    async saveSessionKnowledgeSet() { throw new Error() }, async getCharacter() { throw new Error() },
+    async rollDice() { throw new Error() }, async save() { throw new Error() }, async getCombatMap() { throw new Error() },
+  } satisfies AdventurePlayApi
+  const setupApi = { listKnowledgeDocuments: async () => [] } as unknown as SetupApi
+  render(<SavedAdventurePanel playApi={api} setupApi={setupApi} playerId="p1" />)
+  expect(await screen.findByText('진행 중인 모험')).toBeInTheDocument()
+  expect(screen.getByText('완료한 모험')).toBeInTheDocument()
+  expect(screen.getAllByRole('button', { name: '재개' })).toHaveLength(1)
+  expect(screen.queryByText('active')).not.toBeInTheDocument()
 })
 
 it('lists, resumes, deletes and configures session knowledge sets', async () => {
   const calls: string[] = []
   const api: AdventurePlayApi = {
-    async listSaved() { return [{ id: 'old', title: 'Old Keep', updatedAt: '2026-01-01', version: 4 }] },
+    async listSaved() { return [{ id: 'old', title: 'Old Keep', statusLabel: '진행 중인 모험' as const, resumable: true, updatedAt: '2026-01-01', version: 4 }] },
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     async save(_adventureId: string, _playerId: string, _expectedVersion: number, _currentScene: string) {
       calls.push('save')
@@ -61,7 +79,8 @@ it('lists, resumes, deletes and configures session knowledge sets', async () => 
     },
   }
   const user = userEvent.setup()
-  render(<SavedAdventurePanel playApi={api} setupApi={setupApi} playerId="p1" />)
+  const resumed: string[] = []
+  render(<SavedAdventurePanel playApi={api} setupApi={setupApi} playerId="p1" onResumed={id => resumed.push(id)} />)
   expect(await screen.findByText('Old Keep')).toBeInTheDocument()
   expect(screen.queryByText('레거시 시나리오 마이그레이션')).not.toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: '자료 설정' }))
@@ -69,6 +88,7 @@ it('lists, resumes, deletes and configures session knowledge sets', async () => 
   const old = screen.getByText('Old Keep').closest('li')!
   await user.click(old.querySelectorAll('button')[0])
   expect(screen.getByText('모험을 재개했습니다.')).toBeInTheDocument()
+  expect(resumed).toEqual(['old'])
   await user.click(screen.getByRole('button', { name: '자료 설정' }))
   await user.click(screen.getByRole('button', { name: '세션 자료 저장' }))
   await user.click(old.querySelectorAll('button')[1])

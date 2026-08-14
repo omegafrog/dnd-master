@@ -18,12 +18,27 @@ type CharacterSheetResponse = {
   derivedStatistics: string
 }
 
-export type SavedAdventure = { id: string; title: string; updatedAt: string; version: number }
+export type SavedAdventure = {
+  id: string
+  title: string
+  statusLabel: '진행 중인 모험' | '완료한 모험'
+  resumable: boolean
+  updatedAt: string
+  version: number
+}
 
-export type SavedAdventureResponse = { adventureId: string; status: string; version: number }
+export type SavedAdventureResponse = { adventureId: string; name?: string | null; title?: string | null; status: string; version: number; updatedAt?: string | null }
 
 export function toSavedAdventure(response: SavedAdventureResponse): SavedAdventure {
-  return { id: response.adventureId, title: response.status, updatedAt: '', version: response.version }
+  const resumable = response.status !== 'COMPLETED' && response.status !== 'DELETED'
+  return {
+    id: response.adventureId,
+    title: response.name ?? response.title ?? '이름 없는 모험',
+    statusLabel: resumable ? '진행 중인 모험' : '완료한 모험',
+    resumable,
+    updatedAt: response.updatedAt ?? '',
+    version: response.version,
+  }
 }
 
 export type SessionKnowledgeSet = {

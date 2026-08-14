@@ -67,6 +67,15 @@ public final class SpringAiChatAdapter implements GmCompletionAdapter {
         }
     }
 
+    /** Narrative output is deliberately plain text, unlike structured GM operations. */
+    public String completeNarrative(String operationId, String prompt) {
+        register(operationId, prompt);
+        ChatResponse response = model.call(new Prompt(prompt, OllamaChatOptions.builder().numPredict(512).build()));
+        String value = text(response);
+        logger.success(operationId);
+        return value;
+    }
+
     public Flux<String> stream(String operationId, String prompt) {
         String fingerprint = register(operationId, prompt);
         CachedResult cached = completed.get(operationId);

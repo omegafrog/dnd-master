@@ -123,6 +123,16 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         return new RulebookProcessingResult(rulebookId, ProcessingStatus.QUEUED, List.of());
     }
 
+    public void delete(RulebookId rulebookId, com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId owner) {
+        StoredRulebookRegistration registration = registrationRepository.findById(rulebookId)
+                .orElseThrow(() -> new IllegalArgumentException("knowledge document not found"));
+        if (!registration.ownerPlayerId().equals(owner)) {
+            throw new SecurityException("knowledge document does not belong to authenticated player");
+        }
+        registrationRepository.deleteById(rulebookId);
+        fileStorage.delete(new StoredRulebookFile(registration.storageKey()));
+    }
+
     private RulebookProcessingResult processClaimedRegistration(StoredRulebookRegistration registration) {
         if (registration.processingStatus() != ProcessingStatus.PROCESSING) {
             throw new IllegalStateException("only claimed document can be processed");

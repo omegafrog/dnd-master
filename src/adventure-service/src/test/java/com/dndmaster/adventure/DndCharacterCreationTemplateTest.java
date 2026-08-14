@@ -91,4 +91,34 @@ class DndCharacterCreationTemplateTest {
         assertEquals(InputMode.SINGLE_SELECT, blueprint.field("race").inputMode());
         assertEquals(List.of("드워프", "엘프", "인간", "하플링"), blueprint.field("race").options());
     }
+
+    @Test
+    void normalizesKnown2014RulebookValuesWithoutMakingRawExtractionSelectable() {
+        CharacterCreationBlueprint extracted = new CharacterCreationBlueprintCompiler().compile(1, List.of(
+                new CharacterCreationBlueprintCompiler.FieldCandidate("class", List.of("Fighter"), true,
+                        "RULEBOOK", STORYBOOK, "Fighter", InputMode.SINGLE_SELECT, List.of()),
+                new CharacterCreationBlueprintCompiler.FieldCandidate("background", List.of("Soldier", "grizzled soldier"), true,
+                        "RULEBOOK", STORYBOOK, "Soldier", InputMode.SINGLE_SELECT, List.of())));
+
+        CharacterCreationBlueprint blueprint = DndCharacterCreationTemplate.apply("DND_5E_2014", extracted);
+
+        assertEquals(List.of("로그", "위저드", "클레릭", "파이터"), blueprint.field("class").options());
+        assertEquals(List.of("수행사제", "사기꾼", "범죄자", "연예인", "민중 영웅", "길드 장인", "은둔자", "귀족", "이방인", "현자", "선원", "군인", "부랑아"),
+                blueprint.field("background").options());
+        assertFalse(blueprint.field("class").options().contains("Fighter"));
+        assertFalse(blueprint.field("background").options().contains("Soldier"));
+        assertFalse(blueprint.field("background").options().contains("grizzled soldier"));
+        assertEquals(List.of("grizzled soldier"), blueprint.field("background").suggestions());
+        assertEquals("CONFLICT_REVIEW", blueprint.field("background").inputStatus());
+    }
+
+    @Test
+    void doesNotTreat2024AsThe2014BaseTemplate() {
+        CharacterCreationBlueprint blueprint = DndCharacterCreationTemplate.apply("DND_5E_2024",
+                new CharacterCreationBlueprintCompiler().compile(1, List.of()));
+
+        assertTrue(blueprint.fields().stream().anyMatch(field -> field.key().equals("name")));
+        assertFalse(blueprint.fields().stream().anyMatch(field -> field.key().equals("race")));
+        assertFalse(blueprint.fields().stream().anyMatch(field -> field.key().equals("background")));
+    }
 }
