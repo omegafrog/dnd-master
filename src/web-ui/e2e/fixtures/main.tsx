@@ -145,7 +145,7 @@ const setupApi: SetupApi = {
           proposalId: 'proposal-e2e-1', key: 'alignment', label: '스토리 속 성향', description: '질서 선 성향으로 묘사됩니다.',
           sourceDocument: { knowledgeDocumentId: 'storybook.txt-STORYBOOK', originalFilename: 'storybook.txt', extractionVersion: 1 },
           sourceQuote: '질서 선의 수호자였다.', evidence: [{ locator: 'page:2', excerpt: '질서 선의 수호자였다.' }],
-          decisionState: 'UNDECIDED' as const, readinessState: 'READY' as const,
+          decisionState: e2eState.blueprintStatus === 'PUBLISHED' ? 'APPLIED' as const : 'UNDECIDED' as const, readinessState: 'READY' as const,
         }],
         storybookExtractionState: 'PROPOSALS_AVAILABLE' as const,
       },
