@@ -13,6 +13,7 @@ import type {
   RuntimeOptionsView,
   ScenarioBundleView,
   ScenarioCompilationView,
+  ScenarioPackageView,
   SetupApi,
   SourcePreviewView,
 } from '../rulebooks/SetupApi'
@@ -78,6 +79,7 @@ class FakeSetupApi implements SetupApi {
     { knowledgeDocumentId: 'doc-1', documentType: 'STORYBOOK', originalFilename: 'main.pdf', status: 'INDEXED', role: 'REFERENCE', extractionVersion: 3 },
   ]) }
   async getScenarioBundle() { return bundle('bundle-1', 1, []) }
+  async listScenarioPackages(): Promise<ScenarioPackageView[]> { return [] }
   async createCharacterSheet(): Promise<CreatedCharacterSheetView> {
     return {
       characterSheetId: 'sheet-1',
@@ -205,6 +207,7 @@ function bundle(id: string, revision: number, documents: ScenarioBundleView['doc
 describe('ScenarioSetup', () => {
   afterEach(() => {
     vi.useRealTimers()
+    window.localStorage.clear()
   })
 
   it('preserves nested blueprint paths in legacy starting abilities', () => {
@@ -300,5 +303,25 @@ describe('ScenarioSetup', () => {
     expect(await screen.findByText('모험 준비 결과 package-1 · COMPLETE')).toBeInTheDocument()
     expect(api.getScenarioCompilation).toHaveBeenCalled()
   }, 10000)
+
+  it('restores a published preparation after the setup modal is reopened', async () => {
+    const api = new FakeSetupApi()
+    api.listScenarioPackages = vi.fn(async () => [await api.getScenarioPackage()])
+
+    render(<ScenarioSetup api={api} playerId="owner-1" onError={() => {}} initialBundle={bundle('bundle-1', 1, [])} preparationOnly />)
+
+    expect(await screen.findByText('모험 준비 결과 package-1 · COMPLETE')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '캐릭터 생성 시작' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '이 자료로 모험 만들기' })).toBeInTheDocument()
+  })
+
+  it('restores the compilation pointer when the package list is temporarily empty', async () => {
+    const api = new FakeSetupApi()
+    window.localStorage.setItem('dnd-preparation:bundle-1:1', 'compilation-1')
+
+    render(<ScenarioSetup api={api} playerId="owner-1" onError={() => {}} initialBundle={bundle('bundle-1', 1, [])} preparationOnly />)
+
+    expect(await screen.findByText('모험 준비 결과 package-1 · COMPLETE')).toBeInTheDocument()
+  })
 
 })

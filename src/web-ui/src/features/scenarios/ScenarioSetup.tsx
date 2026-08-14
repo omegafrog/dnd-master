@@ -41,6 +41,10 @@ const indexingFinishedStatuses = new Set<KnowledgeDocumentView['status']>(['INDE
 
 const compilationPollIntervalMs = 500
 
+function preparationStorageKey(bundleId: string, revision: number) {
+  return `dnd-preparation:${bundleId}:${revision}`
+}
+
 function compilationProgress(status: ScenarioCompilationView['status']): number {
   switch (status) {
     case 'REQUESTED': return 10
@@ -88,6 +92,9 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
 
   useEffect(() => {
     if (initialBundle) {
+      setScenarioPackage(null)
+      setCompilation(null)
+      setCompilationFailure(null)
       setBundle(initialBundle)
       setSelectedIds(new Set(initialBundle.documents.map(document => document.knowledgeDocumentId)))
       setRoles(Object.fromEntries(initialBundle.documents.map(document => [document.knowledgeDocumentId, document.role])))
@@ -101,11 +108,34 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
       .then(packages => {
         if (!active) return
         const currentPackage = packages.find(item => item.bundleRevision === bundle.currentRevision) ?? null
-        setScenarioPackage(currentPackage)
+        if (currentPackage) setScenarioPackage(currentPackage)
         if (!currentPackage) setSessions([])
       })
       .catch(error => {
         if (active) onError(error instanceof Error ? error.message : '모험 준비 결과를 불러오지 못했습니다.')
+      })
+    return () => { active = false }
+  }, [api, bundle, onError])
+
+  useEffect(() => {
+    if (!bundle || !api.getScenarioCompilation) return
+    const storageKey = preparationStorageKey(bundle.bundleId, bundle.currentRevision)
+    const compilationId = window.localStorage.getItem(storageKey)
+    if (!compilationId) return
+    let active = true
+    void api.getScenarioCompilation(compilationId)
+      .then(current => {
+        if (!active || current.bundleId !== bundle.bundleId || current.bundleRevision !== bundle.currentRevision) return
+        setCompilation(current)
+        if (current.status === 'PUBLISHED' && current.packageId && api.getScenarioPackage) {
+          return api.getScenarioPackage(current.packageId).then(packageView => {
+            if (active) setScenarioPackage(packageView)
+          })
+        }
+        return undefined
+      })
+      .catch(error => {
+        if (active) onError(error instanceof Error ? error.message : '게임 준비 상태를 복원하지 못했습니다.')
       })
     return () => { active = false }
   }, [api, bundle, onError])
@@ -232,6 +262,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
           playerId,
           `scenario-bundle:${bundle.bundleId}:revision:${bundle.currentRevision}`,
         )
+        window.localStorage.setItem(preparationStorageKey(bundle.bundleId, bundle.currentRevision), started.compilationId)
         setCompilation(started)
         return
       }
