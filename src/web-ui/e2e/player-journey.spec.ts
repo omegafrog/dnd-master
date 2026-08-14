@@ -25,7 +25,7 @@ test('player adds a character to the draft session', async ({ page }) => {
   const party = page.getByRole('region', { name: '모험을 함께할 파티' })
   await party.getByRole('button', { name: '내 캐릭터로' }).click()
   await expect(party.getByText('Aria', { exact: true })).toBeVisible()
-  await expect(party.getByText('직접 조작')).toBeVisible()
+  await expect(party.getByText('직접 조작', { exact: true })).toBeVisible()
   await expect(party.getByRole('button', { name: '제거' })).toHaveCount(1)
 })
 
@@ -95,7 +95,7 @@ test('running session reconnects with switched provider and confirms ending', as
   await gmProvider.locator('summary').click()
   await gmProvider.getByLabel('GM provider').selectOption('openai')
   await page.locator('input[aria-label="GM model"]').fill('gpt-5.6-luna')
-  await gmProvider.getByRole('button', { name: 'Provider 전환' }).click()
+  await gmProvider.getByRole('button', { name: '연결 변경' }).click()
   await expect(gmProvider.getByText(/현재: openai · gpt-5.6-luna · medium/)).toBeVisible()
 
   await page.getByLabel('행동 또는 대화').fill('I inspect the revealed chamber')
