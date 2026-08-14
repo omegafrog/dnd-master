@@ -26,7 +26,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
-import java.nio.charset.StandardCharsets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -596,7 +595,8 @@ public final class ScenarioPreparationApplicationService {
                                 .toList(), optionDetails(field.optionDetails())))
                 .toList();
         List<CharacterCreationBlueprintView.FieldView> baseFields = fields.stream()
-                .filter(field -> "RULEBOOK".equalsIgnoreCase(field.sourceType())).toList();
+                .filter(field -> "RULEBOOK".equalsIgnoreCase(field.sourceType())
+                        || "TEMPLATE".equalsIgnoreCase(field.sourceType())).toList();
         List<CharacterCreationBlueprintView.StorybookProposalView> proposals = fields.stream()
                 .filter(field -> "STORYBOOK".equalsIgnoreCase(field.sourceType()))
                 .map(field -> toProposal(field, documents)).toList();
@@ -623,9 +623,20 @@ public final class ScenarioPreparationApplicationService {
                         reference.knowledgeDocumentId(), document.originalFilename(), reference.extractionVersion()))).orElse(null);
         boolean hasEvidence = source != null && !field.sourceQuote().isBlank() && !evidence.isEmpty();
         return new CharacterCreationBlueprintView.StorybookProposalView(
-                UUID.nameUUIDFromBytes((field.key() + "|" + field.sourceQuote() + "|" + evidence).getBytes(StandardCharsets.UTF_8)).toString(),
+                StorybookProposalId.stableId(field, source),
                 field.key(), field.key(), String.join(", ", field.options()), source, field.sourceQuote(), evidence,
                 "UNDECIDED", hasEvidence ? "READY" : "INSUFFICIENT_EVIDENCE");
+    }
+
+    private static final class StorybookProposalId {
+        private StorybookProposalId() {}
+
+        private static String stableId(CharacterCreationBlueprintView.FieldView field,
+                                       CharacterCreationBlueprintView.StorybookProposalView.SourceDocument source) {
+            return CharacterCreationBlueprintView.StorybookProposalView.stableId(
+                    source == null ? "UNRESOLVED" : source.knowledgeDocumentId(),
+                    source == null ? 0 : source.extractionVersion(), field.key());
+        }
     }
 
     private static CharacterCreationBlueprintView.StorybookExtractionState storybookExtractionState(

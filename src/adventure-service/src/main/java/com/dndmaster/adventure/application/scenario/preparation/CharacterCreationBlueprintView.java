@@ -28,7 +28,8 @@ public record CharacterCreationBlueprintView(
                                           int storybookDocumentCount, List<String> diagnostics, long revision,
                                           List<FieldView> fields, String status, List<NodeView> roots, String edition) {
         this(available, summary, rulebookDocumentCount, storybookDocumentCount, diagnostics, revision, fields,
-                status, roots, edition, RulebookBaseSchemaView.from(fields), List.of(), StorybookExtractionState.NO_PROPOSALS);
+                status, roots, edition, new RulebookBaseSchemaView(edition, RulebookBaseSchemaView.from(fields).fields()),
+                List.of(), StorybookExtractionState.NO_PROPOSALS);
     }
     public CharacterCreationBlueprintView {
         diagnostics = List.copyOf(diagnostics);
@@ -63,7 +64,8 @@ public record CharacterCreationBlueprintView(
 
         public static RulebookBaseSchemaView from(List<FieldView> fields) {
             return new RulebookBaseSchemaView("DND_5E_2014", fields.stream()
-                    .filter(field -> "RULEBOOK".equalsIgnoreCase(field.sourceType())).toList());
+                    .filter(field -> "RULEBOOK".equalsIgnoreCase(field.sourceType())
+                            || "TEMPLATE".equalsIgnoreCase(field.sourceType())).toList());
         }
     }
 
@@ -82,8 +84,16 @@ public record CharacterCreationBlueprintView(
             description = description == null ? "" : description;
             sourceQuote = sourceQuote == null ? "" : sourceQuote;
             evidence = List.copyOf(evidence);
+            // 036-1 has no decision command or persistence boundary yet; the safe read-model
+            // default is UNDECIDED rather than inferring a decision from diagnostics or text.
             decisionState = decisionState == null ? "UNDECIDED" : decisionState;
             readinessState = readinessState == null ? "READY" : readinessState;
+        }
+
+        /** Identity is tied to the grounded source revision and field key, never extracted text. */
+        public static String stableId(String knowledgeDocumentId, long extractionVersion, String fieldKey) {
+            return java.util.UUID.nameUUIDFromBytes((knowledgeDocumentId + "|" + extractionVersion + "|" + fieldKey)
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
         }
 
         public record SourceDocument(String knowledgeDocumentId, String originalFilename, long extractionVersion) {}

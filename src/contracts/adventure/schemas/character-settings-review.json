@@ -4,7 +4,7 @@
   "required": ["baseSchema", "storybookProposals", "storybookExtractionState"],
   "properties": {
     "baseSchema": { "type": "object", "required": ["edition", "fields"], "properties": { "edition": { "type": "string" }, "fields": { "type": "array" } } },
-    "storybookProposals": { "type": "array", "items": { "type": "object", "required": ["proposalId", "key", "label", "description", "sourceDocument", "sourceQuote", "evidence", "decisionState", "readinessState"], "properties": { "proposalId": { "type": "string", "minLength": 1 }, "sourceDocument": { "type": ["object", "null"] }, "sourceQuote": { "type": "string" }, "evidence": { "type": "array" }, "decisionState": { "enum": ["UNDECIDED", "APPLIED", "EXCLUDED", "NEEDS_EVIDENCE"] }, "readinessState": { "enum": ["READY", "INSUFFICIENT_EVIDENCE"] } } } },
+    "storybookProposals": { "type": "array", "items": { "type": "object", "required": ["proposalId", "key", "label", "description", "sourceDocument", "sourceQuote", "evidence", "decisionState", "readinessState"], "properties": { "proposalId": { "type": "string", "minLength": 1 }, "sourceDocument": { "type": ["object", "null"] }, "sourceQuote": { "type": "string" }, "evidence": { "type": "array" }, "decisionState": { "description": "036-1 safely emits UNDECIDED until later decision commands and persistence exist.", "enum": ["UNDECIDED", "APPLIED", "EXCLUDED", "NEEDS_EVIDENCE"] }, "readinessState": { "enum": ["READY", "INSUFFICIENT_EVIDENCE"] } } } },
     "storybookExtractionState": { "enum": ["NO_PROPOSALS", "PROPOSALS_AVAILABLE", "EXTRACTION_FAILED", "INSUFFICIENT_EVIDENCE"] }
   }
 }

@@ -1,6 +1,7 @@
 package com.dndmaster.contracts;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -31,5 +32,53 @@ class CharacterSettingsReviewSchemaTest {
         assertTrue(schema.at("/properties/storybookExtractionState/enum").toString().contains("NO_PROPOSALS"));
         assertTrue(schema.at("/properties/storybookExtractionState/enum").toString().contains("EXTRACTION_FAILED"));
         assertTrue(schema.at("/properties/storybookExtractionState/enum").toString().contains("INSUFFICIENT_EVIDENCE"));
+
+        JsonNode valid = JSON.readTree("""
+                {"baseSchema":{"edition":"DND_5E_2014","fields":[]},
+                 "storybookProposals":[{"proposalId":"proposal-1","key":"race","label":"Race","description":"Elf only",
+                   "sourceDocument":{"knowledgeDocumentId":"doc-1","originalFilename":"story.pdf","extractionVersion":3},
+                   "sourceQuote":"Only elves.","evidence":[{"locator":"page:4","excerpt":"Only elves."}],
+                   "decisionState":"UNDECIDED","readinessState":"READY"}],
+                 "storybookExtractionState":"PROPOSALS_AVAILABLE"}
+                """);
+        JsonNode invalid = JSON.readTree("""
+                {"baseSchema":{"edition":"DND_5E_2014","fields":[]},
+                 "storybookProposals":[{"proposalId":"","key":"race","label":"Race","description":"Elf only",
+                   "sourceDocument":null,"sourceQuote":"","evidence":[],
+                   "decisionState":"USE","readinessState":"READY"}],
+                 "storybookExtractionState":"UNKNOWN"}
+                """);
+        assertTrue(isValidReviewPayload(schema, valid));
+        assertFalse(isValidReviewPayload(schema, invalid));
+    }
+
+    private static boolean isValidReviewPayload(JsonNode schema, JsonNode payload) {
+        if (!payload.isObject() || !hasRequired(schema, payload)) return false;
+        JsonNode base = payload.get("baseSchema");
+        if (!base.isObject() || !hasRequired(schema.at("/properties/baseSchema"), base)
+                || !base.get("edition").isTextual() || !base.get("fields").isArray()) return false;
+        JsonNode proposals = payload.get("storybookProposals");
+        if (!proposals.isArray()) return false;
+        JsonNode proposalSchema = schema.at("/properties/storybookProposals/items");
+        for (JsonNode proposal : proposals) {
+            if (!proposal.isObject() || !hasRequired(proposalSchema, proposal)
+                    || proposal.get("proposalId").asText().isBlank()
+                    || !proposal.get("sourceQuote").isTextual()
+                    || !proposal.get("evidence").isArray()
+                    || !isEnum(proposalSchema.at("/properties/decisionState"), proposal.get("decisionState"))
+                    || !isEnum(proposalSchema.at("/properties/readinessState"), proposal.get("readinessState"))) return false;
+            if (!proposal.get("sourceDocument").isNull() && !proposal.get("sourceDocument").isObject()) return false;
+        }
+        return isEnum(schema.at("/properties/storybookExtractionState"), payload.get("storybookExtractionState"));
+    }
+
+    private static boolean hasRequired(JsonNode schema, JsonNode payload) {
+        for (JsonNode required : schema.get("required")) if (!payload.has(required.asText())) return false;
+        return true;
+    }
+
+    private static boolean isEnum(JsonNode schema, JsonNode value) {
+        for (JsonNode allowed : schema.get("enum")) if (allowed.equals(value)) return true;
+        return false;
     }
 }

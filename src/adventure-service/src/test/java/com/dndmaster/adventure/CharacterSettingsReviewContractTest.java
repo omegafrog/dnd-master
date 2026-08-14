@@ -40,4 +40,38 @@ class CharacterSettingsReviewContractTest {
         assertTrue(view.storybookProposals().isEmpty());
         assertEquals(StorybookExtractionState.NO_PROPOSALS, view.storybookExtractionState());
     }
+
+    @Test
+    void includes_template_fields_in_base_schema_but_excludes_overlay_sources() {
+        var template = new CharacterCreationBlueprintView.FieldView("race", List.of("Elf"), true,
+                "TEMPLATE", "EXTRACTED", List.of());
+        var storybook = new CharacterCreationBlueprintView.FieldView("alignment", List.of("Grove-bound"), true,
+                "STORYBOOK", "CONFLICT_REVIEW", List.of());
+        var handout = new CharacterCreationBlueprintView.FieldView("faction", List.of("Wardens"), true,
+                "HANDOUT", "CONFLICT_REVIEW", List.of());
+
+        assertEquals(List.of("race"), RulebookBaseSchemaView.from(List.of(template, storybook, handout)).fields().stream()
+                .map(CharacterCreationBlueprintView.FieldView::key).toList());
+    }
+
+    @Test
+    void keeps_proposal_identity_when_source_text_changes() {
+        var first = new StorybookProposalView(StorybookProposalView.stableId("doc-1", 3, "race"), "race",
+                "Race", "Elf only", new StorybookProposalView.SourceDocument("doc-1", "story.pdf", 3),
+                "Only elves.", List.of(), "UNDECIDED", "READY");
+        var changedText = new StorybookProposalView(StorybookProposalView.stableId("doc-1", 3, "race"), "race",
+                "Race", "Elf or dwarf", new StorybookProposalView.SourceDocument("doc-1", "story.pdf", 3),
+                "Elves or dwarves.", List.of(), "UNDECIDED", "READY");
+
+        assertEquals(first.proposalId(), changedText.proposalId());
+    }
+
+    @Test
+    void preserves_edition_in_the_explicit_base_schema_projection() {
+        var view = new CharacterCreationBlueprintView(true, "2024", 1, 0, List.of(), 1, List.of(),
+                "READY", List.of(), "DND_5E_2024");
+
+        assertEquals("DND_5E_2024", view.edition());
+        assertEquals("DND_5E_2024", view.baseSchema().edition());
+    }
 }
