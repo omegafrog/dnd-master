@@ -2,7 +2,7 @@
 
 Issue: [#163](https://github.com/omegafrog/dnd-master/issues/163)
 Parent: [#161](https://github.com/omegafrog/dnd-master/issues/161)
-Status: `planned`
+Status: `completed`
 Dependencies: 036-1
 
 ## 구현 목적

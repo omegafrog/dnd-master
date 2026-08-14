@@ -156,6 +156,7 @@ export type CharacterCreationBlueprintView = {
   edition?: 'DND_5E_2014' | 'DND_5E_2024'
   fields?: Array<{
     key: string
+    label: string
     options: string[]
     required: boolean
     sourceType: string
@@ -166,6 +167,7 @@ export type CharacterCreationBlueprintView = {
     diagnostics: string[]
     constraints?: string[]
     evidence?: Array<{ knowledgeDocumentId: string; extractionVersion: number; locator: string }>
+    optionDetails?: Array<{ value: string; label: string; description: string; sourceQuote: string; evidence: Array<{ knowledgeDocumentId: string; extractionVersion: number; locator: string }> }>
     sourceQuote?: string
   }>
   roots?: CharacterInputNodeView[]
