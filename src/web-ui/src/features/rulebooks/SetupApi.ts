@@ -170,6 +170,28 @@ export type CharacterCreationBlueprintView = {
   }>
   roots?: CharacterInputNodeView[]
   characterSheetTree?: CharacterInputNodeView[]
+  baseSchema?: RulebookBaseSchemaView
+  storybookProposals?: StorybookProposalView[]
+  storybookExtractionState?: StorybookExtractionState
+}
+
+export type RulebookBaseSchemaView = {
+  edition: string
+  fields: NonNullable<CharacterCreationBlueprintView['fields']>
+}
+
+export type StorybookExtractionState = 'NO_PROPOSALS' | 'PROPOSALS_AVAILABLE' | 'EXTRACTION_FAILED' | 'INSUFFICIENT_EVIDENCE'
+
+export type StorybookProposalView = {
+  proposalId: string
+  key: string
+  label: string
+  description: string
+  sourceDocument: { knowledgeDocumentId: string; originalFilename: string; extractionVersion: number } | null
+  sourceQuote: string
+  evidence: Array<{ locator: string; excerpt: string }>
+  decisionState: 'UNDECIDED' | 'APPLIED' | 'EXCLUDED' | 'NEEDS_EVIDENCE'
+  readinessState: 'READY' | 'INSUFFICIENT_EVIDENCE'
 }
 
 export type CharacterInputNodeView = {

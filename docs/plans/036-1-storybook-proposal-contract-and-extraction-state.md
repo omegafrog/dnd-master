@@ -2,7 +2,7 @@
 
 Issue: [#162](https://github.com/omegafrog/dnd-master/issues/162)
 Parent: [#161](https://github.com/omegafrog/dnd-master/issues/161)
-Status: `ready-for-agent`
+Status: `completed`
 Dependencies: 없음
 
 ## 구현 목적

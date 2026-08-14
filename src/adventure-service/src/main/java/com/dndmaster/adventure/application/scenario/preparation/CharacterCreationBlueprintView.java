@@ -2,6 +2,7 @@ package com.dndmaster.adventure.application.scenario.preparation;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
+import java.util.Objects;
 
 public record CharacterCreationBlueprintView(
         boolean available,
@@ -13,12 +14,21 @@ public record CharacterCreationBlueprintView(
         List<FieldView> fields,
         String status,
         List<NodeView> roots,
-        String edition) {
+        String edition,
+        RulebookBaseSchemaView baseSchema,
+        List<StorybookProposalView> storybookProposals,
+        StorybookExtractionState storybookExtractionState) {
     public CharacterCreationBlueprintView(boolean available, String summary, int rulebookDocumentCount,
                                           int storybookDocumentCount, List<String> diagnostics, long revision,
                                           List<FieldView> fields, String status, List<NodeView> roots) {
         this(available, summary, rulebookDocumentCount, storybookDocumentCount, diagnostics, revision, fields,
-                status, roots, "DND_5E_2014");
+                status, roots, "DND_5E_2014", RulebookBaseSchemaView.from(fields), List.of(), StorybookExtractionState.NO_PROPOSALS);
+    }
+    public CharacterCreationBlueprintView(boolean available, String summary, int rulebookDocumentCount,
+                                          int storybookDocumentCount, List<String> diagnostics, long revision,
+                                          List<FieldView> fields, String status, List<NodeView> roots, String edition) {
+        this(available, summary, rulebookDocumentCount, storybookDocumentCount, diagnostics, revision, fields,
+                status, roots, edition, RulebookBaseSchemaView.from(fields), List.of(), StorybookExtractionState.NO_PROPOSALS);
     }
     public CharacterCreationBlueprintView {
         diagnostics = List.copyOf(diagnostics);
@@ -26,6 +36,9 @@ public record CharacterCreationBlueprintView(
         status = status == null ? "DRAFT" : status;
         roots = List.copyOf(roots);
         edition = edition == null || edition.isBlank() ? "DND_5E_2014" : edition;
+        baseSchema = Objects.requireNonNull(baseSchema, "base schema must not be null");
+        storybookProposals = List.copyOf(storybookProposals);
+        storybookExtractionState = Objects.requireNonNull(storybookExtractionState, "storybook extraction state must not be null");
     }
 
     public CharacterCreationBlueprintView(boolean available, String summary, int rulebookDocumentCount,
@@ -34,7 +47,52 @@ public record CharacterCreationBlueprintView(
     }
 
     public static CharacterCreationBlueprintView blocked(List<String> diagnostics) {
-        return new CharacterCreationBlueprintView(false, null, 0, 0, diagnostics, 0, List.of(), "NEEDS_REVIEW", List.of());
+        return blocked(diagnostics, StorybookExtractionState.NO_PROPOSALS);
+    }
+
+    public static CharacterCreationBlueprintView blocked(List<String> diagnostics, StorybookExtractionState extractionState) {
+        return new CharacterCreationBlueprintView(false, null, 0, 0, diagnostics, 0, List.of(), "NEEDS_REVIEW", List.of(),
+                "DND_5E_2014", RulebookBaseSchemaView.from(List.of()), List.of(), extractionState);
+    }
+
+    public record RulebookBaseSchemaView(String edition, List<FieldView> fields) {
+        public RulebookBaseSchemaView {
+            edition = edition == null || edition.isBlank() ? "DND_5E_2014" : edition;
+            fields = List.copyOf(fields);
+        }
+
+        public static RulebookBaseSchemaView from(List<FieldView> fields) {
+            return new RulebookBaseSchemaView("DND_5E_2014", fields.stream()
+                    .filter(field -> "RULEBOOK".equalsIgnoreCase(field.sourceType())).toList());
+        }
+    }
+
+    public enum StorybookExtractionState {
+        NO_PROPOSALS, PROPOSALS_AVAILABLE, EXTRACTION_FAILED, INSUFFICIENT_EVIDENCE
+    }
+
+    public record StorybookProposalView(String proposalId, String key, String label, String description,
+                                        SourceDocument sourceDocument, String sourceQuote,
+                                        List<SourceEvidence> evidence, String decisionState,
+                                        String readinessState) {
+        public StorybookProposalView {
+            proposalId = Objects.requireNonNull(proposalId, "proposal id must not be null");
+            key = Objects.requireNonNull(key, "proposal key must not be null");
+            label = label == null ? "" : label;
+            description = description == null ? "" : description;
+            sourceQuote = sourceQuote == null ? "" : sourceQuote;
+            evidence = List.copyOf(evidence);
+            decisionState = decisionState == null ? "UNDECIDED" : decisionState;
+            readinessState = readinessState == null ? "READY" : readinessState;
+        }
+
+        public record SourceDocument(String knowledgeDocumentId, String originalFilename, long extractionVersion) {}
+        public record SourceEvidence(String locator, String excerpt) {
+            public SourceEvidence {
+                locator = locator == null ? "" : locator;
+                excerpt = excerpt == null ? "" : excerpt;
+            }
+        }
     }
 
     @JsonProperty("characterSheetTree")

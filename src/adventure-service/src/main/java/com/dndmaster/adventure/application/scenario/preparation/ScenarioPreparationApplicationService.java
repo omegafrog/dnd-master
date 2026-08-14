@@ -26,6 +26,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -122,8 +123,10 @@ public final class ScenarioPreparationApplicationService {
                         storybookDocuments.size(),
                         diagnostics,
                         scenarioPackage.bundleRevision(),
-                        blueprintFields(hasHandout), "READY", List.of())
-                : CharacterCreationBlueprintView.blocked(diagnostics);
+                        blueprintFields(hasHandout), "READY", List.of(), "DND_5E_2014",
+                        new CharacterCreationBlueprintView.RulebookBaseSchemaView("DND_5E_2014", blueprintFields(hasHandout)),
+                        List.of(), CharacterCreationBlueprintView.StorybookExtractionState.NO_PROPOSALS)
+                : CharacterCreationBlueprintView.blocked(diagnostics, storybookExtractionState(storybookDocuments, List.of()));
 
         return new PlayPreparationView(
                 scenarioPackage.packageId(),
@@ -584,18 +587,57 @@ public final class ScenarioPreparationApplicationService {
                 .map(reference -> reference.knowledgeDocumentId().value())
                 .distinct().count());
         long storybooks = documents.stream().filter(document -> "STORYBOOK".equalsIgnoreCase(document.documentType())).count();
+        List<CharacterCreationBlueprintView.FieldView> fields = blueprint.fields().stream()
+                .map(field -> new CharacterCreationBlueprintView.FieldView(field.key(), field.options(), field.required(),
+                        field.sourceType(), field.inputStatus(), field.diagnostics(), field.inputMode().name(), field.value(),
+                        field.suggestions(), field.sourceQuote(), field.evidence().stream()
+                                .map(reference -> new CharacterCreationBlueprintView.FieldView.SourceReferenceView(
+                                        reference.knowledgeDocumentId().value().toString(), reference.extractionVersion(), reference.locator()))
+                                .toList(), optionDetails(field.optionDetails())))
+                .toList();
+        List<CharacterCreationBlueprintView.FieldView> baseFields = fields.stream()
+                .filter(field -> "RULEBOOK".equalsIgnoreCase(field.sourceType())).toList();
+        List<CharacterCreationBlueprintView.StorybookProposalView> proposals = fields.stream()
+                .filter(field -> "STORYBOOK".equalsIgnoreCase(field.sourceType()))
+                .map(field -> toProposal(field, documents)).toList();
+        CharacterCreationBlueprintView.StorybookExtractionState extractionState = storybookExtractionState(documents, proposals);
         return new CharacterCreationBlueprintView(
                 blueprint.status().name().equals("READY") || blueprint.status().name().equals("PUBLISHED"),
                 "CharacterCreationBlueprint revision " + blueprint.revision(), (int) rulebooks, (int) storybooks,
-                blueprint.diagnostics(), blueprint.revision(), blueprint.fields().stream()
-                        .map(field -> new CharacterCreationBlueprintView.FieldView(field.key(), field.options(), field.required(),
-                                field.sourceType(), field.inputStatus(), field.diagnostics(), field.inputMode().name(), field.value(),
-                                field.suggestions(), field.sourceQuote(), field.evidence().stream()
-                                        .map(reference -> new CharacterCreationBlueprintView.FieldView.SourceReferenceView(
-                                                reference.knowledgeDocumentId().value().toString(), reference.extractionVersion(), reference.locator()))
-                                        .toList(), optionDetails(field.optionDetails()))).toList(), blueprint.status().name(),
+                blueprint.diagnostics(), blueprint.revision(), fields, blueprint.status().name(),
                 blueprint.roots().stream().map(ScenarioPreparationApplicationService::toNodeView).toList(),
-                blueprint.provenance().edition());
+                blueprint.provenance().edition(),
+                new CharacterCreationBlueprintView.RulebookBaseSchemaView(blueprint.provenance().edition(), baseFields),
+                proposals, extractionState);
+    }
+
+    private static CharacterCreationBlueprintView.StorybookProposalView toProposal(
+            CharacterCreationBlueprintView.FieldView field, List<ScenarioBundleDocumentSelection> documents) {
+        var evidence = field.evidence().stream()
+                .map(reference -> new CharacterCreationBlueprintView.StorybookProposalView.SourceEvidence(
+                        reference.locator(), field.sourceQuote()))
+                .toList();
+        var source = field.evidence().stream().findFirst().flatMap(reference -> documents.stream()
+                .filter(document -> document.knowledgeDocumentId().value().toString().equals(reference.knowledgeDocumentId()))
+                .findFirst().map(document -> new CharacterCreationBlueprintView.StorybookProposalView.SourceDocument(
+                        reference.knowledgeDocumentId(), document.originalFilename(), reference.extractionVersion()))).orElse(null);
+        boolean hasEvidence = source != null && !field.sourceQuote().isBlank() && !evidence.isEmpty();
+        return new CharacterCreationBlueprintView.StorybookProposalView(
+                UUID.nameUUIDFromBytes((field.key() + "|" + field.sourceQuote() + "|" + evidence).getBytes(StandardCharsets.UTF_8)).toString(),
+                field.key(), field.key(), String.join(", ", field.options()), source, field.sourceQuote(), evidence,
+                "UNDECIDED", hasEvidence ? "READY" : "INSUFFICIENT_EVIDENCE");
+    }
+
+    private static CharacterCreationBlueprintView.StorybookExtractionState storybookExtractionState(
+            List<ScenarioBundleDocumentSelection> documents, List<CharacterCreationBlueprintView.StorybookProposalView> proposals) {
+        boolean failed = documents.stream().anyMatch(document -> "STORYBOOK".equalsIgnoreCase(document.documentType())
+                && "FAILED".equalsIgnoreCase(document.status().name()));
+        if (failed) return CharacterCreationBlueprintView.StorybookExtractionState.EXTRACTION_FAILED;
+        if (proposals.isEmpty()) return CharacterCreationBlueprintView.StorybookExtractionState.NO_PROPOSALS;
+        if (proposals.stream().anyMatch(proposal -> "INSUFFICIENT_EVIDENCE".equals(proposal.readinessState()))) {
+            return CharacterCreationBlueprintView.StorybookExtractionState.INSUFFICIENT_EVIDENCE;
+        }
+        return CharacterCreationBlueprintView.StorybookExtractionState.PROPOSALS_AVAILABLE;
     }
 
     private static CharacterCreationBlueprintView.NodeView toNodeView(CharacterInputNode node) {
