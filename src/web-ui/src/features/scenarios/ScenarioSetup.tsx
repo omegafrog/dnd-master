@@ -6,6 +6,7 @@ import type {
   ScenarioBundleView,
   ScenarioCompilationView,
   ScenarioPackageView,
+  PlayPreparationView,
   SetupApi,
   CharacterInputNodeView,
 } from '../rulebooks/SetupApi'
@@ -81,6 +82,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bundle, setBundle] = useState<ScenarioBundleView | null>(null)
   const [scenarioPackage, setScenarioPackage] = useState<ScenarioPackageView | null>(null)
+  const [playPreparation, setPlayPreparation] = useState<PlayPreparationView | null>(null)
   const [sessions, setSessions] = useState<AdventureSessionView[]>([])
   const [compilation, setCompilation] = useState<ScenarioCompilationView | null>(null)
   const [compilationFailure, setCompilationFailure] = useState<string | null>(null)
@@ -89,6 +91,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
   const [saving, setSaving] = useState(false)
   const canCompile = Boolean(api.startScenarioCompilation && api.getScenarioCompilation && api.getScenarioPackage)
   const allDocumentsIndexed = documents.length > 0 && documents.every(document => indexingFinishedStatuses.has(document.status))
+  const blueprintPublished = playPreparation?.characterCreationBlueprint.status === 'PUBLISHED'
 
   useEffect(() => {
     if (initialBundle) {
@@ -151,6 +154,21 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
       .catch(error => { if (active) onError(error instanceof Error ? error.message : '이 자료로 만든 모험을 불러오지 못했습니다.') })
     return () => { active = false }
   }, [onError, scenarioPackage, sessionApi])
+
+  useEffect(() => {
+    if (!scenarioPackage || !api.getPlayPreparation) {
+      setPlayPreparation(null)
+      return
+    }
+    let active = true
+    setPlayPreparation(null)
+    void api.getPlayPreparation(scenarioPackage.packageId)
+      .then(preparation => { if (active) setPlayPreparation(preparation) })
+      .catch(error => {
+        if (active) onError(error instanceof Error ? error.message : '캐릭터 생성 설정을 확인하지 못했습니다.')
+      })
+    return () => { active = false }
+  }, [api, onError, scenarioPackage])
 
   useEffect(() => {
     if (!compilation || !api.getScenarioCompilation || compilation.status === 'PUBLISHED' || compilation.status === 'FAILED') return
@@ -283,6 +301,11 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
     if (!scenarioPackage || !sessionApi?.create || !api.getPlayPreparation) return
     try {
       const preparation = await api.getPlayPreparation(scenarioPackage.packageId)
+      if (preparation.characterCreationBlueprint.status !== 'PUBLISHED' || preparation.characterCreationBlueprint.revision == null) {
+        setPlayPreparation(preparation)
+        onError('캐릭터 생성 설정을 먼저 검토하고 게시해 주세요.')
+        return
+      }
       const session = await sessionApi.create({ scenarioPackageId: scenarioPackage.packageId, blueprintId: scenarioPackage.packageId, blueprintRevision: preparation.characterCreationBlueprint.revision ?? 0, partySize: Math.min(partySize, scenarioPackage.characterLimit.maximumCharacters) })
       window.location.hash = `#/sessions/${session.sessionId}/party`
     } catch (error) {
@@ -378,9 +401,10 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
               <Button type="button" onClick={() => { window.location.hash = `#/scenario-packages/${scenarioPackage.packageId}/character-blueprint` }}>
                 캐릭터 생성 시작
               </Button>
-              <Button type="button" onClick={() => void createAdventure()} disabled={scenarioPackage.reportStatus !== 'COMPLETE'}>
+              <Button type="button" onClick={() => void createAdventure()} disabled={scenarioPackage.reportStatus !== 'COMPLETE' || !blueprintPublished}>
                 이 자료로 모험 만들기
               </Button>
+              {!blueprintPublished ? <p>캐릭터 생성 설정을 검토하고 게시하면 모험을 만들 수 있습니다.</p> : null}
               {scenarioPackage.characterLimit.source ? (
                 <p>인원 제한 기준: {scenarioPackage.characterLimit.source.locator} · {scenarioPackage.characterLimit.sourceQuote}</p>
               ) : <p>고정 인원 조건이 없어 1~{scenarioPackage.characterLimit.maximumCharacters}명 중 선택할 수 있습니다.</p>}

@@ -31,6 +31,7 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
   const [bundle, setBundle] = useState<ScenarioBundleView | null>(null)
   const [documents, setDocuments] = useState<KnowledgeDocumentView[]>([])
   const [packages, setPackages] = useState<ScenarioPackageView[]>([])
+  const [publishedBlueprintPackageIds, setPublishedBlueprintPackageIds] = useState<Set<string>>(new Set())
   const [sessions, setSessions] = useState<AdventureSessionView[]>([])
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [rolesByDocument, setRolesByDocument] = useState<Record<string, ScenarioBundleRole>>({})
@@ -69,6 +70,25 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
     })
     return () => { active = false }
   }, [api, bundleId, playerId, sessionApi])
+
+  useEffect(() => {
+    if (!api.getPlayPreparation) {
+      setPublishedBlueprintPackageIds(new Set())
+      return
+    }
+    let active = true
+    void Promise.all(packages.filter(item => item.reportStatus === 'COMPLETE').map(async item => {
+      try {
+        const preparation = await api.getPlayPreparation!(item.packageId)
+        return preparation.characterCreationBlueprint.status === 'PUBLISHED' ? item.packageId : null
+      } catch {
+        return null
+      }
+    })).then(ids => {
+      if (active) setPublishedBlueprintPackageIds(new Set(ids.filter((id): id is string => id !== null)))
+    })
+    return () => { active = false }
+  }, [api, packages])
 
   useEffect(() => {
     void fetch('/api/v1/rulebook-catalog').then(response => response.ok ? response.json() : []).then((items: CatalogRulebook[]) => {
@@ -122,6 +142,15 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
     setMessage('모험 세션을 준비하고 있습니다.')
     try {
       const preparation = await api.getPlayPreparation(packageId)
+      if (preparation.characterCreationBlueprint.status !== 'PUBLISHED' || preparation.characterCreationBlueprint.revision == null) {
+        setPublishedBlueprintPackageIds(current => {
+          const next = new Set(current)
+          next.delete(packageId)
+          return next
+        })
+        setMessage('캐릭터 생성 설정을 먼저 검토하고 게시해 주세요.')
+        return
+      }
       const session = await sessionApi.create({
         scenarioPackageId: packageId,
         blueprintId: packageId,
@@ -210,7 +239,7 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
       <div className="bundle-card-heading"><h3>모험 준비 결과</h3></div>
       <CardContent>
           <Button type="button" onClick={() => setPreparing(true)}>게임 준비</Button>
-          {packages.length === 0 ? <p>아직 모험 준비가 끝나지 않았습니다.</p> : <ul aria-label="모험 준비 결과 목록">{packages.map(item => <li key={item.packageId}>v{item.bundleRevision} · {item.reportStatus} <Button type="button" onClick={() => void createAdventure(item.packageId)} disabled={item.reportStatus !== 'COMPLETE' || creatingSessionFor !== null}>{creatingSessionFor === item.packageId ? '세션 준비 중…' : '이 자료로 모험 만들기'}</Button> <Button type="button" variant="outline" onClick={() => openCharacter(item.packageId)}>캐릭터 생성 시작</Button></li>)}</ul>}
+          {packages.length === 0 ? <p>아직 모험 준비가 끝나지 않았습니다.</p> : <ul aria-label="모험 준비 결과 목록">{packages.map(item => <li key={item.packageId}>v{item.bundleRevision} · {item.reportStatus} <Button type="button" onClick={() => void createAdventure(item.packageId)} disabled={item.reportStatus !== 'COMPLETE' || !publishedBlueprintPackageIds.has(item.packageId) || creatingSessionFor !== null}>{creatingSessionFor === item.packageId ? '세션 준비 중…' : '이 자료로 모험 만들기'}</Button> <Button type="button" variant="outline" onClick={() => openCharacter(item.packageId)}>캐릭터 생성 시작</Button>{item.reportStatus === 'COMPLETE' && !publishedBlueprintPackageIds.has(item.packageId) ? <small> 캐릭터 생성 설정 게시 후 모험을 만들 수 있습니다.</small> : null}</li>)}</ul>}
       </CardContent>
     </Card>
     {preparing && <PreparationModal bundleId={bundle.bundleId} revision={bundle.currentRevision} api={api} ownerId={playerId} onClose={() => setPreparing(false)} onCharacter={openCharacter} onAdventure={packageId => void createAdventure(packageId)} />}
