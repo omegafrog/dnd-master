@@ -19,6 +19,7 @@ import type {
 } from '../rulebooks/SetupApi'
 
 class FakeSetupApi implements SetupApi {
+  readonly compilationFingerprints: string[] = []
   private readonly documents: KnowledgeDocumentView[] = [
     {
       knowledgeDocumentId: 'doc-1',
@@ -171,7 +172,8 @@ class FakeSetupApi implements SetupApi {
       ],
     }
   }
-  async startScenarioCompilation() {
+  async startScenarioCompilation(_bundleId: string, _ownerId: string, inputFingerprint: string) {
+    this.compilationFingerprints.push(inputFingerprint)
     return {
       compilationId: 'compilation-1',
       bundleId: 'bundle-1',
@@ -322,6 +324,17 @@ describe('ScenarioSetup', () => {
     render(<ScenarioSetup api={api} playerId="owner-1" onError={() => {}} initialBundle={bundle('bundle-1', 1, [])} preparationOnly />)
 
     expect(await screen.findByText('모험 준비 결과 package-1 · COMPLETE')).toBeInTheDocument()
+  })
+
+  it('uses a new fingerprint when restarting a published preparation', async () => {
+    const api = new FakeSetupApi()
+    window.localStorage.setItem('dnd-preparation:bundle-1:1', 'compilation-1')
+    const user = userEvent.setup()
+
+    render(<ScenarioSetup api={api} playerId="owner-1" onError={() => {}} initialBundle={bundle('bundle-1', 1, [])} preparationOnly />)
+    await user.click(await screen.findByRole('button', { name: '게임 준비 시작' }))
+
+    expect(api.compilationFingerprints[0]).toMatch(/^scenario-bundle:bundle-1:revision:1:retry:/)
   })
 
 })

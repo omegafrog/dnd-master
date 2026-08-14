@@ -257,10 +257,13 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
     setCompilationFailure(null)
     try {
       if (api.startScenarioCompilation && api.getScenarioCompilation && api.getScenarioPackage) {
+        const inputFingerprint = compilation?.status === 'PUBLISHED' || compilation?.status === 'FAILED'
+          ? `scenario-bundle:${bundle.bundleId}:revision:${bundle.currentRevision}:retry:${Date.now()}`
+          : `scenario-bundle:${bundle.bundleId}:revision:${bundle.currentRevision}`
         const started = await api.startScenarioCompilation(
           bundle.bundleId,
           playerId,
-          `scenario-bundle:${bundle.bundleId}:revision:${bundle.currentRevision}`,
+          inputFingerprint,
         )
         window.localStorage.setItem(preparationStorageKey(bundle.bundleId, bundle.currentRevision), started.compilationId)
         setCompilation(started)
