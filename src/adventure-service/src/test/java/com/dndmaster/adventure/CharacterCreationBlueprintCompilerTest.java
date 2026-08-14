@@ -9,7 +9,9 @@ import com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagE
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
 import com.dndmaster.adventure.domain.scenario.InputMode;
+import com.dndmaster.adventure.domain.scenario.ProposalDecisionState;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
+import com.dndmaster.adventure.domain.scenario.StorybookProposalDecision;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import java.util.List;
 import java.util.UUID;
@@ -230,10 +232,15 @@ class CharacterCreationBlueprintCompilerTest {
     @Test
     void resolvingConflictClearsReviewDiagnosticAndMakesBlueprintPublishable() {
         var blueprint = new CharacterCreationBlueprintCompiler().compile(1, List.of(
+                new FieldCandidate("name", List.of("Aria"), true, "RULEBOOK", RULEBOOK, "Name: Aria",
+                        InputMode.FIXED_VALUE, List.of()),
                 new FieldCandidate("race", List.of("Elf"), true, "RULEBOOK", RULEBOOK, "Elf"),
                 new FieldCandidate("race", List.of("Tiefling"), true, "STORYBOOK", STORYBOOK, "Tiefling")));
 
-        var resolved = blueprint.resolve("race", "Tiefling");
+        var resolved = blueprint.withProposalDecisions(List.of(new StorybookProposalDecision(
+                        "storybook-race", "race", ProposalDecisionState.UNDECIDED)))
+                .decideProposal("storybook-race", ProposalDecisionState.APPLIED, true);
+        resolved = resolved.resolve("race", "Tiefling");
 
         assertEquals(CharacterCreationBlueprintStatus.READY, resolved.status());
         assertEquals(List.of(), resolved.field("race").diagnostics());
