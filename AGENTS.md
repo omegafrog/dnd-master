@@ -1,5 +1,12 @@
 ## graphify
 
+## Execution environment
+
+- Run every shell command, test, build, script, Git check, and application/service process inside WSL Ubuntu-24.04.
+- From Windows, invoke repository work through `wsl.exe -d Ubuntu-24.04 -- bash -lc "..."`.
+- Do not run npm, Gradle, Node.js, Python, Vite, Playwright, or development servers directly from Windows PowerShell or cmd.
+- Subagents must follow the same WSL-only execution rule.
+
 This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
 
 When the user types `/graphify`, use the installed graphify skill or instructions before doing anything else.
