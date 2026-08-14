@@ -27,6 +27,25 @@ public final class TacticalMapActivationApplicationService {
         return new Activation(Optional.of(preparation.prepare(adventureId, ownerPlayerId, definition)), false);
     }
 
+    public Activation activateDefinition(UUID packageId, UUID adventureId, UUID ownerPlayerId, UUID mapDefinitionId) {
+        return activateDefinition(packageId, adventureId, ownerPlayerId, null, mapDefinitionId);
+    }
+
+    public Activation activateDefinition(UUID packageId, UUID adventureId, UUID ownerPlayerId, UUID ruleSetId, UUID mapDefinitionId) {
+        return activateDefinition(packageId, adventureId, ownerPlayerId, ruleSetId, mapDefinitionId, 0, 0);
+    }
+
+    public Activation activateDefinition(UUID packageId, UUID adventureId, UUID ownerPlayerId, UUID ruleSetId, UUID mapDefinitionId,
+            int playerSpawnX, int playerSpawnY) {
+        var scenarioPackage = packages.findById(packageId).orElseThrow(() -> new IllegalArgumentException("scenario package not found"));
+        MapDefinition definition = scenarioPackage.mapDefinitions().stream().filter(map -> map.id().equals(mapDefinitionId))
+                .findFirst().orElseThrow(() -> new IllegalArgumentException("map definition not found in scenario package"));
+        if (!definition.autoActivatable()) throw new IllegalStateException("map definition is not safe to activate");
+        return new Activation(Optional.of(ruleSetId == null
+                ? preparation.prepare(adventureId, ownerPlayerId, definition)
+                : preparation.prepare(adventureId, ownerPlayerId, ruleSetId, definition, playerSpawnX, playerSpawnY)), false);
+    }
+
     public record Activation(Optional<UUID> combatMapId, boolean textFallback) {
         public Activation { combatMapId = Objects.requireNonNull(combatMapId, "combat map id must not be null"); }
     }

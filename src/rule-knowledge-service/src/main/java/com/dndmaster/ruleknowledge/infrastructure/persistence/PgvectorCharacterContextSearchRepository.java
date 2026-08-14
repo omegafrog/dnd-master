@@ -19,7 +19,6 @@ public final class PgvectorCharacterContextSearchRepository implements Character
                AND EXISTS (
                    SELECT 1 FROM unnest(?::uuid[], ?::bigint[]) AS scope(document_id, extraction_version)
                     WHERE scope.document_id = c.rulebook_id AND scope.extraction_version = r.version)
-               AND (cardinality(?::text[]) = 0 OR c.chapter ILIKE ANY (?::text[]))
              ORDER BY CASE WHEN cardinality(?::text[]) > 0 AND c.section ILIKE ANY (?::text[]) THEN 0 ELSE 1 END,
                       similarity DESC, c.sequence
             """;
@@ -62,13 +61,9 @@ public final class PgvectorCharacterContextSearchRepository implements Character
             statement.setString(3, type.name());
             statement.setArray(4, connection.createArrayOf("uuid", ids));
             statement.setArray(5, connection.createArrayOf("int8", versions));
-            String[] patterns = (chapterHints == null ? List.<String>of() : chapterHints).stream()
-                    .map(hint -> "%" + hint + "%").toArray(String[]::new);
-            statement.setArray(6, connection.createArrayOf("text", patterns));
-            statement.setArray(7, connection.createArrayOf("text", patterns));
             String[] sectionPatterns = sectionHints.stream().map(hint -> "%" + hint + "%").toArray(String[]::new);
-            statement.setArray(8, connection.createArrayOf("text", sectionPatterns));
-            statement.setArray(9, connection.createArrayOf("text", sectionPatterns));
+            statement.setArray(6, connection.createArrayOf("text", sectionPatterns));
+            statement.setArray(7, connection.createArrayOf("text", sectionPatterns));
             try (ResultSet rows = statement.executeQuery()) {
                 List<CharacterContextSearchHit> hits = new ArrayList<>();
                 while (rows.next()) hits.add(new CharacterContextSearchHit(

@@ -9,6 +9,8 @@ import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicat
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
 import com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository;
+import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRepository;
+import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRevision;
 import com.dndmaster.ruleknowledge.domain.definition.GameSystemDefinitionRevision;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceResult;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicationService;
@@ -42,6 +44,7 @@ import java.util.UUID;
 @RestController
 @RequestMapping
 public class RuleKnowledgeController {
+    private static final UUID CATALOG_OWNER = UUID.fromString("00000000-0000-0000-0000-000000000005");
     private final BatchRulebookUploadApplicationService batchUploadService;
     private final RulebookPipelineApplicationService pipelineService;
     private final RulebookRegistrationRepository registrationRepository;
@@ -52,6 +55,7 @@ public class RuleKnowledgeController {
     private final ObjectMapper objectMapper;
     private final GameSystemDefinitionRepository definitionRepository;
     private final String internalToken;
+    private final CatalogRulebookRepository catalogRepository;
 
     public RuleKnowledgeController(
             RulebookPipelineApplicationService pipelineService,
@@ -79,6 +83,7 @@ public class RuleKnowledgeController {
         this.objectMapper = objectMapper;
         this.definitionRepository = null;
         this.internalToken = "";
+        this.catalogRepository = null;
     }
 
     public RuleKnowledgeController(
@@ -91,6 +96,21 @@ public class RuleKnowledgeController {
             ObjectMapper objectMapper,
             GameSystemDefinitionRepository definitionRepository,
             String internalToken) {
+        this(pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
+                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken, null);
+    }
+
+    public RuleKnowledgeController(
+            RulebookPipelineApplicationService pipelineService,
+            RulebookRegistrationRepository registrationRepository,
+            RuleEvidenceSearchApplicationService evidenceSearchService,
+            StorySourceSearchApplicationService storySourceSearchService,
+            CharacterContextSearchApplicationService characterContextSearchService,
+            RulebookIndexRepository indexRepository,
+            ObjectMapper objectMapper,
+            GameSystemDefinitionRepository definitionRepository,
+            String internalToken,
+            CatalogRulebookRepository catalogRepository) {
         this.pipelineService = pipelineService;
         this.batchUploadService = new BatchRulebookUploadApplicationService(pipelineService);
         this.registrationRepository = registrationRepository;
@@ -101,6 +121,7 @@ public class RuleKnowledgeController {
         this.objectMapper = objectMapper;
         this.definitionRepository = definitionRepository;
         this.internalToken = internalToken == null ? "" : internalToken;
+        this.catalogRepository = catalogRepository;
     }
 
     public RuleKnowledgeController(
@@ -136,6 +157,11 @@ public class RuleKnowledgeController {
         for (int index = 0; index < files.size(); index++) {
             MultipartFile file = files.get(index);
             UploadDocumentRequest document = uploadDocuments.get(index);
+            if (document.documentType() != DocumentType.STORYBOOK) {
+                throw new ResponseStatusException(
+                        HttpStatus.BAD_REQUEST,
+                        "user uploads accept STORYBOOK only; rulebooks are selected from the shared catalog");
+            }
             String originalFilename = file.getOriginalFilename() != null ? file.getOriginalFilename() : document.originalFilename();
             items.add(new BatchUploadItem(
                     document.idempotencyKey(),
@@ -164,14 +190,31 @@ public class RuleKnowledgeController {
                 .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null, null, 0L, List.of(), null));
     }
 
-    private IndexProgressView progressFor(StoredRulebookRegistration registration) {
-        if (indexRepository == null) return null;
-        return indexRepository.progressFor(
-                        registration.rulebookId(), "v1-" + registration.contentHash())
-                .map(progress -> new IndexProgressView(
-                        progress.totalChunks(), progress.completedChunks(), progress.remainingChunks(),
-                        progress.status(), progress.lastError(), progress.leaseOwner(), progress.leaseUntil()))
-                .orElse(null);
+    private DocumentProgressView progressFor(StoredRulebookRegistration registration) {
+        if (registration.processingStatus() == ProcessingStatus.INDEXED
+                || registration.processingStatus() == ProcessingStatus.PARTIAL_CONFIRMED) {
+            return new DocumentProgressView("READY", 100, null, null, null);
+        }
+        if (registration.processingStatus() == ProcessingStatus.FAILED
+                || registration.processingStatus() == ProcessingStatus.NEEDS_INPUT
+                || registration.processingStatus() == ProcessingStatus.REJECTED) {
+            return new DocumentProgressView("FAILED", 0, null, null, registration.failureCode());
+        }
+        if (indexRepository != null) {
+            var indexProgress = indexRepository.progressFor(registration.rulebookId(), "v1-" + registration.contentHash());
+            if (indexProgress.isPresent()) {
+                var progress = indexProgress.get();
+                int percent = progress.totalChunks() == 0
+                        ? 50
+                        : 50 + (int) Math.round(50.0 * progress.completedChunks() / progress.totalChunks());
+                return new DocumentProgressView("EMBEDDING", percent, progress.completedChunks(), progress.totalChunks(), progress.lastError());
+            }
+        }
+        return switch (registration.processingStatus()) {
+            case EXTRACTED, PARTIAL_AWAITING_CONFIRMATION -> new DocumentProgressView("CHUNKING", 50, null, null, null);
+            case PROCESSING -> new DocumentProgressView("EXTRACTING", 25, null, null, null);
+            default -> new DocumentProgressView("QUEUED", 0, null, null, null);
+        };
     }
 
     @GetMapping("/api/v1/rulebooks/{rulebookId}/source-preview")
@@ -257,6 +300,18 @@ public class RuleKnowledgeController {
         }
     }
 
+    @DeleteMapping("/api/v1/rulebooks/{rulebookId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    void deleteRulebook(@PathVariable UUID rulebookId, @RequestHeader("Authorization") String authorization) {
+        try {
+            pipelineService.delete(new RulebookId(rulebookId), new OwnerPlayerId(extractPlayerId(authorization)));
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, exception.getMessage(), exception);
+        } catch (SecurityException exception) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, exception.getMessage(), exception);
+        }
+    }
+
     @PostMapping("/api/v1/rulebooks/rule-set")
     ResponseEntity<Void> saveRuleSet(
             @RequestHeader("Authorization") String authorization,
@@ -267,6 +322,9 @@ public class RuleKnowledgeController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "knowledgeDocumentIds must not be empty");
         }
         Set<UUID> selectedKnowledgeDocumentIds = new HashSet<>(knowledgeDocumentIds);
+        if (isCatalogScope(knowledgeDocumentIds)) {
+            return ResponseEntity.noContent().build();
+        }
         Set<UUID> ownedKnowledgeDocumentIds = registrationRepository.findByOwner(new OwnerPlayerId(ownerId)).stream()
                 .map(registration -> registration.knowledgeDocumentId().value())
                 .collect(java.util.stream.Collectors.toSet());
@@ -284,8 +342,21 @@ public class RuleKnowledgeController {
                 .map(r -> new RulebookSummary(
                         r.rulebookId().value(), r.knowledgeDocumentId().value(), r.processingStatus().name(),
                         r.format().name(), r.documentType(), r.originalFilename(), r.failureCode(),
-                        r.version(), warningsFor(r)))
-                .toList();
+                        r.version(), warningsFor(r), progressFor(r)))
+                .collect(java.util.stream.Collectors.toCollection(java.util.ArrayList::new));
+        if (catalogRepository != null) {
+            catalogRepository.findAll().stream()
+                    .filter(item -> item.status() == com.dndmaster.ruleknowledge.domain.catalog.CatalogRevisionStatus.READY
+                            && item.published() && item.rulebookId() != null)
+                    .forEach(item -> {
+                        long extractionVersion = registrationRepository.findById(new RulebookId(item.rulebookId()))
+                                .map(StoredRulebookRegistration::version).orElse(0L);
+                        if (extractionVersion > 0 && summaries.stream().noneMatch(existing -> existing.knowledgeDocumentId().equals(item.rulebookId()))) {
+                            summaries.add(new RulebookSummary(item.rulebookId(), item.rulebookId(), "INDEXED", "PDF", DocumentType.RULEBOOK,
+                                    item.displayName(), null, extractionVersion, List.of(), new DocumentProgressView("READY", 100, null, null, null)));
+                        }
+                    });
+        }
         return new OwnedRulebooksResponse(ownerId, summaries);
     }
 
@@ -296,7 +367,7 @@ public class RuleKnowledgeController {
 
     @GetMapping("/internal/v1/rulebooks/{rulebookId}/ownership")
     OwnershipResponse rulebookOwnership(@PathVariable UUID rulebookId, @RequestParam UUID playerId) {
-        boolean owned = registrationRepository.findById(new RulebookId(rulebookId))
+        boolean owned = isCatalogScope(List.of(rulebookId)) || registrationRepository.findById(new RulebookId(rulebookId))
                 .map(r -> r.ownerPlayerId().value().equals(playerId))
                 .orElse(false);
         return new OwnershipResponse(rulebookId, playerId, owned);
@@ -308,12 +379,15 @@ public class RuleKnowledgeController {
             @RequestBody EvidenceSearchRequest request) {
         UUID authenticatedOwner = extractPlayerId(authorization);
         requireOwner(authenticatedOwner, request.ownerId());
-        List<UUID> authorizedRulebookIds = authorizeDocuments(request.ownerId(), request.rulebookIds(), DocumentType.RULEBOOK);
+        boolean catalogScope = isCatalogScope(request.rulebookIds());
+        List<UUID> authorizedRulebookIds = catalogScope
+                ? request.rulebookIds()
+                : authorizeDocuments(request.ownerId(), request.rulebookIds(), DocumentType.RULEBOOK);
         List<RulebookId> rulebookIds = authorizedRulebookIds.stream()
                 .map(RulebookId::new)
                 .toList();
         SearchRuleEvidenceQuery query = new SearchRuleEvidenceQuery(
-                new OwnerPlayerId(request.ownerId()),
+                new OwnerPlayerId(catalogScope ? CATALOG_OWNER : request.ownerId()),
                 rulebookIds,
                 request.situation(),
                 request.queryIntent(),
@@ -376,13 +450,14 @@ public class RuleKnowledgeController {
         }
         Map<DocumentType, List<CharacterContextDocumentScope>> scope = new java.util.EnumMap<>(DocumentType.class);
         Set<String> seen = new HashSet<>();
+        boolean catalogScope = isCatalogScope(request.documents().stream().map(CharacterContextScopeRequest::documentId).toList());
         for (CharacterContextScopeRequest document : request.documents()) {
             if (!seen.add(document.documentId() + ":" + document.extractionVersion())) {
                 throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "document scope must not contain duplicates");
             }
             StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(document.documentId()))
                     .orElseThrow(() -> new ResponseStatusException(HttpStatus.BAD_REQUEST, "document is not registered"));
-            if (!registration.ownerPlayerId().value().equals(request.ownerId())) {
+            if (!catalogScope && !registration.ownerPlayerId().value().equals(request.ownerId())) {
                 throw new ResponseStatusException(HttpStatus.FORBIDDEN, "document does not belong to authenticated player");
             }
             if (registration.processingStatus() != ProcessingStatus.INDEXED
@@ -398,7 +473,7 @@ public class RuleKnowledgeController {
         }
         Map<DocumentType, Double> thresholds = request.thresholds() == null ? Map.of() : request.thresholds();
         List<CharacterContextEvidence> evidence = characterContextSearchService.search(new CharacterContextSearchQuery(
-                new OwnerPlayerId(request.ownerId()), scope, thresholds, request.situation(),
+                new OwnerPlayerId(catalogScope ? CATALOG_OWNER : request.ownerId()), scope, thresholds, request.situation(),
                 request.tokenBudget() == null ? 2000 : request.tokenBudget()));
         return new CharacterContextSearchResponse(request.ownerId(), evidence.stream()
                 .map(result -> new CharacterContextEvidenceItem(
@@ -496,6 +571,23 @@ public class RuleKnowledgeController {
         return List.copyOf(authorized);
     }
 
+    /** Published revisions are selectable; any READY revision remains readable to preserve existing adventure pins. */
+    private boolean isCatalogScope(List<UUID> documentIds) {
+        if (catalogRepository == null || documentIds == null || documentIds.isEmpty()
+                || new HashSet<>(documentIds).size() != documentIds.size()) return false;
+        try {
+            Set<UUID> published = catalogRepository.findAll().stream()
+                    .filter(item -> item.status() == com.dndmaster.ruleknowledge.domain.catalog.CatalogRevisionStatus.READY)
+                    .map(CatalogRulebookRevision::rulebookId)
+                    .filter(java.util.Objects::nonNull)
+                    .collect(java.util.stream.Collectors.toSet());
+            return published.containsAll(documentIds);
+        } catch (RuntimeException unavailable) {
+            // Legacy installations may not have run the catalog migration yet; owned documents still work.
+            return false;
+        }
+    }
+
     private static RulebookFormat resolveFormat(String filename) {
         if (filename == null) return RulebookFormat.PDF;
         return switch (filename.substring(filename.lastIndexOf('.') + 1).toLowerCase()) {
@@ -513,17 +605,17 @@ public class RuleKnowledgeController {
     public record RulebookStatusResponse(
             UUID rulebookId, UUID knowledgeDocumentId, String status, DocumentType documentType,
             String originalFilename, String failureReason, long extractionVersion, List<String> warnings,
-            IndexProgressView progress) {}
-    public record IndexProgressView(
-            int totalChunks, int completedChunks, int remainingChunks, String status,
-            String lastError, String leaseOwner, java.time.Instant leaseUntil) {}
+            DocumentProgressView progress) {}
+    public record DocumentProgressView(
+            String stage, int percent, Integer completedUnits, Integer totalUnits, String error) {}
     public record SourcePreviewResponse(
             UUID rulebookId, UUID knowledgeDocumentId, DocumentType documentType, String originalFilename,
             RulebookFormat format, String status, String content, long extractionVersion, List<String> warnings,
             List<PreviewSpanView> spans, List<PreviewAssetView> assets) {}
     public record RulebookSummary(
             UUID rulebookId, UUID knowledgeDocumentId, String status, String format,
-            DocumentType documentType, String originalFilename, String failureReason, long extractionVersion, List<String> warnings) {}
+            DocumentType documentType, String originalFilename, String failureReason, long extractionVersion, List<String> warnings,
+            DocumentProgressView progress) {}
     public record OwnedRulebooksResponse(UUID ownerId, List<RulebookSummary> rulebooks) {}
     public record OwnedIndexesResponse(UUID ownerId, List<?> indexes) {}
     public record OwnershipResponse(UUID rulebookId, UUID playerId, boolean owned) {}

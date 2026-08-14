@@ -83,6 +83,11 @@ local-ai:
     retry-max-attempts: 2
 
 ai:
+  codex:
+    # OAuth-backed Codex CLI calls may take several minutes for grounded plans/turns.
+    timeout: ${CODEX_OAUTH_TIMEOUT:PT5M}
+    executable: ${CODEX_EXECUTABLE:codex}
+    work-directory: ${CODEX_WORK_DIRECTORY:/tmp}
   character-tags:
     provider: ${CHARACTER_TAG_PROVIDER:codex-cli}
     base-url: ${OPENAI_BASE_URL:https://api.openai.com/}

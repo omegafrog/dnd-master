@@ -6,6 +6,8 @@ import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
+import com.dndmaster.adventure.domain.scenario.RulebookEdition;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleDeletionConflictException;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleValidationException;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundleRevision;
@@ -35,10 +37,31 @@ public final class ScenarioBundleApplicationService {
         return bundle;
     }
 
+    public ScenarioSourceBundle createBundle(OwnerPlayerId ownerPlayerId, String name,
+            RulebookEdition rulebookEdition, List<BundleDocumentDraft> documents) {
+        Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
+        if (name == null || name.isBlank()) throw new ScenarioBundleValidationException("bundle name is required");
+        if (rulebookEdition == null) throw new ScenarioBundleValidationException("rulebook edition is required");
+        ScenarioSourceBundle bundle = ScenarioSourceBundle.create(
+                ScenarioBundleId.generate(), ownerPlayerId, name, rulebookEdition,
+                newRevision(1, ownerPlayerId, documents));
+        repository.save(bundle);
+        return bundle;
+    }
+
     public ScenarioSourceBundle reviseBundle(
             ScenarioBundleId bundleId, OwnerPlayerId ownerPlayerId, List<BundleDocumentDraft> documents) {
+        return reviseBundle(bundleId, ownerPlayerId, null, null, documents);
+    }
+
+    public ScenarioSourceBundle reviseBundle(
+            ScenarioBundleId bundleId, OwnerPlayerId ownerPlayerId, String name, RulebookEdition rulebookEdition,
+            List<BundleDocumentDraft> documents) {
         ScenarioSourceBundle bundle = loadOwned(bundleId, ownerPlayerId);
-        ScenarioSourceBundle revised = bundle.revise(newRevision(bundle.currentRevision().revision() + 1, ownerPlayerId, documents));
+        ScenarioSourceBundle revised = bundle.revise(
+                name == null ? bundle.name() : name,
+                rulebookEdition == null ? bundle.rulebookEdition() : rulebookEdition,
+                newRevision(bundle.currentRevision().revision() + 1, ownerPlayerId, documents));
         repository.save(revised);
         return revised;
     }
@@ -57,6 +80,9 @@ public final class ScenarioBundleApplicationService {
 
     public void deleteBundle(ScenarioBundleId bundleId, OwnerPlayerId ownerPlayerId) {
         ScenarioSourceBundle bundle = loadOwned(bundleId, ownerPlayerId);
+        if (repository.hasActiveAdventureReferences(bundle.id())) {
+            throw new ScenarioBundleDeletionConflictException();
+        }
         repository.deleteById(bundle.id());
     }
 
@@ -85,6 +111,10 @@ public final class ScenarioBundleApplicationService {
         List<com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection> selections = requested.stream()
                 .map(draft -> toSelection(ownerPlayerId, owned, draft))
                 .toList();
+        long rulebooks = selections.stream().filter(selection -> selection.role() == ScenarioBundleDocumentRole.RULEBOOK).count();
+        long mainScenarios = selections.stream().filter(selection -> selection.role() == ScenarioBundleDocumentRole.MAIN_SCENARIO).count();
+        if (rulebooks != 1) throw new ScenarioBundleValidationException("exactly one rulebook is required");
+        if (mainScenarios > 1) throw new ScenarioBundleValidationException("at most one main scenario is allowed");
         return new ScenarioSourceBundleRevision(revisionNumber, selections);
     }
 

@@ -4,6 +4,7 @@ import com.dndmaster.adventure.domain.ruleset.AppliedRuleSet;
 import com.dndmaster.adventure.domain.ruleset.RegisteredRulebookReference;
 import com.dndmaster.adventure.domain.ruleset.RuleApplicationRequest;
 import com.dndmaster.adventure.domain.ruleset.RuleSetId;
+import com.dndmaster.adventure.domain.ruleset.RuleApplicationDeniedException;
 import com.dndmaster.adventure.domain.ruleset.SelectedRulebooks;
 import java.util.Objects;
 
@@ -18,7 +19,19 @@ public final class AppliedRuleSetApplicationService {
     }
 
     public AppliedRuleSet saveRuleSet(CreateAppliedRuleSetCommand command) {
+        return saveRuleSet(RuleSetId.generate(), command);
+    }
+
+    public AppliedRuleSet saveRuleSet(RuleSetId ruleSetId, CreateAppliedRuleSetCommand command) {
         Objects.requireNonNull(command, "command must not be null");
+        var existing = repository.findById(Objects.requireNonNull(ruleSetId, "rule set id must not be null"));
+        if (existing.isPresent()) {
+            AppliedRuleSet value = existing.get();
+            if (!value.ownerPlayerId().equals(command.ownerPlayerId()) || !value.adventureId().equals(command.adventureId())) {
+                throw new IllegalArgumentException("rule set id is already bound to another adventure");
+            }
+            return value;
+        }
         var references = command.rulebookIds().stream()
                 .map(rulebookId -> {
                     if (!ownershipHttpPort.isOwnedBy(rulebookId, command.ownerPlayerId())) {
@@ -28,7 +41,7 @@ public final class AppliedRuleSetApplicationService {
                 })
                 .toList();
         var ruleSet = new AppliedRuleSet(
-                RuleSetId.generate(),
+                ruleSetId,
                 command.adventureId(),
                 command.ownerPlayerId(),
                 command.edition(),
@@ -45,6 +58,13 @@ public final class AppliedRuleSetApplicationService {
                         Objects.requireNonNull(ruleSetId, "rule set id must not be null"))
                 .orElseThrow(AppliedRuleSetNotFoundException::new);
         ruleSet.authorizeApplication(requestingOwner, request);
+        return ruleSet;
+    }
+
+    public AppliedRuleSet readRuleSet(RuleSetId ruleSetId, com.dndmaster.adventure.domain.ruleset.OwnerPlayerId requestingOwner) {
+        AppliedRuleSet ruleSet = repository.findById(Objects.requireNonNull(ruleSetId, "rule set id must not be null"))
+                .orElseThrow(AppliedRuleSetNotFoundException::new);
+        if (!ruleSet.ownerPlayerId().equals(requestingOwner)) throw new RuleApplicationDeniedException("rule set is owned by another player");
         return ruleSet;
     }
 }

@@ -11,6 +11,7 @@ export type Route =
   | { page: 'character-blueprint'; sessionId: string }
   | { page: 'package-blueprint'; packageId: string }
   | { page: 'profile' }
+  | { page: 'backoffice' }
   | { page: 'login' }
 
 export function parseRoute(hash: string): Route {
@@ -30,5 +31,6 @@ export function parseRoute(hash: string): Route {
   if (segments[0] === 'sessions' && segments[1] && segments[2] === 'character') return { page: 'character-create', sessionId: segments[1] }
   if (segments[0] === 'sessions' && segments[1]) return { page: 'session', sessionId: segments[1] }
   if (segments[0] === 'profile') return { page: 'profile' }
+  if (segments[0] === 'backoffice') return { page: 'backoffice' }
   return { page: 'login' }
 }

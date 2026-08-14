@@ -21,12 +21,21 @@ export type CharacterSheetSummary = {
   background: string
 }
 
+export type AiCompanionCandidate = {
+  candidateId: string
+  name: string
+  race: string
+  characterClass: string
+  sheetSummary: string
+}
+
 export type AdventureSessionView = {
   sessionId: string
   scenarioPackageId?: string
   scenarioPackageRevision?: number
   blueprintId?: string
   blueprintRevision?: number
+  characterEdition?: 'DND_5E_2014' | 'DND_5E_2024'
   characterLimit: number
   version: number
   status: AdventureSessionStatus
@@ -42,6 +51,14 @@ export type AdventureSessionView = {
   party: SessionPartyMember[]
 }
 
+export type CreateAdventureSessionRequest = {
+  scenarioPackageId: string
+  blueprintId: string
+  blueprintRevision: number
+  runtimeConfiguration?: AdventureSessionView['runtimeConfiguration']
+  partySize?: number
+}
+
 export type AdventureStoryPlanView = {
   planId: string
   packageRevision: number
@@ -50,8 +67,28 @@ export type AdventureStoryPlanView = {
   status: 'GENERATING' | 'READY' | 'FAILED'
   currentStage: number
   stageCount: number
+  endingCount: number
+  adventureLength: 'SHORT' | 'STANDARD' | 'LONG'
+  stages: Array<{
+    position: number
+    title: string
+    stageType: string
+    location: string
+    goal: string
+    rewards: string[]
+    mapDefinitionId: string | null
+    mapAssetId: string
+    mapAssetLocator: string
+    groundingStatus: 'GROUNDED' | 'AI_SUGGESTION'
+    aiSuggestions: string[]
+    mapSafetyStatus: string
+    mapConfidence: number | null
+    evidenceCount: number
+  }>
   failureReason: string | null
 }
+
+export type StageMapActivation = { stagePosition: number; mapDefinitionId: string; assetId: string; assetLocator: string; combatMapId: string }
 
 export type GmProviderView = {
   sessionId: string
@@ -92,6 +129,15 @@ export class AdventureSessionApi {
   addMember(sessionId: string, version: number, member: SessionPartyMember) {
     return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/party`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match-Version': String(version) }, body: JSON.stringify(member) })
   }
+  generateAiCandidate(sessionId: string) {
+    return this.request<AiCompanionCandidate>(`/api/v1/adventure-sessions/${sessionId}/party/ai-candidates`, { method: 'POST' })
+  }
+  adoptAiCandidate(sessionId: string, version: number, candidate: AiCompanionCandidate, controlMode: SessionControlMode) {
+    return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/party/ai-candidates/adopt`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match-Version': String(version) }, body: JSON.stringify({ ...candidate, controlMode }) })
+  }
+  replaceMember(sessionId: string, version: number, characterSheetId: string, member: SessionPartyMember) {
+    return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/party/${characterSheetId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json', 'If-Match-Version': String(version) }, body: JSON.stringify(member) })
+  }
   removeMember(sessionId: string, version: number, characterSheetId: string) {
     return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/party/${characterSheetId}`, { method: 'DELETE', headers: { 'If-Match-Version': String(version) } })
   }
@@ -100,17 +146,14 @@ export class AdventureSessionApi {
     this.startKeys.set(sessionId, requestId)
     return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/start`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'If-Match-Version': String(version), 'Idempotency-Key': requestId }, body: JSON.stringify({ adventureId }) })
   }
+  saveAppliedRuleSet(adventureId: string, ruleSetId: string, edition: string, rulebookIds: string[]) {
+    return this.request<{ ruleSetId: string }>(`/api/v1/adventures/${adventureId}/applied-rule-set`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ruleSetId, edition, rulebookIds }) })
+  }
   complete(sessionId: string, version: number) { return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/complete`, { method: 'POST', headers: { 'If-Match-Version': String(version) } }) }
+  recoverStart(sessionId: string, version: number) { return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/start/recover`, { method: 'POST', headers: { 'If-Match-Version': String(version) } }) }
   delete(sessionId: string, version: number) { return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}`, { method: 'DELETE', headers: { 'If-Match-Version': String(version) } }) }
   readStoryPlan(sessionId: string) { return this.request<AdventureStoryPlanView>(`/api/v1/adventure-sessions/${sessionId}/story-plan`) }
-  generateStoryPlan(sessionId: string) { return this.request<AdventureStoryPlanView>(`/api/v1/adventure-sessions/${sessionId}/story-plan`, { method: 'POST' }) }
-  retryStoryPlan(sessionId: string) { return this.request<AdventureStoryPlanView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/retry`, { method: 'POST' }) }
-}
-
-export type CreateAdventureSessionRequest = {
-  scenarioPackageId: string
-  blueprintId: string
-  blueprintRevision: number
-  partySize?: number
-  runtimeConfiguration?: AdventureSessionView['runtimeConfiguration']
+  generateStoryPlan(sessionId: string, configuration: { endingCount: number; adventureLength: AdventureStoryPlanView['adventureLength'] }) { return this.request<AdventureStoryPlanView>(`/api/v1/adventure-sessions/${sessionId}/story-plan`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(configuration) }) }
+  retryStoryPlan(sessionId: string, configuration: { endingCount: number; adventureLength: AdventureStoryPlanView['adventureLength'] }) { return this.request<AdventureStoryPlanView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/retry`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(configuration) }) }
+  activateStageMap(sessionId: string, position: number) { return this.request<StageMapActivation>(`/api/v1/adventure-sessions/${sessionId}/story-plan/stages/${position}/activate-map`, { method: 'POST' }) }
 }

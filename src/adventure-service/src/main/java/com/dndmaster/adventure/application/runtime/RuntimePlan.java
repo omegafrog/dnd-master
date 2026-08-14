@@ -15,7 +15,9 @@ public record RuntimePlan(
         List<String> warnings,
         String provider,
         String model,
-        String reasoning) {
+        String reasoning,
+        boolean advanceStoryPlan,
+        String selectedBranchId) {
     public RuntimePlan {
         scene = required(scene, "scene");
         judgment = required(judgment, "judgment");
@@ -26,6 +28,7 @@ public record RuntimePlan(
         provider = provider == null || provider.isBlank() ? "legacy" : provider.trim();
         model = model == null || model.isBlank() ? "legacy" : model.trim();
         reasoning = reasoning == null ? "" : reasoning.trim();
+        selectedBranchId = selectedBranchId == null ? "" : selectedBranchId.trim();
     }
 
     public RuntimePlan(String scene, String npcState, String judgment, String narration,
@@ -33,6 +36,13 @@ public record RuntimePlan(
                        List<String> warnings) {
         this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
                 "legacy", "legacy", "");
+    }
+
+    public RuntimePlan(String scene, String npcState, String judgment, String narration,
+                       ActiveSourceContext proposedActiveSourceContext, List<RuntimeEvidence> citedEvidence,
+                       List<String> warnings, String provider, String model, String reasoning) {
+        this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
+                provider, model, reasoning, false, "");
     }
 
     private static String required(String value, String name) {

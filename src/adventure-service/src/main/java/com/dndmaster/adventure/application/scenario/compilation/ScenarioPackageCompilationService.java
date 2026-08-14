@@ -17,7 +17,9 @@ import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler;
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate;
 import com.dndmaster.adventure.application.scenario.blueprint.DndCharacterCreationTemplate;
+import com.dndmaster.adventure.application.runtime.GameSystemDefinitionPort;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
+import com.dndmaster.adventure.domain.scenario.BlueprintProvenance;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import com.dndmaster.adventure.domain.scenario.InputMode;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
@@ -38,21 +40,30 @@ public final class ScenarioPackageCompilationService {
     private static final String COMPILER_VERSION = "resolution-compiler-v1";
     private static final String DICE_PATTERN = "(?i)\\d+d\\d+(?:\\s*[+-]\\s*\\d+)?";
     private static final Pattern CHARACTER_LIMIT_PATTERN = Pattern.compile(
-            "(?i)(?:최대|up\\s+to|maximum(?:\\s+of)?|max)\\s*(\\d+)\\s*(?:명|players?|users?)");
+            "(?i)(?:(?:exactly|must\\s+be\\s+(?:a\\s+)?party\\s+of|requires?\\s+(?:a\\s+)?party\\s+of|반드시|정확히|꼭)\\s+)?(?:(?:최대|up\\s+to|maximum(?:\\s+of)?|max|recommended|권장)\\s*)?(?:party\\s+of\\s*)?(\\d+)\\s*(?:명|players?|users?)(?:\\s*(?:exactly|must|required|반드시|정확히|꼭))?");
     private final ScenarioPackageRepository repository;
     private final ResolutionOverrideRepository overrideRepository;
+    private final GameSystemDefinitionPort gameSystemDefinitionPort;
     private final CharacterCreationBlueprintCompiler blueprintCompiler = new CharacterCreationBlueprintCompiler();
     private final MapDefinitionCompiler mapCompiler = new MapDefinitionCompiler();
 
     public ScenarioPackageCompilationService(ScenarioPackageRepository repository) {
-        this(repository, new NoopResolutionOverrideRepository());
+        this(repository, new NoopResolutionOverrideRepository(), null);
     }
 
     public ScenarioPackageCompilationService(
             ScenarioPackageRepository repository,
             ResolutionOverrideRepository overrideRepository) {
+        this(repository, overrideRepository, null);
+    }
+
+    public ScenarioPackageCompilationService(
+            ScenarioPackageRepository repository,
+            ResolutionOverrideRepository overrideRepository,
+            GameSystemDefinitionPort gameSystemDefinitionPort) {
         this.repository = Objects.requireNonNull(repository, "repository must not be null");
         this.overrideRepository = Objects.requireNonNull(overrideRepository, "override repository must not be null");
+        this.gameSystemDefinitionPort = gameSystemDefinitionPort;
     }
 
     public ScenarioPackage compile(ScenarioSourceBundle bundle, List<ResolutionCandidate> candidates) {
@@ -141,18 +152,50 @@ public final class ScenarioPackageCompilationService {
             overrideRepository.saveAll(overrideResult.overrides());
         }
         var mapCompilation = mapCompiler.compile(bundle, availableExcerpts);
+        CharacterCreationBlueprint characterBlueprint = characterCandidates == null
+                ? blueprintCompiler.compile(bundle.currentRevision().revision(), blueprintCandidates(bundle, availableExcerpts))
+                : DndCharacterCreationTemplate.apply("DND_5E_2014",
+                        blueprintCompiler.compileAgent(bundle.currentRevision().revision(), characterCandidates));
+        characterBlueprint = attachDefinitionProvenance(bundle, characterBlueprint);
         ScenarioPackage scenarioPackage = ScenarioPackage.publishWithMaps(
                 bundle.id(), bundle.currentRevision().revision(), fingerprint,
                 bundle.currentRevision().documents(), units,
                 new ScenarioCompilationReport(reportStatus, warnings),
                 characterLimit(bundle, availableExcerpts),
-                characterCandidates == null
-                        ? blueprintCompiler.compile(bundle.currentRevision().revision(), blueprintCandidates(bundle, availableExcerpts))
-                        : DndCharacterCreationTemplate.apply("DND_5E_2014",
-                                blueprintCompiler.compileAgent(bundle.currentRevision().revision(), characterCandidates)),
+                characterBlueprint,
                 mapCompilation.maps(), mapCompilation.bindings());
         repository.save(scenarioPackage);
         return scenarioPackage;
+    }
+
+    /**
+     * Attach the catalog definition/version and exact bundle revision at the only boundary where
+     * a compiled blueprint enters a scenario package.  Legacy/unit constructors intentionally
+     * omit the gateway; production wiring supplies it and therefore cannot silently publish an
+     * ungrounded blueprint.
+     */
+    private CharacterCreationBlueprint attachDefinitionProvenance(
+            ScenarioSourceBundle bundle, CharacterCreationBlueprint blueprint) {
+        if (gameSystemDefinitionPort == null) return blueprint;
+        List<ScenarioBundleDocumentSelection> rulebooks = bundle.currentRevision().documents().stream()
+                .filter(document -> document.role() == ScenarioBundleDocumentRole.RULEBOOK
+                        || "RULEBOOK".equalsIgnoreCase(document.documentType()))
+                .toList();
+        long definitionVersion = rulebooks.stream()
+                .map(document -> gameSystemDefinitionPort.findByRulebook(document.knowledgeDocumentId().value()))
+                .flatMap(java.util.Optional::stream)
+                .mapToLong(GameSystemDefinitionPort.Definition::version)
+                .filter(version -> version > 0)
+                .findFirst().orElse(0L);
+        if (definitionVersion < 1) {
+            throw new IllegalStateException("published game system definition is required before scenario compilation");
+        }
+        List<String> sourceTypes = bundle.currentRevision().documents().stream()
+                .map(document -> document.documentType().toUpperCase(Locale.ROOT))
+                .distinct().toList();
+        return blueprint.withProvenance(new BlueprintProvenance(
+                definitionVersion, bundle.currentRevision().revision(), sourceTypes,
+                "DND_5E_2014"));
     }
 
     private static List<CharacterCreationBlueprintCompiler.FieldCandidate> blueprintCandidates(

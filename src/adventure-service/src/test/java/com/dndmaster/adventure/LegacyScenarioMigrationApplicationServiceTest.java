@@ -107,6 +107,7 @@ class LegacyScenarioMigrationApplicationServiceTest {
         AdventureScenario scenario = AdventureScenario.recordUpload(scenarioId, owner, source);
         InMemoryScenarioRepository scenarioRepository = new InMemoryScenarioRepository(scenario);
         InMemoryLookup lookup = new InMemoryLookup();
+        lookup.addRulebook(owner);
         InMemoryIngestion ingestion = new InMemoryIngestion(lookup);
         InMemoryState state = new InMemoryState();
         InMemoryBundleRepository bundleRepository = new InMemoryBundleRepository();
@@ -194,6 +195,12 @@ class LegacyScenarioMigrationApplicationServiceTest {
                     id, KnowledgeDocumentStatus.INDEXED, originalFilename, "STORYBOOK", 1);
             records.put(id, record);
             return record;
+        }
+
+        void addRulebook(OwnerPlayerId owner) {
+            KnowledgeDocumentId id = new KnowledgeDocumentId(UUID.randomUUID());
+            records.put(id, new KnowledgeDocumentRecord(id, KnowledgeDocumentStatus.INDEXED,
+                    "D&D 5e (2014).pdf", "RULEBOOK", 1));
         }
     }
 

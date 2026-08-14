@@ -52,4 +52,15 @@ public final class LocalFileSystemRulebookStorage implements RulebookFileStorage
             throw new RuntimeException("failed to read rulebook file", e);
         }
     }
+
+    @Override
+    public void delete(StoredRulebookFile storedFile) {
+        Objects.requireNonNull(storedFile, "storedFile must not be null");
+        try {
+            Files.deleteIfExists(root.resolve(storedFile.key()).resolve("source.bin"));
+            Files.deleteIfExists(root.resolve(storedFile.key()));
+        } catch (IOException e) {
+            throw new RuntimeException("failed to delete stored rulebook file", e);
+        }
+    }
 }

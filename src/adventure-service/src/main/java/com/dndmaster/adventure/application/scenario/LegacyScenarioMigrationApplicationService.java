@@ -82,9 +82,19 @@ public final class LegacyScenarioMigrationApplicationService {
                 ingestionPort.ingest(scenario.ownerPlayerId(), source.originalFilename(), content);
         KnowledgeDocumentId knowledgeDocumentId = imported.knowledgeDocumentId();
         awaitReadyDocument(scenario.ownerPlayerId(), knowledgeDocumentId);
+        List<KnowledgeDocumentId> rulebookDocumentIds = lookupPort.findOwnedDocuments(scenario.ownerPlayerId().value()).stream()
+                .filter(record -> "RULEBOOK".equalsIgnoreCase(record.documentType()))
+                .map(KnowledgeDocumentLookupPort.KnowledgeDocumentRecord::knowledgeDocumentId)
+                .toList();
+        if (rulebookDocumentIds.size() != 1) {
+            throw new com.dndmaster.adventure.domain.scenario.ScenarioBundleValidationException(
+                    "exactly one rulebook is required");
+        }
         var bundle = bundleService.createBundle(
                 scenario.ownerPlayerId(),
-                List.of(new BundleDocumentDraft(knowledgeDocumentId, ScenarioBundleDocumentRole.MAIN_SCENARIO)));
+                List.of(
+                        new BundleDocumentDraft(knowledgeDocumentId, ScenarioBundleDocumentRole.MAIN_SCENARIO),
+                        new BundleDocumentDraft(rulebookDocumentIds.getFirst(), ScenarioBundleDocumentRole.RULEBOOK)));
         var scenarioPackage = compilationService.compile(bundle.id(), scenario.ownerPlayerId());
         LegacyScenarioMigrationResult result = LegacyScenarioMigrationResult.migrated(
                 scenario.id(),

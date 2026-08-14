@@ -12,7 +12,17 @@ if [ "$(uname -s)" != "Linux" ]; then
 fi
 
 NODE_BIN="${WSL_NODE_BIN:-$HOME/.local/bin/node}"
-NPM_CLI="${WSL_NPM_CLI:-/mnt/d/node_modules/npm/bin/npm-cli.js}"
+NPM_CLI="${WSL_NPM_CLI:-$HOME/.local/node-bin/npm}"
+LOCAL_CODEX_BIN=""
+for candidate in "$HOME"/.nvm/versions/node/*/bin/codex "$HOME/.local/codex/node_modules/.bin/codex"; do
+    if [ -x "$candidate" ]; then
+        LOCAL_CODEX_BIN="$candidate"
+        break
+    fi
+done
+if [ -z "${CODEX_EXECUTABLE:-}" ] && [ -n "$LOCAL_CODEX_BIN" ]; then
+    export CODEX_EXECUTABLE="$LOCAL_CODEX_BIN"
+fi
 if [ ! -x "$NODE_BIN" ]; then
     echo "ERROR: Linux Node was not found at $NODE_BIN." >&2
     exit 1
@@ -49,7 +59,7 @@ echo "    Infra ready."
 
 # WSL bash cannot execute the repository's CRLF gradle wrapper directly.
 # Normalize only a temporary copy so the source wrapper remains untouched.
-GRADLEW_TMP="$(mktemp "$ROOT/gradlew.linux.XXXXXX")"
+GRADLEW_TMP="$(mktemp "${TMPDIR:-/tmp}/dnd-master-gradlew.XXXXXX")"
 tr -d '\r' < "$ROOT/gradlew" > "$GRADLEW_TMP"
 chmod +x "$GRADLEW_TMP"
 

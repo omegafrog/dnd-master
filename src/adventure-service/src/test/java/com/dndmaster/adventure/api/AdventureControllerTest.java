@@ -20,6 +20,7 @@ import com.dndmaster.adventure.application.runtime.GmTurnFailureRecorder;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.saved.SavedAdventureApplicationService;
 import com.dndmaster.adventure.application.scenario.AdventureScenarioApplicationService;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanApplicationService;
 import com.dndmaster.adventure.domain.scenario.AdventureScenario;
 import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
 import com.dndmaster.adventure.domain.scenario.ScenarioId;
@@ -53,6 +54,7 @@ class AdventureControllerTest {
     @MockBean RuleGuidanceApplicationService guidanceService;
     @MockBean AdventureCombatApplicationService combatService;
     @MockBean AdventureScenarioApplicationService scenarioService;
+    @MockBean AdventureStoryPlanApplicationService storyPlanService;
     @MockBean AuthenticatedPlayerResolver playerResolver;
     @MockBean PlayerSessionLookupPort playerSessionLookupPort;
 

@@ -15,4 +15,7 @@ public interface RulebookRegistrationRepository {
     List<StoredRulebookRegistration> findByProcessingStatuses(List<ProcessingStatus> statuses);
     List<StoredRulebookRegistration> claimPending(Instant processingLeaseCutoff, int limit);
     void save(StoredRulebookRegistration registration);
+    default void deleteById(RulebookId id) {
+        throw new UnsupportedOperationException("deleting rulebook registrations is not supported");
+    }
 }

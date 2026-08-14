@@ -14,15 +14,23 @@ import java.util.concurrent.TimeUnit;
 /** Invokes the locally authenticated Codex CLI without putting source excerpts in process arguments. */
 public final class CodexCliCharacterTagProvider {
     private final CommandRunner runner;
+    private final CodexAppServerClient appServer;
+    private final String model;
     private final List<String> command;
     private final Duration timeout;
 
     public CodexCliCharacterTagProvider(String executable, String model, Path workDirectory, Duration timeout) {
-        this(new ProcessCommandRunner(), executable, model, workDirectory, timeout);
+        this.runner = null;
+        this.appServer = CodexAppServerClient.shared(executable, workDirectory, timeout, new com.fasterxml.jackson.databind.ObjectMapper());
+        this.model = model;
+        this.command = List.of();
+        this.timeout = timeout;
     }
 
     CodexCliCharacterTagProvider(CommandRunner runner, String executable, String model, Path workDirectory, Duration timeout) {
         this.runner = Objects.requireNonNull(runner);
+        this.appServer = null;
+        this.model = model;
         if (executable == null || executable.isBlank() || model == null || model.isBlank()) throw new IllegalArgumentException("Codex executable and model required");
         this.timeout = Objects.requireNonNull(timeout);
         if (timeout.isZero() || timeout.isNegative()) throw new IllegalArgumentException("Codex timeout must be positive");
@@ -32,7 +40,7 @@ public final class CodexCliCharacterTagProvider {
 
     public String complete(String operationId, String prompt) {
         if (operationId == null || operationId.isBlank() || prompt == null || prompt.isBlank()) throw new IllegalArgumentException("operation id and prompt required");
-        return runner.run(command, prompt, timeout);
+        return appServer == null ? runner.run(command, prompt, timeout) : appServer.complete(operationId, prompt, model);
     }
 
     @FunctionalInterface

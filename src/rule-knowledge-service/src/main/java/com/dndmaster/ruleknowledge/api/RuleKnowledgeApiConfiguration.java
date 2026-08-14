@@ -13,6 +13,8 @@ import com.dndmaster.ruleknowledge.infrastructure.ocr.TesseractOcrAdapter;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookIndexRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresGameSystemDefinitionRepository;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.JdbcCatalogRulebookRepository;
+import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRepository;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchPort;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorRuleEvidenceSearchRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorStorySourceSearchRepository;
@@ -36,6 +38,12 @@ import com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat;
 @EnableConfigurationProperties(RulebookStorageProperties.class)
 public class RuleKnowledgeApiConfiguration {
 
+    // Kept for focused configuration tests and local callers that do not bootstrap Spring.
+    RulebookContentExtractor rulebookContentExtractor(
+            com.dndmaster.ruleknowledge.application.ocr.OcrPort ocrPort) {
+        return rulebookContentExtractor(ocrPort, new ObjectMapper(), "python3", "..", Duration.ofMinutes(10));
+    }
+
     @Bean
     RulebookFileStorage rulebookFileStorage(RulebookStorageProperties properties) {
         return new LocalFileSystemRulebookStorage(Path.of(properties.resolveRoot()));
@@ -51,9 +59,14 @@ public class RuleKnowledgeApiConfiguration {
 
     @Bean
     RulebookContentExtractor rulebookContentExtractor(
-            com.dndmaster.ruleknowledge.application.ocr.OcrPort ocrPort) {
+            com.dndmaster.ruleknowledge.application.ocr.OcrPort ocrPort,
+            ObjectMapper objectMapper,
+            @Value("${rule-knowledge.docling.python-executable:python3}") String doclingPython,
+            @Value("${rule-knowledge.docling.working-directory:..}") String doclingWorkingDirectory,
+            @Value("${rule-knowledge.docling.timeout:10m}") Duration doclingTimeout) {
+        var legacyPdf = new PdfRulebookContentExtractor(ocrPort);
         return new CompositeRulebookContentExtractor(Map.of(
-                RulebookFormat.PDF, new PdfRulebookContentExtractor(ocrPort),
+                RulebookFormat.PDF, new DoclingPdfRulebookContentExtractor(doclingPython, Path.of(doclingWorkingDirectory), doclingTimeout, objectMapper, legacyPdf),
                 RulebookFormat.DOCX, new DocxRulebookContentExtractor(),
                 RulebookFormat.TXT, new TxtRulebookContentExtractor(),
                 RulebookFormat.IMAGE, new ImageRulebookContentExtractor(ocrPort)));
@@ -77,6 +90,11 @@ public class RuleKnowledgeApiConfiguration {
     @Bean
     RulebookIndexRepository indexRepository(DataSource dataSource) {
         return new PostgresRulebookIndexRepository(dataSource);
+    }
+
+    @Bean
+    CatalogRulebookRepository catalogRulebookRepository(DataSource dataSource) {
+        return new JdbcCatalogRulebookRepository(dataSource);
     }
 
     @Bean
@@ -171,9 +189,10 @@ public class RuleKnowledgeApiConfiguration {
             com.dndmaster.ruleknowledge.application.indexing.RulebookIndexRepository indexRepository,
             ObjectMapper objectMapper,
             com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository definitionRepository,
+            CatalogRulebookRepository catalogRulebookRepository,
             @Value("${rule-knowledge.internal-token:}") String internalToken) {
         return new RuleKnowledgeController(
                 pipelineService, registrationRepository, evidenceSearchService, storySourceSearchService,
-                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken);
+                characterContextSearchService, indexRepository, objectMapper, definitionRepository, internalToken, catalogRulebookRepository);
     }
 }

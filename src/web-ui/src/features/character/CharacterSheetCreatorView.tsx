@@ -195,7 +195,11 @@ const baseOwnedEquipment: EquipmentItem[] = [
 const equipmentForBundle = (bundle: EquipmentBundle): EquipmentItem[] =>
   Array.from(
     new Map(
-      [...baseOwnedEquipment, ...bundle.items].map((item) => [item[0], item]),
+      // Class starting bundles are a complete 5e selection.  Do not let the
+      // generic preview items silently replace the armor they actually chose.
+      (bundle.id.endsWith("-start") ? bundle.items : [...baseOwnedEquipment, ...bundle.items]).map(
+        (item) => [item[0], item],
+      ),
     ).values(),
   );
 const equipmentDescriptions: Record<string, string> = {
@@ -226,7 +230,7 @@ const equipmentDescriptions: Record<string, string> = {
   "스케일 메일": "금속 비늘로 만든 평갑 방어구입니다.",
   방패: "착용자의 AC에 방패 보너스를 더합니다.",
   메이스: "둔중한 타격을 가하는 단순 무기입니다.",
-  "쇠사슬 갑옷": "고리를 엮어 만든 중갑 방어구입니다.",
+  "체인 메일": "고리를 엮어 만든 중갑 방어구입니다.",
   롱소드: "한손 또는 양손으로 사용할 수 있는 군용 무기입니다.",
   "라이트 크로스보우": "볼트를 발사하는 원거리 무기입니다.",
 };
@@ -239,12 +243,26 @@ const equipmentStats: Record<string, string> = {
   롱소드: "피해 1d8 참격 · 다용도(1d10)",
   "라이트 크로스보우": "피해 1d8 관통 · 장전 · 사거리(24/96m)",
   "스케일 메일": "AC 14 + 민첩 수정치(최대 2) · 은신 불리점",
-  "쇠사슬 갑옷": "AC 16 · 은신 불리점",
+  "체인 메일": "AC 16 · 은신 불리점",
   방패: "AC +2",
   "횃불 10개": "밝은 빛 6m · 어두운 빛 6m · 1시간",
   "밧줄 15m": "인장력 272kg",
   쇠망치: "피해 1d4 타격 · 즉석 무기",
   "쇠못 10개": "고정용 도구",
+};
+const weaponIdByName: Record<string, string> = {
+  단검: "dagger",
+  메이스: "mace",
+  롱소드: "longsword",
+  숏소드: "shortsword",
+  지팡이: "quarterstaff",
+  "라이트 크로스보우": "light-crossbow",
+};
+const startingBundleIdByClass: Record<string, string> = {
+  로그: "rogue-start",
+  위저드: "wizard-start",
+  클레릭: "cleric-start",
+  파이터: "fighter-start",
 };
 const equipmentBundles: EquipmentBundle[] = [
   {
@@ -294,6 +312,7 @@ const equipmentBundles: EquipmentBundle[] = [
       ["방패", "방패", "3 kg"],
       ["메이스", "무기", "2 kg"],
       ["성표", "성물", "—"],
+      ["사제의 꾸러미", "장비 묶음", "—"],
     ],
   },
   {
@@ -302,10 +321,12 @@ const equipmentBundles: EquipmentBundle[] = [
     description: "중갑과 방패, 군용 무기 중심의 시작 장비입니다.",
     classes: ["파이터"],
     items: [
-      ["쇠사슬 갑옷", "중갑", "27.5 kg"],
+      ["체인 메일", "중갑", "27.5 kg"],
       ["방패", "방패", "3 kg"],
       ["롱소드", "무기", "1.5 kg"],
       ["라이트 크로스보우", "무기", "2.5 kg"],
+      ["볼트 20개", "탄약", "0.75 kg"],
+      ["던전 탐험가 팩", "장비 묶음", "—"],
     ],
   },
   {
@@ -643,14 +664,17 @@ function useBlueprintFields(blueprint?: BlueprintProps) {
   const [nodes, setNodes] = useState<ReturnType<typeof flattenNodes>>([]);
   const [packageId, setPackageId] = useState<string | null>(null);
   const [revision, setRevision] = useState(0);
+  const [edition, setEdition] = useState<"DND_5E_2014" | "DND_5E_2024">("DND_5E_2014");
   const [values, setValues] = useState<Record<string, string>>({});
   useEffect(() => {
     if (!blueprint) return;
     let active = true;
+    let sessionEdition: "DND_5E_2014" | "DND_5E_2024" | undefined;
     void blueprint.sessionApi
       .read(blueprint.sessionId)
       .then((session) => {
         if (!active) return;
+        sessionEdition = session.characterEdition;
         setPackageId(session.scenarioPackageId ?? null);
         return session.scenarioPackageId
           ? blueprint.setupApi.getPlayPreparation(session.scenarioPackageId)
@@ -658,6 +682,7 @@ function useBlueprintFields(blueprint?: BlueprintProps) {
       })
       .then((preparation) => {
         if (active && preparation) {
+          setEdition(sessionEdition ?? preparation.characterCreationBlueprint.edition ?? "DND_5E_2014");
           setRevision(preparation.characterCreationBlueprint.revision ?? 0);
           setNodes(
             flattenNodes(preparation.characterCreationBlueprint.roots).filter(
@@ -759,7 +784,7 @@ function useBlueprintFields(blueprint?: BlueprintProps) {
         .catch(() => undefined);
   }
   const extras = nodes.filter((node) => !mappedKeys.has(node.key));
-  return { value, change, extras, values };
+  return { value, change, extras, values, edition };
 }
 
 export function CharacterSheetCreatorView({
@@ -770,6 +795,7 @@ export function CharacterSheetCreatorView({
   blueprint?: BlueprintProps;
 }) {
   const blueprintFields = useBlueprintFields(blueprint);
+  const lockedEdition = blueprintFields.edition;
   const draftStorageKey = `dnd-character-draft:${blueprint?.sessionId ?? "local"}`;
   const initialDraft = readCharacterDraft(draftStorageKey);
   const restoredSection: SheetSection =
@@ -927,7 +953,7 @@ export function CharacterSheetCreatorView({
   const derivedAc = hasScore(effectiveScores[1])
     ? (() => {
         const dexterityModifier = modifierValue(effectiveScores[1]);
-        const armor = equipmentItems.some((item) => item[0] === "쇠사슬 갑옷")
+        const armor = equipmentItems.some((item) => item[0] === "체인 메일")
           ? 16
           : equipmentItems.some((item) => item[0] === "스케일 메일")
             ? 14 + Math.min(2, dexterityModifier)
@@ -966,7 +992,17 @@ export function CharacterSheetCreatorView({
       current.filter((spell) => option.cantrips.includes(spell)).slice(0, 3),
     );
   }, [effectiveClass, effectiveLevel, spellAbilityScore]);
+  useEffect(() => {
+    const startingBundle = equipmentBundles.find((bundle) => bundle.id === startingBundleIdByClass[effectiveClass]);
+    if (!startingBundle || equipmentBundle === startingBundle.id) return;
+    setEquipmentBundle(startingBundle.id);
+    setEquipmentItems(equipmentForBundle(startingBundle));
+  }, [effectiveClass, equipmentBundle]);
   async function save() {
+    if (lockedEdition !== "DND_5E_2014") {
+      setMessage("이 세션의 판본 계약은 아직 캐릭터 생성을 지원하지 않습니다.");
+      return;
+    }
     if (
       !effectiveName.trim() ||
       !effectiveClass ||
@@ -992,8 +1028,13 @@ export function CharacterSheetCreatorView({
       const armorNames = ["가죽 갑옷", "스터디드 레더", "하이드", "체인 셔츠", "스케일 메일", "브레스트플레이트", "하프 플레이트", "링 메일", "체인 메일", "스플린트", "플레이트"];
       const equippedArmor = equipmentItems.map(item => item[0]).find(item => armorNames.includes(item)) ?? "";
       const equippedShield = equipmentItems.some(item => item[0] === "방패");
+      const ownedWeaponIds = equipmentItems
+        .map(([name]) => weaponIdByName[name])
+        .filter((id): id is string => Boolean(id));
+      const mainHandWeaponId = ["longsword", "shortsword", "mace", "quarterstaff", "dagger"]
+        .find((weaponId) => ownedWeaponIds.includes(weaponId));
       await onSave({
-        edition: "DND_5E_2014",
+        edition: lockedEdition,
         characterName: effectiveName.trim(),
         level: Number(effectiveLevel) || 1,
         inspiration: false,
@@ -1008,12 +1049,16 @@ export function CharacterSheetCreatorView({
           subclass: subclassesFor(effectiveClass)[0]?.id ?? "",
           skillProficiencies,
           expertise: [],
-        equipmentSelections: { equipmentBundle },
+        equipmentSelections: {
+          equipmentBundle,
+          armor: equippedArmor,
+          weaponAndShield: effectiveClass === "파이터" ? "롱소드와 방패"
+            : effectiveClass === "클레릭" ? "메이스와 방패" : "",
+          rangedWeapon: ownedWeaponIds.includes("light-crossbow") ? "라이트 크로스보우와 볼트 20개" : "",
+        },
         ownedEquipment: equipmentItems.map(([name]) => name),
-        ownedWeaponIds: equipmentItems
-          .filter(([, type]) => type.includes("무기"))
-          .map(([name]) => name),
-        equippedItems: { armor: equippedArmor, shield: equippedShield },
+        ownedWeaponIds,
+        equippedItems: { armor: equippedArmor, shield: equippedShield, mainHandWeaponId },
           ruleChoices: {},
           baseStats: baseScores,
           stats: effectiveScores,
@@ -1045,7 +1090,7 @@ export function CharacterSheetCreatorView({
           cantrips,
         }),
         characterState: JSON.stringify({
-          equippedItems: { armor: equippedArmor, shield: equippedShield },
+          equippedItems: { armor: equippedArmor, shield: equippedShield, mainHandWeaponId },
           currentHitPoints: 0,
           temporaryHitPoints: 0,
           experience: 0,
@@ -1386,9 +1431,9 @@ export function CharacterSheetCreatorView({
             <button
               className="sheet-save-button"
               onClick={() => void save()}
-              disabled={saving}
+              disabled={saving || lockedEdition !== "DND_5E_2014"}
             >
-              {saving ? "저장 중..." : "캐릭터 저장하기 →"}
+              {saving ? "저장 중..." : lockedEdition === "DND_5E_2014" ? "캐릭터 저장하기 →" : "판본 계약 준비 중"}
             </button>
           </div>
         </aside>

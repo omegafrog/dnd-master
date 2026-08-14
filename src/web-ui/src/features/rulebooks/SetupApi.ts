@@ -30,6 +30,16 @@ export type BatchRulebookView = {
 
 export type KnowledgeDocumentStatus = 'UPLOADED' | 'NEEDS_INPUT' | 'QUEUED' | 'PROCESSING' | 'FAILED' | 'EXTRACTED' | 'INDEXED' | 'PARTIAL_AWAITING_CONFIRMATION' | 'PARTIAL_CONFIRMED' | 'REJECTED'
 
+export type DocumentPreparationStage = 'QUEUED' | 'EXTRACTING' | 'CHUNKING' | 'EMBEDDING' | 'INDEXING' | 'READY' | 'FAILED'
+
+export type DocumentPreparationProgress = {
+  stage: DocumentPreparationStage
+  percent: number
+  completedUnits?: number
+  totalUnits?: number
+  error?: string | null
+}
+
 export type KnowledgeDocumentView = {
   knowledgeDocumentId: string
   documentType: DocumentType
@@ -39,10 +49,7 @@ export type KnowledgeDocumentView = {
   extractionVersion?: number
   warnings?: string[]
   failureReason?: string | null
-  progress?: {
-    stage: 'EXTRACTING' | 'INDEXING' | 'READY'
-    percent: number
-  }
+  progress?: DocumentPreparationProgress
 }
 
 export type ScenarioBundleRole =
@@ -145,7 +152,8 @@ export type CharacterCreationBlueprintView = {
   storybookDocumentCount: number
   diagnostics: string[]
   revision?: number
-  status?: 'DRAFT' | 'NEEDS_REVIEW' | 'READY' | 'PUBLISHED'
+  status?: 'DRAFT' | 'NEEDS_REVIEW' | 'READY' | 'PUBLISHED' | 'UNAVAILABLE'
+  edition?: 'DND_5E_2014' | 'DND_5E_2024'
   fields?: Array<{
     key: string
     options: string[]
@@ -307,9 +315,22 @@ export type ScenarioCompilationView = {
   failureReason?: string | null
 }
 
+export type AgentEndpointPreflightView = {
+  configured: boolean
+  connected: boolean
+  state: 'LOGIN_REQUIRED' | 'CONNECTED' | 'EXPIRED' | 'FAILED' | 'NOT_CONFIGURED'
+  provider?: 'OLLAMA' | 'OPENAI_COMPATIBLE' | 'CODEX_CLI'
+  detail?: string | null
+}
+
 export type ScenarioBundleDraft = {
   knowledgeDocumentId: string
   role: ScenarioBundleRole
+}
+
+export type ScenarioBundleContract = {
+  name: string
+  rulebookEdition: 'DND_5E_2014' | 'DND_5E_2024'
 }
 
 export type RuntimeBindingDraft = {
@@ -390,18 +411,18 @@ export interface SetupApi {
   }>
   migrateLegacyScenario?(scenarioId: string): Promise<LegacyScenarioMigrationView>
   reuploadLegacyScenario?(scenarioId: string, file: File): Promise<LegacyScenarioMigrationView>
-  createScenarioBundle(ownerId: string, documents: ScenarioBundleDraft[]): Promise<ScenarioBundleView>
-  reviseScenarioBundle(bundleId: string, ownerId: string, documents: ScenarioBundleDraft[]): Promise<ScenarioBundleView>
+  createScenarioBundle(ownerId: string, documents: ScenarioBundleDraft[], contract?: ScenarioBundleContract): Promise<ScenarioBundleView>
+  reviseScenarioBundle(bundleId: string, ownerId: string, documents: ScenarioBundleDraft[], contract?: ScenarioBundleContract): Promise<ScenarioBundleView>
   getScenarioBundle(bundleId: string): Promise<ScenarioBundleView>
   listScenarioPackages?(bundleId: string): Promise<ScenarioPackageView[]>
   deleteScenarioBundle?(bundleId: string): Promise<void>
   listScenarioBundles?(): Promise<ScenarioBundleView[]>
-  compileScenarioBundle?(bundleId: string, ownerId: string): Promise<ScenarioPackageView>
   startScenarioCompilation?(bundleId: string, ownerId: string, inputFingerprint: string): Promise<ScenarioCompilationView>
   getScenarioCompilation?(compilationId: string): Promise<ScenarioCompilationView>
+  preflightAgentEndpoint?(): Promise<AgentEndpointPreflightView>
   getScenarioPackage?(packageId: string): Promise<ScenarioPackageView>
   getPlayPreparation?(scenarioPackageId: string): Promise<PlayPreparationView>
-  generateBlueprintDraft?(scenarioPackageId: string): Promise<CharacterCreationBlueprintView>
+  generateBlueprintDraft?(scenarioPackageId: string, catalogRulebookId?: string, catalogExtractionVersion?: number): Promise<CharacterCreationBlueprintView>
   resolveBlueprint?(scenarioPackageId: string, fieldKey: string, value: string, expectedRevision?: number): Promise<unknown>
   addBlueprintChild?(scenarioPackageId: string, expectedRevision: number, parentId: string, key: string, label: string): Promise<unknown>
   addBlueprintOption?(scenarioPackageId: string, expectedRevision: number, fieldKey: string, option: string): Promise<unknown>
@@ -451,7 +472,7 @@ export class HttpSetupApi implements SetupApi {
       idempotencyKey: document.idempotencyKey,
       documentType: document.documentType,
       originalFilename: document.file.name,
-    })))], { type: 'application/json' }))
+    })))], { type: 'application/json' }), 'documents.json')
     documents.forEach(document => body.append('files', document.file, document.file.name))
     return request<{ documents: BatchRulebookView[] }>(`/api/v1/rulebooks?ownerPlayerId=${ownerId}`, {
       method: 'POST',
@@ -471,6 +492,13 @@ export class HttpSetupApi implements SetupApi {
       method: 'POST',
       headers: this.authHeaders(),
     })
+  }
+
+  deleteKnowledgeDocument(knowledgeDocumentId: string) {
+    return request<void>(`/api/v1/rulebooks/${knowledgeDocumentId}`, {
+      method: 'DELETE',
+      headers: this.authHeaders(),
+    }, '자료를 삭제하지 못했습니다.')
   }
 
   getSourcePreview(knowledgeDocumentId: string) {
@@ -520,20 +548,20 @@ export class HttpSetupApi implements SetupApi {
     }, '레거시 시나리오를 재업로드하지 못했습니다.')
   }
 
-  createScenarioBundle(ownerId: string, documents: ScenarioBundleDraft[]) {
+  createScenarioBundle(ownerId: string, documents: ScenarioBundleDraft[], contract: ScenarioBundleContract = { name: 'Unnamed adventure', rulebookEdition: 'DND_5E_2014' }) {
     return request<ScenarioBundleView>('/api/v1/adventures/scenario-bundles', {
       method: 'POST',
       headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ playerId: ownerId, documents }),
-    }, '시나리오 번들을 저장하지 못했습니다.')
+      body: JSON.stringify({ playerId: ownerId, ...contract, documents }),
+    }, '모험 자료를 저장하지 못했습니다.')
   }
 
-  reviseScenarioBundle(bundleId: string, ownerId: string, documents: ScenarioBundleDraft[]) {
+  reviseScenarioBundle(bundleId: string, ownerId: string, documents: ScenarioBundleDraft[], contract: ScenarioBundleContract = { name: 'Unnamed adventure', rulebookEdition: 'DND_5E_2014' }) {
     return request<ScenarioBundleView>(`/api/v1/adventures/scenario-bundles/${bundleId}/revisions`, {
       method: 'POST',
       headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ playerId: ownerId, documents }),
-    }, '시나리오 번들을 저장하지 못했습니다.')
+      body: JSON.stringify({ playerId: ownerId, ...contract, documents }),
+    }, '모험 자료를 저장하지 못했습니다.')
   }
 
   getScenarioBundle(bundleId: string) {
@@ -546,7 +574,7 @@ export class HttpSetupApi implements SetupApi {
     return request<void>(`/api/v1/adventures/scenario-bundles/${bundleId}`, {
       method: 'DELETE',
       headers: this.authHeaders(),
-    }, '시나리오 번들을 삭제하지 못했습니다.')
+    }, '모험 자료를 삭제하지 못했습니다.')
   }
 
   listScenarioBundles() {
@@ -555,38 +583,41 @@ export class HttpSetupApi implements SetupApi {
     })
   }
 
-  compileScenarioBundle(bundleId: string, ownerId: string) {
-    return request<ScenarioPackageView>(`/api/v1/adventures/scenario-bundles/${bundleId}/compilations`, {
-      method: 'POST',
-      headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ playerId: ownerId, candidates: [] }),
-    }, '시나리오 패키지 컴파일에 실패했습니다.')
-  }
-
   startScenarioCompilation(bundleId: string, ownerId: string, inputFingerprint: string) {
     return request<ScenarioCompilationView>(`/api/v1/adventures/scenario-bundles/${bundleId}/compilation-jobs`, {
       method: 'POST',
       headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ playerId: ownerId, inputFingerprint }),
-    }, '시나리오 패키지 컴파일을 시작하지 못했습니다.')
+    }, '게임 준비를 시작하지 못했습니다.')
   }
 
   getScenarioCompilation(compilationId: string) {
     return request<ScenarioCompilationView>(`/api/v1/adventures/compilations/${compilationId}`, {
       headers: this.authHeaders(),
-    }, '시나리오 패키지 컴파일 상태를 불러오지 못했습니다.')
+    }, '게임 준비 상태를 불러오지 못했습니다.')
+  }
+
+  async preflightAgentEndpoint(): Promise<AgentEndpointPreflightView> {
+    const endpoints = await request<Array<{ id: string; provider: AgentEndpointPreflightView['provider']; active: boolean }>>(
+      '/api/v1/profile/agent-endpoints', { headers: this.authHeaders() }, 'AI 엔드포인트 상태를 확인하지 못했습니다.')
+    const active = endpoints.find(endpoint => endpoint.active)
+    if (!active) return { configured: false, connected: false, state: 'NOT_CONFIGURED', detail: 'AI 엔드포인트를 먼저 설정하세요.' }
+    const health = await request<{ healthy: boolean; detail?: string | null }>(
+      `/api/v1/profile/agent-endpoints/${active.id}/health`, { method: 'POST', headers: this.authHeaders() }, 'AI 엔드포인트 상태를 확인하지 못했습니다.')
+    if (health.healthy) return { configured: true, connected: true, state: 'CONNECTED', provider: active.provider, detail: null }
+    return { configured: true, connected: false, state: active.provider === 'CODEX_CLI' ? 'LOGIN_REQUIRED' : 'FAILED', provider: active.provider, detail: health.detail ?? 'AI 엔드포인트에 연결할 수 없습니다.' }
   }
 
   getScenarioPackage(packageId: string) {
     return request<ScenarioPackageView>(`/api/v1/adventures/scenario-packages/${packageId}`, {
       headers: this.authHeaders(),
-    }, '시나리오 패키지를 불러오지 못했습니다.')
+    }, '모험 준비 결과를 불러오지 못했습니다.')
   }
 
   listScenarioPackages(bundleId: string) {
     return request<ScenarioPackageView[]>(`/api/v1/adventures/scenario-bundles/${bundleId}/packages`, {
       headers: this.authHeaders(),
-    }, '번들 컴파일 패키지를 불러오지 못했습니다.')
+    }, '모험 준비 결과를 불러오지 못했습니다.')
   }
 
   getPlayPreparation(scenarioPackageId: string) {
@@ -595,8 +626,12 @@ export class HttpSetupApi implements SetupApi {
     }, '플레이 준비 상태를 불러오지 못했습니다.')
   }
 
-  generateBlueprintDraft(scenarioPackageId: string) {
-    return request<CharacterCreationBlueprintView>(`/api/v1/scenario-packages/${scenarioPackageId}/character-blueprint/draft`, {
+  generateBlueprintDraft(scenarioPackageId: string, catalogRulebookId?: string, catalogExtractionVersion?: number) {
+    const params = new URLSearchParams()
+    if (catalogRulebookId) params.set('catalogRulebookId', catalogRulebookId)
+    if (catalogExtractionVersion) params.set('catalogExtractionVersion', String(catalogExtractionVersion))
+    const suffix = params.size > 0 ? `?${params}` : ''
+    return request<CharacterCreationBlueprintView>(`/api/v1/scenario-packages/${scenarioPackageId}/character-blueprint/draft${suffix}`, {
       method: 'POST', headers: this.authHeaders(),
     }, '인덱스에서 캐릭터 시트 초안을 생성하지 못했습니다.')
   }

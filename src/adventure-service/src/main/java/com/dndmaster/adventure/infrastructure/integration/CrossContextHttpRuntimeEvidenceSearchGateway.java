@@ -56,6 +56,8 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
     }
 
     private static long extractionVersion(RuntimeEvidenceSearchRequest request, UUID documentId) {
+        Long packageVersion = request.extractionVersions().get(documentId);
+        if (packageVersion != null && packageVersion > 0) return packageVersion;
         return request.activeSourceContext() != null
                 && request.activeSourceContext().knowledgeDocumentId().value().equals(documentId)
                 ? request.activeSourceContext().extractionVersion() : 1L;

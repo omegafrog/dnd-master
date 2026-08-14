@@ -132,7 +132,7 @@ class LocalOllamaProductionWiringContextTest {
         server.stubFor(get(urlEqualTo("/api/tags")).willReturn(aResponse()
                 .withHeader("Content-Type", "application/json")
                         .withBody("{\"models\":[{\"name\":\"qwen3:8b\"},"
-                        + "{\"name\":\"qwen3-embedding:0.6b\"}]}")));
+                        + "{\"name\":\"qwen3-embedding:0.6b\"},{\"name\":\"exaone3.5:7.8b\"}]}")));
         server.stubFor(post(urlEqualTo("/api/chat")).atPriority(5).willReturn(aResponse()
                 .withHeader("Content-Type", "application/json").withBody(chatResponse())));
         server.stubFor(post(urlEqualTo("/api/embed")).willReturn(aResponse()

@@ -54,7 +54,7 @@ class PostgresScenarioBundleRepositoryIntegrationTest {
         owner = new OwnerPlayerId(UUID.randomUUID());
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(
-                        "INSERT INTO scenario_source_bundle(bundle_id, owner_player_id, current_revision) VALUES (?, ?, 1)")) {
+                "INSERT INTO scenario_source_bundle(bundle_id, owner_player_id, current_revision, name, rulebook_edition) VALUES (?, ?, 1, 'Test adventure', 'DND_5E_2014')")) {
             statement.setObject(1, bundleId.value());
             statement.setObject(2, owner.value());
             statement.executeUpdate();

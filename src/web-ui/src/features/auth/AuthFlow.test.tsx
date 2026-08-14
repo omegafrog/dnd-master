@@ -72,9 +72,9 @@ describe('authentication flow', () => {
 
     await user.click(screen.getByRole('button', { name: '계정 메뉴' }))
     expect(screen.getByText('M')).toBeInTheDocument()
-    await user.click(screen.getByRole('link', { name: '내 정보' }))
+    await user.click(screen.getByRole('link', { name: '내 설정' }))
 
-    expect(screen.getByRole('heading', { name: '내 정보' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '내 설정' })).toBeInTheDocument()
     expect(screen.getByText('player-1')).toBeInTheDocument()
   })
 

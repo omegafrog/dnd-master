@@ -9,7 +9,7 @@ import java.util.UUID;
 // 플레이어 행동 1회를 런타임 턴으로 처리하라고 넘기는 명령이다.
 public record SubmitRuntimeTurnCommand(
         AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID turnId, UUID commandId, String action, long expectedVersion,
-        CharacterSheetId turnCharacterSheetId, int turnIndex, boolean advancesState) {
+        CharacterSheetId turnCharacterSheetId, int turnIndex, boolean advancesState, boolean gmOnly) {
     public SubmitRuntimeTurnCommand(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID turnId, UUID commandId,
                                     String action, long expectedVersion, CharacterSheetId turnCharacterSheetId, int turnIndex) {
         this(adventureId, ownerPlayerId, turnId, commandId, action, expectedVersion, turnCharacterSheetId, turnIndex, true);
@@ -37,4 +37,11 @@ public record SubmitRuntimeTurnCommand(
                                     String action, long expectedVersion, boolean advancesState) {
         this(adventureId, ownerPlayerId, turnId, commandId, action, expectedVersion, null, -1, advancesState);
     }
+
+    public SubmitRuntimeTurnCommand(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID turnId, UUID commandId,
+                                    String action, long expectedVersion, CharacterSheetId turnCharacterSheetId, int turnIndex,
+                                    boolean advancesState) {
+        this(adventureId, ownerPlayerId, turnId, commandId, action, expectedVersion, turnCharacterSheetId, turnIndex, advancesState, false);
+    }
+
 }

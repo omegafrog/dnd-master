@@ -54,10 +54,12 @@ class ScenarioSourceBundleApplicationServiceTest {
         ScenarioSourceBundle revised = service.reviseBundle(
                 created.id(),
                 owner,
-                List.of(new BundleDocumentDraft(main, ScenarioBundleDocumentRole.REFERENCE)));
+                List.of(
+                        new BundleDocumentDraft(main, ScenarioBundleDocumentRole.REFERENCE),
+                        new BundleDocumentDraft(rulebook, ScenarioBundleDocumentRole.RULEBOOK)));
 
         assertEquals(2L, revised.currentRevision().revision());
-        assertEquals(1, revised.currentRevision().documents().size());
+        assertEquals(2, revised.currentRevision().documents().size());
         assertEquals(ScenarioBundleDocumentRole.REFERENCE, revised.currentRevision().documents().get(0).role());
         assertEquals(1L, created.currentRevision().revision());
     }

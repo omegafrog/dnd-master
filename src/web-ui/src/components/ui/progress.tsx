@@ -1,24 +1,19 @@
-import type { ComponentPropsWithoutRef } from 'react'
+import type { HTMLAttributes } from 'react'
 import { cn } from './utils'
 
-type ProgressProps = ComponentPropsWithoutRef<'div'> & {
-  value?: number
-  max?: number
-}
-
-export function Progress({ className, value = 0, max = 100, ...props }: ProgressProps) {
-  const percentage = max > 0 ? Math.min(100, Math.max(0, (value / max) * 100)) : 0
+export function Progress({ value = 0, className, ...props }: HTMLAttributes<HTMLDivElement> & { value?: number }) {
+  const percent = Math.max(0, Math.min(100, value))
 
   return (
     <div
       {...props}
       role="progressbar"
       aria-valuemin={0}
-      aria-valuemax={max}
-      aria-valuenow={value}
+      aria-valuemax={100}
+      aria-valuenow={percent}
       className={cn('ui-progress', className)}
     >
-      <div className="ui-progress-indicator" style={{ transform: `translateX(-${100 - percentage}%)` }} />
+      <div className="ui-progress-indicator" style={{ transform: `translateX(-${100 - percent}%)` }} />
     </div>
   )
 }

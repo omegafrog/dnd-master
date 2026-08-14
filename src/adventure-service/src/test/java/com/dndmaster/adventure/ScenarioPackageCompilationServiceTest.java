@@ -255,7 +255,7 @@ class ScenarioPackageCompilationServiceTest {
     }
 
     @Test
-    void compilesGreatestStorybookCharacterLimitWithItsEvidenceAndDefaultsToOne() {
+    void compilesGreatestStorybookCharacterLimitWithItsEvidenceAndDefaultsToSelectableSix() {
         KnowledgeDocumentId firstStorybook = new KnowledgeDocumentId(UUID.randomUUID());
         KnowledgeDocumentId secondStorybook = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = ScenarioSourceBundle.create(
@@ -277,8 +277,23 @@ class ScenarioPackageCompilationServiceTest {
         assertEquals(5, result.characterLimit().maximumCharacters());
         assertEquals(secondStorybook, result.characterLimit().source().orElseThrow().knowledgeDocumentId());
         assertEquals("page:9", result.characterLimit().source().orElseThrow().locator());
-        assertEquals(1, new ScenarioPackageCompilationService(new InMemoryPackageRepository())
+        assertEquals(6, new ScenarioPackageCompilationService(new InMemoryPackageRepository())
                 .compile(bundle, List.of()).characterLimit().maximumCharacters());
+    }
+
+    @Test
+    void marks_an_explicit_storybook_party_size_as_fixed() {
+        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = ScenarioSourceBundle.create(ScenarioBundleId.generate(), new OwnerPlayerId(UUID.randomUUID()),
+                new ScenarioSourceBundleRevision(1, List.of(new com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection(
+                        storybook, ScenarioBundleDocumentRole.MAIN_SCENARIO, KnowledgeDocumentStatus.INDEXED,
+                        "fixed.pdf", "STORYBOOK", 1))));
+
+        com.dndmaster.adventure.domain.scenario.CharacterLimit limit = new ScenarioPackageCompilationService(new InMemoryPackageRepository()).compile(bundle, List.of(), List.of(
+                new ResolutionExtractionPort.SourceExcerpt(storybook, 1, "page:3", "This adventure requires a party of 4 players."))).characterLimit();
+
+        assertEquals(4, limit.maximumCharacters());
+        assertTrue(limit.isExactPartySize());
     }
 
     @Test

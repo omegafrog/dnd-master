@@ -6,8 +6,10 @@ import com.dndmaster.combatmap.application.view.CombatMapViewService;
 import com.dndmaster.combatmap.application.view.MapOwnerId;
 import com.dndmaster.combatmap.application.view.PlayerCombatMapView;
 import com.dndmaster.combatmap.application.view.CombatMapAccessDeniedException;
+import com.dndmaster.combatmap.application.view.UploadedMapSource;
 import com.dndmaster.combatmap.domain.*;
 import org.springframework.web.bind.annotation.*;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.UUID;
@@ -28,6 +30,22 @@ public class CombatMapController {
             @PathVariable UUID mapId, @RequestParam UUID ownerId) {
         PlayerCombatMapView view = mapViewService.displayForPlayer(new MapId(mapId), new MapOwnerId(ownerId));
         return PlayerCombatMapResponse.from(view);
+    }
+
+    @PostMapping("/internal/v1/combat-maps/prepare")
+    PrepareResponse prepare(@RequestBody PrepareRequest request) {
+        CombatMap map = mapViewService.prepareGenerated(
+                new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
+                new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(), request.playerSpawnX(), request.playerSpawnY());
+        return new PrepareResponse(map.id().value());
+    }
+
+    @PostMapping(value = "/internal/v1/combat-maps/prepare-upload", consumes = "multipart/form-data")
+    PrepareResponse prepareUpload(@RequestPart MultipartFile file, @RequestParam UUID adventureId,
+                                  @RequestParam UUID ownerId, @RequestParam UUID ruleSetId) throws java.io.IOException {
+        CombatMap map = mapViewService.prepareUploaded(new MapOwnerId(ownerId), new AdventureId(adventureId),
+                new RuleSetId(ruleSetId), new UploadedMapSource(file.getOriginalFilename(), file.getBytes()));
+        return new PrepareResponse(map.id().value());
     }
 
     @GetMapping("/internal/v1/adventures/{adventureId}/combat-map/player-view")
@@ -110,4 +128,11 @@ public class CombatMapController {
     public record CombatMapMoveResponse(UUID mapId) {}
 
     public record CombatMapAiStateResponse(UUID mapId) {}
+
+    public record PrepareRequest(UUID adventureId, UUID ownerId, UUID ruleSetId,
+                                 UUID mapDefinitionId, String assetId, String assetLocator,
+                                 Integer playerSpawnX, Integer playerSpawnY) {
+        public PrepareRequest { playerSpawnX = playerSpawnX == null ? 0 : playerSpawnX; playerSpawnY = playerSpawnY == null ? 0 : playerSpawnY; }
+    }
+    public record PrepareResponse(UUID mapId) {}
 }

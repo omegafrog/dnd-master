@@ -7,6 +7,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundleRevision;
+import com.dndmaster.adventure.domain.scenario.RulebookEdition;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection;
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
 import java.sql.Connection;
@@ -28,7 +29,7 @@ public final class PostgresScenarioBundleRepository implements ScenarioBundleRep
 
     @Override
     public Optional<ScenarioSourceBundle> findById(ScenarioBundleId bundleId) {
-        String bundleSql = "SELECT bundle_id, owner_player_id, current_revision FROM scenario_source_bundle WHERE bundle_id = ?";
+        String bundleSql = "SELECT bundle_id, owner_player_id, name, rulebook_edition, current_revision FROM scenario_source_bundle WHERE bundle_id = ?";
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(bundleSql)) {
             statement.setObject(1, bundleId.value());
@@ -44,6 +45,8 @@ public final class PostgresScenarioBundleRepository implements ScenarioBundleRep
                 return Optional.of(ScenarioSourceBundle.rehydrate(
                         new ScenarioBundleId(bundleUuid),
                         new OwnerPlayerId(rows.getObject("owner_player_id", UUID.class)),
+                        rows.getString("name"),
+                        RulebookEdition.valueOf(rows.getString("rulebook_edition")),
                         revisions));
             }
         } catch (SQLException exception) {
@@ -73,6 +76,9 @@ public final class PostgresScenarioBundleRepository implements ScenarioBundleRep
             boolean autoCommit = connection.getAutoCommit();
             connection.setAutoCommit(false);
             try {
+                if (hasActiveAdventureReferences(connection, bundleId)) {
+                    throw new com.dndmaster.adventure.domain.scenario.ScenarioBundleDeletionConflictException();
+                }
                 execute(connection, "DELETE FROM scenario_compilation WHERE bundle_id = ?", bundleId.value());
                 execute(connection, "DELETE FROM scenario_package WHERE bundle_id = ?", bundleId.value());
                 execute(connection, "DELETE FROM scenario_source_bundle WHERE bundle_id = ?", bundleId.value());
@@ -86,6 +92,24 @@ public final class PostgresScenarioBundleRepository implements ScenarioBundleRep
             }
         } catch (SQLException exception) {
             throw new ScenarioBundlePersistenceException("could not access scenario bundle storage", exception);
+        }
+    }
+
+    @Override
+    public boolean hasActiveAdventureReferences(ScenarioBundleId bundleId) {
+        try (Connection connection = dataSource.getConnection()) {
+            return hasActiveAdventureReferences(connection, bundleId);
+        } catch (SQLException exception) {
+            throw new ScenarioBundlePersistenceException("could not check scenario bundle references", exception);
+        }
+    }
+
+    private static boolean hasActiveAdventureReferences(Connection connection, ScenarioBundleId bundleId) throws SQLException {
+        try (PreparedStatement statement = connection.prepareStatement(
+                "SELECT 1 FROM adventure_session s JOIN scenario_package p ON p.package_id = s.scenario_package_id "
+                        + "WHERE p.bundle_id = ? AND s.status NOT IN ('COMPLETED', 'DELETED') LIMIT 1")) {
+            statement.setObject(1, bundleId.value());
+            try (ResultSet rows = statement.executeQuery()) { return rows.next(); }
         }
     }
 
@@ -122,12 +146,14 @@ public final class PostgresScenarioBundleRepository implements ScenarioBundleRep
 
     private static void upsertBundle(Connection connection, ScenarioSourceBundle bundle) throws SQLException {
         try (PreparedStatement upsert = connection.prepareStatement(
-                "INSERT INTO scenario_source_bundle(bundle_id, owner_player_id, current_revision) VALUES (?, ?, ?) "
+                "INSERT INTO scenario_source_bundle(bundle_id, owner_player_id, name, rulebook_edition, current_revision) VALUES (?, ?, ?, ?, ?) "
                         + "ON CONFLICT (bundle_id) DO UPDATE SET owner_player_id = EXCLUDED.owner_player_id, "
                         + "current_revision = EXCLUDED.current_revision")) {
             upsert.setObject(1, bundle.id().value());
             upsert.setObject(2, bundle.ownerPlayerId().value());
-            upsert.setLong(3, bundle.currentRevision().revision());
+            upsert.setString(3, bundle.name());
+            upsert.setString(4, bundle.rulebookEdition().name());
+            upsert.setLong(5, bundle.currentRevision().revision());
             upsert.executeUpdate();
         }
     }

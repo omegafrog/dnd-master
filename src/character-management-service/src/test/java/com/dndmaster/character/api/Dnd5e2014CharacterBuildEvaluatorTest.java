@@ -5,6 +5,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -53,21 +54,28 @@ class Dnd5e2014CharacterBuildEvaluatorTest {
     }
 
     @Test
-    void appliesArmorDexterityCapShieldAndClassSavingThrows() {
+    void derivesThePublished2014HumanFighterStartingSheet() {
         var evaluation = Dnd5e2014CharacterBuildEvaluator.evaluate(request(
                 "인간",
                 "파이터",
                 "strength=15,dexterity=14,constitution=13,intelligence=8,wisdom=12,charisma=10",
                 """
                 {"subrace":"","subclass":"","skillProficiencies":["운동","지각"],"expertise":[],
-                 "ownedEquipment":["스케일 메일","방패"],"ownedWeaponIds":[]}
+                 "ownedEquipment":["체인 메일","방패","라이트 크로스보우","볼트 20개","던전 탐험가 팩"],
+                 "ownedWeaponIds":["longsword","light-crossbow"]}
                 """,
                 """
-                {"equippedItems":{"armor":"스케일 메일","shield":true,"mainHandWeaponId":null,"offHandWeaponId":null,"twoHandedWeaponId":null}}
+                {"equippedItems":{"armor":"체인 메일","shield":true,"mainHandWeaponId":"longsword","offHandWeaponId":null,"twoHandedWeaponId":null}}
                 """));
 
         assertTrue(evaluation.valid());
         assertEquals(18, evaluation.derived().get("armorClass"));
+        assertEquals(12, evaluation.derived().get("hitPointMaximum"));
+        @SuppressWarnings("unchecked")
+        List<Dnd5e2014AttackCalculator.AttackView> attacks =
+                (List<Dnd5e2014AttackCalculator.AttackView>) evaluation.derived().get("attacks");
+        assertTrue(attacks.stream().anyMatch(attack -> attack.weaponId().equals("longsword")
+                && attack.attackBonus() == 5 && attack.damage().equals("1d8+3")));
         @SuppressWarnings("unchecked")
         Map<String, Integer> saves = (Map<String, Integer>) evaluation.derived().get("savingThrowBonuses");
         assertEquals(5, saves.get("strength"));
