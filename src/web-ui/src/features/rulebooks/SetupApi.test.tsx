@@ -103,6 +103,14 @@ describe('HttpSetupApi', () => {
             rulebookDocumentCount: 1,
             storybookDocumentCount: 1,
             diagnostics: [],
+            baseSchema: { edition: 'DND_5E_2014', fields: [] },
+            storybookProposals: [{
+              proposalId: 'proposal-1', key: 'alignment', label: 'Alignment', description: 'Scenario restriction',
+              sourceDocument: { knowledgeDocumentId: 'doc-1', originalFilename: 'story.pdf', extractionVersion: 3 },
+              sourceQuote: 'Only elves.', evidence: [{ locator: 'page:4', excerpt: 'Only elves.' }],
+              decisionState: 'UNDECIDED', readinessState: 'READY',
+            }],
+            storybookExtractionState: 'EXTRACTION_PARTIAL_CONFIRMED',
           },
         }),
       } as Response)
@@ -125,6 +133,9 @@ describe('HttpSetupApi', () => {
       status: 'READY',
       characterCreationBlueprint: {
         available: true,
+        baseSchema: { edition: 'DND_5E_2014', fields: [] },
+        storybookProposals: [{ proposalId: 'proposal-1', decisionState: 'UNDECIDED' }],
+        storybookExtractionState: 'EXTRACTION_PARTIAL_CONFIRMED',
       },
     })
     await expect(api.getRuntimeOptions?.()).resolves.toMatchObject({

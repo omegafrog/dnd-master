@@ -70,7 +70,8 @@ public record CharacterCreationBlueprintView(
     }
 
     public enum StorybookExtractionState {
-        NO_PROPOSALS, PROPOSALS_AVAILABLE, EXTRACTION_FAILED, INSUFFICIENT_EVIDENCE
+        NO_PROPOSALS, PROPOSALS_AVAILABLE, EXTRACTION_FAILED, INSUFFICIENT_EVIDENCE,
+        EXTRACTION_PARTIAL_AWAITING_CONFIRMATION, EXTRACTION_PARTIAL_CONFIRMED, EXTRACTION_MIXED
     }
 
     public record StorybookProposalView(String proposalId, String key, String label, String description,
@@ -92,14 +93,10 @@ public record CharacterCreationBlueprintView(
 
         /** Identity is tied to the grounded source revision and field key, never extracted text. */
         public static String stableId(String knowledgeDocumentId, long extractionVersion, String fieldKey) {
-            return stableId(knowledgeDocumentId, extractionVersion, fieldKey, 0);
+            return java.util.UUID.nameUUIDFromBytes((knowledgeDocumentId + "|" + extractionVersion + "|" + fieldKey)
+                    .getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
         }
 
-        /** The ordinal disambiguates repeated candidates with the same unresolved source and field key. */
-        public static String stableId(String knowledgeDocumentId, long extractionVersion, String fieldKey, int candidateOrdinal) {
-            return java.util.UUID.nameUUIDFromBytes((knowledgeDocumentId + "|" + extractionVersion + "|" + fieldKey)
-                    .concat("|" + candidateOrdinal).getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
-        }
 
         public record SourceDocument(String knowledgeDocumentId, String originalFilename, long extractionVersion) {}
         public record SourceEvidence(String locator, String excerpt) {

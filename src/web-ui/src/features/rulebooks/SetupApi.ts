@@ -180,7 +180,7 @@ export type RulebookBaseSchemaView = {
   fields: NonNullable<CharacterCreationBlueprintView['fields']>
 }
 
-export type StorybookExtractionState = 'NO_PROPOSALS' | 'PROPOSALS_AVAILABLE' | 'EXTRACTION_FAILED' | 'INSUFFICIENT_EVIDENCE'
+export type StorybookExtractionState = 'NO_PROPOSALS' | 'PROPOSALS_AVAILABLE' | 'EXTRACTION_FAILED' | 'INSUFFICIENT_EVIDENCE' | 'EXTRACTION_PARTIAL_AWAITING_CONFIRMATION' | 'EXTRACTION_PARTIAL_CONFIRMED' | 'EXTRACTION_MIXED'
 
 export type StorybookProposalView = {
   proposalId: string

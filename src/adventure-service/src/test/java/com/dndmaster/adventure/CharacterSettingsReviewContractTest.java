@@ -61,12 +61,11 @@ class CharacterSettingsReviewContractTest {
 
     @Test
     void disambiguates_duplicate_unresolved_field_keys_deterministically() {
-        String first = StorybookProposalView.stableId("UNRESOLVED", 0, "race", 0);
-        String second = StorybookProposalView.stableId("UNRESOLVED", 0, "race", 1);
+        String first = StorybookProposalView.stableId("UNRESOLVED", 0, "race");
+        String second = StorybookProposalView.stableId("UNRESOLVED", 0, "race");
 
-        assertTrue(!first.equals(second));
-        assertEquals(first, StorybookProposalView.stableId("UNRESOLVED", 0, "race", 0));
-        assertEquals(second, StorybookProposalView.stableId("UNRESOLVED", 0, "race", 1));
+        assertEquals(first, second);
+        assertEquals(first, StorybookProposalView.stableId("UNRESOLVED", 0, "race"));
     }
 
     @Test

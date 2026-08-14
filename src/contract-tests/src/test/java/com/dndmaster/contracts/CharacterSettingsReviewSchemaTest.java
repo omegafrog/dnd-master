@@ -44,7 +44,7 @@ class CharacterSettingsReviewSchemaTest {
         JsonNode invalid = JSON.readTree("""
                 {"baseSchema":{"edition":"DND_5E_2014","fields":[]},
                  "storybookProposals":[{"proposalId":"","key":"race","label":"Race","description":"Elf only",
-                   "sourceDocument":null,"sourceQuote":"","evidence":[],
+                   "sourceDocument":{"knowledgeDocumentId":"doc-1"},"sourceQuote":"","evidence":[{"locator":3,"excerpt":""}],
                    "decisionState":"USE","readinessState":"READY"}],
                  "storybookExtractionState":"UNKNOWN"}
                 """);
@@ -67,7 +67,13 @@ class CharacterSettingsReviewSchemaTest {
                     || !proposal.get("evidence").isArray()
                     || !isEnum(proposalSchema.at("/properties/decisionState"), proposal.get("decisionState"))
                     || !isEnum(proposalSchema.at("/properties/readinessState"), proposal.get("readinessState"))) return false;
-            if (!proposal.get("sourceDocument").isNull() && !proposal.get("sourceDocument").isObject()) return false;
+            if (!proposal.get("sourceDocument").isNull()
+                    && (!proposal.get("sourceDocument").isObject()
+                    || !hasRequired(schema.at("/$defs/sourceDocument"), proposal.get("sourceDocument")))) return false;
+            for (JsonNode evidence : proposal.get("evidence")) {
+                if (!evidence.isObject() || !hasRequired(schema.at("/$defs/sourceEvidence"), evidence)
+                        || !evidence.get("locator").isTextual() || evidence.get("locator").asText().isBlank()) return false;
+            }
         }
         return isEnum(schema.at("/properties/storybookExtractionState"), payload.get("storybookExtractionState"));
     }
