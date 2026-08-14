@@ -92,8 +92,13 @@ public record CharacterCreationBlueprintView(
 
         /** Identity is tied to the grounded source revision and field key, never extracted text. */
         public static String stableId(String knowledgeDocumentId, long extractionVersion, String fieldKey) {
+            return stableId(knowledgeDocumentId, extractionVersion, fieldKey, 0);
+        }
+
+        /** The ordinal disambiguates repeated candidates with the same unresolved source and field key. */
+        public static String stableId(String knowledgeDocumentId, long extractionVersion, String fieldKey, int candidateOrdinal) {
             return java.util.UUID.nameUUIDFromBytes((knowledgeDocumentId + "|" + extractionVersion + "|" + fieldKey)
-                    .getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+                    .concat("|" + candidateOrdinal).getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
         }
 
         public record SourceDocument(String knowledgeDocumentId, String originalFilename, long extractionVersion) {}

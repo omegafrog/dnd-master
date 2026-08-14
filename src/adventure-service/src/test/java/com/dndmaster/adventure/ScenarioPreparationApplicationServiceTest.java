@@ -19,6 +19,7 @@ import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus;
+import com.dndmaster.adventure.domain.scenario.BlueprintProvenance;
 import com.dndmaster.adventure.domain.scenario.ResolutionKind;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
@@ -37,6 +38,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -392,6 +395,8 @@ class ScenarioPreparationApplicationServiceTest {
         assertTrue(preparation.characterCreationBlueprint().available());
         assertEquals(0, preparation.characterCreationBlueprint().rulebookDocumentCount());
         assertEquals(1, preparation.characterCreationBlueprint().storybookDocumentCount());
+        assertEquals(CharacterCreationBlueprintView.StorybookExtractionState.NO_PROPOSALS,
+                preparation.characterCreationBlueprint().storybookExtractionState());
     }
 
     @Test
@@ -415,6 +420,64 @@ class ScenarioPreparationApplicationServiceTest {
         assertEquals(List.of("search", "move"), options.defaultToolIds());
         assertTrue(options.engines().stream().anyMatch(option -> option.id().equals("ollama") && option.selectedByDefault()));
         assertTrue(options.tools().stream().anyMatch(option -> option.id().equals("search") && option.selectedByDefault()));
+    }
+
+    @Test
+    void serializes_read_model_with_separated_base_proposals_and_insufficient_evidence_state() throws Exception {
+        var packages = mock(ScenarioPackageRepository.class);
+        var bundles = mock(ScenarioBundleRepository.class);
+        var storybook = new KnowledgeDocumentId(storybookDocumentId());
+        var blueprint = new CharacterCreationBlueprint(1, CharacterCreationBlueprintStatus.NEEDS_REVIEW, List.of(
+                new CharacterCreationBlueprint.Field("race", List.of("Elf"), true, "TEMPLATE", List.of(),
+                        "EXTRACTED", List.of(), com.dndmaster.adventure.domain.scenario.InputMode.SINGLE_SELECT,
+                        List.of(), "", "Race", null, "template-race", null, "HIGH"),
+                new CharacterCreationBlueprint.Field("alignment", List.of("Grove-bound"), true, "STORYBOOK", List.of(),
+                        "CONFLICT_REVIEW", List.of(), com.dndmaster.adventure.domain.scenario.InputMode.SINGLE_SELECT,
+                        List.of(), "", "Alignment", null, "proposal-alignment", null, "LOW"),
+                new CharacterCreationBlueprint.Field("alignment", List.of("Dawn-bound"), true, "STORYBOOK", List.of(),
+                        "CONFLICT_REVIEW", List.of(), com.dndmaster.adventure.domain.scenario.InputMode.SINGLE_SELECT,
+                        List.of(), "", "Alignment", null, "proposal-alignment-2", null, "LOW")),
+                List.of(), new BlueprintProvenance(1, 4, List.of("TEMPLATE", "STORYBOOK"), "DND_5E_2014"));
+        var scenarioPackage = ScenarioPackage.publish(new ScenarioBundleId(bundleId()), 4, "fp-review-contract",
+                bundleWithRulebook().currentRevision().documents(), List.of(validUnit()),
+                new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()),
+                com.dndmaster.adventure.domain.scenario.CharacterLimit.defaultLimit(), blueprint);
+        when(packages.findById(scenarioPackage.packageId())).thenReturn(Optional.of(scenarioPackage));
+        when(bundles.findById(scenarioPackage.bundleId())).thenReturn(Optional.of(bundleWithRulebook()));
+
+        var view = new ScenarioPreparationApplicationService(packages, bundles, fixtureRuntimeOptions())
+                .read(scenarioPackage.packageId(), owner());
+        JsonNode json = new ObjectMapper().valueToTree(view);
+
+        assertEquals("race", json.at("/characterCreationBlueprint/baseSchema/fields/0/key").asText());
+        assertTrue(json.at("/characterCreationBlueprint/storybookProposals").isArray());
+        assertEquals("alignment", json.at("/characterCreationBlueprint/storybookProposals/0/key").asText());
+        assertFalse(json.at("/characterCreationBlueprint/storybookProposals/0/proposalId").asText()
+                .equals(json.at("/characterCreationBlueprint/storybookProposals/1/proposalId").asText()));
+        assertEquals("INSUFFICIENT_EVIDENCE", json.at("/characterCreationBlueprint/storybookExtractionState").asText());
+        assertEquals("UNDECIDED", json.at("/characterCreationBlueprint/storybookProposals/0/decisionState").asText());
+        assertEquals("INSUFFICIENT_EVIDENCE", json.at("/characterCreationBlueprint/storybookProposals/0/readinessState").asText());
+    }
+
+    @Test
+    void reports_extraction_failure_from_storybook_document_status() {
+        var packages = mock(ScenarioPackageRepository.class);
+        var bundles = mock(ScenarioBundleRepository.class);
+        var failedStorybook = new ScenarioBundleDocumentSelection(new KnowledgeDocumentId(storybookDocumentId()),
+                ScenarioBundleDocumentRole.MAIN_SCENARIO, KnowledgeDocumentStatus.FAILED, "story.pdf", "STORYBOOK", 1);
+        var bundle = ScenarioSourceBundle.create(new ScenarioBundleId(bundleId()), owner(),
+                new ScenarioSourceBundleRevision(4, List.of(failedStorybook)));
+        var scenarioPackage = ScenarioPackage.publish(new ScenarioBundleId(bundleId()), 4, "fp-failed-storybook",
+                List.of(failedStorybook), List.of(validUnit()),
+                new ScenarioCompilationReport(ResolutionStatus.INVALID, List.of("storybook extraction failed")));
+        when(packages.findById(scenarioPackage.packageId())).thenReturn(Optional.of(scenarioPackage));
+        when(bundles.findById(scenarioPackage.bundleId())).thenReturn(Optional.of(bundle));
+
+        var view = new ScenarioPreparationApplicationService(packages, bundles, fixtureRuntimeOptions())
+                .read(scenarioPackage.packageId(), owner());
+
+        assertEquals(CharacterCreationBlueprintView.StorybookExtractionState.EXTRACTION_FAILED,
+                view.characterCreationBlueprint().storybookExtractionState());
     }
 
     @Test

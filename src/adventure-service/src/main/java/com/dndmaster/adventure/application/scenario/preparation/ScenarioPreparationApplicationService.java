@@ -597,9 +597,14 @@ public final class ScenarioPreparationApplicationService {
         List<CharacterCreationBlueprintView.FieldView> baseFields = fields.stream()
                 .filter(field -> "RULEBOOK".equalsIgnoreCase(field.sourceType())
                         || "TEMPLATE".equalsIgnoreCase(field.sourceType())).toList();
-        List<CharacterCreationBlueprintView.StorybookProposalView> proposals = fields.stream()
+        List<CharacterCreationBlueprintView.FieldView> storybookFields = fields.stream()
                 .filter(field -> "STORYBOOK".equalsIgnoreCase(field.sourceType()))
-                .map(field -> toProposal(field, documents)).toList();
+                .toList();
+        List<CharacterCreationBlueprintView.StorybookProposalView> proposals = new ArrayList<>();
+        for (int index = 0; index < storybookFields.size(); index++) {
+            CharacterCreationBlueprintView.FieldView field = storybookFields.get(index);
+            proposals.add(toProposal(field, documents, candidateOrdinal(storybookFields, index)));
+        }
         CharacterCreationBlueprintView.StorybookExtractionState extractionState = storybookExtractionState(documents, proposals);
         return new CharacterCreationBlueprintView(
                 blueprint.status().name().equals("READY") || blueprint.status().name().equals("PUBLISHED"),
@@ -612,7 +617,7 @@ public final class ScenarioPreparationApplicationService {
     }
 
     private static CharacterCreationBlueprintView.StorybookProposalView toProposal(
-            CharacterCreationBlueprintView.FieldView field, List<ScenarioBundleDocumentSelection> documents) {
+            CharacterCreationBlueprintView.FieldView field, List<ScenarioBundleDocumentSelection> documents, int candidateOrdinal) {
         var evidence = field.evidence().stream()
                 .map(reference -> new CharacterCreationBlueprintView.StorybookProposalView.SourceEvidence(
                         reference.locator(), field.sourceQuote()))
@@ -623,7 +628,7 @@ public final class ScenarioPreparationApplicationService {
                         reference.knowledgeDocumentId(), document.originalFilename(), reference.extractionVersion()))).orElse(null);
         boolean hasEvidence = source != null && !field.sourceQuote().isBlank() && !evidence.isEmpty();
         return new CharacterCreationBlueprintView.StorybookProposalView(
-                StorybookProposalId.stableId(field, source),
+                StorybookProposalId.stableId(field, source, candidateOrdinal),
                 field.key(), field.key(), String.join(", ", field.options()), source, field.sourceQuote(), evidence,
                 "UNDECIDED", hasEvidence ? "READY" : "INSUFFICIENT_EVIDENCE");
     }
@@ -632,11 +637,28 @@ public final class ScenarioPreparationApplicationService {
         private StorybookProposalId() {}
 
         private static String stableId(CharacterCreationBlueprintView.FieldView field,
-                                       CharacterCreationBlueprintView.StorybookProposalView.SourceDocument source) {
+                                       CharacterCreationBlueprintView.StorybookProposalView.SourceDocument source,
+                                       int candidateOrdinal) {
             return CharacterCreationBlueprintView.StorybookProposalView.stableId(
                     source == null ? "UNRESOLVED" : source.knowledgeDocumentId(),
-                    source == null ? 0 : source.extractionVersion(), field.key());
+                    source == null ? 0 : source.extractionVersion(), field.key(), candidateOrdinal);
         }
+    }
+
+    private static int candidateOrdinal(List<CharacterCreationBlueprintView.FieldView> fields, int index) {
+        CharacterCreationBlueprintView.FieldView current = fields.get(index);
+        String identity = proposalSourceIdentity(current);
+        int ordinal = 0;
+        for (int prior = 0; prior < index; prior++) {
+            if (identity.equals(proposalSourceIdentity(fields.get(prior)))) ordinal++;
+        }
+        return ordinal;
+    }
+
+    private static String proposalSourceIdentity(CharacterCreationBlueprintView.FieldView field) {
+        var reference = field.evidence().stream().findFirst();
+        if (reference.isEmpty()) return "UNRESOLVED|0|" + field.key();
+        return reference.get().knowledgeDocumentId() + "|" + reference.get().extractionVersion() + "|" + field.key();
     }
 
     private static CharacterCreationBlueprintView.StorybookExtractionState storybookExtractionState(

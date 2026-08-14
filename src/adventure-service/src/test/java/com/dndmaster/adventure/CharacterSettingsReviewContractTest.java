@@ -26,13 +26,6 @@ class CharacterSettingsReviewContractTest {
     }
 
     @Test
-    void distinguishes_no_proposals_extraction_failure_and_insufficient_evidence() {
-        assertEquals(StorybookExtractionState.NO_PROPOSALS, StorybookExtractionState.NO_PROPOSALS);
-        assertEquals(StorybookExtractionState.EXTRACTION_FAILED, StorybookExtractionState.EXTRACTION_FAILED);
-        assertEquals(StorybookExtractionState.INSUFFICIENT_EVIDENCE, StorybookExtractionState.INSUFFICIENT_EVIDENCE);
-    }
-
-    @Test
     void keeps_legacy_blueprint_constructor_compatible_while_exposing_base_schema_contract() {
         var view = new CharacterCreationBlueprintView(true, "legacy", 1, 0, List.of());
 
@@ -64,6 +57,16 @@ class CharacterSettingsReviewContractTest {
                 "Elves or dwarves.", List.of(), "UNDECIDED", "READY");
 
         assertEquals(first.proposalId(), changedText.proposalId());
+    }
+
+    @Test
+    void disambiguates_duplicate_unresolved_field_keys_deterministically() {
+        String first = StorybookProposalView.stableId("UNRESOLVED", 0, "race", 0);
+        String second = StorybookProposalView.stableId("UNRESOLVED", 0, "race", 1);
+
+        assertTrue(!first.equals(second));
+        assertEquals(first, StorybookProposalView.stableId("UNRESOLVED", 0, "race", 0));
+        assertEquals(second, StorybookProposalView.stableId("UNRESOLVED", 0, "race", 1));
     }
 
     @Test
