@@ -269,7 +269,7 @@ export function RulebookSetup({
       <p role="status" aria-live="polite">{message}</p>
       <section className="setup-panel setup-catalog-panel" aria-labelledby="catalog-rulebook-heading">
         <h2 id="catalog-rulebook-heading">룰북 선택</h2>
-        {catalogRulebooks.length === 0 ? <p>사용 가능한 룰북이 없습니다. 관리자가 준비하면 여기에 표시됩니다.</p> : <ul aria-label="룰북 목록">{catalogRulebooks.map(rulebook => <li key={rulebook.catalogRevisionId}><label><Checkbox checked={selectedIds.has(rulebook.rulebookId!)} onCheckedChange={() => toggleSelected(rulebook.rulebookId!)} />{rulebook.displayName} · revision {rulebook.revisionNumber}</label></li>)}</ul>}
+        {catalogRulebooks.length === 0 ? <p>사용 가능한 룰북이 없습니다. 관리자가 준비하면 여기에 표시됩니다.</p> : <ul aria-label="룰북 목록">{catalogRulebooks.map(rulebook => <li key={rulebook.catalogRevisionId}><label><Checkbox aria-label={`${rulebook.displayName} 선택`} checked={selectedIds.has(rulebook.rulebookId!)} onCheckedChange={() => toggleSelected(rulebook.rulebookId!)} />{rulebook.displayName} · revision {rulebook.revisionNumber}</label></li>)}</ul>}
       </section>
       <section className="setup-panel setup-upload-panel" aria-labelledby="rulebook-heading">
         <h2 id="rulebook-heading">스토리북 업로드</h2>

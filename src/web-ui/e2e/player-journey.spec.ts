@@ -11,8 +11,6 @@ test('solo player completes setup, grounded play, map and saved-adventure deleti
     { name: 'rules.txt', mimeType: 'text/plain', buffer: Buffer.from('Dexterity rules') },
     { name: 'story.txt', mimeType: 'text/plain', buffer: Buffer.from('A campaign journal') },
   ])
-  await page.getByLabel('rules.txt 유형').selectOption('RULEBOOK')
-  await page.getByLabel('story.txt 유형').selectOption('STORYBOOK')
   await page.getByRole('button', { name: '자료 업로드' }).click()
   await expect(page.getByText('rules.txt: 사용 준비 완료')).toBeVisible()
   await expect(page.getByText('story.txt: 사용 준비 완료')).toBeVisible()
@@ -47,8 +45,8 @@ test('player adds a character to the draft session', async ({ page }) => {
   await page.getByLabel('이메일').fill('player@example.com')
   await page.getByLabel('비밀번호').fill('secret-password')
   await page.getByRole('button', { name: '로그인', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '모험 생성과 파티 구성' })).toBeVisible()
-  const party = page.getByRole('region', { name: '모험 생성과 파티 구성' })
+  await expect(page.getByRole('heading', { name: '모험을 함께할 파티' })).toBeVisible()
+  const party = page.getByRole('region', { name: '모험을 함께할 파티' })
   await party.getByRole('button', { name: '직접 조작으로 추가' }).click()
   await expect(party.getByText('sheet-e2e')).toBeVisible()
   await expect(party.getByText('DIRECT')).toBeVisible()
@@ -76,11 +74,6 @@ test('document-derived scenario preserves bundle and exposes character blueprint
       { name: 'printer.txt', mimeType: 'text/plain', buffer: Buffer.from('Printer-only material') },
       { name: 'map.txt', mimeType: 'text/plain', buffer: Buffer.from('Map room layout') },
     ])
-    await page.getByLabel('rules-2014.txt 유형').selectOption('RULEBOOK')
-    await page.getByLabel('rules-2024.txt 유형').selectOption('RULEBOOK')
-    await page.getByLabel('storybook.txt 유형').selectOption('STORYBOOK')
-    await page.getByLabel('printer.txt 유형').selectOption('STORYBOOK')
-    await page.getByLabel('map.txt 유형').selectOption('STORYBOOK')
     await page.getByRole('button', { name: '자료 업로드' }).click()
 
     await expect(page.getByLabel('map.txt 역할')).toBeVisible()
@@ -121,7 +114,7 @@ test('running session reconnects with switched provider and confirms ending', as
   await page.getByLabel('비밀번호').fill('secret-password')
   await page.getByRole('button', { name: '로그인', exact: true }).click()
 
-  const provider = page.getByRole('region', { name: '모험 생성과 파티 구성' })
+  const provider = page.getByRole('region', { name: '모험을 함께할 파티' })
   const gmProvider = provider.getByRole('region', { name: 'GM provider' })
   await gmProvider.getByLabel('GM provider').selectOption('openai')
   await page.locator('input[aria-label="GM model"]').fill('gpt-5.6-luna')
