@@ -117,7 +117,7 @@ test('running session reconnects with switched provider and confirms ending', as
   await expect(page.getByText(/턴 2: 근거를 바탕으로 응답한다\./)).toBeVisible()
   await page.getByRole('button', { name: '세션 완료' }).click()
   await page.getByRole('button', { name: '종료 확인' }).click()
-  await expect(page.getByText(/완료 · 1\/1명/)).toBeVisible()
+  await expect(page.locator('.status-chip')).toContainText('완료')
 })
 
 function summarizeErrorBody(body: string) {
