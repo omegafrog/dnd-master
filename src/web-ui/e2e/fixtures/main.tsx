@@ -289,6 +289,12 @@ window.fetch = async (input, init) => {
       backgrounds: backgroundOptions.map(option => option.id),
     }), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }
+  if (url.includes('/api/v1/rulebook-catalog')) {
+    return new Response(JSON.stringify([
+      { catalogRevisionId: 'catalog-2014', edition: 'DND_5E_2014', displayName: 'D&D 5e (2014)', rulebookId: 'catalog-rulebook-2014', revisionNumber: 1, status: 'READY', extractionVersion: 1 },
+      { catalogRevisionId: 'catalog-2024', edition: 'DND_5E_2024', displayName: 'D&D 5e (2024)', rulebookId: 'catalog-rulebook-2024', revisionNumber: 1, status: 'READY', extractionVersion: 1 },
+    ]), { status: 200, headers: { 'Content-Type': 'application/json' } })
+  }
   if (url.includes('/internal/v1/adventure-sessions/') && url.endsWith('/character-builds/evaluate')) {
     return new Response(JSON.stringify({ valid: true, derived: {}, violations: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } })
   }
