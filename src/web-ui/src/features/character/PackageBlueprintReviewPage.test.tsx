@@ -1,7 +1,9 @@
 import '@testing-library/jest-dom/vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { PackageBlueprintReviewPage } from './PackageBlueprintReviewPage'
+import type { AdventureSessionApi } from '../adventure-session/AdventureSessionApi'
 import type { PlayPreparationView, StorybookProposalView } from '../rulebooks/SetupApi'
 
 function proposal(overrides: Partial<StorybookProposalView> = {}): StorybookProposalView {
@@ -60,13 +62,17 @@ function preparation(overrides: Partial<PlayPreparationView['characterCreationBl
   }
 }
 
-function renderReview(getPlayPreparation: () => Promise<PlayPreparationView>) {
+function renderReview(
+  getPlayPreparation: () => Promise<PlayPreparationView>,
+  sessionApi: Pick<AdventureSessionApi, 'create'> = { create: vi.fn().mockResolvedValue({ sessionId: 'session-default' }) },
+  onSessionCreated: (sessionId: string) => void = vi.fn(),
+) {
   return render(
     <PackageBlueprintReviewPage
       packageId="package-1"
       setupApi={{ getPlayPreparation }}
-      sessionApi={{ create: vi.fn() }}
-      onSessionCreated={vi.fn()}
+      sessionApi={sessionApi}
+      onSessionCreated={onSessionCreated}
     />,
   )
 }
@@ -112,6 +118,14 @@ describe('PackageBlueprintReviewPage', () => {
     expect(screen.getByRole('status')).toHaveTextContent('근거를 확인할 수 있는 제안이 없습니다')
   })
 
+  it('shows partial extraction awaiting confirmation instead of a successful empty state', async () => {
+    renderReview(async () => preparation({ storybookProposals: [], storybookExtractionState: 'EXTRACTION_PARTIAL_AWAITING_CONFIRMATION' }))
+
+    expect(await screen.findByRole('heading', { name: '스토리북 분석이 일부 완료되어 확인이 필요합니다' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('일부 원문만 분석되었습니다')
+    expect(screen.queryByText('분석이 완료되었습니다.')).not.toBeInTheDocument()
+  })
+
   it('shows the storybook failure state without rendering proposal cards', async () => {
     renderReview(async () => preparation({
       diagnostics: ['스토리북 문서의 본문을 읽지 못했습니다.'],
@@ -137,5 +151,41 @@ describe('PackageBlueprintReviewPage', () => {
     expect(await screen.findByText('근거 확인 필요')).toBeInTheDocument()
     expect(screen.getByText('사용할 수 있는 원문 근거가 아직 없습니다.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: '사용하기' })).not.toBeInTheDocument()
+  })
+
+  it('uses proposal identity for unique card ids and deterministic evidence keys', async () => {
+    renderReview(async () => preparation({
+      storybookProposals: [
+        proposal(),
+        proposal({
+          proposalId: 'proposal-internal-2',
+          evidence: [
+            { locator: '4쪽', excerpt: '같은 근거' },
+            { locator: '4쪽', excerpt: '같은 근거' },
+          ],
+        }),
+      ],
+    }))
+
+    const headings = await screen.findAllByRole('heading', { name: '스토리 속 성향' })
+    expect(new Set(headings.map(heading => heading.id))).toEqual(new Set(['proposal-proposal-internal-1', 'proposal-proposal-internal-2']))
+    const cards = screen.getAllByRole('article')
+    expect(within(cards[1]).getAllByText('같은 근거')).toHaveLength(2)
+  })
+
+  it('offers character creation for an already-published blueprint', async () => {
+    const create = vi.fn().mockResolvedValue({ sessionId: 'session-created-1' })
+    const onSessionCreated = vi.fn()
+    renderReview(async () => preparation({ status: 'PUBLISHED' }), { create }, onSessionCreated)
+
+    const button = await screen.findByRole('button', { name: '캐릭터 생성 시작' })
+    await userEvent.click(button)
+
+    await waitFor(() => expect(create).toHaveBeenCalledWith({
+      scenarioPackageId: 'package-1',
+      blueprintId: 'package-1',
+      blueprintRevision: 8,
+    }))
+    await waitFor(() => expect(onSessionCreated).toHaveBeenCalledWith('session-created-1'))
   })
 })

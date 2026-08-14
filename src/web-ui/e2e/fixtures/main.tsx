@@ -7,6 +7,7 @@ import { LoginForm } from '../../src/features/auth/LoginForm'
 import type { IdentityApi } from '../../src/features/auth/IdentityApi'
 import { CharacterSheetView } from '../../src/features/character/CharacterSheetView'
 import { CharacterCreationPage } from '../../src/features/character/CharacterCreationPage'
+import { PackageBlueprintReviewPage } from '../../src/features/character/PackageBlueprintReviewPage'
 import { backgroundOptions, classOptions, raceOptions } from '../../src/features/character/Dnd5eCharacterCatalog'
 import { CombatMapView } from '../../src/features/combat-map/CombatMapView'
 import { RoleDiceRoller } from '../../src/features/dice/RoleDiceRoller'
@@ -25,7 +26,9 @@ const e2eState = {
   bundle: null as unknown,
   blueprint: null as unknown,
   creationRequest: null as unknown,
-  blueprintStatus: 'NEEDS_REVIEW' as 'NEEDS_REVIEW' | 'READY' | 'PUBLISHED',
+  sessionCreationRequest: null as unknown,
+  createdSessionId: null as string | null,
+  blueprintStatus: (window.location.search.includes('package-review-published') ? 'PUBLISHED' : 'NEEDS_REVIEW') as 'NEEDS_REVIEW' | 'READY' | 'PUBLISHED',
   blueprintRevision: 2,
   blueprintValues: { 'node-str': '12' } as Record<string, string>,
   creation: null as unknown,
@@ -131,6 +134,20 @@ const setupApi: SetupApi = {
             ], children: [],
           }],
         }],
+        baseSchema: {
+          edition: 'DND 5판 2014',
+          fields: [{
+            key: 'race', label: '종족', options: ['엘프', '인간'], required: true, sourceType: 'RULEBOOK', inputStatus: 'EXTRACTED', inputMode: 'SINGLE_SELECT' as const,
+            suggestions: [], diagnostics: [], optionDetails: [], sourceQuote: '종족을 선택합니다.', evidence: [],
+          }],
+        },
+        storybookProposals: [{
+          proposalId: 'proposal-e2e-1', key: 'alignment', label: '스토리 속 성향', description: '질서 선 성향으로 묘사됩니다.',
+          sourceDocument: { knowledgeDocumentId: 'storybook.txt-STORYBOOK', originalFilename: 'storybook.txt', extractionVersion: 1 },
+          sourceQuote: '질서 선의 수호자였다.', evidence: [{ locator: 'page:2', excerpt: '질서 선의 수호자였다.' }],
+          decisionState: 'UNDECIDED' as const, readinessState: 'READY' as const,
+        }],
+        storybookExtractionState: 'PROPOSALS_AVAILABLE' as const,
       },
     }
     e2eState.blueprint = preparation.characterCreationBlueprint
@@ -236,6 +253,18 @@ let sessionView: AdventureSessionView = {
 }
 let providerView = persistedProvider ? { ...defaultProviderView, ...JSON.parse(persistedProvider) } : defaultProviderView
 const sessionApi = {
+  async create(request: { scenarioPackageId: string; blueprintId: string; blueprintRevision: number }) {
+    e2eState.sessionCreationRequest = request
+    e2eState.createdSessionId = 'session-created-e2e'
+    sessionView = {
+      ...sessionView,
+      sessionId: 'session-created-e2e',
+      scenarioPackageId: request.scenarioPackageId,
+      blueprintRevision: request.blueprintRevision,
+      status: 'DRAFT',
+    }
+    return sessionView
+  },
   async read() { return sessionView },
   async readGmProvider() { return providerView },
   async switchGmProvider(_sessionId: string, version: number, selection: typeof providerView) {
@@ -304,6 +333,14 @@ window.fetch = async (input, init) => {
 function Journey() {
   const auth = useAuth()
   if (!auth.session) return <main><h1>D&amp;D Master</h1><LoginForm /></main>
+  if (window.location.search.includes('package-review')) {
+    return <PackageBlueprintReviewPage
+      packageId="package-e2e"
+      setupApi={setupApi}
+      sessionApi={sessionApi}
+      onSessionCreated={sessionId => { e2eState.createdSessionId = sessionId; window.location.hash = `#/sessions/${sessionId}/character-blueprint` }}
+    />
+  }
   return (
     <div>
       <RulebookSetup api={setupApi} playerId="player-e2e" asMain={false} />

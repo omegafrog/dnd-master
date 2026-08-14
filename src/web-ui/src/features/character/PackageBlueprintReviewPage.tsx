@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import type { AdventureSessionApi } from '../adventure-session/AdventureSessionApi'
 import type {
   CharacterCreationBlueprintView,
   PlayPreparationView,
@@ -24,11 +25,13 @@ type CatalogRulebook = {
 export function PackageBlueprintReviewPage({
   packageId,
   setupApi,
+  sessionApi,
+  onSessionCreated,
 }: {
   packageId: string
   setupApi: PackageSetupApi
-  sessionApi?: unknown
-  onSessionCreated?: (sessionId: string) => void
+  sessionApi: Pick<AdventureSessionApi, 'create'>
+  onSessionCreated: (sessionId: string) => void
 }) {
   const [preparation, setPreparation] = useState<PlayPreparationView | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -36,6 +39,7 @@ export function PackageBlueprintReviewPage({
   const [catalogRulebooks, setCatalogRulebooks] = useState<CatalogRulebook[]>([])
   const [selectedCatalogRulebookId, setSelectedCatalogRulebookId] = useState('')
   const [generatingDraft, setGeneratingDraft] = useState(false)
+  const [creatingSession, setCreatingSession] = useState(false)
   const [message, setMessage] = useState('')
 
   useEffect(() => {
@@ -107,6 +111,23 @@ export function PackageBlueprintReviewPage({
   }
 
   const blueprint = preparation.characterCreationBlueprint
+  async function createSession() {
+    if (!blueprint.available || blueprint.status !== 'PUBLISHED' || blueprint.revision == null) return
+    setCreatingSession(true)
+    try {
+      const session = await sessionApi.create({
+        scenarioPackageId: packageId,
+        blueprintId: packageId,
+        blueprintRevision: blueprint.revision,
+      })
+      onSessionCreated(session.sessionId)
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : '세션 초안을 생성하지 못했습니다.')
+    } finally {
+      setCreatingSession(false)
+    }
+  }
+
   return (
     <section className="character-settings-review-page" aria-labelledby="package-blueprint-review-heading">
       <header className="character-review-header">
@@ -154,6 +175,15 @@ export function PackageBlueprintReviewPage({
             <StorybookProposalPanel blueprint={blueprint} />
           </div>
           <AppliedSettingsSummary blueprint={blueprint} />
+          {blueprint.status === 'PUBLISHED' && (
+            <section className="character-review-next-action" aria-label="캐릭터 생성">
+              <h2>캐릭터 생성으로 이동</h2>
+              <p>게시된 설정을 사용해 캐릭터 생성을 시작할 수 있습니다.</p>
+              <button type="button" onClick={() => void createSession()} disabled={creatingSession}>
+                {creatingSession ? '캐릭터 생성 준비 중…' : '캐릭터 생성 시작'}
+              </button>
+            </section>
+          )}
         </>
       )}
     </section>
@@ -213,13 +243,20 @@ function StorybookProposalPanel({ blueprint }: { blueprint: CharacterCreationBlu
       </div>
       <p>스토리북에서 발견된 추가 내용입니다. 각 카드에서 내용과 출처를 확인할 수 있습니다.</p>
 
+      {extractionState === 'EXTRACTION_PARTIAL_AWAITING_CONFIRMATION' && (
+        <div className="character-review-state character-review-state-warning" role="status">
+          <h3>스토리북 분석이 일부 완료되어 확인이 필요합니다</h3>
+          <p>일부 원문만 분석되었습니다. 자료를 확인한 뒤 다시 분석해야 제안을 확정할 수 있습니다.</p>
+        </div>
+      )}
+
       {extractionState === 'EXTRACTION_FAILED' ? (
         <div className="character-review-state character-review-state-error" role="alert">
           <h3>스토리북 분석에 실패했습니다</h3>
           <p>스토리북 제안을 표시할 수 없습니다. 자료 상태를 확인한 뒤 다시 분석해 주세요.</p>
           {blueprint.diagnostics.length > 0 && <ul aria-label="스토리북 분석 실패 원인">{blueprint.diagnostics.map(item => <li key={item}>{item}</li>)}</ul>}
         </div>
-      ) : extractionState === 'INSUFFICIENT_EVIDENCE' && proposals.length === 0 ? (
+      ) : extractionState === 'EXTRACTION_PARTIAL_AWAITING_CONFIRMATION' && proposals.length === 0 ? null : extractionState === 'INSUFFICIENT_EVIDENCE' && proposals.length === 0 ? (
         <div className="character-review-state character-review-state-error" role="status">
           <h3>스토리북 근거가 충분하지 않습니다</h3>
           <p>근거를 확인할 수 있는 제안이 없습니다. 원문이 준비된 뒤 다시 분석해 주세요.</p>
@@ -254,9 +291,9 @@ function StorybookProposalCard({ proposal }: { proposal: StorybookProposalView }
   const needsEvidence = proposal.readinessState === 'INSUFFICIENT_EVIDENCE'
   const status = needsEvidence ? '근거 확인 필요' : decisionLabel(proposal.decisionState)
   return (
-    <article className="character-review-proposal-card" aria-labelledby={`proposal-${slugify(proposal.label)}`}>
+    <article className="character-review-proposal-card" aria-labelledby={`proposal-${proposal.proposalId}`}>
       <div className="character-review-proposal-heading">
-        <h4 id={`proposal-${slugify(proposal.label)}`}>{proposal.label}</h4>
+        <h4 id={`proposal-${proposal.proposalId}`}>{proposal.label}</h4>
         <p className="character-review-proposal-status"><span>현재 상태:</span> <strong>{status}</strong></p>
       </div>
       <dl className="character-review-proposal-details">
@@ -274,7 +311,7 @@ function StorybookProposalCard({ proposal }: { proposal: StorybookProposalView }
             {proposal.sourceQuote && <blockquote>{proposal.sourceQuote}</blockquote>}
             {proposal.evidence.length > 0 ? (
               <ul aria-label={`${proposal.label} 근거 목록`}>
-                {proposal.evidence.map(evidence => <li key={`${evidence.locator}-${evidence.excerpt}`}><span>{evidence.locator}</span><p>{evidence.excerpt}</p></li>)}
+                {proposal.evidence.map((evidence, index) => <li key={`${proposal.proposalId}-evidence-${index}-${evidence.locator}`}><span>{evidence.locator}</span><p>{evidence.excerpt}</p></li>)}
               </ul>
             ) : <p className="character-review-muted">추가 원문 근거가 없습니다.</p>}
           </div>
