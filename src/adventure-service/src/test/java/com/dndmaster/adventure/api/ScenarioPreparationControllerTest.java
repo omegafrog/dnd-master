@@ -19,6 +19,7 @@ import com.dndmaster.adventure.application.scenario.preparation.RuntimeOptionVie
 import com.dndmaster.adventure.application.scenario.preparation.RuntimeOptionsView;
 import com.dndmaster.adventure.application.scenario.preparation.ScenarioPreparationApplicationService;
 import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
+import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintPublicationBlockedException;
 import com.dndmaster.adventure.domain.scenario.StorybookProposalNotFoundException;
 import java.util.List;
 import java.util.Optional;
@@ -161,6 +162,22 @@ class ScenarioPreparationControllerTest {
                 .andExpect(jsonPath("$.appliedSettingsSummary.unresolvedProposalCount").value(0));
 
         verify(service).publishBlueprint(eq(packageId), any(OwnerPlayerId.class));
+    }
+
+    @Test
+    void publishEndpointReturnsRetryableConflictWhenCompilationIsNotComplete() throws Exception {
+        UUID ownerId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+        UUID packageId = UUID.fromString("66666666-6666-6666-6666-666666666666");
+        when(playerSessionLookupPort.resolvePlayerId("token")).thenReturn(Optional.of(ownerId));
+        when(service.publishBlueprint(eq(packageId), any(OwnerPlayerId.class)))
+                .thenThrow(new CharacterCreationBlueprintPublicationBlockedException(
+                        "scenario package compilation must be complete before blueprint publication"));
+
+        mockMvc.perform(post("/api/v1/scenario-packages/{scenarioPackageId}/character-blueprint/publish", packageId)
+                        .header("Authorization", "Bearer token"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("BLUEPRINT_PUBLICATION_BLOCKED"))
+                .andExpect(jsonPath("$.retryable").value(true));
     }
 
     @Test

@@ -143,6 +143,30 @@ class StorybookProposalDecisionApplicationServiceTest {
         assertEquals("scenario package compilation must be complete before blueprint publication", failure.getMessage());
     }
 
+    @Test
+    void blocks_publication_when_complete_compilation_has_runtime_units_but_no_blueprint() {
+        var packages = mock(ScenarioPackageRepository.class);
+        var bundles = mock(ScenarioBundleRepository.class);
+        var complete = packageWithEvidence();
+        var reference = new ScenarioSourceReference(new KnowledgeDocumentId(UUID.fromString("11111111-1111-1111-1111-111111111111")), 1, "page:4");
+        var runtimeUnit = new com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit(
+                null, null, null, null,
+                com.dndmaster.adventure.domain.scenario.ResolutionVisibility.PLAYER_SAFE,
+                "grounded", List.of(reference), "test", null,
+                com.dndmaster.adventure.domain.scenario.ResolutionStatus.COMPLETE, List.of());
+        var packageWithoutBlueprint = ScenarioPackage.rehydrate(complete.packageId(), complete.bundleId(),
+                complete.bundleRevision(), complete.inputFingerprint(), complete.documents(), List.of(runtimeUnit),
+                complete.report(), complete.characterLimit(), null);
+        when(packages.findById(packageWithoutBlueprint.packageId())).thenReturn(Optional.of(packageWithoutBlueprint));
+        when(bundles.findById(packageWithoutBlueprint.bundleId())).thenReturn(Optional.of(bundle(packageWithoutBlueprint)));
+
+        var failure = assertThrows(CharacterCreationBlueprintPublicationBlockedException.class,
+                () -> new ScenarioPreparationApplicationService(packages, bundles, runtimeOptions())
+                        .publishBlueprint(packageWithoutBlueprint.packageId(), owner()));
+
+        assertEquals("scenario package compilation must be complete before blueprint publication", failure.getMessage());
+    }
+
     private static ScenarioPackage packageWithEvidence() {
         var document = new KnowledgeDocumentId(UUID.fromString("11111111-1111-1111-1111-111111111111"));
         var field = new CharacterCreationBlueprint.Field("alignment", List.of("Lawful Good"), true, "STORYBOOK",

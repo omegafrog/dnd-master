@@ -569,8 +569,7 @@ public final class ScenarioPreparationApplicationService {
         bundle.authorize(ownerPlayerId);
         requireCurrentBundleRevision(scenarioPackage, bundle);
         if (scenarioPackage.report().status() != ResolutionStatus.COMPLETE
-                || (scenarioPackage.characterCreationBlueprint() == null
-                && scenarioPackage.runtimeCandidates().isEmpty())) {
+                || scenarioPackage.characterCreationBlueprint() == null) {
             throw new CharacterCreationBlueprintPublicationBlockedException(
                     "scenario package compilation must be complete before blueprint publication");
         }
