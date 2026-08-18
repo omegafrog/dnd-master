@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { PackageBlueprintReviewPage } from './PackageBlueprintReviewPage'
 import type { AdventureSessionApi } from '../adventure-session/AdventureSessionApi'
-import type { PlayPreparationView, StorybookProposalView } from '../rulebooks/SetupApi'
+import type { CharacterInputNodeView, PlayPreparationView, StorybookProposalView } from '../rulebooks/SetupApi'
 
 function proposal(overrides: Partial<StorybookProposalView> = {}): StorybookProposalView {
   return {
@@ -102,6 +102,71 @@ describe('PackageBlueprintReviewPage', () => {
     expect(screen.getByText('검토 전')).toBeInTheDocument()
     expect(screen.queryByText('proposal-internal-1')).not.toBeInTheDocument()
     expect(screen.queryByText('UNDECIDED')).not.toBeInTheDocument()
+  })
+
+  it('renders the hierarchical rulebook schema as collapsed groups', async () => {
+    const child: CharacterInputNodeView = {
+      id: 'race.option-selections',
+      parentId: 'race',
+      key: 'option_selections',
+      label: '추가 선택',
+      inputMode: 'MULTI_SELECT',
+      value: null,
+      options: ['추가 언어: 공용어'],
+      suggestions: [],
+      status: 'EXTRACTED',
+      allowUserAddChild: false,
+      confidence: 'HIGH',
+      sourceQuote: '',
+      diagnostics: [],
+      sourceEvidence: [],
+      children: [],
+    }
+    const root: CharacterInputNodeView = {
+      id: 'race',
+      parentId: null,
+      key: 'race',
+      label: '종족',
+      inputMode: 'SINGLE_SELECT',
+      value: null,
+      options: ['엘프', '인간'],
+      suggestions: [],
+      status: 'EXTRACTED',
+      allowUserAddChild: false,
+      confidence: 'HIGH',
+      sourceQuote: '',
+      diagnostics: [],
+      sourceEvidence: [],
+      children: [child],
+    }
+
+    const { container } = renderReview(async () => preparation({
+      roots: [root],
+      baseSchema: {
+        edition: 'DND 5판 2014',
+        fields: [
+          {
+            key: 'race', label: '종족', options: ['엘프', '인간'], required: true, sourceType: 'RULEBOOK',
+            inputStatus: 'EXTRACTED', inputMode: 'SINGLE_SELECT', suggestions: [], sourceQuote: '', evidence: [], optionDetails: [], diagnostics: [],
+          },
+          {
+            key: 'race.option_selections', label: '추가 선택', options: ['추가 언어: 공용어'], required: false, sourceType: 'RULEBOOK',
+            inputStatus: 'EXTRACTED', inputMode: 'MULTI_SELECT', suggestions: [], sourceQuote: '', evidence: [], optionDetails: [], diagnostics: [],
+          },
+        ],
+      },
+    }))
+    const baseSchema = await screen.findByRole('region', { name: '룰북 기본 스키마' })
+    const group = within(baseSchema).getByText('종족').closest('details')
+
+    expect(group).toBeInTheDocument()
+    expect(group).not.toHaveAttribute('open')
+    expect(within(baseSchema).getByText('추가 선택')).toBeInTheDocument()
+    expect(container.querySelectorAll('.character-review-schema-tree details')).toHaveLength(1)
+
+    await userEvent.click(within(group!).getByText('종족'))
+    expect(group).toHaveAttribute('open')
+    expect(within(group!).getByText('추가 선택')).toBeVisible()
   })
 
   it('shows a successful empty state when storybook analysis finds no proposals', async () => {

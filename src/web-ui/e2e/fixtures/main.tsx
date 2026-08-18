@@ -19,6 +19,8 @@ import type { AdventurePlayApi, SavedAdventure } from '../../src/features/saved-
 import { SavedAdventurePanel } from '../../src/features/saved-adventures/SavedAdventurePanel'
 import { AdventureSessionPanel } from '../../src/features/adventure-session/AdventureSessionPanel'
 import type { AdventureSessionView } from '../../src/features/adventure-session/AdventureSessionApi'
+import '@fontsource-variable/noto-sans-kr/wght.css'
+import '../../src/app.css'
 
 const adventureId = 'adventure-e2e'
 const decisionReviewMode = window.location.search.includes('package-review-decisions')
@@ -142,8 +144,11 @@ const setupApi: SetupApi = {
         baseSchema: {
           edition: 'DND 5판 2014',
           fields: [{
-            key: 'race', label: '종족', options: ['엘프', '인간'], required: true, sourceType: 'RULEBOOK', inputStatus: 'EXTRACTED', inputMode: 'SINGLE_SELECT' as const,
-            suggestions: [], diagnostics: [], optionDetails: [], sourceQuote: '종족을 선택합니다.', evidence: [],
+            key: 'starting_ability_scores', label: '능력치', options: [], required: true, sourceType: 'RULEBOOK', inputStatus: 'EXTRACTED', inputMode: 'FREE_TEXT' as const,
+            suggestions: [], diagnostics: [], optionDetails: [], sourceQuote: '능력치를 결정합니다.', evidence: [],
+          }, {
+            key: 'starting_ability_scores.str', label: '힘', options: [], required: true, sourceType: 'RULEBOOK', inputStatus: 'EXTRACTED', inputMode: 'FREE_TEXT' as const,
+            suggestions: [], diagnostics: [], optionDetails: [], sourceQuote: '힘 능력치를 입력합니다.', evidence: [],
           }],
         },
         storybookProposals: [{

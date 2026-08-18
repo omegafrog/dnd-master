@@ -271,7 +271,7 @@ public final class ScenarioCompilationWorker {
                         || document.role() == ScenarioBundleDocumentRole.HANDOUT)
                 .map(document -> new CharacterContextSearchPort.DocumentScope(
                         document.knowledgeDocumentId(),
-                        document.role() == ScenarioBundleDocumentRole.HANDOUT ? "HANDOUT" : "STORYBOOK",
+                        document.documentType(),
                         document.extractionVersion()))
                 .toList();
     }

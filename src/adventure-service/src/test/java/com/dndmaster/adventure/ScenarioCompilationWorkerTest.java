@@ -39,6 +39,18 @@ class ScenarioCompilationWorkerTest {
     }
 
     @Test
+    void sendsSourceDocumentTypeWhenHandoutRoleUsesStorybookDocument() {
+        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(List.of(
+                document(storybook, ScenarioBundleDocumentRole.HANDOUT, "STORYBOOK", 4)));
+        Fixture fixture = new Fixture(bundle);
+
+        fixture.worker().processNext("worker", Duration.ofMinutes(1));
+
+        assertEquals("STORYBOOK", fixture.search.request.documents().getFirst().documentType());
+    }
+
+    @Test
     void rulebookOnlyBundleUsesBaseSchemaWithoutCharacterAi() {
         KnowledgeDocumentId rulebook = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(List.of(

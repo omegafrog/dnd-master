@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { AdventureSessionApi } from '../adventure-session/AdventureSessionApi'
 import type {
+  CharacterInputNodeView,
   BlueprintPublicationView,
   CharacterCreationBlueprintView,
   PlayPreparationView,
@@ -225,7 +226,7 @@ export function PackageBlueprintReviewPage({
       ) : (
         <>
           <div className="character-review-layout">
-            <BaseSchemaPanel schema={blueprint.baseSchema} />
+            <BaseSchemaPanel schema={blueprint.baseSchema} roots={blueprint.roots ?? blueprint.characterSheetTree ?? []} />
             <StorybookProposalPanel
               blueprint={blueprint}
               canUse={blueprint.status !== 'PUBLISHED' && Boolean(setupApi.useStorybookProposal)}
@@ -272,7 +273,12 @@ export function PackageBlueprintReviewPage({
   )
 }
 
-function BaseSchemaPanel({ schema }: { schema: RulebookBaseSchemaView }) {
+function BaseSchemaPanel({ schema, roots }: { schema: RulebookBaseSchemaView; roots: CharacterInputNodeView[] }) {
+  const fieldsByKey = new Map(schema.fields.map(field => [field.key, field]))
+  const tree = roots
+    .map(node => baseSchemaNode(node, fieldsByKey, ''))
+    .filter((node): node is SchemaTreeNode => node !== null)
+
   return (
     <section className="character-review-panel character-review-base-schema" aria-labelledby="base-schema-heading">
       <div className="character-review-panel-heading">
@@ -291,6 +297,10 @@ function BaseSchemaPanel({ schema }: { schema: RulebookBaseSchemaView }) {
       </dl>
       {schema.fields.length === 0 ? (
         <p className="character-review-muted">표시할 기본 항목이 없습니다.</p>
+      ) : tree.length > 0 ? (
+        <div className="character-review-schema-tree" aria-label="룰북 기본 계층">
+          {tree.map(node => <SchemaTreeItem key={node.node.id} item={node} />)}
+        </div>
       ) : (
         <ul className="character-review-field-list" aria-label="룰북 기본 항목">
           {schema.fields.map(field => (
@@ -306,6 +316,63 @@ function BaseSchemaPanel({ schema }: { schema: RulebookBaseSchemaView }) {
         </ul>
       )}
     </section>
+  )
+}
+
+type SchemaTreeNode = {
+  node: CharacterInputNodeView
+  field: RulebookBaseSchemaView['fields'][number] | undefined
+  children: SchemaTreeNode[]
+}
+
+function baseSchemaNode(
+  node: CharacterInputNodeView,
+  fieldsByKey: Map<string, RulebookBaseSchemaView['fields'][number]>,
+  parentPath: string,
+): SchemaTreeNode | null {
+  const path = parentPath ? `${parentPath}.${node.key}` : node.key
+  const children = node.children
+    .map(child => baseSchemaNode(child, fieldsByKey, path))
+    .filter((child): child is SchemaTreeNode => child !== null)
+  const field = fieldsByKey.get(path)
+  if (!field && children.length === 0) return null
+  return { node, field, children }
+}
+
+function SchemaTreeItem({ item }: { item: SchemaTreeNode }) {
+  const content = item.field ? <SchemaFieldDetails field={item.field} /> : null
+  if (item.children.length === 0) {
+    return <div className="character-review-schema-leaf"><SchemaNodeHeading node={item.node} field={item.field} />{content}</div>
+  }
+
+  return (
+    <details className="character-review-schema-group">
+      <summary><SchemaNodeHeading node={item.node} field={item.field} /></summary>
+      <div className="character-review-schema-group-content">
+        {content}
+        <div className="character-review-schema-children">
+          {item.children.map(child => <SchemaTreeItem key={child.node.id} item={child} />)}
+        </div>
+      </div>
+    </details>
+  )
+}
+
+function SchemaNodeHeading({ node, field }: { node: CharacterInputNodeView; field: RulebookBaseSchemaView['fields'][number] | undefined }) {
+  return (
+    <div className="character-review-field-heading">
+      <h3>{node.label}</h3>
+      <span>{field ? (field.required ? '필수 항목' : '선택 항목') : '하위 항목'}</span>
+    </div>
+  )
+}
+
+function SchemaFieldDetails({ field }: { field: RulebookBaseSchemaView['fields'][number] }) {
+  return (
+    <div className="character-review-schema-details">
+      <p>{inputModeLabel(field.inputMode)}</p>
+      {field.options.length > 0 && <p><strong>선택지:</strong> {field.options.join(', ')}</p>}
+    </div>
   )
 }
 
