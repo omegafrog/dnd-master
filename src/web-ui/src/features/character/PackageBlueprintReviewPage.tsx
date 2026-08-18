@@ -427,12 +427,19 @@ function SchemaFieldDetails({ field }: { field: RulebookBaseSchemaView['fields']
 
 function SchemaFieldOptions({ field }: { field: RulebookBaseSchemaView['fields'][number] }) {
   if (field.options.length === 0) return null
+  const hasRulebookMismatch = field.diagnostics.includes('RULE_EXTENSION') || field.inputStatus === 'CONFLICT_REVIEW'
+  const suggestions = field.suggestions ?? []
   return (
     <details className="character-review-schema-options">
-      <summary>선택지 보기 ({field.options.length}개)</summary>
+      <summary>룰북 기준 선택지 보기 ({field.options.length}개)</summary>
       <ul aria-label={`${field.label} 선택지 목록`}>
         {field.options.map(option => <li key={option}>{option}</li>)}
       </ul>
+      {hasRulebookMismatch && suggestions.length > 0 && (
+        <p className="character-review-option-warning" role="alert">
+          룰북과 일치하지 않는 후보: {suggestions.join(', ')}
+        </p>
+      )}
     </details>
   )
 }

@@ -1147,7 +1147,7 @@ body {
 .character-review-header h1 { margin:0; color:#392d20; font:700 clamp(1.55rem,3vw,2.15rem)/1.2 'Noto Sans KR Variable','Noto Sans KR','Malgun Gothic','Droid Sans Fallback','Segoe UI',system-ui,sans-serif; }
 .character-review-header p { max-width:60rem; margin:0; color:#625442; line-height:1.65; }
 .character-review-header a { width:max-content; color:#1d6257; font-weight:800; }
-.character-review-layout { display:grid; grid-template-columns:minmax(0,.9fr) minmax(0,1.1fr); align-items:start; gap:1rem; }
+.character-review-layout { display:grid; grid-template-columns:minmax(0,1fr); align-items:start; gap:1rem; }
 .character-review-panel,.character-review-summary,.character-review-preparation { min-width:0; padding:1.2rem; border:1px solid var(--color-border); border-radius:10px; background:#fffdfa; box-shadow:var(--shadow-card); }
 .character-review-panel-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:.55rem; }
 .character-review-panel-heading h2,.character-review-summary h2 { margin:.15rem 0 0; color:#392d20; font:700 1.25rem/1.35 'Noto Sans KR Variable','Noto Sans KR','Malgun Gothic','Droid Sans Fallback','Segoe UI',system-ui,sans-serif; }
@@ -1176,6 +1176,7 @@ body {
 .character-review-schema-options { margin-top:.45rem; color:#70552f; }
 .character-review-schema-options summary { width:max-content; cursor:pointer; font-size:.72rem; font-weight:700; }
 .character-review-schema-options ul { display:grid; grid-template-columns:repeat(auto-fit,minmax(11rem,1fr)); gap:.25rem .75rem; margin:.4rem 0 0; padding-left:1.15rem; color:#6d604f; font-size:.7rem; }
+.character-review-option-warning { margin:.5rem 0 0; padding:.45rem .6rem; border:1px solid #e4c98d; border-radius:6px; background:#fff8e7; color:#735629; font-size:.7rem; }
 .character-review-source-group { display:grid; gap:.45rem; }
 .character-review-source-group > h3 { padding-bottom:.35rem; border-bottom:1px solid #e5dacb; font-size:.82rem; }
 .character-review-proposal-card { padding:.85rem; border:1px solid #d9c9b3; border-radius:8px; background:#fffcf7; }

@@ -244,7 +244,7 @@ describe('PackageBlueprintReviewPage', () => {
         fields: [
           {
             key: 'magic.cantrips', label: '소마법', options: ['가이던스', '마법사의 손'], required: false, sourceType: 'TEMPLATE',
-            inputStatus: 'EXTRACTED', inputMode: 'MULTI_SELECT', suggestions: [], sourceQuote: '', evidence: [], optionDetails: [], diagnostics: [],
+            inputStatus: 'CONFLICT_REVIEW', inputMode: 'MULTI_SELECT', suggestions: ['가짜 주문'], sourceQuote: '', evidence: [], optionDetails: [], diagnostics: ['RULE_EXTENSION'],
           },
           {
             key: 'magic.spells', label: '주문', options: ['축복', '마법 갑주'], required: false, sourceType: 'TEMPLATE',
@@ -256,14 +256,15 @@ describe('PackageBlueprintReviewPage', () => {
 
     const baseSchema = await screen.findByRole('region', { name: '룰북 기본 스키마' })
     const cantripField = within(baseSchema).getByRole('heading', { name: '소마법' }).closest('li')!
-    const cantripsOptions = within(cantripField).getByText('선택지 보기 (2개)').closest('details')
+    const cantripsOptions = within(cantripField).getByText('룰북 기준 선택지 보기 (2개)').closest('details')
     expect(cantripsOptions).not.toHaveAttribute('open')
     expect(within(baseSchema).queryByText('가이던스')).not.toBeVisible()
 
-    await userEvent.click(within(cantripsOptions!).getByText('선택지 보기 (2개)'))
+    await userEvent.click(within(cantripsOptions!).getByText('룰북 기준 선택지 보기 (2개)'))
     expect(cantripsOptions).toHaveAttribute('open')
     expect(within(cantripsOptions!).getByText('가이던스')).toBeVisible()
-    expect(within(baseSchema).getAllByText('선택지 보기 (2개)')).toHaveLength(2)
+    expect(within(baseSchema).getAllByText('룰북 기준 선택지 보기 (2개)')).toHaveLength(2)
+    expect(within(cantripsOptions!).getByRole('alert')).toHaveTextContent('가짜 주문')
   })
 
   it('shows a successful empty state when storybook analysis finds no proposals', async () => {
