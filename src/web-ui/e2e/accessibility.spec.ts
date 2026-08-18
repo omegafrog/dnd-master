@@ -10,12 +10,12 @@ test('solo journey exposes labelled controls, landmarks and keyboard navigation'
 
   await expect(page.getByRole('main')).toHaveCount(1)
   await expect(page.getByRole('heading', { level: 1, name: '자료와 모험 설정' })).toBeVisible()
-  const missingLabels = await page.locator('input, select, button').evaluateAll(elements => elements.filter(element => {
+  const missingControls = await page.locator('input, select, button').evaluateAll(elements => elements.filter(element => {
     if (element instanceof HTMLButtonElement) return !element.textContent?.trim() && !element.getAttribute('aria-label')
     const id = element.id
     return !element.closest('label') && !(id && document.querySelector(`label[for="${id}"]`)) && !element.getAttribute('aria-label')
-  }).length)
-  expect(missingLabels).toBe(0)
+  }).map(element => element.outerHTML))
+  expect(missingControls, missingControls.join('\n')).toHaveLength(0)
 
   await page.keyboard.press('Tab')
   const focusedTag = await page.evaluate(() => document.activeElement?.tagName)

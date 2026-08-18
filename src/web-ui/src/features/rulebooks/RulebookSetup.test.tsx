@@ -211,7 +211,7 @@ describe('rulebook and adventure setup', () => {
     }]), { status: 200, headers: { 'Content-Type': 'application/json' } }))
     render(<RulebookSetup api={api} playerId="p1" />)
 
-    await user.click(await screen.findByRole('checkbox', { name: /D&D 5e/ }))
+    await user.click(await screen.findByRole('checkbox', { name: 'D&D 5e 선택' }))
     fireEvent.change(screen.getByLabelText('자료 파일'), { target: { files: [new File(['story'], 'campaign.md')] } })
     await user.click(screen.getByRole('button', { name: '자료 업로드' }))
     await user.click(screen.getByRole('checkbox', { name: 'phb.txt 모험 자료 선택' }))

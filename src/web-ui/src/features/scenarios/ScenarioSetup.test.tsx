@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ScenarioSetup, serializeBlueprintValues } from './ScenarioSetup'
@@ -327,7 +327,7 @@ describe('ScenarioSetup', () => {
 
     render(<ScenarioSetup api={api} playerId="owner-1" onError={() => {}} initialBundle={bundle('bundle-1', 1, [])} preparationOnly />)
 
-    expect(await screen.findByRole('button', { name: '이 자료로 모험 만들기' })).toBeEnabled()
+    await waitFor(() => expect(screen.getByRole('button', { name: '이 자료로 모험 만들기' })).toBeEnabled())
   })
 
   it('restores the compilation pointer when the package list is temporarily empty', async () => {

@@ -191,7 +191,7 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
         <h2 id="bundle-detail-title">모험 자료 구성</h2>
         <p>{bundle.name ?? '이름 없는 모험 자료'} · 포함된 자료 {bundle.documents.length}개</p>
       </div>
-      <section className="setup-panel" aria-labelledby="catalog-selection-heading"><h3 id="catalog-selection-heading">공유 룰북 revision</h3>{catalogRulebooks.length === 0 ? <p>공개된 룰북이 없습니다.</p> : <ul>{catalogRulebooks.map(rulebook => <li key={rulebook.catalogRevisionId}><label><Checkbox checked={selectedCatalogRulebookIds.has(rulebook.rulebookId!)} onCheckedChange={() => toggleCatalogRulebook(rulebook.rulebookId!)} />{rulebook.displayName} · revision {rulebook.revisionNumber}</label></li>)}</ul>}</section>
+      <section className="setup-panel" aria-labelledby="catalog-selection-heading"><h3 id="catalog-selection-heading">공유 룰북 revision</h3>{catalogRulebooks.length === 0 ? <p>공개된 룰북이 없습니다.</p> : <ul>{catalogRulebooks.map(rulebook => <li key={rulebook.catalogRevisionId}><label><Checkbox aria-label={`${rulebook.displayName} 선택`} checked={selectedCatalogRulebookIds.has(rulebook.rulebookId!)} onCheckedChange={() => toggleCatalogRulebook(rulebook.rulebookId!)} />{rulebook.displayName} · revision {rulebook.revisionNumber}</label></li>)}</ul>}</section>
       <Button type="button" onClick={() => void save()} disabled={saving || selectedDocuments.length === 0}>
         {saving ? '저장 중…' : '자료 변경사항 저장'}
       </Button>
