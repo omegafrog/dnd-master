@@ -77,6 +77,18 @@ public final class ScenarioPackageCompilationService {
         return compileInternal(bundle, candidates, excerpts, true, List.of());
     }
 
+    public List<ScenarioResolutionUnit> validateResolutionCandidates(
+            ScenarioSourceBundle bundle, List<ResolutionCandidate> candidates,
+            List<ResolutionExtractionPort.SourceExcerpt> excerpts) {
+        Map<String, ScenarioBundleDocumentSelection> documents = new HashMap<>();
+        for (ScenarioBundleDocumentSelection document : bundle.currentRevision().documents()) {
+            documents.put(key(document.knowledgeDocumentId(), document.extractionVersion()), document);
+        }
+        return List.copyOf(Objects.requireNonNull(candidates, "candidates must not be null").stream()
+                .map(candidate -> validate(candidate, documents, List.copyOf(excerpts), true))
+                .toList());
+    }
+
     public ScenarioPackage compileWithCharacterCandidates(
             ScenarioSourceBundle bundle, List<ResolutionCandidate> candidates,
             List<ResolutionExtractionPort.SourceExcerpt> excerpts,

@@ -66,6 +66,9 @@ public final class ResolutionCandidateController {
                 + "kind must be one of SKILL_ABILITY_CHECK,SAVING_THROW,PASSIVE_THRESHOLD,DICE_ROLL,ATTACK_ROLL,DAMAGE_ROLL,HEALING_ROLL,OPPOSED_CHECK,INITIATIVE_ROLL,RECHARGE_ROLL,RANDOM_TABLE,SPECIAL_ROLL. "
                 + "visibility must be GM_REFERENCE or PLAYER_SAFE. Keep sourceRefs only when the excerpt supplies an exact object reference. "
                 + "Do not invent values or references. Output JSON only. Excerpts: " + request.excerpts();
+        if (request.promptVersion() != null && request.promptVersion().startsWith("resolution-recovery")) {
+            prompt += " This is a recovery pass for previously invalid candidates. Re-read the exact source text and repair only the invalid resolution. For RECHARGE_ROLL, extract a numeric inclusive range such as Recharge 5-6 into diceExpression as exactly 5-6; never leave diceExpression null when the source contains a recharge range. Preserve the source quote and source reference.";
+        }
         List<Candidate> candidates;
         AgentEndpoint endpoint = endpointRegistry.active();
         if (endpoint.provider() == AgentEndpoint.Provider.CODEX_CLI) {
