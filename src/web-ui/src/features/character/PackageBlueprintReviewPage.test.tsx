@@ -129,8 +129,37 @@ describe('PackageBlueprintReviewPage', () => {
     expect(within(baseSchema).getByText('필수 입력')).toBeInTheDocument()
     expect(within(baseSchema).getByText('배경별 추천값')).toBeInTheDocument()
     expect(within(baseSchema).getByText('선택한 배경의 룰북 추천값을 참고하거나 직접 작성할 수 있는 항목')).toBeInTheDocument()
-    expect(within(baseSchema).getByText('자동 계산·부여')).toBeInTheDocument()
+    expect(within(baseSchema).getAllByText('자동 계산·부여').length).toBeGreaterThan(0)
     expect(within(baseSchema).queryByText('선택 항목')).not.toBeInTheDocument()
+  })
+
+  it('groups roleplay and derived fields into collapsible rulebook sections', async () => {
+    const fields = [
+      ['personality_traits', '인격 특성', 'SINGLE_SELECT'],
+      ['ideals', '이상', 'SINGLE_SELECT'],
+      ['bonds', '유대', 'SINGLE_SELECT'],
+      ['flaws', '단점', 'SINGLE_SELECT'],
+      ['proficiency_bonus', '숙련 보너스', 'FIXED_VALUE'],
+      ['armor_class', '방어도 (AC)', 'FIXED_VALUE'],
+    ].map(([key, label, inputMode]) => ({
+      key, label, options: [], required: false, sourceType: 'TEMPLATE', inputStatus: 'EXTRACTED', inputMode: inputMode as 'SINGLE_SELECT' | 'FIXED_VALUE',
+      suggestions: [], sourceQuote: '', evidence: [], optionDetails: [], diagnostics: [],
+    }))
+    renderReview(async () => preparation({ baseSchema: { edition: 'DND 5판 2014', fields } }))
+
+    const baseSchema = await screen.findByRole('region', { name: '룰북 기본 스키마' })
+    const groups = Array.from(baseSchema.querySelectorAll('details'))
+    const roleplayGroup = groups.find(group => group.textContent?.includes('배경·성격'))
+    const derivedGroup = groups.find(group => group.textContent?.includes('자동 계산·부여'))
+    expect(roleplayGroup).toBeDefined()
+    expect(derivedGroup).toBeDefined()
+    expect(roleplayGroup!).not.toHaveAttribute('open')
+    expect(derivedGroup!).not.toHaveAttribute('open')
+    expect(within(baseSchema).getByText('4개')).toBeInTheDocument()
+    expect(within(baseSchema).getByText('2개')).toBeInTheDocument()
+
+    await userEvent.click(within(baseSchema).getByText('배경·성격'))
+    expect(within(baseSchema).getByText('이상')).toBeVisible()
   })
 
   it('renders the hierarchical rulebook schema as collapsed groups', async () => {

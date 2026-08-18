@@ -275,9 +275,12 @@ export function PackageBlueprintReviewPage({
 
 function BaseSchemaPanel({ schema, roots }: { schema: RulebookBaseSchemaView; roots: CharacterInputNodeView[] }) {
   const fieldsByKey = new Map(schema.fields.map(field => [field.key, field]))
+  const fieldGroups = schemaFieldGroups(schema.fields)
+  const groupedFieldKeys = new Set(fieldGroups.flatMap(group => group.fields.map(field => field.key)))
   const tree = roots
-    .map(node => baseSchemaNode(node, fieldsByKey, ''))
+    .map(node => baseSchemaNode(node, fieldsByKey, '', groupedFieldKeys))
     .filter((node): node is SchemaTreeNode => node !== null)
+  const ungroupedFields = schema.fields.filter(field => !groupedFieldKeys.has(field.key))
 
   return (
     <section className="character-review-panel character-review-base-schema" aria-labelledby="base-schema-heading">
@@ -303,7 +306,7 @@ function BaseSchemaPanel({ schema, roots }: { schema: RulebookBaseSchemaView; ro
         </div>
       ) : (
         <ul className="character-review-field-list" aria-label="룰북 기본 항목">
-          {schema.fields.map(field => (
+          {ungroupedFields.map(field => (
             <li key={field.key}>
               <div className="character-review-field-heading">
                 <h3>{field.label}</h3>
@@ -315,6 +318,7 @@ function BaseSchemaPanel({ schema, roots }: { schema: RulebookBaseSchemaView; ro
           ))}
         </ul>
       )}
+      {fieldGroups.map(group => <SchemaFieldGroup key={group.key} group={group} />)}
     </section>
   )
 }
@@ -329,14 +333,59 @@ function baseSchemaNode(
   node: CharacterInputNodeView,
   fieldsByKey: Map<string, RulebookBaseSchemaView['fields'][number]>,
   parentPath: string,
+  groupedFieldKeys: Set<string>,
 ): SchemaTreeNode | null {
   const path = parentPath ? `${parentPath}.${node.key}` : node.key
   const children = node.children
-    .map(child => baseSchemaNode(child, fieldsByKey, path))
+    .map(child => baseSchemaNode(child, fieldsByKey, path, groupedFieldKeys))
     .filter((child): child is SchemaTreeNode => child !== null)
-  const field = fieldsByKey.get(path)
+  const candidate = fieldsByKey.get(path)
+  const field = candidate && !groupedFieldKeys.has(candidate.key) ? candidate : undefined
   if (!field && children.length === 0) return null
   return { node, field, children }
+}
+
+type SchemaFieldGroup = {
+  key: 'roleplay' | 'derived'
+  label: string
+  fields: SchemaField[]
+}
+
+function schemaFieldGroups(fields: SchemaField[]): SchemaFieldGroup[] {
+  const roleplayKeys = new Set(['personality_traits', 'ideals', 'bonds', 'flaws'])
+  const derivedKeys = new Set([
+    'proficiency_bonus', 'saving_throws', 'skills', 'passive_wisdom', 'armor_class', 'initiative', 'speed',
+    'hit_point_maximum', 'hit_dice', 'attacks_spellcasting', 'other_proficiencies_languages', 'features_traits',
+  ])
+  const roleplay = fields.filter(field => roleplayKeys.has(field.key))
+  const derived = fields.filter(field => derivedKeys.has(field.key))
+  return [
+    roleplay.length > 0 ? { key: 'roleplay' as const, label: '배경·성격', fields: roleplay } : null,
+    derived.length > 0 ? { key: 'derived' as const, label: '자동 계산·부여', fields: derived } : null,
+  ].filter((group): group is SchemaFieldGroup => group !== null)
+}
+
+function SchemaFieldGroup({ group }: { group: SchemaFieldGroup }) {
+  return (
+    <details className="character-review-schema-group character-review-flat-schema-group">
+      <summary>
+        <span>{group.label}</span>
+        <small>{group.fields.length}개</small>
+      </summary>
+      <ul className="character-review-field-list">
+        {group.fields.map(field => (
+          <li key={field.key}>
+            <div className="character-review-field-heading">
+              <h3>{field.label}</h3>
+              <span>{fieldStatusLabel(field)}</span>
+            </div>
+            <p>{fieldDescription(field)}</p>
+            {field.options.length > 0 && <p><strong>선택지:</strong> {field.options.join(', ')}</p>}
+          </li>
+        ))}
+      </ul>
+    </details>
+  )
 }
 
 function SchemaTreeItem({ item }: { item: SchemaTreeNode }) {
