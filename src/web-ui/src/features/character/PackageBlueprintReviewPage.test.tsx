@@ -121,15 +121,25 @@ describe('PackageBlueprintReviewPage', () => {
             key: 'proficiency_bonus', label: '숙련 보너스', options: [], required: false, sourceType: 'TEMPLATE',
             inputStatus: 'EXTRACTED', inputMode: 'FIXED_VALUE', suggestions: [], sourceQuote: '', evidence: [], optionDetails: [], diagnostics: [],
           },
+          {
+            key: 'equipment', label: '장비', options: [], required: false, sourceType: 'TEMPLATE',
+            inputStatus: 'EXTRACTED', inputMode: 'FIXED_VALUE', suggestions: [], sourceQuote: '', evidence: [], optionDetails: [], diagnostics: [],
+          },
+          {
+            key: 'equipment.acquisition_method', label: '시작 장비 획득 방식', options: ['클래스·배경 장비', '시작 골드'], required: true, sourceType: 'TEMPLATE',
+            inputStatus: 'EXTRACTED', inputMode: 'SINGLE_SELECT', suggestions: [], sourceQuote: '', evidence: [], optionDetails: [], diagnostics: [],
+          },
         ],
       },
     }))
 
     const baseSchema = await screen.findByRole('region', { name: '룰북 기본 스키마' })
-    expect(within(baseSchema).getByText('필수 입력')).toBeInTheDocument()
+    expect(within(baseSchema).getAllByText('필수 입력').length).toBeGreaterThan(0)
     expect(within(baseSchema).getByText('배경별 추천값')).toBeInTheDocument()
     expect(within(baseSchema).getByText('선택한 배경의 룰북 추천값을 참고하거나 직접 작성할 수 있는 항목')).toBeInTheDocument()
     expect(within(baseSchema).getAllByText('자동 계산·부여').length).toBeGreaterThan(0)
+    expect(within(baseSchema).getByText('초기 장비 선택')).toBeInTheDocument()
+    expect(within(baseSchema).getByText('클래스·배경 장비 또는 시작 골드 중 하나를 선택')).toBeInTheDocument()
     expect(within(baseSchema).queryByText('선택 항목')).not.toBeInTheDocument()
   })
 

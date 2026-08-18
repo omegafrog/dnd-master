@@ -607,6 +607,9 @@ function inputModeLabel(inputMode: string | undefined) {
 type SchemaField = RulebookBaseSchemaView['fields'][number]
 
 function fieldDescription(field: SchemaField) {
+  if (field.key === 'equipment') return '클래스·배경 장비 또는 시작 골드를 선택하고 결과를 확인하는 항목'
+  if (field.key === 'equipment.acquisition_method') return '클래스·배경 장비 또는 시작 골드 중 하나를 선택'
+  if (field.key.startsWith('equipment.')) return '선택한 클래스·배경의 초기 장비가 반영되는 항목'
   if (['personality_traits', 'ideals', 'bonds', 'flaws'].includes(field.key)) {
     return '선택한 배경의 룰북 추천값을 참고하거나 직접 작성할 수 있는 항목'
   }
@@ -614,6 +617,8 @@ function fieldDescription(field: SchemaField) {
 }
 
 function fieldStatusLabel(field: SchemaField) {
+  if (field.key === 'equipment') return '초기 장비 선택'
+  if (field.key.startsWith('equipment.') && field.key !== 'equipment.acquisition_method') return '초기 장비 선택 결과'
   if (field.inputMode === 'FIXED_VALUE') return '자동 계산·부여'
   if (['personality_traits', 'ideals', 'bonds', 'flaws'].includes(field.key)) return '배경별 추천값'
   return field.required ? '필수 입력' : '선택 입력'
