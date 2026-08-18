@@ -307,9 +307,9 @@ function BaseSchemaPanel({ schema, roots }: { schema: RulebookBaseSchemaView; ro
             <li key={field.key}>
               <div className="character-review-field-heading">
                 <h3>{field.label}</h3>
-                <span>{field.required ? '필수 항목' : '선택 항목'}</span>
+                <span>{fieldStatusLabel(field)}</span>
               </div>
-              <p>{inputModeLabel(field.inputMode)}</p>
+              <p>{fieldDescription(field)}</p>
               {field.options.length > 0 && <p><strong>선택지:</strong> {field.options.join(', ')}</p>}
             </li>
           ))}
@@ -362,7 +362,7 @@ function SchemaNodeHeading({ node, field }: { node: CharacterInputNodeView; fiel
   return (
     <div className="character-review-field-heading">
       <h3>{node.label}</h3>
-      <span>{field ? (field.required ? '필수 항목' : '선택 항목') : '하위 항목'}</span>
+      <span>{field ? fieldStatusLabel(field) : '하위 항목'}</span>
     </div>
   )
 }
@@ -370,7 +370,7 @@ function SchemaNodeHeading({ node, field }: { node: CharacterInputNodeView; fiel
 function SchemaFieldDetails({ field }: { field: RulebookBaseSchemaView['fields'][number] }) {
   return (
     <div className="character-review-schema-details">
-      <p>{inputModeLabel(field.inputMode)}</p>
+      <p>{fieldDescription(field)}</p>
       {field.options.length > 0 && <p><strong>선택지:</strong> {field.options.join(', ')}</p>}
     </div>
   )
@@ -551,8 +551,23 @@ function groupBySource(proposals: StorybookProposalView[]) {
 function inputModeLabel(inputMode: string | undefined) {
   if (inputMode === 'SINGLE_SELECT') return '하나의 선택지를 고르는 항목'
   if (inputMode === 'MULTI_SELECT') return '여러 선택지를 고르는 항목'
-  if (inputMode === 'FIXED_VALUE') return '룰북에서 정해진 항목'
+  if (inputMode === 'FIXED_VALUE') return '선택 결과로 자동 계산되거나 부여되는 항목'
   return '값을 입력하는 항목'
+}
+
+type SchemaField = RulebookBaseSchemaView['fields'][number]
+
+function fieldDescription(field: SchemaField) {
+  if (['personality_traits', 'ideals', 'bonds', 'flaws'].includes(field.key)) {
+    return '선택한 배경의 룰북 추천값을 참고하거나 직접 작성할 수 있는 항목'
+  }
+  return inputModeLabel(field.inputMode)
+}
+
+function fieldStatusLabel(field: SchemaField) {
+  if (field.inputMode === 'FIXED_VALUE') return '자동 계산·부여'
+  if (['personality_traits', 'ideals', 'bonds', 'flaws'].includes(field.key)) return '배경별 추천값'
+  return field.required ? '필수 입력' : '선택 입력'
 }
 
 function decisionLabel(decisionState: StorybookProposalView['decisionState']) {

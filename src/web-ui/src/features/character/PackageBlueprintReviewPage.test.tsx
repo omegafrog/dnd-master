@@ -104,6 +104,35 @@ describe('PackageBlueprintReviewPage', () => {
     expect(screen.queryByText('UNDECIDED')).not.toBeInTheDocument()
   })
 
+  it('distinguishes required input, background recommendations, and derived values in the base schema', async () => {
+    renderReview(async () => preparation({
+      baseSchema: {
+        edition: 'DND 5판 2014',
+        fields: [
+          {
+            key: 'race', label: '종족', options: ['엘프'], required: true, sourceType: 'RULEBOOK',
+            inputStatus: 'EXTRACTED', inputMode: 'SINGLE_SELECT', suggestions: [], sourceQuote: '', evidence: [], optionDetails: [], diagnostics: [],
+          },
+          {
+            key: 'ideals', label: '이상', options: [], required: false, sourceType: 'TEMPLATE',
+            inputStatus: 'EXTRACTED', inputMode: 'SINGLE_SELECT', suggestions: [], sourceQuote: '', evidence: [], optionDetails: [], diagnostics: [],
+          },
+          {
+            key: 'proficiency_bonus', label: '숙련 보너스', options: [], required: false, sourceType: 'TEMPLATE',
+            inputStatus: 'EXTRACTED', inputMode: 'FIXED_VALUE', suggestions: [], sourceQuote: '', evidence: [], optionDetails: [], diagnostics: [],
+          },
+        ],
+      },
+    }))
+
+    const baseSchema = await screen.findByRole('region', { name: '룰북 기본 스키마' })
+    expect(within(baseSchema).getByText('필수 입력')).toBeInTheDocument()
+    expect(within(baseSchema).getByText('배경별 추천값')).toBeInTheDocument()
+    expect(within(baseSchema).getByText('선택한 배경의 룰북 추천값을 참고하거나 직접 작성할 수 있는 항목')).toBeInTheDocument()
+    expect(within(baseSchema).getByText('자동 계산·부여')).toBeInTheDocument()
+    expect(within(baseSchema).queryByText('선택 항목')).not.toBeInTheDocument()
+  })
+
   it('renders the hierarchical rulebook schema as collapsed groups', async () => {
     const child: CharacterInputNodeView = {
       id: 'race.option-selections',
