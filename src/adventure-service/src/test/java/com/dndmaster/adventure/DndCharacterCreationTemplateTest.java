@@ -35,10 +35,15 @@ class DndCharacterCreationTemplateTest {
         assertEquals(InputMode.FIXED_VALUE, blueprint.field("level").inputMode());
         assertEquals(List.of("드워프", "엘프", "인간", "하플링"), blueprint.field("race").options());
         assertEquals(List.of("로그", "위저드", "클레릭", "파이터"), blueprint.field("class").options());
+        assertTrue(blueprint.field("subclass").options().containsAll(List.of("생명 권역", "용의 혈통", "대마족")));
         assertEquals(List.of("수행사제", "사기꾼", "범죄자", "연예인", "민중 영웅", "길드 장인", "은둔자", "귀족", "이방인", "현자", "선원", "군인", "부랑아"),
                 blueprint.field("background").options());
         assertEquals(List.of("CLASS_AND_BACKGROUND", "STARTING_GOLD"),
                 blueprint.field("equipment.acquisition_method").options());
+        assertTrue(blueprint.field("magic.cantrips").options().containsAll(List.of("가이던스", "마법사의 손", "진실의 일격")));
+        assertTrue(blueprint.field("magic.spells").options().containsAll(List.of("축복", "마법 갑주", "마법 화살")));
+        assertTrue(blueprint.field("magic.cantrips").options().size() > 10);
+        assertTrue(blueprint.field("magic.spells").options().size() > 10);
         for (String key : List.of("subrace", "subclass", "class.skill_choices", "magic.spells",
                 "personality_traits", "ideals", "bonds", "flaws")) {
             assertFalse(blueprint.field(key).required(), key);

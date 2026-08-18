@@ -1173,6 +1173,9 @@ body {
 .character-review-schema-details { color:#6d604f; font-size:.72rem; line-height:1.45; }
 .character-review-schema-details p { margin:.35rem 0 0; }
 .character-review-schema-details strong { color:#514231; }
+.character-review-schema-options { margin-top:.45rem; color:#70552f; }
+.character-review-schema-options summary { width:max-content; cursor:pointer; font-size:.72rem; font-weight:700; }
+.character-review-schema-options ul { display:grid; grid-template-columns:repeat(auto-fit,minmax(11rem,1fr)); gap:.25rem .75rem; margin:.4rem 0 0; padding-left:1.15rem; color:#6d604f; font-size:.7rem; }
 .character-review-source-group { display:grid; gap:.45rem; }
 .character-review-source-group > h3 { padding-bottom:.35rem; border-bottom:1px solid #e5dacb; font-size:.82rem; }
 .character-review-proposal-card { padding:.85rem; border:1px solid #d9c9b3; border-radius:8px; background:#fffcf7; }

@@ -230,11 +230,40 @@ describe('PackageBlueprintReviewPage', () => {
     expect(group).toBeInTheDocument()
     expect(group).not.toHaveAttribute('open')
     expect(within(baseSchema).getByText('추가 선택')).toBeInTheDocument()
-    expect(container.querySelectorAll('.character-review-schema-tree details')).toHaveLength(1)
+    expect(container.querySelectorAll('.character-review-schema-tree > details.character-review-schema-group')).toHaveLength(1)
 
     await userEvent.click(within(group!).getByText('종족'))
     expect(group).toHaveAttribute('open')
     expect(within(group!).getByText('추가 선택')).toBeVisible()
+  })
+
+  it('keeps magic choices collapsed while exposing every rulebook option', async () => {
+    renderReview(async () => preparation({
+      baseSchema: {
+        edition: 'DND 5판 2014',
+        fields: [
+          {
+            key: 'magic.cantrips', label: '소마법', options: ['가이던스', '마법사의 손'], required: false, sourceType: 'TEMPLATE',
+            inputStatus: 'EXTRACTED', inputMode: 'MULTI_SELECT', suggestions: [], sourceQuote: '', evidence: [], optionDetails: [], diagnostics: [],
+          },
+          {
+            key: 'magic.spells', label: '주문', options: ['축복', '마법 갑주'], required: false, sourceType: 'TEMPLATE',
+            inputStatus: 'EXTRACTED', inputMode: 'MULTI_SELECT', suggestions: [], sourceQuote: '', evidence: [], optionDetails: [], diagnostics: [],
+          },
+        ],
+      },
+    }))
+
+    const baseSchema = await screen.findByRole('region', { name: '룰북 기본 스키마' })
+    const cantripField = within(baseSchema).getByRole('heading', { name: '소마법' }).closest('li')!
+    const cantripsOptions = within(cantripField).getByText('선택지 보기 (2개)').closest('details')
+    expect(cantripsOptions).not.toHaveAttribute('open')
+    expect(within(baseSchema).queryByText('가이던스')).not.toBeVisible()
+
+    await userEvent.click(within(cantripsOptions!).getByText('선택지 보기 (2개)'))
+    expect(cantripsOptions).toHaveAttribute('open')
+    expect(within(cantripsOptions!).getByText('가이던스')).toBeVisible()
+    expect(within(baseSchema).getAllByText('선택지 보기 (2개)')).toHaveLength(2)
   })
 
   it('shows a successful empty state when storybook analysis finds no proposals', async () => {

@@ -122,6 +122,7 @@ public final class DndCharacterCreationTemplate {
             case "subrace" -> List.of("언덕 드워프", "산 드워프", "하이 엘프", "우드 엘프", "라이트풋 하플링", "스타우트 하플링");
             case "race.option_selections" -> List.of("추가 언어: 공용어", "추가 언어: 드워프어", "추가 언어: 엘프어", "추가 언어: 하플링어", "추가 언어: 드루이드어", "추가 언어: 용언", "추가 언어: 지하 공용어", "능력치 보너스: 힘", "능력치 보너스: 민첩", "능력치 보너스: 건강", "능력치 보너스: 지능", "능력치 보너스: 지혜", "능력치 보너스: 매력");
             case "class" -> List.of("로그", "위저드", "클레릭", "파이터");
+            case "subclass" -> List.of("생명 권역", "지식 권역", "빛 권역", "자연 권역", "폭풍 권역", "속임수 권역", "전쟁 권역", "용의 혈통", "야생 마법", "대마족", "대고대자", "대요정");
             case "background" -> List.of("수행사제", "사기꾼", "범죄자", "연예인", "민중 영웅", "길드 장인", "은둔자", "귀족", "이방인", "현자", "선원", "군인", "부랑아");
             case "class.skill_choices" -> List.of("곡예", "동물 조련", "비전학", "운동", "기만", "역사", "통찰", "위협", "수사", "의학", "자연", "지각", "공연", "설득", "종교", "손재주", "은신", "생존");
             case "ability_score_method" -> List.of("STANDARD_ARRAY", "ROLL_4D6_DROP_LOWEST", "POINT_BUY");
@@ -131,6 +132,15 @@ public final class DndCharacterCreationTemplate {
                     List.of("15", "14", "13", "12", "10", "8");
             case "alignment" -> List.of("질서 선", "중립 선", "혼돈 선", "질서 중립", "중립", "혼돈 중립", "질서 악", "중립 악", "혼돈 악");
             case "equipment.acquisition_method" -> List.of("CLASS_AND_BACKGROUND", "STARTING_GOLD");
+            case "magic.cantrips" -> List.of(
+                    "가이던스", "빛", "저항", "신성한 불꽃", "죽어가는 자 살리기", "단순마술",
+                    "산성 거품", "냉기 분사", "춤추는 빛", "화염 화살", "친구", "마법사의 손",
+                    "수선", "전언", "하급 환영", "독 분사", "요술", "서리 광선", "충격의 손아귀", "진실의 일격");
+            case "magic.spells" -> List.of(
+                    "축복", "치유의 단어", "상처 치료", "신앙의 방패", "명령", "인도하는 화살", "마법 탐지",
+                    "상처 가해", "성역화", "경로 파악", "치유", "마법 갑주", "마법 화살", "방패", "수면",
+                    "식별", "언어 변환", "인간형 매혹", "자기 위장", "조용한 영상", "천둥파도", "타오르는 손길",
+                    "깃털 낙하", "안개 구름");
             default -> List.of();
         };
         String inputStatus = "TEMPLATE".equals(spec.origin()) ? "EXTRACTED" : "MANUAL_INPUT_REQUIRED";

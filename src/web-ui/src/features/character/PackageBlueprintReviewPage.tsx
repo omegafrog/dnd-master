@@ -313,7 +313,7 @@ function BaseSchemaPanel({ schema, roots }: { schema: RulebookBaseSchemaView; ro
                 <span>{fieldStatusLabel(field)}</span>
               </div>
               <p>{fieldDescription(field)}</p>
-              {field.options.length > 0 && <p><strong>선택지:</strong> {field.options.join(', ')}</p>}
+              <SchemaFieldOptions field={field} />
             </li>
           ))}
         </ul>
@@ -380,7 +380,7 @@ function SchemaFieldGroup({ group }: { group: SchemaFieldGroup }) {
               <span>{fieldStatusLabel(field)}</span>
             </div>
             <p>{fieldDescription(field)}</p>
-            {field.options.length > 0 && <p><strong>선택지:</strong> {field.options.join(', ')}</p>}
+            <SchemaFieldOptions field={field} />
           </li>
         ))}
       </ul>
@@ -420,8 +420,20 @@ function SchemaFieldDetails({ field }: { field: RulebookBaseSchemaView['fields']
   return (
     <div className="character-review-schema-details">
       <p>{fieldDescription(field)}</p>
-      {field.options.length > 0 && <p><strong>선택지:</strong> {field.options.join(', ')}</p>}
+      <SchemaFieldOptions field={field} />
     </div>
+  )
+}
+
+function SchemaFieldOptions({ field }: { field: RulebookBaseSchemaView['fields'][number] }) {
+  if (field.options.length === 0) return null
+  return (
+    <details className="character-review-schema-options">
+      <summary>선택지 보기 ({field.options.length}개)</summary>
+      <ul aria-label={`${field.label} 선택지 목록`}>
+        {field.options.map(option => <li key={option}>{option}</li>)}
+      </ul>
+    </details>
   )
 }
 
