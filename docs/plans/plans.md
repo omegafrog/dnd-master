@@ -1,16 +1,16 @@
 # Implementation Plans
 
 Tracker: GitHub Issues — `omegafrog/dnd-master`
+Parent Issue: [#168 — 037 룰북 캐릭터 카탈로그/API 단일화](https://github.com/omegafrog/dnd-master/issues/168)
 
-Parent Issue: [#160](https://github.com/omegafrog/dnd-master/issues/160)
+Status vocabulary: `planned`, `ready-for-agent`, `in-progress`, `completed`, `blocked`.
 
-## 035 — 자료 준비와 모험 시작 흐름 개선
+## 037 — 룰북 캐릭터 카탈로그/API 단일화
 
-1. [035-1 모험 자료 계약과 삭제 보호](035-1-scenario-bundle-contract-and-delete-protection.md) — [#156](https://github.com/omegafrog/dnd-master/issues/156) — `completed`
-2. [035-2 자료 준비 상태와 진행률](035-2-document-readiness-and-progress.md) — [#157](https://github.com/omegafrog/dnd-master/issues/157) — `completed`
-3. [035-3 게임 준비 팝업과 AI endpoint 사전 확인](035-3-preparation-modal-and-endpoint-preflight.md) — [#158](https://github.com/omegafrog/dnd-master/issues/158) — `completed`
-4. [035-4 모험 목록과 전체 용어·내비게이션 UX](035-4-adventure-vocabulary-and-navigation-ux.md) — [#159](https://github.com/omegafrog/dnd-master/issues/159) — `completed`
+1. [037-1 룰북 캐릭터 카탈로그 리소스](037-1-rulebook-character-catalog-resource.md) — [#169](https://github.com/omegafrog/dnd-master/issues/169) — `ready-for-agent`
+2. [037-2 카탈로그 API와 리비전 고정](037-2-character-catalog-api-revision.md) — [#170](https://github.com/omegafrog/dnd-master/issues/170) — `planned`
+3. [037-3 모험 준비와 카탈로그 통합](037-3-scenario-preparation-catalog-integration.md) — [#171](https://github.com/omegafrog/dnd-master/issues/171) — `planned`
+4. [037-4 프런트 API 단일화](037-4-frontend-catalog-api-consumption.md) — [#172](https://github.com/omegafrog/dnd-master/issues/172) — `planned`
+5. [037-5 전체 흐름 검증과 데이터 대조](037-5-full-journey-and-rulebook-verification.md) — [#173](https://github.com/omegafrog/dnd-master/issues/173) — `planned`
 
-Dependency chain: `035-1 → 035-2 → 035-3 → 035-4`.
-
-Cross-dependencies: `035-1 → 035-3`, `035-1 → 035-4`.
+Dependency chain: `037-1 → 037-2 → 037-3 → 037-4 → 037-5`.
