@@ -19,6 +19,7 @@ import com.dndmaster.adventure.domain.scenario.BlueprintProvenance;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintRevisionConflictException;
+import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintPublicationBlockedException;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
@@ -120,6 +121,26 @@ class StorybookProposalDecisionApplicationServiceTest {
         verify(packages, atLeastOnce()).saveBlueprint(eq(scenarioPackage.packageId()), saved.capture());
         assertEquals(List.of("race", "alignment"), saved.getValue().fields().stream()
                 .map(CharacterCreationBlueprint.Field::key).toList());
+    }
+
+    @Test
+    void blocks_publication_when_scenario_compilation_is_partial() {
+        var packages = mock(ScenarioPackageRepository.class);
+        var bundles = mock(ScenarioBundleRepository.class);
+        var complete = packageWithEvidence();
+        var partial = ScenarioPackage.rehydrate(complete.packageId(), complete.bundleId(), complete.bundleRevision(),
+                complete.inputFingerprint(), complete.documents(), complete.units(),
+                new ScenarioCompilationReport(com.dndmaster.adventure.domain.scenario.ResolutionStatus.PARTIAL,
+                        List.of("storybook extraction is incomplete")), complete.characterLimit(),
+                complete.characterCreationBlueprint());
+        when(packages.findById(partial.packageId())).thenReturn(Optional.of(partial));
+        when(bundles.findById(partial.bundleId())).thenReturn(Optional.of(bundle(partial)));
+
+        var failure = assertThrows(CharacterCreationBlueprintPublicationBlockedException.class,
+                () -> new ScenarioPreparationApplicationService(packages, bundles, runtimeOptions())
+                        .publishBlueprint(partial.packageId(), owner()));
+
+        assertEquals("scenario package compilation must be complete before blueprint publication", failure.getMessage());
     }
 
     private static ScenarioPackage packageWithEvidence() {
