@@ -12,8 +12,9 @@ describe('Dnd5eSpellPreparationRules', () => {
     expect(spellSelectionRule('워락', modifiers)).toMatchObject({ model: 'PACT', firstLevelSlots: 1, recovery: 'SHORT_REST' })
   })
 
-  it('adds domain spells separately from prepared choices', () => {
+  it('adds only the life-domain spells detailed in dnd5th.pdf', () => {
     expect(domainSpells('생명 권역')).toEqual(['축복', '상처 치료'])
     expect(domainSpells('대마족')).toEqual([])
+    expect(domainSpells('빛 권역')).toEqual([])
   })
 })

@@ -5,14 +5,13 @@ import type { AbilityScores } from './Dnd5eRules'
 const modifiers: AbilityScores = { strength: 0, dexterity: 3, constitution: 2, intelligence: 1, wisdom: 2, charisma: 4 }
 
 describe('Dnd5eSubclassEffects', () => {
-  it('grants life domain heavy armor and light domain cantrip', () => {
+  it('grants the life domain heavy armor from dnd5th.pdf', () => {
     expect(subclassEffects('생명 권역', modifiers).armorProficiencies).toContain('중갑')
-    expect(subclassEffects('빛 권역', modifiers).bonusCantrips).toContain('빛')
   })
 
-  it('applies draconic resilience only while unarmored', () => {
-    const effects = subclassEffects('용의 혈통', modifiers)
-    expect(applySubclassArmorClass(13, '', effects)).toBe(16)
+  it('does not invent effects for subclasses without detail in dnd5th.pdf', () => {
+    const effects = subclassEffects('챔피언', modifiers)
+    expect(applySubclassArmorClass(13, '', effects)).toBe(13)
     expect(applySubclassArmorClass(14, '스케일 메일', effects)).toBe(14)
   })
 })

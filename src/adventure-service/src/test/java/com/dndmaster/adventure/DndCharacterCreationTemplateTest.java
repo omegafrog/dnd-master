@@ -35,13 +35,17 @@ class DndCharacterCreationTemplateTest {
         assertEquals(InputMode.FIXED_VALUE, blueprint.field("level").inputMode());
         assertEquals(List.of("드워프", "엘프", "인간", "하플링"), blueprint.field("race").options());
         assertEquals(List.of("로그", "위저드", "클레릭", "파이터"), blueprint.field("class").options());
-        assertTrue(blueprint.field("subclass").options().containsAll(List.of("생명 권역", "용의 혈통", "대마족")));
-        assertEquals(List.of("수행사제", "사기꾼", "범죄자", "연예인", "민중 영웅", "길드 장인", "은둔자", "귀족", "이방인", "현자", "선원", "군인", "부랑아"),
+        assertEquals(List.of("시프", "방출학파", "변환학파", "사령학파", "예지학파", "조형학파", "환영학파", "환혹학파", "챔피언", "생명 권역"),
+                blueprint.field("subclass").options());
+        assertTrue(blueprint.field("subclass").optionDetails().stream()
+                .allMatch(detail -> detail.sourceQuote().startsWith("dnd5th.pdf")));
+        assertEquals(List.of("복사", "사기꾼", "범죄자", "연예인", "시골 영웅", "길드 장인", "은둔자", "귀족", "이방인", "학자", "선원", "군인", "부랑아"),
                 blueprint.field("background").options());
         assertEquals(List.of("CLASS_AND_BACKGROUND", "STARTING_GOLD"),
                 blueprint.field("equipment.acquisition_method").options());
-        assertTrue(blueprint.field("magic.cantrips").options().containsAll(List.of("가이던스", "마법사의 손", "진실의 일격")));
-        assertTrue(blueprint.field("magic.spells").options().containsAll(List.of("축복", "마법 갑주", "마법 화살")));
+        assertTrue(blueprint.field("magic.cantrips").options().containsAll(List.of("안내", "전격의 손아귀", "신성한 불길")));
+        assertFalse(blueprint.field("magic.cantrips").options().contains("가이던스"));
+        assertTrue(blueprint.field("magic.spells").options().containsAll(List.of("축복", "유도 화살", "마법 화살")));
         assertTrue(blueprint.field("magic.cantrips").options().size() > 10);
         assertTrue(blueprint.field("magic.spells").options().size() > 10);
         for (String key : List.of("subrace", "subclass", "class.skill_choices", "magic.spells",
@@ -120,7 +124,7 @@ class DndCharacterCreationTemplateTest {
         CharacterCreationBlueprint blueprint = DndCharacterCreationTemplate.apply("DND_5E_2014", extracted);
 
         assertEquals(List.of("로그", "위저드", "클레릭", "파이터"), blueprint.field("class").options());
-        assertEquals(List.of("수행사제", "사기꾼", "범죄자", "연예인", "민중 영웅", "길드 장인", "은둔자", "귀족", "이방인", "현자", "선원", "군인", "부랑아"),
+        assertEquals(List.of("복사", "사기꾼", "범죄자", "연예인", "시골 영웅", "길드 장인", "은둔자", "귀족", "이방인", "학자", "선원", "군인", "부랑아"),
                 blueprint.field("background").options());
         assertFalse(blueprint.field("class").options().contains("Fighter"));
         assertFalse(blueprint.field("background").options().contains("Soldier"));
