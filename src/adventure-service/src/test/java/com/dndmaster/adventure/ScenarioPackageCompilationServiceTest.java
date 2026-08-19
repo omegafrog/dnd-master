@@ -207,6 +207,18 @@ class ScenarioPackageCompilationServiceTest {
     }
 
     @Test
+    void repeatedMalformedDiceCandidatesRemainIsolatedFromUsablePackageFacts() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(documentId, 1);
+        var bad = ResolutionCandidate.diceRoll(documentId, 1, "page:1:span:2", "bad", "Malformed dice extraction.");
+        var result = new ScenarioPackageCompilationService(new InMemoryPackageRepository()).compile(bundle, List.of(
+                ResolutionCandidate.skillCheck(documentId, 1, "page:1:span:1", "Stealth", 12, "The cellar is watched."), bad, bad, bad));
+        assertEquals("PARTIAL", result.report().status().name());
+        assertEquals(1, result.runtimeCandidates().size());
+        assertEquals(3, result.units().stream().filter(unit -> unit.status().name().equals("INVALID")).count());
+    }
+
+    @Test
     void rejectsPlayerSafeOutputForMainScenarioAndPreservesProvenance() {
         KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(documentId, 1);
