@@ -105,4 +105,14 @@ public final class AdventureStoryPlan {
         return new AdventureStoryPlan(planId, sessionId, packageRevision, partyRevision, version + 1, status,
                 configuration, candidate, currentStage, failureReason, Instant.now());
     }
+
+    public AdventureStoryPlan reviseFutureStage(int position, AdventureStoryPlanStage replacement) {
+        Objects.requireNonNull(replacement, "replacement stage must not be null");
+        if (position < 1 || position > stages.size()) throw new IllegalArgumentException("story plan stage not found");
+        if (position != replacement.position()) throw new IllegalArgumentException("replacement stage position mismatch");
+        if (position <= currentStage + 1) throw new IllegalStateException("current and revealed story stages are immutable");
+        List<AdventureStoryPlanStage> candidate = new java.util.ArrayList<>(stages);
+        candidate.set(position - 1, replacement);
+        return reviseFutureStages(candidate);
+    }
 }

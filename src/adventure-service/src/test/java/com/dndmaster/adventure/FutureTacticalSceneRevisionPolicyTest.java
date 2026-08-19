@@ -7,6 +7,10 @@ import com.dndmaster.adventure.domain.adventure.*;
 import com.dndmaster.adventure.application.runtime.TacticalTriggerEvaluator;
 import java.util.List;
 import org.junit.jupiter.api.Test;
+import static org.mockito.Mockito.*;
+import com.dndmaster.adventure.application.storyplan.FutureTacticalSceneRevisionService;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository;
+import com.dndmaster.adventure.application.session.AdventureSessionRepository;
 
 class FutureTacticalSceneRevisionPolicyTest {
     @Test
@@ -25,6 +29,28 @@ class FutureTacticalSceneRevisionPolicyTest {
         var plan = AdventureStoryPlan.ready(new SessionId(java.util.UUID.randomUUID()), 0, 1, List.of(stage(1, "published"), stage(2, "future"))).advanceTo(0);
 
         assertThrows(IllegalStateException.class, () -> plan.reviseFutureStages(List.of(stage(1, "changed"), stage(2, "future"))));
+    }
+
+    @Test
+    void postStartCommandRevisesOnlyAnUnrevealedFutureStage() {
+        var sessionId = new SessionId(java.util.UUID.randomUUID());
+        var owner = new OwnerPlayerId(java.util.UUID.randomUUID());
+        var session = mock(AdventureSession.class);
+        when(session.ownerPlayerId()).thenReturn(owner);
+        when(session.status()).thenReturn(AdventureSession.Status.STARTED);
+        var plan = AdventureStoryPlan.ready(sessionId, 0, 1, List.of(stage(1, "current"), stage(2, "future"))).advanceTo(0);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        when(plans.findBySessionId(sessionId)).thenReturn(java.util.Optional.of(plan));
+        var sessions = mock(AdventureSessionRepository.class);
+        when(sessions.findById(sessionId)).thenReturn(java.util.Optional.of(session));
+        var service = new FutureTacticalSceneRevisionService(plans, sessions);
+
+        service.revise(sessionId, owner, 2, stage(2, "future revised").tacticalScenePlan());
+
+        verify(plans).save(argThat(value -> value.version() == 3
+                && value.stages().get(0).title().equals("current")
+                && value.stages().get(1).title().equals("future")));
+        assertThrows(IllegalStateException.class, () -> service.revise(sessionId, owner, 1, stage(1, "changed").tacticalScenePlan()));
     }
 
     @Test

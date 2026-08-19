@@ -188,7 +188,9 @@ class TacticalScenePlanGenerationRetryTest {
             return new TacticalScenePlan(TacticalScenePlan.CURRENT_SCHEMA_VERSION, TacticalScenePlanStatus.READY,
                     new TacticalSceneBoundary(new NormalizedCoordinate(0, 0), new NormalizedCoordinate(1, 1), List.of()),
                     List.of(new TacticalPlacement("player", TacticalPlacementKind.PLAYER, new NormalizedCoordinate(.1, .1), grounding)),
-                    List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), new FogPlan(List.of(), grounding), List.of(), List.of(), List.of());
+                    List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), new FogPlan(List.of(), grounding),
+                    List.of(new com.dndmaster.adventure.domain.adventure.TacticalTrigger("entry", com.dndmaster.adventure.domain.adventure.TacticalTriggerType.COMBAT_ENTRY, List.of("player"), "", grounding)),
+                    List.of(new com.dndmaster.adventure.domain.adventure.TacticalOutcome("leave", "party leaves", grounding)), List.of());
         }
 
         private static TacticalScenePlan sourceGroundedScene(String citation) {

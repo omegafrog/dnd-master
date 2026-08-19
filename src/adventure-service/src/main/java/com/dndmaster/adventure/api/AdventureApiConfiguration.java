@@ -988,6 +988,13 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.storyplan.FutureTacticalSceneRevisionService futureTacticalSceneRevisionService(
+            com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository plans,
+            com.dndmaster.adventure.application.session.AdventureSessionRepository sessions) {
+        return new com.dndmaster.adventure.application.storyplan.FutureTacticalSceneRevisionService(plans, sessions);
+    }
+
+    @Bean
     AiCombatPort aiCombatPort() {
         return new AiCombatPort() {
             @Override

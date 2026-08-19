@@ -14,6 +14,8 @@ import org.springframework.web.server.ResponseStatusException;
 import com.dndmaster.adventure.application.session.AdventureSessionApplicationService;
 import com.dndmaster.adventure.application.runtime.TacticalMapActivationApplicationService;
 import com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimeApplicationService;
+import com.dndmaster.adventure.application.storyplan.FutureTacticalSceneRevisionService;
+import com.dndmaster.adventure.domain.adventure.TacticalScenePlan;
 
 @RestController
 @RequestMapping("/api/v1/adventure-sessions/{sessionId}/story-plan")
@@ -23,11 +25,12 @@ public final class AdventureStoryPlanController {
     private final TacticalMapActivationApplicationService mapActivation;
     private final AuthenticatedPlayerResolver playerResolver;
     private final TacticalTriggerRuntimeApplicationService triggerRuntime;
+    private final FutureTacticalSceneRevisionService futureRevision;
 
     public AdventureStoryPlanController(AdventureStoryPlanApplicationService service, AdventureSessionApplicationService sessions,
             TacticalMapActivationApplicationService mapActivation, AuthenticatedPlayerResolver playerResolver,
-            TacticalTriggerRuntimeApplicationService triggerRuntime) {
-        this.service = service; this.sessions = sessions; this.mapActivation = mapActivation; this.playerResolver = playerResolver; this.triggerRuntime = triggerRuntime;
+            TacticalTriggerRuntimeApplicationService triggerRuntime, FutureTacticalSceneRevisionService futureRevision) {
+        this.service = service; this.sessions = sessions; this.mapActivation = mapActivation; this.playerResolver = playerResolver; this.triggerRuntime = triggerRuntime; this.futureRevision = futureRevision;
     }
 
     @GetMapping
@@ -59,7 +62,14 @@ public final class AdventureStoryPlanController {
         if (stage.mapDefinitionId() == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "stage has no tactical map");
         var activation = mapActivation.activateDefinition(session.scenarioPackageId(), session.startedAdventureId().value(), owner().value(),
                 session.runtimeConfiguration().ruleSetId().value(), stage.mapDefinitionId(), stage.tacticalScenePlan(), stage.playerSpawnX(), stage.playerSpawnY());
+        activation.combatMapId().ifPresent(id -> triggerRuntime.bindActiveMap(session.startedAdventureId().value(), position, id));
         return new MapActivationView(position, stage.mapDefinitionId(), stage.mapAssetId(), stage.mapAssetLocator(), activation.combatMapId().orElse(null));
+    }
+
+    @PostMapping("/stages/{position}/tactical-scene/revise")
+    PlanView reviseFutureTacticalScene(@PathVariable UUID sessionId, @PathVariable int position,
+            @RequestBody TacticalScenePlan scene) {
+        return PlanView.from(futureRevision.revise(new SessionId(sessionId), owner(), position, scene));
     }
 
     @PostMapping("/stages/{position}/triggers/{triggerId}/apply")
@@ -67,11 +77,14 @@ public final class AdventureStoryPlanController {
             @PathVariable String triggerId, @RequestBody TriggerApplicationRequest request) {
         var session = sessions.read(new SessionId(sessionId), owner());
         var plan = service.read(new SessionId(sessionId), owner());
+        if (session.status() != com.dndmaster.adventure.domain.adventure.AdventureSession.Status.STARTED
+                || session.startedAdventureId() == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "adventure is not active");
+        if (plan.currentStage() + 1 != position) throw new ResponseStatusException(HttpStatus.CONFLICT, "trigger stage is not the active stage");
         var stage = plan.stages().stream().filter(item -> item.position() == position).findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "story plan stage not found"));
         if (!stage.tacticalScenePlan().readyForActivation()) throw new ResponseStatusException(HttpStatus.CONFLICT, "tactical scene is not ready");
         if (session.startedAdventureId() == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "adventure must be started");
-        var evaluation = triggerRuntime.apply(stage.tacticalScenePlan(), triggerId, request.combatMapId(), owner().value(),
+        var evaluation = triggerRuntime.apply(session.startedAdventureId().value(), position, stage.tacticalScenePlan(), triggerId, request.combatMapId(), owner().value(),
                 request.expectedVersion(), request.commandId());
         return new TriggerApplicationView(evaluation.triggerId(), evaluation.type(), evaluation.targetIds(), evaluation.transitionId());
     }
@@ -121,14 +134,18 @@ public final class AdventureStoryPlanController {
     }
 
     public record GmTacticalSceneView(String status, List<TacticalPlacementView> placements,
-            List<TacticalEnvironmentView> environments, List<CoordinateView> hiddenRegions, List<String> transitionIds) {
+            List<TacticalEnvironmentView> environments, List<TacticalTriggerView> triggers, List<TacticalOutcomeView> outcomes,
+            List<CoordinateView> hiddenRegions, List<String> transitionIds,
+            com.dndmaster.adventure.domain.adventure.TacticalScenePlan plan) {
         static GmTacticalSceneView from(com.dndmaster.adventure.domain.adventure.TacticalScenePlan scene) {
             java.util.List<com.dndmaster.adventure.domain.adventure.TacticalPlacement> all = new java.util.ArrayList<>();
             all.addAll(scene.players()); all.addAll(scene.allies()); all.addAll(scene.npcs()); all.addAll(scene.enemies());
             all.addAll(scene.bosses()); all.addAll(scene.interactiveObjects());
             return new GmTacticalSceneView(scene.status().name(), all.stream().map(TacticalPlacementView::from).toList(),
                     scene.environments().stream().map(TacticalEnvironmentView::from).toList(),
-                    scene.initialFog() == null ? List.of() : scene.initialFog().hiddenRegions().stream().map(CoordinateView::from).toList(), scene.transitionIds());
+                    scene.triggers().stream().map(TacticalTriggerView::from).toList(),
+                    scene.outcomes().stream().map(TacticalOutcomeView::from).toList(),
+                    scene.initialFog() == null ? List.of() : scene.initialFog().hiddenRegions().stream().map(CoordinateView::from).toList(), scene.transitionIds(), scene);
         }
     }
     public record TacticalPlacementView(String id, String kind, CoordinateView coordinate, String groundingType, String citation, String rationale) {
@@ -139,6 +156,17 @@ public final class AdventureStoryPlanController {
     public record TacticalEnvironmentView(String id, String kind, CoordinateView coordinate, String groundingType, String citation, String rationale) {
         static TacticalEnvironmentView from(com.dndmaster.adventure.domain.adventure.TacticalEnvironment value) {
             return new TacticalEnvironmentView(value.id(), value.kind(), CoordinateView.from(value.coordinate()), value.grounding().type().name(), value.grounding().citation(), value.grounding().rationale());
+        }
+    }
+    public record TacticalTriggerView(String id, String type, List<String> targetIds, String transitionId,
+            String groundingType, String citation, String rationale) {
+        static TacticalTriggerView from(com.dndmaster.adventure.domain.adventure.TacticalTrigger value) {
+            return new TacticalTriggerView(value.id(), value.type().name(), value.targetIds(), value.transitionId(), value.grounding().type().name(), value.grounding().citation(), value.grounding().rationale());
+        }
+    }
+    public record TacticalOutcomeView(String id, String condition, String groundingType, String citation, String rationale) {
+        static TacticalOutcomeView from(com.dndmaster.adventure.domain.adventure.TacticalOutcome value) {
+            return new TacticalOutcomeView(value.id(), value.condition(), value.grounding().type().name(), value.grounding().citation(), value.grounding().rationale());
         }
     }
     public record CoordinateView(double x, double y) {

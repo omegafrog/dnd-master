@@ -31,7 +31,7 @@ public final class TacticalScenePlanValidator {
         if (!scene.readyForActivation()) return List.of("tactical scene is absent");
         Set<String> supplied = new HashSet<>();
         request.citations().forEach(citation -> supplied.add(key(citation)));
-        List<String> evidenceViolations = evidence.reconcile(request.citations(), candidate.citations());
+        List<String> evidenceViolations = evidence.reconcile(request.citations(), candidate.citations(), scene);
         if (!evidenceViolations.isEmpty()) return evidenceViolations;
         for (var citation : candidate.citations()) {
             if (citation.quote() == null || citation.quote().isBlank()) return List.of("tactical source citation has no source fact");
@@ -48,9 +48,8 @@ public final class TacticalScenePlanValidator {
         if (scene.bosses().stream().anyMatch(placement -> placement.grounding().type() != PlacementGroundingType.SOURCE_CITATION)) {
             return List.of("tactical boss requires source citation");
         }
-        if (scene.outcomes().stream().anyMatch(outcome -> outcome.grounding().type() != PlacementGroundingType.SOURCE_CITATION)) {
-            return List.of("tactical outcome requires source citation");
-        }
+        if (scene.triggers().isEmpty()) return List.of("tactical scene requires explicit trigger coverage");
+        if (scene.outcomes().isEmpty()) return List.of("tactical scene requires explicit outcome coverage");
         return List.of();
     }
 

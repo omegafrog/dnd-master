@@ -39,6 +39,18 @@ class TacticalScenePlanTest {
         assertEquals(List.of("enemy-1"), seen[0].targetIds());
         assertEquals("COMBAT_ENTRY", seen[0].type());
     }
+
+    @Test
+    void rejectsAMapThatIsNotTheActiveMapForTheAdventureStage() {
+        var scene = new TacticalScenePlan(1, TacticalScenePlanStatus.READY, boundary(),
+                List.of(placement("party", TacticalPlacementKind.PLAYER, .1, .1)), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                new FogPlan(List.of(), grounding("fog")),
+                List.of(new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of(), "", grounding("entry"))), List.of(), List.of());
+        var service = new TacticalTriggerRuntimeApplicationService(new TacticalTriggerEvaluator(), (map, owner, version, command, evaluation) -> { });
+        var adventure = UUID.randomUUID();
+        service.bindActiveMap(adventure, 1, UUID.randomUUID());
+        assertThrows(IllegalArgumentException.class, () -> service.apply(adventure, 1, scene, "entry", UUID.randomUUID(), UUID.randomUUID(), 0, UUID.randomUUID()));
+    }
     @Test
     void rejectsNormalizedCoordinatesOutsideTheSourceMap() {
         assertThrows(IllegalArgumentException.class, () -> new NormalizedCoordinate(1.01, .5));
