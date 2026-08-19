@@ -4,6 +4,10 @@ import { basename } from 'node:path'
 const backend = process.env.BACKEND_E2E_URL
 const email = process.env.BACKEND_E2E_EMAIL
 const password = process.env.BACKEND_E2E_PASSWORD
+const internalToken = process.env.INTERNAL_SERVICE_TOKEN
+const liveAdventureId = process.env.BACKEND_E2E_ADVENTURE_ID
+const liveSessionId = process.env.BACKEND_E2E_SESSION_ID
+const livePlayerId = process.env.BACKEND_E2E_PLAYER_ID
 const rulebookPath = process.env.BACKEND_E2E_RULEBOOK_FILE
 const assetRoot = '/home/jiwoo/workspace/dnd-master/docs/assets/'
 
@@ -30,10 +34,10 @@ if (rulebookPath && !rulebookPath.startsWith(assetRoot)) throw new Error('BACKEN
 if (storybooks.length === 3 && new Set(storybooks.map(asset => asset.role)).size !== 3) {
   throw new Error('BACKEND_E2E_STORYBOOKS_JSON must contain exactly MAIN_SCENARIO, MAP, and HANDOUT roles')
 }
-const hasEnvironment = Boolean(backend && email && password && rulebookPath && storybooks.length === 3)
+const hasEnvironment = Boolean(backend && email && password && internalToken && rulebookPath && storybooks.length === 3)
 
 test('fresh Potent Brew browser journey selects three assets and saves their roles', async ({ page }) => {
-  test.skip(!hasEnvironment, 'set backend credentials, rulebook file, and three Linux Potent Brew storybooks')
+  test.skip(!hasEnvironment, 'missing BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD, INTERNAL_SERVICE_TOKEN, BACKEND_E2E_RULEBOOK_FILE, or three Linux Potent Brew storybooks')
   test.setTimeout(180_000)
 
   await page.goto('/#/login')
@@ -86,4 +90,53 @@ test('fresh Potent Brew browser journey selects three assets and saves their rol
   await createAdventure.click()
   await expect(page).toHaveURL(/#\/sessions\/[^/]+\/party/)
   await expect(page.getByRole('heading', { name: '모험을 함께할 파티' })).toBeVisible()
+})
+
+test('live Potent Brew browser journey exposes only safe map data and completes tactical contracts', async ({ page }) => {
+  const ready = Boolean(backend && email && password && internalToken && liveAdventureId && liveSessionId && livePlayerId)
+  test.skip(!ready, 'missing BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD, INTERNAL_SERVICE_TOKEN, BACKEND_E2E_ADVENTURE_ID, BACKEND_E2E_SESSION_ID, or BACKEND_E2E_PLAYER_ID')
+  test.setTimeout(180_000)
+
+  await page.goto('/#/login')
+  await page.getByLabel('이메일').fill(email!)
+  await page.getByLabel('비밀번호').fill(password!)
+  await page.getByRole('button', { name: '로그인', exact: true }).click()
+  await page.goto(`/#/adventures/${liveAdventureId}`)
+  await expect(page.getByRole('region', { name: '현재 전장' })).toBeVisible()
+  await expect(page.getByText(/모험 ID:/)).toBeVisible()
+  await expect(page.locator('body')).not.toContainText('HIDDEN')
+  await expect(page.locator('body')).not.toContainText('groundingStatus')
+  await expect(page.locator('body')).not.toContainText('playerSpawnX')
+
+  // The browser-authenticated journey now verifies the internal tactical
+  // continuation contracts after the safe player UI is visible.
+  const request = page.request
+  const bearer = await page.evaluate(() => window.localStorage.getItem('dnd-master.auth-session'))
+  const authorization = bearer ? { Authorization: `Bearer ${JSON.parse(bearer).accessToken}` } : {}
+  const internalHeaders = { ...authorization, 'X-Internal-Token': internalToken! }
+  const planResponse = await request.get(`${backend}/api/v1/adventure-sessions/${liveSessionId}/story-plan/gm`, { headers: internalHeaders })
+  await expect(planResponse).toBeOK()
+  const plan = await planResponse.json()
+  const stagePosition = Number(process.env.BACKEND_E2E_TACTICAL_STAGE_POSITION ?? '1')
+  const activeStage = plan.stages[stagePosition - 1]
+  const activation = await request.post(`${backend}/api/v1/adventure-sessions/${liveSessionId}/story-plan/stages/${stagePosition}/activate-map`, { headers: authorization })
+  await expect(activation).toBeOK()
+  const activationBody = await activation.json()
+  const projection = await request.get(`${backend}/internal/v1/combat-maps/${activationBody.combatMapId}/player-view?ownerId=${livePlayerId}`, { headers: internalHeaders })
+  await expect(projection).toBeOK()
+  const projected = await projection.json()
+  expect(projected.tokens.every((token: { discovery?: string }) => token.discovery !== 'HIDDEN')).toBeTruthy()
+  const triggerId = activeStage.tacticalScene.triggers[0].id
+  const trigger = await request.post(`${backend}/api/v1/adventure-sessions/${liveSessionId}/story-plan/stages/${stagePosition}/triggers/${triggerId}/apply`, {
+    headers: authorization,
+    data: { combatMapId: activationBody.combatMapId, commandId: crypto.randomUUID(), expectedVersion: projected.version },
+  })
+  await expect(trigger).toBeOK()
+  const futureStage = plan.stages.find((stage: { position: number }) => stage.position > stagePosition)
+  expect(futureStage).toBeTruthy()
+  const revision = await request.post(`${backend}/api/v1/adventure-sessions/${liveSessionId}/story-plan/stages/${futureStage.position}/tactical-scene/revise`, {
+    headers: internalHeaders,
+    data: futureStage.tacticalScene.plan,
+  })
+  await expect(revision).toBeOK()
 })
