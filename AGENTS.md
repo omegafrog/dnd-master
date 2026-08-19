@@ -25,7 +25,7 @@ export JAVA_HOME=/home/jiwoo/.sdkman/candidates/java/current
 
 Required runtime values must be supplied before starting services or live E2E. Fail fast with a clear message instead of starting and rediscovering missing configuration:
 
-- Backend: `RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS=local-catalog-admin` and `CODEX_EXECUTABLE=/home/jiwoo/.nvm/versions/node/v24.12.0/bin/codex`.
+- Backend: `RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS=local-catalog-admin`, `CODEX_EXECUTABLE=/home/jiwoo/.nvm/versions/node/v24.12.0/bin/codex`, and non-empty `INTERNAL_SERVICE_TOKEN` shared by internal gateways/controllers.
 - Live Playwright: `BACKEND_E2E_URL`, `BACKEND_E2E_EMAIL`, `BACKEND_E2E_PASSWORD`, `BACKEND_E2E_RULEBOOK_FILE`, and non-empty `BACKEND_E2E_STORYBOOKS_JSON`.
 - Fresh Potent Brew runs must use Linux asset paths under `/home/jiwoo/workspace/dnd-master/docs/assets/` and roles `MAIN_SCENARIO`, `MAP`, and `HANDOUT`.
 
