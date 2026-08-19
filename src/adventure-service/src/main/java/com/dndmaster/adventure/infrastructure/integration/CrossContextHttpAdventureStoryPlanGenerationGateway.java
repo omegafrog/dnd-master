@@ -24,8 +24,11 @@ import java.util.UUID;
 import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class CrossContextHttpAdventureStoryPlanGenerationGateway implements AdventureStoryPlanGenerationPort {
+    private static final Pattern UUID_TOKEN = Pattern.compile("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}");
     private final HttpClient client; private final URI baseUri; private final Duration timeout; private final ObjectMapper mapper;
     public CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient client, URI baseUri, Duration timeout, ObjectMapper mapper) {
         this.client = Objects.requireNonNull(client); this.baseUri = Objects.requireNonNull(baseUri); this.timeout = Objects.requireNonNull(timeout); this.mapper = Objects.requireNonNull(mapper);
@@ -115,7 +118,7 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                 && item.confidence() >= 0 && item.confidence() <= source.confidence());
     }
     private static AdventureStoryPlanStage toDomain(Stage stage, Map<UUID, AdventureStoryPlanGenerationPort.MapContext> maps) {
-        UUID mapId = stage.mapDefinitionId() == null || stage.mapDefinitionId().isBlank() ? null : UUID.fromString(stage.mapDefinitionId());
+        UUID mapId = parseMapDefinitionId(stage.mapDefinitionId());
         if (mapId == null && (!stage.mapAssetId().isBlank() || !stage.mapAssetLocator().isBlank())) throw new IllegalStateException("map asset requires a map definition");
         AdventureStoryPlanGenerationPort.MapContext map = mapId == null ? null : maps.get(mapId);
         if (mapId != null && map == null) throw new IllegalStateException("AI returned an unknown map definition");
@@ -136,6 +139,12 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                 stage.enemies(), stage.boss(), stage.clearCondition(), stage.failureCondition(), stage.rewards(), stage.branchIds(), evidence, grounding, suggestions,
                 map == null ? "UNAVAILABLE" : map.safetyStatus(), map == null ? null : map.confidence(), stage.branchTargets(),
                 spawn.x(), spawn.y(), spawn.confidence(), spawn.rationale());
+    }
+    static UUID parseMapDefinitionId(String value) {
+        if (value == null || value.isBlank()) return null;
+        Matcher matcher = UUID_TOKEN.matcher(value);
+        if (!matcher.find()) throw new IllegalArgumentException("map definition ID is not a UUID: " + value);
+        return UUID.fromString(matcher.group());
     }
     private static Spawn inferPlayerSpawn(Stage stage, AdventureStoryPlanGenerationPort.MapContext map) {
         if (stage.playerSpawnX() != null && stage.playerSpawnY() != null)

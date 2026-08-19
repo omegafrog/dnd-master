@@ -58,6 +58,14 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
         server.verify(exactly(1), postRequestedFor(urlEqualTo("/internal/v1/gm/tactical-scene-plan")));
     }
 
+    @Test
+    void extractsMapDefinitionUuidWhenAgentAddsTextAroundTheSuppliedId() {
+        UUID mapId = UUID.randomUUID();
+
+        assertEquals(mapId, CrossContextHttpAdventureStoryPlanGenerationGateway.parseMapDefinitionId(
+                "Map definition ID: " + mapId + " (use the supplied map)"));
+    }
+
     private static TacticalSceneRequest request(UUID documentId) {
         var stage = new AdventureStoryPlanStage(1, "Cellar", "Clear", "Rats", "Leave", List.of(), List.of("ending"),
                 List.of(), AdventureStageType.DUNGEON, "Cellar", UUID.randomUUID(), "brewery", "page:1", List.of(), "", "Leave", "", List.of(),
