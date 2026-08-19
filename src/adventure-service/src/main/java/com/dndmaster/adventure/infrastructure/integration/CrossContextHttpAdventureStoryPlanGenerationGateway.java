@@ -1,9 +1,14 @@
 package com.dndmaster.adventure.infrastructure.integration;
 
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
+import com.dndmaster.adventure.application.storyplan.TacticalScenePlanCandidate;
+import com.dndmaster.adventure.application.storyplan.TacticalSceneRequest;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanGraphValidator;
+import com.dndmaster.adventure.domain.adventure.PlacementGrounding;
+import com.dndmaster.adventure.domain.adventure.PlacementGroundingType;
+import com.dndmaster.adventure.domain.adventure.TacticalScenePlan;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -65,8 +70,44 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         catch (IOException e) { throw new IllegalStateException("story plan AI response malformed", e); }
         catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("story plan AI interrupted", e); }
     }
+
+    @Override public TacticalScenePlanCandidate generateTacticalScene(TacticalSceneRequest request) {
+        try {
+            var response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/tactical-scene-plan"))
+                    .timeout(timeout).header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(request))).build(), HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("tactical scene AI failed: " + response.statusCode());
+            }
+            TacticalResponse parsed = mapper.readValue(response.body(), TacticalResponse.class);
+            if (parsed.scene() == null) throw new IllegalStateException("AI returned no tactical scene");
+            List<AdventureStoryPlanGenerationPort.SourceCitation> citations = parsed.citations().stream().map(item -> new AdventureStoryPlanGenerationPort.SourceCitation(
+                    item.documentType(), UUID.fromString(item.documentId()), item.extractionVersion(), item.locator(), item.quote(), item.confidence())).toList();
+            if (citations.stream().anyMatch(item -> !matchesCitation(new SourceCitation(item.documentType(), item.documentId().toString(), item.extractionVersion(), item.locator(), item.quote(), item.confidence()), request.citations()))) {
+                throw new IllegalStateException("AI returned an unknown tactical source citation");
+            }
+            if (sourceCitations(parsed.scene()).stream().anyMatch(citation -> request.citations().stream()
+                    .noneMatch(source -> citation.equals(source.documentId() + ":" + source.locator())))) {
+                throw new IllegalStateException("AI returned tactical grounding without a supplied citation");
+            }
+            return TacticalScenePlanCandidate.ready(parsed.stagePosition(), parsed.scene(), citations);
+        } catch (HttpTimeoutException e) { throw new IllegalStateException("tactical scene AI timed out after " + timeout, e); }
+        catch (IOException e) { throw new IllegalStateException("tactical scene AI response malformed", e); }
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("tactical scene AI interrupted", e); }
+    }
+
+    private static List<String> sourceCitations(TacticalScenePlan scene) {
+        java.util.stream.Stream<PlacementGrounding> groundings = java.util.stream.Stream.concat(
+                java.util.stream.Stream.concat(java.util.stream.Stream.concat(scene.players().stream(), scene.allies().stream()),
+                        java.util.stream.Stream.concat(scene.npcs().stream(), scene.enemies().stream())).map(item -> item.grounding()),
+                java.util.stream.Stream.concat(java.util.stream.Stream.concat(scene.bosses().stream(), scene.interactiveObjects().stream()).map(item -> item.grounding()),
+                        java.util.stream.Stream.concat(scene.environments().stream().map(item -> item.grounding()),
+                                java.util.stream.Stream.concat(scene.triggers().stream().map(item -> item.grounding()), scene.outcomes().stream().map(item -> item.grounding())))));
+        return java.util.stream.Stream.concat(groundings, java.util.stream.Stream.of(scene.initialFog().grounding()))
+                .filter(item -> item.type() == PlacementGroundingType.SOURCE_CITATION).map(PlacementGrounding::citation).toList();
+    }
     private static boolean matchesCitation(SourceCitation item, List<AdventureStoryPlanGenerationPort.SourceCitation> citations) {
-        return citations.stream().anyMatch(source -> source.documentId().equals(item.documentId())
+        return citations.stream().anyMatch(source -> source.documentId().toString().equals(item.documentId())
                 && source.locator().equals(item.locator())
                 && source.documentType().equals(item.documentType())
                 && source.extractionVersion() == item.extractionVersion()
@@ -110,6 +151,9 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
     }
     private record Spawn(int x, int y, String confidence, String rationale) {}
     @JsonIgnoreProperties(ignoreUnknown = true) record Response(List<Stage> stages) {}
+    @JsonIgnoreProperties(ignoreUnknown = true) record TacticalResponse(int stagePosition, TacticalScenePlan scene, List<SourceCitation> citations) {
+        TacticalResponse { citations = citations == null ? List.of() : List.copyOf(citations); }
+    }
     @JsonIgnoreProperties(ignoreUnknown = true) record Stage(int position, String title, String goal, String conflict, String transitionCondition,
             List<String> npcOrClues, List<String> endingIds, String stageType, String location, String mapDefinitionId,
             String mapAssetId, String mapAssetLocator, List<String> enemies, String boss, String clearCondition, String failureCondition, List<String> rewards,

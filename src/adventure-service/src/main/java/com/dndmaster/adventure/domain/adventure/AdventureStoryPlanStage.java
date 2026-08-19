@@ -119,6 +119,13 @@ public record AdventureStoryPlanStage(
         return values == null ? List.of() : List.copyOf(values);
     }
 
+    public AdventureStoryPlanStage withTacticalScenePlan(TacticalScenePlan scene) {
+        return new AdventureStoryPlanStage(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings,
+                stageType, location, mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition,
+                rewards, branchIds, evidence, groundingStatus, aiSuggestions, mapSafetyStatus, mapConfidence, branchTargets,
+                playerSpawnX, playerSpawnY, playerSpawnConfidence, playerSpawnRationale, scene);
+    }
+
     private static String required(String value, String name) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " must not be blank");
         return value.trim();

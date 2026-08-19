@@ -9,6 +9,10 @@ import java.util.List;
 public interface AdventureStoryPlanGenerationPort {
     List<AdventureStoryPlanStage> generate(Request request);
 
+    default TacticalScenePlanCandidate generateTacticalScene(TacticalSceneRequest request) {
+        return TacticalScenePlanCandidate.absent(request.stage().position());
+    }
+
     record Request(String operationId, long packageRevision, int partySize, AdventurePlanConfiguration configuration,
                    List<String> sourceDocuments, List<String> resolutionEvidence, List<MapContext> maps,
                    List<SourceCitation> citations) {

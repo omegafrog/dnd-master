@@ -56,6 +56,12 @@ public final class AdventureStoryPlan {
                 AdventurePlanConfiguration.defaults(), List.of(), 0, reason, Instant.now());
     }
 
+    public static AdventureStoryPlan blocked(UUID planId, SessionId sessionId, long packageRevision, long partyRevision, long version,
+            AdventurePlanConfiguration configuration, List<AdventureStoryPlanStage> stages, String reason) {
+        return new AdventureStoryPlan(planId, sessionId, packageRevision, partyRevision, version, AdventureStoryPlanStatus.BLOCKED,
+                configuration, stages, 0, reason, Instant.now());
+    }
+
     public static AdventureStoryPlan rehydrate(UUID planId, SessionId sessionId, long packageRevision, long partyRevision,
             long version, AdventureStoryPlanStatus status, List<AdventureStoryPlanStage> stages, int currentStage,
             String failureReason, Instant updatedAt) {

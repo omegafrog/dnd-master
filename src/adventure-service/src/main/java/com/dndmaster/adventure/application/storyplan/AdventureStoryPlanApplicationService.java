@@ -37,6 +37,7 @@ public final class AdventureStoryPlanApplicationService {
     private final ScenarioBundleRepository bundles;
     private final ScenarioSourceExcerptPort sourceExcerptPort;
     private final AdventureStoryPlanGenerationPort generator;
+    private final TacticalScenePlanValidator tacticalSceneValidator = new TacticalScenePlanValidator();
 
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions) {
         this(plans, sessions, null, request -> defaultStages(request.configuration()));
@@ -83,6 +84,14 @@ public final class AdventureStoryPlanApplicationService {
         }
         validateMaps(stages, request.maps());
         AdventureStoryPlanGraphValidator.validate(stages, configuration);
+        try {
+            stages = generateTacticalScenes(stages, request);
+        } catch (TacticalScenePlanBlockedException blocked) {
+            AdventureStoryPlan plan = AdventureStoryPlan.blocked(previous == null ? java.util.UUID.randomUUID() : previous.planId(), session.id(),
+                    session.scenarioPackageRevision(), session.version(), version, configuration, stages, blocked.getMessage());
+            plans.save(plan);
+            return plan;
+        }
         AdventureStoryPlan plan = AdventureStoryPlan.ready(
                 previous == null ? java.util.UUID.randomUUID() : previous.planId(), session.id(),
                 session.scenarioPackageRevision(), session.version(), version, configuration, stages);
@@ -100,6 +109,29 @@ public final class AdventureStoryPlanApplicationService {
                         && plan.packageRevision() == session.scenarioPackageRevision()
                         && plan.partyRevision() == session.version())
                 .orElse(false);
+    }
+
+    private List<AdventureStoryPlanStage> generateTacticalScenes(List<AdventureStoryPlanStage> stages,
+            AdventureStoryPlanGenerationPort.Request request) {
+        java.util.Map<UUID, AdventureStoryPlanGenerationPort.MapContext> maps = request.maps().stream()
+                .collect(java.util.stream.Collectors.toMap(AdventureStoryPlanGenerationPort.MapContext::mapDefinitionId, item -> item));
+        List<AdventureStoryPlanStage> result = new ArrayList<>();
+        for (AdventureStoryPlanStage stage : stages) {
+            if (stage.mapDefinitionId() == null) { result.add(stage); continue; }
+            AdventureStoryPlanGenerationPort.MapContext map = maps.get(stage.mapDefinitionId());
+            if (map == null) throw new IllegalStateException("story plan references an unknown tactical map");
+            List<String> violations = List.of();
+            for (int attempt = 1; attempt <= 3; attempt++) {
+                var candidate = generator.generateTacticalScene(new TacticalSceneRequest(stage, map, request.citations(), violations));
+                violations = tacticalSceneValidator.validate(new TacticalSceneRequest(stage, map, request.citations(), violations), candidate);
+                if (violations.isEmpty()) {
+                    result.add(stage.withTacticalScenePlan(candidate.scene()));
+                    break;
+                }
+                if (attempt == 3) throw new TacticalScenePlanBlockedException(violations);
+            }
+        }
+        return List.copyOf(result);
     }
 
     private AdventureSession requireSession(SessionId id, OwnerPlayerId owner) {
@@ -210,5 +242,11 @@ public final class AdventureStoryPlanApplicationService {
 
     private static AdventureStoryPlanStage stage(int position, String title, String goal, String conflict, String transition, String ending) {
         return new AdventureStoryPlanStage(position, title, goal, conflict, transition, List.of(), List.of(ending));
+    }
+
+    private static final class TacticalScenePlanBlockedException extends RuntimeException {
+        private TacticalScenePlanBlockedException(List<String> violations) {
+            super(String.join("; ", violations));
+        }
     }
 }

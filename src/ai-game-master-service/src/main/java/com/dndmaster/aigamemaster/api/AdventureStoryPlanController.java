@@ -143,6 +143,52 @@ public final class AdventureStoryPlanController {
         }
     }
 
+    /** Produces one typed, source-grounded tactical scene candidate for a mapped story-plan stage. */
+    @PostMapping("/internal/v1/gm/tactical-scene-plan")
+    JsonNode generateTacticalScene(@RequestBody JsonNode request) {
+        String operationId = request.path("stage").path("position").asText("stage") + "-tactical-" + UUID.randomUUID();
+        String prompt = """
+                Produce exactly one JSON object for a tactical-scene candidate. Do not include Markdown.
+                The response shape is {"stagePosition":number,"scene":{...},"citations":[...]}.
+                scene MUST use schemaVersion 1 and status READY. It must contain boundary {minimum:{x,y},maximum:{x,y},forbiddenCoordinates:[]},
+                players/allies/npcs/enemies/bosses/interactiveObjects/environments arrays, initialFog {hiddenRegions,grounding}, triggers, outcomes, and transitionIds.
+                Every coordinate is normalized from 0 through 1. Every placement/environment must have id, kind, coordinate, and grounding.
+                A grounding is either {type:"SOURCE_CITATION",citation:"documentUuid:locator",rationale:""} using ONLY a supplied citation,
+                or {type:"AI_INFERENCE",citation:"",rationale:"bounded explanation tied to the supplied map or story evidence"}.
+                Source citations and supplied map/story evidence take precedence. Never invent a named boss, reward, ending, monster, or map fact not present in them.
+                If the prior validation feedback identifies a violation, correct that violation in this response.
+                Request: """ + request;
+        try {
+            AgentEndpoint endpoint = endpointRegistry.active();
+            String response;
+            if (endpoint.provider() == AgentEndpoint.Provider.CODEX_CLI) {
+                response = new CodexCliStoryPlanAdapter(codexExecutable, endpoint.model(), codexWorkDirectory, codexTimeout)
+                        .complete(operationId, prompt);
+                JsonNode candidate = parseTacticalCandidate(response);
+                if (!candidate.has("stagePosition") || !candidate.has("scene")) {
+                    throw new IllegalArgumentException("tactical candidate fields missing");
+                }
+                return candidate;
+            } else {
+                return adapter.completeWithModel(operationId, prompt, this::parseTacticalCandidate, endpoint.model());
+            }
+        } catch (Exception e) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI tactical scene response malformed", e);
+        }
+    }
+
+    private JsonNode parseTacticalCandidate(String response) {
+        try {
+            JsonNode candidate = mapper.readTree(extractObject(response));
+            if (!candidate.has("stagePosition") || !candidate.has("scene")) {
+                throw new IllegalArgumentException("tactical candidate fields missing");
+            }
+            return candidate;
+        } catch (Exception e) {
+            throw new IllegalArgumentException("tactical candidate is not valid JSON", e);
+        }
+    }
+
     private static String rootMessage(Throwable error) {
         Throwable root = error;
         while (root.getCause() != null) root = root.getCause();
