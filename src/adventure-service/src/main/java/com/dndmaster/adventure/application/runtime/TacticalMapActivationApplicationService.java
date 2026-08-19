@@ -50,9 +50,11 @@ public final class TacticalMapActivationApplicationService {
         MapDefinition definition = scenarioPackage.mapDefinitions().stream().filter(map -> map.id().equals(mapDefinitionId))
                 .findFirst().orElseThrow(() -> new IllegalArgumentException("map definition not found in scenario package"));
         if (!definition.autoActivatable()) throw new IllegalStateException("map definition is not safe to activate");
-        return new Activation(Optional.of(ruleSetId == null
-                ? preparation.prepare(adventureId, ownerPlayerId, definition)
-                : preparation.prepare(adventureId, ownerPlayerId, ruleSetId, definition, playerSpawnX, playerSpawnY)), false);
+        return new Activation(Optional.of(tacticalScenePlan != null
+                ? preparation.prepare(adventureId, ownerPlayerId, ruleSetId, definition, tacticalScenePlan, playerSpawnX, playerSpawnY)
+                : ruleSetId == null
+                        ? preparation.prepare(adventureId, ownerPlayerId, definition)
+                        : preparation.prepare(adventureId, ownerPlayerId, ruleSetId, definition, playerSpawnX, playerSpawnY)), false);
     }
 
     public record Activation(Optional<UUID> combatMapId, boolean textFallback) {

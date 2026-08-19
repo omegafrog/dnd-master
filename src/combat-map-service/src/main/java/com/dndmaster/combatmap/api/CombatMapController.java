@@ -7,6 +7,7 @@ import com.dndmaster.combatmap.application.view.MapOwnerId;
 import com.dndmaster.combatmap.application.view.PlayerCombatMapView;
 import com.dndmaster.combatmap.application.view.CombatMapAccessDeniedException;
 import com.dndmaster.combatmap.application.view.UploadedMapSource;
+import com.dndmaster.combatmap.application.view.TacticalSceneMaterialization;
 import com.dndmaster.combatmap.domain.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -32,11 +33,18 @@ public class CombatMapController {
         return PlayerCombatMapResponse.from(view);
     }
 
+    @GetMapping("/internal/v1/combat-maps/{mapId}/gm-view")
+    GmCombatMapResponse gmView(@PathVariable UUID mapId, @RequestParam UUID ownerId) {
+        return GmCombatMapResponse.from(mapViewService.displayForGm(new MapId(mapId), new MapOwnerId(ownerId)));
+    }
+
     @PostMapping("/internal/v1/combat-maps/prepare")
     PrepareResponse prepare(@RequestBody PrepareRequest request) {
-        CombatMap map = mapViewService.prepareGenerated(
-                new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
-                new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(), request.playerSpawnX(), request.playerSpawnY());
+        CombatMap map = request.tacticalScene() == null
+                ? mapViewService.prepareGenerated(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
+                        new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(), request.playerSpawnX(), request.playerSpawnY())
+                : mapViewService.prepareTactical(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
+                        new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(), request.tacticalScene());
         return new PrepareResponse(map.id().value());
     }
 
@@ -131,7 +139,11 @@ public class CombatMapController {
 
     public record PrepareRequest(UUID adventureId, UUID ownerId, UUID ruleSetId,
                                  UUID mapDefinitionId, String assetId, String assetLocator,
-                                 Integer playerSpawnX, Integer playerSpawnY) {
+                                 Integer playerSpawnX, Integer playerSpawnY, TacticalSceneMaterialization tacticalScene) {
+        public PrepareRequest(UUID adventureId, UUID ownerId, UUID ruleSetId, UUID mapDefinitionId, String assetId,
+                String assetLocator, Integer playerSpawnX, Integer playerSpawnY) {
+            this(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, playerSpawnX, playerSpawnY, null);
+        }
         public PrepareRequest { playerSpawnX = playerSpawnX == null ? 0 : playerSpawnX; playerSpawnY = playerSpawnY == null ? 0 : playerSpawnY; }
     }
     public record PrepareResponse(UUID mapId) {}

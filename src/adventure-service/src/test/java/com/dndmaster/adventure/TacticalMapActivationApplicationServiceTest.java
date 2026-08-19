@@ -95,6 +95,33 @@ class TacticalMapActivationApplicationServiceTest {
                 UUID.randomUUID(), mapId, TacticalScenePlan.absent(), 0, 0));
     }
 
+    @Test
+    void materializesTheReadyTacticalSceneInsteadOfOnlyForwardingTheLegacySpawn() {
+        var mapId = UUID.randomUUID();
+        var map = new MapDefinition(mapId, "brewery", "page 1", new MapDefinition.MapGrid(0, 0, 1, 0, "5ft"),
+                List.of(), List.of(), List.of(), new MapSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), 1, "page:1"), .9, MapSafetyStatus.SAFE);
+        var scenarioPackage = ScenarioPackage.publishWithMaps(ScenarioBundleId.generate(), 1, "scene-map", List.of(), List.of(),
+                new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()),
+                com.dndmaster.adventure.domain.scenario.CharacterLimit.defaultLimit(), null, List.of(map), List.of());
+        var expected = readyTacticalScene();
+        var seenScene = new TacticalScenePlan[1];
+        var preparedId = UUID.randomUUID();
+        var service = new TacticalMapActivationApplicationService(new PackageRepository(scenarioPackage), new TacticalMapPreparationPort() {
+            public UUID prepare(UUID adventureId, UUID ownerId, MapDefinition definition) { return preparedId; }
+            public UUID prepare(UUID adventureId, UUID ownerId, UUID ruleSetId, MapDefinition definition, TacticalScenePlan scene,
+                    int playerSpawnX, int playerSpawnY) {
+                seenScene[0] = scene;
+                return preparedId;
+            }
+        });
+
+        var result = service.activateDefinition(scenarioPackage.packageId(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), mapId,
+                expected, 0, 0);
+
+        assertEquals(Optional.of(preparedId), result.combatMapId());
+        assertEquals(expected, seenScene[0]);
+    }
+
     private record PackageRepository(ScenarioPackage value) implements ScenarioPackageRepository {
         public Optional<ScenarioPackage> findByInputFingerprint(String ignored) { return Optional.empty(); }
         public Optional<ScenarioPackage> findById(UUID id) { return id.equals(value.packageId()) ? Optional.of(value) : Optional.empty(); }

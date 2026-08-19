@@ -91,12 +91,39 @@ public final class AdventureStoryPlanController {
             String clearCondition, String failureCondition, List<String> enemies, String boss, List<String> rewards, List<String> branchIds,
             UUID mapDefinitionId, String mapAssetId, String mapAssetLocator, String mapSafetyStatus, Double mapConfidence,
             java.util.Map<String, String> branchTargets,
-            String groundingStatus, List<String> aiSuggestions, List<String> executionNotes, List<EvidenceView> evidence) {
+            String groundingStatus, List<String> aiSuggestions, List<String> executionNotes, List<EvidenceView> evidence,
+            GmTacticalSceneView tacticalScene) {
         static GmStageView from(com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage stage) {
             return new GmStageView(stage.position(), stage.title(), stage.stageType().name(), stage.location(), stage.goal(), stage.conflict(), stage.clearCondition(), stage.failureCondition(),
                     stage.enemies(), stage.boss(), stage.rewards(), stage.branchIds(), stage.mapDefinitionId(), stage.mapAssetId(), stage.mapAssetLocator(), stage.mapSafetyStatus(), stage.mapConfidence(), stage.branchTargets(),
-                    stage.groundingStatus().name(), stage.aiSuggestions(), stage.npcOrClues(), stage.evidence().stream().map(item -> new EvidenceView(item.documentType(), item.documentId(), item.extractionVersion(), item.locator(), item.quote(), item.confidence())).toList());
+                    stage.groundingStatus().name(), stage.aiSuggestions(), stage.npcOrClues(), stage.evidence().stream().map(item -> new EvidenceView(item.documentType(), item.documentId(), item.extractionVersion(), item.locator(), item.quote(), item.confidence())).toList(),
+                    GmTacticalSceneView.from(stage.tacticalScenePlan()));
         }
+    }
+
+    public record GmTacticalSceneView(String status, List<TacticalPlacementView> placements,
+            List<TacticalEnvironmentView> environments, List<CoordinateView> hiddenRegions, List<String> transitionIds) {
+        static GmTacticalSceneView from(com.dndmaster.adventure.domain.adventure.TacticalScenePlan scene) {
+            java.util.List<com.dndmaster.adventure.domain.adventure.TacticalPlacement> all = new java.util.ArrayList<>();
+            all.addAll(scene.players()); all.addAll(scene.allies()); all.addAll(scene.npcs()); all.addAll(scene.enemies());
+            all.addAll(scene.bosses()); all.addAll(scene.interactiveObjects());
+            return new GmTacticalSceneView(scene.status().name(), all.stream().map(TacticalPlacementView::from).toList(),
+                    scene.environments().stream().map(TacticalEnvironmentView::from).toList(),
+                    scene.initialFog() == null ? List.of() : scene.initialFog().hiddenRegions().stream().map(CoordinateView::from).toList(), scene.transitionIds());
+        }
+    }
+    public record TacticalPlacementView(String id, String kind, CoordinateView coordinate, String groundingType, String citation, String rationale) {
+        static TacticalPlacementView from(com.dndmaster.adventure.domain.adventure.TacticalPlacement value) {
+            return new TacticalPlacementView(value.id(), value.kind().name(), CoordinateView.from(value.coordinate()), value.grounding().type().name(), value.grounding().citation(), value.grounding().rationale());
+        }
+    }
+    public record TacticalEnvironmentView(String id, String kind, CoordinateView coordinate, String groundingType, String citation, String rationale) {
+        static TacticalEnvironmentView from(com.dndmaster.adventure.domain.adventure.TacticalEnvironment value) {
+            return new TacticalEnvironmentView(value.id(), value.kind(), CoordinateView.from(value.coordinate()), value.grounding().type().name(), value.grounding().citation(), value.grounding().rationale());
+        }
+    }
+    public record CoordinateView(double x, double y) {
+        static CoordinateView from(com.dndmaster.adventure.domain.adventure.NormalizedCoordinate value) { return new CoordinateView(value.x(), value.y()); }
     }
 
     public record ConfigurationRequest(Integer endingCount, String adventureLength) {
