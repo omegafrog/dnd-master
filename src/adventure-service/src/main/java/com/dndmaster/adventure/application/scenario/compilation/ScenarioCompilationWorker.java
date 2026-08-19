@@ -137,6 +137,10 @@ public final class ScenarioCompilationWorker {
                     excerpts == null ? List.of() : excerpts,
                     characterCandidates == null ? List.of() : characterCandidates);
 
+            if (scenarioPackage.report().status() != com.dndmaster.adventure.domain.scenario.ResolutionStatus.COMPLETE) {
+                throw new IllegalStateException("scenario compilation is not publishable: " + scenarioPackage.report().status());
+            }
+
             processManager.publish(claimed, delivery, scenarioPackage.packageId());
             log.info("scenario compilation worker published compilationId={} packageId={}",
                     claimed.id(), scenarioPackage.packageId());

@@ -34,22 +34,24 @@ public final class AdventureStoryPlanController {
     }
 
     @GetMapping
-    PlanView read(@PathVariable UUID sessionId) { return PlanView.from(service.read(new SessionId(sessionId), owner())); }
+    PlayerPlanView read(@PathVariable UUID sessionId) { return PlayerPlanView.from(service.read(new SessionId(sessionId), owner())); }
 
     @GetMapping("/history")
-    List<PlanView> history(@PathVariable UUID sessionId) { return service.readHistory(new SessionId(sessionId), owner()).stream().map(PlanView::from).toList(); }
+    List<PlayerPlanView> history(@PathVariable UUID sessionId) {
+        throw new ResponseStatusException(HttpStatus.FORBIDDEN, "story plan history is GM-only");
+    }
 
     @GetMapping("/gm")
     GmPlanView gm(@PathVariable UUID sessionId) { return GmPlanView.from(service.read(new SessionId(sessionId), owner())); }
 
     @PostMapping
-    PlanView generate(@PathVariable UUID sessionId, @RequestBody(required = false) ConfigurationRequest request) {
-        return PlanView.from(service.generate(new SessionId(sessionId), owner(), request == null ? AdventurePlanConfiguration.defaults() : request.toDomain()));
+    PlayerPlanView generate(@PathVariable UUID sessionId, @RequestBody(required = false) ConfigurationRequest request) {
+        return PlayerPlanView.from(service.generate(new SessionId(sessionId), owner(), request == null ? AdventurePlanConfiguration.defaults() : request.toDomain()));
     }
 
     @PostMapping("/retry")
-    PlanView retry(@PathVariable UUID sessionId, @RequestBody(required = false) ConfigurationRequest request) {
-        return PlanView.from(service.generate(new SessionId(sessionId), owner(), request == null ? AdventurePlanConfiguration.defaults() : request.toDomain()));
+    PlayerPlanView retry(@PathVariable UUID sessionId, @RequestBody(required = false) ConfigurationRequest request) {
+        return PlayerPlanView.from(service.generate(new SessionId(sessionId), owner(), request == null ? AdventurePlanConfiguration.defaults() : request.toDomain()));
     }
 
     @PostMapping("/stages/{position}/activate-map")
@@ -67,9 +69,9 @@ public final class AdventureStoryPlanController {
     }
 
     @PostMapping("/stages/{position}/tactical-scene/revise")
-    PlanView reviseFutureTacticalScene(@PathVariable UUID sessionId, @PathVariable int position,
+    PlayerPlanView reviseFutureTacticalScene(@PathVariable UUID sessionId, @PathVariable int position,
             @RequestBody TacticalScenePlan scene) {
-        return PlanView.from(futureRevision.revise(new SessionId(sessionId), owner(), position, scene));
+        return PlayerPlanView.from(futureRevision.revise(new SessionId(sessionId), owner(), position, scene));
     }
 
     @PostMapping("/stages/{position}/triggers/{triggerId}/apply")
@@ -98,6 +100,16 @@ public final class AdventureStoryPlanController {
     public record PlanView(UUID planId, long packageRevision, long partyRevision, long version, String status, int currentStage, int stageCount,
             int endingCount, String adventureLength, List<StageView> stages, String failureReason) {
         static PlanView from(AdventureStoryPlan plan) { return new PlanView(plan.planId(), plan.packageRevision(), plan.partyRevision(), plan.version(), plan.status().name(), plan.currentStage(), plan.stageCount(), plan.configuration().endingCount(), plan.configuration().adventureLength().name(), plan.stages().stream().map(StageView::from).toList(), plan.failureReason()); }
+    }
+
+    public record PlayerPlanView(String status, int currentStage, List<StageView> stages, String failureReason, int planRevision) {
+        static PlayerPlanView from(AdventureStoryPlan plan) {
+            List<StageView> visible = plan.stages().stream()
+                    .filter(stage -> stage.position() == plan.currentStage() + 1)
+                    .map(StageView::from)
+                    .toList();
+            return new PlayerPlanView(plan.status().name(), plan.currentStage(), visible, plan.failureReason(), 0);
+        }
     }
 
     public record StageView(int position, String title, String stageType, String location, String goal,

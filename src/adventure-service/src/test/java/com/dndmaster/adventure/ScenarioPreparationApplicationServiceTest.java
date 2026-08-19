@@ -420,6 +420,22 @@ class ScenarioPreparationApplicationServiceTest {
     }
 
     @Test
+    void blocksPreparationWhenCompilationReportIsPartialEvenWithAUsableBlueprint() {
+        ScenarioSourceBundle source = bundleWithRulebook();
+        var partial = ScenarioPackage.publish(
+                source.id(), 4, "fp-partial-read", source.currentRevision().documents(),
+                List.of(validUnit()), new ScenarioCompilationReport(ResolutionStatus.PARTIAL, List.of("incomplete")),
+                com.dndmaster.adventure.domain.scenario.CharacterLimit.defaultLimit(),
+                new CharacterCreationBlueprint(1, CharacterCreationBlueprintStatus.READY, List.of(), List.of()));
+        TestFixture fixture = bundle(partial, source);
+
+        var preparation = service(fixture).read(fixture.packageId(), owner());
+
+        assertEquals(PlayPreparationStatus.BLOCKED, preparation.status());
+        assertTrue(preparation.blockers().stream().anyMatch(message -> message.contains("CharacterCreationBlueprint")));
+    }
+
+    @Test
     void keepsBaseBlueprintPlayableWhenNoRuntimeCandidatesWereProduced() {
         var packages = mock(ScenarioPackageRepository.class);
         var bundles = mock(ScenarioBundleRepository.class);
@@ -430,7 +446,7 @@ class ScenarioPreparationApplicationServiceTest {
                 "fp-base-only",
                 bundleWithRulebook().currentRevision().documents(),
                 List.of(),
-                new ScenarioCompilationReport(ResolutionStatus.PARTIAL, List.of("no resolution candidates were produced")),
+                new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of("no resolution candidates were produced")),
                 com.dndmaster.adventure.domain.scenario.CharacterLimit.defaultLimit(),
                 blueprint);
         when(packages.findById(scenarioPackage.packageId())).thenReturn(Optional.of(scenarioPackage));

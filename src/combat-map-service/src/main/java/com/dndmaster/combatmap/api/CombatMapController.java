@@ -91,8 +91,10 @@ public class CombatMapController {
     }
 
     @PostMapping("/internal/v1/combat-maps/{mapId}/moves")
-    CombatMapMoveResponse movePlayer(
-            @PathVariable UUID mapId, @RequestBody MoveRequest request) {
+    public CombatMapMoveResponse movePlayer(
+            @PathVariable UUID mapId, @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody MoveRequest request) {
+        requestGuard.internal(token);
         MovementPath path = new MovementPath(
                 request.positions().stream().map(p -> new GridPosition(p.x(), p.y())).toList(),
                 request.distance());
@@ -109,8 +111,10 @@ public class CombatMapController {
     }
 
     @PostMapping("/internal/v1/combat-maps/{mapId}/ai-state")
-    CombatMapAiStateResponse controlAiState(
-            @PathVariable UUID mapId, @RequestBody AiStateRequest request) {
+    public CombatMapAiStateResponse controlAiState(
+            @PathVariable UUID mapId, @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody AiStateRequest request) {
+        requestGuard.internal(token);
         GridPosition position = new GridPosition(request.x(), request.y());
         List<MapLayer> aiLayers = request.layers() == null ? List.of() :
                 request.layers().stream()
@@ -124,19 +128,22 @@ public class CombatMapController {
     }
 
     @PostMapping("/internal/v1/combat-maps/{mapId}/doors")
-    CombatMapAiStateResponse changeDoor(@PathVariable UUID mapId, @RequestBody DoorRequest request) {
+    public CombatMapAiStateResponse changeDoor(@PathVariable UUID mapId, @RequestHeader(value = "X-Internal-Token", required = false) String token, @RequestBody DoorRequest request) {
+        requestGuard.internal(token);
         CombatMap map=mapViewService.changeDoor(new MapId(mapId),new MapOwnerId(request.ownerId()),request.expectedVersion(),request.commandId(),new GridPosition(request.x(),request.y()),request.open());
         return new CombatMapAiStateResponse(map.id().value());
     }
 
     @PostMapping("/internal/v1/combat-maps/{mapId}/reveals")
-    CombatMapAiStateResponse reveal(@PathVariable UUID mapId, @RequestBody RevealRequest request) {
+    public CombatMapAiStateResponse reveal(@PathVariable UUID mapId, @RequestHeader(value = "X-Internal-Token", required = false) String token, @RequestBody RevealRequest request) {
+        requestGuard.internal(token);
         CombatMap map=mapViewService.revealToken(new MapId(mapId),new MapOwnerId(request.ownerId()),request.expectedVersion(),request.commandId(),new TokenId(request.tokenId()));
         return new CombatMapAiStateResponse(map.id().value());
     }
 
     @PostMapping("/internal/v1/combat-maps/{mapId}/game-time")
-    CombatMapAiStateResponse gameTime(@PathVariable UUID mapId, @RequestBody GameTimeRequest request) {
+    public CombatMapAiStateResponse gameTime(@PathVariable UUID mapId, @RequestHeader(value = "X-Internal-Token", required = false) String token, @RequestBody GameTimeRequest request) {
+        requestGuard.internal(token);
         CombatMap map=mapViewService.onGameTimeAdvanced(new MapId(mapId),new MapOwnerId(request.ownerId()),request.expectedVersion(),new GameTimeAdvanced(request.adventureId(),request.ruleTurn(),request.causeId()));
         return new CombatMapAiStateResponse(map.id().value());
     }

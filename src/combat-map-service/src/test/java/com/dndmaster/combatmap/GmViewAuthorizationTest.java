@@ -68,4 +68,16 @@ class GmViewAuthorizationTest {
                 new org.springframework.mock.web.MockMultipartFile("file", "map.png", "image/png", new byte[] {1}),
                 request.adventureId(), request.ownerId(), request.ruleSetId()));
     }
+
+    @Test
+    void protectsAllInternalCombatMapMutators() {
+        var controller = new CombatMapController(mock(CombatMapViewService.class), mock(CombatMapMovementService.class), new ApiRequestGuard("service-secret"));
+        UUID mapId = UUID.randomUUID();
+
+        assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.movePlayer(mapId, null, null));
+        assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.controlAiState(mapId, null, null));
+        assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.changeDoor(mapId, null, null));
+        assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.reveal(mapId, null, null));
+        assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.gameTime(mapId, null, null));
+    }
 }

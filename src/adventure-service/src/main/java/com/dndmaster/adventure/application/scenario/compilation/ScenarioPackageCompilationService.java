@@ -151,7 +151,7 @@ public final class ScenarioPackageCompilationService {
         ResolutionStatus reportStatus = hasUnsafeInvalid || (!units.isEmpty() && units.stream().allMatch(unit -> unit.status() == ResolutionStatus.INVALID))
                 ? ResolutionStatus.INVALID
                 : units.stream().anyMatch(unit -> unit.status() == ResolutionStatus.PARTIAL)
-                        || hasRecoverableDiceFailure || units.isEmpty() ? ResolutionStatus.PARTIAL : ResolutionStatus.COMPLETE;
+                        || hasRecoverableDiceFailure ? ResolutionStatus.PARTIAL : ResolutionStatus.COMPLETE;
         if (!overrideResult.overrides().isEmpty()) {
             overrideRepository.saveAll(overrideResult.overrides());
         }
@@ -168,7 +168,9 @@ public final class ScenarioPackageCompilationService {
                 characterLimit(bundle, availableExcerpts),
                 characterBlueprint,
                 mapCompilation.maps(), mapCompilation.bindings());
-        repository.save(scenarioPackage);
+        if (reportStatus == ResolutionStatus.COMPLETE) {
+            repository.save(scenarioPackage);
+        }
         return scenarioPackage;
     }
 

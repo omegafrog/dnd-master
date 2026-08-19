@@ -107,7 +107,7 @@ public final class ScenarioPreparationApplicationService {
         if (storybookDocuments.isEmpty()) {
             blockers.add("STORYBOOK 문서가 없습니다.");
         }
-        if (scenarioPackage.report().status() == ResolutionStatus.INVALID
+        if (scenarioPackage.report().status() != ResolutionStatus.COMPLETE
                 || (scenarioPackage.characterCreationBlueprint() == null
                 && scenarioPackage.runtimeCandidates().isEmpty())) {
             blockers.add("CharacterCreationBlueprint를 만들 수 없습니다.");
