@@ -35,6 +35,7 @@ class AdventureStoryPlanPlayerProjectionTest {
         assertFalse(json.contains("mapDefinitionId"));
         assertFalse(json.contains("groundingStatus"));
         assertFalse(json.contains("playerSpawnX"));
+        assertFalse(json.contains("failureReason"));
     }
 
     @Test
