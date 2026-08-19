@@ -526,7 +526,7 @@ public final class ScenarioPreparationApplicationService {
                 .orElseThrow(ScenarioBundleNotFoundException::new);
         bundle.authorize(ownerPlayerId);
         requireCurrentBundleRevision(scenarioPackage, bundle);
-        if (scenarioPackage.report().status() == ResolutionStatus.INVALID
+        if (scenarioPackage.report().status() != ResolutionStatus.COMPLETE
                 || (scenarioPackage.characterCreationBlueprint() == null
                 && scenarioPackage.runtimeCandidates().isEmpty())) {
             throw new IllegalStateException("scenario package is not ready for blueprint publication");

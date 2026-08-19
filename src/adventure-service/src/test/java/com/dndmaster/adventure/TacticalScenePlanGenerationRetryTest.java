@@ -11,6 +11,8 @@ import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGeneratio
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository;
 import com.dndmaster.adventure.application.storyplan.TacticalScenePlanCandidate;
 import com.dndmaster.adventure.application.storyplan.TacticalSceneRequest;
+import com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate;
+import com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort;
 import com.dndmaster.adventure.domain.adventure.AdventurePartyMember;
 import com.dndmaster.adventure.domain.adventure.AdventureLength;
 import com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration;
@@ -49,6 +51,21 @@ import org.junit.jupiter.api.Test;
 
 class TacticalScenePlanGenerationRetryTest {
     private static final AdventurePlanConfiguration SHORT_ADVENTURE = new AdventurePlanConfiguration(1, AdventureLength.SHORT);
+
+    @Test
+    void retryPortRequestRetainsFailedCandidateAttemptAndDiagnostics() {
+        var failed = ResolutionCandidate.diceRoll(new KnowledgeDocumentId(UUID.randomUUID()), 1, "page:1", "bad", "roll");
+        var excerpt = new ResolutionExtractionPort.SourceExcerpt(new KnowledgeDocumentId(UUID.randomUUID()), 1, "page:1", "roll");
+        final ResolutionExtractionPort.ResolutionExtractionRequest[] captured = new ResolutionExtractionPort.ResolutionExtractionRequest[1];
+        ResolutionExtractionPort port = request -> { captured[0] = request; return List.of(failed); };
+
+        port.retryCandidate(new ResolutionExtractionPort.CandidateRetryRequest(
+                "op", failed, List.of(excerpt), "schema", "retry", 3, List.of("dice expression is invalid")));
+
+        assertEquals(failed, captured[0].failedCandidate());
+        assertEquals(3, captured[0].attempt());
+        assertEquals(List.of("dice expression is invalid"), captured[0].diagnostics());
+    }
 
     @Test
     void retriesInvalidTacticalCandidatesExactlyThreeTimesThenPersistsBlockedPlan() {
@@ -112,6 +129,7 @@ class TacticalScenePlanGenerationRetryTest {
         AdventureStoryPlan plan = fixture.service.generate(fixture.session.id(), fixture.session.ownerPlayerId(), SHORT_ADVENTURE);
         assertEquals(AdventureStoryPlanStatus.BLOCKED, plan.status());
         assertEquals(3, fixture.generator.requests.size());
+        assertEquals("tactical scene generation failed: IllegalArgumentException: malformed provider payload", plan.failureReason());
         assertFalse(fixture.service.isReadyFor(fixture.session));
     }
 

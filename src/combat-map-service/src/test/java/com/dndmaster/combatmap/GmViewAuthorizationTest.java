@@ -57,4 +57,15 @@ class GmViewAuthorizationTest {
 
         assertEquals(400, error.getStatusCode().value());
     }
+
+    @Test
+    void protectsInternalMapPreparationEndpoints() {
+        var controller = new CombatMapController(mock(CombatMapViewService.class), mock(CombatMapMovementService.class), new ApiRequestGuard("service-secret"));
+        var request = new CombatMapController.PrepareRequest(UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), "asset", "locator", 0, 0);
+
+        assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.prepare(null, request));
+        assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.prepareUpload(null,
+                new org.springframework.mock.web.MockMultipartFile("file", "map.png", "image/png", new byte[] {1}),
+                request.adventureId(), request.ownerId(), request.ruleSetId()));
+    }
 }

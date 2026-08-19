@@ -3,6 +3,7 @@ package com.dndmaster.adventure;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
 import com.dndmaster.adventure.application.scenario.ScenarioBundleRepository;
@@ -19,6 +20,7 @@ import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus;
+import com.dndmaster.adventure.domain.scenario.BlueprintProvenance;
 import com.dndmaster.adventure.domain.scenario.ResolutionKind;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
@@ -440,6 +442,27 @@ class ScenarioPreparationApplicationServiceTest {
         assertEquals(PlayPreparationStatus.READY, preparation.status());
         assertTrue(preparation.blockers().isEmpty());
         assertTrue(preparation.characterCreationBlueprint().available());
+    }
+
+    @Test
+    void refusesBlueprintPublicationFromPartialCompilation() {
+        var packages = mock(ScenarioPackageRepository.class);
+        var bundles = mock(ScenarioBundleRepository.class);
+        var blueprint = new CharacterCreationBlueprint(1, CharacterCreationBlueprintStatus.READY, List.of(), List.of(),
+                new BlueprintProvenance(1, 4, List.of("RULEBOOK")));
+        var scenarioPackage = ScenarioPackage.publish(new ScenarioBundleId(bundleId()), 4, "fp-partial-publish",
+                bundleWithRulebook().currentRevision().documents(), List.of(),
+                new ScenarioCompilationReport(ResolutionStatus.PARTIAL, List.of("resolution retry exhausted")),
+                com.dndmaster.adventure.domain.scenario.CharacterLimit.defaultLimit(), blueprint);
+        when(packages.findById(scenarioPackage.packageId())).thenReturn(Optional.of(scenarioPackage));
+        when(bundles.findById(scenarioPackage.bundleId())).thenReturn(Optional.of(bundleWithRulebook()));
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> new ScenarioPreparationApplicationService(packages, bundles, fixtureRuntimeOptions())
+                        .publishBlueprint(scenarioPackage.packageId(), owner()));
+
+        assertEquals("scenario package is not ready for blueprint publication", failure.getMessage());
+        verify(packages, never()).saveBlueprint(any(), any());
     }
 
     @Test

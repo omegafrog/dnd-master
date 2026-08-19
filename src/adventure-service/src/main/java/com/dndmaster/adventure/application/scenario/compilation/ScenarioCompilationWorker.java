@@ -202,8 +202,7 @@ public final class ScenarioCompilationWorker {
                     bundle.id(), documents.size(), filtered.size());
             return filtered;
         } catch (CharacterContextSearchPort.CharacterContextSearchException exception) {
-            log.warn("character overlay search failed; continuing with edition base schema", exception);
-            return List.of();
+            throw new IllegalStateException("character overlay search failed: " + exception.getMessage(), exception);
         }
     }
 

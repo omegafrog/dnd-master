@@ -11,6 +11,9 @@ import static org.mockito.Mockito.*;
 import com.dndmaster.adventure.application.storyplan.FutureTacticalSceneRevisionService;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository;
 import com.dndmaster.adventure.application.session.AdventureSessionRepository;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
+import com.dndmaster.adventure.application.storyplan.TacticalScenePlanCandidate;
+import com.dndmaster.adventure.application.storyplan.TacticalSceneRequest;
 
 class FutureTacticalSceneRevisionPolicyTest {
     @Test
@@ -66,6 +69,32 @@ class FutureTacticalSceneRevisionPolicyTest {
         var service = new FutureTacticalSceneRevisionService(plans, sessions);
 
         assertThrows(IllegalArgumentException.class, () -> service.revise(sessionId, owner, 2, TacticalScenePlan.absent()));
+        verify(plans, never()).save(any());
+    }
+
+    @Test
+    void usesGroundedGeneratorRetriesAndBlocksAfterThreeInvalidCandidates() {
+        var sessionId = new SessionId(java.util.UUID.randomUUID());
+        var owner = new OwnerPlayerId(java.util.UUID.randomUUID());
+        var session = mock(AdventureSession.class); when(session.ownerPlayerId()).thenReturn(owner); when(session.status()).thenReturn(AdventureSession.Status.STARTED);
+        var plan = AdventureStoryPlan.ready(sessionId, 0, 1, List.of(stage(1, "current"), tacticalStage(2, "future", validScene()))).advanceTo(0);
+        var plans = mock(AdventureStoryPlanRepository.class); when(plans.findBySessionId(sessionId)).thenReturn(java.util.Optional.of(plan));
+        var sessions = mock(AdventureSessionRepository.class); when(sessions.findById(sessionId)).thenReturn(java.util.Optional.of(session));
+        int[] calls = {0};
+        AdventureStoryPlanGenerationPort generator = new AdventureStoryPlanGenerationPort() {
+            public List<AdventureStoryPlanStage> generate(Request request) { return List.of(); }
+            public TacticalScenePlanCandidate generateTacticalScene(TacticalSceneRequest request) {
+                calls[0]++;
+                return TacticalScenePlanCandidate.absent(2);
+            }
+        };
+        var service = new FutureTacticalSceneRevisionService(plans, sessions, generator);
+
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> service.revise(sessionId, owner, 2, validScene()));
+
+        assertEquals(3, calls[0]);
+        assertEquals(true, failure.getMessage().contains("blocked after 3 attempts"));
         verify(plans, never()).save(any());
     }
 

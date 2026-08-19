@@ -54,6 +54,19 @@ class ScenarioCompilationWorkerTest {
     }
 
     @Test
+    void failsCompilationWithDiagnosticWhenScenarioOverlaySearchReturnsBadRequest() {
+        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
+        Fixture fixture = new Fixture(bundle(List.of(document(storybook, ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 1))));
+        fixture.search.failure = new CharacterContextSearchPort.CharacterContextSearchException("HTTP 400: invalid search request");
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> fixture.worker().processNext("worker", Duration.ofMinutes(1)));
+
+        assertTrue(failure.getMessage().contains("character overlay search failed: HTTP 400"));
+        assertEquals("WAITING_RETRY", fixture.compilations.values.values().iterator().next().status().name());
+    }
+
+    @Test
     void workerPublishesValidatedPackageFromClaimedJob() {
         ScenarioSourceBundle bundle = bundle(List.of(document(
                 new KnowledgeDocumentId(UUID.randomUUID()),
@@ -173,7 +186,8 @@ class ScenarioCompilationWorkerTest {
     private static final class Search implements CharacterContextSearchPort {
         Request request;
         List<Evidence> result = List.of();
-        @Override public List<Evidence> search(Request request) { this.request = request; return result; }
+        RuntimeException failure;
+        @Override public List<Evidence> search(Request request) { this.request = request; if (failure != null) throw failure; return result; }
     }
 
     private static final class Tags implements CharacterInputTagExtractionPort {

@@ -18,9 +18,13 @@ public final class CrossContextHttpTacticalMapPreparationGateway implements Tact
     private final URI baseUrl;
     private final Duration timeout;
     private final ObjectMapper mapper;
+    private final String internalToken;
 
     public CrossContextHttpTacticalMapPreparationGateway(HttpClient client, URI baseUrl, Duration timeout, ObjectMapper mapper) {
-        this.client = client; this.baseUrl = baseUrl; this.timeout = timeout; this.mapper = mapper;
+        this(client, baseUrl, timeout, mapper, "local-dev-internal-token");
+    }
+    public CrossContextHttpTacticalMapPreparationGateway(HttpClient client, URI baseUrl, Duration timeout, ObjectMapper mapper, String internalToken) {
+        this.client = client; this.baseUrl = baseUrl; this.timeout = timeout; this.mapper = mapper; this.internalToken = internalToken;
     }
 
     @Override
@@ -50,6 +54,7 @@ public final class CrossContextHttpTacticalMapPreparationGateway implements Tact
             if (scene != null) body.put("tacticalScene", tacticalScene(scene));
             HttpRequest request = HttpRequest.newBuilder(baseUrl.resolve("internal/v1/combat-maps/prepare"))
                     .timeout(timeout).header("Content-Type", "application/json")
+                    .header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body))).build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("combat-map prepare returned HTTP " + response.statusCode());

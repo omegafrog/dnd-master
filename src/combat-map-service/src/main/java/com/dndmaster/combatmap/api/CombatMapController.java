@@ -60,7 +60,9 @@ public class CombatMapController {
     }
 
     @PostMapping("/internal/v1/combat-maps/prepare")
-    PrepareResponse prepare(@RequestBody PrepareRequest request) {
+    public PrepareResponse prepare(@RequestHeader(value = "X-Internal-Token", required = false) String token,
+                            @RequestBody PrepareRequest request) {
+        requestGuard.internal(token);
         CombatMap map = request.tacticalScene() == null
                 ? mapViewService.prepareGenerated(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
                         new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(), request.playerSpawnX(), request.playerSpawnY())
@@ -70,8 +72,10 @@ public class CombatMapController {
     }
 
     @PostMapping(value = "/internal/v1/combat-maps/prepare-upload", consumes = "multipart/form-data")
-    PrepareResponse prepareUpload(@RequestPart MultipartFile file, @RequestParam UUID adventureId,
+    public PrepareResponse prepareUpload(@RequestHeader(value = "X-Internal-Token", required = false) String token,
+                                  @RequestPart MultipartFile file, @RequestParam UUID adventureId,
                                   @RequestParam UUID ownerId, @RequestParam UUID ruleSetId) throws java.io.IOException {
+        requestGuard.internal(token);
         CombatMap map = mapViewService.prepareUploaded(new MapOwnerId(ownerId), new AdventureId(adventureId),
                 new RuleSetId(ruleSetId), new UploadedMapSource(file.getOriginalFilename(), file.getBytes()));
         return new PrepareResponse(map.id().value());

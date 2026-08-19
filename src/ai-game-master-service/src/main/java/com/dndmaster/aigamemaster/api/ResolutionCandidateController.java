@@ -61,6 +61,8 @@ public final class ResolutionCandidateController {
     Response extract(@RequestBody Request request) {
         if (request == null || request.excerpts() == null) return new Response(List.of());
         String prompt = "Extract only directly supported tabletop resolution candidates from these source excerpts. "
+                + (request.attempt() > 0 ? "This is retry attempt " + request.attempt() + ". Failed candidate: " + request.failedCandidate()
+                        + ". Diagnostics: " + request.diagnostics() + ". Correct the diagnosed failure and return a replacement candidate. " : "")
                 + "Return exactly a JSON array, never an object wrapper. Use these exact enum values and field types. "
                 + "Template: [{\"kind\":\"SAVING_THROW\",\"abilityOrSkill\":\"Dexterity\",\"dc\":12,\"diceExpression\":\"1d10\",\"visibility\":\"GM_REFERENCE\",\"sourceQuote\":\"exact quote\",\"sourceRefs\":[{\"documentId\":\"uuid\",\"extractionVersion\":2,\"locator\":\"offset 0-10\"}],\"detail\":null,\"provenance\":\"source text\"}]. "
                 + "kind must be one of SKILL_ABILITY_CHECK,SAVING_THROW,PASSIVE_THRESHOLD,DICE_ROLL,ATTACK_ROLL,DAMAGE_ROLL,HEALING_ROLL,OPPOSED_CHECK,INITIATIVE_ROLL,RECHARGE_ROLL,RANDOM_TABLE,SPECIAL_ROLL. "
@@ -270,7 +272,15 @@ public final class ResolutionCandidateController {
         }).toList();
     }
 
-    public record Request(String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion) {}
+    public record Request(String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion,
+                           JsonNode failedCandidate, int attempt, List<String> diagnostics) {
+        public Request(String operationId, List<Excerpt> excerpts, String schemaVersion, String promptVersion) {
+            this(operationId, excerpts, schemaVersion, promptVersion, null, 0, List.of());
+        }
+        public Request {
+            diagnostics = diagnostics == null ? List.of() : List.copyOf(diagnostics);
+        }
+    }
     public record Excerpt(UUID documentId, long extractionVersion, String locator, String text) {}
     public record Response(List<Candidate> candidates) {}
     public record Candidate(String kind, String abilityOrSkill, Integer dc, String diceExpression,

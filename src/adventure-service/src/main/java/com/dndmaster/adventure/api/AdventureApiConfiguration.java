@@ -960,9 +960,10 @@ public class AdventureApiConfiguration {
     @Bean
     com.dndmaster.adventure.application.runtime.TacticalMapPreparationPort tacticalMapPreparationPort(
             @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}}") String internalToken,
             ObjectMapper objectMapper) {
         return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpTacticalMapPreparationGateway(
-                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(10), objectMapper);
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(10), objectMapper, internalToken);
     }
 
     @Bean
@@ -993,8 +994,9 @@ public class AdventureApiConfiguration {
     @Bean
     com.dndmaster.adventure.application.storyplan.FutureTacticalSceneRevisionService futureTacticalSceneRevisionService(
             com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository plans,
-            com.dndmaster.adventure.application.session.AdventureSessionRepository sessions) {
-        return new com.dndmaster.adventure.application.storyplan.FutureTacticalSceneRevisionService(plans, sessions);
+            com.dndmaster.adventure.application.session.AdventureSessionRepository sessions,
+            AdventureStoryPlanGenerationPort generator) {
+        return new com.dndmaster.adventure.application.storyplan.FutureTacticalSceneRevisionService(plans, sessions, generator);
     }
 
     @Bean

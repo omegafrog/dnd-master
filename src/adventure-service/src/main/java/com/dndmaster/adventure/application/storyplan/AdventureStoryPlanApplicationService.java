@@ -128,7 +128,8 @@ public final class AdventureStoryPlanApplicationService {
                     candidate = generator.generateTacticalScene(tacticalRequest);
                     violations = tacticalSceneValidator.validate(tacticalRequest, candidate);
                 } catch (RuntimeException failure) {
-                    violations = List.of("tactical scene generation failed: " + failure.getClass().getSimpleName());
+                    violations = List.of("tactical scene generation failed: " + failure.getClass().getSimpleName()
+                            + (failure.getMessage() == null || failure.getMessage().isBlank() ? "" : ": " + failure.getMessage()));
                     candidate = null;
                 }
                 if (violations.isEmpty()) {
