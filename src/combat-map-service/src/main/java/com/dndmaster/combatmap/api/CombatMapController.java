@@ -30,8 +30,10 @@ public class CombatMapController {
     }
 
     @GetMapping("/internal/v1/combat-maps/{mapId}/player-view")
-    PlayerCombatMapResponse playerView(
-            @PathVariable UUID mapId, @RequestParam UUID ownerId) {
+    public PlayerCombatMapResponse playerView(
+            @PathVariable UUID mapId, @RequestParam UUID ownerId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requestGuard.internal(token);
         PlayerCombatMapView view = mapViewService.displayForPlayer(new MapId(mapId), new MapOwnerId(ownerId));
         return PlayerCombatMapResponse.from(view);
     }
@@ -44,13 +46,16 @@ public class CombatMapController {
     }
 
     @PostMapping("/internal/v1/combat-maps/{mapId}/tactical-triggers")
-    CombatMapAiStateResponse applyTacticalTrigger(@PathVariable UUID mapId,
+    public CombatMapAiStateResponse applyTacticalTrigger(@PathVariable UUID mapId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
             @RequestBody TacticalTriggerRequest request) {
         requestGuard.internal(token);
+        TacticalTriggerEffect.Kind kind;
+        try { kind = TacticalTriggerEffect.Kind.valueOf(request.kind()); }
+        catch (RuntimeException exception) { throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "invalid tactical trigger kind", exception); }
         var map = mapViewService.applyTacticalTrigger(new MapId(mapId), new MapOwnerId(request.ownerId()), request.expectedVersion(),
                 request.commandId(), TacticalTriggerEffect.planned(request.triggerId(),
-                        TacticalTriggerEffect.Kind.valueOf(request.kind()), request.targetIds()));
+                        kind, request.targetIds()));
         return new CombatMapAiStateResponse(map.id().value());
     }
 
@@ -73,7 +78,9 @@ public class CombatMapController {
     }
 
     @GetMapping("/internal/v1/adventures/{adventureId}/combat-map/player-view")
-    PlayerCombatMapResponse playerAdventureView(@PathVariable UUID adventureId, @RequestParam UUID ownerId) {
+    public PlayerCombatMapResponse playerAdventureView(@PathVariable UUID adventureId, @RequestParam UUID ownerId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requestGuard.internal(token);
         PlayerCombatMapView view = mapViewService.displayForAdventure(new AdventureId(adventureId), new MapOwnerId(ownerId))
                 .orElseThrow(CombatMapAccessDeniedException::new);
         return PlayerCombatMapResponse.from(view);

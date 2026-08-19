@@ -38,19 +38,35 @@ class FutureTacticalSceneRevisionPolicyTest {
         var session = mock(AdventureSession.class);
         when(session.ownerPlayerId()).thenReturn(owner);
         when(session.status()).thenReturn(AdventureSession.Status.STARTED);
-        var plan = AdventureStoryPlan.ready(sessionId, 0, 1, List.of(stage(1, "current"), stage(2, "future"))).advanceTo(0);
+        var tactical = validScene();
+        var plan = AdventureStoryPlan.ready(sessionId, 0, 1, List.of(stage(1, "current"), tacticalStage(2, "future", tactical))).advanceTo(0);
         var plans = mock(AdventureStoryPlanRepository.class);
         when(plans.findBySessionId(sessionId)).thenReturn(java.util.Optional.of(plan));
         var sessions = mock(AdventureSessionRepository.class);
         when(sessions.findById(sessionId)).thenReturn(java.util.Optional.of(session));
         var service = new FutureTacticalSceneRevisionService(plans, sessions);
 
-        service.revise(sessionId, owner, 2, stage(2, "future revised").tacticalScenePlan());
+        service.revise(sessionId, owner, 2, tactical);
 
         verify(plans).save(argThat(value -> value.version() == 3
                 && value.stages().get(0).title().equals("current")
-                && value.stages().get(1).title().equals("future")));
+                && value.stages().get(1).title().equals("future")
+                && value.stages().get(1).tacticalScenePlan().status() == TacticalScenePlanStatus.READY));
         assertThrows(IllegalStateException.class, () -> service.revise(sessionId, owner, 1, stage(1, "changed").tacticalScenePlan()));
+    }
+
+    @Test
+    void rejectsUntrustedInvalidFutureSceneBeforePersistence() {
+        var sessionId = new SessionId(java.util.UUID.randomUUID());
+        var owner = new OwnerPlayerId(java.util.UUID.randomUUID());
+        var session = mock(AdventureSession.class); when(session.ownerPlayerId()).thenReturn(owner); when(session.status()).thenReturn(AdventureSession.Status.STARTED);
+        var plan = AdventureStoryPlan.ready(sessionId, 0, 1, List.of(stage(1, "current"), tacticalStage(2, "future", validScene()))).advanceTo(0);
+        var plans = mock(AdventureStoryPlanRepository.class); when(plans.findBySessionId(sessionId)).thenReturn(java.util.Optional.of(plan));
+        var sessions = mock(AdventureSessionRepository.class); when(sessions.findById(sessionId)).thenReturn(java.util.Optional.of(session));
+        var service = new FutureTacticalSceneRevisionService(plans, sessions);
+
+        assertThrows(IllegalArgumentException.class, () -> service.revise(sessionId, owner, 2, TacticalScenePlan.absent()));
+        verify(plans, never()).save(any());
     }
 
     @Test
@@ -69,5 +85,21 @@ class FutureTacticalSceneRevisionPolicyTest {
 
     private static AdventureStoryPlanStage stage(int position, String title) {
         return new AdventureStoryPlanStage(position, title, "goal", "conflict", "transition", List.of(), List.of("end"));
+    }
+
+    private static AdventureStoryPlanStage tacticalStage(int position, String title, TacticalScenePlan scene) {
+        return new AdventureStoryPlanStage(position, title, "goal", "conflict", "transition", List.of(), List.of("end"), List.of(),
+                AdventureStageType.ENCOUNTER, "cellar", java.util.UUID.randomUUID(), "map", "map.png", List.of("rat"), "", "clear", "fail",
+                List.of("reward"), List.of("end"), List.of(), AdventureGroundingStatus.GROUNDED, List.of(), "SAFE", .9).withTacticalScenePlan(scene);
+    }
+
+    private static TacticalScenePlan validScene() {
+        var grounding = PlacementGrounding.aiInference("bounded");
+        return new TacticalScenePlan(1, TacticalScenePlanStatus.READY,
+                new TacticalSceneBoundary(new NormalizedCoordinate(0, 0), new NormalizedCoordinate(1, 1), List.of()),
+                List.of(new TacticalPlacement("hero", TacticalPlacementKind.PLAYER, new NormalizedCoordinate(.1, .1), grounding)),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), new FogPlan(List.of(), grounding),
+                List.of(new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of("hero"), "", grounding)),
+                List.of(new TacticalOutcome("win", "clear", grounding)), List.of());
     }
 }

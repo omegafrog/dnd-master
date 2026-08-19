@@ -5,6 +5,10 @@ paths:
     get:
       operationId: playerAdventureView
       parameters:
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
         - name: ownerId
           in: query
           required: true
@@ -15,15 +19,22 @@ paths:
           content:
             application/json:
               schema: { $ref: './schemas/player-map-view.json' }
+        '401': { description: internal service authorization required }
   /internal/v1/combat-maps/{mapId}/player-view:
     get:
       operationId: playerView
+      parameters:
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
       responses:
         '200':
           description: filtered versioned view
           content:
             application/json:
               schema: { $ref: './schemas/player-map-view.json' }
+        '401': { description: internal service authorization required }
   /internal/v1/combat-maps/{mapId}/gm-view:
     get:
       operationId: gmView
@@ -64,6 +75,7 @@ paths:
       responses:
         '200': { description: planned trigger applied }
         '401': { description: internal service authorization required }
+        '400': { description: invalid tactical trigger kind }
   /internal/v1/combat-maps/{mapId}/moves:
     post:
       operationId: movePlayer

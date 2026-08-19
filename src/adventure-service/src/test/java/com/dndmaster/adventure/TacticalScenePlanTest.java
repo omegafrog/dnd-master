@@ -46,10 +46,28 @@ class TacticalScenePlanTest {
                 List.of(placement("party", TacticalPlacementKind.PLAYER, .1, .1)), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
                 new FogPlan(List.of(), grounding("fog")),
                 List.of(new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of(), "", grounding("entry"))), List.of(), List.of());
-        var service = new TacticalTriggerRuntimeApplicationService(new TacticalTriggerEvaluator(), (map, owner, version, command, evaluation) -> { });
+        var activeMap = UUID.randomUUID();
+        var service = new TacticalTriggerRuntimeApplicationService(new TacticalTriggerEvaluator(), (map, owner, version, command, evaluation) -> { },
+                (adventureId, ownerId) -> java.util.Optional.of(activeMap));
         var adventure = UUID.randomUUID();
-        service.bindActiveMap(adventure, 1, UUID.randomUUID());
         assertThrows(IllegalArgumentException.class, () -> service.apply(adventure, 1, scene, "entry", UUID.randomUUID(), UUID.randomUUID(), 0, UUID.randomUUID()));
+    }
+
+    @Test
+    void acceptsTheDurablyOwnedActiveMapAfterRuntimeServiceRecreation() {
+        var activeMap = UUID.randomUUID();
+        var adventure = UUID.randomUUID();
+        var owner = UUID.randomUUID();
+        var scene = new TacticalScenePlan(1, TacticalScenePlanStatus.READY, boundary(),
+                List.of(placement("party", TacticalPlacementKind.PLAYER, .1, .1)), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                new FogPlan(List.of(), grounding("fog")), List.of(new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of(), "", grounding("entry"))), List.of(), List.of());
+        var seen = new TacticalTriggerEvaluator.Evaluation[1];
+        var service = new TacticalTriggerRuntimeApplicationService(new TacticalTriggerEvaluator(), (map, player, version, command, evaluation) -> seen[0] = evaluation,
+                (adventureId, ownerId) -> java.util.Optional.of(activeMap));
+
+        service.apply(adventure, 1, scene, "entry", activeMap, owner, 0, UUID.randomUUID());
+
+        assertEquals("COMBAT_ENTRY", seen[0].type());
     }
     @Test
     void rejectsNormalizedCoordinatesOutsideTheSourceMap() {

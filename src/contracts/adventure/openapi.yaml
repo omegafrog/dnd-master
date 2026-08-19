@@ -1,6 +1,25 @@
 openapi: 3.1.0
 info: { title: Adventure API, version: 1.0.0 }
 paths:
+  /api/v1/adventure-sessions/{sessionId}/story-plan:
+    get: { operationId: readStoryPlan, responses: { '200': { description: player-safe story plan } } }
+    post: { operationId: generateStoryPlan, responses: { '200': { description: generated story plan } } }
+  /api/v1/adventure-sessions/{sessionId}/story-plan/gm:
+    get: { operationId: readGmStoryPlan, responses: { '200': { description: GM tactical story plan } } }
+  /api/v1/adventure-sessions/{sessionId}/story-plan/retry:
+    post: { operationId: retryStoryPlan, responses: { '200': { description: regenerated story plan } } }
+  /api/v1/adventure-sessions/{sessionId}/story-plan/stages/{position}/activate-map:
+    post: { operationId: activateTacticalMap, responses: { '200': { description: active tactical map } } }
+  /api/v1/adventure-sessions/{sessionId}/story-plan/stages/{position}/triggers/{triggerId}/apply:
+    post:
+      operationId: applyTacticalTrigger
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [combatMapId, commandId, expectedVersion] } } } }
+      responses: { '200': { description: applied planned trigger }, '409': { description: stage or map is not active } }
+  /api/v1/adventure-sessions/{sessionId}/story-plan/stages/{position}/tactical-scene/revise:
+    post:
+      operationId: reviseFutureTacticalScene
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [status, triggers, outcomes] } } } }
+      responses: { '200': { description: validated future revision }, '400': { description: untrusted or invalid tactical scene rejected } }
   /api/v1/adventures/{adventureId}/events:
     get:
       operationId: streamAdventureEvents

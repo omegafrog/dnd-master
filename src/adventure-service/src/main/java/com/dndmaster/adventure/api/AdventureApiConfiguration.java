@@ -952,8 +952,9 @@ public class AdventureApiConfiguration {
     @Bean
     CombatMapViewPort combatMapViewPort(
             @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}}") String internalToken,
             ObjectMapper objectMapper) {
-        return new HttpCombatMapViewGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), objectMapper);
+        return new HttpCombatMapViewGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), objectMapper, internalToken);
     }
 
     @Bean
@@ -982,9 +983,11 @@ public class AdventureApiConfiguration {
 
     @Bean
     com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimeApplicationService tacticalTriggerRuntimeApplicationService(
-            com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimePort runtime) {
+            com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimePort runtime,
+            com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort) {
         return new com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimeApplicationService(
-                new com.dndmaster.adventure.application.runtime.TacticalTriggerEvaluator(), runtime);
+                new com.dndmaster.adventure.application.runtime.TacticalTriggerEvaluator(), runtime,
+                (adventureId, ownerId) -> combatMapViewPort.playerView(adventureId, ownerId).map(com.dndmaster.adventure.application.combat.CombatMapViewPort.View::mapId));
     }
 
     @Bean

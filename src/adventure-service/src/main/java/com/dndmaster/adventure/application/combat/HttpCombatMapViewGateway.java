@@ -16,16 +16,20 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
     private final URI baseUri;
     private final Duration timeout;
     private final ObjectMapper mapper;
+    private final String internalToken;
 
     public HttpCombatMapViewGateway(HttpClient client, URI baseUri, Duration timeout, ObjectMapper mapper) {
-        this.client = client; this.baseUri = baseUri; this.timeout = timeout; this.mapper = mapper;
+        this(client, baseUri, timeout, mapper, "local-dev-internal-token");
+    }
+    public HttpCombatMapViewGateway(HttpClient client, URI baseUri, Duration timeout, ObjectMapper mapper, String internalToken) {
+        this.client = client; this.baseUri = baseUri; this.timeout = timeout; this.mapper = mapper; this.internalToken = internalToken;
     }
 
     @Override
     public Optional<View> playerView(UUID adventureId, UUID ownerId) {
         HttpRequest request = HttpRequest.newBuilder(baseUri.resolve(
                 "internal/v1/adventures/" + adventureId + "/combat-map/player-view?ownerId=" + ownerId))
-                .timeout(timeout).GET().build();
+                .timeout(timeout).header("X-Internal-Token", internalToken).GET().build();
         try {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 404 || response.statusCode() == 403) return Optional.empty();
