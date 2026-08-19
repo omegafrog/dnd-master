@@ -2,6 +2,7 @@ package com.dndmaster.adventure.application.runtime;
 
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.domain.scenario.MapDefinition;
+import com.dndmaster.adventure.domain.adventure.TacticalScenePlan;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -37,6 +38,14 @@ public final class TacticalMapActivationApplicationService {
 
     public Activation activateDefinition(UUID packageId, UUID adventureId, UUID ownerPlayerId, UUID ruleSetId, UUID mapDefinitionId,
             int playerSpawnX, int playerSpawnY) {
+        return activateDefinition(packageId, adventureId, ownerPlayerId, ruleSetId, mapDefinitionId, null, playerSpawnX, playerSpawnY);
+    }
+
+    public Activation activateDefinition(UUID packageId, UUID adventureId, UUID ownerPlayerId, UUID ruleSetId, UUID mapDefinitionId,
+            TacticalScenePlan tacticalScenePlan, int playerSpawnX, int playerSpawnY) {
+        if (tacticalScenePlan != null && !tacticalScenePlan.readyForActivation()) {
+            throw new IllegalStateException("tactical scene plan must be ready before activation");
+        }
         var scenarioPackage = packages.findById(packageId).orElseThrow(() -> new IllegalArgumentException("scenario package not found"));
         MapDefinition definition = scenarioPackage.mapDefinitions().stream().filter(map -> map.id().equals(mapDefinitionId))
                 .findFirst().orElseThrow(() -> new IllegalArgumentException("map definition not found in scenario package"));

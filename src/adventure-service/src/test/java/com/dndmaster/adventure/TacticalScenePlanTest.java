@@ -1,0 +1,83 @@
+package com.dndmaster.adventure;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
+import com.dndmaster.adventure.domain.adventure.FogPlan;
+import com.dndmaster.adventure.domain.adventure.NormalizedCoordinate;
+import com.dndmaster.adventure.domain.adventure.PlacementGrounding;
+import com.dndmaster.adventure.domain.adventure.TacticalPlacement;
+import com.dndmaster.adventure.domain.adventure.TacticalPlacementKind;
+import com.dndmaster.adventure.domain.adventure.TacticalSceneBoundary;
+import com.dndmaster.adventure.domain.adventure.TacticalScenePlan;
+import com.dndmaster.adventure.domain.adventure.TacticalScenePlanStatus;
+import com.dndmaster.adventure.domain.adventure.TacticalTrigger;
+import com.dndmaster.adventure.domain.adventure.TacticalTriggerType;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+
+class TacticalScenePlanTest {
+    @Test
+    void rejectsNormalizedCoordinatesOutsideTheSourceMap() {
+        assertThrows(IllegalArgumentException.class, () -> new NormalizedCoordinate(1.01, .5));
+    }
+
+    @Test
+    void requiresEveryTacticalCategoryToBeExplicitEvenWhenEmpty() {
+        assertThrows(NullPointerException.class, () -> new TacticalScenePlan(
+                TacticalScenePlan.CURRENT_SCHEMA_VERSION, TacticalScenePlanStatus.READY, boundary(),
+                List.of(placement("player", TacticalPlacementKind.PLAYER, .1, .1)), null, List.of(), List.of(), List.of(),
+                List.of(), List.of(), new FogPlan(List.of(), grounding("fog")), List.of(), List.of(), List.of("leave")));
+    }
+
+    @Test
+    void rejectsCollidingAndForbiddenPlacements() {
+        assertThrows(IllegalArgumentException.class, () -> new TacticalScenePlan(
+                TacticalScenePlan.CURRENT_SCHEMA_VERSION, TacticalScenePlanStatus.READY, boundary(),
+                List.of(placement("player", TacticalPlacementKind.PLAYER, .1, .1)), List.of(),
+                List.of(placement("guard", TacticalPlacementKind.NPC, .1, .1)), List.of(), List.of(), List.of(), List.of(),
+                new FogPlan(List.of(), grounding("fog")), List.of(), List.of(), List.of("leave")));
+
+        assertThrows(IllegalArgumentException.class, () -> new TacticalScenePlan(
+                TacticalScenePlan.CURRENT_SCHEMA_VERSION, TacticalScenePlanStatus.READY,
+                new TacticalSceneBoundary(new NormalizedCoordinate(0, 0), new NormalizedCoordinate(1, 1), List.of(new NormalizedCoordinate(.2, .2))),
+                List.of(placement("player", TacticalPlacementKind.PLAYER, .2, .2)), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                new FogPlan(List.of(), grounding("fog")), List.of(), List.of(), List.of("leave")));
+    }
+
+    @Test
+    void rejectsTriggersThatTargetUnknownEntitiesOrTransitions() {
+        assertThrows(IllegalArgumentException.class, () -> new TacticalScenePlan(
+                TacticalScenePlan.CURRENT_SCHEMA_VERSION, TacticalScenePlanStatus.READY, boundary(),
+                List.of(placement("player", TacticalPlacementKind.PLAYER, .1, .1)), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                new FogPlan(List.of(), grounding("fog")),
+                List.of(new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of("unknown"), "missing", grounding("trigger"))),
+                List.of(), List.of("leave")));
+    }
+
+    @Test
+    void deserializesLegacyStagesAsAbsentTacticalPlans() throws Exception {
+        ObjectMapper mapper = new ObjectMapper();
+        var legacyStage = new AdventureStoryPlanStage(1, "Opening", "Start", "Threat", "Leave", List.of(), List.of("ending"));
+        var json = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.valueToTree(legacyStage);
+        json.remove("tacticalScenePlan");
+
+        var restored = mapper.treeToValue(json, AdventureStoryPlanStage.class);
+
+        assertEquals(TacticalScenePlanStatus.ABSENT, restored.tacticalScenePlan().status());
+    }
+
+    private static TacticalSceneBoundary boundary() {
+        return new TacticalSceneBoundary(new NormalizedCoordinate(0, 0), new NormalizedCoordinate(1, 1), List.of());
+    }
+
+    private static TacticalPlacement placement(String id, TacticalPlacementKind kind, double x, double y) {
+        return new TacticalPlacement(id, kind, new NormalizedCoordinate(x, y), grounding(id));
+    }
+
+    private static PlacementGrounding grounding(String source) {
+        return PlacementGrounding.aiInference(source + " is needed for this scene");
+    }
+}

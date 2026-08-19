@@ -63,9 +63,10 @@ public final class AdventureSessionController {
     private void activateCurrentStageMap(AdventureSession session) {
         var plan = storyPlans.read(session.id(), owner());
         var stage = plan.stages().stream().filter(item -> item.position() == plan.currentStage() + 1).findFirst().orElse(null);
-        if (stage == null || stage.mapDefinitionId() == null || session.startedAdventureId() == null) return;
+        if (stage == null || stage.mapDefinitionId() == null || !stage.tacticalScenePlan().readyForActivation()
+                || session.startedAdventureId() == null) return;
         mapActivation.activateDefinition(session.scenarioPackageId(), session.startedAdventureId().value(), owner().value(),
-                session.runtimeConfiguration().ruleSetId().value(), stage.mapDefinitionId(), stage.playerSpawnX(), stage.playerSpawnY());
+                session.runtimeConfiguration().ruleSetId().value(), stage.mapDefinitionId(), stage.tacticalScenePlan(), stage.playerSpawnX(), stage.playerSpawnY());
     }
     private static GmProviderSelection defaultProvider() { return new GmProviderSelection("codex-cli", "gpt-5.6-luna", "medium"); }
     public record CreateSessionRequest(UUID scenarioPackageId, UUID blueprintId, long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration, Integer partySize) {}

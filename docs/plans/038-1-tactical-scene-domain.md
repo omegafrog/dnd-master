@@ -2,7 +2,7 @@
 
 - Issue: [#174](https://github.com/omegafrog/dnd-master/issues/174)
 - Parent: [#179](https://github.com/omegafrog/dnd-master/issues/179)
-- 상태: `ready-for-agent`
+- 상태: `completed`
 - 의존성: 없음
 
 ## 구현 목적
