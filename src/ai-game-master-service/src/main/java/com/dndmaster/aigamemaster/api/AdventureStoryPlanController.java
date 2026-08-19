@@ -37,9 +37,10 @@ public final class AdventureStoryPlanController {
             @Value("${local-ai.ollama.chat-model:qwen3:8b}") String ollamaModel,
             @Value("${ai.codex.executable:codex}") String codexExecutable,
             @Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
-            @Value("${ai.codex.timeout:PT5M}") Duration codexTimeout) {
+            @Value("${ai.codex.timeout:PT5M}") Duration codexTimeout,
+            @Value("${ai-game-master.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         this(adapter, mapper, endpointRegistry, ollamaBaseUrl, ollamaModel, codexExecutable, codexWorkDirectory, codexTimeout,
-                new ApiRequestGuard("local-dev-internal-token"));
+                new ApiRequestGuard(internalToken));
     }
     public AdventureStoryPlanController(SpringAiChatAdapter adapter, ObjectMapper mapper, AgentEndpointRegistry endpointRegistry,
             String ollamaBaseUrl, String ollamaModel, String codexExecutable, String codexWorkDirectory, Duration codexTimeout,
@@ -49,7 +50,8 @@ public final class AdventureStoryPlanController {
         this.requestGuard = requestGuard;
     }
     @PostMapping("/internal/v1/gm/adventure-story-plan")
-    Response generate(@RequestBody Request request) {
+    Response generate(@RequestHeader(value = "X-Internal-Token", required = false) String internalToken, @RequestBody Request request) {
+        requestGuard.internal(internalToken);
         AgentEndpoint endpoint = endpointRegistry.active();
         Configuration configuration = request.configuration() == null ? Configuration.defaults() : request.configuration();
         String template = """

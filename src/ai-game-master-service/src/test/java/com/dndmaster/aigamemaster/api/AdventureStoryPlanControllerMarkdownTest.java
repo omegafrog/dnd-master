@@ -12,7 +12,8 @@ class AdventureStoryPlanControllerMarkdownTest {
     void preserves_supplied_map_identity_from_markdown_stage() {
         var controller = new AdventureStoryPlanController(
                 null, new ObjectMapper(), null,
-                "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5));
+                "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
+                new ApiRequestGuard("test-internal-token"));
         String markdown = """
                 # Adventure Plan
                 ## Stage 1: Cellar
@@ -57,5 +58,16 @@ class AdventureStoryPlanControllerMarkdownTest {
 
         assertThrows(ApiRequestGuard.ApiContractException.class,
                 () -> controller.generateTacticalScene("wrong", new ObjectMapper().createObjectNode()));
+    }
+
+    @Test
+    void story_plan_generation_requires_the_configured_internal_token() {
+        var controller = new AdventureStoryPlanController(
+                null, new ObjectMapper(), null,
+                "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
+                new ApiRequestGuard("production-secret"));
+
+        assertThrows(ApiRequestGuard.ApiContractException.class,
+                () -> controller.generate("local-dev-internal-token", null));
     }
 }

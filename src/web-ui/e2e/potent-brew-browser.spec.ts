@@ -70,4 +70,20 @@ test('fresh Potent Brew browser journey selects three assets and saves their rol
   for (const asset of storybooks) {
     await expect(scenario.getByText(`${basename(asset.path)} · ${asset.role}`, { exact: true })).toBeVisible()
   }
+
+  // Continue through the real browser preparation surface. The package action
+  // must remain gated by COMPLETE; the API-only acceptance covers the later
+  // authenticated tactical calls once this UI journey has created a package.
+  await page.getByRole('link', { name: /현재 자료/ }).click()
+  await expect(page.getByRole('heading', { name: '모험 자료 구성' })).toBeVisible()
+  await page.getByRole('button', { name: '게임 준비', exact: true }).click()
+  const preparation = page.getByRole('dialog', { name: '게임 준비' })
+  await expect(preparation).toBeVisible()
+  await preparation.getByRole('button', { name: '게임 준비 시작', exact: true }).click()
+  await expect(preparation.getByText(/모험 준비 결과 .* · COMPLETE/)).toBeVisible({ timeout: 180_000 })
+  const createAdventure = preparation.getByRole('button', { name: '이 자료로 모험 만들기', exact: true })
+  await expect(createAdventure).toBeEnabled()
+  await createAdventure.click()
+  await expect(page).toHaveURL(/#\/sessions\/[^/]+\/party/)
+  await expect(page.getByRole('heading', { name: '모험을 함께할 파티' })).toBeVisible()
 })

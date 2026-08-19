@@ -343,7 +343,7 @@ public class AdventureApiConfiguration {
     AdventureStoryPlanGenerationPort adventureStoryPlanGenerationPort(ObjectMapper mapper,
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.ai-game-master.story-plan-timeout:1800s}") Duration timeout,
-            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}}") String internalToken) {
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(), URI.create(baseUrl), timeout, mapper, internalToken);
     }
 

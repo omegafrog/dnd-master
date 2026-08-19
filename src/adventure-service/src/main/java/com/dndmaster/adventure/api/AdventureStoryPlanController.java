@@ -32,9 +32,10 @@ public final class AdventureStoryPlanController {
     @Autowired
     public AdventureStoryPlanController(AdventureStoryPlanApplicationService service, AdventureSessionApplicationService sessions,
             TacticalMapActivationApplicationService mapActivation, AuthenticatedPlayerResolver playerResolver,
-            TacticalTriggerRuntimeApplicationService triggerRuntime, FutureTacticalSceneRevisionService futureRevision) {
+            TacticalTriggerRuntimeApplicationService triggerRuntime, FutureTacticalSceneRevisionService futureRevision,
+            @org.springframework.beans.factory.annotation.Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         this(service, sessions, mapActivation, playerResolver, triggerRuntime, futureRevision,
-                new ApiRequestGuard("local-dev-internal-token"));
+                new ApiRequestGuard(internalToken));
     }
 
     public AdventureStoryPlanController(AdventureStoryPlanApplicationService service, AdventureSessionApplicationService sessions,
@@ -54,7 +55,11 @@ public final class AdventureStoryPlanController {
     }
 
     @GetMapping("/gm")
-    GmPlanView gm(@PathVariable UUID sessionId) { return GmPlanView.from(service.read(new SessionId(sessionId), owner())); }
+    GmPlanView gm(@PathVariable UUID sessionId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String internalToken) {
+        requestGuard.internal(internalToken);
+        return GmPlanView.from(service.read(new SessionId(sessionId), owner()));
+    }
 
     @PostMapping
     PlayerPlanView generate(@PathVariable UUID sessionId, @RequestBody(required = false) ConfigurationRequest request) {
@@ -71,6 +76,7 @@ public final class AdventureStoryPlanController {
         var session = sessions.read(new SessionId(sessionId), owner());
         if (session.startedAdventureId() == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "adventure must be started before map activation");
         var plan = service.read(new SessionId(sessionId), owner());
+        if (plan.currentStage() + 1 != position) throw new ResponseStatusException(HttpStatus.CONFLICT, "only the current stage may be activated");
         var stage = plan.stages().stream().filter(item -> item.position() == position).findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "story plan stage not found"));
         if (stage.mapDefinitionId() == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "stage has no tactical map");
