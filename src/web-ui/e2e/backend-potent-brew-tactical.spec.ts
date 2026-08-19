@@ -12,6 +12,9 @@ const stagePosition = Number(process.env.BACKEND_E2E_TACTICAL_STAGE_POSITION ?? 
 const isPotentBrewStorybook = (document: { originalFilename?: string; documentType?: string }) =>
   document.documentType === 'STORYBOOK' && /potent[ _-]?brew/i.test(document.originalFilename ?? '')
 
+const isDndRulebook = (document: { originalFilename?: string; documentType?: string }) =>
+  document.documentType === 'RULEBOOK' && /dnd5th|dnd.*5e|d\s*&\s*d\s*5e|rulebook/i.test(document.originalFilename ?? '')
+
 test('identifies Potent Brew storybook documents with underscore filenames', () => {
   const documents = [
     { documentType: 'STORYBOOK', originalFilename: '892902-A_Most_Potent_Brew.pdf' },
@@ -20,6 +23,10 @@ test('identifies Potent Brew storybook documents with underscore filenames', () 
   ]
 
   expect(documents.filter(isPotentBrewStorybook)).toHaveLength(3)
+})
+
+test('identifies the D&D 5e rulebook filename used by the live bundle', () => {
+  expect(isDndRulebook({ documentType: 'RULEBOOK', originalFilename: 'D&D 5e (2014)' })).toBeTruthy()
 })
 
 test('real Potent Brew backend preserves tactical retry, activation, projection, trigger, and revision flow', async ({ request }) => {
@@ -33,7 +40,7 @@ test('real Potent Brew backend preserves tactical retry, activation, projection,
   const potentBrew = bundle.documents.filter(isPotentBrewStorybook)
   expect(potentBrew).toHaveLength(3)
   expect(bundle.documents).toEqual(expect.arrayContaining([
-    expect.objectContaining({ documentType: 'RULEBOOK', originalFilename: expect.stringMatching(/dnd5th|dnd.*5e|rulebook/i) }),
+    expect.objectContaining({ documentType: 'RULEBOOK', originalFilename: expect.stringMatching(/dnd5th|dnd.*5e|d\s*&\s*d\s*5e|rulebook/i) }),
   ]))
   const compiled = await request.get(`${backend}/api/v1/adventures/scenario-packages/${packageId}`, { headers })
   expect(compiled.ok()).toBeTruthy()
