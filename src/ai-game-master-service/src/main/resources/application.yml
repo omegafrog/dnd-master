@@ -1,6 +1,6 @@
 ai-game-master:
   integration:
-    internal-token: ${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}
+    internal-token: ${INTERNAL_SERVICE_TOKEN:}
 
 ai:
   codex:

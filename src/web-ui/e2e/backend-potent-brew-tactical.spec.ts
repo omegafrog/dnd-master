@@ -3,6 +3,7 @@ import { randomUUID } from 'node:crypto'
 
 const backend = process.env.BACKEND_E2E_URL
 const token = process.env.BACKEND_E2E_TOKEN
+const internalToken = process.env.INTERNAL_SERVICE_TOKEN
 const sessionId = process.env.BACKEND_E2E_SESSION_ID
 const packageId = process.env.BACKEND_E2E_SCENARIO_PACKAGE_ID
 const bundleId = process.env.BACKEND_E2E_BUNDLE_ID
@@ -57,10 +58,11 @@ async function ensureCompleteParty(request: APIRequestContext) {
 
 test('real Potent Brew backend preserves tactical retry, activation, projection, trigger, and revision flow', async ({ request }) => {
   test.setTimeout(180_000)
-  test.skip(!backend || !token || !sessionId || !packageId || !bundleId || !playerId,
-    'set established BACKEND_E2E_URL, TOKEN, PLAYER_ID, BUNDLE_ID, SCENARIO_PACKAGE_ID and SESSION_ID')
+  test.skip(!backend || !token || !internalToken || !sessionId || !packageId || !bundleId || !playerId,
+    'set BACKEND_E2E_URL, BACKEND_E2E_TOKEN, INTERNAL_SERVICE_TOKEN, BACKEND_E2E_PLAYER_ID, BACKEND_E2E_BUNDLE_ID, BACKEND_E2E_SCENARIO_PACKAGE_ID and BACKEND_E2E_SESSION_ID')
 
   const headers = { Authorization: `Bearer ${token}` }
+  const internalHeaders = { ...headers, 'X-Internal-Token': internalToken! }
   let session = await ensureCompleteParty(request)
   const bundleResponse = await request.get(`${backend}/api/v1/adventures/scenario-bundles/${bundleId}`, { headers })
   expect(bundleResponse.ok()).toBeTruthy()
@@ -77,12 +79,12 @@ test('real Potent Brew backend preserves tactical retry, activation, projection,
   expect(compiledBody.bundleId).toBe(bundleId)
   expect(compiledBody.reportStatus).toBe('COMPLETE')
   expect(compiledBody.units.length).toBeGreaterThan(0)
-  let plan = await request.get(`${backend}/api/v1/adventure-sessions/${sessionId}/story-plan/gm`, { headers })
+  let plan = await request.get(`${backend}/api/v1/adventure-sessions/${sessionId}/story-plan/gm`, { headers: internalHeaders })
   if (!plan.ok()) {
     expect(plan.status()).toBe(409)
     expect((await plan.json()).error).toBe('ADVENTURE_START_BLOCKED')
     plan = await request.post(`${backend}/api/v1/adventure-sessions/${sessionId}/story-plan`, {
-      headers,
+      headers: internalHeaders,
       data: { endingCount: 2, adventureLength: 'STANDARD' },
     })
   }
@@ -96,14 +98,14 @@ test('real Potent Brew backend preserves tactical retry, activation, projection,
   expect(initialStage.tacticalScene.outcomes.length).toBeGreaterThan(0)
 
   const retry = await request.post(`${backend}/api/v1/adventure-sessions/${sessionId}/story-plan/retry`, {
-    headers,
+    headers: internalHeaders,
     data: { endingCount: planBody.endingCount, adventureLength: planBody.adventureLength },
   })
   expect(retry.ok()).toBeTruthy()
   const retriedBody = await retry.json()
   expect(retriedBody.status).toBe('READY')
   expect(retriedBody.version).toBeGreaterThan(planBody.version)
-  const refreshedPlanResponse = await request.get(`${backend}/api/v1/adventure-sessions/${sessionId}/story-plan/gm`, { headers })
+  const refreshedPlanResponse = await request.get(`${backend}/api/v1/adventure-sessions/${sessionId}/story-plan/gm`, { headers: internalHeaders })
   expect(refreshedPlanResponse.ok()).toBeTruthy()
   const refreshedPlanBody = await refreshedPlanResponse.json()
   const activeStage = refreshedPlanBody.stages[stagePosition - 1]
@@ -129,7 +131,7 @@ test('real Potent Brew backend preserves tactical retry, activation, projection,
   const activeCombatMapId = activationBody.combatMapId
   expect(activeCombatMapId).toBeTruthy()
 
-  const playerProjection = await request.get(`${backend}/internal/v1/combat-maps/${activeCombatMapId}/player-view?ownerId=${playerId}`, { headers: { 'X-Internal-Token': process.env.INTERNAL_SERVICE_TOKEN ?? 'local-dev-internal-token' } })
+  const playerProjection = await request.get(`${backend}/internal/v1/combat-maps/${activeCombatMapId}/player-view?ownerId=${playerId}`, { headers: internalHeaders })
   expect(playerProjection.ok()).toBeTruthy()
   const projected = await playerProjection.json()
   expect(projected.tokens).toBeInstanceOf(Array)
@@ -147,7 +149,7 @@ test('real Potent Brew backend preserves tactical retry, activation, projection,
   const futureStage = refreshedPlanBody.stages.find((stage: { position: number }) => stage.position > stagePosition)
   expect(futureStage).toBeTruthy()
   const revision = await request.post(`${backend}/api/v1/adventure-sessions/${sessionId}/story-plan/stages/${futureStage.position}/tactical-scene/revise`, {
-    headers: { ...headers, 'X-Internal-Token': process.env.INTERNAL_SERVICE_TOKEN ?? 'local-dev-internal-token' }, data: futureStage.tacticalScene.plan,
+    headers: internalHeaders, data: futureStage.tacticalScene.plan,
   })
   expect(revision.ok()).toBeTruthy()
   const revisedBody = await revision.json()

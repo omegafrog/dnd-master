@@ -7,6 +7,7 @@ import java.lang.reflect.Field;
 import java.net.URI;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class AdventureApiConfigurationTest {
     private final AdventureApiConfiguration configuration = new AdventureApiConfiguration();
@@ -50,6 +51,12 @@ class AdventureApiConfigurationTest {
 
         assertThat(timeout(configuration.adventureStoryPlanGenerationPort(
                 new ObjectMapper(), "http://ai-game-master.internal/", timeout, "test-token"))).isEqualTo(timeout);
+    }
+
+    @Test
+    void storyPlanAdapterRejectsMissingInternalToken() {
+        assertThrows(IllegalArgumentException.class, () -> configuration.adventureStoryPlanGenerationPort(
+                new ObjectMapper(), "http://ai-game-master.internal/", Duration.ofSeconds(1), ""));
     }
 
     private static URI baseUri(Object gateway) throws ReflectiveOperationException {

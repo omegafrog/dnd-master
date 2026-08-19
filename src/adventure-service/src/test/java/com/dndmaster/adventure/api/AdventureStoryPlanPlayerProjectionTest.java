@@ -59,7 +59,7 @@ class AdventureStoryPlanPlayerProjectionTest {
     void fullGmProjectionRequiresInternalAuthorization() {
         var controller = new AdventureStoryPlanController(null, null, null, null, null, null, new ApiRequestGuard("production-secret"));
         assertThrows(ApiRequestGuard.ApiContractException.class,
-                () -> controller.gm(UUID.randomUUID(), "local-dev-internal-token"));
+                () -> controller.gm(UUID.randomUUID(), "wrong-token"));
     }
 
     @Test

@@ -18,9 +18,6 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
     private final ObjectMapper mapper;
     private final String internalToken;
 
-    public HttpCombatMapViewGateway(HttpClient client, URI baseUri, Duration timeout, ObjectMapper mapper) {
-        this(client, baseUri, timeout, mapper, "local-dev-internal-token");
-    }
     public HttpCombatMapViewGateway(HttpClient client, URI baseUri, Duration timeout, ObjectMapper mapper, String internalToken) {
         this.client = client; this.baseUri = baseUri; this.timeout = timeout; this.mapper = mapper; this.internalToken = internalToken;
     }

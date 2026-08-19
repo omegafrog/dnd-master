@@ -68,6 +68,6 @@ class AdventureStoryPlanControllerMarkdownTest {
                 new ApiRequestGuard("production-secret"));
 
         assertThrows(ApiRequestGuard.ApiContractException.class,
-                () -> controller.generate("local-dev-internal-token", null));
+                () -> controller.generate("wrong-token", null));
     }
 }

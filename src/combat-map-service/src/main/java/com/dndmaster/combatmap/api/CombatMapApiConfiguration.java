@@ -21,7 +21,7 @@ import java.util.Set;
 public class CombatMapApiConfiguration {
 
     @Bean
-    ApiRequestGuard combatMapApiRequestGuard(@Value("${combat-map.integration.internal-token:${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}}") String token) {
+    ApiRequestGuard combatMapApiRequestGuard(@Value("${combat-map.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String token) {
         return new ApiRequestGuard(token);
     }
 

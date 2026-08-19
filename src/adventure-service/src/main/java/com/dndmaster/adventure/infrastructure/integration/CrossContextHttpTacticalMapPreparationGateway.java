@@ -20,9 +20,6 @@ public final class CrossContextHttpTacticalMapPreparationGateway implements Tact
     private final ObjectMapper mapper;
     private final String internalToken;
 
-    public CrossContextHttpTacticalMapPreparationGateway(HttpClient client, URI baseUrl, Duration timeout, ObjectMapper mapper) {
-        this(client, baseUrl, timeout, mapper, "local-dev-internal-token");
-    }
     public CrossContextHttpTacticalMapPreparationGateway(HttpClient client, URI baseUrl, Duration timeout, ObjectMapper mapper, String internalToken) {
         this.client = client; this.baseUrl = baseUrl; this.timeout = timeout; this.mapper = mapper; this.internalToken = internalToken;
     }

@@ -3,13 +3,13 @@ server:
 
 character:
   integration:
-    internal-token: ${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}
+    internal-token: ${INTERNAL_SERVICE_TOKEN:}
 dice:
   integration:
-    internal-token: ${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}
+    internal-token: ${INTERNAL_SERVICE_TOKEN:}
 ai-game-master:
   integration:
-    internal-token: ${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}
+    internal-token: ${INTERNAL_SERVICE_TOKEN:}
 
 logging:
   level:
@@ -18,7 +18,7 @@ logging:
 
 adventure:
   integration:
-    internal-token: ${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}
+    internal-token: ${INTERNAL_SERVICE_TOKEN:}
     identity-access:
       base-url: ${IDENTITY_ACCESS_BASE_URL:http://127.0.0.1:8080/}
     rule-knowledge:
@@ -61,7 +61,7 @@ spring:
           dimensions: 1024
 
 rule-knowledge:
-  internal-token: ${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}
+  internal-token: ${INTERNAL_SERVICE_TOKEN:}
   storage:
     root: ./data/rulebooks
   embedding-model: qwen3-embedding:0.6b

@@ -348,14 +348,14 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    CharacterSheetOwnershipPort characterSheetOwnershipPort(ObjectMapper objectMapper, @Value("${adventure.integration.character-management.base-url:http://127.0.0.1:8080/}") String baseUrl, @Value("${adventure.integration.internal-token:local-dev-internal-token}") String token) {
+    CharacterSheetOwnershipPort characterSheetOwnershipPort(ObjectMapper objectMapper, @Value("${adventure.integration.character-management.base-url:http://127.0.0.1:8080/}") String baseUrl, @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String token) {
         return new CrossContextHttpCharacterSheetOwnershipGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(10), objectMapper, token);
     }
 
     @Bean
     com.dndmaster.adventure.application.session.AiCompanionGenerationPort aiCompanionGenerationPort(ObjectMapper objectMapper,
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.internal-token:local-dev-internal-token}") String token) {
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String token) {
         return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAiCompanionGenerationGateway(
                 HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(30), objectMapper, token);
     }
@@ -363,7 +363,7 @@ public class AdventureApiConfiguration {
     @Bean
     com.dndmaster.adventure.application.session.AiCompanionSheetCreationPort aiCompanionSheetCreationPort(
             ObjectMapper objectMapper, @Value("${adventure.integration.character-management.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.internal-token:local-dev-internal-token}") String token) {
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String token) {
         return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAiCompanionCharacterSheetGateway(
                 HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(15), objectMapper, token);
     }
@@ -807,7 +807,7 @@ public class AdventureApiConfiguration {
     OfficialToolPort characterToolPort(
             ObjectMapper objectMapper,
             @Value("${adventure.integration.character-management.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.internal-token:local-dev-internal-token}") String token) {
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String token) {
         return new HttpCharacterToolPort(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(15), objectMapper, token);
     }
 
@@ -953,7 +953,7 @@ public class AdventureApiConfiguration {
     @Bean
     CombatMapViewPort combatMapViewPort(
             @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}}") String internalToken,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
             ObjectMapper objectMapper) {
         return new HttpCombatMapViewGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), objectMapper, internalToken);
     }
@@ -961,7 +961,7 @@ public class AdventureApiConfiguration {
     @Bean
     com.dndmaster.adventure.application.runtime.TacticalMapPreparationPort tacticalMapPreparationPort(
             @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}}") String internalToken,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
             ObjectMapper objectMapper) {
         return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpTacticalMapPreparationGateway(
                 HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(10), objectMapper, internalToken);
@@ -977,7 +977,7 @@ public class AdventureApiConfiguration {
     @Bean
     com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimePort tacticalTriggerRuntimePort(
             @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}}") String internalToken,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
             ObjectMapper objectMapper) {
         return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpTacticalTriggerRuntimeGateway(
                 HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(10), objectMapper, internalToken);
