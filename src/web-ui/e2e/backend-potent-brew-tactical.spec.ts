@@ -9,6 +9,19 @@ const bundleId = process.env.BACKEND_E2E_BUNDLE_ID
 const playerId = process.env.BACKEND_E2E_PLAYER_ID
 const stagePosition = Number(process.env.BACKEND_E2E_TACTICAL_STAGE_POSITION ?? '1')
 
+const isPotentBrewStorybook = (document: { originalFilename?: string; documentType?: string }) =>
+  document.documentType === 'STORYBOOK' && /potent[ _-]?brew/i.test(document.originalFilename ?? '')
+
+test('identifies Potent Brew storybook documents with underscore filenames', () => {
+  const documents = [
+    { documentType: 'STORYBOOK', originalFilename: '892902-A_Most_Potent_Brew.pdf' },
+    { documentType: 'STORYBOOK', originalFilename: '892902-A_Most_Potent_Brew_Player_Handout.pdf' },
+    { documentType: 'STORYBOOK', originalFilename: '892902-A_Most_Potent_Brew_GM_Handout.pdf' },
+  ]
+
+  expect(documents.filter(isPotentBrewStorybook)).toHaveLength(3)
+})
+
 test('real Potent Brew backend preserves tactical retry, activation, projection, trigger, and revision flow', async ({ request }) => {
   test.skip(!backend || !token || !sessionId || !packageId || !bundleId || !playerId,
     'set established BACKEND_E2E_URL, TOKEN, PLAYER_ID, BUNDLE_ID, SCENARIO_PACKAGE_ID and SESSION_ID')
@@ -17,8 +30,7 @@ test('real Potent Brew backend preserves tactical retry, activation, projection,
   const bundleResponse = await request.get(`${backend}/api/v1/adventures/scenario-bundles/${bundleId}`, { headers })
   expect(bundleResponse.ok()).toBeTruthy()
   const bundle = await bundleResponse.json()
-  const potentBrew = bundle.documents.filter((document: { originalFilename?: string; documentType?: string }) =>
-    document.documentType === 'STORYBOOK' && /potent[ -]?brew/i.test(document.originalFilename ?? ''))
+  const potentBrew = bundle.documents.filter(isPotentBrewStorybook)
   expect(potentBrew).toHaveLength(3)
   expect(bundle.documents).toEqual(expect.arrayContaining([
     expect.objectContaining({ documentType: 'RULEBOOK', originalFilename: expect.stringMatching(/dnd5th|dnd.*5e|rulebook/i) }),
