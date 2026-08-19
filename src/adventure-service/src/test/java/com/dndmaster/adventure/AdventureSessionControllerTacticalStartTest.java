@@ -57,6 +57,6 @@ class AdventureSessionControllerTacticalStartTest {
         var controller = new AdventureSessionController(sessions, resolver, mock(GmProviderBindingService.class), stories, activation, triggers);
         controller.start(sessionId.value(), 0, UUID.randomUUID(), new AdventureSessionController.StartRequest(adventureId));
 
-        verify(triggers).bindActiveMap(adventureId, 1, combatMapId);
+        verify(triggers).bindActiveMap(adventureId, 1, owner, combatMapId);
     }
 }

@@ -10,10 +10,6 @@ public final class TacticalTriggerRuntimeApplicationService {
     private final TacticalTriggerRuntimePort runtime;
     private final ActiveTacticalMapPort activeMaps;
 
-    public TacticalTriggerRuntimeApplicationService(TacticalTriggerEvaluator evaluator, TacticalTriggerRuntimePort runtime) {
-        this(evaluator, runtime, (adventureId, ownerPlayerId) -> java.util.Optional.empty());
-    }
-
     public TacticalTriggerRuntimeApplicationService(TacticalTriggerEvaluator evaluator, TacticalTriggerRuntimePort runtime,
             ActiveTacticalMapPort activeMaps) {
         this.evaluator = Objects.requireNonNull(evaluator, "trigger evaluator must not be null");
@@ -28,14 +24,17 @@ public final class TacticalTriggerRuntimeApplicationService {
         return evaluation;
     }
 
-    public void bindActiveMap(UUID adventureId, int stagePosition, UUID combatMapId) {
+    public void bindActiveMap(UUID adventureId, int stagePosition, UUID ownerPlayerId, UUID combatMapId) {
         Objects.requireNonNull(adventureId);
+        Objects.requireNonNull(ownerPlayerId);
         Objects.requireNonNull(combatMapId);
+        if (stagePosition < 1) throw new IllegalArgumentException("stage position must be positive");
+        activeMaps.bindActiveMap(adventureId, stagePosition, ownerPlayerId, combatMapId);
     }
 
     public TacticalTriggerEvaluator.Evaluation apply(UUID adventureId, int stagePosition, TacticalScenePlan scene,
             String triggerId, UUID combatMapId, UUID ownerPlayerId, long expectedVersion, UUID commandId) {
-        UUID active = activeMaps.findActiveMap(adventureId, ownerPlayerId).orElse(null);
+        UUID active = activeMaps.findActiveMap(adventureId, stagePosition, ownerPlayerId).orElse(null);
         if (active == null || !active.equals(combatMapId)) throw new IllegalArgumentException("combat map is not active for this tactical stage");
         return apply(scene, triggerId, combatMapId, ownerPlayerId, expectedVersion, commandId);
     }

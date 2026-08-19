@@ -2,10 +2,12 @@ package com.dndmaster.adventure.infrastructure.integration;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
 import static com.github.tomakehurst.wiremock.client.WireMock.exactly;
+import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
 import com.dndmaster.adventure.application.storyplan.TacticalSceneRequest;
@@ -47,7 +49,7 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
                         """.formatted(documentId, documentId, documentId))));
 
         var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
-                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper());
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "test-internal-token");
         var request = request(documentId);
 
         var candidate = gateway.generateTacticalScene(request);
@@ -56,6 +58,14 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
         assertEquals("%s:page:1".formatted(documentId), candidate.scene().players().getFirst().grounding().citation());
         assertEquals(1, candidate.citations().size());
         server.verify(exactly(1), postRequestedFor(urlEqualTo("/internal/v1/gm/tactical-scene-plan")));
+        server.verify(postRequestedFor(urlEqualTo("/internal/v1/gm/tactical-scene-plan"))
+                .withHeader("X-Internal-Token", equalTo("test-internal-token")));
+    }
+
+    @Test
+    void rejectsMissingInternalTokenAtConstruction() {
+        assertThrows(IllegalArgumentException.class, () -> new CrossContextHttpAdventureStoryPlanGenerationGateway(
+                HttpClient.newHttpClient(), URI.create("http://localhost/"), Duration.ofSeconds(1), new ObjectMapper(), " "));
     }
 
     @Test

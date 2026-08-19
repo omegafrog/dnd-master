@@ -49,7 +49,7 @@ class AdventureApiConfigurationTest {
         Duration timeout = Duration.ofMinutes(30);
 
         assertThat(timeout(configuration.adventureStoryPlanGenerationPort(
-                new ObjectMapper(), "http://ai-game-master.internal/", timeout))).isEqualTo(timeout);
+                new ObjectMapper(), "http://ai-game-master.internal/", timeout, "test-token"))).isEqualTo(timeout);
     }
 
     private static URI baseUri(Object gateway) throws ReflectiveOperationException {

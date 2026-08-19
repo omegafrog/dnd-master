@@ -147,7 +147,7 @@ test('real Potent Brew backend preserves tactical retry, activation, projection,
   const futureStage = refreshedPlanBody.stages.find((stage: { position: number }) => stage.position > stagePosition)
   expect(futureStage).toBeTruthy()
   const revision = await request.post(`${backend}/api/v1/adventure-sessions/${sessionId}/story-plan/stages/${futureStage.position}/tactical-scene/revise`, {
-    headers, data: futureStage.tacticalScene.plan,
+    headers: { ...headers, 'X-Internal-Token': process.env.INTERNAL_SERVICE_TOKEN ?? 'local-dev-internal-token' }, data: futureStage.tacticalScene.plan,
   })
   expect(revision.ok()).toBeTruthy()
   const revisedBody = await revision.json()

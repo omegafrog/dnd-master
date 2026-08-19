@@ -32,7 +32,8 @@ class TacticalScenePlanTest {
                 List.of(), List.of());
         var seen = new TacticalTriggerEvaluator.Evaluation[1];
         var service = new TacticalTriggerRuntimeApplicationService(new TacticalTriggerEvaluator(),
-                (mapId, ownerId, version, commandId, evaluation) -> seen[0] = evaluation);
+                (mapId, ownerId, version, commandId, evaluation) -> seen[0] = evaluation,
+                (adventureId, stagePosition, ownerId) -> java.util.Optional.empty());
 
         service.apply(scene, "entry", UUID.randomUUID(), UUID.randomUUID(), 0, UUID.randomUUID());
 
@@ -48,7 +49,7 @@ class TacticalScenePlanTest {
                 List.of(new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of(), "", grounding("entry"))), List.of(), List.of());
         var activeMap = UUID.randomUUID();
         var service = new TacticalTriggerRuntimeApplicationService(new TacticalTriggerEvaluator(), (map, owner, version, command, evaluation) -> { },
-                (adventureId, ownerId) -> java.util.Optional.of(activeMap));
+                (adventureId, stagePosition, ownerId) -> java.util.Optional.of(activeMap));
         var adventure = UUID.randomUUID();
         assertThrows(IllegalArgumentException.class, () -> service.apply(adventure, 1, scene, "entry", UUID.randomUUID(), UUID.randomUUID(), 0, UUID.randomUUID()));
     }
@@ -63,11 +64,34 @@ class TacticalScenePlanTest {
                 new FogPlan(List.of(), grounding("fog")), List.of(new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of(), "", grounding("entry"))), List.of(), List.of());
         var seen = new TacticalTriggerEvaluator.Evaluation[1];
         var service = new TacticalTriggerRuntimeApplicationService(new TacticalTriggerEvaluator(), (map, player, version, command, evaluation) -> seen[0] = evaluation,
-                (adventureId, ownerId) -> java.util.Optional.of(activeMap));
+                (adventureId, stagePosition, ownerId) -> java.util.Optional.of(activeMap));
 
         service.apply(adventure, 1, scene, "entry", activeMap, owner, 0, UUID.randomUUID());
 
         assertEquals("COMBAT_ENTRY", seen[0].type());
+    }
+
+    @Test
+    void bindingStoresMapPerAdventureStageAndOwnerWithoutLatestMapFallback() {
+        var bindings = new java.util.HashMap<String, UUID>();
+        var port = new com.dndmaster.adventure.application.runtime.ActiveTacticalMapPort() {
+            public java.util.Optional<UUID> findActiveMap(UUID adventureId, int stagePosition, UUID ownerPlayerId) {
+                return java.util.Optional.ofNullable(bindings.get(adventureId + ":" + stagePosition + ":" + ownerPlayerId));
+            }
+            public void bindActiveMap(UUID adventureId, int stagePosition, UUID ownerPlayerId, UUID combatMapId) {
+                bindings.put(adventureId + ":" + stagePosition + ":" + ownerPlayerId, combatMapId);
+            }
+        };
+        var service = new TacticalTriggerRuntimeApplicationService(new TacticalTriggerEvaluator(), (map, owner, version, command, evaluation) -> { }, port);
+        var adventure = UUID.randomUUID();
+        var owner = UUID.randomUUID();
+        var stageOne = UUID.randomUUID();
+        var stageTwo = UUID.randomUUID();
+        service.bindActiveMap(adventure, 1, owner, stageOne);
+        service.bindActiveMap(adventure, 2, owner, stageTwo);
+        assertEquals(java.util.Optional.of(stageOne), port.findActiveMap(adventure, 1, owner));
+        assertEquals(java.util.Optional.of(stageTwo), port.findActiveMap(adventure, 2, owner));
+        assertEquals(java.util.Optional.empty(), port.findActiveMap(adventure, 3, owner));
     }
     @Test
     void rejectsNormalizedCoordinatesOutsideTheSourceMap() {

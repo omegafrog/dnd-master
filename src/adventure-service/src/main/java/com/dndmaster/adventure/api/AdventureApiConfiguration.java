@@ -342,8 +342,9 @@ public class AdventureApiConfiguration {
     @Bean
     AdventureStoryPlanGenerationPort adventureStoryPlanGenerationPort(ObjectMapper mapper,
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.ai-game-master.story-plan-timeout:1800s}") Duration timeout) {
-        return new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(), URI.create(baseUrl), timeout, mapper);
+            @Value("${adventure.integration.ai-game-master.story-plan-timeout:1800s}") Duration timeout,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}}") String internalToken) {
+        return new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(), URI.create(baseUrl), timeout, mapper, internalToken);
     }
 
     @Bean
@@ -985,10 +986,15 @@ public class AdventureApiConfiguration {
     @Bean
     com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimeApplicationService tacticalTriggerRuntimeApplicationService(
             com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimePort runtime,
-            com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort) {
+            com.dndmaster.adventure.infrastructure.persistence.PostgresActiveTacticalMapAdapter activeMaps) {
         return new com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimeApplicationService(
                 new com.dndmaster.adventure.application.runtime.TacticalTriggerEvaluator(), runtime,
-                (adventureId, ownerId) -> combatMapViewPort.playerView(adventureId, ownerId).map(com.dndmaster.adventure.application.combat.CombatMapViewPort.View::mapId));
+                activeMaps);
+    }
+
+    @Bean
+    com.dndmaster.adventure.infrastructure.persistence.PostgresActiveTacticalMapAdapter activeTacticalMapAdapter(DataSource dataSource) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresActiveTacticalMapAdapter(dataSource);
     }
 
     @Bean

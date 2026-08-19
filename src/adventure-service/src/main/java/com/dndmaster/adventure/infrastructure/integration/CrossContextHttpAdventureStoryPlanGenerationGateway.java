@@ -29,15 +29,18 @@ import java.util.regex.Pattern;
 
 public final class CrossContextHttpAdventureStoryPlanGenerationGateway implements AdventureStoryPlanGenerationPort {
     private static final Pattern UUID_TOKEN = Pattern.compile("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}");
-    private final HttpClient client; private final URI baseUri; private final Duration timeout; private final ObjectMapper mapper;
-    public CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient client, URI baseUri, Duration timeout, ObjectMapper mapper) {
+    private final HttpClient client; private final URI baseUri; private final Duration timeout; private final ObjectMapper mapper; private final String internalToken;
+    public CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient client, URI baseUri, Duration timeout, ObjectMapper mapper, String internalToken) {
         this.client = Objects.requireNonNull(client); this.baseUri = Objects.requireNonNull(baseUri); this.timeout = Objects.requireNonNull(timeout); this.mapper = Objects.requireNonNull(mapper);
+        if (internalToken == null || internalToken.isBlank()) throw new IllegalArgumentException("adventure story plan AI internal token must not be blank");
+        this.internalToken = internalToken;
     }
     @Override public List<AdventureStoryPlanStage> generate(Request request) {
         try {
             var body = mapper.writeValueAsString(request);
             var response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/adventure-story-plan"))
-                    .timeout(timeout).header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
+                    .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
+                    .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 String detail = response.body() == null ? "" : response.body().replaceAll("\\s+", " ");
                 if (detail.length() > 1200) detail = detail.substring(0, 1200);
@@ -77,7 +80,7 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
     @Override public TacticalScenePlanCandidate generateTacticalScene(TacticalSceneRequest request) {
         try {
             var response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/tactical-scene-plan"))
-                    .timeout(timeout).header("Content-Type", "application/json")
+                    .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(request))).build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IllegalStateException("tactical scene AI failed: " + response.statusCode());
