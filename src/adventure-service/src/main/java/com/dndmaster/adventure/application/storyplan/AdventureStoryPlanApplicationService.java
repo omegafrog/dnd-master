@@ -72,6 +72,9 @@ public final class AdventureStoryPlanApplicationService {
         AdventureStoryPlan previous = plans.findBySessionId(sessionId).orElse(null);
         long version = previous == null ? 1 : previous.version() + 1;
         ScenarioPackage scenarioPackage = packages == null ? null : packages.findById(session.scenarioPackageId()).orElse(null);
+        if (scenarioPackage != null && scenarioPackage.report().status() != com.dndmaster.adventure.domain.scenario.ResolutionStatus.COMPLETE) {
+            throw new IllegalStateException("story plan requires a COMPLETE scenario package report");
+        }
         AdventureStoryPlanGenerationPort.Request request = new AdventureStoryPlanGenerationPort.Request(
                 UUID.randomUUID().toString(), session.scenarioPackageRevision(), session.party().size(),
                 configuration, sourceDocuments(session), resolutionEvidence(session), mapContexts(scenarioPackage), citations(session, scenarioPackage));

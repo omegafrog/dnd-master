@@ -11,6 +11,7 @@ import java.util.List;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.beans.factory.annotation.Autowired;
 import com.dndmaster.adventure.application.session.AdventureSessionApplicationService;
 import com.dndmaster.adventure.application.runtime.TacticalMapActivationApplicationService;
 import com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimeApplicationService;
@@ -26,11 +27,22 @@ public final class AdventureStoryPlanController {
     private final AuthenticatedPlayerResolver playerResolver;
     private final TacticalTriggerRuntimeApplicationService triggerRuntime;
     private final FutureTacticalSceneRevisionService futureRevision;
+    private final ApiRequestGuard requestGuard;
 
+    @Autowired
     public AdventureStoryPlanController(AdventureStoryPlanApplicationService service, AdventureSessionApplicationService sessions,
             TacticalMapActivationApplicationService mapActivation, AuthenticatedPlayerResolver playerResolver,
             TacticalTriggerRuntimeApplicationService triggerRuntime, FutureTacticalSceneRevisionService futureRevision) {
+        this(service, sessions, mapActivation, playerResolver, triggerRuntime, futureRevision,
+                new ApiRequestGuard("local-dev-internal-token"));
+    }
+
+    public AdventureStoryPlanController(AdventureStoryPlanApplicationService service, AdventureSessionApplicationService sessions,
+            TacticalMapActivationApplicationService mapActivation, AuthenticatedPlayerResolver playerResolver,
+            TacticalTriggerRuntimeApplicationService triggerRuntime, FutureTacticalSceneRevisionService futureRevision,
+            ApiRequestGuard requestGuard) {
         this.service = service; this.sessions = sessions; this.mapActivation = mapActivation; this.playerResolver = playerResolver; this.triggerRuntime = triggerRuntime; this.futureRevision = futureRevision;
+        this.requestGuard = requestGuard;
     }
 
     @GetMapping
@@ -70,7 +82,9 @@ public final class AdventureStoryPlanController {
 
     @PostMapping("/stages/{position}/tactical-scene/revise")
     PlayerPlanView reviseFutureTacticalScene(@PathVariable UUID sessionId, @PathVariable int position,
+            @RequestHeader(value = "X-Internal-Token", required = false) String internalToken,
             @RequestBody TacticalScenePlan scene) {
+        requestGuard.internal(internalToken);
         return PlayerPlanView.from(futureRevision.revise(new SessionId(sessionId), owner(), position, scene));
     }
 
@@ -102,13 +116,19 @@ public final class AdventureStoryPlanController {
         static PlanView from(AdventureStoryPlan plan) { return new PlanView(plan.planId(), plan.packageRevision(), plan.partyRevision(), plan.version(), plan.status().name(), plan.currentStage(), plan.stageCount(), plan.configuration().endingCount(), plan.configuration().adventureLength().name(), plan.stages().stream().map(StageView::from).toList(), plan.failureReason()); }
     }
 
-    public record PlayerPlanView(String status, int currentStage, List<StageView> stages, String failureReason, int planRevision) {
+    public record PlayerPlanView(String status, int currentStage, List<PlayerStageView> stages, String failureReason, int planRevision) {
         static PlayerPlanView from(AdventureStoryPlan plan) {
             List<StageView> visible = plan.stages().stream()
                     .filter(stage -> stage.position() == plan.currentStage() + 1)
                     .map(StageView::from)
                     .toList();
-            return new PlayerPlanView(plan.status().name(), plan.currentStage(), visible, plan.failureReason(), 0);
+            return new PlayerPlanView(plan.status().name(), plan.currentStage(), visible.stream().map(PlayerStageView::from).toList(), plan.failureReason(), 0);
+        }
+    }
+
+    public record PlayerStageView(int position, String title, String stageType, String location, String goal) {
+        static PlayerStageView from(StageView stage) {
+            return new PlayerStageView(stage.position(), stage.title(), stage.stageType(), stage.location(), stage.goal());
         }
     }
 

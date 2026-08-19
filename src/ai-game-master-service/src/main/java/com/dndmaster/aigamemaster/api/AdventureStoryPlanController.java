@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.bind.annotation.RequestHeader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -30,14 +31,22 @@ public final class AdventureStoryPlanController {
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final URI ollamaBaseUrl; private final String ollamaModel;
     private final String codexExecutable; private final java.nio.file.Path codexWorkDirectory; private final Duration codexTimeout;
+    private final ApiRequestGuard requestGuard;
     public AdventureStoryPlanController(SpringAiChatAdapter adapter, ObjectMapper mapper, AgentEndpointRegistry endpointRegistry,
             @Value("${local-ai.ollama.base-url:http://127.0.0.1:11434}") String ollamaBaseUrl,
             @Value("${local-ai.ollama.chat-model:qwen3:8b}") String ollamaModel,
             @Value("${ai.codex.executable:codex}") String codexExecutable,
             @Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
             @Value("${ai.codex.timeout:PT5M}") Duration codexTimeout) {
+        this(adapter, mapper, endpointRegistry, ollamaBaseUrl, ollamaModel, codexExecutable, codexWorkDirectory, codexTimeout,
+                new ApiRequestGuard("local-dev-internal-token"));
+    }
+    public AdventureStoryPlanController(SpringAiChatAdapter adapter, ObjectMapper mapper, AgentEndpointRegistry endpointRegistry,
+            String ollamaBaseUrl, String ollamaModel, String codexExecutable, String codexWorkDirectory, Duration codexTimeout,
+            ApiRequestGuard requestGuard) {
         this.adapter = adapter; this.mapper = mapper; this.endpointRegistry = endpointRegistry; this.ollamaBaseUrl = URI.create(ollamaBaseUrl); this.ollamaModel = ollamaModel;
         this.codexExecutable = codexExecutable; this.codexWorkDirectory = java.nio.file.Path.of(codexWorkDirectory); this.codexTimeout = codexTimeout;
+        this.requestGuard = requestGuard;
     }
     @PostMapping("/internal/v1/gm/adventure-story-plan")
     Response generate(@RequestBody Request request) {
@@ -145,7 +154,9 @@ public final class AdventureStoryPlanController {
 
     /** Produces one typed, source-grounded tactical scene candidate for a mapped story-plan stage. */
     @PostMapping("/internal/v1/gm/tactical-scene-plan")
-    JsonNode generateTacticalScene(@RequestBody JsonNode request) {
+    JsonNode generateTacticalScene(@RequestHeader(value = "X-Internal-Token", required = false) String internalToken,
+            @RequestBody JsonNode request) {
+        requestGuard.internal(internalToken);
         String operationId = request.path("stage").path("position").asText("stage") + "-tactical-" + UUID.randomUUID();
         String prompt = """
                 Produce exactly one JSON object for a tactical-scene candidate. Do not include Markdown.

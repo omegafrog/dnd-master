@@ -1,6 +1,7 @@
 package com.dndmaster.aigamemaster.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
@@ -45,5 +46,16 @@ class AdventureStoryPlanControllerMarkdownTest {
         assertEquals("859f67d2-1a4b-3679-b832-2c3ad59c6e9d", stages.getFirst().mapDefinitionId());
         assertEquals("page", stages.getFirst().mapAssetId());
         assertEquals("page", stages.getFirst().mapAssetLocator());
+    }
+
+    @Test
+    void tactical_scene_generation_requires_internal_token() {
+        var controller = new AdventureStoryPlanController(
+                null, new ObjectMapper(), null,
+                "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
+                new ApiRequestGuard("service-secret"));
+
+        assertThrows(ApiRequestGuard.ApiContractException.class,
+                () -> controller.generateTacticalScene("wrong", new ObjectMapper().createObjectNode()));
     }
 }

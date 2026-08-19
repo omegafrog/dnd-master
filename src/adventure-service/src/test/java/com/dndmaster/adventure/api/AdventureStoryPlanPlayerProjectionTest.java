@@ -2,6 +2,7 @@ package com.dndmaster.adventure.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlan;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
@@ -10,6 +11,7 @@ import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 class AdventureStoryPlanPlayerProjectionTest {
     @Test
@@ -26,6 +28,13 @@ class AdventureStoryPlanPlayerProjectionTest {
         assertEquals(1, view.stages().size());
         assertEquals("Hidden", view.stages().getFirst().title());
         assertEquals(0, view.planRevision());
+        String json;
+        try { json = new ObjectMapper().writeValueAsString(view); }
+        catch (Exception exception) { throw new AssertionError(exception); }
+        assertFalse(json.contains("rewards"));
+        assertFalse(json.contains("mapDefinitionId"));
+        assertFalse(json.contains("groundingStatus"));
+        assertFalse(json.contains("playerSpawnX"));
     }
 
     @Test
@@ -36,5 +45,13 @@ class AdventureStoryPlanPlayerProjectionTest {
                 () -> controller.history(UUID.randomUUID()));
 
         assertEquals(403, failure.getStatusCode().value());
+    }
+
+    @Test
+    void playerCannotReviseFutureTacticalSceneWithoutInternalAuthorization() {
+        var controller = new AdventureStoryPlanController(null, null, null, null, null, null);
+
+        assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.reviseFutureTacticalScene(
+                UUID.randomUUID(), 2, null, null));
     }
 }

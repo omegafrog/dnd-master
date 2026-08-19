@@ -115,8 +115,10 @@ public class AiGameMasterApiConfiguration {
             @org.springframework.beans.factory.annotation.Value("${local-ai.ollama.chat-model:qwen3:8b}") String ollamaModel,
             @org.springframework.beans.factory.annotation.Value("${ai.codex.executable:codex}") String codexExecutable,
             @org.springframework.beans.factory.annotation.Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
-            @org.springframework.beans.factory.annotation.Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout) {
-        return new AdventureStoryPlanController(adapter, objectMapper, endpointRegistry, ollamaBaseUrl, ollamaModel, codexExecutable, codexWorkDirectory, codexTimeout);
+            @org.springframework.beans.factory.annotation.Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout,
+            @org.springframework.beans.factory.annotation.Value("${ai-game-master.integration.internal-token:local-dev-internal-token}") String internalToken) {
+        return new AdventureStoryPlanController(adapter, objectMapper, endpointRegistry, ollamaBaseUrl, ollamaModel, codexExecutable, codexWorkDirectory, codexTimeout,
+                new ApiRequestGuard(internalToken));
     }
 
     @Bean

@@ -9,11 +9,35 @@ import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanApplicati
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
 import com.dndmaster.adventure.domain.adventure.*;
+import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
+import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
+import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class AdventureStoryPlanApplicationServiceTest {
+    @Test
+    void refuses_to_generate_or_persist_ready_plan_from_partial_scenario_package() {
+        var session = AdventureSession.create(SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 1, 1,
+                new AdventureSessionRuntimeConfiguration(new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), java.util.List.of(), "ollama", java.util.List.of("search"), "opening"));
+        session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT, false, false, false, false, false, false));
+        var sessions = mock(AdventureSessionRepository.class);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        var packages = mock(com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        when(plans.findBySessionId(session.id())).thenReturn(Optional.empty());
+        when(packages.findById(session.scenarioPackageId())).thenReturn(Optional.of(ScenarioPackage.publish(
+                new ScenarioBundleId(session.scenarioPackageId()), 1, "partial", java.util.List.of(), java.util.List.of(),
+                new ScenarioCompilationReport(ResolutionStatus.PARTIAL, java.util.List.of("incomplete")))));
+
+        var service = new AdventureStoryPlanApplicationService(plans, sessions, packages, request -> java.util.List.of());
+
+        assertThrows(IllegalStateException.class, () -> service.generate(session.id(), session.ownerPlayerId()));
+        verify(plans, never()).save(any());
+    }
+
     @Test
     void generates_plan_only_for_complete_party_and_captures_party_revision() {
         var session = AdventureSession.create(SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 3, 1,
