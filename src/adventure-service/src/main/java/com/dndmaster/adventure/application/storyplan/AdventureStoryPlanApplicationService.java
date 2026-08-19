@@ -122,8 +122,15 @@ public final class AdventureStoryPlanApplicationService {
             if (map == null) throw new IllegalStateException("story plan references an unknown tactical map");
             List<String> violations = List.of();
             for (int attempt = 1; attempt <= 3; attempt++) {
-                var candidate = generator.generateTacticalScene(new TacticalSceneRequest(stage, map, request.citations(), violations));
-                violations = tacticalSceneValidator.validate(new TacticalSceneRequest(stage, map, request.citations(), violations), candidate);
+                TacticalScenePlanCandidate candidate;
+                try {
+                    var tacticalRequest = new TacticalSceneRequest(stage, map, request.citations(), violations);
+                    candidate = generator.generateTacticalScene(tacticalRequest);
+                    violations = tacticalSceneValidator.validate(tacticalRequest, candidate);
+                } catch (RuntimeException failure) {
+                    violations = List.of("tactical scene generation failed: " + failure.getClass().getSimpleName());
+                    candidate = null;
+                }
                 if (violations.isEmpty()) {
                     result.add(stage.withTacticalScenePlan(candidate.scene()));
                     break;

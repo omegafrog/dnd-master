@@ -22,10 +22,15 @@ public final class TacticalScenePlanValidator {
         request.citations().forEach(citation -> supplied.add(key(citation)));
         for (var citation : candidate.citations()) {
             if (request.citations().stream().noneMatch(citation::equals)) return List.of("unknown tactical source citation");
+            if (citation.quote() == null || citation.quote().isBlank()) return List.of("tactical source citation has no source fact");
         }
         for (PlacementGrounding grounding : groundings(scene)) {
             if (grounding.type() == PlacementGroundingType.SOURCE_CITATION && !supplied.contains(grounding.citation())) {
                 return List.of("unknown tactical source citation");
+            }
+            if (grounding.type() == PlacementGroundingType.SOURCE_CITATION
+                    && candidate.citations().stream().map(TacticalScenePlanValidator::key).noneMatch(grounding.citation()::equals)) {
+                return List.of("tactical source fact was not supplied by the candidate");
             }
         }
         if (scene.bosses().stream().anyMatch(placement -> placement.grounding().type() != PlacementGroundingType.SOURCE_CITATION)) {

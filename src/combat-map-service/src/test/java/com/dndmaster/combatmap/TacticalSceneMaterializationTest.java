@@ -70,4 +70,11 @@ class TacticalSceneMaterializationTest {
 
         assertEquals(Set.of(new GridPosition(1, 1)), visible);
     }
+
+    @Test
+    void playerSafeProjectionIgnoresMalformedLegacyFogInsteadOfFailingTheRead() {
+        var visible = PlayerSafeFogProjection.filter(Set.of(new GridPosition(1, 1)),
+                List.of(new MapLayer("INITIAL_FOG", "not-a-coordinate;1,x", LayerVisibility.AI_ONLY)));
+        assertEquals(Set.of(new GridPosition(1, 1)), visible);
+    }
 }

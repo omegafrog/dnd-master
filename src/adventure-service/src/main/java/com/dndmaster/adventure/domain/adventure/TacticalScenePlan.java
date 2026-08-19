@@ -41,6 +41,7 @@ public record TacticalScenePlan(int schemaVersion, TacticalScenePlanStatus statu
             validateKinds(enemies, TacticalPlacementKind.ENEMY);
             validateKinds(bosses, TacticalPlacementKind.BOSS);
             validateKinds(interactiveObjects, TacticalPlacementKind.INTERACTIVE_OBJECT);
+            if (players.isEmpty()) throw new IllegalArgumentException("ready tactical scene requires at least one player placement");
             validateLocations(boundary, allPlacements(players, allies, npcs, enemies, bosses, interactiveObjects), environments);
             validateTriggerReferences(triggers, allIds(allPlacements(players, allies, npcs, enemies, bosses, interactiveObjects), environments), transitionIds);
         }

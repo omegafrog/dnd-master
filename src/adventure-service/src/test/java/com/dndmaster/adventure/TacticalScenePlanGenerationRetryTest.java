@@ -2,6 +2,7 @@ package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.session.AdventureSessionRepository;
@@ -104,6 +105,25 @@ class TacticalScenePlanGenerationRetryTest {
         assertEquals("tactical boss requires source citation", fixture.generator.requests.get(1).violations().getFirst());
     }
 
+    @Test
+    void retriesGeneratorFailuresExactlyThreeTimesThenBlocksTheStartGate() {
+        var fixture = new Fixture();
+        fixture.generator.failuresRemaining = 3;
+        AdventureStoryPlan plan = fixture.service.generate(fixture.session.id(), fixture.session.ownerPlayerId(), SHORT_ADVENTURE);
+        assertEquals(AdventureStoryPlanStatus.BLOCKED, plan.status());
+        assertEquals(3, fixture.generator.requests.size());
+        assertFalse(fixture.service.isReadyFor(fixture.session));
+    }
+
+    @Test
+    void rejectsReadyEnemyOnlyTacticalScenes() {
+        var grounding = PlacementGrounding.aiInference("bounded");
+        assertThrows(IllegalArgumentException.class, () -> new TacticalScenePlan(1, TacticalScenePlanStatus.READY,
+                new TacticalSceneBoundary(new NormalizedCoordinate(0, 0), new NormalizedCoordinate(1, 1), List.of()),
+                List.of(), List.of(), List.of(), List.of(new TacticalPlacement("enemy", TacticalPlacementKind.ENEMY, new NormalizedCoordinate(.5, .5), grounding)),
+                List.of(), List.of(), List.of(), new FogPlan(List.of(), grounding), List.of(), List.of(), List.of()));
+    }
+
     private static final class Fixture {
         private final AdventureSession session;
         private final Generator generator = new Generator();
@@ -136,9 +156,11 @@ class TacticalScenePlanGenerationRetryTest {
         private AdventureStoryPlanStage stage;
         private final List<TacticalScenePlanCandidate> candidates = new ArrayList<>();
         private final List<TacticalSceneRequest> requests = new ArrayList<>();
+        private int failuresRemaining;
         public List<AdventureStoryPlanStage> generate(Request request) { return List.of(stage, new AdventureStoryPlanStage(2, "Return", "Return", "Delay", "Finish", List.of(), List.of("ending")), new AdventureStoryPlanStage(3, "Finish", "Finish", "Choice", "Finish", List.of(), List.of("ending"))); }
         public TacticalScenePlanCandidate generateTacticalScene(TacticalSceneRequest request) {
             requests.add(request);
+            if (failuresRemaining-- > 0) throw new IllegalArgumentException("malformed provider payload");
             return candidates.removeFirst();
         }
     }
