@@ -120,6 +120,7 @@ public final class ScenarioCompilationWorker {
                                     .filter(excerpt -> resolutionExcerpts.contains(excerpt))
                                     .toList(),
                             "resolution-candidate-v1", "resolution-prompt-v1"));
+            candidates = retryMalformedDiceCandidates(claimed.id().toString(), candidates, resolutionExcerpts);
 
             List<CharacterContextSearchPort.Evidence> characterContext = searchCharacterContext(bundle);
             List<CharacterInputTagExtractionPort.SourceExcerpt> tagExcerpts = characterContext.stream()
@@ -153,6 +154,17 @@ public final class ScenarioCompilationWorker {
             throw exception;
         }
     }
+
+    private List<ResolutionCandidate> retryMalformedDiceCandidates(String operationId, List<ResolutionCandidate> candidates, List<ResolutionExtractionPort.SourceExcerpt> excerpts) {
+        if (candidates == null) return List.of(); List<ResolutionCandidate> result = new java.util.ArrayList<>();
+        for (ResolutionCandidate candidate : candidates) { ResolutionCandidate current = candidate;
+            if (current != null && requiresDice(current) && !validDice(current.diceExpression())) for (int attempt = 1; attempt <= 3 && !validDice(current.diceExpression()); attempt++)
+                current = extractionPort.retryCandidate(new ResolutionExtractionPort.CandidateRetryRequest(operationId, current, excerpts, "resolution-candidate-v1", "resolution-retry-v1", attempt, List.of("dice expression is invalid")));
+            result.add(current); }
+        return List.copyOf(result);
+    }
+    private static boolean requiresDice(ResolutionCandidate value) { return switch (value.kind()) { case DICE_ROLL, DAMAGE_ROLL, HEALING_ROLL, INITIATIVE_ROLL, RECHARGE_ROLL, RANDOM_TABLE -> true; default -> false; }; }
+    private static boolean validDice(String value) { return value != null && value.matches("[1-9]\\d*d[1-9]\\d*(?:[+-]\\d+)?"); }
 
     private static List<ResolutionExtractionPort.SourceExcerpt> selectResolutionExcerpts(
             List<ResolutionExtractionPort.SourceExcerpt> excerpts, Set<String> bundleSources) {
