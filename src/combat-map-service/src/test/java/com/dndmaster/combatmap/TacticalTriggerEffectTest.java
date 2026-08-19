@@ -32,4 +32,18 @@ class TacticalTriggerEffectTest {
         assertThrows(IllegalArgumentException.class, () -> map.apply(TacticalTriggerEffect.unplanned("invented")));
         assertThrows(IllegalArgumentException.class, () -> map.apply(TacticalTriggerEffect.planned("bad", TacticalTriggerEffect.Kind.BOSS, List.of(UUID.randomUUID().toString()))));
     }
+
+    @Test
+    void appliesAuthoredNonUuidTargetIdsUsingTheMaterializationCanonicalId() {
+        var enemy = new CombatToken(new TokenId(CombatMap.canonicalTokenId("enemy-1")), TokenType.ENEMY,
+                new GridPosition(2, 2), TokenController.AI_GAME_MASTER, null, TokenDiscovery.HIDDEN);
+        var map = new CombatMap(new MapId(UUID.randomUUID()), new AdventureId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
+                new GridSpec(5, 5, 5, 5), List.of(new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,
+                        new GridPosition(0, 0), TokenController.PLAYER, new PlayerId(UUID.randomUUID())), enemy), List.of(), List.of());
+
+        var updated = map.apply(TacticalTriggerEffect.planned("reveal-enemy", TacticalTriggerEffect.Kind.FOG_REVEAL,
+                List.of("enemy-1")));
+
+        assertEquals(TokenDiscovery.DISCOVERED, updated.tokens().get(1).discovery());
+    }
 }

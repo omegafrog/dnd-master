@@ -972,6 +972,22 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimePort tacticalTriggerRuntimePort(
+            @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}}") String internalToken,
+            ObjectMapper objectMapper) {
+        return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpTacticalTriggerRuntimeGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(10), objectMapper, internalToken);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimeApplicationService tacticalTriggerRuntimeApplicationService(
+            com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimePort runtime) {
+        return new com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimeApplicationService(
+                new com.dndmaster.adventure.application.runtime.TacticalTriggerEvaluator(), runtime);
+    }
+
+    @Bean
     AiCombatPort aiCombatPort() {
         return new AiCombatPort() {
             @Override

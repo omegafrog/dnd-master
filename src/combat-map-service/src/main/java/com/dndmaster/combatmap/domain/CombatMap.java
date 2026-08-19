@@ -62,7 +62,9 @@ public final class CombatMap {
     }
     public CombatMap apply(com.dndmaster.combatmap.application.view.TacticalTriggerEffect effect) {
         if (!effect.planned()) throw new IllegalArgumentException("only planned tactical triggers may change the map");
-        Set<UUID> targets = effect.targetIds().stream().map(UUID::fromString).collect(java.util.stream.Collectors.toSet());
+        Set<UUID> targets = effect.targetIds().stream()
+                .map(CombatMap::canonicalTokenId)
+                .collect(java.util.stream.Collectors.toSet());
         if (!targets.isEmpty() && tokens.stream().map(t -> t.id().value()).collect(java.util.stream.Collectors.toSet()).containsAll(targets) == false)
             throw new IllegalArgumentException("tactical trigger targets are not present on the map");
         List<CombatToken> nextTokens = tokens.stream().map(token -> targets.contains(token.id().value())
@@ -76,5 +78,20 @@ public final class CombatMap {
         CombatMap next = new CombatMap(id, adventureId, ruleSetId, grid, ownerPlayerId, nextTokens, obstacles, nextLayers, version + 1, null, null);
         next.replaceDoors(doors); next.refreshVisibility(visibilitySnapshot == null ? 0 : visibilitySnapshot.ruleTurn());
         return next;
+    }
+
+    /**
+     * Tactical plans use authored string ids (for example, enemy-1).  The map
+     * persistence model uses UUID token ids, so both boundaries must use the
+     * same deterministic canonicalization rather than parsing authored ids as
+     * UUIDs.
+     */
+    public static UUID canonicalTokenId(String authoredId) {
+        Objects.requireNonNull(authoredId, "tactical target id must not be null");
+        try {
+            return UUID.fromString(authoredId);
+        } catch (IllegalArgumentException ignored) {
+            return UUID.nameUUIDFromBytes(authoredId.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
     }
 }

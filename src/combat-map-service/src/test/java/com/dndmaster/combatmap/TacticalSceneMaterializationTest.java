@@ -35,6 +35,7 @@ class TacticalSceneMaterializationTest {
         assertEquals(1, result.tokens().getFirst().position().x());
         assertEquals(2, result.tokens().getFirst().position().y());
         assertEquals(TokenDiscovery.HIDDEN, result.tokens().get(1).discovery());
+        assertEquals(CombatMap.canonicalTokenId("rat"), result.tokens().get(1).id().value());
         assertEquals(1, result.obstacles().size());
         assertEquals("INITIAL_FOG", result.layers().getFirst().type());
     }

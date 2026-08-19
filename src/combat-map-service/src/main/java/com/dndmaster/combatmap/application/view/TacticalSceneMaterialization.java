@@ -34,7 +34,7 @@ public record TacticalSceneMaterialization(List<Placement> placements, List<Envi
             if (!occupied.add(position)) throw new IllegalArgumentException("tactical placements collide after grid conversion");
             TokenType type = TokenType.valueOf(placement.kind());
             boolean player = type == TokenType.PLAYER;
-            tokens.add(new CombatToken(new TokenId(UUID.nameUUIDFromBytes(placement.id().getBytes(java.nio.charset.StandardCharsets.UTF_8))), type,
+            tokens.add(new CombatToken(new TokenId(com.dndmaster.combatmap.domain.CombatMap.canonicalTokenId(placement.id())), type,
                     position, player ? TokenController.PLAYER : TokenController.AI_GAME_MASTER,
                     player ? new PlayerId(ownerPlayerId) : null, player ? TokenDiscovery.REVEALED : TokenDiscovery.HIDDEN));
         }

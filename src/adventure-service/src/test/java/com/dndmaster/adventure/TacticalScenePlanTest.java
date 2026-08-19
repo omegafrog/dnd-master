@@ -16,9 +16,29 @@ import com.dndmaster.adventure.domain.adventure.TacticalTrigger;
 import com.dndmaster.adventure.domain.adventure.TacticalTriggerType;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
+import com.dndmaster.adventure.application.runtime.TacticalTriggerEvaluator;
+import com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimeApplicationService;
 
 class TacticalScenePlanTest {
+    @Test
+    void evaluatesAuthoredTriggerAndAppliesItsEffectToTheRuntimeSeam() {
+        var scene = new TacticalScenePlan(TacticalScenePlan.CURRENT_SCHEMA_VERSION, TacticalScenePlanStatus.READY, boundary(),
+                List.of(placement("party", TacticalPlacementKind.PLAYER, .1, .1)), List.of(), List.of(),
+                List.of(placement("enemy-1", TacticalPlacementKind.ENEMY, .8, .8)), List.of(), List.of(), List.of(),
+                new FogPlan(List.of(), grounding("fog")),
+                List.of(new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of("enemy-1"), "", grounding("entry"))),
+                List.of(), List.of());
+        var seen = new TacticalTriggerEvaluator.Evaluation[1];
+        var service = new TacticalTriggerRuntimeApplicationService(new TacticalTriggerEvaluator(),
+                (mapId, ownerId, version, commandId, evaluation) -> seen[0] = evaluation);
+
+        service.apply(scene, "entry", UUID.randomUUID(), UUID.randomUUID(), 0, UUID.randomUUID());
+
+        assertEquals(List.of("enemy-1"), seen[0].targetIds());
+        assertEquals("COMBAT_ENTRY", seen[0].type());
+    }
     @Test
     void rejectsNormalizedCoordinatesOutsideTheSourceMap() {
         assertThrows(IllegalArgumentException.class, () -> new NormalizedCoordinate(1.01, .5));

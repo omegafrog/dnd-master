@@ -11,17 +11,29 @@ import com.dndmaster.adventure.domain.adventure.TacticalTrigger;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.Objects;
 
 /** Keeps source facts authoritative over tactical AI completion. */
 public final class TacticalScenePlanValidator {
+    private final SourceEvidenceReconciliationPort evidence;
+
+    public TacticalScenePlanValidator() {
+        this(SourceEvidenceReconciliationPort.exact());
+    }
+
+    public TacticalScenePlanValidator(SourceEvidenceReconciliationPort evidence) {
+        this.evidence = Objects.requireNonNull(evidence, "source evidence reconciler must not be null");
+    }
+
     public List<String> validate(TacticalSceneRequest request, TacticalScenePlanCandidate candidate) {
         if (candidate.stagePosition() != request.stage().position()) return List.of("tactical candidate targets the wrong stage");
         TacticalScenePlan scene = candidate.scene();
         if (!scene.readyForActivation()) return List.of("tactical scene is absent");
         Set<String> supplied = new HashSet<>();
         request.citations().forEach(citation -> supplied.add(key(citation)));
+        List<String> evidenceViolations = evidence.reconcile(request.citations(), candidate.citations());
+        if (!evidenceViolations.isEmpty()) return evidenceViolations;
         for (var citation : candidate.citations()) {
-            if (request.citations().stream().noneMatch(citation::equals)) return List.of("unknown tactical source citation");
             if (citation.quote() == null || citation.quote().isBlank()) return List.of("tactical source citation has no source fact");
         }
         for (PlacementGrounding grounding : groundings(scene)) {

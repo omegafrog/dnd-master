@@ -24,6 +24,46 @@ paths:
           content:
             application/json:
               schema: { $ref: './schemas/player-map-view.json' }
+  /internal/v1/combat-maps/{mapId}/gm-view:
+    get:
+      operationId: gmView
+      parameters:
+        - name: ownerId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: owner-authorized GM view }
+        '401': { description: internal service authorization required }
+  /internal/v1/combat-maps/{mapId}/tactical-triggers:
+    post:
+      operationId: applyTacticalTrigger
+      parameters:
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ownerId, commandId, expectedVersion, triggerId, kind, targetIds]
+              properties:
+                ownerId: { type: string, format: uuid }
+                commandId: { type: string, format: uuid }
+                expectedVersion: { type: integer, minimum: 0 }
+                triggerId: { type: string }
+                kind: { type: string }
+                targetIds: { type: array, items: { type: string } }
+      responses:
+        '200': { description: planned trigger applied }
+        '401': { description: internal service authorization required }
   /internal/v1/combat-maps/{mapId}/moves:
     post:
       operationId: movePlayer

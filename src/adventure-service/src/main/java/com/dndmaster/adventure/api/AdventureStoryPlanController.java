@@ -13,6 +13,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.web.server.ResponseStatusException;
 import com.dndmaster.adventure.application.session.AdventureSessionApplicationService;
 import com.dndmaster.adventure.application.runtime.TacticalMapActivationApplicationService;
+import com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimeApplicationService;
 
 @RestController
 @RequestMapping("/api/v1/adventure-sessions/{sessionId}/story-plan")
@@ -21,10 +22,12 @@ public final class AdventureStoryPlanController {
     private final AdventureSessionApplicationService sessions;
     private final TacticalMapActivationApplicationService mapActivation;
     private final AuthenticatedPlayerResolver playerResolver;
+    private final TacticalTriggerRuntimeApplicationService triggerRuntime;
 
     public AdventureStoryPlanController(AdventureStoryPlanApplicationService service, AdventureSessionApplicationService sessions,
-            TacticalMapActivationApplicationService mapActivation, AuthenticatedPlayerResolver playerResolver) {
-        this.service = service; this.sessions = sessions; this.mapActivation = mapActivation; this.playerResolver = playerResolver;
+            TacticalMapActivationApplicationService mapActivation, AuthenticatedPlayerResolver playerResolver,
+            TacticalTriggerRuntimeApplicationService triggerRuntime) {
+        this.service = service; this.sessions = sessions; this.mapActivation = mapActivation; this.playerResolver = playerResolver; this.triggerRuntime = triggerRuntime;
     }
 
     @GetMapping
@@ -59,7 +62,23 @@ public final class AdventureStoryPlanController {
         return new MapActivationView(position, stage.mapDefinitionId(), stage.mapAssetId(), stage.mapAssetLocator(), activation.combatMapId().orElse(null));
     }
 
+    @PostMapping("/stages/{position}/triggers/{triggerId}/apply")
+    TriggerApplicationView applyTrigger(@PathVariable UUID sessionId, @PathVariable int position,
+            @PathVariable String triggerId, @RequestBody TriggerApplicationRequest request) {
+        var session = sessions.read(new SessionId(sessionId), owner());
+        var plan = service.read(new SessionId(sessionId), owner());
+        var stage = plan.stages().stream().filter(item -> item.position() == position).findFirst()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "story plan stage not found"));
+        if (!stage.tacticalScenePlan().readyForActivation()) throw new ResponseStatusException(HttpStatus.CONFLICT, "tactical scene is not ready");
+        if (session.startedAdventureId() == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "adventure must be started");
+        var evaluation = triggerRuntime.apply(stage.tacticalScenePlan(), triggerId, request.combatMapId(), owner().value(),
+                request.expectedVersion(), request.commandId());
+        return new TriggerApplicationView(evaluation.triggerId(), evaluation.type(), evaluation.targetIds(), evaluation.transitionId());
+    }
+
     public record MapActivationView(int stagePosition, UUID mapDefinitionId, String assetId, String assetLocator, UUID combatMapId) {}
+    public record TriggerApplicationRequest(UUID combatMapId, UUID commandId, long expectedVersion) {}
+    public record TriggerApplicationView(String triggerId, String type, List<String> targetIds, String transitionId) {}
 
     private OwnerPlayerId owner() { return new OwnerPlayerId(playerResolver.playerId()); }
 

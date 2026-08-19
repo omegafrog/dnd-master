@@ -8,6 +8,7 @@ import com.dndmaster.combatmap.application.view.PlayerCombatMapView;
 import com.dndmaster.combatmap.application.view.CombatMapAccessDeniedException;
 import com.dndmaster.combatmap.application.view.UploadedMapSource;
 import com.dndmaster.combatmap.application.view.TacticalSceneMaterialization;
+import com.dndmaster.combatmap.application.view.TacticalTriggerEffect;
 import com.dndmaster.combatmap.domain.*;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
@@ -20,10 +21,12 @@ import java.util.UUID;
 public class CombatMapController {
     private final CombatMapViewService mapViewService;
     private final CombatMapMovementService movementService;
+    private final ApiRequestGuard requestGuard;
 
-    public CombatMapController(CombatMapViewService mapViewService, CombatMapMovementService movementService) {
+    public CombatMapController(CombatMapViewService mapViewService, CombatMapMovementService movementService, ApiRequestGuard requestGuard) {
         this.mapViewService = mapViewService;
         this.movementService = movementService;
+        this.requestGuard = requestGuard;
     }
 
     @GetMapping("/internal/v1/combat-maps/{mapId}/player-view")
@@ -34,8 +37,21 @@ public class CombatMapController {
     }
 
     @GetMapping("/internal/v1/combat-maps/{mapId}/gm-view")
-    GmCombatMapResponse gmView(@PathVariable UUID mapId, @RequestParam UUID ownerId) {
+    GmCombatMapResponse gmView(@PathVariable UUID mapId, @RequestParam UUID ownerId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token) {
+        requestGuard.internal(token);
         return GmCombatMapResponse.from(mapViewService.displayForGm(new MapId(mapId), new MapOwnerId(ownerId)));
+    }
+
+    @PostMapping("/internal/v1/combat-maps/{mapId}/tactical-triggers")
+    CombatMapAiStateResponse applyTacticalTrigger(@PathVariable UUID mapId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody TacticalTriggerRequest request) {
+        requestGuard.internal(token);
+        var map = mapViewService.applyTacticalTrigger(new MapId(mapId), new MapOwnerId(request.ownerId()), request.expectedVersion(),
+                request.commandId(), TacticalTriggerEffect.planned(request.triggerId(),
+                        TacticalTriggerEffect.Kind.valueOf(request.kind()), request.targetIds()));
+        return new CombatMapAiStateResponse(map.id().value());
     }
 
     @PostMapping("/internal/v1/combat-maps/prepare")
@@ -130,6 +146,8 @@ public class CombatMapController {
     public record DoorRequest(UUID ownerId,int x,int y,boolean open,UUID commandId,long expectedVersion) {}
     public record RevealRequest(UUID ownerId,UUID tokenId,UUID commandId,long expectedVersion) {}
     public record GameTimeRequest(UUID ownerId,UUID adventureId,long ruleTurn,UUID causeId,long expectedVersion) {}
+    public record TacticalTriggerRequest(UUID ownerId, UUID commandId, long expectedVersion,
+                                         String triggerId, String kind, List<String> targetIds) {}
 
     public record LayerRequest(String type, String value, String visibility) {}
 

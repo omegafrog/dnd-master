@@ -8,6 +8,7 @@ import com.dndmaster.combatmap.domain.*;
 import com.dndmaster.combatmap.infrastructure.persistence.PostgresCombatMapViewStore;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
 
 import javax.sql.DataSource;
 import javax.imageio.ImageIO;
@@ -18,6 +19,11 @@ import java.util.Set;
 
 @Configuration(proxyBeanMethods = false)
 public class CombatMapApiConfiguration {
+
+    @Bean
+    ApiRequestGuard combatMapApiRequestGuard(@Value("${combat-map.integration.internal-token:${INTERNAL_SERVICE_TOKEN:local-dev-internal-token}}") String token) {
+        return new ApiRequestGuard(token);
+    }
 
     @Bean
     CombatMapViewStore combatMapViewStore(DataSource dataSource) {
@@ -133,7 +139,7 @@ public class CombatMapApiConfiguration {
 
     @Bean
     CombatMapController combatMapController(
-            CombatMapViewService mapViewService, CombatMapMovementService movementService) {
-        return new CombatMapController(mapViewService, movementService);
+            CombatMapViewService mapViewService, CombatMapMovementService movementService, ApiRequestGuard requestGuard) {
+        return new CombatMapController(mapViewService, movementService, requestGuard);
     }
 }

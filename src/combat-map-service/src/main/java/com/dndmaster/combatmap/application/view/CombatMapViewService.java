@@ -86,6 +86,18 @@ public final class CombatMapViewService {
         if(state.map().visibilitySnapshot()!=null && event.ruleTurn()<state.map().visibilitySnapshot().ruleTurn()) throw new IllegalArgumentException("game time must be monotonic");
         state.map().refreshVisibility(event.ruleTurn()); store.update(owner,state.map(),expectedVersion,expectedVersion+1,event.causeId(),fingerprint); return state.map();
     }
+    public CombatMap applyTacticalTrigger(MapId id, MapOwnerId owner, long expectedVersion, UUID commandId,
+            TacticalTriggerEffect effect) {
+        String fingerprint = id + "|" + owner + "|TRIGGER|" + effect;
+        CombatMap replay = replay(id, owner, commandId, fingerprint);
+        if (replay != null) return replay;
+        VersionedOwnedCombatMap state = owned(id, owner);
+        if (state.version() != expectedVersion) throw new IllegalStateException("version mismatch");
+        CombatMap updated = state.map().apply(effect);
+        updated.markPersisted(expectedVersion + 1, commandId, fingerprint);
+        store.update(owner, updated, expectedVersion, expectedVersion + 1, commandId, fingerprint);
+        return updated;
+    }
     private PlayerCombatMapView projection(CombatMap map, long version) {
         VisibilitySnapshot visibility = map.visibilitySnapshot();
         if (visibility == null) visibility = new VisibilityPolicy().calculate(map.grid(), playerOrigins(map), Set.of(), map.obstacles(), map.doors(), map.tokens(), Set.of(), 0);
