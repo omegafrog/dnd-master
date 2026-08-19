@@ -20,8 +20,10 @@ public final class PostgresActiveTacticalMapAdapter implements ActiveTacticalMap
 
     @Override
     public void bindActiveMap(UUID adventureId, int stagePosition, UUID ownerPlayerId, UUID combatMapId) {
-        jdbc.update("INSERT INTO adventure_active_tactical_map(adventure_id, stage_position, owner_player_id, combat_map_id) VALUES (?, ?, ?, ?) "
-                        + "ON CONFLICT (adventure_id, stage_position, owner_player_id) DO UPDATE SET combat_map_id = EXCLUDED.combat_map_id",
+        jdbc.update("UPDATE adventure_active_tactical_map SET active = FALSE WHERE adventure_id = ? AND owner_player_id = ?",
+                adventureId, ownerPlayerId);
+        jdbc.update("INSERT INTO adventure_active_tactical_map(adventure_id, stage_position, owner_player_id, combat_map_id, active) VALUES (?, ?, ?, ?, TRUE) "
+                        + "ON CONFLICT (adventure_id, stage_position, owner_player_id) DO UPDATE SET combat_map_id = EXCLUDED.combat_map_id, active = TRUE",
                 adventureId, stagePosition, ownerPlayerId, combatMapId);
     }
 }

@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test'
 import { basename } from 'node:path'
+import { readFile } from 'node:fs/promises'
 
 const backend = process.env.BACKEND_E2E_URL
 const email = process.env.BACKEND_E2E_EMAIL
@@ -44,6 +45,30 @@ test('fresh Potent Brew browser journey selects three assets and saves their rol
   await page.getByLabel('이메일').fill(email!)
   await page.getByLabel('비밀번호').fill(password!)
   await page.getByRole('button', { name: '로그인', exact: true }).click()
+  const session = await page.evaluate(() => JSON.parse(window.localStorage.getItem('dnd-master.auth-session') ?? '{}') as { accessToken?: string; playerId?: string })
+  expect(session.accessToken, 'browser login did not create an access token').toBeTruthy()
+  expect(session.playerId, 'browser login did not create a player id').toBeTruthy()
+  const rulebookUpload = await page.request.post(`${backend}/api/v1/rulebooks?ownerPlayerId=${session.playerId}`, {
+    headers: { Authorization: `Bearer ${session.accessToken}` },
+    multipart: {
+      documents: {
+        name: 'documents.json',
+        mimeType: 'application/json',
+        buffer: Buffer.from(JSON.stringify([{
+          idempotencyKey: crypto.randomUUID(),
+          documentType: 'RULEBOOK',
+          originalFilename: basename(rulebookPath!),
+        }])),
+      },
+      files: {
+        name: basename(rulebookPath!),
+        mimeType: 'application/pdf',
+        buffer: await readFile(rulebookPath!),
+      },
+    },
+  })
+  await expect(rulebookUpload).toBeOK()
+  expect((await rulebookUpload.json()).documents).toHaveLength(1)
   await page.goto('/#/setup')
   await expect(page.getByRole('heading', { name: '자료와 모험 설정' })).toBeVisible()
 

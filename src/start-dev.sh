@@ -7,30 +7,58 @@ UI="$ROOT/web-ui"
 DEMO_USER_INIT_SQL="/docker-entrypoint-initdb.d/02-seed-demo-user.sql"
 GRADLEW_TMP=""
 if [ "$(uname -s)" != "Linux" ]; then
-    echo "ERROR: start-dev.sh must be run inside WSL/Linux." >&2
+    echo "ERROR: start-dev.sh must be run inside WSL/Linux (uname -s=Linux required)." >&2
     exit 1
 fi
 
-NODE_BIN="${WSL_NODE_BIN:-$HOME/.local/bin/node}"
-NPM_CLI="${WSL_NPM_CLI:-$HOME/.local/node-bin/npm}"
-LOCAL_CODEX_BIN=""
-for candidate in "$HOME"/.nvm/versions/node/*/bin/codex "$HOME/.local/codex/node_modules/.bin/codex"; do
-    if [ -x "$candidate" ]; then
-        LOCAL_CODEX_BIN="$candidate"
-        break
+require_env() {
+    local name="$1"
+    if [ -z "${!name:-}" ]; then
+        echo "ERROR: required environment variable $name is missing or blank." >&2
+        exit 1
+    fi
+}
+require_env INTERNAL_SERVICE_TOKEN
+require_env RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS
+require_env CODEX_EXECUTABLE
+
+NVM_BIN="/home/jiwoo/.nvm/versions/node/v24.12.0/bin"
+SDKMAN_JAVA_HOME="/home/jiwoo/.sdkman/candidates/java/current"
+NODE_BIN="$NVM_BIN/node"
+NPM_CLI="$NVM_BIN/npm"
+JAVA_BIN="$SDKMAN_JAVA_HOME/bin/java"
+GRAPHIFY_BIN="/home/jiwoo/.local/bin/graphify"
+export JAVA_HOME="$SDKMAN_JAVA_HOME"
+export PATH="$NVM_BIN:$SDKMAN_JAVA_HOME/bin:/home/jiwoo/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+require_linux_path() {
+    local name="$1" path="$2"
+    case "$path" in
+        /home/jiwoo/*) ;;
+        *) echo "ERROR: $name must resolve to a Linux/WSL path: $path" >&2; exit 1 ;;
+    esac
+    if [ ! -x "$path" ]; then
+        echo "ERROR: required Linux/WSL executable $name was not found or is not executable at $path." >&2
+        exit 1
+    fi
+}
+require_linux_path CODEX_EXECUTABLE "$CODEX_EXECUTABLE"
+require_linux_path node "$NODE_BIN"
+require_linux_path npm "$NPM_CLI"
+require_linux_path java "$JAVA_BIN"
+require_linux_path graphify "$GRAPHIFY_BIN"
+for tool in node npm java graphify; do
+    expected=""
+    case "$tool" in node) expected="$NODE_BIN";; npm) expected="$NPM_CLI";; java) expected="$JAVA_BIN";; graphify) expected="$GRAPHIFY_BIN";; esac
+    resolved="$(command -v "$tool")"
+    if [ "$resolved" != "$expected" ]; then
+        echo "ERROR: $tool must resolve to the WSL toolchain path $expected (resolved $resolved)." >&2
+        exit 1
     fi
 done
-if [ -z "${CODEX_EXECUTABLE:-}" ] && [ -n "$LOCAL_CODEX_BIN" ]; then
-    export CODEX_EXECUTABLE="$LOCAL_CODEX_BIN"
-fi
-if [ ! -x "$NODE_BIN" ]; then
-    echo "ERROR: Linux Node was not found at $NODE_BIN." >&2
-    exit 1
-fi
-if [ ! -f "$NPM_CLI" ]; then
-    echo "ERROR: Linux npm CLI was not found at $NPM_CLI." >&2
-    exit 1
-fi
+
+# Live Playwright separately requires BACKEND_E2E_URL, BACKEND_E2E_EMAIL,
+# BACKEND_E2E_PASSWORD, BACKEND_E2E_RULEBOOK_FILE, and BACKEND_E2E_STORYBOOKS_JSON.
 
 run_node() { "$NODE_BIN" "$@"; }
 run_npm() {

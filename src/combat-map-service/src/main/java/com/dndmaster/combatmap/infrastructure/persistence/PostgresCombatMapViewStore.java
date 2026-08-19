@@ -100,7 +100,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
     @Override
     public Optional<VersionedOwnedCombatMap> findByAdventureId(AdventureId adventureId) {
         try (Connection connection = dataSource.getConnection();
-                PreparedStatement statement = connection.prepareStatement("SELECT * FROM " + TABLE + " WHERE adventure_id=? ORDER BY updated_at DESC LIMIT 1")) {
+                PreparedStatement statement = connection.prepareStatement("SELECT map.* FROM " + TABLE + " map JOIN adventure_active_tactical_map active_map ON active_map.combat_map_id = map.map_id WHERE active_map.adventure_id=? AND active_map.active=true LIMIT 1")) {
             statement.setObject(1, adventureId.value());
             try (ResultSet row = statement.executeQuery()) {
                 return row.next() ? Optional.of(readCurrent(connection, row)) : Optional.empty();
