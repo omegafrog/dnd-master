@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type APIRequestContext } from '@playwright/test'
 import { randomUUID } from 'node:crypto'
 
 const backend = process.env.BACKEND_E2E_URL
@@ -8,6 +8,7 @@ const packageId = process.env.BACKEND_E2E_SCENARIO_PACKAGE_ID
 const bundleId = process.env.BACKEND_E2E_BUNDLE_ID
 const playerId = process.env.BACKEND_E2E_PLAYER_ID
 const stagePosition = Number(process.env.BACKEND_E2E_TACTICAL_STAGE_POSITION ?? '1')
+const expectedPartySize = Number(process.env.BACKEND_E2E_PARTY_SIZE ?? '4')
 
 const isPotentBrewStorybook = (document: { originalFilename?: string; documentType?: string }) =>
   document.documentType === 'STORYBOOK' && /potent[ _-]?brew/i.test(document.originalFilename ?? '')
@@ -29,11 +30,38 @@ test('identifies the D&D 5e rulebook filename used by the live bundle', () => {
   expect(isDndRulebook({ documentType: 'RULEBOOK', originalFilename: 'D&D 5e (2014)' })).toBeTruthy()
 })
 
+async function ensureCompleteParty(request: APIRequestContext) {
+  let sessionResponse = await request.get(`${backend}/api/v1/adventure-sessions/${sessionId}`, { headers: { Authorization: `Bearer ${token}` } })
+  expect(sessionResponse.ok()).toBeTruthy()
+  let session = await sessionResponse.json()
+  expect(session.characterLimit).toBe(expectedPartySize)
+  expect(session.party.length).toBeLessThanOrEqual(expectedPartySize)
+
+  while (session.party.length < expectedPartySize) {
+    const candidateResponse = await request.post(`${backend}/api/v1/adventure-sessions/${sessionId}/party/ai-candidates`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    expect(candidateResponse.ok()).toBeTruthy()
+    const candidate = await candidateResponse.json()
+    const adopted = await request.post(`${backend}/api/v1/adventure-sessions/${sessionId}/party/ai-candidates/adopt`, {
+      headers: { Authorization: `Bearer ${token}`, 'If-Match-Version': String(session.version) },
+      data: { ...candidate, controlMode: 'AGENT' },
+    })
+    expect(adopted.ok()).toBeTruthy()
+    session = await adopted.json()
+  }
+
+  expect(session.party).toHaveLength(expectedPartySize)
+  return session
+}
+
 test('real Potent Brew backend preserves tactical retry, activation, projection, trigger, and revision flow', async ({ request }) => {
+  test.setTimeout(180_000)
   test.skip(!backend || !token || !sessionId || !packageId || !bundleId || !playerId,
     'set established BACKEND_E2E_URL, TOKEN, PLAYER_ID, BUNDLE_ID, SCENARIO_PACKAGE_ID and SESSION_ID')
 
   const headers = { Authorization: `Bearer ${token}` }
+  let session = await ensureCompleteParty(request)
   const bundleResponse = await request.get(`${backend}/api/v1/adventures/scenario-bundles/${bundleId}`, { headers })
   expect(bundleResponse.ok()).toBeTruthy()
   const bundle = await bundleResponse.json()
@@ -49,7 +77,15 @@ test('real Potent Brew backend preserves tactical retry, activation, projection,
   expect(compiledBody.bundleId).toBe(bundleId)
   expect(compiledBody.reportStatus).toBe('COMPLETE')
   expect(compiledBody.units.length).toBeGreaterThan(0)
-  const plan = await request.get(`${backend}/api/v1/adventure-sessions/${sessionId}/story-plan/gm`, { headers })
+  let plan = await request.get(`${backend}/api/v1/adventure-sessions/${sessionId}/story-plan/gm`, { headers })
+  if (!plan.ok()) {
+    expect(plan.status()).toBe(409)
+    expect((await plan.json()).error).toBe('ADVENTURE_START_BLOCKED')
+    plan = await request.post(`${backend}/api/v1/adventure-sessions/${sessionId}/story-plan`, {
+      headers,
+      data: { endingCount: 2, adventureLength: 'STANDARD' },
+    })
+  }
   expect(plan.ok()).toBeTruthy()
   const planBody = await plan.json()
   expect(planBody.status).toBe('READY')
@@ -72,6 +108,20 @@ test('real Potent Brew backend preserves tactical retry, activation, projection,
   const refreshedPlanBody = await refreshedPlanResponse.json()
   const activeStage = refreshedPlanBody.stages[stagePosition - 1]
   expect(activeStage.tacticalScene.status).toBe('READY')
+
+  const sessionResponse = await request.get(`${backend}/api/v1/adventure-sessions/${sessionId}`, { headers })
+  expect(sessionResponse.ok()).toBeTruthy()
+  session = await sessionResponse.json()
+  expect(session.characterLimit).toBe(expectedPartySize)
+  expect(session.party).toHaveLength(expectedPartySize)
+  if (session.status === 'DRAFT') {
+    const started = await request.post(`${backend}/api/v1/adventure-sessions/${sessionId}/start`, {
+      headers: { ...headers, 'If-Match-Version': String(session.version), 'Idempotency-Key': randomUUID() },
+      data: { adventureId: randomUUID() },
+    })
+    expect(started.ok()).toBeTruthy()
+    expect((await started.json()).status).toBe('STARTED')
+  }
 
   const activation = await request.post(`${backend}/api/v1/adventure-sessions/${sessionId}/story-plan/stages/${stagePosition}/activate-map`, { headers })
   expect(activation.ok()).toBeTruthy()
