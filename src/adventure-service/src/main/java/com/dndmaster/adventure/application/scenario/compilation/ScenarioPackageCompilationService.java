@@ -144,10 +144,14 @@ public final class ScenarioPackageCompilationService {
             warnings.add("no resolution candidates were produced");
             warnings.addAll(overrideResult.warnings());
         }
-        ResolutionStatus reportStatus = units.stream().anyMatch(unit -> unit.status() == ResolutionStatus.INVALID)
+        boolean hasUnsafeInvalid = units.stream().filter(unit -> unit.status() == ResolutionStatus.INVALID)
+                .anyMatch(unit -> !unit.validationMessages().equals(List.of("dice expression is invalid")));
+        boolean hasRecoverableDiceFailure = units.stream().anyMatch(unit -> unit.status() == ResolutionStatus.INVALID
+                && unit.validationMessages().equals(List.of("dice expression is invalid")));
+        ResolutionStatus reportStatus = hasUnsafeInvalid || (!units.isEmpty() && units.stream().allMatch(unit -> unit.status() == ResolutionStatus.INVALID))
                 ? ResolutionStatus.INVALID
                 : units.stream().anyMatch(unit -> unit.status() == ResolutionStatus.PARTIAL)
-                        || units.isEmpty() ? ResolutionStatus.PARTIAL : ResolutionStatus.COMPLETE;
+                        || hasRecoverableDiceFailure || units.isEmpty() ? ResolutionStatus.PARTIAL : ResolutionStatus.COMPLETE;
         if (!overrideResult.overrides().isEmpty()) {
             overrideRepository.saveAll(overrideResult.overrides());
         }

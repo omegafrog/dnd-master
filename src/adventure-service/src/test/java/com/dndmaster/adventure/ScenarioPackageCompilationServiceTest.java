@@ -196,6 +196,17 @@ class ScenarioPackageCompilationServiceTest {
     }
 
     @Test
+    void downgradesAnIsolatedMalformedDiceCandidateToPartialWhenOtherRuntimeFactsRemainSafe() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(documentId, 1);
+        var result = new ScenarioPackageCompilationService(new InMemoryPackageRepository()).compile(bundle, List.of(
+                ResolutionCandidate.skillCheck(documentId, 1, "page:1:span:1", "Stealth", 12, "The cellar is watched."),
+                ResolutionCandidate.diceRoll(documentId, 1, "page:1:span:2", "twenty", "Malformed dice extraction.")));
+        assertEquals("PARTIAL", result.report().status().name());
+        assertEquals(List.of("dice expression is invalid"), result.report().warnings());
+    }
+
+    @Test
     void rejectsPlayerSafeOutputForMainScenarioAndPreservesProvenance() {
         KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(documentId, 1);
