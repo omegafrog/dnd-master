@@ -60,4 +60,21 @@ public final class CombatMap {
         VisibilitySnapshot prior=visibilitySnapshot;
         visibilitySnapshot=new VisibilityPolicy().calculate(grid,origins,prior==null?Set.of():prior.explored(),blocked,doors,tokens,prior==null?Set.of():prior.lastSeen(),ruleTurn);
     }
+    public CombatMap apply(com.dndmaster.combatmap.application.view.TacticalTriggerEffect effect) {
+        if (!effect.planned()) throw new IllegalArgumentException("only planned tactical triggers may change the map");
+        Set<UUID> targets = effect.targetIds().stream().map(UUID::fromString).collect(java.util.stream.Collectors.toSet());
+        if (!targets.isEmpty() && tokens.stream().map(t -> t.id().value()).collect(java.util.stream.Collectors.toSet()).containsAll(targets) == false)
+            throw new IllegalArgumentException("tactical trigger targets are not present on the map");
+        List<CombatToken> nextTokens = tokens.stream().map(token -> targets.contains(token.id().value())
+                ? new CombatToken(token.id(), token.type(), token.position(), token.controller(), token.ownerPlayerId().orElse(null), TokenDiscovery.DISCOVERED) : token).toList();
+        List<MapLayer> nextLayers = new ArrayList<>(layers);
+        if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.FOG_REVEAL) nextLayers.removeIf(layer -> layer.type().equals("INITIAL_FOG"));
+        if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.REWARD) nextLayers.add(new MapLayer("RESOLVED_REWARD", effect.triggerId(), LayerVisibility.PLAYER_VISIBLE));
+        if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.ALARM) nextLayers.add(new MapLayer("ALARM", effect.triggerId(), LayerVisibility.PLAYER_VISIBLE));
+        if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.SUCCESS || effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.FAILURE || effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.EXIT)
+            nextLayers.add(new MapLayer("TACTICAL_OUTCOME", effect.kind().name(), LayerVisibility.PLAYER_VISIBLE));
+        CombatMap next = new CombatMap(id, adventureId, ruleSetId, grid, ownerPlayerId, nextTokens, obstacles, nextLayers, version + 1, null, null);
+        next.replaceDoors(doors); next.refreshVisibility(visibilitySnapshot == null ? 0 : visibilitySnapshot.ruleTurn());
+        return next;
+    }
 }

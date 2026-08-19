@@ -94,4 +94,15 @@ public final class AdventureStoryPlan {
         return new AdventureStoryPlan(planId, sessionId, packageRevision, partyRevision, version + 1, status,
                 configuration, stages, nextStage, failureReason, Instant.now());
     }
+
+    /** Revisions may replace only stages that have not yet been published to play. */
+    public AdventureStoryPlan reviseFutureStages(List<AdventureStoryPlanStage> candidate) {
+        Objects.requireNonNull(candidate, "candidate stages must not be null");
+        if (candidate.size() != stages.size()) throw new IllegalArgumentException("future revision must retain the stage graph");
+        for (int index = 0; index <= currentStage; index++) {
+            if (!stages.get(index).equals(candidate.get(index))) throw new IllegalStateException("published story stages are immutable");
+        }
+        return new AdventureStoryPlan(planId, sessionId, packageRevision, partyRevision, version + 1, status,
+                configuration, candidate, currentStage, failureReason, Instant.now());
+    }
 }
