@@ -39,6 +39,24 @@ class ScenarioCompilationWorkerTest {
     }
 
     @Test
+    void mapsHandoutBundleRoleToItsRegisteredStorybookDocumentTypeForOverlaySearch() {
+        KnowledgeDocumentId handout = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(List.of(
+                document(handout, ScenarioBundleDocumentRole.HANDOUT, "STORYBOOK", 7)));
+        Fixture fixture = new Fixture(bundle);
+
+        ScenarioPackage result = fixture.worker().processNext("worker", Duration.ofMinutes(1)).orElseThrow();
+
+        assertEquals(1, fixture.search.request.documents().size());
+        assertEquals(handout, fixture.search.request.documents().getFirst().documentId());
+        assertEquals("STORYBOOK", fixture.search.request.documents().getFirst().documentType());
+        assertEquals(7, fixture.search.request.documents().getFirst().extractionVersion());
+        assertEquals("PARTIAL", result.report().status().name());
+        assertEquals("PUBLISHED", fixture.compilations.values.values().iterator().next().status().name());
+        assertNull(fixture.tags.request);
+    }
+
+    @Test
     void rulebookOnlyBundleUsesBaseSchemaWithoutCharacterAi() {
         KnowledgeDocumentId rulebook = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(List.of(
