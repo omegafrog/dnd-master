@@ -66,6 +66,7 @@ class OpenApiSchemaTest {
                 .get("/api/v1/adventure-sessions/{sessionId}/story-plan/stages/{position}/tactical-scene/revise")).get("post");
         String reviseBody = revise.toString();
         assertTrue(reviseBody.contains("causingGmTurnId"), "future revision must carry its causing GM turn provenance");
+        assertTrue(reviseBody.contains("causingGmCommandId"), "future revision must bind the causing GM command");
         assertTrue(reviseBody.contains("X-Internal-Token"), "future revision must require internal authorization");
         assertTrue(reviseBody.contains("401"), "future revision must document invalid-token response");
         assertTrue(reviseBody.contains("403"), "future revision must document owner denial response");

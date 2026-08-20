@@ -40,7 +40,7 @@ paths:
         - { name: sessionId, in: path, required: true, schema: { type: string, format: uuid } }
         - { name: position, in: path, required: true, schema: { type: integer } }
         - { name: X-Internal-Token, in: header, required: true, schema: { type: string, minLength: 1 } }
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [causingGmTurnId], properties: { causingGmTurnId: { type: string, format: uuid, description: GM turn that authored this future-stage revision } } } } } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [causingGmTurnId, causingGmCommandId], properties: { causingGmTurnId: { type: string, format: uuid, description: GM turn that authored this future-stage revision }, causingGmCommandId: { type: string, format: uuid, description: command identity persisted on the causing GM turn } } } } } }
       responses: { '200': { description: validated future revision }, '400': { description: untrusted or invalid tactical scene rejected }, '401': { description: Missing or invalid X-Internal-Token }, '403': { description: Authenticated owner does not own the requested session } }
   /api/v1/adventures/{adventureId}/events:
     get:
