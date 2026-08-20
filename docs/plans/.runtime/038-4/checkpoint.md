@@ -1,6 +1,6 @@
 # 038-4 checkpoint
 
-- attempt: 17
+- attempt: 18
 - status: in-progress
 - scope: player trigger qualification, durable planned trigger effects, active-map/session ownership, immutable revealed stages and append-only future revision
 - resumed after 038-3 completion at `5f55cc4d`
@@ -17,3 +17,6 @@
 - completed: legacy duplicate history rows are deterministically deduplicated before uniqueness, and durable history_id/cause/predecessor metadata is read through GM history projection
 - completed: GM history exposes persisted predecessorHistoryId and future revisions persist the causing GM turn as durable audit provenance
 - completed: future revisions require a committed GM turn for the started adventure, and predecessor history selection is ordered by lower plan version within the transaction
+- attempt 18 started: concurrency-safe story-plan revisions, durable GM-turn cause linkage, canonical qualifying actions, and material runtime trigger state are under implementation
+- completed attempt 18: story-plan saves lock the current pointer, require the next version, and use a non-discarding history insert; future revision provenance binds the committed GM turn, command, and stage intent
+- completed attempt 18: tactical trigger effects now update durable runtime state (combat/alarm/reinforcement/boss/reward/outcome/transition) and persist/reload it for current and command-history maps, with canonical action regression coverage

@@ -81,10 +81,10 @@ class PostgresAdventureStoryPlanRepositoryIntegrationTest {
         AdventureStoryPlan first = AdventureStoryPlan.blocked(UUID.randomUUID(), sessionId, 1, 0, 1,
                 new AdventurePlanConfiguration(2, AdventureLength.STANDARD), List.of(), "first");
         repository.save(first);
-        AdventureStoryPlan third = AdventureStoryPlan.rehydrate(first.planId(), sessionId, first.packageRevision(), first.partyRevision(), 3,
+        AdventureStoryPlan third = AdventureStoryPlan.rehydrate(first.planId(), sessionId, first.packageRevision(), first.partyRevision(), 2,
                 AdventureStoryPlanStatus.BLOCKED, first.configuration(), first.stages(), first.currentStage(), "third", first.updatedAt().plusSeconds(-100));
         repository.save(third, "GM_TURN:" + UUID.randomUUID());
-        AdventureStoryPlan fourth = AdventureStoryPlan.rehydrate(first.planId(), sessionId, first.packageRevision(), first.partyRevision(), 4,
+        AdventureStoryPlan fourth = AdventureStoryPlan.rehydrate(first.planId(), sessionId, first.packageRevision(), first.partyRevision(), 3,
                 AdventureStoryPlanStatus.BLOCKED, first.configuration(), first.stages(), first.currentStage(), "fourth", first.updatedAt().plusSeconds(-200));
         repository.save(fourth, "GM_TURN:" + UUID.randomUUID());
 

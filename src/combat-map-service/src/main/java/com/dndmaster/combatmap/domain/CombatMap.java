@@ -5,6 +5,7 @@ public final class CombatMap {
     private final PlayerId ownerPlayerId;
     private final List<CombatToken> tokens; private final Set<GridPosition> obstacles; private final List<MapLayer> layers; private Set<Door> doors = Set.of();
     private long version; private UUID operationKey; private String operationFingerprint; private VisibilitySnapshot visibilitySnapshot;
+    private TacticalRuntimeState runtimeState = TacticalRuntimeState.initial();
     public CombatMap(MapId id, AdventureId adventureId, RuleSetId ruleSetId, GridSpec grid, List<CombatToken> tokens, Collection<GridPosition> obstacles, List<MapLayer> layers) {
         this(id, adventureId, ruleSetId, grid, null, tokens, obstacles, layers, 0, null, null);
     }
@@ -47,6 +48,8 @@ public final class CombatMap {
     public GridSpec grid(){return grid;} public PlayerId ownerPlayerId(){return ownerPlayerId;} public List<CombatToken> tokens(){return tokens;} public Set<GridPosition> obstacles(){return obstacles;} public List<MapLayer> layers(){return layers;}
     public long version(){return version;} public UUID operationKey(){return operationKey;} public String operationFingerprint(){return operationFingerprint;}
     public VisibilitySnapshot visibilitySnapshot(){return visibilitySnapshot;}
+    public TacticalRuntimeState runtimeState(){return runtimeState;}
+    public void replaceRuntimeState(TacticalRuntimeState state){runtimeState=Objects.requireNonNull(state);}
     public void replaceVisibility(VisibilitySnapshot snapshot){visibilitySnapshot=Objects.requireNonNull(snapshot);}
     public Set<Door> doors(){return doors;}
     public void replaceDoors(Collection<Door> nextDoors){
@@ -91,6 +94,18 @@ public final class CombatMap {
         if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.SUCCESS || effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.FAILURE || effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.EXIT)
             nextLayers.add(new MapLayer("TACTICAL_OUTCOME", effect.kind().name(), LayerVisibility.PLAYER_VISIBLE));
         CombatMap next = new CombatMap(id, adventureId, ruleSetId, grid, ownerPlayerId, nextTokens, obstacles, nextLayers, version + 1, null, null);
+        TacticalRuntimeState state = runtimeState;
+        state = switch (effect.kind()) {
+            case COMBAT_ENTRY -> new TacticalRuntimeState(true, state.alarmRaised(), state.reinforcementsActivated(), state.bossActivated(), state.rewardDiscovered(), state.outcome(), state.transitionId());
+            case ALARM -> new TacticalRuntimeState(state.combatEntered(), true, state.reinforcementsActivated(), state.bossActivated(), state.rewardDiscovered(), state.outcome(), state.transitionId());
+            case REINFORCEMENT -> new TacticalRuntimeState(state.combatEntered(), state.alarmRaised(), true, state.bossActivated(), state.rewardDiscovered(), state.outcome(), state.transitionId());
+            case BOSS -> new TacticalRuntimeState(state.combatEntered(), state.alarmRaised(), state.reinforcementsActivated(), true, state.rewardDiscovered(), state.outcome(), state.transitionId());
+            case REWARD -> new TacticalRuntimeState(state.combatEntered(), state.alarmRaised(), state.reinforcementsActivated(), state.bossActivated(), true, state.outcome(), state.transitionId());
+            case SUCCESS, FAILURE, EXIT, SURRENDER -> new TacticalRuntimeState(state.combatEntered(), state.alarmRaised(), state.reinforcementsActivated(), state.bossActivated(), state.rewardDiscovered(), effect.kind().name(), effect.transitionId().isBlank() ? state.transitionId() : effect.transitionId());
+            default -> state;
+        };
+        if (!effect.transitionId().isBlank() && !state.transitionId().equals(effect.transitionId())) state = new TacticalRuntimeState(state.combatEntered(), state.alarmRaised(), state.reinforcementsActivated(), state.bossActivated(), state.rewardDiscovered(), state.outcome(), effect.transitionId());
+        next.replaceRuntimeState(state);
         next.replaceDoors(doors); next.refreshVisibility(visibilitySnapshot == null ? 0 : visibilitySnapshot.ruleTurn());
         return next;
     }

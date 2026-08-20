@@ -55,10 +55,17 @@ public final class FutureTacticalSceneRevisionService {
 
     public AdventureStoryPlan revise(SessionId sessionId, OwnerPlayerId owner, int position, java.util.UUID causingGmTurnId) {
         if (generator == null) throw new IllegalStateException("future tactical revision requires the grounded generator");
-        return reviseGenerated(sessionId, owner, position, causingGmTurnId);
+        return reviseGenerated(sessionId, owner, position, causingGmTurnId, null);
     }
 
-    private AdventureStoryPlan reviseGenerated(SessionId sessionId, OwnerPlayerId owner, int position, java.util.UUID causingGmTurnId) {
+    public AdventureStoryPlan revise(SessionId sessionId, OwnerPlayerId owner, int position,
+            java.util.UUID causingGmTurnId, java.util.UUID causingGmCommandId) {
+        if (generator == null) throw new IllegalStateException("future tactical revision requires the grounded generator");
+        return reviseGenerated(sessionId, owner, position, causingGmTurnId, causingGmCommandId);
+    }
+
+    private AdventureStoryPlan reviseGenerated(SessionId sessionId, OwnerPlayerId owner, int position, java.util.UUID causingGmTurnId,
+            java.util.UUID causingGmCommandId) {
         AdventureSession session = sessions.findById(sessionId).orElseThrow(() -> new IllegalArgumentException("adventure session not found"));
         if (!session.ownerPlayerId().equals(owner)) throw new SecurityException("adventure session access denied");
         if (session.status() != AdventureSession.Status.STARTED) throw new IllegalStateException("future tactical revision requires a started adventure");
@@ -69,6 +76,14 @@ public final class FutureTacticalSceneRevisionService {
                 .orElseThrow(() -> new IllegalArgumentException("causing GM turn not found"));
         if (causingTurn.status() != GmTurnStatus.COMMITTED) {
             throw new IllegalArgumentException("causing GM turn must be committed for this adventure");
+        }
+        if (causingGmCommandId != null && !causingGmCommandId.equals(causingTurn.commandId())) {
+            throw new IllegalArgumentException("causing GM command does not match the committed turn");
+        }
+        if (!(causingTurn.input() instanceof com.dndmaster.adventure.domain.runtime.GmInput.TextInput text)
+                || !(text.text().trim().equalsIgnoreCase("revise")
+                    || text.text().trim().toLowerCase(java.util.Locale.ROOT).startsWith("revise tactical scene"))) {
+            throw new IllegalArgumentException("causing GM turn is not a tactical revision command");
         }
         AdventureStoryPlan current = plans.findBySessionId(sessionId).orElseThrow(() -> new IllegalStateException("adventure story plan not found"));
         if (current.status() != com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStatus.READY) throw new IllegalStateException("story plan is not ready");
@@ -100,7 +115,7 @@ public final class FutureTacticalSceneRevisionService {
             if (attempt == 3) throw new IllegalArgumentException("tactical scene revision blocked after 3 attempts: " + String.join(", ", violations));
         }
         AdventureStoryPlan revised = current.reviseFutureStage(position, existing.withTacticalScenePlan(scene));
-        plans.save(revised, "GM_TURN:" + causingGmTurnId);
+        plans.save(revised, "GM_TURN:" + causingGmTurnId + ":COMMAND:" + causingTurn.commandId() + ":STAGE:" + position);
         return revised;
     }
 }

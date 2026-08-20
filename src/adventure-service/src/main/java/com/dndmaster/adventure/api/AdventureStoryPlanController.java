@@ -101,7 +101,7 @@ public final class AdventureStoryPlanController {
             @RequestHeader(value = "X-Internal-Token", required = false) String internalToken,
             @RequestBody RevisionRequest request) {
         requestGuard.internal(internalToken);
-        return PlayerPlanView.from(futureRevision.revise(new SessionId(sessionId), owner(), position, request.causingGmTurnId()));
+        return PlayerPlanView.from(futureRevision.revise(new SessionId(sessionId), owner(), position, request.causingGmTurnId(), request.causingGmCommandId()));
     }
 
     @PostMapping("/stages/{position}/triggers/{triggerId}/apply")
@@ -128,7 +128,9 @@ public final class AdventureStoryPlanController {
         }
     }
     public record TriggerApplicationView(String triggerId, String type, List<String> targetIds, String transitionId) {}
-    public record RevisionRequest(UUID causingGmTurnId) {}
+    public record RevisionRequest(UUID causingGmTurnId, UUID causingGmCommandId) {
+        public RevisionRequest(UUID causingGmTurnId) { this(causingGmTurnId, null); }
+    }
 
     private OwnerPlayerId owner() { return new OwnerPlayerId(playerResolver.playerId()); }
 

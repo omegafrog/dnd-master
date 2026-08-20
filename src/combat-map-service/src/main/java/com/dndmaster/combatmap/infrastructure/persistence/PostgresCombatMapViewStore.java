@@ -20,6 +20,7 @@ import com.dndmaster.combatmap.domain.TokenId;
 import com.dndmaster.combatmap.domain.TokenType;
 import com.dndmaster.combatmap.domain.TokenDiscovery;
 import com.dndmaster.combatmap.domain.VisibilitySnapshot;
+import com.dndmaster.combatmap.domain.TacticalRuntimeState;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -162,7 +163,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
     private static void insertMap(Connection connection, MapOwnerId owner, CombatMap map, UUID operationKey, String operationFingerprint)
             throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "INSERT INTO combat_map(map_id,owner_player_id,adventure_id,rule_set_id,grid_width,grid_height,cell_size,distance_unit,version,operation_key,operation_fingerprint) VALUES (?,?,?,?,?,?,?,?,0,?,?)")) {
+                "INSERT INTO combat_map(map_id,owner_player_id,adventure_id,rule_set_id,grid_width,grid_height,cell_size,distance_unit,version,operation_key,operation_fingerprint,runtime_combat_entered,runtime_alarm_raised,runtime_reinforcements_activated,runtime_boss_activated,runtime_reward_discovered,runtime_outcome,runtime_transition_id) VALUES (?,?,?,?,?,?,?,?,0,?,?,?,?,?,?,?,?,?)")) {
             statement.setObject(1, map.id().value());
             statement.setObject(2, owner.value());
             statement.setObject(3, map.adventureId().value());
@@ -173,6 +174,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
             statement.setInt(8, map.grid().distanceUnit());
             statement.setObject(9, operationKey);
             statement.setString(10, operationFingerprint);
+            bindRuntime(statement, 11, map.runtimeState());
             statement.executeUpdate();
         }
     }
@@ -186,16 +188,17 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
             UUID operationKey,
             String operationFingerprint) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
-                "UPDATE combat_map SET grid_width=?,grid_height=?,cell_size=?,distance_unit=?,operation_key=?,operation_fingerprint=?,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE map_id=? AND owner_player_id=? AND version=?")) {
+                "UPDATE combat_map SET grid_width=?,grid_height=?,cell_size=?,distance_unit=?,operation_key=?,operation_fingerprint=?,runtime_combat_entered=?,runtime_alarm_raised=?,runtime_reinforcements_activated=?,runtime_boss_activated=?,runtime_reward_discovered=?,runtime_outcome=?,runtime_transition_id=?,version=version+1,updated_at=CURRENT_TIMESTAMP WHERE map_id=? AND owner_player_id=? AND version=?")) {
             statement.setInt(1, map.grid().width());
             statement.setInt(2, map.grid().height());
             statement.setInt(3, map.grid().cellSize());
             statement.setInt(4, map.grid().distanceUnit());
             statement.setObject(5, operationKey);
             statement.setString(6, operationFingerprint);
-            statement.setObject(7, map.id().value());
-            statement.setObject(8, owner.value());
-            statement.setLong(9, expectedVersion);
+            bindRuntime(statement, 7, map.runtimeState());
+            statement.setObject(14, map.id().value());
+            statement.setObject(15, owner.value());
+            statement.setLong(16, expectedVersion);
             if (statement.executeUpdate() != 1) {
                 throw new OptimisticCombatMapLockException();
             }
@@ -262,8 +265,8 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
         }
         try (PreparedStatement statement = connection.prepareStatement(
                 "INSERT INTO " + HISTORY_TABLE
-                        + " (command_id, map_id, owner_player_id, adventure_id, rule_set_id, grid_width, grid_height, cell_size, distance_unit, version, operation_key, operation_fingerprint)"
-                        + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+                        + " (command_id, map_id, owner_player_id, adventure_id, rule_set_id, grid_width, grid_height, cell_size, distance_unit, version, operation_key, operation_fingerprint, runtime_combat_entered, runtime_alarm_raised, runtime_reinforcements_activated, runtime_boss_activated, runtime_reward_discovered, runtime_outcome, runtime_transition_id)"
+                        + " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
                         + " ON CONFLICT (command_id) DO UPDATE SET"
                         + " map_id = EXCLUDED.map_id,"
                         + " owner_player_id = EXCLUDED.owner_player_id,"
@@ -275,7 +278,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                         + " distance_unit = EXCLUDED.distance_unit,"
                         + " version = EXCLUDED.version,"
                         + " operation_key = EXCLUDED.operation_key,"
-                        + " operation_fingerprint = EXCLUDED.operation_fingerprint")) {
+                        + " operation_fingerprint = EXCLUDED.operation_fingerprint, runtime_combat_entered = EXCLUDED.runtime_combat_entered, runtime_alarm_raised = EXCLUDED.runtime_alarm_raised, runtime_reinforcements_activated = EXCLUDED.runtime_reinforcements_activated, runtime_boss_activated = EXCLUDED.runtime_boss_activated, runtime_reward_discovered = EXCLUDED.runtime_reward_discovered, runtime_outcome = EXCLUDED.runtime_outcome, runtime_transition_id = EXCLUDED.runtime_transition_id")) {
             statement.setObject(1, operationKey);
             statement.setObject(2, map.id().value());
             statement.setObject(3, owner.value());
@@ -288,6 +291,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
             statement.setLong(10, persistedVersion);
             statement.setObject(11, operationKey);
             statement.setString(12, operationFingerprint);
+            bindRuntime(statement, 13, map.runtimeState());
             statement.executeUpdate();
         }
         try (PreparedStatement statement = connection.prepareStatement("DELETE FROM " + HISTORY_TOKEN_TABLE + " WHERE command_id=?")) {
@@ -369,6 +373,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                 row.getString("operation_key") == null ? null : UUID.fromString(row.getString("operation_key")),
                 row.getString("operation_fingerprint"));
         readVisibility(row, map);
+        map.replaceRuntimeState(readRuntime(row));
         map.replaceDoors(doors);
         return new VersionedOwnedCombatMap(map, new MapOwnerId(ownerId), row.getLong("version"));
     }
@@ -394,6 +399,7 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
                 row.getString("operation_key") == null ? null : UUID.fromString(row.getString("operation_key")),
                 row.getString("operation_fingerprint"));
         readVisibility(row, map);
+        map.replaceRuntimeState(readRuntime(row));
         map.replaceDoors(doors);
         return new VersionedOwnedCombatMap(map, new MapOwnerId(ownerId), row.getLong("version"));
     }
@@ -517,6 +523,17 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
         Set<GridPosition> currentPositions = decodePositions(current), exploredPositions = decodePositions(explored); List<LastSeenState> states = new ArrayList<>();
         if (encodedLastSeen != null && !encodedLastSeen.isBlank()) for (String encoded : encodedLastSeen.split(";")) { String[] p = encoded.split("\\|"); if (p.length == 5) states.add(new LastSeenState(new TokenId(UUID.fromString(p[0])), TokenType.valueOf(p[1]), new GridPosition(Integer.parseInt(p[2]), Integer.parseInt(p[3])), Long.parseLong(p[4]))); }
         map.replaceVisibility(new VisibilitySnapshot(currentPositions, exploredPositions, map.tokens().stream().filter(t -> (currentPositions.contains(t.position()) && t.discovery()!=TokenDiscovery.HIDDEN) || (t.type()==TokenType.TRAP && t.discovery()!=TokenDiscovery.HIDDEN)).map(CombatToken::id).collect(java.util.stream.Collectors.toSet()), states, row.getLong("visibility_rule_turn")));
+    }
+    private static TacticalRuntimeState readRuntime(ResultSet row) throws SQLException {
+        return new TacticalRuntimeState(row.getBoolean("runtime_combat_entered"), row.getBoolean("runtime_alarm_raised"),
+                row.getBoolean("runtime_reinforcements_activated"), row.getBoolean("runtime_boss_activated"),
+                row.getBoolean("runtime_reward_discovered"), row.getString("runtime_outcome"), row.getString("runtime_transition_id"));
+    }
+    private static void bindRuntime(PreparedStatement statement, int start, TacticalRuntimeState state) throws SQLException {
+        statement.setBoolean(start, state.combatEntered()); statement.setBoolean(start + 1, state.alarmRaised());
+        statement.setBoolean(start + 2, state.reinforcementsActivated()); statement.setBoolean(start + 3, state.bossActivated());
+        statement.setBoolean(start + 4, state.rewardDiscovered()); statement.setString(start + 5, state.outcome());
+        statement.setString(start + 6, state.transitionId());
     }
     private static Set<GridPosition> decodePositions(String value) { Set<GridPosition> result = new HashSet<>(); if (value == null || value.isBlank()) return result; for (String encoded : value.split(";")) { String[] p = encoded.split(","); if (p.length == 2) result.add(new GridPosition(Integer.parseInt(p[0]), Integer.parseInt(p[1]))); } return result; }
 }

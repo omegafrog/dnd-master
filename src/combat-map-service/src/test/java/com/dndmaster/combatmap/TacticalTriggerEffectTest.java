@@ -77,8 +77,14 @@ class TacticalTriggerEffectTest {
         }
         assertEquals(List.of("COMBAT_ENTRY", "REINFORCEMENT", "BOSS_TRANSITION", "SURRENDER"),
                 map.layers().stream().map(MapLayer::type).toList());
+        assertTrue(map.runtimeState().combatEntered());
+        assertTrue(map.runtimeState().reinforcementsActivated());
+        assertTrue(map.runtimeState().bossActivated());
+        assertEquals("SURRENDER", map.runtimeState().outcome());
         map = map.apply(TacticalTriggerEffect.planned("success", TacticalTriggerEffect.Kind.SUCCESS, List.of(), "ending-1"));
         assertTrue(map.layers().stream().anyMatch(layer -> layer.type().equals("TACTICAL_OUTCOME")));
         assertTrue(map.layers().stream().anyMatch(layer -> layer.type().equals("TACTICAL_TRANSITION") && layer.value().equals("ending-1")));
+        assertEquals("SUCCESS", map.runtimeState().outcome());
+        assertEquals("ending-1", map.runtimeState().transitionId());
     }
 }

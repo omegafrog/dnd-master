@@ -107,7 +107,7 @@ class FutureTacticalSceneRevisionPolicyTest {
 
         service.revise(sessionId, owner, 2, causingGmTurnId);
 
-        verify(plans).save(any(AdventureStoryPlan.class), eq("GM_TURN:" + causingGmTurnId));
+        verify(plans).save(any(AdventureStoryPlan.class), startsWith("GM_TURN:" + causingGmTurnId + ":COMMAND:"));
     }
 
     @Test

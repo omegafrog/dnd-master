@@ -66,6 +66,7 @@ class TacticalScenePlanTest {
         var evaluator = new TacticalTriggerEvaluator();
         assertThrows(IllegalArgumentException.class, () -> evaluator.evaluate(scene, "entry", "COMBAT_ENTRY"));
         assertEquals("player-entered-zone", evaluator.evaluate(scene, "entry", "player-entered-zone").qualifyingAction());
+        assertEquals("player-entered-zone", evaluator.evaluate(scene, "entry", "  PLAYER-ENTERED-ZONE  ").qualifyingAction());
     }
 
     @Test

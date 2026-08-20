@@ -55,6 +55,7 @@ public final class CombatMapViewService {
         }).toList();
         if (tokens.stream().noneMatch(t -> t.id().equals(tokenId))) throw new CombatMapAccessDeniedException();
         CombatMap updated = new CombatMap(state.map().id(), state.map().adventureId(), state.map().ruleSetId(), state.map().grid(), state.map().ownerPlayerId(), tokens, state.map().obstacles(), layers, expectedVersion + 1, commandId, fingerprint);
+        updated.replaceRuntimeState(state.map().runtimeState());
         VisibilitySnapshot prior = state.map().visibilitySnapshot();
         updated.replaceDoors(state.map().doors());
         updated.refreshVisibility(prior == null ? 0 : prior.ruleTurn() + 1);
