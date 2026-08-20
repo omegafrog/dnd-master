@@ -49,6 +49,7 @@ class OpenApiSchemaTest {
         assertTrue(body.contains("qualifyingAction"), "player trigger contract must require qualifyingAction");
         assertTrue(body.contains("400"), "player trigger contract must document validation failure");
         assertTrue(body.contains("blank"), "player trigger contract must document blank action rejection");
+        assertTrue(body.contains("pattern=\\S") || body.contains("pattern=\\\\S"), "player trigger schema must reject whitespace-only actions");
     }
 
     @SuppressWarnings("unchecked")
@@ -60,6 +61,7 @@ class OpenApiSchemaTest {
         assertTrue(body.contains("qualifyingAction"), "combat-map trigger contract must require qualifyingAction");
         assertTrue(body.contains("400"), "combat-map trigger contract must document validation failure");
         assertTrue(body.contains("invalid tactical trigger kind"), "combat-map trigger contract must document kind validation");
+        assertTrue(body.contains("pattern=\\S") || body.contains("pattern=\\\\S"), "combat-map trigger schema must reject whitespace-only actions");
     }
 
     @SuppressWarnings("unchecked")

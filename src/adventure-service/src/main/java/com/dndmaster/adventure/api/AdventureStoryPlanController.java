@@ -119,9 +119,18 @@ public final class AdventureStoryPlanController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "story plan stage not found"));
         if (!stage.tacticalScenePlan().readyForActivation()) throw new ResponseStatusException(HttpStatus.CONFLICT, "tactical scene is not ready");
         if (session.startedAdventureId() == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "adventure must be started");
-        var evaluation = triggerRuntime.apply(session.startedAdventureId().value(), position, stage.tacticalScenePlan(), triggerId, request.qualifyingAction(), request.combatMapId(), owner().value(),
-                request.expectedVersion(), request.commandId());
+        final var evaluation = applyTriggerChecked(session, position, stage, triggerId, request);
         return new TriggerApplicationView(evaluation.triggerId(), evaluation.type(), evaluation.targetIds(), evaluation.transitionId());
+    }
+
+    private com.dndmaster.adventure.application.runtime.TacticalTriggerEvaluator.Evaluation applyTriggerChecked(com.dndmaster.adventure.domain.adventure.AdventureSession session,
+            int position, com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage stage, String triggerId, TriggerApplicationRequest request) {
+        try {
+            return triggerRuntime.apply(session.startedAdventureId().value(), position, stage.tacticalScenePlan(), triggerId,
+                    request.qualifyingAction(), request.combatMapId(), owner().value(), request.expectedVersion(), request.commandId());
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
+        }
     }
 
     public record MapActivationView(int stagePosition, UUID mapDefinitionId, String assetId, String assetLocator, UUID combatMapId) {}

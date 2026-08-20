@@ -50,6 +50,9 @@ public class CombatMapController {
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
             @RequestBody TacticalTriggerRequest request) {
         requestGuard.internal(token);
+        if (request == null) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "trigger request is required");
+        }
         if (request.qualifyingAction() == null || request.qualifyingAction().isBlank()) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "qualifyingAction is required");
         }

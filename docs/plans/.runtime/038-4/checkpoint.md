@@ -1,6 +1,6 @@
 # 038-4 checkpoint
 
-- attempt: 28
+- attempt: 29
 - status: in-progress
 - scope: player trigger qualification, durable planned trigger effects, active-map/session ownership, immutable revealed stages and append-only future revision
 - resumed after 038-3 completion at `5f55cc4d`
@@ -39,3 +39,4 @@
 - completed attempt 27: Adventure trigger controller rejects null/blank qualifyingAction with HTTP 400 after owner/session authorization checks
 - attempt 28 started: trigger OpenAPI 400 response documentation and contract assertions are under implementation
 - completed attempt 28: Adventure and Combat Map trigger contracts document 400 for blank/missing action and invalid kind, with regression assertions
+- attempt 29 started: null request bodies, trigger evaluation errors, and whitespace-only schema validation are under implementation

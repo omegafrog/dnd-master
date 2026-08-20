@@ -131,7 +131,7 @@ paths:
                 kind: { type: string }
                 targetIds: { type: array, items: { type: string } }
                 transitionId: { type: string }
-                qualifyingAction: { type: string, minLength: 1, description: authored player action required to qualify the trigger }
+                qualifyingAction: { type: string, minLength: 1, pattern: '\\S', description: authored player action required to qualify the trigger }
       responses:
         '200': { description: planned trigger applied }
         '401': { description: internal service authorization required }
