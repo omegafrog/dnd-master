@@ -58,6 +58,8 @@ class OpenApiSchemaTest {
         assertTrue(body.contains("401"), "GM history must document invalid-token response");
         assertTrue(body.contains("403"), "GM history must document owner denial response");
         assertTrue(body.contains("append-only"), "GM history must describe revision audit semantics");
+        assertTrue(body.contains("auditId"), "GM history must expose durable audit identifier");
+        assertTrue(body.contains("recordedAt"), "GM history must expose durable recording time");
     }
 
     @Test

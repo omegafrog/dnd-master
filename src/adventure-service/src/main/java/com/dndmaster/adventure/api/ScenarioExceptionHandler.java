@@ -14,6 +14,11 @@ import java.util.Map;
 
 @RestControllerAdvice
 public final class ScenarioExceptionHandler {
+    @ExceptionHandler(ApiRequestGuard.ApiContractException.class)
+    public ResponseEntity<Map<String, String>> apiContract(ApiRequestGuard.ApiContractException exception) {
+        return ResponseEntity.status(exception.status()).body(Map.of("error", exception.code()));
+    }
+
     @ExceptionHandler({ScenarioAccessDeniedException.class, ScenarioBundleAccessDeniedException.class})
     public ResponseEntity<Void> accessDenied(RuntimeException exception) {
         return ResponseEntity.status(HttpStatus.FORBIDDEN).build();

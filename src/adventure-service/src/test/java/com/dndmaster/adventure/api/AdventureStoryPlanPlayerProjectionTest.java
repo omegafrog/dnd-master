@@ -61,7 +61,7 @@ class AdventureStoryPlanPlayerProjectionTest {
         var owner = UUID.randomUUID();
         var resolver = mock(AuthenticatedPlayerResolver.class);
         var stories = mock(AdventureStoryPlanApplicationService.class);
-        var plan = AdventureStoryPlan.ready(SessionId.generate(), 4, 3, List.of(
+        var plan = AdventureStoryPlan.ready(new SessionId(sessionId), 4, 3, List.of(
                 new AdventureStoryPlanStage(1, "Revealed", "Goal", "Conflict", "Next", List.of(), List.of("ending-a"))));
         when(resolver.playerId()).thenReturn(owner);
         when(stories.readHistory(new SessionId(sessionId), new OwnerPlayerId(owner))).thenReturn(List.of(plan));
@@ -71,6 +71,9 @@ class AdventureStoryPlanPlayerProjectionTest {
 
         assertEquals(1, history.size());
         assertEquals(plan.planId(), history.getFirst().planId());
+        assertEquals(sessionId + ":" + plan.version(), history.getFirst().auditId());
+        assertEquals(plan.updatedAt(), history.getFirst().recordedAt());
+        assertEquals("STORY_PLAN_SAVED", history.getFirst().cause());
         verify(stories).readHistory(new SessionId(sessionId), new OwnerPlayerId(owner));
     }
 

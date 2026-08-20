@@ -170,10 +170,12 @@ public final class AdventureStoryPlanController {
     public record EvidenceView(String documentType, UUID documentId, long extractionVersion, String locator, String quote, double confidence) {}
 
     public record GmPlanView(UUID planId, long packageRevision, long partyRevision, long version, String status, int currentStage,
-            int endingCount, String adventureLength, List<GmStageView> stages, String failureReason) {
+            int endingCount, String adventureLength, List<GmStageView> stages, String failureReason, String auditId,
+            java.time.Instant recordedAt, String cause) {
         static GmPlanView from(AdventureStoryPlan plan) {
             return new GmPlanView(plan.planId(), plan.packageRevision(), plan.partyRevision(), plan.version(), plan.status().name(), plan.currentStage(),
-                    plan.configuration().endingCount(), plan.configuration().adventureLength().name(), plan.stages().stream().map(GmStageView::from).toList(), plan.failureReason());
+                    plan.configuration().endingCount(), plan.configuration().adventureLength().name(), plan.stages().stream().map(GmStageView::from).toList(), plan.failureReason(),
+                    plan.sessionId().value() + ":" + plan.version(), plan.updatedAt(), "STORY_PLAN_SAVED");
         }
     }
     public record GmStageView(int position, String title, String stageType, String location, String goal, String conflict,

@@ -19,7 +19,7 @@ paths:
             application/json:
               schema:
                 type: array
-                items: { type: object, required: [planId, version, status, stages], properties: { planId: { type: string, format: uuid }, version: { type: integer, format: int64 }, status: { type: string }, stages: { type: array, items: { type: object } } } }
+                items: { type: object, required: [planId, version, status, stages, auditId, recordedAt, cause], properties: { planId: { type: string, format: uuid }, version: { type: integer, format: int64 }, status: { type: string }, stages: { type: array, items: { type: object } }, auditId: { type: string }, recordedAt: { type: string, format: date-time }, cause: { type: string } } }
         '401': { description: Missing or invalid X-Internal-Token }
         '403': { description: Authenticated owner does not own the requested session }
   /api/v1/adventure-sessions/{sessionId}/story-plan/gm:
