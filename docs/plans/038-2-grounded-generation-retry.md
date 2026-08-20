@@ -2,7 +2,7 @@
 
 - Issue: [#175](https://github.com/omegafrog/dnd-master/issues/175)
 - Parent: [#179](https://github.com/omegafrog/dnd-master/issues/179)
-- 상태: `completed`
+- 상태: `in-progress`
 - 의존성: `038-1`
 
 ## 구현 목적

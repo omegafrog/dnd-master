@@ -100,6 +100,31 @@ class ScenarioCompilationWorkerTest {
     }
 
     @Test
+    void missingResolutionKindBecomesAValidationFailureAndSchedulesCompilationRetry() {
+        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(List.of(document(
+                storybook, ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 1)));
+        Fixture fixture = new Fixture(bundle);
+        com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate missingKind =
+                new com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate(
+                null, null, null, "1d20", ResolutionVisibility.GM_REFERENCE,
+                "Roll on the table.",
+                List.of(new ScenarioSourceReference(storybook, 1, "page:1")),
+                "schema-v1", null);
+        ScenarioCompilationWorker worker = new ScenarioCompilationWorker(
+                fixture.manager, fixture.compilations, fixture.queue, new Bundles(bundle),
+                request -> List.of(missingKind), ignored -> List.of(), fixture.tags, fixture.search,
+                new ScenarioPackageCompilationService(fixture.packages), fixture.packages);
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> worker.processNext("worker", Duration.ofMinutes(1)));
+
+        assertEquals("scenario compilation is not publishable: INVALID", failure.getMessage());
+        assertEquals("WAITING_RETRY", fixture.compilations.values.values().iterator().next().status().name());
+        assertEquals(1, fixture.queue.pending.size());
+    }
+
+    @Test
     void scheduledWorkerProcessesRequestedJob() {
         ScenarioSourceBundle bundle = bundle(List.of(document(
                 new KnowledgeDocumentId(UUID.randomUUID()),

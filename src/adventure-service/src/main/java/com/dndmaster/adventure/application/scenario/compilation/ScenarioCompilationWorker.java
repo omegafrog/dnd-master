@@ -167,7 +167,13 @@ public final class ScenarioCompilationWorker {
             result.add(current); }
         return List.copyOf(result);
     }
-    private static boolean requiresDice(ResolutionCandidate value) { return switch (value.kind()) { case DICE_ROLL, DAMAGE_ROLL, HEALING_ROLL, INITIATIVE_ROLL, RECHARGE_ROLL, RANDOM_TABLE -> true; default -> false; }; }
+    private static boolean requiresDice(ResolutionCandidate value) {
+        if (value.kind() == null) return false;
+        return switch (value.kind()) {
+            case DICE_ROLL, DAMAGE_ROLL, HEALING_ROLL, INITIATIVE_ROLL, RECHARGE_ROLL, RANDOM_TABLE -> true;
+            default -> false;
+        };
+    }
     private static boolean validDice(String value) { return value != null && value.matches("[1-9]\\d*d[1-9]\\d*(?:[+-]\\d+)?"); }
 
     private static List<ResolutionExtractionPort.SourceExcerpt> selectResolutionExcerpts(
