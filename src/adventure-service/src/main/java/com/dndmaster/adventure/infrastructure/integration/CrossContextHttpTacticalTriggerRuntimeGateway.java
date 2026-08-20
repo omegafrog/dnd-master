@@ -30,7 +30,8 @@ public final class CrossContextHttpTacticalTriggerRuntimeGateway implements Tact
             TacticalTriggerEvaluator.Evaluation evaluation) {
         try {
             var body = Map.of("ownerId", ownerPlayerId, "commandId", commandId, "expectedVersion", expectedVersion,
-                    "triggerId", evaluation.triggerId(), "kind", evaluation.type(), "targetIds", evaluation.targetIds(), "transitionId", evaluation.transitionId());
+                    "triggerId", evaluation.triggerId(), "kind", evaluation.type(), "targetIds", evaluation.targetIds(),
+                    "transitionId", evaluation.transitionId(), "qualifyingAction", evaluation.qualifyingAction());
             var request = HttpRequest.newBuilder(baseUrl.resolve("internal/v1/combat-maps/" + combatMapId + "/tactical-triggers"))
                     .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body))).build();

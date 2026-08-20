@@ -67,10 +67,17 @@ public final class CombatMap {
                 .collect(java.util.stream.Collectors.toSet());
         if (!targets.isEmpty() && tokens.stream().map(t -> t.id().value()).collect(java.util.stream.Collectors.toSet()).containsAll(targets) == false)
             throw new IllegalArgumentException("tactical trigger targets are not present on the map");
+        TokenDiscovery targetDiscovery = effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.REWARD
+                || effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.BOSS
+                ? TokenDiscovery.REVEALED : TokenDiscovery.DISCOVERED;
         List<CombatToken> nextTokens = tokens.stream().map(token -> targets.contains(token.id().value())
-                ? new CombatToken(token.id(), token.type(), token.position(), token.controller(), token.ownerPlayerId().orElse(null), TokenDiscovery.DISCOVERED) : token).toList();
+                ? new CombatToken(token.id(), token.type(), token.position(), token.controller(), token.ownerPlayerId().orElse(null),
+                        token.discovery() == TokenDiscovery.REVEALED ? TokenDiscovery.REVEALED : targetDiscovery) : token).toList();
         List<MapLayer> nextLayers = new ArrayList<>(layers);
-        if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.FOG_REVEAL) nextLayers.removeIf(layer -> layer.type().equals("INITIAL_FOG"));
+        if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.FOG_REVEAL) {
+            nextLayers.replaceAll(layer -> layer.type().equals("INITIAL_FOG") ? revealFog(layer, effect.targetIds(), tokens) : layer);
+            nextLayers.removeIf(layer -> layer.type().equals("INITIAL_FOG") && (layer.value().isBlank() || layer.value().equals("cleared")));
+        }
         if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.REWARD) nextLayers.add(new MapLayer("RESOLVED_REWARD", effect.triggerId(), LayerVisibility.PLAYER_VISIBLE));
         if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.ALARM) nextLayers.add(new MapLayer("ALARM", effect.triggerId(), LayerVisibility.PLAYER_VISIBLE));
         if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.COMBAT_ENTRY) nextLayers.add(new MapLayer("COMBAT_ENTRY", effect.triggerId(), LayerVisibility.PLAYER_VISIBLE));
@@ -98,5 +105,24 @@ public final class CombatMap {
         } catch (IllegalArgumentException ignored) {
             return UUID.nameUUIDFromBytes(authoredId.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         }
+    }
+
+    private static MapLayer revealFog(MapLayer layer, List<String> requested, List<CombatToken> tokens) {
+        Set<String> cells = requested.stream().flatMap(value -> fogCell(value).stream()).collect(java.util.stream.Collectors.toSet());
+        if (requested.isEmpty()) return layer;
+        for (String target : requested) {
+            UUID id;
+            try { id = canonicalTokenId(target); } catch (RuntimeException ignored) { continue; }
+            tokens.stream().filter(token -> token.id().value().equals(id)).findFirst()
+                    .ifPresent(token -> cells.add(token.position().x() + "," + token.position().y()));
+        }
+        String remaining = Arrays.stream(layer.value().split(";"))
+                .map(String::trim).filter(cell -> !cells.contains(cell)).collect(java.util.stream.Collectors.joining(";"));
+        return remaining.isBlank() ? new MapLayer("INITIAL_FOG", "cleared", LayerVisibility.AI_ONLY) : new MapLayer("INITIAL_FOG", remaining, LayerVisibility.AI_ONLY);
+    }
+
+    private static Optional<String> fogCell(String value) {
+        if (value != null && value.matches("\\d+,\\d+")) return Optional.of(value.trim());
+        return Optional.empty();
     }
 }

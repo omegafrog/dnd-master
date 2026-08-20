@@ -51,7 +51,15 @@ class FutureTacticalSceneRevisionPolicyTest {
         when(plans.findBySessionId(sessionId)).thenReturn(java.util.Optional.of(plan));
         var sessions = mock(AdventureSessionRepository.class);
         when(sessions.findById(sessionId)).thenReturn(java.util.Optional.of(session));
-        var service = new FutureTacticalSceneRevisionService(plans, sessions);
+        AdventureStoryPlanGenerationPort generator = new AdventureStoryPlanGenerationPort() {
+            public List<AdventureStoryPlanStage> generate(Request request) { return List.of(); }
+            public TacticalScenePlanCandidate generateTacticalScene(TacticalSceneRequest request) {
+                return TacticalScenePlanCandidate.ready(2, tactical, List.of(new AdventureStoryPlanGenerationPort.SourceCitation(
+                        "STORYBOOK", EVIDENCE_DOCUMENT_ID, 1, EVIDENCE_LOCATOR,
+                        "Hero enters. Entry alarm reinforcement boss reward success failure exit surrender. Clear.", 1.0)));
+            }
+        };
+        var service = new FutureTacticalSceneRevisionService(plans, sessions, generator);
 
         service.revise(sessionId, owner, 2, tactical);
 
@@ -72,7 +80,7 @@ class FutureTacticalSceneRevisionPolicyTest {
         var sessions = mock(AdventureSessionRepository.class); when(sessions.findById(sessionId)).thenReturn(java.util.Optional.of(session));
         var service = new FutureTacticalSceneRevisionService(plans, sessions);
 
-        assertThrows(IllegalArgumentException.class, () -> service.revise(sessionId, owner, 2, TacticalScenePlan.absent()));
+        assertThrows(IllegalStateException.class, () -> service.revise(sessionId, owner, 2, TacticalScenePlan.absent()));
         verify(plans, never()).save(any());
     }
 
@@ -85,10 +93,12 @@ class FutureTacticalSceneRevisionPolicyTest {
         var plans = mock(AdventureStoryPlanRepository.class); when(plans.findBySessionId(sessionId)).thenReturn(java.util.Optional.of(plan));
         var sessions = mock(AdventureSessionRepository.class); when(sessions.findById(sessionId)).thenReturn(java.util.Optional.of(session));
         int[] calls = {0};
+        List<TacticalSceneRequest> requests = new java.util.ArrayList<>();
         AdventureStoryPlanGenerationPort generator = new AdventureStoryPlanGenerationPort() {
             public List<AdventureStoryPlanStage> generate(Request request) { return List.of(); }
             public TacticalScenePlanCandidate generateTacticalScene(TacticalSceneRequest request) {
                 calls[0]++;
+                requests.add(request);
                 return TacticalScenePlanCandidate.absent(2);
             }
         };
@@ -98,6 +108,8 @@ class FutureTacticalSceneRevisionPolicyTest {
                 () -> service.revise(sessionId, owner, 2, validScene()));
 
         assertEquals(3, calls[0]);
+        assertEquals(List.of(), requests.get(0).violations());
+        assertEquals(List.of("tactical scene is absent"), requests.get(1).violations());
         assertEquals(true, failure.getMessage().contains("blocked after 3 attempts"));
         verify(plans, never()).save(any());
     }

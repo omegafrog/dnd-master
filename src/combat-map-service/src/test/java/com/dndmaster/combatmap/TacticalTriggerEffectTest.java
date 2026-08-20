@@ -21,7 +21,7 @@ class TacticalTriggerEffectTest {
         var updated = map.apply(TacticalTriggerEffect.planned("reward", TacticalTriggerEffect.Kind.REWARD, List.of(enemy.id().value().toString())));
         updated = updated.apply(TacticalTriggerEffect.planned("reveal", TacticalTriggerEffect.Kind.FOG_REVEAL, List.of(enemy.id().value().toString())));
 
-        assertEquals(TokenDiscovery.DISCOVERED, updated.tokens().get(1).discovery());
+        assertEquals(TokenDiscovery.REVEALED, updated.tokens().get(1).discovery());
         assertEquals(List.of("RESOLVED_REWARD"), updated.layers().stream().map(MapLayer::type).toList());
     }
 

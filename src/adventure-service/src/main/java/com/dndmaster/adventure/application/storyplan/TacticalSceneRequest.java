@@ -20,4 +20,8 @@ public record TacticalSceneRequest(AdventureStoryPlanStage stage, AdventureStory
         partyMemberIds = List.copyOf(Objects.requireNonNull(partyMemberIds, "party member ids must not be null"));
         violations = List.copyOf(Objects.requireNonNull(violations, "tactical violations must not be null"));
     }
+
+    public TacticalSceneRequest withViolations(List<String> nextViolations) {
+        return new TacticalSceneRequest(stage, map, citations, partyMemberIds, nextViolations);
+    }
 }

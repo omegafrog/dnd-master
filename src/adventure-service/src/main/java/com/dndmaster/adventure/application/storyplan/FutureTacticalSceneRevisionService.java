@@ -40,6 +40,16 @@ public final class FutureTacticalSceneRevisionService {
     }
 
     public AdventureStoryPlan revise(SessionId sessionId, OwnerPlayerId owner, int position, TacticalScenePlan scene) {
+        if (generator == null) throw new IllegalStateException("future tactical revision requires the grounded generator");
+        return reviseGenerated(sessionId, owner, position);
+    }
+
+    public AdventureStoryPlan revise(SessionId sessionId, OwnerPlayerId owner, int position) {
+        if (generator == null) throw new IllegalStateException("future tactical revision requires the grounded generator");
+        return reviseGenerated(sessionId, owner, position);
+    }
+
+    private AdventureStoryPlan reviseGenerated(SessionId sessionId, OwnerPlayerId owner, int position) {
         AdventureSession session = sessions.findById(sessionId).orElseThrow(() -> new IllegalArgumentException("adventure session not found"));
         if (!session.ownerPlayerId().equals(owner)) throw new SecurityException("adventure session access denied");
         if (session.status() != AdventureSession.Status.STARTED) throw new IllegalStateException("future tactical revision requires a started adventure");
@@ -53,27 +63,24 @@ public final class FutureTacticalSceneRevisionService {
                 value.documentType(), value.documentId(), value.extractionVersion(), value.locator(), value.quote(), value.confidence())).toList();
         var map = new AdventureStoryPlanGenerationPort.MapContext(existing.mapDefinitionId(), existing.mapAssetId(), existing.mapAssetLocator(),
                 existing.mapAssetLocator(), existing.mapConfidence() == null ? 0 : existing.mapConfidence(), existing.mapSafetyStatus());
-        var request = new TacticalSceneRequest(existing, map, citations, session.party().stream()
+        var baseRequest = new TacticalSceneRequest(existing, map, citations, session.party().stream()
                 .map(member -> member.characterSheetId().value().toString()).toList(), List.of());
-        if (generator != null) {
-            List<String> violations = List.of();
-            for (int attempt = 1; attempt <= 3; attempt++) {
-                TacticalScenePlanCandidate candidate;
-                try {
-                    candidate = generator.generateTacticalScene(request);
-                    violations = validator.validate(request, candidate);
-                    if (violations.isEmpty()) {
-                        scene = candidate.scene();
-                        break;
-                    }
-                } catch (AdventureStoryPlanCandidateValidationException invalidCandidate) {
-                    violations = invalidCandidate.violations();
+        List<String> violations = List.of();
+        TacticalScenePlan scene = null;
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            TacticalSceneRequest request = baseRequest.withViolations(violations);
+            TacticalScenePlanCandidate candidate;
+            try {
+                candidate = generator.generateTacticalScene(request);
+                violations = validator.validate(request, candidate);
+                if (violations.isEmpty()) {
+                    scene = candidate.scene();
+                    break;
                 }
-                if (attempt == 3) throw new IllegalArgumentException("tactical scene revision blocked after 3 attempts: " + String.join(", ", violations));
+            } catch (AdventureStoryPlanCandidateValidationException invalidCandidate) {
+                violations = invalidCandidate.violations();
             }
-        } else {
-            var violations = validator.validate(request, TacticalScenePlanCandidate.ready(position, scene, citations));
-            if (!violations.isEmpty()) throw new IllegalArgumentException("invalid tactical scene revision: " + String.join(", ", violations));
+            if (attempt == 3) throw new IllegalArgumentException("tactical scene revision blocked after 3 attempts: " + String.join(", ", violations));
         }
         AdventureStoryPlan revised = current.reviseFutureStage(position, existing.withTacticalScenePlan(scene));
         plans.save(revised);

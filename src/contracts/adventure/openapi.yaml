@@ -18,7 +18,6 @@ paths:
   /api/v1/adventure-sessions/{sessionId}/story-plan/stages/{position}/tactical-scene/revise:
     post:
       operationId: reviseFutureTacticalScene
-      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [status, triggers, outcomes] } } } }
       responses: { '200': { description: validated future revision }, '400': { description: untrusted or invalid tactical scene rejected } }
   /api/v1/adventures/{adventureId}/events:
     get:

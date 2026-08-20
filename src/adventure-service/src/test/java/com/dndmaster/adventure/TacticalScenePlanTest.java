@@ -30,12 +30,13 @@ class TacticalScenePlanTest {
                 new FogPlan(List.of(), grounding("fog")),
                 List.of(new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of("enemy-1"), "", grounding("entry"))),
                 List.of(), List.of());
+        var activeMap = UUID.randomUUID();
         var seen = new TacticalTriggerEvaluator.Evaluation[1];
         var service = new TacticalTriggerRuntimeApplicationService(new TacticalTriggerEvaluator(),
                 (mapId, ownerId, version, commandId, evaluation) -> seen[0] = evaluation,
-                (adventureId, stagePosition, ownerId) -> java.util.Optional.empty());
+                (adventureId, stagePosition, ownerId) -> java.util.Optional.of(activeMap));
 
-        service.apply(scene, "entry", UUID.randomUUID(), UUID.randomUUID(), 0, UUID.randomUUID());
+        service.apply(UUID.randomUUID(), 1, scene, "entry", "combat_entry", activeMap, UUID.randomUUID(), 0, UUID.randomUUID());
 
         assertEquals(List.of("enemy-1"), seen[0].targetIds());
         assertEquals("COMBAT_ENTRY", seen[0].type());
@@ -50,6 +51,18 @@ class TacticalScenePlanTest {
         var evaluator = new TacticalTriggerEvaluator();
         assertThrows(IllegalArgumentException.class, () -> evaluator.evaluate(scene, "entry", "reward"));
         assertEquals("COMBAT_ENTRY", evaluator.evaluate(scene, "entry", "combat_entry").type());
+    }
+
+    @Test
+    void validatesTheAuthoredActionIdentityRatherThanTheTriggerEnumName() {
+        var scene = new TacticalScenePlan(TacticalScenePlan.CURRENT_SCHEMA_VERSION, TacticalScenePlanStatus.READY, boundary(),
+                List.of(placement("party", TacticalPlacementKind.PLAYER, .1, .1)), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                new FogPlan(List.of(), grounding("fog")),
+                List.of(new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of(), "", grounding("entry"), "player-entered-zone")),
+                List.of(), List.of());
+        var evaluator = new TacticalTriggerEvaluator();
+        assertThrows(IllegalArgumentException.class, () -> evaluator.evaluate(scene, "entry", "COMBAT_ENTRY"));
+        assertEquals("player-entered-zone", evaluator.evaluate(scene, "entry", "player-entered-zone").qualifyingAction());
     }
 
     @Test

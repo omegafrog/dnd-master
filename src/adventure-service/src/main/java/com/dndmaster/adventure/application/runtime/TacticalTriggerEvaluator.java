@@ -11,14 +11,14 @@ public final class TacticalTriggerEvaluator {
         if (!scene.readyForActivation()) throw new IllegalStateException("tactical scene is not ready");
         TacticalTrigger trigger = scene.triggers().stream().filter(value -> value.id().equals(triggerId)).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("tactical trigger is not planned"));
-        return new Evaluation(trigger.id(), trigger.type().name(), trigger.targetIds(), trigger.transitionId());
+        return new Evaluation(trigger.id(), trigger.type().name(), trigger.targetIds(), trigger.transitionId(), trigger.qualifyingAction());
     }
     public Evaluation evaluate(TacticalScenePlan scene, String triggerId, String qualifyingAction) {
         Evaluation evaluation = evaluate(scene, triggerId);
-        if (qualifyingAction == null || !evaluation.type().equalsIgnoreCase(qualifyingAction.trim())) {
+        if (qualifyingAction == null || !evaluation.qualifyingAction().equals(qualifyingAction.trim())) {
             throw new IllegalArgumentException("player action does not qualify the planned tactical trigger");
         }
         return evaluation;
     }
-    public record Evaluation(String triggerId, String type, java.util.List<String> targetIds, String transitionId) { }
+    public record Evaluation(String triggerId, String type, java.util.List<String> targetIds, String transitionId, String qualifyingAction) { }
 }

@@ -19,9 +19,7 @@ public final class TacticalTriggerRuntimeApplicationService {
 
     public TacticalTriggerEvaluator.Evaluation apply(TacticalScenePlan scene, String triggerId,
             UUID combatMapId, UUID ownerPlayerId, long expectedVersion, UUID commandId) {
-        var evaluation = evaluator.evaluate(scene, triggerId);
-        runtime.apply(combatMapId, ownerPlayerId, expectedVersion, commandId, evaluation);
-        return evaluation;
+        throw new IllegalArgumentException("qualifying player action is required for tactical trigger application");
     }
 
     public void bindActiveMap(UUID adventureId, int stagePosition, UUID ownerPlayerId, UUID combatMapId) {
