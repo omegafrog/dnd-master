@@ -31,6 +31,7 @@ public record SubmitRuntimeTurnCommand(
         if (expectedVersion < -1) throw new IllegalArgumentException("expected version must be -1 or non-negative");
         if (turnIndex < -1) throw new IllegalArgumentException("turn index must be -1 or non-negative");
         if ((turnCharacterSheetId == null) != (turnIndex < 0)) throw new IllegalArgumentException("agent turn cursor fields must be paired");
+        if (gmOnly && agentOrigin) throw new IllegalArgumentException("GM and agent origins are mutually exclusive");
     }
 
     public SubmitRuntimeTurnCommand(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID turnId, UUID commandId,

@@ -26,8 +26,8 @@ class TacticalTriggerEffectTest {
                 new GridSpec(5, 5, 5, 5), List.of(new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER, new GridPosition(0, 0), TokenController.PLAYER, new PlayerId(UUID.randomUUID())), enemy),
                 List.of(), List.of(new MapLayer("INITIAL_FOG", "2,2", LayerVisibility.AI_ONLY)));
 
-        var updated = map.apply(TacticalTriggerEffect.planned("reward", TacticalTriggerEffect.Kind.REWARD, List.of(enemy.id().value().toString())));
-        updated = updated.apply(TacticalTriggerEffect.planned("reveal", TacticalTriggerEffect.Kind.FOG_REVEAL, List.of(enemy.id().value().toString())));
+        var updated = map.apply(TacticalTriggerEffect.planned("reward", TacticalTriggerEffect.Kind.REWARD, List.of(enemy.id().value().toString()), "", "reward"));
+        updated = updated.apply(TacticalTriggerEffect.planned("reveal", TacticalTriggerEffect.Kind.FOG_REVEAL, List.of(enemy.id().value().toString()), "", "reveal"));
 
         assertEquals(TokenDiscovery.REVEALED, updated.tokens().get(1).discovery());
         assertEquals(List.of("RESOLVED_REWARD"), updated.layers().stream().map(MapLayer::type).toList());
@@ -51,7 +51,7 @@ class TacticalTriggerEffectTest {
                         new GridPosition(0, 0), TokenController.PLAYER, new PlayerId(UUID.randomUUID())), enemy), List.of(), List.of());
 
         var updated = map.apply(TacticalTriggerEffect.planned("reveal-enemy", TacticalTriggerEffect.Kind.FOG_REVEAL,
-                List.of("enemy-1")));
+                List.of("enemy-1"), "", "reveal-enemy"));
 
         assertEquals(TokenDiscovery.DISCOVERED, updated.tokens().get(1).discovery());
     }
@@ -62,7 +62,7 @@ class TacticalTriggerEffectTest {
                 new GridSpec(5, 5, 5, 5), List.of(new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,
                         new GridPosition(0, 0), TokenController.PLAYER, new PlayerId(UUID.randomUUID()))), List.of(),
                 List.of(new MapLayer("INITIAL_FOG", "2,2;3,3", LayerVisibility.AI_ONLY)));
-        var updated = map.apply(TacticalTriggerEffect.planned("reveal-cell", TacticalTriggerEffect.Kind.FOG_REVEAL, List.of("2,2")));
+        var updated = map.apply(TacticalTriggerEffect.planned("reveal-cell", TacticalTriggerEffect.Kind.FOG_REVEAL, List.of("2,2"), "", "reveal-cell"));
         assertEquals("3,3", updated.layers().stream().filter(layer -> layer.type().equals("INITIAL_FOG")).findFirst().orElseThrow().value());
     }
 
@@ -73,7 +73,7 @@ class TacticalTriggerEffectTest {
                         new GridPosition(0, 0), TokenController.PLAYER, new PlayerId(UUID.randomUUID()))), List.of(), List.of());
         for (TacticalTriggerEffect.Kind kind : List.of(TacticalTriggerEffect.Kind.COMBAT_ENTRY, TacticalTriggerEffect.Kind.REINFORCEMENT,
                 TacticalTriggerEffect.Kind.BOSS, TacticalTriggerEffect.Kind.SURRENDER)) {
-            map = map.apply(TacticalTriggerEffect.planned(kind.name().toLowerCase(), kind, List.of()));
+            map = map.apply(TacticalTriggerEffect.planned(kind.name().toLowerCase(), kind, List.of(), "", kind.name().toLowerCase()));
         }
         assertEquals(List.of("COMBAT_ENTRY", "REINFORCEMENT", "BOSS_TRANSITION", "SURRENDER"),
                 map.layers().stream().map(MapLayer::type).toList());
@@ -81,7 +81,7 @@ class TacticalTriggerEffectTest {
         assertTrue(map.runtimeState().reinforcementsActivated());
         assertTrue(map.runtimeState().bossActivated());
         assertEquals("SURRENDER", map.runtimeState().outcome());
-        map = map.apply(TacticalTriggerEffect.planned("success", TacticalTriggerEffect.Kind.SUCCESS, List.of(), "ending-1"));
+        map = map.apply(TacticalTriggerEffect.planned("success", TacticalTriggerEffect.Kind.SUCCESS, List.of(), "ending-1", "success"));
         assertTrue(map.layers().stream().anyMatch(layer -> layer.type().equals("TACTICAL_OUTCOME")));
         assertTrue(map.layers().stream().anyMatch(layer -> layer.type().equals("TACTICAL_TRANSITION") && layer.value().equals("ending-1")));
         assertEquals("SUCCESS", map.runtimeState().outcome());

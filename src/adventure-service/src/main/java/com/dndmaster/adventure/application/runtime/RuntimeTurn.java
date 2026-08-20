@@ -34,7 +34,9 @@ public record RuntimeTurn(
         boolean advancesState,
         CharacterSheetId turnCharacterSheetId,
         Integer turnIndex,
-        Long expectedVersion) {
+        Long expectedVersion,
+        boolean gmOnly,
+        boolean agentOrigin) {
     public RuntimeTurn {
         turnId = Objects.requireNonNull(turnId, "turn id must not be null");
         commandId = Objects.requireNonNull(commandId, "command id must not be null");
@@ -52,6 +54,7 @@ public record RuntimeTurn(
         if ((turnCharacterSheetId == null) != (turnIndex == null || turnIndex < 0)) {
             throw new IllegalArgumentException("runtime turn cursor fields must be paired");
         }
+        if (gmOnly && agentOrigin) throw new IllegalArgumentException("GM and agent origins are mutually exclusive");
         // Rows written before origin was introduced are deliberately non-player evidence.
         if (origin == null) {
             origin = RuntimeTurnOrigin.GM;
@@ -80,7 +83,7 @@ public record RuntimeTurn(
             List<String> warnings) {
         this(turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action, evidencePack, plan,
                 activeSourceContext, context, conversation, version, citations, warnings, false, false, RuntimeTurnOrigin.GM, false,
-                null, null, null);
+                null, null, null, false, false);
     }
 
     public RuntimeTurn(UUID turnId, UUID commandId, AdventureId adventureId, UUID sessionId, UUID scenarioPackageId,
@@ -88,7 +91,7 @@ public record RuntimeTurn(
             AdventureContext context, List<ConversationEntry> conversation, long version, List<String> citations, List<String> warnings,
             boolean committed, boolean playerOrigin, RuntimeTurnOrigin origin, boolean advancesState) {
         this(turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action, evidencePack, plan, activeSourceContext,
-                context, conversation, version, citations, warnings, committed, playerOrigin, origin, advancesState, null, null, null);
+                context, conversation, version, citations, warnings, committed, playerOrigin, origin, advancesState, null, null, null, false, false);
     }
 
     private static String required(String value, String name) {
@@ -100,6 +103,6 @@ public record RuntimeTurn(
         return committed ? this : new RuntimeTurn(
                 turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action, evidencePack, plan,
                 activeSourceContext, context, conversation, version, citations, warnings, true, playerOrigin, origin, advancesState,
-                turnCharacterSheetId, turnIndex, expectedVersion);
+                turnCharacterSheetId, turnIndex, expectedVersion, gmOnly, agentOrigin);
     }
 }

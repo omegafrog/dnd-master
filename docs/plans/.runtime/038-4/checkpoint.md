@@ -1,6 +1,6 @@
 # 038-4 checkpoint
 
-- attempt: 19
+- attempt: 20
 - status: in-progress
 - scope: player trigger qualification, durable planned trigger effects, active-map/session ownership, immutable revealed stages and append-only future revision
 - resumed after 038-3 completion at `5f55cc4d`
@@ -23,3 +23,5 @@
 - attempt 19 started: trigger request contract completeness and semantic RuntimeTurn command replay protection are under implementation
 - completed attempt 19: combat-map trigger OpenAPI requires qualifyingAction and contract regression covers the internal route
 - completed attempt 19: RuntimeTurn replay now compares action, origin, advancesState, cursor actor/index, and expected version before returning an idempotent result
+- attempt 20 started: nonblank trigger action enforcement, raw origin flag provenance, and cursor sentinel normalization are under implementation
+- completed attempt 20: planned Combat Map effects reject missing/blank qualifyingAction, raw gmOnly/agentOrigin flags are durably replay-checked with invalid combinations rejected, and negative cursor indexes normalize to null before RuntimeTurn persistence

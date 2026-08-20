@@ -20,7 +20,7 @@ class TacticalTriggerApplicationServiceTest {
                 description -> new PreparedMapData(map.grid(), map.tokens(), map.obstacles(), map.layers()));
 
         var updated = new TacticalTriggerApplicationService(maps).apply(map.id().value(), owner.value(), 0, UUID.randomUUID(),
-                "reward", "REWARD", List.of());
+                "reward", "REWARD", List.of(), "reward");
 
         assertEquals(1L, updated.version());
         assertEquals(List.of("RESOLVED_REWARD"), updated.layers().stream().map(MapLayer::type).toList());

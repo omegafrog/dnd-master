@@ -16,7 +16,12 @@ public final class TacticalTriggerApplicationService {
 
     public CombatMap apply(UUID mapId, UUID ownerId, long expectedVersion, UUID commandId,
             String triggerId, String kind, List<String> targetIds) {
+        throw new IllegalArgumentException("planned trigger qualifying action required");
+    }
+
+    public CombatMap apply(UUID mapId, UUID ownerId, long expectedVersion, UUID commandId,
+            String triggerId, String kind, List<String> targetIds, String qualifyingAction) {
         return maps.applyTacticalTrigger(new MapId(mapId), new MapOwnerId(ownerId), expectedVersion, commandId,
-                TacticalTriggerEffect.planned(triggerId, TacticalTriggerEffect.Kind.valueOf(kind), targetIds));
+                TacticalTriggerEffect.planned(triggerId, TacticalTriggerEffect.Kind.valueOf(kind), targetIds, "", qualifyingAction));
     }
 }
