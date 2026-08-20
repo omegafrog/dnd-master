@@ -27,8 +27,6 @@ public final class TacticalScenePlanValidator {
             TacticalTriggerType.FAILURE,
             TacticalTriggerType.EXIT,
             TacticalTriggerType.SURRENDER));
-    private static final Set<String> REWARD_TERMS = Set.of(
-            "reward", "loot", "treasure", "chest", "prize", "relic", "artifact", "gold", "coin", "potion");
     private final SourceEvidenceReconciliationPort evidence;
 
     public TacticalScenePlanValidator() {
@@ -59,6 +57,8 @@ public final class TacticalScenePlanValidator {
                 return List.of("tactical source fact was not supplied by the candidate");
             }
         }
+        String identityViolation = TacticalEntityIdentityValidator.validate(request, candidate, scene);
+        if (identityViolation != null) return List.of(identityViolation);
         if (scene.bosses().stream().anyMatch(placement -> placement.grounding().type() != PlacementGroundingType.SOURCE_CITATION)) {
             return List.of("tactical boss requires source citation");
         }
@@ -77,14 +77,11 @@ public final class TacticalScenePlanValidator {
         for (TacticalTrigger trigger : scene.triggers()) {
             String violation = unsupportedCoreTriggerViolation(trigger);
             if (violation != null) return List.of(violation);
-            String coreClaim = coreTriggerClaim(trigger.type());
-            if (coreClaim != null && !supportsClaim(candidate.citations(), trigger.grounding(), coreClaim)) {
-                return List.of("tactical " + coreClaim + " trigger is not supported by source evidence");
-            }
             if ((trigger.type() == TacticalTriggerType.BOSS || trigger.type() == TacticalTriggerType.REWARD)
                     && trigger.targetIds().stream().anyMatch(target ->
                             !supportsClaim(candidate.citations(), trigger.grounding(), target))) {
-                return List.of("tactical " + coreClaim + " target is not supported by source evidence");
+                return List.of("tactical " + trigger.type().name().toLowerCase(java.util.Locale.ROOT)
+                        + " target is not supported by source evidence");
             }
         }
         Set<String> groundedTransitions = scene.triggers().stream()
@@ -101,22 +98,6 @@ public final class TacticalScenePlanValidator {
                     .filter(trigger -> transitionId.equals(trigger.transitionId()))
                     .anyMatch(trigger -> supportsClaim(candidate.citations(), trigger.grounding(), transitionId));
             if (!supported) return List.of("tactical transition is not supported by source evidence");
-        }
-        if (scene.interactiveObjects().stream().anyMatch(TacticalScenePlanValidator::unsupportedRewardPlacement)) {
-            return List.of("tactical reward placement requires source citation");
-        }
-        if (scene.interactiveObjects().stream().anyMatch(placement ->
-                hasRewardTerm(placement.id())
-                        && !supportsClaim(candidate.citations(), placement.grounding(), placement.id()))) {
-            return List.of("tactical reward placement is not supported by source evidence");
-        }
-        if (scene.environments().stream().anyMatch(TacticalScenePlanValidator::unsupportedRewardEnvironment)) {
-            return List.of("tactical reward environment requires source citation");
-        }
-        if (scene.environments().stream().anyMatch(environment ->
-                (hasRewardTerm(environment.id()) || hasRewardTerm(environment.kind()))
-                        && !supportsClaim(candidate.citations(), environment.grounding(), environment.kind()))) {
-            return List.of("tactical reward environment is not supported by source evidence");
         }
         if (scene.outcomes().isEmpty()) return List.of("tactical scene requires explicit outcome coverage");
         if (scene.outcomes().stream().anyMatch(outcome -> outcome.grounding().type() != PlacementGroundingType.SOURCE_CITATION)) {
@@ -155,33 +136,6 @@ public final class TacticalScenePlanValidator {
             case BOSS -> "tactical boss trigger requires source citation";
             case REWARD -> "tactical reward requires source citation";
             case SUCCESS, FAILURE, EXIT, SURRENDER -> "tactical outcome trigger requires source citation";
-            default -> null;
-        };
-    }
-
-    private static boolean unsupportedRewardPlacement(TacticalPlacement placement) {
-        return placement.grounding().type() != PlacementGroundingType.SOURCE_CITATION
-                && hasRewardTerm(placement.id());
-    }
-
-    private static boolean unsupportedRewardEnvironment(TacticalEnvironment environment) {
-        return environment.grounding().type() != PlacementGroundingType.SOURCE_CITATION
-                && (hasRewardTerm(environment.id()) || hasRewardTerm(environment.kind()));
-    }
-
-    private static boolean hasRewardTerm(String value) {
-        return java.util.Arrays.stream(value.toLowerCase(java.util.Locale.ROOT).split("[^a-z0-9]+"))
-                .anyMatch(REWARD_TERMS::contains);
-    }
-
-    private static String coreTriggerClaim(TacticalTriggerType type) {
-        return switch (type) {
-            case BOSS -> "boss";
-            case REWARD -> "reward";
-            case SUCCESS -> "success";
-            case FAILURE -> "failure";
-            case EXIT -> "exit";
-            case SURRENDER -> "surrender";
             default -> null;
         };
     }

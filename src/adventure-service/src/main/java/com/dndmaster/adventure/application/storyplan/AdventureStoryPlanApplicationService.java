@@ -83,13 +83,29 @@ public final class AdventureStoryPlanApplicationService {
         List<String> outlineViolations = List.of();
         for (int attempt = 1; attempt <= 3; attempt++) {
             try {
-                stages = generator.generate(request);
+                List<AdventureStoryPlanStage> candidateStages = generator.generate(request);
+                if (candidateStages == null) {
+                    throw new AdventureStoryPlanCandidateValidationException(
+                            List.of("AI returned no story stages"));
+                }
+                stages = candidateStages;
+            } catch (AdventureStoryPlanCandidateValidationException invalidCandidate) {
+                outlineViolations = invalidCandidate.violations();
             } catch (RuntimeException providerFailure) {
                 LOGGER.error("story plan generation failed; no fallback will be persisted", providerFailure);
                 throw providerFailure;
             }
-            validateMaps(stages, request.maps());
-            outlineViolations = validateStageSources(stages, request.citations());
+            if (outlineViolations.isEmpty()) {
+                try {
+                    validateMaps(stages, request.maps());
+                    outlineViolations = validateStageSources(stages, request.citations());
+                    if (outlineViolations.isEmpty()) {
+                        AdventureStoryPlanGraphValidator.validate(stages, configuration);
+                    }
+                } catch (RuntimeException invalidCandidate) {
+                    outlineViolations = List.of(candidateValidationMessage(invalidCandidate));
+                }
+            }
             if (outlineViolations.isEmpty()) break;
             if (attempt == 3) {
                 AdventureStoryPlan blocked = AdventureStoryPlan.blocked(
@@ -100,10 +116,11 @@ public final class AdventureStoryPlanApplicationService {
                 return blocked;
             }
             request = request.withViolations(outlineViolations);
+            outlineViolations = List.of();
         }
-        AdventureStoryPlanGraphValidator.validate(stages, configuration);
         try {
-            stages = generateTacticalScenes(stages, request);
+            stages = generateTacticalScenes(stages, request, session.party().stream()
+                    .map(member -> member.characterSheetId().value().toString()).toList());
         } catch (TacticalScenePlanBlockedException blocked) {
             AdventureStoryPlan plan = AdventureStoryPlan.blocked(previous == null ? java.util.UUID.randomUUID() : previous.planId(), session.id(),
                     session.scenarioPackageRevision(), session.version(), version, configuration, stages, blocked.getMessage());
@@ -130,7 +147,7 @@ public final class AdventureStoryPlanApplicationService {
     }
 
     private List<AdventureStoryPlanStage> generateTacticalScenes(List<AdventureStoryPlanStage> stages,
-            AdventureStoryPlanGenerationPort.Request request) {
+            AdventureStoryPlanGenerationPort.Request request, List<String> partyMemberIds) {
         java.util.Map<UUID, AdventureStoryPlanGenerationPort.MapContext> maps = request.maps().stream()
                 .collect(java.util.stream.Collectors.toMap(AdventureStoryPlanGenerationPort.MapContext::mapDefinitionId, item -> item));
         List<AdventureStoryPlanStage> result = new ArrayList<>();
@@ -142,7 +159,8 @@ public final class AdventureStoryPlanApplicationService {
             for (int attempt = 1; attempt <= 3; attempt++) {
                 TacticalScenePlanCandidate candidate;
                 try {
-                    var tacticalRequest = new TacticalSceneRequest(stage, map, request.citations(), violations);
+                    var tacticalRequest = new TacticalSceneRequest(
+                            stage, map, request.citations(), partyMemberIds, violations);
                     candidate = generator.generateTacticalScene(tacticalRequest);
                     violations = tacticalSceneValidator.validate(tacticalRequest, candidate);
                 } catch (RuntimeException failure) {
@@ -264,6 +282,13 @@ public final class AdventureStoryPlanApplicationService {
         stages.stream().map(AdventureStoryPlanStage::mapDefinitionId).filter(java.util.Objects::nonNull).forEach(id -> {
             if (!known.contains(id)) throw new IllegalStateException("story plan references an unknown map definition");
         });
+    }
+
+    private static String candidateValidationMessage(RuntimeException failure) {
+        String message = failure.getMessage();
+        return message == null || message.isBlank()
+                ? "story plan candidate validation failed: " + failure.getClass().getSimpleName()
+                : message;
     }
 
     private List<String> validateStageSources(

@@ -22,7 +22,8 @@ class TacticalScenePlanValidatorTest {
                 List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), new FogPlan(List.of(), PlacementGrounding.sourceCitation(key(source))),
                 List.of(), List.of(), List.of());
         var request = new TacticalSceneRequest(new AdventureStoryPlanStage(1, "cellar", "goal", "conflict", "exit", List.of(), List.of()),
-                new AdventureStoryPlanGenerationPort.MapContext(UUID.randomUUID(), "map", "locator", "page:1", 1.0, "SAFE"), List.of(source), List.of());
+                new AdventureStoryPlanGenerationPort.MapContext(UUID.randomUUID(), "map", "locator", "page:1", 1.0, "SAFE"),
+                List.of(source), List.of("hero"), List.of());
 
         var violations = new TacticalScenePlanValidator().validate(request, new TacticalScenePlanCandidate(1, scene, List.of(source)));
 
@@ -73,7 +74,7 @@ class TacticalScenePlanValidatorTest {
 
         var violations = validate(evidence, scene);
 
-        assertTrue(violations.contains("tactical reward environment requires source citation"));
+        assertTrue(violations.contains("tactical environment identity is not supported by source evidence"));
     }
 
     @Test
@@ -158,6 +159,83 @@ class TacticalScenePlanValidatorTest {
         assertTrue(violations.contains("tactical source fact was not supplied by the candidate"));
     }
 
+    @Test
+    void usesTypedTriggerKindsWithoutRequiringEnglishCategoryWordsInEvidence() {
+        var evidence = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "STORYBOOK", UUID.randomUUID(), 1, "page:1",
+                "영웅은 경보와 증원에 맞서 싸우고 우두머리와 협상한다. 보물을 발견하면 성공하고, 실패하면 탈출하거나 항복한다. 일행은 안전하게 떠난다.", 1.0);
+        var source = PlacementGrounding.sourceCitation(key(evidence));
+        var scene = scene(requiredTriggers(source),
+                List.of(new TacticalOutcome("ending", "일행은 안전하게 떠난다.", source)),
+                List.of(), source);
+
+        assertTrue(validate(evidence, scene).isEmpty());
+    }
+
+    @Test
+    void rejectsInventedNonBossEntityIdentitiesEvenWhenOnlyTheirPositionsAreInferred() {
+        var evidence = evidence();
+        var source = PlacementGrounding.sourceCitation(key(evidence));
+        var inferred = PlacementGrounding.aiInference("Only the coordinate was inferred");
+
+        for (TacticalPlacementKind kind : List.of(
+                TacticalPlacementKind.ALLY,
+                TacticalPlacementKind.NPC,
+                TacticalPlacementKind.ENEMY,
+                TacticalPlacementKind.INTERACTIVE_OBJECT)) {
+            var scene = sceneWithPlacement(kind, "invented-" + kind.name().toLowerCase(), inferred, source);
+
+            var violations = validate(evidence, scene);
+
+            assertTrue(violations.stream().anyMatch(value -> value.contains("identity is not supported")),
+                    () -> "expected unsupported identity violation for " + kind + " but got " + violations);
+        }
+    }
+
+    @Test
+    void rejectsAPlayerIdentityThatIsNeitherInThePartyNorSourceBacked() {
+        var evidence = evidence();
+        var source = PlacementGrounding.sourceCitation(key(evidence));
+        var scene = scene(requiredTriggers(source),
+                List.of(new TacticalOutcome("ending", "The party leaves safely.", source)),
+                List.of(), source);
+        var request = new TacticalSceneRequest(
+                new AdventureStoryPlanStage(1, "cellar", "goal", "conflict", "exit", List.of(), List.of()),
+                new AdventureStoryPlanGenerationPort.MapContext(UUID.randomUUID(), "map", "locator", "page:1", 1.0, "SAFE"),
+                List.of(evidence), List.of("different-party-member"), List.of());
+
+        var violations = new TacticalScenePlanValidator().validate(
+                request, new TacticalScenePlanCandidate(1, scene, List.of(evidence)));
+
+        assertTrue(violations.contains("tactical player identity is not supported by source or party evidence"));
+    }
+
+    @Test
+    void allowsBoundedPositionInferenceForASourceBackedEnemyIdentity() {
+        String quote = "지도 표식: 그림자 늑대. The party leaves safely.";
+        var evidence = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "STORYBOOK", UUID.randomUUID(), 1, "page:1", quote, 1.0);
+        var source = PlacementGrounding.sourceCitation(key(evidence));
+        var inferred = PlacementGrounding.aiInference("Only the map-relative coordinate was inferred");
+        var enemy = new TacticalPlacement("그림자 늑대", TacticalPlacementKind.ENEMY,
+                new NormalizedCoordinate(.7, .7), inferred);
+        var scene = new TacticalScenePlan(1, TacticalScenePlanStatus.READY,
+                new TacticalSceneBoundary(new NormalizedCoordinate(0, 0), new NormalizedCoordinate(1, 1), List.of()),
+                List.of(new TacticalPlacement("hero", TacticalPlacementKind.PLAYER,
+                        new NormalizedCoordinate(.1, .1), inferred)),
+                List.of(), List.of(), List.of(enemy), List.of(), List.of(), List.of(),
+                new FogPlan(List.of(), inferred), requiredTriggers(source),
+                List.of(new TacticalOutcome("ending", "The party leaves safely.", source)), List.of());
+        var request = new TacticalSceneRequest(
+                new AdventureStoryPlanStage(1, "cellar", "goal", "conflict", "exit", List.of(), List.of()),
+                new AdventureStoryPlanGenerationPort.MapContext(UUID.randomUUID(), "map", "locator", "page:1", 1.0, "SAFE", List.of(quote)),
+                List.of(evidence), List.of("hero"), List.of());
+
+        var violations = new TacticalScenePlanValidator().validate(
+                request, new TacticalScenePlanCandidate(1, scene, List.of(evidence)));
+        assertTrue(violations.isEmpty(), () -> "expected bounded placement inference but got " + violations);
+    }
+
     private static AdventureStoryPlanGenerationPort.SourceCitation evidence() {
         return new AdventureStoryPlanGenerationPort.SourceCitation("STORYBOOK", UUID.randomUUID(), 1,
                 "page:1", "Entry alarm reinforcement boss reward success failure exit surrender. The party leaves safely.", 1.0);
@@ -172,7 +250,7 @@ class TacticalScenePlanValidatorTest {
         var request = new TacticalSceneRequest(
                 new AdventureStoryPlanStage(1, "cellar", "goal", "conflict", "exit", List.of(), List.of()),
                 new AdventureStoryPlanGenerationPort.MapContext(UUID.randomUUID(), "map", "locator", "page:1", 1.0, "SAFE"),
-                List.of(evidence), List.of());
+                List.of(evidence), List.of("hero"), List.of());
         return new TacticalScenePlanValidator().validate(
                 request, new TacticalScenePlanCandidate(1, scene, List.of(evidence)));
     }
@@ -191,6 +269,25 @@ class TacticalScenePlanValidatorTest {
                         new NormalizedCoordinate(.1, .1), placementGrounding)),
                 List.of(), List.of(), List.of(), List.of(), List.of(), environments,
                 new FogPlan(List.of(), placementGrounding), triggers, outcomes, transitionIds);
+    }
+
+    private static TacticalScenePlan sceneWithPlacement(
+            TacticalPlacementKind kind,
+            String id,
+            PlacementGrounding inferred,
+            PlacementGrounding source) {
+        var placement = new TacticalPlacement(id, kind, new NormalizedCoordinate(.7, .7), inferred);
+        return new TacticalScenePlan(1, TacticalScenePlanStatus.READY,
+                new TacticalSceneBoundary(new NormalizedCoordinate(0, 0), new NormalizedCoordinate(1, 1), List.of()),
+                List.of(new TacticalPlacement("hero", TacticalPlacementKind.PLAYER,
+                        new NormalizedCoordinate(.1, .1), source)),
+                kind == TacticalPlacementKind.ALLY ? List.of(placement) : List.of(),
+                kind == TacticalPlacementKind.NPC ? List.of(placement) : List.of(),
+                kind == TacticalPlacementKind.ENEMY ? List.of(placement) : List.of(),
+                List.of(),
+                kind == TacticalPlacementKind.INTERACTIVE_OBJECT ? List.of(placement) : List.of(),
+                List.of(), new FogPlan(List.of(), source), requiredTriggers(source),
+                List.of(new TacticalOutcome("ending", "The party leaves safely.", source)), List.of());
     }
 
     private static List<TacticalTrigger> requiredTriggers(PlacementGrounding grounding) {

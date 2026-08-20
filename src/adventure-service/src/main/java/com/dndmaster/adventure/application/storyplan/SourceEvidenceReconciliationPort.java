@@ -48,8 +48,11 @@ public interface SourceEvidenceReconciliationPort {
                         .reduce("", (left, right) -> left + " " + right).toLowerCase();
                 java.util.Set<String> terms = java.util.Set.of("dragon", "goblin", "orc", "rat", "swarm", "treasure", "trap", "brewery", "cellar");
                 for (String term : terms) {
-                    if (claims.contains(term) && !source.contains(term)) {
-                        String alternative = terms.stream().filter(source::contains).findFirst().orElse(null);
+                    if (SourceClaimSupport.supports(claims, term)
+                            && !SourceClaimSupport.supports(source, term)) {
+                        String alternative = terms.stream()
+                                .filter(candidateTerm -> SourceClaimSupport.supports(source, candidateTerm))
+                                .findFirst().orElse(null);
                         if (alternative != null && !alternative.equals(term)) errors.add("tactical inference contradicts authoritative source: " + term);
                     }
                 }

@@ -10,7 +10,10 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanCandidateValidationException;
 import com.dndmaster.adventure.application.storyplan.TacticalSceneRequest;
+import com.dndmaster.adventure.domain.adventure.AdventureLength;
+import com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import com.dndmaster.adventure.domain.adventure.AdventureStageType;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
@@ -66,6 +69,25 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
     void rejectsMissingInternalTokenAtConstruction() {
         assertThrows(IllegalArgumentException.class, () -> new CrossContextHttpAdventureStoryPlanGenerationGateway(
                 HttpClient.newHttpClient(), URI.create("http://localhost/"), Duration.ofSeconds(1), new ObjectMapper(), " "));
+    }
+
+    @Test
+    void normalizesInvalidOutlineOutputAsTypedCandidateValidation() {
+        server = new WireMockServer(0);
+        server.start();
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/adventure-story-plan"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json")
+                        .withBody("{\"stages\":[]}")));
+        var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "test-internal-token");
+        var request = new AdventureStoryPlanGenerationPort.Request(
+                "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT),
+                List.of(), List.of(), List.of(), List.of());
+
+        var failure = assertThrows(AdventureStoryPlanCandidateValidationException.class,
+                () -> gateway.generate(request));
+
+        assertEquals(List.of("AI returned an invalid stage count for adventure length"), failure.violations());
     }
 
     @Test

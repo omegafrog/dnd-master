@@ -29,7 +29,7 @@ class AdventureStoryPlanStageSourceValidatorTest {
 
     @Test
     void acceptsCoreStageFactsThatAreSupportedByAuthoritativeEvidence() {
-        var citation = citation("The ancient dragon guards the royal crown. The party can inherit the kingdom and reach the coronation ending.");
+        var citation = citation("A rat swarm serves the ancient dragon guarding the royal crown. The party can inherit the kingdom and reach the coronation ending.");
         var stage = stage(citation, "ancient dragon", List.of("royal crown"),
                 "inherit the kingdom", "coronation-ending");
 
@@ -47,6 +47,19 @@ class AdventureStoryPlanStageSourceValidatorTest {
         assertTrue(violations.contains("story stage boss is not supported by source evidence"));
     }
 
+    @Test
+    void rejectsUnsupportedStructuredNpcAndEnemyIdentitiesBeforeTheyBecomeAuthoritative() {
+        var citation = citation("A rat swarm guards the royal crown. The party can inherit the kingdom and reach the coronation ending.");
+        var stage = stage(citation, "", List.of("royal crown"),
+                "inherit the kingdom", "coronation-ending",
+                List.of("invented guide"), List.of("lich"));
+
+        var violations = new AdventureStoryPlanStageSourceValidator().validate(stage, List.of(citation));
+
+        assertTrue(violations.contains("story stage NPC or clue is not supported by source evidence: invented guide"));
+        assertTrue(violations.contains("story stage enemy is not supported by source evidence: lich"));
+    }
+
     private static AdventureStoryPlanGenerationPort.SourceCitation citation(String quote) {
         return new AdventureStoryPlanGenerationPort.SourceCitation(
                 "STORYBOOK", UUID.randomUUID(), 1, "page:1", quote, 1.0);
@@ -58,13 +71,24 @@ class AdventureStoryPlanStageSourceValidatorTest {
             List<String> rewards,
             String transition,
             String ending) {
+        return stage(citation, boss, rewards, transition, ending, List.of(), List.of("rat swarm"));
+    }
+
+    private static AdventureStoryPlanStage stage(
+            AdventureStoryPlanGenerationPort.SourceCitation citation,
+            String boss,
+            List<String> rewards,
+            String transition,
+            String ending,
+            List<String> npcOrClues,
+            List<String> enemies) {
         var evidence = new AdventurePlanEvidence(
                 citation.documentType(), citation.documentId(), citation.extractionVersion(),
                 citation.locator(), citation.quote(), citation.confidence());
         return new AdventureStoryPlanStage(
                 1, "Cellar", "Clear the cellar", "Rats attack", transition,
-                List.of(), List.of(ending), List.of(), AdventureStageType.DUNGEON,
-                "Cellar", UUID.randomUUID(), "brewery", "page 1", List.of("rats"), boss,
+                npcOrClues, List.of(ending), List.of(), AdventureStageType.DUNGEON,
+                "Cellar", UUID.randomUUID(), "brewery", "page 1", enemies, boss,
                 transition, "", rewards, List.of(ending), List.of(evidence),
                 AdventureGroundingStatus.GROUNDED, List.of(), "SAFE", .9);
     }

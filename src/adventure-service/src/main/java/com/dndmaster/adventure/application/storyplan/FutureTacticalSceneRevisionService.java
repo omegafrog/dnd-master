@@ -53,7 +53,8 @@ public final class FutureTacticalSceneRevisionService {
                 value.documentType(), value.documentId(), value.extractionVersion(), value.locator(), value.quote(), value.confidence())).toList();
         var map = new AdventureStoryPlanGenerationPort.MapContext(existing.mapDefinitionId(), existing.mapAssetId(), existing.mapAssetLocator(),
                 existing.mapAssetLocator(), existing.mapConfidence() == null ? 0 : existing.mapConfidence(), existing.mapSafetyStatus());
-        var request = new TacticalSceneRequest(existing, map, citations, List.of());
+        var request = new TacticalSceneRequest(existing, map, citations, session.party().stream()
+                .map(member -> member.characterSheetId().value().toString()).toList(), List.of());
         if (generator != null) {
             List<String> violations = List.of();
             for (int attempt = 1; attempt <= 3; attempt++) {

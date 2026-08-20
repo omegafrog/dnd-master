@@ -125,7 +125,7 @@ class FutureTacticalSceneRevisionPolicyTest {
                 AdventureStageType.ENCOUNTER, "cellar", java.util.UUID.randomUUID(), "map", "map.png", List.of("rat"), "", "clear", "fail",
                 List.of("reward"), List.of("end"), List.of(new AdventurePlanEvidence(
                         "STORYBOOK", EVIDENCE_DOCUMENT_ID, 1, EVIDENCE_LOCATOR,
-                        "Entry alarm reinforcement boss reward success failure exit surrender. Clear.", 1.0)),
+                        "Hero enters. Entry alarm reinforcement boss reward success failure exit surrender. Clear.", 1.0)),
                 AdventureGroundingStatus.GROUNDED, List.of(), "SAFE", .9).withTacticalScenePlan(scene);
     }
 

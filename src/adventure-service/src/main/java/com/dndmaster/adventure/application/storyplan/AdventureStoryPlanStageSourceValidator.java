@@ -27,6 +27,16 @@ public final class AdventureStoryPlanStageSourceValidator {
                 violations.add("story stage reward is not supported by source evidence: " + reward);
             }
         }
+        for (String npcOrClue : stage.npcOrClues()) {
+            if (!SourceClaimSupport.supports(source, npcOrClue)) {
+                violations.add("story stage NPC or clue is not supported by source evidence: " + npcOrClue);
+            }
+        }
+        for (String enemy : stage.enemies()) {
+            if (!SourceClaimSupport.supports(source, enemy)) {
+                violations.add("story stage enemy is not supported by source evidence: " + enemy);
+            }
+        }
         if (!SourceClaimSupport.supports(source, stage.transitionCondition())
                 || !SourceClaimSupport.supports(source, stage.clearCondition())
                 || (!stage.failureCondition().isBlank() && !SourceClaimSupport.supports(source, stage.failureCondition()))) {

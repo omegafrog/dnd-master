@@ -169,7 +169,9 @@ public final class AdventureStoryPlanController {
                 Every coordinate is normalized from 0 through 1. Every placement/environment must have id, kind, coordinate, and grounding.
                 A grounding is either {type:"SOURCE_CITATION",citation:"documentType:documentUuid:locator",rationale:""} using ONLY a supplied citation,
                 or {type:"AI_INFERENCE",citation:"",rationale:"bounded explanation tied to the supplied map or story evidence"}.
-                Source citations and supplied map/story evidence take precedence. Never invent a named boss, reward, ending, monster, or map fact not present in them.
+                Source citations and supplied map/story evidence take precedence. Use the supplied partyMemberIds exactly for player identities.
+                AI_INFERENCE may choose coordinates or bounded placement details only for identities already present in partyMemberIds, the stage, map evidence, or source citations.
+                Never invent a named ally, NPC, enemy, boss, interactive object, reward, ending, monster, or map fact not present in them.
                 If the prior validation feedback identifies a violation, correct that violation in this response.
                 Request: """ + request;
         try {

@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.infrastructure.integration;
 
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanCandidateValidationException;
 import com.dndmaster.adventure.application.storyplan.TacticalScenePlanCandidate;
 import com.dndmaster.adventure.application.storyplan.TacticalSceneRequest;
 import com.dndmaster.adventure.application.storyplan.TacticalScenePlanValidator;
@@ -47,7 +48,15 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                 if (detail.length() > 1200) detail = detail.substring(0, 1200);
                 throw new IllegalStateException("story plan AI failed: " + response.statusCode() + " body=" + detail);
             }
-            var parsed = mapper.readValue(response.body(), Response.class);
+            return parseOutlineCandidate(response.body(), request);
+        } catch (HttpTimeoutException e) { throw new IllegalStateException("story plan AI timed out after " + timeout, e); }
+        catch (IOException e) { throw new IllegalStateException("story plan AI request encoding failed", e); }
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("story plan AI interrupted", e); }
+    }
+
+    private List<AdventureStoryPlanStage> parseOutlineCandidate(String responseBody, Request request) {
+        try {
+            var parsed = mapper.readValue(responseBody, Response.class);
             if (parsed.stages() == null) throw new IllegalStateException("AI returned no story stages");
             AdventurePlanConfiguration configuration = request.configuration();
             if (parsed.stages().size() < configuration.adventureLength().minimumStages()
@@ -66,7 +75,8 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             if (parsed.stages().stream().flatMap(stage -> stage.evidence().stream()).anyMatch(item -> !matchesCitation(item, request.citations()))) {
                 throw new IllegalStateException("AI returned an unknown source citation");
             }
-            Map<UUID, AdventureStoryPlanGenerationPort.MapContext> maps = request.maps().stream().collect(Collectors.toMap(AdventureStoryPlanGenerationPort.MapContext::mapDefinitionId, item -> item));
+            Map<UUID, AdventureStoryPlanGenerationPort.MapContext> maps = request.maps().stream().collect(
+                    Collectors.toMap(AdventureStoryPlanGenerationPort.MapContext::mapDefinitionId, item -> item));
             if (!maps.isEmpty() && parsed.stages().stream().anyMatch(stage -> "DUNGEON".equalsIgnoreCase(stage.stageType())
                     && stage.mapDefinitionId().isBlank())) {
                 throw new IllegalStateException("map-backed bundle requires every dungeon stage to reference a map definition");
@@ -74,9 +84,15 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             List<AdventureStoryPlanStage> stages = parsed.stages().stream().map(stage -> toDomain(stage, maps)).toList();
             AdventureStoryPlanGraphValidator.validate(stages, configuration);
             return stages;
-        } catch (HttpTimeoutException e) { throw new IllegalStateException("story plan AI timed out after " + timeout, e); }
-        catch (IOException e) { throw new IllegalStateException("story plan AI response malformed", e); }
-        catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("story plan AI interrupted", e); }
+        } catch (AdventureStoryPlanCandidateValidationException invalidCandidate) {
+            throw invalidCandidate;
+        } catch (RuntimeException | IOException invalidCandidate) {
+            String message = invalidCandidate.getMessage();
+            throw new AdventureStoryPlanCandidateValidationException(List.of(
+                    message == null || message.isBlank()
+                            ? "AI returned an invalid story plan candidate"
+                            : message));
+        }
     }
 
     @Override public TacticalScenePlanCandidate generateTacticalScene(TacticalSceneRequest request) {

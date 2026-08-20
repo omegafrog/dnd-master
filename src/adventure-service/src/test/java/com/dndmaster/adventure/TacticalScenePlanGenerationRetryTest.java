@@ -8,6 +8,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.session.AdventureSessionRepository;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanApplicationService;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanCandidateValidationException;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository;
 import com.dndmaster.adventure.application.storyplan.TacticalScenePlanCandidate;
@@ -90,12 +91,12 @@ class TacticalScenePlanGenerationRetryTest {
         fixture.generator.candidates.add(TacticalScenePlanCandidate.absent(1));
         fixture.generator.candidates.add(TacticalScenePlanCandidate.absent(1));
         fixture.generator.candidates.add(TacticalScenePlanCandidate.withCitation(
-                1, TacticalSceneFixtures.readyScene(TacticalScenePlanValidator.key(fixture.sourceCitation)),
+                1, TacticalSceneFixtures.readyScene(TacticalScenePlanValidator.key(fixture.sourceCitation), fixture.playerId),
                 List.of(fixture.sourceCitation)));
         fixture.generator.candidates.add(TacticalScenePlanCandidate.absent(2));
         fixture.generator.candidates.add(TacticalScenePlanCandidate.absent(2));
         fixture.generator.candidates.add(TacticalScenePlanCandidate.withCitation(
-                2, TacticalSceneFixtures.readyScene(TacticalScenePlanValidator.key(fixture.sourceCitation)),
+                2, TacticalSceneFixtures.readyScene(TacticalScenePlanValidator.key(fixture.sourceCitation), fixture.playerId),
                 List.of(fixture.sourceCitation)));
 
         AdventureStoryPlan plan = fixture.service.generate(
@@ -110,7 +111,7 @@ class TacticalScenePlanGenerationRetryTest {
     void acceptsAValidTypedCandidateAndPersistsItWithTheMappedStage() {
         var fixture = new Fixture();
         fixture.generator.candidates.add(TacticalScenePlanCandidate.withCitation(
-                1, TacticalSceneFixtures.readyScene(TacticalScenePlanValidator.key(fixture.sourceCitation)),
+                1, TacticalSceneFixtures.readyScene(TacticalScenePlanValidator.key(fixture.sourceCitation), fixture.playerId),
                 List.of(fixture.sourceCitation)));
 
         AdventureStoryPlan plan = fixture.service.generate(fixture.session.id(), fixture.session.ownerPlayerId(), SHORT_ADVENTURE);
@@ -123,7 +124,7 @@ class TacticalScenePlanGenerationRetryTest {
     @Test
     void rejectsAnUnknownSourceCitationBeforeItCanOverrideSuppliedEvidence() {
         var fixture = new Fixture();
-        fixture.generator.candidates.add(TacticalScenePlanCandidate.withCitation(1, TacticalSceneFixtures.sourceGroundedScene("unknown:page:9"),
+        fixture.generator.candidates.add(TacticalScenePlanCandidate.withCitation(1, TacticalSceneFixtures.sourceGroundedScene("unknown:page:9", fixture.playerId),
                 List.of(new AdventureStoryPlanGenerationPort.SourceCitation("STORYBOOK", UUID.randomUUID(), 1, "page:9", "unknown", .9))));
         fixture.generator.candidates.add(TacticalScenePlanCandidate.absent(1));
         fixture.generator.candidates.add(TacticalScenePlanCandidate.absent(1));
@@ -138,7 +139,8 @@ class TacticalScenePlanGenerationRetryTest {
     @Test
     void rejectsAiInferredBossesAndOutcomesAsUnsupportedCoreFacts() {
         var fixture = new Fixture();
-        fixture.generator.candidates.add(TacticalScenePlanCandidate.ready(1, TacticalSceneFixtures.unsupportedCoreFactScene(), List.of()));
+        fixture.generator.candidates.add(TacticalScenePlanCandidate.ready(
+                1, TacticalSceneFixtures.unsupportedCoreFactScene(fixture.playerId), List.of()));
         fixture.generator.candidates.add(TacticalScenePlanCandidate.absent(1));
         fixture.generator.candidates.add(TacticalScenePlanCandidate.absent(1));
 
@@ -168,6 +170,21 @@ class TacticalScenePlanGenerationRetryTest {
     }
 
     @Test
+    void retriesTypedOutlineCandidateValidationFailuresAndPersistsBlockedDiagnostics() {
+        var fixture = new Fixture();
+        fixture.generator.outlineValidationFailuresRemaining = 3;
+
+        AdventureStoryPlan plan = fixture.service.generate(
+                fixture.session.id(), fixture.session.ownerPlayerId(), SHORT_ADVENTURE);
+
+        assertEquals(AdventureStoryPlanStatus.BLOCKED, plan.status());
+        assertEquals(3, fixture.generator.outlineRequests.size());
+        assertTrue(plan.failureReason().contains("AI returned an unknown source citation"));
+        assertEquals(List.of("AI returned an unknown source citation"),
+                fixture.generator.outlineRequests.get(1).violations());
+    }
+
+    @Test
     void retriesGeneratorFailuresExactlyThreeTimesThenBlocksTheStartGate() {
         var fixture = new Fixture();
         fixture.generator.failuresRemaining = 3;
@@ -194,6 +211,7 @@ class TacticalScenePlanGenerationRetryTest {
         private final AdventureStoryPlanApplicationService service;
         private final AdventureStoryPlanGenerationPort.SourceCitation sourceCitation;
         private final UUID mapId;
+        private final String playerId;
 
         private Fixture() {
             this(false);
@@ -228,7 +246,9 @@ class TacticalScenePlanGenerationRetryTest {
                     twoTacticalStages ? List.of(map, secondMap) : List.of(map), List.of());
             session = AdventureSession.create(SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), scenarioPackage.packageId(), 1, 1,
                     new AdventureSessionRuntimeConfiguration(new ScenarioId(scenarioPackage.packageId()), new RuleSetId(UUID.randomUUID()), List.of(), "ollama", List.of(), "opening"));
-            session.addPartyMember(new AdventurePartyMember(new com.dndmaster.adventure.domain.adventure.CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT,
+            var characterSheetId = new com.dndmaster.adventure.domain.adventure.CharacterSheetId(UUID.randomUUID());
+            playerId = characterSheetId.value().toString();
+            session.addPartyMember(new AdventurePartyMember(characterSheetId, ControlMode.DIRECT,
                     false, false, false, false, false, false));
             generator.stage = mappedStage(1, mapId, sourceCitation);
             if (twoTacticalStages) generator.additionalTacticalStage = mappedStage(2, secondMapId, sourceCitation);
@@ -264,9 +284,14 @@ class TacticalScenePlanGenerationRetryTest {
         private final List<TacticalScenePlanCandidate> candidates = new ArrayList<>();
         private final List<TacticalSceneRequest> requests = new ArrayList<>();
         private final List<Request> outlineRequests = new ArrayList<>();
+        private int outlineValidationFailuresRemaining;
         private int failuresRemaining;
         public List<AdventureStoryPlanStage> generate(Request request) {
             outlineRequests.add(request);
+            if (outlineValidationFailuresRemaining-- > 0) {
+                throw new AdventureStoryPlanCandidateValidationException(
+                        List.of("AI returned an unknown source citation"));
+            }
             if (additionalTacticalStage != null) {
                 return List.of(stage, additionalTacticalStage,
                         new AdventureStoryPlanStage(3, "Finish", "Finish", "Choice", "Finish", List.of(), List.of("ending")));
@@ -300,42 +325,42 @@ class TacticalScenePlanGenerationRetryTest {
     }
 
     private static final class TacticalSceneFixtures {
-        private static TacticalScenePlan readyScene(String citation) {
+        private static TacticalScenePlan readyScene(String citation, String playerId) {
             var placement = PlacementGrounding.aiInference("Map entrance placement is a bounded completion");
             var source = PlacementGrounding.sourceCitation(citation);
             return new TacticalScenePlan(TacticalScenePlan.CURRENT_SCHEMA_VERSION, TacticalScenePlanStatus.READY,
                     new TacticalSceneBoundary(new NormalizedCoordinate(0, 0), new NormalizedCoordinate(1, 1), List.of()),
-                    List.of(new TacticalPlacement("player", TacticalPlacementKind.PLAYER, new NormalizedCoordinate(.1, .1), placement)),
+                    List.of(new TacticalPlacement(playerId, TacticalPlacementKind.PLAYER, new NormalizedCoordinate(.1, .1), placement)),
                     List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), new FogPlan(List.of(), placement),
-                    requiredTriggers(source),
+                    requiredTriggers(source, playerId),
                     List.of(new com.dndmaster.adventure.domain.adventure.TacticalOutcome("leave", "party leaves", source)), List.of());
         }
 
         private static List<com.dndmaster.adventure.domain.adventure.TacticalTrigger> requiredTriggers(
-                PlacementGrounding grounding) {
+                PlacementGrounding grounding, String playerId) {
             return java.util.Arrays.stream(com.dndmaster.adventure.domain.adventure.TacticalTriggerType.values())
                     .filter(type -> type != com.dndmaster.adventure.domain.adventure.TacticalTriggerType.FOG_REVEAL)
                     .map(type -> new com.dndmaster.adventure.domain.adventure.TacticalTrigger(
                             type.name().toLowerCase(), type,
                             type == com.dndmaster.adventure.domain.adventure.TacticalTriggerType.COMBAT_ENTRY
-                                    ? List.of("player") : List.of(),
+                                    ? List.of(playerId) : List.of(),
                             "", grounding))
                     .toList();
         }
 
-        private static TacticalScenePlan sourceGroundedScene(String citation) {
+        private static TacticalScenePlan sourceGroundedScene(String citation, String playerId) {
             var grounding = PlacementGrounding.sourceCitation(citation);
             return new TacticalScenePlan(TacticalScenePlan.CURRENT_SCHEMA_VERSION, TacticalScenePlanStatus.READY,
                     new TacticalSceneBoundary(new NormalizedCoordinate(0, 0), new NormalizedCoordinate(1, 1), List.of()),
-                    List.of(new TacticalPlacement("player", TacticalPlacementKind.PLAYER, new NormalizedCoordinate(.1, .1), grounding)),
+                    List.of(new TacticalPlacement(playerId, TacticalPlacementKind.PLAYER, new NormalizedCoordinate(.1, .1), grounding)),
                     List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), new FogPlan(List.of(), grounding), List.of(), List.of(), List.of());
         }
 
-        private static TacticalScenePlan unsupportedCoreFactScene() {
+        private static TacticalScenePlan unsupportedCoreFactScene(String playerId) {
             var grounding = PlacementGrounding.aiInference("AI inferred an unnamed boss without source support");
             return new TacticalScenePlan(TacticalScenePlan.CURRENT_SCHEMA_VERSION, TacticalScenePlanStatus.READY,
                     new TacticalSceneBoundary(new NormalizedCoordinate(0, 0), new NormalizedCoordinate(1, 1), List.of()),
-                    List.of(new TacticalPlacement("player", TacticalPlacementKind.PLAYER, new NormalizedCoordinate(.1, .1), grounding)),
+                    List.of(new TacticalPlacement(playerId, TacticalPlacementKind.PLAYER, new NormalizedCoordinate(.1, .1), grounding)),
                     List.of(), List.of(), List.of(), List.of(new TacticalPlacement("boss", TacticalPlacementKind.BOSS, new NormalizedCoordinate(.8, .8), grounding)),
                     List.of(), List.of(), new FogPlan(List.of(), grounding), List.of(), List.of(), List.of());
         }
