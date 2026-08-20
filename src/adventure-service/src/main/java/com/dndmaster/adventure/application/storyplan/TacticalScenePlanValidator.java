@@ -8,6 +8,8 @@ import com.dndmaster.adventure.domain.adventure.TacticalOutcome;
 import com.dndmaster.adventure.domain.adventure.TacticalPlacement;
 import com.dndmaster.adventure.domain.adventure.TacticalScenePlan;
 import com.dndmaster.adventure.domain.adventure.TacticalTrigger;
+import com.dndmaster.adventure.domain.adventure.TacticalTriggerType;
+import java.util.EnumSet;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -15,6 +17,18 @@ import java.util.Objects;
 
 /** Keeps source facts authoritative over tactical AI completion. */
 public final class TacticalScenePlanValidator {
+    private static final Set<TacticalTriggerType> REQUIRED_TRIGGER_TYPES = Set.copyOf(EnumSet.of(
+            TacticalTriggerType.COMBAT_ENTRY,
+            TacticalTriggerType.ALARM,
+            TacticalTriggerType.REINFORCEMENT,
+            TacticalTriggerType.BOSS,
+            TacticalTriggerType.REWARD,
+            TacticalTriggerType.SUCCESS,
+            TacticalTriggerType.FAILURE,
+            TacticalTriggerType.EXIT,
+            TacticalTriggerType.SURRENDER));
+    private static final Set<String> REWARD_TERMS = Set.of(
+            "reward", "loot", "treasure", "chest", "prize", "relic", "artifact", "gold", "coin", "potion");
     private final SourceEvidenceReconciliationPort evidence;
 
     public TacticalScenePlanValidator() {
@@ -49,7 +63,35 @@ public final class TacticalScenePlanValidator {
             return List.of("tactical boss requires source citation");
         }
         if (scene.triggers().isEmpty()) return List.of("tactical scene requires explicit trigger coverage");
+        Set<TacticalTriggerType> presentTriggerTypes = EnumSet.noneOf(TacticalTriggerType.class);
+        scene.triggers().forEach(trigger -> presentTriggerTypes.add(trigger.type()));
+        Set<TacticalTriggerType> missingTriggerTypes = EnumSet.copyOf(REQUIRED_TRIGGER_TYPES);
+        missingTriggerTypes.removeAll(presentTriggerTypes);
+        if (!missingTriggerTypes.isEmpty()) {
+            return List.of("tactical scene is missing required trigger types: " + missingTriggerTypes);
+        }
+        for (TacticalTrigger trigger : scene.triggers()) {
+            String violation = unsupportedCoreTriggerViolation(trigger);
+            if (violation != null) return List.of(violation);
+        }
+        Set<String> groundedTransitions = scene.triggers().stream()
+                .filter(trigger -> trigger.grounding().type() == PlacementGroundingType.SOURCE_CITATION)
+                .map(TacticalTrigger::transitionId)
+                .filter(value -> !value.isBlank())
+                .collect(java.util.stream.Collectors.toSet());
+        if (!groundedTransitions.containsAll(scene.transitionIds())) {
+            return List.of("tactical transition requires source citation");
+        }
+        if (scene.interactiveObjects().stream().anyMatch(TacticalScenePlanValidator::unsupportedRewardPlacement)) {
+            return List.of("tactical reward placement requires source citation");
+        }
+        if (scene.environments().stream().anyMatch(TacticalScenePlanValidator::unsupportedRewardEnvironment)) {
+            return List.of("tactical reward environment requires source citation");
+        }
         if (scene.outcomes().isEmpty()) return List.of("tactical scene requires explicit outcome coverage");
+        if (scene.outcomes().stream().anyMatch(outcome -> outcome.grounding().type() != PlacementGroundingType.SOURCE_CITATION)) {
+            return List.of("tactical outcome requires source citation");
+        }
         return List.of();
     }
 
@@ -70,5 +112,31 @@ public final class TacticalScenePlanValidator {
 
     private static void addPlacements(List<PlacementGrounding> groundings, List<TacticalPlacement> placements) {
         placements.forEach(placement -> groundings.add(placement.grounding()));
+    }
+
+    private static String unsupportedCoreTriggerViolation(TacticalTrigger trigger) {
+        if (trigger.grounding().type() == PlacementGroundingType.SOURCE_CITATION) return null;
+        if (!trigger.transitionId().isBlank()) return "tactical transition requires source citation";
+        return switch (trigger.type()) {
+            case BOSS -> "tactical boss trigger requires source citation";
+            case REWARD -> "tactical reward requires source citation";
+            case SUCCESS, FAILURE, EXIT, SURRENDER -> "tactical outcome trigger requires source citation";
+            default -> null;
+        };
+    }
+
+    private static boolean unsupportedRewardPlacement(TacticalPlacement placement) {
+        return placement.grounding().type() != PlacementGroundingType.SOURCE_CITATION
+                && hasRewardTerm(placement.id());
+    }
+
+    private static boolean unsupportedRewardEnvironment(TacticalEnvironment environment) {
+        return environment.grounding().type() != PlacementGroundingType.SOURCE_CITATION
+                && (hasRewardTerm(environment.id()) || hasRewardTerm(environment.kind()));
+    }
+
+    private static boolean hasRewardTerm(String value) {
+        return java.util.Arrays.stream(value.toLowerCase(java.util.Locale.ROOT).split("[^a-z0-9]+"))
+                .anyMatch(REWARD_TERMS::contains);
     }
 }

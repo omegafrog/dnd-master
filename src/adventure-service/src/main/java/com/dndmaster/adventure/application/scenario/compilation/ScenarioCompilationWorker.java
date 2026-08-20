@@ -120,7 +120,8 @@ public final class ScenarioCompilationWorker {
                                     .filter(excerpt -> resolutionExcerpts.contains(excerpt))
                                     .toList(),
                             "resolution-candidate-v1", "resolution-prompt-v1"));
-            candidates = retryMalformedDiceCandidates(claimed.id().toString(), candidates, resolutionExcerpts);
+            candidates = retryMalformedDiceCandidates(
+                    claimed.id().toString(), candidates, resolutionExcerpts, claimed.attempt());
 
             List<CharacterContextSearchPort.Evidence> characterContext = searchCharacterContext(bundle);
             List<CharacterInputTagExtractionPort.SourceExcerpt> tagExcerpts = characterContext.stream()
@@ -159,12 +160,25 @@ public final class ScenarioCompilationWorker {
         }
     }
 
-    private List<ResolutionCandidate> retryMalformedDiceCandidates(String operationId, List<ResolutionCandidate> candidates, List<ResolutionExtractionPort.SourceExcerpt> excerpts) {
-        if (candidates == null) return List.of(); List<ResolutionCandidate> result = new java.util.ArrayList<>();
-        for (ResolutionCandidate candidate : candidates) { ResolutionCandidate current = candidate;
-            if (current != null && requiresDice(current) && !validDice(current.diceExpression())) for (int attempt = 1; attempt <= 3 && !validDice(current.diceExpression()); attempt++)
-                current = extractionPort.retryCandidate(new ResolutionExtractionPort.CandidateRetryRequest(operationId, current, excerpts, "resolution-candidate-v1", "resolution-retry-v1", attempt, List.of("dice expression is invalid")));
-            result.add(current); }
+    private List<ResolutionCandidate> retryMalformedDiceCandidates(
+            String operationId,
+            List<ResolutionCandidate> candidates,
+            List<ResolutionExtractionPort.SourceExcerpt> excerpts,
+            int compilationAttempt) {
+        if (candidates == null) return List.of();
+        List<ResolutionCandidate> result = new ArrayList<>();
+        for (ResolutionCandidate candidate : candidates) {
+            ResolutionCandidate current = candidate;
+            if (compilationAttempt <= MAX_ATTEMPTS
+                    && current != null
+                    && requiresDice(current)
+                    && !validDice(current.diceExpression())) {
+                current = extractionPort.retryCandidate(new ResolutionExtractionPort.CandidateRetryRequest(
+                        operationId, current, excerpts, "resolution-candidate-v1", "resolution-retry-v1",
+                        compilationAttempt, List.of("dice expression is invalid")));
+            }
+            result.add(current);
+        }
         return List.copyOf(result);
     }
     private static boolean requiresDice(ResolutionCandidate value) {

@@ -10,6 +10,7 @@ import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanApplicati
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository;
 import com.dndmaster.adventure.application.storyplan.TacticalScenePlanCandidate;
+import com.dndmaster.adventure.application.storyplan.TacticalScenePlanValidator;
 import com.dndmaster.adventure.application.storyplan.TacticalSceneRequest;
 import com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate;
 import com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort;
@@ -85,7 +86,9 @@ class TacticalScenePlanGenerationRetryTest {
     @Test
     void acceptsAValidTypedCandidateAndPersistsItWithTheMappedStage() {
         var fixture = new Fixture();
-        fixture.generator.candidates.add(TacticalScenePlanCandidate.ready(1, TacticalSceneFixtures.readyScene(), List.of()));
+        fixture.generator.candidates.add(TacticalScenePlanCandidate.withCitation(
+                1, TacticalSceneFixtures.readyScene(TacticalScenePlanValidator.key(fixture.sourceCitation)),
+                List.of(fixture.sourceCitation)));
 
         AdventureStoryPlan plan = fixture.service.generate(fixture.session.id(), fixture.session.ownerPlayerId(), SHORT_ADVENTURE);
 
@@ -147,12 +150,30 @@ class TacticalScenePlanGenerationRetryTest {
         private final Generator generator = new Generator();
         private final Plans plans = new Plans();
         private final AdventureStoryPlanApplicationService service;
+        private final AdventureStoryPlanGenerationPort.SourceCitation sourceCitation;
 
         private Fixture() {
             UUID mapId = UUID.randomUUID();
+            var sourceDocument = new KnowledgeDocumentId(UUID.randomUUID());
+            String sourceQuote = "The cellar includes combat, alarm, reinforcements, a boss transition, a reward, success, failure, exit, and surrender conditions.";
+            sourceCitation = new AdventureStoryPlanGenerationPort.SourceCitation(
+                    "STORYBOOK", sourceDocument.value(), 1, "page:1", sourceQuote, 1.0);
+            var sourceReference = new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(
+                    sourceDocument, 1, "page:1");
+            var document = new com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection(
+                    sourceDocument,
+                    com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.MAIN_SCENARIO,
+                    com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus.INDEXED,
+                    "cellar.txt", "STORYBOOK", 1);
+            var unit = new com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit(
+                    com.dndmaster.adventure.domain.scenario.ResolutionKind.SKILL_ABILITY_CHECK,
+                    "Perception", 10, null,
+                    com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
+                    sourceQuote, List.of(sourceReference), "test", null,
+                    ResolutionStatus.COMPLETE, List.of());
             var map = new MapDefinition(mapId, "brewery", "page 1", new MapDefinition.MapGrid(0, 0, 1, 0, "5ft"), List.of(), List.of(), List.of(),
-                    new MapSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), 1, "page:1"), .9, MapSafetyStatus.SAFE);
-            var scenarioPackage = ScenarioPackage.publishWithMaps(ScenarioBundleId.generate(), 1, "tactical", List.of(), List.of(),
+                    new MapSourceReference(sourceDocument, 1, "page:1"), .9, MapSafetyStatus.SAFE);
+            var scenarioPackage = ScenarioPackage.publishWithMaps(ScenarioBundleId.generate(), 1, "tactical", List.of(document), List.of(unit),
                     new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()), CharacterLimit.defaultLimit(), null, List.of(map), List.of());
             session = AdventureSession.create(SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), scenarioPackage.packageId(), 1, 1,
                     new AdventureSessionRuntimeConfiguration(new ScenarioId(scenarioPackage.packageId()), new RuleSetId(UUID.randomUUID()), List.of(), "ollama", List.of(), "opening"));
@@ -201,14 +222,27 @@ class TacticalScenePlanGenerationRetryTest {
     }
 
     private static final class TacticalSceneFixtures {
-        private static TacticalScenePlan readyScene() {
-            var grounding = PlacementGrounding.aiInference("Map entrance placement is a bounded completion");
+        private static TacticalScenePlan readyScene(String citation) {
+            var placement = PlacementGrounding.aiInference("Map entrance placement is a bounded completion");
+            var source = PlacementGrounding.sourceCitation(citation);
             return new TacticalScenePlan(TacticalScenePlan.CURRENT_SCHEMA_VERSION, TacticalScenePlanStatus.READY,
                     new TacticalSceneBoundary(new NormalizedCoordinate(0, 0), new NormalizedCoordinate(1, 1), List.of()),
-                    List.of(new TacticalPlacement("player", TacticalPlacementKind.PLAYER, new NormalizedCoordinate(.1, .1), grounding)),
-                    List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), new FogPlan(List.of(), grounding),
-                    List.of(new com.dndmaster.adventure.domain.adventure.TacticalTrigger("entry", com.dndmaster.adventure.domain.adventure.TacticalTriggerType.COMBAT_ENTRY, List.of("player"), "", grounding)),
-                    List.of(new com.dndmaster.adventure.domain.adventure.TacticalOutcome("leave", "party leaves", grounding)), List.of());
+                    List.of(new TacticalPlacement("player", TacticalPlacementKind.PLAYER, new NormalizedCoordinate(.1, .1), placement)),
+                    List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), new FogPlan(List.of(), placement),
+                    requiredTriggers(source),
+                    List.of(new com.dndmaster.adventure.domain.adventure.TacticalOutcome("leave", "party leaves", source)), List.of());
+        }
+
+        private static List<com.dndmaster.adventure.domain.adventure.TacticalTrigger> requiredTriggers(
+                PlacementGrounding grounding) {
+            return java.util.Arrays.stream(com.dndmaster.adventure.domain.adventure.TacticalTriggerType.values())
+                    .filter(type -> type != com.dndmaster.adventure.domain.adventure.TacticalTriggerType.FOG_REVEAL)
+                    .map(type -> new com.dndmaster.adventure.domain.adventure.TacticalTrigger(
+                            type.name().toLowerCase(), type,
+                            type == com.dndmaster.adventure.domain.adventure.TacticalTriggerType.COMBAT_ENTRY
+                                    ? List.of("player") : List.of(),
+                            "", grounding))
+                    .toList();
         }
 
         private static TacticalScenePlan sourceGroundedScene(String citation) {

@@ -16,6 +16,10 @@ import com.dndmaster.adventure.application.storyplan.TacticalScenePlanCandidate;
 import com.dndmaster.adventure.application.storyplan.TacticalSceneRequest;
 
 class FutureTacticalSceneRevisionPolicyTest {
+    private static final java.util.UUID EVIDENCE_DOCUMENT_ID = java.util.UUID.randomUUID();
+    private static final String EVIDENCE_LOCATOR = "page:1";
+    private static final String EVIDENCE_KEY = EVIDENCE_DOCUMENT_ID + ":" + EVIDENCE_LOCATOR;
+
     @Test
     void preservesRevealedStagesAndCreatesSuccessorRevisionForFutureStages() {
         var plan = AdventureStoryPlan.ready(new SessionId(java.util.UUID.randomUUID()), 0, 1, List.of(stage(1, "published"), stage(2, "future"))).advanceTo(0);
@@ -119,16 +123,27 @@ class FutureTacticalSceneRevisionPolicyTest {
     private static AdventureStoryPlanStage tacticalStage(int position, String title, TacticalScenePlan scene) {
         return new AdventureStoryPlanStage(position, title, "goal", "conflict", "transition", List.of(), List.of("end"), List.of(),
                 AdventureStageType.ENCOUNTER, "cellar", java.util.UUID.randomUUID(), "map", "map.png", List.of("rat"), "", "clear", "fail",
-                List.of("reward"), List.of("end"), List.of(), AdventureGroundingStatus.GROUNDED, List.of(), "SAFE", .9).withTacticalScenePlan(scene);
+                List.of("reward"), List.of("end"), List.of(new AdventurePlanEvidence(
+                        "STORYBOOK", EVIDENCE_DOCUMENT_ID, 1, EVIDENCE_LOCATOR,
+                        "The stage defines combat, outcomes, rewards, and exits.", 1.0)),
+                AdventureGroundingStatus.GROUNDED, List.of(), "SAFE", .9).withTacticalScenePlan(scene);
     }
 
     private static TacticalScenePlan validScene() {
-        var grounding = PlacementGrounding.aiInference("bounded");
+        var placement = PlacementGrounding.aiInference("bounded placement");
+        var source = PlacementGrounding.sourceCitation(EVIDENCE_KEY);
         return new TacticalScenePlan(1, TacticalScenePlanStatus.READY,
                 new TacticalSceneBoundary(new NormalizedCoordinate(0, 0), new NormalizedCoordinate(1, 1), List.of()),
-                List.of(new TacticalPlacement("hero", TacticalPlacementKind.PLAYER, new NormalizedCoordinate(.1, .1), grounding)),
-                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), new FogPlan(List.of(), grounding),
-                List.of(new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of("hero"), "", grounding)),
-                List.of(new TacticalOutcome("win", "clear", grounding)), List.of());
+                List.of(new TacticalPlacement("hero", TacticalPlacementKind.PLAYER, new NormalizedCoordinate(.1, .1), placement)),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), new FogPlan(List.of(), placement),
+                requiredTriggers(source), List.of(new TacticalOutcome("win", "clear", source)), List.of());
+    }
+
+    private static List<TacticalTrigger> requiredTriggers(PlacementGrounding grounding) {
+        return java.util.Arrays.stream(TacticalTriggerType.values())
+                .filter(type -> type != TacticalTriggerType.FOG_REVEAL)
+                .map(type -> new TacticalTrigger(type.name().toLowerCase(), type,
+                        type == TacticalTriggerType.COMBAT_ENTRY ? List.of("hero") : List.of(), "", grounding))
+                .toList();
     }
 }

@@ -125,6 +125,34 @@ class ScenarioCompilationWorkerTest {
     }
 
     @Test
+    void candidateRetryBudgetIsSharedAcrossOuterCompilationAttempts() {
+        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(List.of(document(
+                storybook, ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 1)));
+        Fixture fixture = new Fixture(bundle);
+        var malformed = com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate.diceRoll(
+                storybook, 1, "page:1", "bad", "Roll on the table.");
+        List<Integer> retryAttempts = new ArrayList<>();
+        ResolutionExtractionPort extraction = request -> {
+            if (request.failedCandidate() != null) retryAttempts.add(request.attempt());
+            return List.of(malformed);
+        };
+        ScenarioCompilationWorker worker = new ScenarioCompilationWorker(
+                fixture.manager, fixture.compilations, fixture.queue, new Bundles(bundle),
+                extraction, ignored -> List.of(), fixture.tags, fixture.search,
+                new ScenarioPackageCompilationService(fixture.packages), fixture.packages);
+
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            assertThrows(IllegalStateException.class,
+                    () -> worker.processNext("worker", Duration.ofMinutes(1)));
+        }
+
+        assertEquals(List.of(1, 2, 3), retryAttempts);
+        assertEquals("FAILED", fixture.compilations.values.values().iterator().next().status().name());
+        assertEquals(0, fixture.queue.pending.size());
+    }
+
+    @Test
     void scheduledWorkerProcessesRequestedJob() {
         ScenarioSourceBundle bundle = bundle(List.of(document(
                 new KnowledgeDocumentId(UUID.randomUUID()),
