@@ -82,6 +82,10 @@ paths:
           in: header
           required: true
           schema: { type: string }
+        - name: ownerId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
       responses:
         '200':
           description: filtered versioned view

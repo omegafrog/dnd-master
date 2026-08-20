@@ -83,6 +83,17 @@ class OpenApiSchemaTest {
         }
     }
 
+    @Test
+    void combat_map_player_view_requires_owner_scope() throws IOException {
+        Map<String, Object> root = new Yaml().load(Files.readString(CONTRACTS.resolve("combat-map/openapi.yaml")));
+        Map<String, Object> paths = (Map<String, Object>) root.get("paths");
+        Map<String, Object> operation = (Map<String, Object>) ((Map<String, Object>) paths.get("/internal/v1/combat-maps/{mapId}/player-view")).get("get");
+        List<Map<String, Object>> parameters = (List<Map<String, Object>>) operation.get("parameters");
+        assertTrue(parameters.stream().anyMatch(parameter ->
+                "ownerId".equals(parameter.get("name")) && "query".equals(parameter.get("in"))
+                        && Boolean.TRUE.equals(parameter.get("required"))));
+    }
+
     @SuppressWarnings("unchecked")
     private static void assertPaths(String provider, String... expected) throws IOException {
         Path document = CONTRACTS.resolve(provider).resolve("openapi.yaml");
