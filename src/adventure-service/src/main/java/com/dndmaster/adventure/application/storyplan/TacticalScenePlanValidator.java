@@ -23,6 +23,7 @@ public final class TacticalScenePlanValidator {
             TacticalTriggerType.REINFORCEMENT,
             TacticalTriggerType.BOSS,
             TacticalTriggerType.REWARD,
+            TacticalTriggerType.FOG_REVEAL,
             TacticalTriggerType.SUCCESS,
             TacticalTriggerType.FAILURE,
             TacticalTriggerType.EXIT,

@@ -61,13 +61,13 @@ class FutureTacticalSceneRevisionPolicyTest {
         };
         var service = new FutureTacticalSceneRevisionService(plans, sessions, generator);
 
-        service.revise(sessionId, owner, 2, tactical);
+        service.revise(sessionId, owner, 2);
 
         verify(plans).save(argThat(value -> value.version() == 3
                 && value.stages().get(0).title().equals("current")
                 && value.stages().get(1).title().equals("future")
                 && value.stages().get(1).tacticalScenePlan().status() == TacticalScenePlanStatus.READY));
-        assertThrows(IllegalStateException.class, () -> service.revise(sessionId, owner, 1, stage(1, "changed").tacticalScenePlan()));
+        assertThrows(IllegalStateException.class, () -> service.revise(sessionId, owner, 1));
     }
 
     @Test
@@ -80,7 +80,7 @@ class FutureTacticalSceneRevisionPolicyTest {
         var sessions = mock(AdventureSessionRepository.class); when(sessions.findById(sessionId)).thenReturn(java.util.Optional.of(session));
         var service = new FutureTacticalSceneRevisionService(plans, sessions);
 
-        assertThrows(IllegalStateException.class, () -> service.revise(sessionId, owner, 2, TacticalScenePlan.absent()));
+        assertThrows(IllegalStateException.class, () -> service.revise(sessionId, owner, 2));
         verify(plans, never()).save(any());
     }
 
@@ -105,7 +105,7 @@ class FutureTacticalSceneRevisionPolicyTest {
         var service = new FutureTacticalSceneRevisionService(plans, sessions, generator);
 
         IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
-                () -> service.revise(sessionId, owner, 2, validScene()));
+                () -> service.revise(sessionId, owner, 2));
 
         assertEquals(3, calls[0]);
         assertEquals(List.of(), requests.get(0).violations());
@@ -153,7 +153,6 @@ class FutureTacticalSceneRevisionPolicyTest {
 
     private static List<TacticalTrigger> requiredTriggers(PlacementGrounding grounding) {
         return java.util.Arrays.stream(TacticalTriggerType.values())
-                .filter(type -> type != TacticalTriggerType.FOG_REVEAL)
                 .map(type -> new TacticalTrigger(type.name().toLowerCase(), type,
                         type == TacticalTriggerType.COMBAT_ENTRY ? List.of("hero") : List.of(), "", grounding))
                 .toList();

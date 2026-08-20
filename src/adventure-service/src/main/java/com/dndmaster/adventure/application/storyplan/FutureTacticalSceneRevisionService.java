@@ -39,11 +39,6 @@ public final class FutureTacticalSceneRevisionService {
         this.generator = generator;
     }
 
-    public AdventureStoryPlan revise(SessionId sessionId, OwnerPlayerId owner, int position, TacticalScenePlan scene) {
-        if (generator == null) throw new IllegalStateException("future tactical revision requires the grounded generator");
-        return reviseGenerated(sessionId, owner, position);
-    }
-
     public AdventureStoryPlan revise(SessionId sessionId, OwnerPlayerId owner, int position) {
         if (generator == null) throw new IllegalStateException("future tactical revision requires the grounded generator");
         return reviseGenerated(sessionId, owner, position);

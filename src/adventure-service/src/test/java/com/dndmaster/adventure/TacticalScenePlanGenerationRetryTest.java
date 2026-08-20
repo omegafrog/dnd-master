@@ -398,7 +398,6 @@ class TacticalScenePlanGenerationRetryTest {
         private static List<com.dndmaster.adventure.domain.adventure.TacticalTrigger> requiredTriggers(
                 PlacementGrounding grounding, String playerId) {
             return java.util.Arrays.stream(com.dndmaster.adventure.domain.adventure.TacticalTriggerType.values())
-                    .filter(type -> type != com.dndmaster.adventure.domain.adventure.TacticalTriggerType.FOG_REVEAL)
                     .map(type -> new com.dndmaster.adventure.domain.adventure.TacticalTrigger(
                             type.name().toLowerCase(), type,
                             type == com.dndmaster.adventure.domain.adventure.TacticalTriggerType.COMBAT_ENTRY

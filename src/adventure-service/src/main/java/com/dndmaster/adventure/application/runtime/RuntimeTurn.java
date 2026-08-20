@@ -60,7 +60,7 @@ public record RuntimeTurn(
             List<String> citations,
             List<String> warnings) {
         this(turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action, evidencePack, plan,
-                activeSourceContext, context, conversation, version, citations, warnings, false, true);
+                activeSourceContext, context, conversation, version, citations, warnings, false, false);
     }
 
     private static String required(String value, String name) {

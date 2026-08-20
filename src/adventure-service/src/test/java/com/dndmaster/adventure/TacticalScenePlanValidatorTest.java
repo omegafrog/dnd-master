@@ -347,6 +347,7 @@ class TacticalScenePlanValidatorTest {
                 new TacticalTrigger("reinforcement", TacticalTriggerType.REINFORCEMENT, List.of(), "", grounding),
                 new TacticalTrigger("boss", TacticalTriggerType.BOSS, List.of(), "", grounding),
                 new TacticalTrigger("reward", TacticalTriggerType.REWARD, List.of(), "", grounding),
+                new TacticalTrigger("fog-reveal", TacticalTriggerType.FOG_REVEAL, List.of(), "", grounding),
                 new TacticalTrigger("success", TacticalTriggerType.SUCCESS, List.of(), "", grounding),
                 new TacticalTrigger("failure", TacticalTriggerType.FAILURE, List.of(), "", grounding),
                 new TacticalTrigger("exit", TacticalTriggerType.EXIT, List.of(), "", grounding),
