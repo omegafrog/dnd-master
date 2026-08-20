@@ -62,7 +62,10 @@ public final class CombatMap {
     }
     public CombatMap apply(com.dndmaster.combatmap.application.view.TacticalTriggerEffect effect) {
         if (!effect.planned()) throw new IllegalArgumentException("only planned tactical triggers may change the map");
-        Set<UUID> targets = effect.targetIds().stream()
+        List<String> tokenTargetIds = effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.FOG_REVEAL
+                ? effect.targetIds().stream().filter(value -> value == null || !value.matches("\\d+,\\d+")).toList()
+                : effect.targetIds();
+        Set<UUID> targets = tokenTargetIds.stream()
                 .map(CombatMap::canonicalTokenId)
                 .collect(java.util.stream.Collectors.toSet());
         if (!targets.isEmpty() && tokens.stream().map(t -> t.id().value()).collect(java.util.stream.Collectors.toSet()).containsAll(targets) == false)

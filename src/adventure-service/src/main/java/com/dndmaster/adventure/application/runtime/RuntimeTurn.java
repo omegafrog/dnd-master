@@ -26,7 +26,8 @@ public record RuntimeTurn(
         List<String> citations,
         List<String> warnings,
         boolean committed,
-        boolean playerOrigin) {
+        boolean playerOrigin,
+        boolean advancesState) {
     public RuntimeTurn {
         turnId = Objects.requireNonNull(turnId, "turn id must not be null");
         commandId = Objects.requireNonNull(commandId, "command id must not be null");
@@ -60,7 +61,7 @@ public record RuntimeTurn(
             List<String> citations,
             List<String> warnings) {
         this(turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action, evidencePack, plan,
-                activeSourceContext, context, conversation, version, citations, warnings, false, false);
+                activeSourceContext, context, conversation, version, citations, warnings, false, false, false);
     }
 
     private static String required(String value, String name) {
@@ -71,6 +72,6 @@ public record RuntimeTurn(
     public RuntimeTurn markCommitted() {
         return committed ? this : new RuntimeTurn(
                 turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action, evidencePack, plan,
-                activeSourceContext, context, conversation, version, citations, warnings, true, playerOrigin);
+                activeSourceContext, context, conversation, version, citations, warnings, true, playerOrigin, advancesState);
     }
 }

@@ -49,6 +49,16 @@ class TacticalTriggerEffectTest {
     }
 
     @Test
+    void revealsOnlyAuthoredFogCoordinateWithoutRequiringACombatToken() {
+        var map = new CombatMap(new MapId(UUID.randomUUID()), new AdventureId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
+                new GridSpec(5, 5, 5, 5), List.of(new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,
+                        new GridPosition(0, 0), TokenController.PLAYER, new PlayerId(UUID.randomUUID()))), List.of(),
+                List.of(new MapLayer("INITIAL_FOG", "2,2;3,3", LayerVisibility.AI_ONLY)));
+        var updated = map.apply(TacticalTriggerEffect.planned("reveal-cell", TacticalTriggerEffect.Kind.FOG_REVEAL, List.of("2,2")));
+        assertEquals("3,3", updated.layers().stream().filter(layer -> layer.type().equals("INITIAL_FOG")).findFirst().orElseThrow().value());
+    }
+
+    @Test
     void materializesEveryPlannedRuntimeEffectIncludingTransitionsAndSurrender() {
         var map = new CombatMap(new MapId(UUID.randomUUID()), new AdventureId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
                 new GridSpec(3, 3, 5, 5), List.of(new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,

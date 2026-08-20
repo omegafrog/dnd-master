@@ -222,6 +222,7 @@ class TacticalScenePlanTest {
         org.mockito.Mockito.when(turn.action()).thenReturn(action);
         org.mockito.Mockito.when(turn.committed()).thenReturn(true);
         org.mockito.Mockito.when(turn.playerOrigin()).thenReturn(playerOrigin);
+        org.mockito.Mockito.when(turn.advancesState()).thenReturn(playerOrigin);
         return new com.dndmaster.adventure.application.runtime.RuntimeTurnRepository() {
             public java.util.Optional<com.dndmaster.adventure.application.runtime.RuntimeTurn> findByCommandId(UUID id) { return id.equals(commandId) ? java.util.Optional.of(turn) : java.util.Optional.empty(); }
             public java.util.Optional<com.dndmaster.adventure.application.runtime.RuntimeTurn> findByTurnId(UUID id) { return java.util.Optional.empty(); }

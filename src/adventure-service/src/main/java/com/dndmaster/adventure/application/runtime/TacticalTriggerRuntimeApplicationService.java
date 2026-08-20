@@ -51,6 +51,7 @@ public final class TacticalTriggerRuntimeApplicationService {
                 .filter(turn -> turn.adventureId().value().equals(adventureId))
                 .filter(RuntimeTurn::committed)
                 .filter(RuntimeTurn::playerOrigin)
+                .filter(RuntimeTurn::advancesState)
                 .orElseThrow(() -> new IllegalArgumentException("qualifying player action was not recorded"));
         // This is the player/session-scoped entry point.  A trigger id alone is
         // not evidence that the player performed the authored qualifying action.
