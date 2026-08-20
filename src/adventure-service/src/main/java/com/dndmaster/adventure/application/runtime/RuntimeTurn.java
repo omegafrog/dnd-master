@@ -3,6 +3,7 @@ package com.dndmaster.adventure.application.runtime;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
+import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.ConversationEntry;
 import java.util.List;
 import java.util.Objects;
@@ -30,7 +31,10 @@ public record RuntimeTurn(
         boolean committed,
         boolean playerOrigin,
         RuntimeTurnOrigin origin,
-        boolean advancesState) {
+        boolean advancesState,
+        CharacterSheetId turnCharacterSheetId,
+        Integer turnIndex,
+        Long expectedVersion) {
     public RuntimeTurn {
         turnId = Objects.requireNonNull(turnId, "turn id must not be null");
         commandId = Objects.requireNonNull(commandId, "command id must not be null");
@@ -45,6 +49,9 @@ public record RuntimeTurn(
         if (version < 0) throw new IllegalArgumentException("version must not be negative");
         citations = List.copyOf(Objects.requireNonNull(citations, "citations must not be null"));
         warnings = List.copyOf(Objects.requireNonNull(warnings, "warnings must not be null"));
+        if ((turnCharacterSheetId == null) != (turnIndex == null || turnIndex < 0)) {
+            throw new IllegalArgumentException("runtime turn cursor fields must be paired");
+        }
         // Rows written before origin was introduced are deliberately non-player evidence.
         if (origin == null) {
             origin = RuntimeTurnOrigin.GM;
@@ -72,7 +79,16 @@ public record RuntimeTurn(
             List<String> citations,
             List<String> warnings) {
         this(turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action, evidencePack, plan,
-                activeSourceContext, context, conversation, version, citations, warnings, false, false, RuntimeTurnOrigin.GM, false);
+                activeSourceContext, context, conversation, version, citations, warnings, false, false, RuntimeTurnOrigin.GM, false,
+                null, null, null);
+    }
+
+    public RuntimeTurn(UUID turnId, UUID commandId, AdventureId adventureId, UUID sessionId, UUID scenarioPackageId,
+            long bindingVersion, String action, EvidencePack evidencePack, RuntimePlan plan, ActiveSourceContext activeSourceContext,
+            AdventureContext context, List<ConversationEntry> conversation, long version, List<String> citations, List<String> warnings,
+            boolean committed, boolean playerOrigin, RuntimeTurnOrigin origin, boolean advancesState) {
+        this(turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action, evidencePack, plan, activeSourceContext,
+                context, conversation, version, citations, warnings, committed, playerOrigin, origin, advancesState, null, null, null);
     }
 
     private static String required(String value, String name) {
@@ -83,6 +99,7 @@ public record RuntimeTurn(
     public RuntimeTurn markCommitted() {
         return committed ? this : new RuntimeTurn(
                 turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action, evidencePack, plan,
-                activeSourceContext, context, conversation, version, citations, warnings, true, playerOrigin, origin, advancesState);
+                activeSourceContext, context, conversation, version, citations, warnings, true, playerOrigin, origin, advancesState,
+                turnCharacterSheetId, turnIndex, expectedVersion);
     }
 }

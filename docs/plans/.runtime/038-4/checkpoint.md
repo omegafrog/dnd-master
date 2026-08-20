@@ -1,6 +1,6 @@
 # 038-4 checkpoint
 
-- attempt: 18
+- attempt: 19
 - status: in-progress
 - scope: player trigger qualification, durable planned trigger effects, active-map/session ownership, immutable revealed stages and append-only future revision
 - resumed after 038-3 completion at `5f55cc4d`
@@ -20,3 +20,6 @@
 - attempt 18 started: concurrency-safe story-plan revisions, durable GM-turn cause linkage, canonical qualifying actions, and material runtime trigger state are under implementation
 - completed attempt 18: story-plan saves lock the current pointer, require the next version, and use a non-discarding history insert; future revision provenance binds the committed GM turn, command, and stage intent
 - completed attempt 18: tactical trigger effects now update durable runtime state (combat/alarm/reinforcement/boss/reward/outcome/transition) and persist/reload it for current and command-history maps, with canonical action regression coverage
+- attempt 19 started: trigger request contract completeness and semantic RuntimeTurn command replay protection are under implementation
+- completed attempt 19: combat-map trigger OpenAPI requires qualifyingAction and contract regression covers the internal route
+- completed attempt 19: RuntimeTurn replay now compares action, origin, advancesState, cursor actor/index, and expected version before returning an idempotent result

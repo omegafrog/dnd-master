@@ -27,6 +27,7 @@ class OpenApiSchemaTest {
                 "/internal/v1/adventures/{adventureId}/movement-validations",
                 "/internal/v1/adventures/{adventureId}/gm-context");
         assertTriggerQualification("adventure");
+        assertCombatMapTriggerQualification();
         assertGmStoryPlanHistoryContract("adventure");
         assertPaths("rule-knowledge", "/api/v1/rulebooks", "/api/v1/rulebooks/{rulebookId}/source-preview", "/api/v1/rulebooks/rule-set", "/internal/v1/rulebooks",
                 "/internal/v1/rulebook-indexes", "/internal/v1/rulebooks/{rulebookId}/ownership",
@@ -46,6 +47,15 @@ class OpenApiSchemaTest {
         Map<String, Object> operation = (Map<String, Object>) ((Map<String, Object>) paths.get("/api/v1/adventure-sessions/{sessionId}/story-plan/stages/{position}/triggers/{triggerId}/apply")).get("post");
         String body = operation.toString();
         assertTrue(body.contains("qualifyingAction"), "player trigger contract must require qualifyingAction");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void assertCombatMapTriggerQualification() throws IOException {
+        Map<String, Object> root = new Yaml().load(Files.readString(CONTRACTS.resolve("combat-map").resolve("openapi.yaml")));
+        Map<String, Object> paths = (Map<String, Object>) root.get("paths");
+        Map<String, Object> operation = (Map<String, Object>) ((Map<String, Object>) paths.get("/internal/v1/combat-maps/{mapId}/tactical-triggers")).get("post");
+        String body = operation.toString();
+        assertTrue(body.contains("qualifyingAction"), "combat-map trigger contract must require qualifyingAction");
     }
 
     @SuppressWarnings("unchecked")

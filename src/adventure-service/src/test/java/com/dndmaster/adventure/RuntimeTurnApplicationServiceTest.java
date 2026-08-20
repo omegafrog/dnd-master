@@ -315,6 +315,26 @@ class RuntimeTurnApplicationServiceTest {
     }
 
     @Test
+    void rejects_same_command_id_when_replay_changes_trigger_evidence_provenance() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId storyId = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(storyId, rulebookId);
+        InMemoryAdventureRepository adventures = new InMemoryAdventureRepository(adventure);
+        InMemoryBindingRepository bindings = new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId()));
+        InMemoryPackageRepository packages = new InMemoryPackageRepository(scenarioPackage);
+        InMemoryRuntimeTurnRepository turns = new InMemoryRuntimeTurnRepository();
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(adventures, bindings, packages, turns,
+                new RecordingEvidenceSearchPort(storyId, rulebookId), new RecordingPlanningPort(null), new AllowingSafetyPort(true), scope(adventure, storyId, rulebookId));
+        UUID commandId = UUID.randomUUID();
+        UUID turnId = UUID.randomUUID();
+        service.submitTurn(new SubmitRuntimeTurnCommand(adventure.id(), owner, turnId, commandId, "Open the door", 0, true));
+        assertThrows(IllegalStateException.class, () -> service.submitTurn(
+                new SubmitRuntimeTurnCommand(adventure.id(), owner, turnId, commandId, "Open the door", 0, false)));
+    }
+
+    @Test
     void resumes_a_partially_persisted_turn_without_replanning_or_double_advancing() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
         Adventure adventure = adventure(owner);

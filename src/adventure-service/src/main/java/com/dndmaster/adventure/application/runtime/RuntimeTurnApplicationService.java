@@ -117,9 +117,15 @@ public class RuntimeTurnApplicationService {
         adventure.reopen(command.ownerPlayerId());
         RuntimeTurn existing = runtimeTurnRepository.findByCommandId(command.commandId()).orElse(null);
         if (existing != null) {
+            RuntimeTurnOrigin requestedOrigin = origin(command);
             if (!existing.turnId().equals(command.turnId())
                     || !existing.adventureId().equals(command.adventureId())
-                    || !existing.action().equals(command.action())) {
+                    || !existing.action().equals(command.action())
+                    || existing.advancesState() != command.advancesState()
+                    || existing.origin() != requestedOrigin
+                    || !java.util.Objects.equals(existing.turnCharacterSheetId(), command.turnCharacterSheetId())
+                    || !java.util.Objects.equals(existing.turnIndex(), command.turnIndex())
+                    || !java.util.Objects.equals(existing.expectedVersion(), command.expectedVersion())) {
                 throw new IllegalStateException("runtime command id reused with different payload");
             }
             RuntimeTurn committed = resumeCommittedTurn(command, adventure, existing);
@@ -144,7 +150,8 @@ public class RuntimeTurnApplicationService {
             RuntimeTurn metaTurn = new RuntimeTurn(command.turnId(), command.commandId(), adventure.id(), adventure.sessionId().value(),
                     binding.scenarioPackageId(), binding.bindingVersion(), command.action(), new EvidencePack(List.of(), List.of(), List.of()),
                     metaPlan, binding.activeSourceContext(), adventure.currentContext(), adventure.conversation(), adventure.version(), List.of(), List.of(), false,
-                    origin(command) == RuntimeTurnOrigin.PLAYER, origin(command), false)
+                    origin(command) == RuntimeTurnOrigin.PLAYER, origin(command), false,
+                    command.turnCharacterSheetId(), command.turnIndex(), command.expectedVersion())
                     .markCommitted();
             runtimeTurnRepository.save(metaTurn);
             return new RuntimeTurnResult(metaTurn, adventure.currentContext(), adventure.conversation(), adventure.version());
@@ -196,7 +203,7 @@ public class RuntimeTurnApplicationService {
         turn = new RuntimeTurn(turn.turnId(), turn.commandId(), turn.adventureId(), turn.sessionId(), turn.scenarioPackageId(),
                 turn.bindingVersion(), turn.action(), turn.evidencePack(), turn.plan(), turn.activeSourceContext(), turn.context(),
                 turn.conversation(), turn.version(), turn.citations(), turn.warnings(), false, origin(command) == RuntimeTurnOrigin.PLAYER,
-                origin(command), command.advancesState());
+                origin(command), command.advancesState(), command.turnCharacterSheetId(), command.turnIndex(), command.expectedVersion());
         runtimeTurnRepository.save(turn);
 
         Adventure progressed = Adventure.rehydrate(
