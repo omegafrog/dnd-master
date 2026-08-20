@@ -15,6 +15,7 @@ import com.dndmaster.adventure.domain.adventure.TacticalScenePlanStatus;
 import com.dndmaster.adventure.domain.adventure.TacticalTrigger;
 import com.dndmaster.adventure.domain.adventure.TacticalTriggerType;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -23,6 +24,15 @@ import com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimeApplica
 import com.dndmaster.adventure.application.storyplan.TacticalScenePlanCandidate;
 
 class TacticalScenePlanTest {
+    @Test
+    void backfillsQualifyingActionWhenReadingLegacyTriggerJson() throws Exception {
+        TacticalTrigger original = new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of(), "", grounding("entry"), "player enters");
+        ObjectMapper mapper = new ObjectMapper();
+        ObjectNode legacy = mapper.valueToTree(original);
+        legacy.remove("qualifyingAction");
+        TacticalTrigger restored = mapper.treeToValue(legacy, TacticalTrigger.class);
+        assertEquals("combat_entry", restored.qualifyingAction());
+    }
     @Test
     void evaluatesAuthoredTriggerAndAppliesItsEffectToTheRuntimeSeam() {
         var scene = new TacticalScenePlan(TacticalScenePlan.CURRENT_SCHEMA_VERSION, TacticalScenePlanStatus.READY, boundary(),

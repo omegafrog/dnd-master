@@ -1,6 +1,6 @@
 # 038-4 checkpoint
 
-- attempt: 23
+- attempt: 24
 - status: in-progress
 - scope: player trigger qualification, durable planned trigger effects, active-map/session ownership, immutable revealed stages and append-only future revision
 - resumed after 038-3 completion at `5f55cc4d`
@@ -30,3 +30,5 @@
 - attempt 22 started: authored trigger/effect construction and durable projection canonicalization are under implementation
 - attempt 23 started: legacy trigger JSON compatibility and mandatory GM command provenance are under implementation
 - completed attempt 23: legacy trigger construction retains type-derived qualifyingAction compatibility while persisted authored actions remain canonical; future revision rejects null causing GM command IDs before generation and verifies exact turn command binding
+- attempt 24 started: explicit legacy TacticalTrigger JSON deserialization/backfill is under implementation
+- completed attempt 24: absent qualifyingAction in legacy trigger JSON is backfilled from trigger type by an explicit deserializer, while explicit null remains strict and invalid for new candidates

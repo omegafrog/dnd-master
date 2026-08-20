@@ -2,7 +2,9 @@ package com.dndmaster.adventure.domain.adventure;
 
 import java.util.List;
 import java.util.Objects;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 
+@JsonDeserialize(using = TacticalTriggerDeserializer.class)
 public record TacticalTrigger(String id, TacticalTriggerType type, List<String> targetIds, String transitionId,
         PlacementGrounding grounding, String qualifyingAction) {
     public TacticalTrigger(String id, TacticalTriggerType type, List<String> targetIds, String transitionId,
