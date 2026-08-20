@@ -27,6 +27,7 @@ public record RuntimeTurn(
         List<String> warnings,
         boolean committed,
         boolean playerOrigin,
+        RuntimeTurnOrigin origin,
         boolean advancesState) {
     public RuntimeTurn {
         turnId = Objects.requireNonNull(turnId, "turn id must not be null");
@@ -42,6 +43,10 @@ public record RuntimeTurn(
         if (version < 0) throw new IllegalArgumentException("version must not be negative");
         citations = List.copyOf(Objects.requireNonNull(citations, "citations must not be null"));
         warnings = List.copyOf(Objects.requireNonNull(warnings, "warnings must not be null"));
+        origin = Objects.requireNonNull(origin, "origin must not be null");
+        if (playerOrigin != (origin == RuntimeTurnOrigin.PLAYER)) {
+            throw new IllegalArgumentException("player origin flag must match durable origin");
+        }
     }
 
     public RuntimeTurn(
@@ -61,7 +66,7 @@ public record RuntimeTurn(
             List<String> citations,
             List<String> warnings) {
         this(turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action, evidencePack, plan,
-                activeSourceContext, context, conversation, version, citations, warnings, false, false, false);
+                activeSourceContext, context, conversation, version, citations, warnings, false, false, RuntimeTurnOrigin.GM, false);
     }
 
     private static String required(String value, String name) {
@@ -72,6 +77,6 @@ public record RuntimeTurn(
     public RuntimeTurn markCommitted() {
         return committed ? this : new RuntimeTurn(
                 turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action, evidencePack, plan,
-                activeSourceContext, context, conversation, version, citations, warnings, true, playerOrigin, advancesState);
+                activeSourceContext, context, conversation, version, citations, warnings, true, playerOrigin, origin, advancesState);
     }
 }

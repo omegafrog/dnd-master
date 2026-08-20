@@ -50,7 +50,7 @@ public final class TacticalTriggerRuntimeApplicationService {
         RuntimeTurn recorded = actionEvidence.findByCommandId(commandId)
                 .filter(turn -> turn.adventureId().value().equals(adventureId))
                 .filter(RuntimeTurn::committed)
-                .filter(RuntimeTurn::playerOrigin)
+                .filter(turn -> turn.origin() == RuntimeTurnOrigin.PLAYER)
                 .filter(RuntimeTurn::advancesState)
                 .orElseThrow(() -> new IllegalArgumentException("qualifying player action was not recorded"));
         // This is the player/session-scoped entry point.  A trigger id alone is

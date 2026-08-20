@@ -9,6 +9,7 @@ import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
 import com.dndmaster.adventure.application.runtime.RuntimePlan;
 import com.dndmaster.adventure.application.runtime.RuntimeTurn;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnRepository;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnOrigin;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
@@ -124,6 +125,8 @@ class RuntimeTurnPostgresIntegrationTest {
 
         RuntimeTurn restored = repository.findByTurnId(turn.turnId()).orElseThrow();
         assertEquals(turn, restored);
+        assertEquals(RuntimeTurnOrigin.GM, restored.origin());
+        assertEquals(false, restored.advancesState());
         assertEquals(List.of(turn), repository.findAllByAdventureId(adventureId));
     }
 

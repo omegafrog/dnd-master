@@ -143,7 +143,8 @@ public class RuntimeTurnApplicationService {
                     "system", "read-only", "meta question");
             RuntimeTurn metaTurn = new RuntimeTurn(command.turnId(), command.commandId(), adventure.id(), adventure.sessionId().value(),
                     binding.scenarioPackageId(), binding.bindingVersion(), command.action(), new EvidencePack(List.of(), List.of(), List.of()),
-                    metaPlan, binding.activeSourceContext(), adventure.currentContext(), adventure.conversation(), adventure.version(), List.of(), List.of(), false, !command.gmOnly() && !command.agentOrigin(), false)
+                    metaPlan, binding.activeSourceContext(), adventure.currentContext(), adventure.conversation(), adventure.version(), List.of(), List.of(), false,
+                    origin(command) == RuntimeTurnOrigin.PLAYER, origin(command), false)
                     .markCommitted();
             return new RuntimeTurnResult(metaTurn, adventure.currentContext(), adventure.conversation(), adventure.version());
         }
@@ -193,7 +194,8 @@ public class RuntimeTurnApplicationService {
                 plan.warnings());
         turn = new RuntimeTurn(turn.turnId(), turn.commandId(), turn.adventureId(), turn.sessionId(), turn.scenarioPackageId(),
                 turn.bindingVersion(), turn.action(), turn.evidencePack(), turn.plan(), turn.activeSourceContext(), turn.context(),
-                turn.conversation(), turn.version(), turn.citations(), turn.warnings(), false, !command.gmOnly() && !command.agentOrigin(), command.advancesState());
+                turn.conversation(), turn.version(), turn.citations(), turn.warnings(), false, origin(command) == RuntimeTurnOrigin.PLAYER,
+                origin(command), command.advancesState());
         runtimeTurnRepository.save(turn);
 
         Adventure progressed = Adventure.rehydrate(
@@ -218,6 +220,12 @@ public class RuntimeTurnApplicationService {
             }
         }
         return new RuntimeTurnResult(committed, progressed.currentContext(), progressed.conversation(), progressed.version());
+    }
+
+    private static RuntimeTurnOrigin origin(SubmitRuntimeTurnCommand command) {
+        if (command.agentOrigin()) return RuntimeTurnOrigin.AGENT;
+        if (command.gmOnly()) return RuntimeTurnOrigin.GM;
+        return RuntimeTurnOrigin.PLAYER;
     }
 
     private String providerSelection(UUID sessionId, String field) {
