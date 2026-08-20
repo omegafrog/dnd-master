@@ -26,7 +26,14 @@ public final class TacticalTriggerRuntimeApplicationService {
 
     public TacticalTriggerEvaluator.Evaluation apply(TacticalScenePlan scene, String triggerId,
             UUID combatMapId, UUID ownerPlayerId, long expectedVersion, UUID commandId) {
-        throw new IllegalArgumentException("qualifying player action is required for tactical trigger application");
+        return apply(scene, triggerId, sceneTriggerAction(scene, triggerId), combatMapId, ownerPlayerId, expectedVersion, commandId);
+    }
+
+    public TacticalTriggerEvaluator.Evaluation apply(TacticalScenePlan scene, String triggerId, String qualifyingAction,
+            UUID combatMapId, UUID ownerPlayerId, long expectedVersion, UUID commandId) {
+        var evaluation = evaluator.evaluate(scene, triggerId, qualifyingAction);
+        runtime.apply(combatMapId, ownerPlayerId, expectedVersion, commandId, evaluation);
+        return evaluation;
     }
 
     public void bindActiveMap(UUID adventureId, int stagePosition, UUID ownerPlayerId, UUID combatMapId) {
@@ -39,7 +46,11 @@ public final class TacticalTriggerRuntimeApplicationService {
 
     public TacticalTriggerEvaluator.Evaluation apply(UUID adventureId, int stagePosition, TacticalScenePlan scene,
             String triggerId, UUID combatMapId, UUID ownerPlayerId, long expectedVersion, UUID commandId) {
-        return apply(adventureId, stagePosition, scene, triggerId, null, combatMapId, ownerPlayerId, expectedVersion, commandId);
+        return apply(adventureId, stagePosition, scene, triggerId, sceneTriggerAction(scene, triggerId), combatMapId, ownerPlayerId, expectedVersion, commandId);
+    }
+
+    private String sceneTriggerAction(TacticalScenePlan scene, String triggerId) {
+        return evaluator.evaluate(scene, triggerId).qualifyingAction();
     }
 
     public TacticalTriggerEvaluator.Evaluation apply(UUID adventureId, int stagePosition, TacticalScenePlan scene,
