@@ -58,7 +58,7 @@ public final class AdventureStoryPlanController {
             @RequestHeader(value = "X-Internal-Token", required = false) String internalToken) {
         requestGuard.internal(internalToken);
         try {
-            return service.readHistory(new SessionId(sessionId), owner()).stream().map(GmPlanView::from).toList();
+            return service.readHistoryEntries(new SessionId(sessionId), owner()).stream().map(GmPlanView::from).toList();
         } catch (SecurityException denied) {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "adventure session access denied", denied);
         }
@@ -172,10 +172,16 @@ public final class AdventureStoryPlanController {
     public record GmPlanView(UUID planId, long packageRevision, long partyRevision, long version, String status, int currentStage,
             int endingCount, String adventureLength, List<GmStageView> stages, String failureReason, String auditId,
             java.time.Instant recordedAt, String cause) {
+        static GmPlanView from(com.dndmaster.adventure.application.storyplan.AdventureStoryPlanHistoryEntry entry) {
+            AdventureStoryPlan plan = entry.plan();
+            return new GmPlanView(plan.planId(), plan.packageRevision(), plan.partyRevision(), plan.version(), plan.status().name(), plan.currentStage(),
+                    plan.configuration().endingCount(), plan.configuration().adventureLength().name(), plan.stages().stream().map(GmStageView::from).toList(), plan.failureReason(),
+                    entry.historyId().toString(), entry.recordedAt(), entry.cause());
+        }
         static GmPlanView from(AdventureStoryPlan plan) {
             return new GmPlanView(plan.planId(), plan.packageRevision(), plan.partyRevision(), plan.version(), plan.status().name(), plan.currentStage(),
                     plan.configuration().endingCount(), plan.configuration().adventureLength().name(), plan.stages().stream().map(GmStageView::from).toList(), plan.failureReason(),
-                    plan.sessionId().value() + ":" + plan.version(), plan.updatedAt(), "STORY_PLAN_SAVED");
+                    plan.planId().toString(), plan.updatedAt(), "CURRENT");
         }
     }
     public record GmStageView(int position, String title, String stageType, String location, String goal, String conflict,

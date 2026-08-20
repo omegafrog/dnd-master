@@ -64,17 +64,19 @@ class AdventureStoryPlanPlayerProjectionTest {
         var plan = AdventureStoryPlan.ready(new SessionId(sessionId), 4, 3, List.of(
                 new AdventureStoryPlanStage(1, "Revealed", "Goal", "Conflict", "Next", List.of(), List.of("ending-a"))));
         when(resolver.playerId()).thenReturn(owner);
-        when(stories.readHistory(new SessionId(sessionId), new OwnerPlayerId(owner))).thenReturn(List.of(plan));
+        var historyId = UUID.randomUUID();
+        when(stories.readHistoryEntries(new SessionId(sessionId), new OwnerPlayerId(owner))).thenReturn(List.of(
+                new com.dndmaster.adventure.application.storyplan.AdventureStoryPlanHistoryEntry(plan, historyId, plan.updatedAt(), "INITIAL", null)));
         var controller = new AdventureStoryPlanController(stories, null, null, resolver, null, null, new ApiRequestGuard("test-internal-token"));
 
         var history = controller.history(sessionId, "test-internal-token");
 
         assertEquals(1, history.size());
         assertEquals(plan.planId(), history.getFirst().planId());
-        assertEquals(sessionId + ":" + plan.version(), history.getFirst().auditId());
+        assertEquals(historyId.toString(), history.getFirst().auditId());
         assertEquals(plan.updatedAt(), history.getFirst().recordedAt());
-        assertEquals("STORY_PLAN_SAVED", history.getFirst().cause());
-        verify(stories).readHistory(new SessionId(sessionId), new OwnerPlayerId(owner));
+        assertEquals("INITIAL", history.getFirst().cause());
+        verify(stories).readHistoryEntries(new SessionId(sessionId), new OwnerPlayerId(owner));
     }
 
     @Test
@@ -94,7 +96,7 @@ class AdventureStoryPlanPlayerProjectionTest {
         var resolver = mock(AuthenticatedPlayerResolver.class);
         var stories = mock(AdventureStoryPlanApplicationService.class);
         when(resolver.playerId()).thenReturn(owner);
-        when(stories.readHistory(new SessionId(sessionId), new OwnerPlayerId(owner)))
+        when(stories.readHistoryEntries(new SessionId(sessionId), new OwnerPlayerId(owner)))
                 .thenThrow(new SecurityException("adventure session access denied"));
         var controller = new AdventureStoryPlanController(stories, null, null, resolver, null, null, new ApiRequestGuard("test-internal-token"));
 

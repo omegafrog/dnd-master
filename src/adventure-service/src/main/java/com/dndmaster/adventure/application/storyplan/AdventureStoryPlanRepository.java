@@ -9,4 +9,8 @@ public interface AdventureStoryPlanRepository {
     Optional<AdventureStoryPlan> findBySessionId(SessionId sessionId);
     void save(AdventureStoryPlan plan);
     default List<AdventureStoryPlan> readHistory(SessionId sessionId) { return findBySessionId(sessionId).stream().toList(); }
+    default List<AdventureStoryPlanHistoryEntry> readHistoryEntries(SessionId sessionId) {
+        return readHistory(sessionId).stream().map(plan -> new AdventureStoryPlanHistoryEntry(
+                plan, plan.planId(), plan.updatedAt(), "LEGACY", null)).toList();
+    }
 }

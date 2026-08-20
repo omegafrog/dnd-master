@@ -62,6 +62,9 @@ public final class AdventureStoryPlanApplicationService {
     public List<AdventureStoryPlan> readHistory(SessionId sessionId, OwnerPlayerId owner) {
         requireSession(sessionId, owner); return plans.readHistory(sessionId);
     }
+    public List<AdventureStoryPlanHistoryEntry> readHistoryEntries(SessionId sessionId, OwnerPlayerId owner) {
+        requireSession(sessionId, owner); return plans.readHistoryEntries(sessionId);
+    }
 
     public AdventureStoryPlan generate(SessionId sessionId, OwnerPlayerId owner) {
         return generate(sessionId, owner, AdventurePlanConfiguration.defaults());

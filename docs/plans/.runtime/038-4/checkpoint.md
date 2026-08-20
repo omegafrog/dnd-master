@@ -1,6 +1,6 @@
 # 038-4 checkpoint
 
-- attempt: 14
+- attempt: 15
 - status: in-progress
 - scope: player trigger qualification, durable planned trigger effects, active-map/session ownership, immutable revealed stages and append-only future revision
 - resumed after 038-3 completion at `5f55cc4d`
@@ -16,3 +16,4 @@
 - completed: adventure OpenAPI documents the internal-token GM history route, owner/session scope, revision response, and 401/403 behavior with contract regression
 - completed: history HTTP dispatch returns 401 for missing/invalid internal token and 403 for foreign owner; qualifyingAction now survives the Adventure-to-Combat Map typed trigger effect and durable operation fingerprint
 - completed: ApiContractException maps to HTTP status, story-plan current/history writes use transactional upsert plus idempotent unique session/version history migration, and GM history exposes auditId/recordedAt/cause metadata
+- completed: legacy duplicate history rows are deterministically deduplicated before uniqueness, and durable history_id/cause/predecessor metadata is read through GM history projection
