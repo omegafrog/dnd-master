@@ -16,7 +16,7 @@ public record TacticalTriggerEffect(String triggerId, Kind kind, List<String> ta
         kind = Objects.requireNonNull(kind, "trigger kind required");
         targetIds = List.copyOf(Objects.requireNonNull(targetIds, "trigger targets required"));
         transitionId = transitionId == null ? "" : transitionId.trim();
-        qualifyingAction = qualifyingAction == null ? "" : qualifyingAction.trim();
+        qualifyingAction = qualifyingAction == null ? "" : qualifyingAction.trim().replaceAll("\\s+", " ").toLowerCase(java.util.Locale.ROOT);
         if (planned && qualifyingAction.isBlank()) throw new IllegalArgumentException("planned trigger qualifying action required");
     }
     public static TacticalTriggerEffect planned(String id, Kind kind, List<String> targets) { return new TacticalTriggerEffect(id, kind, targets, true); }

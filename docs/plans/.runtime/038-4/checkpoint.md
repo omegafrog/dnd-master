@@ -1,6 +1,6 @@
 # 038-4 checkpoint
 
-- attempt: 21
+- attempt: 22
 - status: in-progress
 - scope: player trigger qualification, durable planned trigger effects, active-map/session ownership, immutable revealed stages and append-only future revision
 - resumed after 038-3 completion at `5f55cc4d`
@@ -27,3 +27,4 @@
 - completed attempt 20: planned Combat Map effects reject missing/blank qualifyingAction, raw gmOnly/agentOrigin flags are durably replay-checked with invalid combinations rejected, and negative cursor indexes normalize to null before RuntimeTurn persistence
 - attempt 21 started: legacy expectedVersion replay compatibility and whitespace/case canonical action matching are under implementation
 - completed attempt 21: legacy null/-1 expected versions replay idempotently and authored/recorded qualifying actions share trim, case, and repeated-whitespace canonicalization
+- attempt 22 started: authored trigger/effect construction and durable projection canonicalization are under implementation

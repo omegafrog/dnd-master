@@ -20,6 +20,13 @@ class TacticalTriggerEffectTest {
     }
 
     @Test
+    void persistsCanonicalQualifyingActionAtTheEffectBoundary() {
+        var effect = TacticalTriggerEffect.planned("entry", TacticalTriggerEffect.Kind.COMBAT_ENTRY,
+                List.of(), "", "  PLAYER   Entered   Zone  ");
+        assertEquals("player entered zone", effect.qualifyingAction());
+    }
+
+    @Test
     void appliesOnlyPlannedEffectsAndRevealsTargetsRewardsAndFog() {
         var enemy = new CombatToken(new TokenId(UUID.randomUUID()), TokenType.ENEMY, new GridPosition(2, 2), TokenController.AI_GAME_MASTER, null, TokenDiscovery.HIDDEN);
         var map = new CombatMap(new MapId(UUID.randomUUID()), new AdventureId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),

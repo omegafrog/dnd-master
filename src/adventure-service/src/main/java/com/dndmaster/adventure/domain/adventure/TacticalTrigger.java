@@ -19,8 +19,9 @@ public record TacticalTrigger(String id, TacticalTriggerType type, List<String> 
         }
         transitionId = transitionId == null ? "" : transitionId.trim();
         grounding = Objects.requireNonNull(grounding, "trigger grounding must not be null");
-        qualifyingAction = qualifyingAction == null ? null : qualifyingAction.trim().toLowerCase(java.util.Locale.ROOT);
+        qualifyingAction = canonical(qualifyingAction);
     }
+    private static String canonical(String value) { return value == null ? null : value.trim().replaceAll("\\s+", " ").toLowerCase(java.util.Locale.ROOT); }
 
     private static String required(String value, String name) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " must not be blank");
