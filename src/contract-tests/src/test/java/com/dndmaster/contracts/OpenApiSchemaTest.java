@@ -10,6 +10,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Map;
+import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.yaml.snakeyaml.Yaml;
 
@@ -61,6 +62,25 @@ class OpenApiSchemaTest {
         assertEquals("PLAYER_VISIBLE", playerMap.at("/properties/layers/items/properties/visibility/const").asText());
         assertFalse(playerMap.toString().contains("AI_ONLY"));
         assertTrue(evidenceSearch.at("/required").toString().contains("queryIntent"));
+    }
+
+    @Test
+    void combat_map_internal_routes_require_shared_internal_token() throws IOException {
+        Map<String, Object> root = new Yaml().load(Files.readString(CONTRACTS.resolve("combat-map/openapi.yaml")));
+        Map<String, Object> paths = (Map<String, Object>) root.get("paths");
+        for (Map.Entry<String, Object> entry : paths.entrySet()) {
+            if (!entry.getKey().startsWith("/internal/v1/")) continue;
+            Map<String, Object> operations = (Map<String, Object>) entry.getValue();
+            for (Object operation : operations.values()) {
+                if (!(operation instanceof Map<?, ?> operationMap)) continue;
+                List<Map<String, Object>> parameters = (List<Map<String, Object>>) operationMap.get("parameters");
+                assertTrue(parameters != null && parameters.stream().anyMatch(parameter ->
+                        "X-Internal-Token".equals(parameter.get("name"))
+                                && "header".equals(parameter.get("in"))
+                                && Boolean.TRUE.equals(parameter.get("required"))),
+                        entry.getKey() + " must require X-Internal-Token");
+            }
+        }
     }
 
     @SuppressWarnings("unchecked")

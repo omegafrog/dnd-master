@@ -31,7 +31,7 @@ class TacticalTriggerApplicationServiceTest {
         private VersionedOwnedCombatMap state;
         public void insert(MapOwnerId owner, CombatMap map) { state = new VersionedOwnedCombatMap(map, owner, map.version()); }
         public Optional<VersionedOwnedCombatMap> find(MapId id) { return Optional.ofNullable(state).filter(value -> value.map().id().equals(id)); }
-        public Optional<VersionedOwnedCombatMap> findByAdventureId(AdventureId id) { return Optional.ofNullable(state).filter(value -> value.map().adventureId().equals(id)); }
+        public Optional<VersionedOwnedCombatMap> findByAdventureId(AdventureId id, MapOwnerId owner) { return Optional.ofNullable(state).filter(value -> value.map().adventureId().equals(id) && value.owner().equals(owner)); }
         public Optional<VersionedOwnedCombatMap> findByCommandId(UUID id) { return Optional.ofNullable(state).filter(value -> id.equals(value.map().operationKey())); }
         public long update(MapOwnerId owner, CombatMap map, long expectedVersion) { return update(owner, map, expectedVersion, map.version(), map.operationKey(), map.operationFingerprint()); }
         public long update(MapOwnerId owner, CombatMap map, long expectedVersion, long persistedVersion, UUID operationKey, String fingerprint) {

@@ -8,7 +8,7 @@ public interface CombatMapViewStore {
     void insert(MapOwnerId owner, CombatMap map);
 
     Optional<VersionedOwnedCombatMap> find(MapId id);
-    Optional<VersionedOwnedCombatMap> findByAdventureId(AdventureId adventureId);
+    Optional<VersionedOwnedCombatMap> findByAdventureId(AdventureId adventureId, MapOwnerId owner);
     Optional<VersionedOwnedCombatMap> findByCommandId(UUID commandId);
 
     long update(MapOwnerId owner, CombatMap map, long expectedVersion);

@@ -14,7 +14,7 @@ public final class PostgresActiveTacticalMapAdapter implements ActiveTacticalMap
 
     @Override
     public Optional<UUID> findActiveMap(UUID adventureId, int stagePosition, UUID ownerPlayerId) {
-        return jdbc.query("SELECT combat_map_id FROM adventure_active_tactical_map WHERE adventure_id = ? AND stage_position = ? AND owner_player_id = ?",
+        return jdbc.query("SELECT combat_map_id FROM adventure_active_tactical_map WHERE adventure_id = ? AND stage_position = ? AND owner_player_id = ? AND active = TRUE ORDER BY combat_map_id DESC LIMIT 1",
                 (rs, row) -> rs.getObject("combat_map_id", UUID.class), adventureId, stagePosition, ownerPlayerId).stream().findFirst();
     }
 

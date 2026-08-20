@@ -62,7 +62,7 @@ public final class CombatMapViewService {
     }
     public PlayerCombatMapView displayForPlayer(MapId id, MapOwnerId owner) { VersionedOwnedCombatMap state = owned(id, owner); return projection(state.map(), state.version()); }
     public CombatMap displayForGm(MapId id, MapOwnerId owner) { return owned(id, owner).map(); }
-    public Optional<PlayerCombatMapView> displayForAdventure(AdventureId adventureId, MapOwnerId owner) { return store.findByAdventureId(adventureId).filter(state -> state.owner().equals(owner)).map(state -> projection(state.map(), state.version())); }
+    public Optional<PlayerCombatMapView> displayForAdventure(AdventureId adventureId, MapOwnerId owner) { return store.findByAdventureId(adventureId, owner).map(state -> projection(state.map(), state.version())); }
     public CombatMap revealToken(MapId id, MapOwnerId owner, long expectedVersion, UUID commandId, TokenId tokenId) {
         VersionedOwnedCombatMap state=owned(id, owner);
         String fingerprint=id+"|"+owner+"|REVEAL|"+tokenId; CombatMap replay=replay(id,owner,commandId,fingerprint); if(replay!=null)return replay;
