@@ -19,7 +19,7 @@ public record TacticalTrigger(String id, TacticalTriggerType type, List<String> 
         }
         transitionId = transitionId == null ? "" : transitionId.trim();
         grounding = Objects.requireNonNull(grounding, "trigger grounding must not be null");
-        qualifyingAction = qualifyingAction == null ? null : qualifyingAction.trim();
+        qualifyingAction = qualifyingAction == null ? null : qualifyingAction.trim().toLowerCase(java.util.Locale.ROOT);
     }
 
     private static String required(String value, String name) {

@@ -18,10 +18,11 @@ public final class TacticalTriggerEvaluator {
     }
     public Evaluation evaluate(TacticalScenePlan scene, String triggerId, String qualifyingAction) {
         Evaluation evaluation = evaluate(scene, triggerId);
-        if (qualifyingAction == null || !evaluation.qualifyingAction().equals(qualifyingAction.trim())) {
+        if (qualifyingAction == null || !evaluation.qualifyingAction().equals(canonical(qualifyingAction))) {
             throw new IllegalArgumentException("player action does not qualify the planned tactical trigger");
         }
         return evaluation;
     }
     public record Evaluation(String triggerId, String type, java.util.List<String> targetIds, String transitionId, String qualifyingAction) { }
+    public static String canonical(String action) { return action == null ? null : action.trim().toLowerCase(java.util.Locale.ROOT); }
 }

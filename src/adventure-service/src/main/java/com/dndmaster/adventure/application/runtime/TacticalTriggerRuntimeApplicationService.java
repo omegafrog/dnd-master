@@ -50,11 +50,12 @@ public final class TacticalTriggerRuntimeApplicationService {
         RuntimeTurn recorded = actionEvidence.findByCommandId(commandId)
                 .filter(turn -> turn.adventureId().value().equals(adventureId))
                 .filter(RuntimeTurn::committed)
+                .filter(RuntimeTurn::playerOrigin)
                 .orElseThrow(() -> new IllegalArgumentException("qualifying player action was not recorded"));
         // This is the player/session-scoped entry point.  A trigger id alone is
         // not evidence that the player performed the authored qualifying action.
         var evaluation = evaluator.evaluate(scene, triggerId, recorded.action());
-        if (qualifyingAction == null || !qualifyingAction.equals(recorded.action())) {
+        if (qualifyingAction == null || !TacticalTriggerEvaluator.canonical(qualifyingAction).equals(TacticalTriggerEvaluator.canonical(recorded.action()))) {
             throw new IllegalArgumentException("caller action does not match recorded player action");
         }
         runtime.apply(combatMapId, ownerPlayerId, expectedVersion, commandId, evaluation);

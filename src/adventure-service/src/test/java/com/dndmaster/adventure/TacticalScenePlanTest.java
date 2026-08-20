@@ -212,16 +212,34 @@ class TacticalScenePlanTest {
     }
 
     private static com.dndmaster.adventure.application.runtime.RuntimeTurnRepository evidence(UUID adventureId, UUID commandId, String action) {
+        return evidence(adventureId, commandId, action, true);
+    }
+
+    private static com.dndmaster.adventure.application.runtime.RuntimeTurnRepository evidence(UUID adventureId, UUID commandId, String action, boolean playerOrigin) {
         var turn = org.mockito.Mockito.mock(com.dndmaster.adventure.application.runtime.RuntimeTurn.class);
         org.mockito.Mockito.when(turn.adventureId()).thenReturn(new com.dndmaster.adventure.domain.adventure.AdventureId(adventureId));
         org.mockito.Mockito.when(turn.commandId()).thenReturn(commandId);
         org.mockito.Mockito.when(turn.action()).thenReturn(action);
         org.mockito.Mockito.when(turn.committed()).thenReturn(true);
+        org.mockito.Mockito.when(turn.playerOrigin()).thenReturn(playerOrigin);
         return new com.dndmaster.adventure.application.runtime.RuntimeTurnRepository() {
             public java.util.Optional<com.dndmaster.adventure.application.runtime.RuntimeTurn> findByCommandId(UUID id) { return id.equals(commandId) ? java.util.Optional.of(turn) : java.util.Optional.empty(); }
             public java.util.Optional<com.dndmaster.adventure.application.runtime.RuntimeTurn> findByTurnId(UUID id) { return java.util.Optional.empty(); }
             public java.util.List<com.dndmaster.adventure.application.runtime.RuntimeTurn> findAllByAdventureId(com.dndmaster.adventure.domain.adventure.AdventureId id) { return java.util.List.of(); }
             public void save(com.dndmaster.adventure.application.runtime.RuntimeTurn value) { }
         };
+    }
+
+    @Test
+    void rejectsCommittedGmOriginTurnAsPlayerTriggerEvidence() {
+        var activeMap = UUID.randomUUID();
+        var adventure = UUID.randomUUID();
+        var command = UUID.randomUUID();
+        var scene = new TacticalScenePlan(1, TacticalScenePlanStatus.READY, boundary(),
+                List.of(placement("party", TacticalPlacementKind.PLAYER, .1, .1)), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                new FogPlan(List.of(), grounding("fog")), List.of(new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of(), "", grounding("entry"))), List.of(), List.of());
+        var service = new TacticalTriggerRuntimeApplicationService(new TacticalTriggerEvaluator(), (map, owner, version, id, evaluation) -> { },
+                (id, position, owner) -> java.util.Optional.of(activeMap), evidence(adventure, command, "combat_entry", false));
+        assertThrows(IllegalArgumentException.class, () -> service.apply(adventure, 1, scene, "entry", "combat_entry", activeMap, UUID.randomUUID(), 0, command));
     }
 }

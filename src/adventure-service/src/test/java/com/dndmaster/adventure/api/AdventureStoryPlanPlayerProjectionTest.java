@@ -106,6 +106,6 @@ class AdventureStoryPlanPlayerProjectionTest {
         var controller = new AdventureStoryPlanController(null, null, null, null, null, null, new ApiRequestGuard("test-internal-token"));
 
         assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.reviseFutureTacticalScene(
-                UUID.randomUUID(), 2, null, null));
+                UUID.randomUUID(), 2, null));
     }
 }

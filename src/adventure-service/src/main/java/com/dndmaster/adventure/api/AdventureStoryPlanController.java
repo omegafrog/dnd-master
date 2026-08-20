@@ -93,11 +93,6 @@ public final class AdventureStoryPlanController {
         return PlayerPlanView.from(futureRevision.revise(new SessionId(sessionId), owner(), position));
     }
 
-    /** Compatibility overload for direct controller tests; the submitted plan is never trusted. */
-    PlayerPlanView reviseFutureTacticalScene(UUID sessionId, int position, String internalToken, TacticalScenePlan ignored) {
-        return reviseFutureTacticalScene(sessionId, position, internalToken);
-    }
-
     @PostMapping("/stages/{position}/triggers/{triggerId}/apply")
     TriggerApplicationView applyTrigger(@PathVariable UUID sessionId, @PathVariable int position,
             @PathVariable String triggerId, @RequestBody TriggerApplicationRequest request) {
