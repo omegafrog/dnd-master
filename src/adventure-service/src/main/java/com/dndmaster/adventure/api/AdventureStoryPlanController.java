@@ -211,9 +211,9 @@ public final class AdventureStoryPlanController {
         }
     }
     public record TacticalTriggerView(String id, String type, List<String> targetIds, String transitionId,
-            String groundingType, String citation, String rationale) {
+            String qualifyingAction, String groundingType, String citation, String rationale) {
         static TacticalTriggerView from(com.dndmaster.adventure.domain.adventure.TacticalTrigger value) {
-            return new TacticalTriggerView(value.id(), value.type().name(), value.targetIds(), value.transitionId(), value.grounding().type().name(), value.grounding().citation(), value.grounding().rationale());
+            return new TacticalTriggerView(value.id(), value.type().name(), value.targetIds(), value.transitionId(), value.qualifyingAction(), value.grounding().type().name(), value.grounding().citation(), value.grounding().rationale());
         }
     }
     public record TacticalOutcomeView(String id, String condition, String groundingType, String citation, String rationale) {

@@ -11,6 +11,9 @@ public final class TacticalTriggerEvaluator {
         if (!scene.readyForActivation()) throw new IllegalStateException("tactical scene is not ready");
         TacticalTrigger trigger = scene.triggers().stream().filter(value -> value.id().equals(triggerId)).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("tactical trigger is not planned"));
+        if (trigger.qualifyingAction() == null || trigger.qualifyingAction().isBlank()) {
+            throw new IllegalArgumentException("tactical trigger qualifying action is missing");
+        }
         return new Evaluation(trigger.id(), trigger.type().name(), trigger.targetIds(), trigger.transitionId(), trigger.qualifyingAction());
     }
     public Evaluation evaluate(TacticalScenePlan scene, String triggerId, String qualifyingAction) {

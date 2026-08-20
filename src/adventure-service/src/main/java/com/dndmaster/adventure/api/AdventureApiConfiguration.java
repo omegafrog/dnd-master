@@ -986,10 +986,11 @@ public class AdventureApiConfiguration {
     @Bean
     com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimeApplicationService tacticalTriggerRuntimeApplicationService(
             com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimePort runtime,
-            com.dndmaster.adventure.infrastructure.persistence.PostgresActiveTacticalMapAdapter activeMaps) {
+            com.dndmaster.adventure.infrastructure.persistence.PostgresActiveTacticalMapAdapter activeMaps,
+            com.dndmaster.adventure.application.runtime.RuntimeTurnRepository actionEvidence) {
         return new com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimeApplicationService(
                 new com.dndmaster.adventure.application.runtime.TacticalTriggerEvaluator(), runtime,
-                activeMaps);
+                activeMaps, actionEvidence);
     }
 
     @Bean

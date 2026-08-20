@@ -7,7 +7,8 @@ public record TacticalTrigger(String id, TacticalTriggerType type, List<String> 
         PlacementGrounding grounding, String qualifyingAction) {
     public TacticalTrigger(String id, TacticalTriggerType type, List<String> targetIds, String transitionId,
             PlacementGrounding grounding) {
-        this(id, type, targetIds, transitionId, grounding, type == null ? null : type.name().toLowerCase(java.util.Locale.ROOT));
+        this(id, type, targetIds, transitionId, grounding,
+                type == null ? null : type.name().toLowerCase(java.util.Locale.ROOT));
     }
     public TacticalTrigger {
         id = required(id, "trigger id");
@@ -18,8 +19,7 @@ public record TacticalTrigger(String id, TacticalTriggerType type, List<String> 
         }
         transitionId = transitionId == null ? "" : transitionId.trim();
         grounding = Objects.requireNonNull(grounding, "trigger grounding must not be null");
-        qualifyingAction = qualifyingAction == null || qualifyingAction.isBlank()
-                ? type.name().toLowerCase(java.util.Locale.ROOT) : qualifyingAction.trim();
+        qualifyingAction = qualifyingAction == null ? null : qualifyingAction.trim();
     }
 
     private static String required(String value, String name) {

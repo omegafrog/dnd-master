@@ -20,6 +20,7 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 import com.dndmaster.adventure.application.runtime.TacticalTriggerEvaluator;
 import com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimeApplicationService;
+import com.dndmaster.adventure.application.storyplan.TacticalScenePlanCandidate;
 
 class TacticalScenePlanTest {
     @Test
@@ -31,12 +32,14 @@ class TacticalScenePlanTest {
                 List.of(new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of("enemy-1"), "", grounding("entry"))),
                 List.of(), List.of());
         var activeMap = UUID.randomUUID();
+        var adventure = UUID.randomUUID();
+        var triggerCommandId = UUID.randomUUID();
         var seen = new TacticalTriggerEvaluator.Evaluation[1];
         var service = new TacticalTriggerRuntimeApplicationService(new TacticalTriggerEvaluator(),
                 (mapId, ownerId, version, commandId, evaluation) -> seen[0] = evaluation,
-                (adventureId, stagePosition, ownerId) -> java.util.Optional.of(activeMap));
+                (adventureId, stagePosition, ownerId) -> java.util.Optional.of(activeMap), evidence(adventure, triggerCommandId, "combat_entry"));
 
-        service.apply(UUID.randomUUID(), 1, scene, "entry", "combat_entry", activeMap, UUID.randomUUID(), 0, UUID.randomUUID());
+        service.apply(adventure, 1, scene, "entry", "combat_entry", activeMap, UUID.randomUUID(), 0, triggerCommandId);
 
         assertEquals(List.of("enemy-1"), seen[0].targetIds());
         assertEquals("COMBAT_ENTRY", seen[0].type());
@@ -66,6 +69,21 @@ class TacticalScenePlanTest {
     }
 
     @Test
+    void rejectsGeneratedTriggerWithMissingQualifyingActionForRetry() {
+        var trigger = new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of(), "", grounding("entry"), null);
+        assertEquals("tactical trigger qualifying action is missing",
+                new com.dndmaster.adventure.application.storyplan.TacticalScenePlanValidator()
+                        .validate(new com.dndmaster.adventure.application.storyplan.TacticalSceneRequest(
+                                new AdventureStoryPlanStage(2, "future", "goal", "conflict", "exit", List.of(), List.of()),
+                                new com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort.MapContext(
+                                        UUID.randomUUID(), "map", "map.png", "map.png", 1, "SAFE"), List.of(), List.of(), List.of()),
+                                TacticalScenePlanCandidate.ready(2, new TacticalScenePlan(TacticalScenePlan.CURRENT_SCHEMA_VERSION,
+                                        TacticalScenePlanStatus.READY, boundary(), List.of(placement("party", TacticalPlacementKind.PLAYER, .1, .1)),
+                                        List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), new FogPlan(List.of(), grounding("fog")),
+                                        List.of(trigger), List.of(), List.of()), List.of())).getFirst());
+    }
+
+    @Test
     void requiresAQualifyingActionAtThePlayerScopedRuntimeBoundary() {
         var scene = new TacticalScenePlan(TacticalScenePlan.CURRENT_SCHEMA_VERSION, TacticalScenePlanStatus.READY, boundary(),
                 List.of(placement("party", TacticalPlacementKind.PLAYER, .1, .1)), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
@@ -73,7 +91,7 @@ class TacticalScenePlanTest {
                 List.of(new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of(), "", grounding("entry"))), List.of(), List.of());
         var activeMap = UUID.randomUUID();
         var service = new TacticalTriggerRuntimeApplicationService(new TacticalTriggerEvaluator(), (map, owner, version, command, evaluation) -> { },
-                (adventureId, stagePosition, ownerId) -> java.util.Optional.of(activeMap));
+                (adventureId, stagePosition, ownerId) -> java.util.Optional.of(activeMap), evidence(UUID.randomUUID(), UUID.randomUUID(), "combat_entry"));
         assertThrows(IllegalArgumentException.class, () -> service.apply(UUID.randomUUID(), 1, scene, "entry", null,
                 activeMap, UUID.randomUUID(), 0, UUID.randomUUID()));
     }
@@ -96,14 +114,15 @@ class TacticalScenePlanTest {
         var activeMap = UUID.randomUUID();
         var adventure = UUID.randomUUID();
         var owner = UUID.randomUUID();
+        var commandId = UUID.randomUUID();
         var scene = new TacticalScenePlan(1, TacticalScenePlanStatus.READY, boundary(),
                 List.of(placement("party", TacticalPlacementKind.PLAYER, .1, .1)), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
                 new FogPlan(List.of(), grounding("fog")), List.of(new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of(), "", grounding("entry"))), List.of(), List.of());
         var seen = new TacticalTriggerEvaluator.Evaluation[1];
         var service = new TacticalTriggerRuntimeApplicationService(new TacticalTriggerEvaluator(), (map, player, version, command, evaluation) -> seen[0] = evaluation,
-                (adventureId, stagePosition, ownerId) -> java.util.Optional.of(activeMap));
+                (adventureId, stagePosition, ownerId) -> java.util.Optional.of(activeMap), evidence(adventure, commandId, "combat_entry"));
 
-        service.apply(adventure, 1, scene, "entry", "combat_entry", activeMap, owner, 0, UUID.randomUUID());
+        service.apply(adventure, 1, scene, "entry", "combat_entry", activeMap, owner, 0, commandId);
 
         assertEquals("COMBAT_ENTRY", seen[0].type());
     }
@@ -190,5 +209,19 @@ class TacticalScenePlanTest {
 
     private static PlacementGrounding grounding(String source) {
         return PlacementGrounding.aiInference(source + " is needed for this scene");
+    }
+
+    private static com.dndmaster.adventure.application.runtime.RuntimeTurnRepository evidence(UUID adventureId, UUID commandId, String action) {
+        var turn = org.mockito.Mockito.mock(com.dndmaster.adventure.application.runtime.RuntimeTurn.class);
+        org.mockito.Mockito.when(turn.adventureId()).thenReturn(new com.dndmaster.adventure.domain.adventure.AdventureId(adventureId));
+        org.mockito.Mockito.when(turn.commandId()).thenReturn(commandId);
+        org.mockito.Mockito.when(turn.action()).thenReturn(action);
+        org.mockito.Mockito.when(turn.committed()).thenReturn(true);
+        return new com.dndmaster.adventure.application.runtime.RuntimeTurnRepository() {
+            public java.util.Optional<com.dndmaster.adventure.application.runtime.RuntimeTurn> findByCommandId(UUID id) { return id.equals(commandId) ? java.util.Optional.of(turn) : java.util.Optional.empty(); }
+            public java.util.Optional<com.dndmaster.adventure.application.runtime.RuntimeTurn> findByTurnId(UUID id) { return java.util.Optional.empty(); }
+            public java.util.List<com.dndmaster.adventure.application.runtime.RuntimeTurn> findAllByAdventureId(com.dndmaster.adventure.domain.adventure.AdventureId id) { return java.util.List.of(); }
+            public void save(com.dndmaster.adventure.application.runtime.RuntimeTurn value) { }
+        };
     }
 }

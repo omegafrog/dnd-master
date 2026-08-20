@@ -41,6 +41,9 @@ public final class TacticalScenePlanValidator {
         if (candidate.stagePosition() != request.stage().position()) return List.of("tactical candidate targets the wrong stage");
         TacticalScenePlan scene = candidate.scene();
         if (!scene.readyForActivation()) return List.of("tactical scene is absent");
+        if (scene.triggers().stream().anyMatch(trigger -> trigger.qualifyingAction() == null || trigger.qualifyingAction().isBlank())) {
+            return List.of("tactical trigger qualifying action is missing");
+        }
         Set<String> supplied = new HashSet<>();
         request.citations().forEach(citation -> supplied.add(key(citation)));
         List<String> evidenceViolations = evidence.reconcile(request.citations(), candidate.citations(), scene);
@@ -75,6 +78,9 @@ public final class TacticalScenePlanValidator {
             return List.of("tactical scene is missing required trigger types: " + missingTriggerTypes);
         }
         for (TacticalTrigger trigger : scene.triggers()) {
+            if (trigger.qualifyingAction() == null || trigger.qualifyingAction().isBlank()) {
+                return List.of("tactical trigger qualifying action is missing");
+            }
             String violation = unsupportedCoreTriggerViolation(trigger);
             if (violation != null) return List.of(violation);
             if ((trigger.type() == TacticalTriggerType.BOSS || trigger.type() == TacticalTriggerType.REWARD)
