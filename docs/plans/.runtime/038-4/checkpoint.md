@@ -1,6 +1,6 @@
 # 038-4 checkpoint
 
-- attempt: 11
+- attempt: 12
 - status: in-progress
 - scope: player trigger qualification, durable planned trigger effects, active-map/session ownership, immutable revealed stages and append-only future revision
 - resumed after 038-3 completion at `5f55cc4d`
@@ -13,3 +13,4 @@
 - completed: durable RuntimeTurnOrigin provenance distinguishes PLAYER, GM, and AGENT across JSON/Postgres reload; read-only turns remain persisted with advancesState=false and are ineligible as trigger evidence
 - completed: meta turns are durably saved before return, legacy RuntimeTurn JSON defaults explicitly to non-player GM provenance, and post-start plan generation is rejected in favor of future-stage revision
 - completed: story-plan history remains denied to player projection while internal-token GM history returns owner/session-scoped append-only GmPlanView revisions
+- completed: adventure OpenAPI documents the internal-token GM history route, owner/session scope, revision response, and 401/403 behavior with contract regression
