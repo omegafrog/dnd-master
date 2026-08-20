@@ -17,11 +17,17 @@ class DurableActiveTacticalMapMigrationTest {
             postgres.start();
             DataSource dataSource = new DriverManagerDataSource(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
             Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").target("39").load().migrate();
+            assertHasActiveColumn(dataSource, false);
+            Flyway.configure().dataSource(dataSource).locations("classpath:db/migration").load().migrate();
+            assertHasActiveColumn(dataSource, true);
+        }
+    }
+
+    private static void assertHasActiveColumn(DataSource dataSource, boolean expected) throws SQLException {
             try (Connection connection = dataSource.getConnection(); var statement = connection.prepareStatement(
                     "SELECT 1 FROM information_schema.columns WHERE table_name = 'adventure_active_tactical_map' AND column_name = 'active'")) {
-                try (var rows = statement.executeQuery()) { assertTrue(rows.next()); }
+                try (var rows = statement.executeQuery()) { assertTrue(rows.next() == expected); }
             }
-        }
     }
 
     private record DriverManagerDataSource(String url, String username, String password) implements DataSource {

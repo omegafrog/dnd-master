@@ -1,7 +1,9 @@
 # 038-3 checkpoint
 
-- attempt: 3
+- attempt: 4
 - status: completed
+- attempt-4-completed: restored V39 checksum-safe schema and verified V39-to-latest Flyway upgrade with additive active-column migration
+- attempt-4-scope: restore V39 checksum and add active column through additive migration with fresh/upgrade Flyway coverage
 - attempt-3-completed: player-safe INITIAL_FOG filtering for observed and last-seen tokens with GM projection preserved
 - attempt-2-completed: fresh active binding schema, transactional rebinding rollback, player-view ownerId contract
 - completed: active map filtering/owner scoping, durable normal-start binding verification, required internal-token OpenAPI contract and regression tests
