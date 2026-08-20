@@ -146,6 +146,7 @@ public class RuntimeTurnApplicationService {
                     metaPlan, binding.activeSourceContext(), adventure.currentContext(), adventure.conversation(), adventure.version(), List.of(), List.of(), false,
                     origin(command) == RuntimeTurnOrigin.PLAYER, origin(command), false)
                     .markCommitted();
+            runtimeTurnRepository.save(metaTurn);
             return new RuntimeTurnResult(metaTurn, adventure.currentContext(), adventure.conversation(), adventure.version());
         }
 

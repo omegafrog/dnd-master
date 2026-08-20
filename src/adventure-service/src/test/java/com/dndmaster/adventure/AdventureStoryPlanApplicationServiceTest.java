@@ -19,6 +19,23 @@ import org.junit.jupiter.api.Test;
 
 class AdventureStoryPlanApplicationServiceTest {
     @Test
+    void refuses_normal_regeneration_after_adventure_started() {
+        var session = AdventureSession.create(SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 1, 1,
+                new AdventureSessionRuntimeConfiguration(new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), java.util.List.of(), "ollama", java.util.List.of("search"), "opening"));
+        session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT, false, false, false, false, false, false));
+        session.start(AdventureId.generate(), UUID.randomUUID());
+        var sessions = mock(AdventureSessionRepository.class);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+
+        var service = new AdventureStoryPlanApplicationService(plans, sessions);
+
+        var failure = assertThrows(IllegalStateException.class, () -> service.generate(session.id(), session.ownerPlayerId()));
+        assertEquals("story plan generation is not allowed after adventure start; use future-stage revision", failure.getMessage());
+        verify(plans, never()).save(any());
+    }
+
+    @Test
     void refuses_to_generate_or_persist_ready_plan_from_partial_scenario_package() {
         var session = AdventureSession.create(SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 1, 1,
                 new AdventureSessionRuntimeConfiguration(new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), java.util.List.of(), "ollama", java.util.List.of("search"), "opening"));

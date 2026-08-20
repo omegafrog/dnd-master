@@ -71,7 +71,7 @@ class RuntimeTurnPostgresIntegrationTest {
     }
 
     @Test
-    void savesAndReloadsRuntimeTurnThroughPostgres() {
+    void savesAndReloadsRuntimeTurnThroughPostgres() throws Exception {
         AdventureId adventureId = AdventureId.generate();
         SessionId sessionId = SessionId.generate();
         PostgresAdventureRepository adventureRepository = new PostgresAdventureRepository(dataSource);
@@ -128,6 +128,14 @@ class RuntimeTurnPostgresIntegrationTest {
         assertEquals(RuntimeTurnOrigin.GM, restored.origin());
         assertEquals(false, restored.advancesState());
         assertEquals(List.of(turn), repository.findAllByAdventureId(adventureId));
+
+        ObjectMapper mapper = new ObjectMapper();
+        var legacyJson = mapper.valueToTree(turn);
+        ((com.fasterxml.jackson.databind.node.ObjectNode) legacyJson).remove(List.of("origin", "playerOrigin", "advancesState"));
+        RuntimeTurn legacyRestored = mapper.treeToValue(legacyJson, RuntimeTurn.class);
+        assertEquals(RuntimeTurnOrigin.GM, legacyRestored.origin());
+        assertEquals(false, legacyRestored.playerOrigin());
+        assertEquals(false, legacyRestored.advancesState());
     }
 
     private record DriverManagerDataSource(String url, String username, String password) implements DataSource {

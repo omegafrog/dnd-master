@@ -69,6 +69,9 @@ public final class AdventureStoryPlanApplicationService {
 
     public AdventureStoryPlan generate(SessionId sessionId, OwnerPlayerId owner, AdventurePlanConfiguration configuration) {
         AdventureSession session = requireSession(sessionId, owner);
+        if (session.startedAdventureId() != null) {
+            throw new IllegalStateException("story plan generation is not allowed after adventure start; use future-stage revision");
+        }
         validateParty(session);
         AdventureStoryPlan previous = plans.findBySessionId(sessionId).orElse(null);
         long version = previous == null ? 1 : previous.version() + 1;

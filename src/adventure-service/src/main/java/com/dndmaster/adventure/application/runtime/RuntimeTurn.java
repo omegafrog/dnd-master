@@ -7,8 +7,10 @@ import com.dndmaster.adventure.domain.adventure.ConversationEntry;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 // 저장된 런타임 턴이다. 어떤 근거로 어떤 응답을 냈는지 함께 남긴다.
+@JsonIgnoreProperties(ignoreUnknown = true)
 public record RuntimeTurn(
         UUID turnId,
         UUID commandId,
@@ -43,7 +45,11 @@ public record RuntimeTurn(
         if (version < 0) throw new IllegalArgumentException("version must not be negative");
         citations = List.copyOf(Objects.requireNonNull(citations, "citations must not be null"));
         warnings = List.copyOf(Objects.requireNonNull(warnings, "warnings must not be null"));
-        origin = Objects.requireNonNull(origin, "origin must not be null");
+        // Rows written before origin was introduced are deliberately non-player evidence.
+        if (origin == null) {
+            origin = RuntimeTurnOrigin.GM;
+            playerOrigin = false;
+        }
         if (playerOrigin != (origin == RuntimeTurnOrigin.PLAYER)) {
             throw new IllegalArgumentException("player origin flag must match durable origin");
         }
