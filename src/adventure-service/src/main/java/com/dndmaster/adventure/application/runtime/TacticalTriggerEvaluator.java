@@ -14,7 +14,7 @@ public final class TacticalTriggerEvaluator {
         if (trigger.qualifyingAction() == null || trigger.qualifyingAction().isBlank()) {
             throw new IllegalArgumentException("tactical trigger qualifying action is missing");
         }
-        return new Evaluation(trigger.id(), trigger.type().name(), trigger.targetIds(), trigger.transitionId(), trigger.qualifyingAction());
+        return new Evaluation(trigger.id(), trigger.type().name(), trigger.targetIds(), trigger.transitionId(), canonical(trigger.qualifyingAction()));
     }
     public Evaluation evaluate(TacticalScenePlan scene, String triggerId, String qualifyingAction) {
         Evaluation evaluation = evaluate(scene, triggerId);
@@ -24,5 +24,5 @@ public final class TacticalTriggerEvaluator {
         return evaluation;
     }
     public record Evaluation(String triggerId, String type, java.util.List<String> targetIds, String transitionId, String qualifyingAction) { }
-    public static String canonical(String action) { return action == null ? null : action.trim().toLowerCase(java.util.Locale.ROOT); }
+    public static String canonical(String action) { return action == null ? null : action.trim().replaceAll("\\s+", " ").toLowerCase(java.util.Locale.ROOT); }
 }

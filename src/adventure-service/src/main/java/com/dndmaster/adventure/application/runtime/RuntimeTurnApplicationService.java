@@ -127,7 +127,7 @@ public class RuntimeTurnApplicationService {
                     || existing.agentOrigin() != command.agentOrigin()
                     || !java.util.Objects.equals(existing.turnCharacterSheetId(), command.turnCharacterSheetId())
                     || !java.util.Objects.equals(existing.turnIndex(), command.turnIndex() < 0 ? null : command.turnIndex())
-                    || !java.util.Objects.equals(existing.expectedVersion(), command.expectedVersion())) {
+                    || !java.util.Objects.equals(existing.expectedVersion() == null ? -1L : existing.expectedVersion(), command.expectedVersion() < 0 ? -1L : command.expectedVersion())) {
                 throw new IllegalStateException("runtime command id reused with different payload");
             }
             RuntimeTurn committed = resumeCommittedTurn(command, adventure, existing);

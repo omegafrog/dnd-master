@@ -61,12 +61,12 @@ class TacticalScenePlanTest {
         var scene = new TacticalScenePlan(TacticalScenePlan.CURRENT_SCHEMA_VERSION, TacticalScenePlanStatus.READY, boundary(),
                 List.of(placement("party", TacticalPlacementKind.PLAYER, .1, .1)), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
                 new FogPlan(List.of(), grounding("fog")),
-                List.of(new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of(), "", grounding("entry"), "player-entered-zone")),
+                List.of(new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of(), "", grounding("entry"), " Player   Entered   Zone ")),
                 List.of(), List.of());
         var evaluator = new TacticalTriggerEvaluator();
         assertThrows(IllegalArgumentException.class, () -> evaluator.evaluate(scene, "entry", "COMBAT_ENTRY"));
-        assertEquals("player-entered-zone", evaluator.evaluate(scene, "entry", "player-entered-zone").qualifyingAction());
-        assertEquals("player-entered-zone", evaluator.evaluate(scene, "entry", "  PLAYER-ENTERED-ZONE  ").qualifyingAction());
+        assertEquals("player entered zone", evaluator.evaluate(scene, "entry", "player entered zone").qualifyingAction());
+        assertEquals("player entered zone", evaluator.evaluate(scene, "entry", "  PLAYER   ENTERED   ZONE  ").qualifyingAction());
     }
 
     @Test

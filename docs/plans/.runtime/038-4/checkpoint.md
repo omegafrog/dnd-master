@@ -1,6 +1,6 @@
 # 038-4 checkpoint
 
-- attempt: 20
+- attempt: 21
 - status: in-progress
 - scope: player trigger qualification, durable planned trigger effects, active-map/session ownership, immutable revealed stages and append-only future revision
 - resumed after 038-3 completion at `5f55cc4d`
@@ -25,3 +25,5 @@
 - completed attempt 19: RuntimeTurn replay now compares action, origin, advancesState, cursor actor/index, and expected version before returning an idempotent result
 - attempt 20 started: nonblank trigger action enforcement, raw origin flag provenance, and cursor sentinel normalization are under implementation
 - completed attempt 20: planned Combat Map effects reject missing/blank qualifyingAction, raw gmOnly/agentOrigin flags are durably replay-checked with invalid combinations rejected, and negative cursor indexes normalize to null before RuntimeTurn persistence
+- attempt 21 started: legacy expectedVersion replay compatibility and whitespace/case canonical action matching are under implementation
+- completed attempt 21: legacy null/-1 expected versions replay idempotently and authored/recorded qualifying actions share trim, case, and repeated-whitespace canonicalization
