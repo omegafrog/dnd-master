@@ -41,9 +41,9 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
                 .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody("""
                         {"stagePosition":1,"scene":{"schemaVersion":1,"status":"READY",
                         "boundary":{"minimum":{"x":0,"y":0},"maximum":{"x":1,"y":1},"forbiddenCoordinates":[]},
-                        "players":[{"id":"party","kind":"PLAYER","coordinate":{"x":0.1,"y":0.1},"grounding":{"type":"SOURCE_CITATION","citation":"%s:page:1","rationale":""}}],
+                        "players":[{"id":"party","kind":"PLAYER","coordinate":{"x":0.1,"y":0.1},"grounding":{"type":"SOURCE_CITATION","citation":"STORYBOOK:%s:page:1","rationale":""}}],
                         "allies":[],"npcs":[],"enemies":[],"bosses":[],"interactiveObjects":[],"environments":[],
-                        "initialFog":{"hiddenRegions":[],"grounding":{"type":"SOURCE_CITATION","citation":"%s:page:1","rationale":""}},
+                        "initialFog":{"hiddenRegions":[],"grounding":{"type":"SOURCE_CITATION","citation":"STORYBOOK:%s:page:1","rationale":""}},
                         "triggers":[],"outcomes":[],"transitionIds":[]},
                         "citations":[{"documentType":"STORYBOOK","documentId":"%s","extractionVersion":1,"locator":"page:1","quote":"cellar entrance","confidence":0.8}]}
                         """.formatted(documentId, documentId, documentId))));
@@ -55,7 +55,7 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
         var candidate = gateway.generateTacticalScene(request);
 
         assertEquals(1, candidate.stagePosition());
-        assertEquals("%s:page:1".formatted(documentId), candidate.scene().players().getFirst().grounding().citation());
+        assertEquals("STORYBOOK:%s:page:1".formatted(documentId), candidate.scene().players().getFirst().grounding().citation());
         assertEquals(1, candidate.citations().size());
         server.verify(exactly(1), postRequestedFor(urlEqualTo("/internal/v1/gm/tactical-scene-plan")));
         server.verify(postRequestedFor(urlEqualTo("/internal/v1/gm/tactical-scene-plan"))

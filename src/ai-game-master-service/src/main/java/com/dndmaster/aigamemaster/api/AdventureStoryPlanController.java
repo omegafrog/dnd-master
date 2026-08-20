@@ -128,6 +128,7 @@ public final class AdventureStoryPlanController {
                 + "For every mapped dungeon, use the supplied map image/page and the supplied story evidence to infer the party's starting area. In Player spawn, write the semantic entrance and grid coordinates when the map grid makes them identifiable; otherwise state 'GM confirmation required' and explain the evidence. Do not silently default to (0,0). "
                 + "Do not invent named rules, DCs, monsters, or facts absent from evidence. For a check without an evidenced DC, write 'GM adjudication' rather than inventing a number. Include checks only when a trigger exists. Documents=" + request.sourceDocuments()
                 + " Evidence=" + request.resolutionEvidence() + " citations=" + request.citations() + " maps=" + request.maps()
+                + " Previous validation violations=" + request.violations()
                 + " partySize=" + request.partySize() + " configuration=" + configuration + "\n\nAVAILABLE MAPS (authoritative):\n" + availableMaps
                 + "\n\nTEMPLATE:\n" + template;
         try {
@@ -166,7 +167,7 @@ public final class AdventureStoryPlanController {
                 scene MUST use schemaVersion 1 and status READY. It must contain boundary {minimum:{x,y},maximum:{x,y},forbiddenCoordinates:[]},
                 players/allies/npcs/enemies/bosses/interactiveObjects/environments arrays, initialFog {hiddenRegions,grounding}, triggers, outcomes, and transitionIds.
                 Every coordinate is normalized from 0 through 1. Every placement/environment must have id, kind, coordinate, and grounding.
-                A grounding is either {type:"SOURCE_CITATION",citation:"documentUuid:locator",rationale:""} using ONLY a supplied citation,
+                A grounding is either {type:"SOURCE_CITATION",citation:"documentType:documentUuid:locator",rationale:""} using ONLY a supplied citation,
                 or {type:"AI_INFERENCE",citation:"",rationale:"bounded explanation tied to the supplied map or story evidence"}.
                 Source citations and supplied map/story evidence take precedence. Never invent a named boss, reward, ending, monster, or map fact not present in them.
                 If the prior validation feedback identifies a violation, correct that violation in this response.
@@ -294,9 +295,19 @@ public final class AdventureStoryPlanController {
         return List.copyOf(result);
     }
     public record Request(String operationId, long packageRevision, int partySize, Configuration configuration, List<String> sourceDocuments,
-            List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations) {
+            List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations, List<String> violations) {
+        public Request(String operationId, long packageRevision, int partySize, Configuration configuration,
+                List<String> sourceDocuments, List<String> resolutionEvidence,
+                List<MapContext> maps, List<SourceCitation> citations) {
+            this(operationId, packageRevision, partySize, configuration, sourceDocuments,
+                    resolutionEvidence, maps, citations, List.of());
+        }
         public Request(String operationId, long packageRevision, int partySize, Configuration configuration, List<String> sourceDocuments, List<String> resolutionEvidence) {
-            this(operationId, packageRevision, partySize, configuration, sourceDocuments, resolutionEvidence, List.of(), List.of());
+            this(operationId, packageRevision, partySize, configuration, sourceDocuments,
+                    resolutionEvidence, List.of(), List.of(), List.of());
+        }
+        public Request {
+            violations = violations == null ? List.of() : List.copyOf(violations);
         }
     }
     public record MapContext(String mapDefinitionId, String assetId, String assetLocator, String sourceLocator, double confidence, String safetyStatus, List<String> relatedEvidence) {}

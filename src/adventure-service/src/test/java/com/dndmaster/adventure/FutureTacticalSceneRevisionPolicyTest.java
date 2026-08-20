@@ -18,7 +18,7 @@ import com.dndmaster.adventure.application.storyplan.TacticalSceneRequest;
 class FutureTacticalSceneRevisionPolicyTest {
     private static final java.util.UUID EVIDENCE_DOCUMENT_ID = java.util.UUID.randomUUID();
     private static final String EVIDENCE_LOCATOR = "page:1";
-    private static final String EVIDENCE_KEY = EVIDENCE_DOCUMENT_ID + ":" + EVIDENCE_LOCATOR;
+    private static final String EVIDENCE_KEY = "STORYBOOK:" + EVIDENCE_DOCUMENT_ID + ":" + EVIDENCE_LOCATOR;
 
     @Test
     void preservesRevealedStagesAndCreatesSuccessorRevisionForFutureStages() {
@@ -125,7 +125,7 @@ class FutureTacticalSceneRevisionPolicyTest {
                 AdventureStageType.ENCOUNTER, "cellar", java.util.UUID.randomUUID(), "map", "map.png", List.of("rat"), "", "clear", "fail",
                 List.of("reward"), List.of("end"), List.of(new AdventurePlanEvidence(
                         "STORYBOOK", EVIDENCE_DOCUMENT_ID, 1, EVIDENCE_LOCATOR,
-                        "The stage defines combat, outcomes, rewards, and exits.", 1.0)),
+                        "Entry alarm reinforcement boss reward success failure exit surrender. Clear.", 1.0)),
                 AdventureGroundingStatus.GROUNDED, List.of(), "SAFE", .9).withTacticalScenePlan(scene);
     }
 

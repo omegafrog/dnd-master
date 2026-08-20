@@ -24,6 +24,20 @@ class TacticalSourceEvidenceReconciliationTest {
     }
 
     @Test
+    void rejectsACitationThatCrossesRegisteredDocumentTypes() {
+        var documentId = UUID.randomUUID();
+        var authoritative = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "STORYBOOK", documentId, 7, "page:1", "The cellar contains a rat swarm.", 1.0);
+        var wrongType = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "RULEBOOK", documentId, 7, "page:1", "The cellar contains a rat swarm.", 1.0);
+
+        var violations = SourceEvidenceReconciliationPort.exact().reconcile(
+                List.of(authoritative), List.of(wrongType));
+
+        assertTrue(violations.contains("unknown tactical source citation"));
+    }
+
+    @Test
     void rejectsAnAiInferenceThatContradictsASourceFact() {
         var documentId = UUID.randomUUID();
         var source = new AdventureStoryPlanGenerationPort.SourceCitation("STORYBOOK", documentId, 7,

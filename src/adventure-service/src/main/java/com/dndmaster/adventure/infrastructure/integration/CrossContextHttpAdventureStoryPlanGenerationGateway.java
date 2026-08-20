@@ -3,6 +3,7 @@ package com.dndmaster.adventure.infrastructure.integration;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
 import com.dndmaster.adventure.application.storyplan.TacticalScenePlanCandidate;
 import com.dndmaster.adventure.application.storyplan.TacticalSceneRequest;
+import com.dndmaster.adventure.application.storyplan.TacticalScenePlanValidator;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanGraphValidator;
@@ -55,7 +56,8 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             }
             long endingCount = parsed.stages().stream().flatMap(stage -> stage.endingIds().stream()).distinct().count();
             if (endingCount != configuration.endingCount()) throw new IllegalStateException("AI returned an invalid ending count");
-            Set<String> knownCitations = request.citations().stream().map(item -> item.documentId() + ":" + item.locator()).collect(Collectors.toSet());
+            Set<String> knownCitations = request.citations().stream()
+                    .map(TacticalScenePlanValidator::key).collect(Collectors.toSet());
             if (knownCitations.isEmpty() && parsed.stages().stream().flatMap(stage -> stage.evidence().stream()).findAny().isPresent()) {
                 throw new IllegalStateException("AI returned source evidence without a supplied citation");
             }
@@ -93,7 +95,7 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                 throw new IllegalStateException("AI returned an unknown tactical source citation");
             }
             if (sourceCitations(parsed.scene()).stream().anyMatch(citation -> request.citations().stream()
-                    .noneMatch(source -> citation.equals(source.documentId() + ":" + source.locator())))) {
+                    .noneMatch(source -> citation.equals(TacticalScenePlanValidator.key(source))))) {
                 throw new IllegalStateException("AI returned tactical grounding without a supplied citation");
             }
             return TacticalScenePlanCandidate.ready(parsed.stagePosition(), parsed.scene(), citations);

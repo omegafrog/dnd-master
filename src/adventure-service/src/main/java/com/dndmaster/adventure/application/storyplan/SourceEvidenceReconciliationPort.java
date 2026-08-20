@@ -20,7 +20,9 @@ public interface SourceEvidenceReconciliationPort {
             var errors = new java.util.ArrayList<String>();
             for (var value : candidate) {
                 var match = authoritative.stream().filter(source ->
-                        source.documentId().equals(value.documentId()) && source.locator().equals(value.locator())).findFirst();
+                        source.documentType().equals(value.documentType())
+                                && source.documentId().equals(value.documentId())
+                                && source.locator().equals(value.locator())).findFirst();
                 if (match.isEmpty()) {
                     errors.add("unknown tactical source citation");
                     continue;

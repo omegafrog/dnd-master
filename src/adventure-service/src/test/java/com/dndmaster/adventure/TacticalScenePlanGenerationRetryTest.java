@@ -3,6 +3,7 @@ package com.dndmaster.adventure;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.session.AdventureSessionRepository;
@@ -152,10 +153,17 @@ class TacticalScenePlanGenerationRetryTest {
         var fixture = new Fixture();
         fixture.generator.stage = unsupportedCoreStage(fixture.mapId, fixture.sourceCitation);
 
-        IllegalStateException failure = assertThrows(IllegalStateException.class,
-                () -> fixture.service.generate(fixture.session.id(), fixture.session.ownerPlayerId(), SHORT_ADVENTURE));
+        AdventureStoryPlan plan = fixture.service.generate(
+                fixture.session.id(), fixture.session.ownerPlayerId(), SHORT_ADVENTURE);
 
-        assertEquals("story stage boss is not supported by source evidence", failure.getMessage());
+        assertEquals(AdventureStoryPlanStatus.BLOCKED, plan.status());
+        assertTrue(plan.failureReason().contains("story stage boss is not supported by source evidence"));
+        assertTrue(plan.failureReason().contains("story stage reward is not supported by source evidence"));
+        assertTrue(plan.failureReason().contains("story stage transition is not supported by source evidence"));
+        assertEquals(3, fixture.generator.outlineRequests.size());
+        assertEquals(List.of(), fixture.generator.outlineRequests.getFirst().violations());
+        assertTrue(fixture.generator.outlineRequests.get(1).violations()
+                .contains("story stage boss is not supported by source evidence"));
         assertEquals(0, fixture.generator.requests.size());
     }
 
@@ -195,7 +203,7 @@ class TacticalScenePlanGenerationRetryTest {
             mapId = UUID.randomUUID();
             UUID secondMapId = UUID.randomUUID();
             var sourceDocument = new KnowledgeDocumentId(UUID.randomUUID());
-            String sourceQuote = "The cellar includes combat, alarm, reinforcements, a boss transition, a reward, success, failure, exit, and surrender conditions.";
+            String sourceQuote = "The cellar includes entry, alarm, reinforcement, boss, reward, success, failure, exit, and surrender. The party leaves.";
             sourceCitation = new AdventureStoryPlanGenerationPort.SourceCitation(
                     "STORYBOOK", sourceDocument.value(), 1, "page:1", sourceQuote, 1.0);
             var sourceReference = new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(
@@ -255,8 +263,10 @@ class TacticalScenePlanGenerationRetryTest {
         private AdventureStoryPlanStage additionalTacticalStage;
         private final List<TacticalScenePlanCandidate> candidates = new ArrayList<>();
         private final List<TacticalSceneRequest> requests = new ArrayList<>();
+        private final List<Request> outlineRequests = new ArrayList<>();
         private int failuresRemaining;
         public List<AdventureStoryPlanStage> generate(Request request) {
+            outlineRequests.add(request);
             if (additionalTacticalStage != null) {
                 return List.of(stage, additionalTacticalStage,
                         new AdventureStoryPlanStage(3, "Finish", "Finish", "Choice", "Finish", List.of(), List.of("ending")));

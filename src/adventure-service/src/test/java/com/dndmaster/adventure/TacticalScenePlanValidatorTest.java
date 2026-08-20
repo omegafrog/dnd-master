@@ -18,8 +18,8 @@ class TacticalScenePlanValidatorTest {
                 "page:1", "The cellar contains a rat swarm.", 1.0);
         var scene = new TacticalScenePlan(1, TacticalScenePlanStatus.READY,
                 new TacticalSceneBoundary(new NormalizedCoordinate(0, 0), new NormalizedCoordinate(1, 1), List.of()),
-                List.of(new TacticalPlacement("hero", TacticalPlacementKind.PLAYER, new NormalizedCoordinate(.1, .1), PlacementGrounding.sourceCitation(source.documentId() + ":page:1"))),
-                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), new FogPlan(List.of(), PlacementGrounding.sourceCitation(source.documentId() + ":page:1")),
+                List.of(new TacticalPlacement("hero", TacticalPlacementKind.PLAYER, new NormalizedCoordinate(.1, .1), PlacementGrounding.sourceCitation(key(source)))),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), new FogPlan(List.of(), PlacementGrounding.sourceCitation(key(source))),
                 List.of(), List.of(), List.of());
         var request = new TacticalSceneRequest(new AdventureStoryPlanStage(1, "cellar", "goal", "conflict", "exit", List.of(), List.of()),
                 new AdventureStoryPlanGenerationPort.MapContext(UUID.randomUUID(), "map", "locator", "page:1", 1.0, "SAFE"), List.of(source), List.of());
@@ -119,13 +119,52 @@ class TacticalScenePlanValidatorTest {
         assertTrue(validate(evidence, scene).isEmpty());
     }
 
+    @Test
+    void rejectsCoreOutcomeWhenTheCitationQuoteDoesNotSupportItsClaim() {
+        var evidence = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "STORYBOOK", UUID.randomUUID(), 1, "page:1",
+                "Entry alarm reinforcement boss reward success failure exit surrender.", 1.0);
+        var source = PlacementGrounding.sourceCitation(key(evidence));
+        var scene = scene(requiredTriggers(source),
+                List.of(new TacticalOutcome("ending", "The party inherits the kingdom.", source)),
+                List.of(), source);
+
+        var violations = validate(evidence, scene);
+
+        assertTrue(violations.contains("tactical outcome is not supported by source evidence"));
+    }
+
+    @Test
+    void doesNotLetAGroundingCrossDocumentTypesAtTheSameDocumentAndLocator() {
+        var documentId = UUID.randomUUID();
+        String quote = "Entry alarm reinforcement boss reward success failure exit surrender. The party leaves safely.";
+        var storybook = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "STORYBOOK", documentId, 1, "page:1", quote, 1.0);
+        var rulebook = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "RULEBOOK", documentId, 1, "page:1", quote, 1.0);
+        var storybookGrounding = PlacementGrounding.sourceCitation(
+                "STORYBOOK:" + documentId + ":page:1");
+        var scene = scene(requiredTriggers(storybookGrounding),
+                List.of(new TacticalOutcome("ending", "The party leaves safely.", storybookGrounding)),
+                List.of(), storybookGrounding);
+        var request = new TacticalSceneRequest(
+                new AdventureStoryPlanStage(1, "cellar", "goal", "conflict", "exit", List.of(), List.of()),
+                new AdventureStoryPlanGenerationPort.MapContext(UUID.randomUUID(), "map", "locator", "page:1", 1.0, "SAFE"),
+                List.of(storybook, rulebook), List.of());
+
+        var violations = new TacticalScenePlanValidator().validate(
+                request, new TacticalScenePlanCandidate(1, scene, List.of(rulebook)));
+
+        assertTrue(violations.contains("tactical source fact was not supplied by the candidate"));
+    }
+
     private static AdventureStoryPlanGenerationPort.SourceCitation evidence() {
         return new AdventureStoryPlanGenerationPort.SourceCitation("STORYBOOK", UUID.randomUUID(), 1,
-                "page:1", "The cellar has planned combat and a safe exit.", 1.0);
+                "page:1", "Entry alarm reinforcement boss reward success failure exit surrender. The party leaves safely.", 1.0);
     }
 
     private static String key(AdventureStoryPlanGenerationPort.SourceCitation evidence) {
-        return evidence.documentId() + ":" + evidence.locator();
+        return TacticalScenePlanValidator.key(evidence);
     }
 
     private static List<String> validate(AdventureStoryPlanGenerationPort.SourceCitation evidence,

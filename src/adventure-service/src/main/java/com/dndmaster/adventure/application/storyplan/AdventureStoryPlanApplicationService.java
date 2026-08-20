@@ -79,15 +79,28 @@ public final class AdventureStoryPlanApplicationService {
         AdventureStoryPlanGenerationPort.Request request = new AdventureStoryPlanGenerationPort.Request(
                 UUID.randomUUID().toString(), session.scenarioPackageRevision(), session.party().size(),
                 configuration, sourceDocuments(session), resolutionEvidence(session), mapContexts(scenarioPackage), citations(session, scenarioPackage));
-        List<AdventureStoryPlanStage> stages;
-        try {
-            stages = generator.generate(request);
-        } catch (RuntimeException providerFailure) {
-            LOGGER.error("story plan generation failed; no fallback will be persisted", providerFailure);
-            throw providerFailure;
+        List<AdventureStoryPlanStage> stages = List.of();
+        List<String> outlineViolations = List.of();
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                stages = generator.generate(request);
+            } catch (RuntimeException providerFailure) {
+                LOGGER.error("story plan generation failed; no fallback will be persisted", providerFailure);
+                throw providerFailure;
+            }
+            validateMaps(stages, request.maps());
+            outlineViolations = validateStageSources(stages, request.citations());
+            if (outlineViolations.isEmpty()) break;
+            if (attempt == 3) {
+                AdventureStoryPlan blocked = AdventureStoryPlan.blocked(
+                        previous == null ? UUID.randomUUID() : previous.planId(), session.id(),
+                        session.scenarioPackageRevision(), session.version(), version, configuration, stages,
+                        String.join("; ", outlineViolations));
+                plans.save(blocked);
+                return blocked;
+            }
+            request = request.withViolations(outlineViolations);
         }
-        validateMaps(stages, request.maps());
-        validateStageSources(stages, request.citations());
         AdventureStoryPlanGraphValidator.validate(stages, configuration);
         try {
             stages = generateTacticalScenes(stages, request);
@@ -253,14 +266,15 @@ public final class AdventureStoryPlanApplicationService {
         });
     }
 
-    private void validateStageSources(
+    private List<String> validateStageSources(
             List<AdventureStoryPlanStage> stages,
             List<AdventureStoryPlanGenerationPort.SourceCitation> citations) {
+        List<String> violations = new ArrayList<>();
         for (AdventureStoryPlanStage stage : stages) {
             if (stage.mapDefinitionId() == null) continue;
-            List<String> violations = stageSourceValidator.validate(stage, citations);
-            if (!violations.isEmpty()) throw new IllegalStateException(violations.getFirst());
+            violations.addAll(stageSourceValidator.validate(stage, citations));
         }
+        return List.copyOf(violations);
     }
 
     private static AdventureStoryPlanStage stage(int position, String title, String goal, String conflict, String transition, String ending) {

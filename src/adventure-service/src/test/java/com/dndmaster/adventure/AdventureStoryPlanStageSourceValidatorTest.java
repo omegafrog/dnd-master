@@ -36,6 +36,17 @@ class AdventureStoryPlanStageSourceValidatorTest {
         assertTrue(new AdventureStoryPlanStageSourceValidator().validate(stage, List.of(citation)).isEmpty());
     }
 
+    @Test
+    void doesNotTreatPartialTokenMatchesAsSourceSupport() {
+        var citation = citation("A pirate captain guards the royal crown. The party can inherit the kingdom and reach the coronation ending.");
+        var stage = stage(citation, "rat", List.of("royal crown"),
+                "inherit the kingdom", "coronation-ending");
+
+        var violations = new AdventureStoryPlanStageSourceValidator().validate(stage, List.of(citation));
+
+        assertTrue(violations.contains("story stage boss is not supported by source evidence"));
+    }
+
     private static AdventureStoryPlanGenerationPort.SourceCitation citation(String quote) {
         return new AdventureStoryPlanGenerationPort.SourceCitation(
                 "STORYBOOK", UUID.randomUUID(), 1, "page:1", quote, 1.0);
