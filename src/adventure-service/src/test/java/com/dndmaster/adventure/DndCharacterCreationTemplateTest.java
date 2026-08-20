@@ -35,10 +35,19 @@ class DndCharacterCreationTemplateTest {
         assertEquals(InputMode.FIXED_VALUE, blueprint.field("level").inputMode());
         assertEquals(List.of("드워프", "엘프", "인간", "하플링"), blueprint.field("race").options());
         assertEquals(List.of("로그", "위저드", "클레릭", "파이터"), blueprint.field("class").options());
-        assertEquals(List.of("수행사제", "사기꾼", "범죄자", "연예인", "민중 영웅", "길드 장인", "은둔자", "귀족", "이방인", "현자", "선원", "군인", "부랑아"),
+        assertEquals(List.of("시프", "방출학파", "변환학파", "사령학파", "예지학파", "조형학파", "환영학파", "환혹학파", "챔피언", "생명 권역"),
+                blueprint.field("subclass").options());
+        assertTrue(blueprint.field("subclass").optionDetails().stream()
+                .allMatch(detail -> detail.sourceQuote().startsWith("dnd5th.pdf")));
+        assertEquals(List.of("복사", "사기꾼", "범죄자", "연예인", "시골 영웅", "길드 장인", "은둔자", "귀족", "이방인", "학자", "선원", "군인", "부랑아"),
                 blueprint.field("background").options());
         assertEquals(List.of("CLASS_AND_BACKGROUND", "STARTING_GOLD"),
                 blueprint.field("equipment.acquisition_method").options());
+        assertTrue(blueprint.field("magic.cantrips").options().containsAll(List.of("안내", "전격의 손아귀", "신성한 불길")));
+        assertFalse(blueprint.field("magic.cantrips").options().contains("가이던스"));
+        assertTrue(blueprint.field("magic.spells").options().containsAll(List.of("축복", "유도 화살", "마법 화살")));
+        assertTrue(blueprint.field("magic.cantrips").options().size() > 10);
+        assertTrue(blueprint.field("magic.spells").options().size() > 10);
         for (String key : List.of("subrace", "subclass", "class.skill_choices", "magic.spells",
                 "personality_traits", "ideals", "bonds", "flaws")) {
             assertFalse(blueprint.field(key).required(), key);
@@ -62,6 +71,18 @@ class DndCharacterCreationTemplateTest {
         assertEquals(List.of("엘프", "인간"), blueprint.field("race").suggestions());
         assertEquals("CONFLICT_REVIEW", blueprint.field("race").inputStatus());
         assertTrue(blueprint.field("race").diagnostics().stream().anyMatch(value -> value.contains("스토리북 제안")));
+    }
+
+    @Test
+    void preserves_storybook_candidate_label_when_overlaying_a_template_field() {
+        CharacterCreationBlueprint extracted = new CharacterCreationBlueprint(1, CharacterCreationBlueprintStatus.NEEDS_REVIEW,
+                List.of(new CharacterCreationBlueprint.Field("race", List.of("엘프"), true, "STORYBOOK", List.of(STORYBOOK),
+                        "CONFLICT_REVIEW", List.of(), InputMode.SINGLE_SELECT, List.of(), "Only elves.",
+                        "Campaign race", null, "race-node", null, "HIGH")), List.of());
+
+        CharacterCreationBlueprint blueprint = DndCharacterCreationTemplate.apply("DND_5E_2014", extracted);
+
+        assertEquals("Campaign race", blueprint.field("race").label());
     }
 
     @Test
@@ -103,7 +124,7 @@ class DndCharacterCreationTemplateTest {
         CharacterCreationBlueprint blueprint = DndCharacterCreationTemplate.apply("DND_5E_2014", extracted);
 
         assertEquals(List.of("로그", "위저드", "클레릭", "파이터"), blueprint.field("class").options());
-        assertEquals(List.of("수행사제", "사기꾼", "범죄자", "연예인", "민중 영웅", "길드 장인", "은둔자", "귀족", "이방인", "현자", "선원", "군인", "부랑아"),
+        assertEquals(List.of("복사", "사기꾼", "범죄자", "연예인", "시골 영웅", "길드 장인", "은둔자", "귀족", "이방인", "학자", "선원", "군인", "부랑아"),
                 blueprint.field("background").options());
         assertFalse(blueprint.field("class").options().contains("Fighter"));
         assertFalse(blueprint.field("background").options().contains("Soldier"));

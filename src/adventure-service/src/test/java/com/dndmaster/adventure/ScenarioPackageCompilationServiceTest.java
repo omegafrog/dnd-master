@@ -196,6 +196,24 @@ class ScenarioPackageCompilationServiceTest {
     }
 
     @Test
+    void acceptsRechargeRangesAsRechargeRulesInsteadOfDiceExpressions() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackageCompilationService service = new ScenarioPackageCompilationService(new InMemoryPackageRepository());
+        ResolutionCandidate candidate = new ResolutionCandidate(
+                com.dndmaster.adventure.domain.scenario.ResolutionKind.RECHARGE_ROLL,
+                null, null, "5-6",
+                com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
+                "Burning Web (Recharge 5-6)",
+                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 1, "page:1:span:1")),
+                "source text", null);
+
+        var unit = service.compile(bundle(documentId, 1), List.of(candidate)).units().get(0);
+
+        assertEquals("COMPLETE", unit.status().name());
+        assertEquals(List.of("RECHARGE"), unit.runtimeCapabilities());
+    }
+
+    @Test
     void rejectsPlayerSafeOutputForMainScenarioAndPreservesProvenance() {
         KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(documentId, 1);

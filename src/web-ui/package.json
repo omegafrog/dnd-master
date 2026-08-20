@@ -12,7 +12,8 @@
     "test:e2e": "playwright test",
     "test:e2e:backend": "playwright test e2e/backend-runtime-binding.spec.ts",
     "test:e2e:character": "playwright test e2e/backend-character-creation.spec.ts",
-    "test:e2e:character:fresh": "playwright test e2e/backend-character-bootstrap.spec.ts"
+    "test:e2e:character:fresh": "playwright test e2e/backend-character-bootstrap.spec.ts",
+    "test:e2e:character:ui": "playwright test e2e/backend-character-ui.spec.ts"
   },
   "dependencies": {
     "@fontsource-variable/noto-sans-kr": "^5.3.0",

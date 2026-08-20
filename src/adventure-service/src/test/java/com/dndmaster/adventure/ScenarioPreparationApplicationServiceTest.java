@@ -19,6 +19,7 @@ import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus;
+import com.dndmaster.adventure.domain.scenario.BlueprintProvenance;
 import com.dndmaster.adventure.domain.scenario.ResolutionKind;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
@@ -37,6 +38,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
@@ -392,6 +395,8 @@ class ScenarioPreparationApplicationServiceTest {
         assertTrue(preparation.characterCreationBlueprint().available());
         assertEquals(0, preparation.characterCreationBlueprint().rulebookDocumentCount());
         assertEquals(1, preparation.characterCreationBlueprint().storybookDocumentCount());
+        assertEquals(CharacterCreationBlueprintView.StorybookExtractionState.NO_PROPOSALS,
+                preparation.characterCreationBlueprint().storybookExtractionState());
     }
 
     @Test
@@ -415,6 +420,156 @@ class ScenarioPreparationApplicationServiceTest {
         assertEquals(List.of("search", "move"), options.defaultToolIds());
         assertTrue(options.engines().stream().anyMatch(option -> option.id().equals("ollama") && option.selectedByDefault()));
         assertTrue(options.tools().stream().anyMatch(option -> option.id().equals("search") && option.selectedByDefault()));
+    }
+
+    @Test
+    void serializes_read_model_with_separated_base_proposals_and_insufficient_evidence_state() throws Exception {
+        var packages = mock(ScenarioPackageRepository.class);
+        var bundles = mock(ScenarioBundleRepository.class);
+        var storybook = new KnowledgeDocumentId(storybookDocumentId());
+        var blueprint = new CharacterCreationBlueprint(1, CharacterCreationBlueprintStatus.NEEDS_REVIEW, List.of(
+                new CharacterCreationBlueprint.Field("race", List.of("Elf"), true, "TEMPLATE", List.of(),
+                        "EXTRACTED", List.of(), com.dndmaster.adventure.domain.scenario.InputMode.SINGLE_SELECT,
+                        List.of(), "", "Race", null, "template-race", null, "HIGH"),
+                new CharacterCreationBlueprint.Field("alignment", List.of("Grove-bound"), true, "STORYBOOK", List.of(),
+                        "CONFLICT_REVIEW", List.of(), com.dndmaster.adventure.domain.scenario.InputMode.SINGLE_SELECT,
+                        List.of(), "", "Alignment", null, "proposal-alignment", null, "LOW"),
+                new CharacterCreationBlueprint.Field("alignment", List.of("Dawn-bound"), true, "STORYBOOK", List.of(),
+                        "CONFLICT_REVIEW", List.of(), com.dndmaster.adventure.domain.scenario.InputMode.SINGLE_SELECT,
+                        List.of(), "", "Alignment", null, "proposal-alignment-2", null, "LOW")),
+                List.of(), new BlueprintProvenance(1, 4, List.of("TEMPLATE", "STORYBOOK"), "DND_5E_2014"));
+        var scenarioPackage = ScenarioPackage.publish(new ScenarioBundleId(bundleId()), 4, "fp-review-contract",
+                bundleWithRulebook().currentRevision().documents(), List.of(validUnit()),
+                new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()),
+                com.dndmaster.adventure.domain.scenario.CharacterLimit.defaultLimit(), blueprint);
+        when(packages.findById(scenarioPackage.packageId())).thenReturn(Optional.of(scenarioPackage));
+        when(bundles.findById(scenarioPackage.bundleId())).thenReturn(Optional.of(bundleWithRulebook()));
+
+        var view = new ScenarioPreparationApplicationService(packages, bundles, fixtureRuntimeOptions())
+                .read(scenarioPackage.packageId(), owner());
+        JsonNode json = new ObjectMapper().valueToTree(view);
+
+        assertEquals("race", json.at("/characterCreationBlueprint/baseSchema/fields/0/key").asText());
+        assertTrue(json.at("/characterCreationBlueprint/storybookProposals").isArray());
+        assertEquals("alignment", json.at("/characterCreationBlueprint/storybookProposals/0/key").asText());
+        assertEquals(2, json.at("/characterCreationBlueprint/storybookProposals").size());
+        assertTrue(!json.at("/characterCreationBlueprint/storybookProposals/0/proposalId").asText()
+                .equals(json.at("/characterCreationBlueprint/storybookProposals/1/proposalId").asText()));
+        assertEquals("INSUFFICIENT_EVIDENCE", json.at("/characterCreationBlueprint/storybookExtractionState").asText());
+        assertEquals("NEEDS_EVIDENCE", json.at("/characterCreationBlueprint/storybookProposals/0/decisionState").asText());
+        assertEquals("INSUFFICIENT_EVIDENCE", json.at("/characterCreationBlueprint/storybookProposals/0/readinessState").asText());
+    }
+
+    @Test
+    void serializes_candidate_label_description_and_per_evidence_quote() throws Exception {
+        var packages = mock(ScenarioPackageRepository.class);
+        var bundles = mock(ScenarioBundleRepository.class);
+        var storybook = new KnowledgeDocumentId(storybookDocumentId());
+        var evidence = new ScenarioSourceReference(storybook, 1, "page:8");
+        var blueprint = new CharacterCreationBlueprint(1, CharacterCreationBlueprintStatus.NEEDS_REVIEW,
+                List.of(new CharacterCreationBlueprint.Field("alignment", List.of("Grove-bound"), true, "STORYBOOK",
+                        List.of(evidence), "CONFLICT_REVIEW", List.of(), com.dndmaster.adventure.domain.scenario.InputMode.SINGLE_SELECT,
+                        List.of(), "Field quote", "Seasonal alignment", null, "proposal", null, "HIGH",
+                        List.of(new CharacterCreationBlueprint.Field.OptionDetail("Grove-bound", "Grove-bound",
+                                "Candidate description", "Option evidence quote", List.of(evidence))))), List.of());
+        var scenarioPackage = ScenarioPackage.publish(new ScenarioBundleId(bundleId()), 4, "fp-proposal-metadata",
+                bundleWithRulebook().currentRevision().documents(), List.of(validUnit()),
+                new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()),
+                com.dndmaster.adventure.domain.scenario.CharacterLimit.defaultLimit(), blueprint);
+        when(packages.findById(scenarioPackage.packageId())).thenReturn(Optional.of(scenarioPackage));
+        when(bundles.findById(scenarioPackage.bundleId())).thenReturn(Optional.of(bundleWithRulebook()));
+
+        JsonNode json = new ObjectMapper().valueToTree(new ScenarioPreparationApplicationService(packages, bundles, fixtureRuntimeOptions())
+                .read(scenarioPackage.packageId(), owner()));
+        JsonNode proposal = json.at("/characterCreationBlueprint/storybookProposals/0");
+
+        assertEquals("Seasonal alignment", proposal.at("/label").asText());
+        assertEquals("Candidate description", proposal.at("/description").asText());
+        assertEquals("Option evidence quote", proposal.at("/evidence/0/excerpt").asText());
+    }
+
+    @Test
+    void reports_extraction_failure_from_storybook_document_status() {
+        var packages = mock(ScenarioPackageRepository.class);
+        var bundles = mock(ScenarioBundleRepository.class);
+        var failedStorybook = new ScenarioBundleDocumentSelection(new KnowledgeDocumentId(storybookDocumentId()),
+                ScenarioBundleDocumentRole.MAIN_SCENARIO, KnowledgeDocumentStatus.FAILED, "story.pdf", "STORYBOOK", 1);
+        var bundle = ScenarioSourceBundle.create(new ScenarioBundleId(bundleId()), owner(),
+                new ScenarioSourceBundleRevision(4, List.of(failedStorybook)));
+        var scenarioPackage = ScenarioPackage.publish(new ScenarioBundleId(bundleId()), 4, "fp-failed-storybook",
+                List.of(failedStorybook), List.of(validUnit()),
+                new ScenarioCompilationReport(ResolutionStatus.INVALID, List.of("storybook extraction failed")));
+        when(packages.findById(scenarioPackage.packageId())).thenReturn(Optional.of(scenarioPackage));
+        when(bundles.findById(scenarioPackage.bundleId())).thenReturn(Optional.of(bundle));
+
+        var view = new ScenarioPreparationApplicationService(packages, bundles, fixtureRuntimeOptions())
+                .read(scenarioPackage.packageId(), owner());
+
+        assertEquals(CharacterCreationBlueprintView.StorybookExtractionState.EXTRACTION_FAILED,
+                view.characterCreationBlueprint().storybookExtractionState());
+    }
+
+    @Test
+    void maps_partial_and_mixed_storybook_document_states_without_collapsing_to_no_proposals() {
+        var packages = mock(ScenarioPackageRepository.class);
+        var bundles = mock(ScenarioBundleRepository.class);
+        var currentPackage = new ScenarioPackage[1];
+        when(packages.findById(any(UUID.class))).thenAnswer(ignored -> Optional.of(currentPackage[0]));
+        when(bundles.findById(any(ScenarioBundleId.class))).thenAnswer(invocation -> {
+            var documents = currentPackage[0].documents();
+            return Optional.of(ScenarioSourceBundle.create(new ScenarioBundleId(bundleId()), owner(),
+                    new ScenarioSourceBundleRevision(4, documents)));
+        });
+        var service = new ScenarioPreparationApplicationService(packages, bundles, fixtureRuntimeOptions());
+
+        for (KnowledgeDocumentStatus status : List.of(KnowledgeDocumentStatus.PARTIAL_AWAITING_CONFIRMATION,
+                KnowledgeDocumentStatus.PARTIAL_CONFIRMED)) {
+            var document = new ScenarioBundleDocumentSelection(new KnowledgeDocumentId(storybookDocumentId()),
+                    ScenarioBundleDocumentRole.MAIN_SCENARIO, status, "story.pdf", "STORYBOOK", 1);
+            currentPackage[0] = ScenarioPackage.publish(new ScenarioBundleId(bundleId()), 4,
+                    "fp-" + status, List.of(document), List.of(validUnit()),
+                    new ScenarioCompilationReport(ResolutionStatus.INVALID, List.of("partial storybook")));
+
+            var state = service.read(currentPackage[0].packageId(), owner()).characterCreationBlueprint().storybookExtractionState();
+            assertEquals(status == KnowledgeDocumentStatus.PARTIAL_AWAITING_CONFIRMATION
+                            ? CharacterCreationBlueprintView.StorybookExtractionState.EXTRACTION_PARTIAL_AWAITING_CONFIRMATION
+                            : CharacterCreationBlueprintView.StorybookExtractionState.EXTRACTION_PARTIAL_CONFIRMED,
+                    state);
+        }
+
+        var awaiting = new ScenarioBundleDocumentSelection(new KnowledgeDocumentId(storybookDocumentId()),
+                ScenarioBundleDocumentRole.MAIN_SCENARIO, KnowledgeDocumentStatus.PARTIAL_AWAITING_CONFIRMATION,
+                "story.pdf", "STORYBOOK", 1);
+        var confirmed = new ScenarioBundleDocumentSelection(new KnowledgeDocumentId(UUID.fromString("88888888-8888-8888-8888-888888888888")),
+                ScenarioBundleDocumentRole.REFERENCE, KnowledgeDocumentStatus.PARTIAL_CONFIRMED, "appendix.pdf", "STORYBOOK", 1);
+        currentPackage[0] = ScenarioPackage.publish(new ScenarioBundleId(bundleId()), 4, "fp-mixed-partial",
+                List.of(awaiting, confirmed), List.of(validUnit()),
+                new ScenarioCompilationReport(ResolutionStatus.INVALID, List.of("mixed partial storybooks")));
+
+        assertEquals(CharacterCreationBlueprintView.StorybookExtractionState.EXTRACTION_MIXED,
+                service.read(currentPackage[0].packageId(), owner()).characterCreationBlueprint().storybookExtractionState());
+    }
+
+    @Test
+    void reports_proposals_available_when_storybook_proposal_has_grounded_evidence() {
+        var packages = mock(ScenarioPackageRepository.class);
+        var bundles = mock(ScenarioBundleRepository.class);
+        var storybook = new KnowledgeDocumentId(storybookDocumentId());
+        var evidence = new ScenarioSourceReference(storybook, 1, "page:8");
+        var blueprint = new CharacterCreationBlueprint(1, CharacterCreationBlueprintStatus.NEEDS_REVIEW,
+                List.of(new CharacterCreationBlueprint.Field("alignment", List.of("Grove-bound"), true, "STORYBOOK",
+                        List.of(evidence), "CONFLICT_REVIEW", List.of(), com.dndmaster.adventure.domain.scenario.InputMode.SINGLE_SELECT,
+                        List.of(), "Only grove-bound heroes.", "Alignment", null, "proposal", null, "HIGH")), List.of());
+        var scenarioPackage = ScenarioPackage.publish(new ScenarioBundleId(bundleId()), 4, "fp-available-proposal",
+                bundleWithRulebook().currentRevision().documents(), List.of(validUnit()),
+                new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()),
+                com.dndmaster.adventure.domain.scenario.CharacterLimit.defaultLimit(), blueprint);
+        when(packages.findById(scenarioPackage.packageId())).thenReturn(Optional.of(scenarioPackage));
+        when(bundles.findById(scenarioPackage.bundleId())).thenReturn(Optional.of(bundleWithRulebook()));
+
+        assertEquals(CharacterCreationBlueprintView.StorybookExtractionState.PROPOSALS_AVAILABLE,
+                new ScenarioPreparationApplicationService(packages, bundles, fixtureRuntimeOptions())
+                        .read(scenarioPackage.packageId(), owner()).characterCreationBlueprint().storybookExtractionState());
     }
 
     @Test

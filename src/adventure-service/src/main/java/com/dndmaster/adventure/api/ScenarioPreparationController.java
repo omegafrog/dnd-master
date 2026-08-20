@@ -71,12 +71,29 @@ public class ScenarioPreparationController {
                 request.expectedRevision(), request.fieldKey(), request.option());
     }
 
+    @PostMapping("/scenario-packages/{scenarioPackageId}/character-blueprint/proposals/{proposalId}/use")
+    com.dndmaster.adventure.application.scenario.preparation.CharacterCreationBlueprintView useStorybookProposal(
+            @PathVariable UUID scenarioPackageId, @PathVariable String proposalId,
+            @RequestBody ProposalDecisionRequest request) {
+        return service.useStorybookProposal(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()),
+                request.expectedRevision(), proposalId);
+    }
+
+    @PostMapping("/scenario-packages/{scenarioPackageId}/character-blueprint/proposals/{proposalId}/exclude")
+    com.dndmaster.adventure.application.scenario.preparation.CharacterCreationBlueprintView excludeStorybookProposal(
+            @PathVariable UUID scenarioPackageId, @PathVariable String proposalId,
+            @RequestBody ProposalDecisionRequest request) {
+        return service.excludeStorybookProposal(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()),
+                request.expectedRevision(), proposalId);
+    }
+
     @PostMapping("/scenario-packages/{scenarioPackageId}/character-blueprint/publish")
-    com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint publishBlueprint(@PathVariable UUID scenarioPackageId) {
+    com.dndmaster.adventure.application.scenario.preparation.BlueprintPublicationResult publishBlueprint(@PathVariable UUID scenarioPackageId) {
         return service.publishBlueprint(scenarioPackageId, new OwnerPlayerId(playerResolver.playerId()));
     }
 
     record BlueprintResolutionRequest(long expectedRevision, String fieldKey, String value) {}
     record AddChildRequest(long expectedRevision, String parentId, String key, String label) {}
     record AddOptionRequest(long expectedRevision, String fieldKey, String option) {}
+    record ProposalDecisionRequest(long expectedRevision) {}
 }

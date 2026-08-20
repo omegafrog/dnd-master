@@ -13,10 +13,15 @@ public record CharacterCreationBlueprint(
         CharacterCreationBlueprintStatus status,
         List<Field> fields,
         List<String> diagnostics,
-        BlueprintProvenance provenance) {
+        BlueprintProvenance provenance,
+        List<StorybookProposalDecision> proposalDecisions) {
     public CharacterCreationBlueprint(long revision, CharacterCreationBlueprintStatus status,
             List<Field> fields, List<String> diagnostics) {
-        this(revision, status, fields, diagnostics, BlueprintProvenance.empty());
+        this(revision, status, fields, diagnostics, BlueprintProvenance.empty(), List.of());
+    }
+    public CharacterCreationBlueprint(long revision, CharacterCreationBlueprintStatus status,
+            List<Field> fields, List<String> diagnostics, BlueprintProvenance provenance) {
+        this(revision, status, fields, diagnostics, provenance, List.of());
     }
     public CharacterCreationBlueprint {
         if (revision <= 0) throw new IllegalArgumentException("blueprint revision must be positive");
@@ -24,10 +29,60 @@ public record CharacterCreationBlueprint(
         fields = List.copyOf(Objects.requireNonNull(fields, "fields must not be null"));
         diagnostics = List.copyOf(Objects.requireNonNull(diagnostics, "diagnostics must not be null"));
         provenance = Objects.requireNonNull(provenance, "provenance must not be null");
+        proposalDecisions = List.copyOf(proposalDecisions == null ? List.of() : proposalDecisions);
     }
 
     public CharacterCreationBlueprint withProvenance(BlueprintProvenance next) {
-        return new CharacterCreationBlueprint(revision, status, fields, diagnostics, next);
+        return new CharacterCreationBlueprint(revision, status, fields, diagnostics, next, proposalDecisions);
+    }
+
+    public CharacterCreationBlueprint withProposalDecisions(List<StorybookProposalDecision> next) {
+        return new CharacterCreationBlueprint(revision, status, fields, diagnostics, provenance, next);
+    }
+
+    public StorybookProposalDecision decision(String proposalId) {
+        return proposalDecisions.stream().filter(decision -> decision.proposalId().equals(proposalId)).findFirst()
+                .orElseThrow(() -> new IllegalArgumentException("unknown storybook proposal: " + proposalId));
+    }
+
+    public CharacterCreationBlueprint decideProposal(String proposalId, ProposalDecisionState nextState,
+                                                      boolean hasEvidence) {
+        if (status == CharacterCreationBlueprintStatus.PUBLISHED) {
+            throw new IllegalStateException("published blueprint is immutable");
+        }
+        if (nextState != ProposalDecisionState.APPLIED && nextState != ProposalDecisionState.EXCLUDED) {
+            throw new IllegalArgumentException("proposal command must decide use or exclude");
+        }
+        decision(proposalId);
+        if (nextState == ProposalDecisionState.APPLIED && !hasEvidence) {
+            throw new StorybookProposalEvidenceRequiredException(proposalId);
+        }
+        List<StorybookProposalDecision> next = proposalDecisions.stream()
+                .map(item -> item.proposalId().equals(proposalId)
+                        ? new StorybookProposalDecision(item.proposalId(), item.fieldKey(), nextState) : item)
+                .toList();
+        return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.NEEDS_REVIEW,
+                fields, diagnostics, provenance, next);
+    }
+
+    public List<Field> appliedProjection() {
+        return fields.stream().filter(field -> !"STORYBOOK".equalsIgnoreCase(field.sourceType())
+                || proposalDecisions.stream().anyMatch(decision -> decision.fieldKey().equals(field.key())
+                && decision.state() == ProposalDecisionState.APPLIED)).toList();
+    }
+
+    public int unresolvedProposalCount() {
+        return (int) proposalDecisions.stream().filter(decision -> decision.state() == ProposalDecisionState.UNDECIDED
+                || decision.state() == ProposalDecisionState.NEEDS_EVIDENCE).count();
+    }
+
+    public boolean baseSchemaValid() {
+        List<Field> baseFields = fields.stream()
+                .filter(field -> !"STORYBOOK".equalsIgnoreCase(field.sourceType()))
+                .toList();
+        return !baseFields.isEmpty() && baseFields.stream().allMatch(field -> field.diagnostics().isEmpty()
+                && !"MANUAL_INPUT_REQUIRED".equals(field.inputStatus())
+                && !"CONFLICT_REVIEW".equals(field.inputStatus()));
     }
 
 
@@ -95,7 +150,7 @@ public record CharacterCreationBlueprint(
         List<Field> next = new ArrayList<>(fields);
         next.add(child);
         return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.NEEDS_REVIEW,
-                next, diagnostics, provenance);
+                next, diagnostics, provenance, proposalDecisions);
     }
 
     private static List<CharacterInputNode> flatten(List<CharacterInputNode> nodes) {
@@ -176,7 +231,7 @@ public record CharacterCreationBlueprint(
         List<String> nextDiagnostics = diagnostics.stream()
                 .filter(diagnostic -> !diagnostic.startsWith(key + ":"))
                 .toList();
-        return new CharacterCreationBlueprint(revision + 1, nextStatus, next, nextDiagnostics, provenance);
+        return new CharacterCreationBlueprint(revision + 1, nextStatus, next, nextDiagnostics, provenance, proposalDecisions);
     }
 
     public CharacterCreationBlueprint addOption(String key, String option) {
@@ -194,7 +249,7 @@ public record CharacterCreationBlueprint(
                     field.nodeId(), field.parentNodeId(), field.confidence(), field.optionDetails());
         }).toList();
         if (next.equals(fields)) throw new IllegalArgumentException("unknown blueprint field: " + key);
-        return new CharacterCreationBlueprint(revision + 1, status, next, diagnostics, provenance);
+        return new CharacterCreationBlueprint(revision + 1, status, next, diagnostics, provenance, proposalDecisions);
     }
 
     public CharacterCreationBlueprint replaceField(Field replacement) {
@@ -202,7 +257,7 @@ public record CharacterCreationBlueprint(
         boolean found = fields.stream().anyMatch(field -> field.key().equals(replacement.key()));
         if (!found) throw new IllegalArgumentException("unknown blueprint field: " + replacement.key());
         List<Field> next = fields.stream().map(field -> field.key().equals(replacement.key()) ? replacement : field).toList();
-        return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.NEEDS_REVIEW, next, diagnostics, provenance);
+        return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.NEEDS_REVIEW, next, diagnostics, provenance, proposalDecisions);
     }
 
     public CharacterCreationBlueprint upsertField(Field replacement) {
@@ -210,7 +265,7 @@ public record CharacterCreationBlueprint(
         if (status == CharacterCreationBlueprintStatus.PUBLISHED) throw new IllegalStateException("published blueprint is immutable");
         List<Field> next = new ArrayList<>(fields);
         next.add(replacement);
-        return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.NEEDS_REVIEW, next, diagnostics, provenance);
+        return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.NEEDS_REVIEW, next, diagnostics, provenance, proposalDecisions);
     }
 
     /** Composes enrichment into a user resolution that already advanced the revision. */
@@ -220,14 +275,18 @@ public record CharacterCreationBlueprint(
         int index = java.util.stream.IntStream.range(0, next.size())
                 .filter(i -> next.get(i).key().equals(replacement.key())).findFirst().orElse(-1);
         if (index < 0) next.add(replacement); else next.set(index, replacement);
-        return new CharacterCreationBlueprint(revision, CharacterCreationBlueprintStatus.NEEDS_REVIEW, next, diagnostics, provenance);
+        return new CharacterCreationBlueprint(revision, CharacterCreationBlueprintStatus.NEEDS_REVIEW, next, diagnostics, provenance, proposalDecisions);
     }
 
     public CharacterCreationBlueprint publish() {
-        if (status != CharacterCreationBlueprintStatus.READY) {
-            throw new IllegalStateException("blueprint has unresolved review items");
+        if (unresolvedProposalCount() > 0) {
+            throw new CharacterCreationBlueprintPublicationBlockedException("storybook proposals require a decision before publication");
         }
-        return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.PUBLISHED, fields, diagnostics, provenance);
+        if (!baseSchemaValid()) {
+            throw new CharacterCreationBlueprintPublicationBlockedException("rulebook base schema is invalid");
+        }
+        return new CharacterCreationBlueprint(revision + 1, CharacterCreationBlueprintStatus.PUBLISHED,
+                appliedProjection(), diagnostics, provenance, proposalDecisions);
     }
 
     public record Field(String key, List<String> options, boolean required, String sourceType,

@@ -73,7 +73,7 @@ public final class DndCharacterCreationTemplate {
             List<String> diagnostics = union(base.diagnostics(), discovered.diagnostics(), List.of(STORY_PROPOSAL));
             return new CharacterCreationBlueprint.Field(base.key(), base.options(), base.required(), "STORYBOOK",
                     discovered.evidence(), "CONFLICT_REVIEW", diagnostics, base.inputMode(), suggestions,
-                    discovered.sourceQuote(), base.label(), base.value(), base.nodeId(), base.parentNodeId(),
+                    discovered.sourceQuote(), discovered.label(), base.value(), base.nodeId(), base.parentNodeId(),
                     discovered.confidence(), discovered.optionDetails());
         }
         if ("RULEBOOK".equals(discovered.sourceType()) && !discovered.options().isEmpty()) {
@@ -122,8 +122,9 @@ public final class DndCharacterCreationTemplate {
             case "subrace" -> List.of("언덕 드워프", "산 드워프", "하이 엘프", "우드 엘프", "라이트풋 하플링", "스타우트 하플링");
             case "race.option_selections" -> List.of("추가 언어: 공용어", "추가 언어: 드워프어", "추가 언어: 엘프어", "추가 언어: 하플링어", "추가 언어: 드루이드어", "추가 언어: 용언", "추가 언어: 지하 공용어", "능력치 보너스: 힘", "능력치 보너스: 민첩", "능력치 보너스: 건강", "능력치 보너스: 지능", "능력치 보너스: 지혜", "능력치 보너스: 매력");
             case "class" -> List.of("로그", "위저드", "클레릭", "파이터");
-            case "background" -> List.of("수행사제", "사기꾼", "범죄자", "연예인", "민중 영웅", "길드 장인", "은둔자", "귀족", "이방인", "현자", "선원", "군인", "부랑아");
-            case "class.skill_choices" -> List.of("곡예", "동물 조련", "비전학", "운동", "기만", "역사", "통찰", "위협", "수사", "의학", "자연", "지각", "공연", "설득", "종교", "손재주", "은신", "생존");
+            case "subclass" -> List.of("시프", "방출학파", "변환학파", "사령학파", "예지학파", "조형학파", "환영학파", "환혹학파", "챔피언", "생명 권역");
+            case "background" -> List.of("복사", "사기꾼", "범죄자", "연예인", "시골 영웅", "길드 장인", "은둔자", "귀족", "이방인", "학자", "선원", "군인", "부랑아");
+            case "class.skill_choices" -> List.of("곡예", "동물 조련", "비전학", "운동", "기만", "역사", "통찰", "위협", "수사", "의학", "자연", "지각", "공연", "설득", "종교", "손속임", "은신", "생존");
             case "ability_score_method" -> List.of("STANDARD_ARRAY", "ROLL_4D6_DROP_LOWEST", "POINT_BUY");
             case "starting_ability_scores.strength", "starting_ability_scores.dexterity",
                     "starting_ability_scores.constitution", "starting_ability_scores.intelligence",
@@ -131,6 +132,13 @@ public final class DndCharacterCreationTemplate {
                     List.of("15", "14", "13", "12", "10", "8");
             case "alignment" -> List.of("질서 선", "중립 선", "혼돈 선", "질서 중립", "중립", "혼돈 중립", "질서 악", "중립 악", "혼돈 악");
             case "equipment.acquisition_method" -> List.of("CLASS_AND_BACKGROUND", "STARTING_GOLD");
+            case "magic.cantrips" -> List.of(
+                    "단순마술", "빈사 안정", "빛", "신성한 불길", "안내", "저항",
+                    "독 분사", "마법사의 손", "산성 거품", "서리 광선", "요술", "전격의 손아귀",
+                    "춤추는 빛", "하급 환영", "화염 화살");
+            case "magic.spells" -> List.of(
+                    "마법 탐지", "명령", "상처 가해", "상처 치료", "성역화", "신앙의 방패", "유도 화살", "축복", "치유의 단어",
+                    "마법 갑주", "마법 화살", "방패", "수면", "식별", "언어 변환", "인간형 매혹", "자기 위장", "조용한 영상", "천둥파도", "타오르는 손길");
             default -> List.of();
         };
         String inputStatus = "TEMPLATE".equals(spec.origin()) ? "EXTRACTED" : "MANUAL_INPUT_REQUIRED";
@@ -159,7 +167,19 @@ public final class DndCharacterCreationTemplate {
     private static List<CharacterCreationBlueprint.Field.OptionDetail> optionDetails(String key, List<String> options) {
         if (options.isEmpty()) return List.of();
         return options.stream().map(value -> new CharacterCreationBlueprint.Field.OptionDetail(
-                value, value, optionDescription(key, value), "", List.of())).toList();
+                value, value, optionDescription(key, value), optionSourceQuote(key, value), List.of())).toList();
+    }
+
+    private static String optionSourceQuote(String key, String value) {
+        if ("subclass".equals(key)) return switch (value) {
+            case "시프" -> "dnd5th.pdf · 로그 아키타입 · 시프";
+            case "챔피언" -> "dnd5th.pdf · 무예 아키타입 · 챔피언";
+            case "생명 권역" -> "dnd5th.pdf · 신성 권역 · 생명 권역";
+            default -> "dnd5th.pdf · 비전 전통 · " + value;
+        };
+        if ("background".equals(key)) return "dnd5th.pdf · 제4장 개성과 배경 · " + value;
+        if ("magic.cantrips".equals(key) || "magic.spells".equals(key)) return "dnd5th.pdf · 제11장 주문 · " + value;
+        return "";
     }
 
     private static String optionDescription(String key, String value) {
@@ -177,17 +197,26 @@ public final class DndCharacterCreationTemplate {
             case "하플링" -> "작고 민첩하며 용감하고 운이 좋은 종족";
             default -> "종족 설명";
         };
+        if ("subclass".equals(key)) return switch (value) {
+            case "시프" -> "로그 3레벨 아키타입. 도둑질과 손속임, 은신을 전문으로 합니다.";
+            case "방출학파" -> "위저드 2레벨 비전 전통. 강력한 원소 효과를 다루는 마법 학파입니다.";
+            case "변환학파", "사령학파", "예지학파", "조형학파", "환영학파", "환혹학파" ->
+                    "위저드 2레벨에 선택할 수 있는 비전 전통 학파입니다. 이 문서에는 학파 이름만 수록되어 있습니다.";
+            case "챔피언" -> "파이터 3레벨 무예 아키타입. 육체 능력과 치명타를 연마합니다.";
+            case "생명 권역" -> "클레릭 1레벨 신성 권역. 생명과 건강을 수호하고 상처 입은 이를 치료합니다.";
+            default -> "하위 클래스 설명";
+        };
         if ("background".equals(key)) return switch (value) {
-            case "수행사제" -> "신전과 종교 공동체에서 봉사하며 신앙을 배운 배경";
+            case "복사" -> "신전과 종교 공동체에서 봉사하며 신앙을 배운 배경";
             case "사기꾼" -> "거짓 신분과 속임수로 살아온 배경";
             case "범죄자" -> "범죄 조직과 암시장에서 살아남은 배경";
             case "연예인" -> "공연과 이야기로 사람들의 관심을 끈 배경";
-            case "민중 영웅" -> "평범한 사람들 사이에서 용기와 행동으로 이름을 알린 배경";
+            case "시골 영웅" -> "평범한 사람들 사이에서 용기와 행동으로 이름을 알린 배경";
             case "길드 장인" -> "길드와 장인 사회에서 기술과 거래를 익힌 배경";
             case "은둔자" -> "외딴곳에서 고독과 성찰의 시간을 보낸 배경";
             case "귀족" -> "특권과 예법, 가문 정치에 익숙한 배경";
             case "이방인" -> "문명 밖 황야와 먼 지역에서 살아온 배경";
-            case "현자" -> "학문과 연구로 지식을 축적한 배경";
+            case "학자" -> "학문과 연구로 지식을 축적한 배경";
             case "선원" -> "배와 항구에서 노동하고 항해한 배경";
             case "군인" -> "군대나 용병대에서 훈련과 전투를 경험한 배경";
             case "부랑아" -> "도시의 거리와 뒷골목에서 살아남은 배경";
@@ -267,7 +296,11 @@ public final class DndCharacterCreationTemplate {
         return switch (key) {
             case "race" -> List.of("드워프", "엘프", "인간", "하플링");
             case "class" -> List.of("로그", "위저드", "클레릭", "파이터");
-            case "background" -> List.of("수행사제", "사기꾼", "범죄자", "연예인", "민중 영웅", "길드 장인", "은둔자", "귀족", "이방인", "현자", "선원", "군인", "부랑아");
+            case "subclass" -> List.of("시프", "방출학파", "변환학파", "사령학파", "예지학파", "조형학파", "환영학파", "환혹학파", "챔피언", "생명 권역");
+            case "background" -> List.of("복사", "사기꾼", "범죄자", "연예인", "시골 영웅", "길드 장인", "은둔자", "귀족", "이방인", "학자", "선원", "군인", "부랑아");
+            case "class.skill_choices" -> List.of("곡예", "동물 조련", "비전학", "운동", "기만", "역사학", "통찰", "위협", "수사", "의학", "자연학", "감지", "공연", "설득", "종교학", "손속임", "은신", "생존");
+            case "magic.cantrips" -> List.of("단순마술", "빈사 안정", "빛", "신성한 불길", "안내", "저항", "독 분사", "마법사의 손", "산성 거품", "서리 광선", "요술", "전격의 손아귀", "춤추는 빛", "하급 환영", "화염 화살");
+            case "magic.spells" -> List.of("마법 탐지", "명령", "상처 가해", "상처 치료", "성역화", "신앙의 방패", "유도 화살", "축복", "치유의 단어", "마법 갑주", "마법 화살", "방패", "수면", "식별", "언어 변환", "인간형 매혹", "자기 위장", "조용한 영상", "천둥파도", "타오르는 손길");
             default -> List.of();
         };
     }
@@ -327,10 +360,10 @@ public final class DndCharacterCreationTemplate {
             "race", Map.of("dwarf", "드워프", "elf", "엘프", "halfling", "하플링", "human", "인간"),
             "class", Map.of("cleric", "클레릭", "fighter", "파이터", "rogue", "로그", "wizard", "위저드"),
             "background", Map.ofEntries(
-                    Map.entry("acolyte", "수행사제"), Map.entry("charlatan", "사기꾼"),
+                    Map.entry("acolyte", "복사"), Map.entry("charlatan", "사기꾼"),
                     Map.entry("criminal", "범죄자"), Map.entry("entertainer", "연예인"),
-                    Map.entry("folk hero", "민중 영웅"), Map.entry("guild artisan", "길드 장인"),
+                    Map.entry("folk hero", "시골 영웅"), Map.entry("guild artisan", "길드 장인"),
                     Map.entry("hermit", "은둔자"), Map.entry("noble", "귀족"),
-                    Map.entry("outlander", "이방인"), Map.entry("sage", "현자"), Map.entry("sailor", "선원"),
+                    Map.entry("outlander", "이방인"), Map.entry("sage", "학자"), Map.entry("sailor", "선원"),
                     Map.entry("soldier", "군인"), Map.entry("urchin", "부랑아")));
 }

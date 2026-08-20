@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ScenarioSetup, serializeBlueprintValues } from './ScenarioSetup'
@@ -13,11 +13,14 @@ import type {
   RuntimeOptionsView,
   ScenarioBundleView,
   ScenarioCompilationView,
+  ScenarioPackageView,
   SetupApi,
   SourcePreviewView,
 } from '../rulebooks/SetupApi'
 
 class FakeSetupApi implements SetupApi {
+  readonly compilationFingerprints: string[] = []
+  blueprintStatus: CharacterCreationBlueprintView['status'] = 'READY'
   private readonly documents: KnowledgeDocumentView[] = [
     {
       knowledgeDocumentId: 'doc-1',
@@ -78,6 +81,7 @@ class FakeSetupApi implements SetupApi {
     { knowledgeDocumentId: 'doc-1', documentType: 'STORYBOOK', originalFilename: 'main.pdf', status: 'INDEXED', role: 'REFERENCE', extractionVersion: 3 },
   ]) }
   async getScenarioBundle() { return bundle('bundle-1', 1, []) }
+  async listScenarioPackages(): Promise<ScenarioPackageView[]> { return [] }
   async createCharacterSheet(): Promise<CreatedCharacterSheetView> {
     return {
       characterSheetId: 'sheet-1',
@@ -138,6 +142,8 @@ class FakeSetupApi implements SetupApi {
       rulebookDocumentCount: 0,
       storybookDocumentCount: 1,
       diagnostics: [],
+      revision: 1,
+      status: this.blueprintStatus,
     }
     return {
       scenarioPackageId: 'package-1',
@@ -169,7 +175,8 @@ class FakeSetupApi implements SetupApi {
       ],
     }
   }
-  async startScenarioCompilation() {
+  async startScenarioCompilation(_bundleId: string, _ownerId: string, inputFingerprint: string) {
+    this.compilationFingerprints.push(inputFingerprint)
     return {
       compilationId: 'compilation-1',
       bundleId: 'bundle-1',
@@ -205,6 +212,7 @@ function bundle(id: string, revision: number, documents: ScenarioBundleView['doc
 describe('ScenarioSetup', () => {
   afterEach(() => {
     vi.useRealTimers()
+    window.localStorage.clear()
   })
 
   it('preserves nested blueprint paths in legacy starting abilities', () => {
@@ -295,9 +303,51 @@ describe('ScenarioSetup', () => {
     await user.click(screen.getByRole('button', { name: '게임 준비 시작' }))
 
     expect(await screen.findByText('게임 준비 상태 REQUESTED · 시도 0')).toBeInTheDocument()
+    expect(screen.getByRole('progressbar', { name: '게임 준비 진행률' })).toHaveAttribute('aria-valuenow', '10')
     expect(await screen.findByText('게임 준비 상태 WAITING_RETRY · 시도 1')).toBeInTheDocument()
     expect(await screen.findByText('모험 준비 결과 package-1 · COMPLETE')).toBeInTheDocument()
     expect(api.getScenarioCompilation).toHaveBeenCalled()
   }, 10000)
+
+  it('restores a published preparation after the setup modal is reopened', async () => {
+    const api = new FakeSetupApi()
+    api.listScenarioPackages = vi.fn(async () => [await api.getScenarioPackage()])
+
+    render(<ScenarioSetup api={api} playerId="owner-1" onError={() => {}} initialBundle={bundle('bundle-1', 1, [])} preparationOnly />)
+
+    expect(await screen.findByText('모험 준비 결과 package-1 · COMPLETE')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '캐릭터 생성 시작' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '이 자료로 모험 만들기' })).toBeDisabled()
+  })
+
+  it('enables adventure creation only after the character blueprint is published', async () => {
+    const api = new FakeSetupApi()
+    api.blueprintStatus = 'PUBLISHED'
+    api.listScenarioPackages = vi.fn(async () => [await api.getScenarioPackage()])
+
+    render(<ScenarioSetup api={api} playerId="owner-1" onError={() => {}} initialBundle={bundle('bundle-1', 1, [])} preparationOnly />)
+
+    await waitFor(() => expect(screen.getByRole('button', { name: '이 자료로 모험 만들기' })).toBeEnabled())
+  })
+
+  it('restores the compilation pointer when the package list is temporarily empty', async () => {
+    const api = new FakeSetupApi()
+    window.localStorage.setItem('dnd-preparation:bundle-1:1', 'compilation-1')
+
+    render(<ScenarioSetup api={api} playerId="owner-1" onError={() => {}} initialBundle={bundle('bundle-1', 1, [])} preparationOnly />)
+
+    expect(await screen.findByText('모험 준비 결과 package-1 · COMPLETE')).toBeInTheDocument()
+  })
+
+  it('uses a new fingerprint when restarting a published preparation', async () => {
+    const api = new FakeSetupApi()
+    window.localStorage.setItem('dnd-preparation:bundle-1:1', 'compilation-1')
+    const user = userEvent.setup()
+
+    render(<ScenarioSetup api={api} playerId="owner-1" onError={() => {}} initialBundle={bundle('bundle-1', 1, [])} preparationOnly />)
+    await user.click(await screen.findByRole('button', { name: '게임 준비 시작' }))
+
+    expect(api.compilationFingerprints[0]).toMatch(/^scenario-bundle:bundle-1:revision:1:retry:/)
+  })
 
 })

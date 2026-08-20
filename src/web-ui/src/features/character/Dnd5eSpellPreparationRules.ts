@@ -25,12 +25,6 @@ export function spellSelectionRule(characterClass: string, modifiers: AbilitySco
 export function domainSpells(subclass: string): string[] {
   switch (subclass) {
     case '생명 권역': return ['축복', '상처 치료']
-    case '빛 권역': return ['불타는 손', '요정 불꽃']
-    case '지식 권역': return ['명령', '식별']
-    case '자연 권역': return ['동물과의 대화', '동물 친구']
-    case '폭풍 권역': return ['안개 구름', '천둥파도']
-    case '속임수 권역': return ['매혹', '변장']
-    case '전쟁 권역': return ['신의 은총', '신앙의 방패']
     default: return []
   }
 }

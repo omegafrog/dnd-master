@@ -12,12 +12,15 @@ import static org.springframework.http.MediaType.APPLICATION_JSON;
 
 import com.dndmaster.adventure.application.auth.PlayerSessionLookupPort;
 import com.dndmaster.adventure.application.scenario.preparation.CharacterCreationBlueprintView;
+import com.dndmaster.adventure.application.scenario.preparation.BlueprintPublicationResult;
 import com.dndmaster.adventure.application.scenario.preparation.PlayPreparationStatus;
 import com.dndmaster.adventure.application.scenario.preparation.PlayPreparationView;
 import com.dndmaster.adventure.application.scenario.preparation.RuntimeOptionView;
 import com.dndmaster.adventure.application.scenario.preparation.RuntimeOptionsView;
 import com.dndmaster.adventure.application.scenario.preparation.ScenarioPreparationApplicationService;
 import com.dndmaster.adventure.domain.scenario.OwnerPlayerId;
+import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintPublicationBlockedException;
+import com.dndmaster.adventure.domain.scenario.StorybookProposalNotFoundException;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -100,6 +103,97 @@ class ScenarioPreparationControllerTest {
                         .content("{\"expectedRevision\":7,\"fieldKey\":\"node-race\",\"value\":\"Elf\"}"))
                 .andExpect(status().isOk());
         verify(service).resolveBlueprint(eq(packageId), any(OwnerPlayerId.class), eq(7L), eq("node-race"), eq("Elf"));
+    }
+
+    @Test
+    void proposalUseCommandCarriesProposalIdAndExpectedRevision() throws Exception {
+        UUID ownerId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+        UUID packageId = UUID.fromString("66666666-6666-6666-6666-666666666666");
+        when(playerSessionLookupPort.resolvePlayerId("token")).thenReturn(Optional.of(ownerId));
+        when(service.useStorybookProposal(eq(packageId), any(OwnerPlayerId.class), eq(8L), eq("proposal-1")))
+                .thenReturn(new CharacterCreationBlueprintView(true, "review", 1, 1, List.of(), 9,
+                        List.of(), "NEEDS_REVIEW", List.of()));
+
+        mockMvc.perform(post("/api/v1/scenario-packages/{scenarioPackageId}/character-blueprint/proposals/{proposalId}/use", packageId, "proposal-1")
+                        .header("Authorization", "Bearer token")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"expectedRevision\":8}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.revision").value(9));
+
+        verify(service).useStorybookProposal(eq(packageId), any(OwnerPlayerId.class), eq(8L), eq("proposal-1"));
+    }
+
+    @Test
+    void proposalExcludeCommandUsesTheSameOptimisticRevisionBoundary() throws Exception {
+        UUID ownerId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+        UUID packageId = UUID.fromString("66666666-6666-6666-6666-666666666666");
+        when(playerSessionLookupPort.resolvePlayerId("token")).thenReturn(Optional.of(ownerId));
+        when(service.excludeStorybookProposal(eq(packageId), any(OwnerPlayerId.class), eq(8L), eq("proposal-1")))
+                .thenReturn(new CharacterCreationBlueprintView(true, "review", 1, 1, List.of(), 9,
+                        List.of(), "NEEDS_REVIEW", List.of()));
+
+        mockMvc.perform(post("/api/v1/scenario-packages/{scenarioPackageId}/character-blueprint/proposals/{proposalId}/exclude", packageId, "proposal-1")
+                        .header("Authorization", "Bearer token")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"expectedRevision\":8}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.revision").value(9));
+
+        verify(service).excludeStorybookProposal(eq(packageId), any(OwnerPlayerId.class), eq(8L), eq("proposal-1"));
+    }
+
+    @Test
+    void publishEndpointReturnsPublishedRevisionAndAppliedProjectionSummary() throws Exception {
+        UUID ownerId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+        UUID packageId = UUID.fromString("66666666-6666-6666-6666-666666666666");
+        when(playerSessionLookupPort.resolvePlayerId("token")).thenReturn(Optional.of(ownerId));
+        when(service.publishBlueprint(eq(packageId), any(OwnerPlayerId.class))).thenReturn(new BlueprintPublicationResult(
+                10,
+                new CharacterCreationBlueprintView.AppliedSettingsSummaryView(
+                        true, List.of("proposal-applied"), List.of("proposal-excluded"), 0)));
+
+        mockMvc.perform(post("/api/v1/scenario-packages/{scenarioPackageId}/character-blueprint/publish", packageId)
+                        .header("Authorization", "Bearer token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.publishedRevision").value(10))
+                .andExpect(jsonPath("$.appliedSettingsSummary.appliedProposalIds[0]").value("proposal-applied"))
+                .andExpect(jsonPath("$.appliedSettingsSummary.excludedProposalIds[0]").value("proposal-excluded"))
+                .andExpect(jsonPath("$.appliedSettingsSummary.unresolvedProposalCount").value(0));
+
+        verify(service).publishBlueprint(eq(packageId), any(OwnerPlayerId.class));
+    }
+
+    @Test
+    void publishEndpointReturnsRetryableConflictWhenCompilationIsNotComplete() throws Exception {
+        UUID ownerId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+        UUID packageId = UUID.fromString("66666666-6666-6666-6666-666666666666");
+        when(playerSessionLookupPort.resolvePlayerId("token")).thenReturn(Optional.of(ownerId));
+        when(service.publishBlueprint(eq(packageId), any(OwnerPlayerId.class)))
+                .thenThrow(new CharacterCreationBlueprintPublicationBlockedException(
+                        "scenario package compilation must be complete before blueprint publication"));
+
+        mockMvc.perform(post("/api/v1/scenario-packages/{scenarioPackageId}/character-blueprint/publish", packageId)
+                        .header("Authorization", "Bearer token"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.error").value("BLUEPRINT_PUBLICATION_BLOCKED"))
+                .andExpect(jsonPath("$.retryable").value(true));
+    }
+
+    @Test
+    void unknown_proposal_id_returns_a_stable_client_error() throws Exception {
+        UUID ownerId = UUID.fromString("55555555-5555-5555-5555-555555555555");
+        UUID packageId = UUID.fromString("66666666-6666-6666-6666-666666666666");
+        when(playerSessionLookupPort.resolvePlayerId("token")).thenReturn(Optional.of(ownerId));
+        when(service.useStorybookProposal(eq(packageId), any(OwnerPlayerId.class), eq(8L), eq("unknown-proposal")))
+                .thenThrow(new StorybookProposalNotFoundException("unknown-proposal"));
+
+        mockMvc.perform(post("/api/v1/scenario-packages/{scenarioPackageId}/character-blueprint/proposals/{proposalId}/use", packageId, "unknown-proposal")
+                        .header("Authorization", "Bearer token")
+                        .contentType(APPLICATION_JSON)
+                        .content("{\"expectedRevision\":8}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("STORYBOOK_PROPOSAL_NOT_FOUND"));
     }
 
     @Test

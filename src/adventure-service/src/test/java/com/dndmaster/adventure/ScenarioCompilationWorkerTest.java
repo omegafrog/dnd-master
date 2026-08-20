@@ -39,6 +39,72 @@ class ScenarioCompilationWorkerTest {
     }
 
     @Test
+    void sendsSourceDocumentTypeWhenHandoutRoleUsesStorybookDocument() {
+        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(List.of(
+                document(storybook, ScenarioBundleDocumentRole.HANDOUT, "STORYBOOK", 4)));
+        Fixture fixture = new Fixture(bundle);
+
+        fixture.worker().processNext("worker", Duration.ofMinutes(1));
+
+        assertEquals("STORYBOOK", fixture.search.request.documents().getFirst().documentType());
+    }
+
+    @Test
+    void retriesOnlyInvalidResolutionCandidatesAndPublishesRecoveredRange() {
+        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(List.of(
+                document(storybook, ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 2)));
+        ResolutionExtractionPort.SourceExcerpt excerpt = new ResolutionExtractionPort.SourceExcerpt(
+                storybook, 2, "page:1", "Burning Web (Recharge 5-6)");
+        com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate invalid = new com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate(
+                ResolutionKind.RECHARGE_ROLL, null, null, null, ResolutionVisibility.GM_REFERENCE,
+                "Burning Web (Recharge 5-6)", List.of(new ScenarioSourceReference(storybook, 2, "page:1")),
+                "source text", null);
+        com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate repaired = new com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate(
+                ResolutionKind.RECHARGE_ROLL, null, null, "5-6", ResolutionVisibility.GM_REFERENCE,
+                "Burning Web (Recharge 5-6)", List.of(new ScenarioSourceReference(storybook, 2, "page:1")),
+                "source text", null);
+        Fixture fixture = new Fixture(bundle);
+        int[] calls = {0};
+        ScenarioCompilationWorker worker = new ScenarioCompilationWorker(fixture.manager, fixture.compilations,
+                fixture.queue, new Bundles(bundle), request -> calls[0]++ == 0 ? List.of(invalid) : List.of(repaired),
+                ignored -> List.of(excerpt), fixture.tags, fixture.search,
+                new ScenarioPackageCompilationService(fixture.packages), fixture.packages);
+
+        ScenarioPackage result = worker.processNext("worker", Duration.ofMinutes(1)).orElseThrow();
+
+        assertEquals(2, calls[0]);
+        assertEquals("COMPLETE", result.report().status().name());
+        assertEquals("5-6", result.units().getFirst().diceExpression());
+        assertEquals("COMPLETE", result.units().getFirst().status().name());
+    }
+
+    @Test
+    void limitsResolutionRecoveryToThreeRetries() {
+        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(List.of(
+                document(storybook, ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 2)));
+        ResolutionExtractionPort.SourceExcerpt excerpt = new ResolutionExtractionPort.SourceExcerpt(
+                storybook, 2, "page:1", "Burning Web (Recharge 5-6)");
+        com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate invalid = new com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate(
+                ResolutionKind.RECHARGE_ROLL, null, null, null, ResolutionVisibility.GM_REFERENCE,
+                "Burning Web (Recharge 5-6)", List.of(new ScenarioSourceReference(storybook, 2, "page:1")),
+                "source text", null);
+        Fixture fixture = new Fixture(bundle);
+        int[] calls = {0};
+        ScenarioCompilationWorker worker = new ScenarioCompilationWorker(fixture.manager, fixture.compilations,
+                fixture.queue, new Bundles(bundle), request -> { calls[0]++; return List.of(invalid); },
+                ignored -> List.of(excerpt), fixture.tags, fixture.search,
+                new ScenarioPackageCompilationService(fixture.packages), fixture.packages);
+
+        ScenarioPackage result = worker.processNext("worker", Duration.ofMinutes(1)).orElseThrow();
+
+        assertEquals(4, calls[0]);
+        assertEquals("INVALID", result.units().getFirst().status().name());
+    }
+
+    @Test
     void rulebookOnlyBundleUsesBaseSchemaWithoutCharacterAi() {
         KnowledgeDocumentId rulebook = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(List.of(

@@ -3,6 +3,7 @@ import { cn } from './utils'
 
 export function Progress({ value = 0, className, ...props }: HTMLAttributes<HTMLDivElement> & { value?: number }) {
   const percent = Math.max(0, Math.min(100, value))
+
   return (
     <div
       {...props}

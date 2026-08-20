@@ -7,6 +7,7 @@ import { LoginForm } from '../../src/features/auth/LoginForm'
 import type { IdentityApi } from '../../src/features/auth/IdentityApi'
 import { CharacterSheetView } from '../../src/features/character/CharacterSheetView'
 import { CharacterCreationPage } from '../../src/features/character/CharacterCreationPage'
+import { PackageBlueprintReviewPage } from '../../src/features/character/PackageBlueprintReviewPage'
 import { backgroundOptions, classOptions, raceOptions } from '../../src/features/character/Dnd5eCharacterCatalog'
 import { CombatMapView } from '../../src/features/combat-map/CombatMapView'
 import { RoleDiceRoller } from '../../src/features/dice/RoleDiceRoller'
@@ -18,15 +19,24 @@ import type { AdventurePlayApi, SavedAdventure } from '../../src/features/saved-
 import { SavedAdventurePanel } from '../../src/features/saved-adventures/SavedAdventurePanel'
 import { AdventureSessionPanel } from '../../src/features/adventure-session/AdventureSessionPanel'
 import type { AdventureSessionView } from '../../src/features/adventure-session/AdventureSessionApi'
+import '@fontsource-variable/noto-sans-kr/wght.css'
+import '../../src/app.css'
 
 const adventureId = 'adventure-e2e'
+const decisionReviewMode = window.location.search.includes('package-review-decisions')
 
 const e2eState = {
   bundle: null as unknown,
   blueprint: null as unknown,
   creationRequest: null as unknown,
-  blueprintStatus: 'NEEDS_REVIEW' as 'NEEDS_REVIEW' | 'READY' | 'PUBLISHED',
+  sessionCreationRequest: null as unknown,
+  createdSessionId: null as string | null,
+  blueprintStatus: (window.location.search.includes('package-review-published') ? 'PUBLISHED' : 'NEEDS_REVIEW') as 'NEEDS_REVIEW' | 'READY' | 'PUBLISHED',
   blueprintRevision: 2,
+  proposalDecisions: {
+    'proposal-e2e-1': window.location.search.includes('package-review-published') ? 'APPLIED' : 'UNDECIDED',
+    'proposal-e2e-2': window.location.search.includes('package-review-published') ? 'EXCLUDED' : 'UNDECIDED',
+  } as Record<string, 'UNDECIDED' | 'APPLIED' | 'EXCLUDED'>,
   blueprintValues: { 'node-str': '12' } as Record<string, string>,
   creation: null as unknown,
 }
@@ -131,15 +141,65 @@ const setupApi: SetupApi = {
             ], children: [],
           }],
         }],
+        baseSchema: {
+          edition: 'DND 5판 2014',
+          fields: [{
+            key: 'starting_ability_scores', label: '능력치', options: [], required: true, sourceType: 'RULEBOOK', inputStatus: 'EXTRACTED', inputMode: 'FREE_TEXT' as const,
+            suggestions: [], diagnostics: [], optionDetails: [], sourceQuote: '능력치를 결정합니다.', evidence: [],
+          }, {
+            key: 'starting_ability_scores.str', label: '힘', options: [], required: true, sourceType: 'RULEBOOK', inputStatus: 'EXTRACTED', inputMode: 'FREE_TEXT' as const,
+            suggestions: [], diagnostics: [], optionDetails: [], sourceQuote: '힘 능력치를 입력합니다.', evidence: [],
+          }],
+        },
+        storybookProposals: [{
+          proposalId: 'proposal-e2e-1', key: 'alignment', label: '스토리 속 성향', description: '질서 선 성향으로 묘사됩니다.',
+          sourceDocument: { knowledgeDocumentId: 'storybook.txt-STORYBOOK', originalFilename: 'storybook.txt', extractionVersion: 1 },
+          sourceQuote: '질서 선의 수호자였다.', evidence: [{ locator: 'page:2', excerpt: '질서 선의 수호자였다.' }],
+          decisionState: e2eState.proposalDecisions['proposal-e2e-1'], readinessState: 'READY' as const,
+        }, ...(decisionReviewMode ? [{
+          proposalId: 'proposal-e2e-2', key: 'faction', label: '스토리 속 소속', description: '수호자 길드와 연결됩니다.',
+          sourceDocument: { knowledgeDocumentId: 'storybook.txt-STORYBOOK', originalFilename: 'storybook.txt', extractionVersion: 1 },
+          sourceQuote: '수호자 길드의 일원이었다.', evidence: [{ locator: 'page:3', excerpt: '수호자 길드의 일원이었다.' }],
+          decisionState: e2eState.proposalDecisions['proposal-e2e-2'], readinessState: 'READY' as const,
+        }] : [])],
+        storybookExtractionState: 'PROPOSALS_AVAILABLE' as const,
+        appliedSettingsSummary: {
+          baseSchemaIncluded: true,
+          appliedProposalIds: Object.entries(e2eState.proposalDecisions).filter(([, state]) => state === 'APPLIED').map(([id]) => id),
+          excludedProposalIds: Object.entries(e2eState.proposalDecisions).filter(([, state]) => state === 'EXCLUDED').map(([id]) => id),
+          unresolvedProposalCount: Object.values(e2eState.proposalDecisions).filter(state => state === 'UNDECIDED').length,
+        },
+        baseSchemaValid: true,
       },
     }
     e2eState.blueprint = preparation.characterCreationBlueprint
     return preparation
   },
+  async useStorybookProposal(_packageId, proposalId) {
+    e2eState.proposalDecisions[proposalId] = 'APPLIED'
+    e2eState.blueprintStatus = Object.values(e2eState.proposalDecisions).every(state => state !== 'UNDECIDED') ? 'READY' : 'NEEDS_REVIEW'
+    e2eState.blueprintRevision += 1
+    return (await setupApi.getPlayPreparation!('package-e2e')).characterCreationBlueprint
+  },
+  async excludeStorybookProposal(_packageId, proposalId) {
+    e2eState.proposalDecisions[proposalId] = 'EXCLUDED'
+    e2eState.blueprintStatus = Object.values(e2eState.proposalDecisions).every(state => state !== 'UNDECIDED') ? 'READY' : 'NEEDS_REVIEW'
+    e2eState.blueprintRevision += 1
+    return (await setupApi.getPlayPreparation!('package-e2e')).characterCreationBlueprint
+  },
   async publishBlueprint() {
     if (e2eState.blueprintStatus !== 'READY') throw new Error('Blueprint must be ready before publishing')
     e2eState.blueprintStatus = 'PUBLISHED'
     e2eState.blueprintRevision += 1
+    return {
+      publishedRevision: e2eState.blueprintRevision,
+      appliedSettingsSummary: {
+        baseSchemaIncluded: true,
+        appliedProposalIds: Object.entries(e2eState.proposalDecisions).filter(([, state]) => state === 'APPLIED').map(([id]) => id),
+        excludedProposalIds: Object.entries(e2eState.proposalDecisions).filter(([, state]) => state === 'EXCLUDED').map(([id]) => id),
+        unresolvedProposalCount: 0,
+      },
+    }
   },
   async resolveBlueprint(_scenarioPackageId, nodeId, value) {
     e2eState.blueprintValues[nodeId] = value
@@ -236,6 +296,21 @@ let sessionView: AdventureSessionView = {
 }
 let providerView = persistedProvider ? { ...defaultProviderView, ...JSON.parse(persistedProvider) } : defaultProviderView
 const sessionApi = {
+  async create(request: { scenarioPackageId: string; blueprintId: string; blueprintRevision: number }) {
+    if (e2eState.blueprintStatus !== 'PUBLISHED' || request.blueprintRevision !== e2eState.blueprintRevision) {
+      throw new Error('character creation requires the published blueprint revision')
+    }
+    e2eState.sessionCreationRequest = request
+    e2eState.createdSessionId = 'session-created-e2e'
+    sessionView = {
+      ...sessionView,
+      sessionId: 'session-created-e2e',
+      scenarioPackageId: request.scenarioPackageId,
+      blueprintRevision: request.blueprintRevision,
+      status: 'DRAFT',
+    }
+    return sessionView
+  },
   async read() { return sessionView },
   async readGmProvider() { return providerView },
   async switchGmProvider(_sessionId: string, version: number, selection: typeof providerView) {
@@ -304,6 +379,14 @@ window.fetch = async (input, init) => {
 function Journey() {
   const auth = useAuth()
   if (!auth.session) return <main><h1>D&amp;D Master</h1><LoginForm /></main>
+  if (window.location.search.includes('package-review')) {
+    return <PackageBlueprintReviewPage
+      packageId="package-e2e"
+      setupApi={setupApi}
+      sessionApi={sessionApi}
+      onSessionCreated={sessionId => { e2eState.createdSessionId = sessionId; window.location.hash = `#/sessions/${sessionId}/character-blueprint` }}
+    />
+  }
   return (
     <div>
       <RulebookSetup api={setupApi} playerId="player-e2e" asMain={false} />
