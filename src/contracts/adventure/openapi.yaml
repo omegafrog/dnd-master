@@ -32,7 +32,7 @@ paths:
     post:
       operationId: applyTacticalTrigger
       requestBody: { required: true, content: { application/json: { schema: { type: object, required: [combatMapId, commandId, expectedVersion, qualifyingAction], properties: { qualifyingAction: { type: string, minLength: 1 } } } } } }
-      responses: { '200': { description: applied planned trigger }, '409': { description: stage or map is not active } }
+      responses: { '200': { description: applied planned trigger }, '400': { description: missing, blank, or invalid qualifyingAction/trigger request }, '409': { description: stage or map is not active } }
   /api/v1/adventure-sessions/{sessionId}/story-plan/stages/{position}/tactical-scene/revise:
     post:
       operationId: reviseFutureTacticalScene

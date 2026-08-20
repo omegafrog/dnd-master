@@ -47,6 +47,8 @@ class OpenApiSchemaTest {
         Map<String, Object> operation = (Map<String, Object>) ((Map<String, Object>) paths.get("/api/v1/adventure-sessions/{sessionId}/story-plan/stages/{position}/triggers/{triggerId}/apply")).get("post");
         String body = operation.toString();
         assertTrue(body.contains("qualifyingAction"), "player trigger contract must require qualifyingAction");
+        assertTrue(body.contains("400"), "player trigger contract must document validation failure");
+        assertTrue(body.contains("blank"), "player trigger contract must document blank action rejection");
     }
 
     @SuppressWarnings("unchecked")
@@ -56,6 +58,8 @@ class OpenApiSchemaTest {
         Map<String, Object> operation = (Map<String, Object>) ((Map<String, Object>) paths.get("/internal/v1/combat-maps/{mapId}/tactical-triggers")).get("post");
         String body = operation.toString();
         assertTrue(body.contains("qualifyingAction"), "combat-map trigger contract must require qualifyingAction");
+        assertTrue(body.contains("400"), "combat-map trigger contract must document validation failure");
+        assertTrue(body.contains("invalid tactical trigger kind"), "combat-map trigger contract must document kind validation");
     }
 
     @SuppressWarnings("unchecked")

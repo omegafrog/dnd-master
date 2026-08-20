@@ -135,7 +135,7 @@ paths:
       responses:
         '200': { description: planned trigger applied }
         '401': { description: internal service authorization required }
-        '400': { description: invalid tactical trigger kind }
+        '400': { description: missing, null, or blank qualifyingAction, or invalid tactical trigger kind }
   /internal/v1/combat-maps/{mapId}/moves:
     post:
       operationId: movePlayer
