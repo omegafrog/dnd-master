@@ -73,6 +73,11 @@ public final class CombatMap {
         if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.FOG_REVEAL) nextLayers.removeIf(layer -> layer.type().equals("INITIAL_FOG"));
         if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.REWARD) nextLayers.add(new MapLayer("RESOLVED_REWARD", effect.triggerId(), LayerVisibility.PLAYER_VISIBLE));
         if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.ALARM) nextLayers.add(new MapLayer("ALARM", effect.triggerId(), LayerVisibility.PLAYER_VISIBLE));
+        if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.COMBAT_ENTRY) nextLayers.add(new MapLayer("COMBAT_ENTRY", effect.triggerId(), LayerVisibility.PLAYER_VISIBLE));
+        if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.REINFORCEMENT) nextLayers.add(new MapLayer("REINFORCEMENT", effect.triggerId(), LayerVisibility.PLAYER_VISIBLE));
+        if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.BOSS) nextLayers.add(new MapLayer("BOSS_TRANSITION", effect.triggerId(), LayerVisibility.PLAYER_VISIBLE));
+        if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.SURRENDER) nextLayers.add(new MapLayer("SURRENDER", effect.triggerId(), LayerVisibility.PLAYER_VISIBLE));
+        if (!effect.transitionId().isBlank()) nextLayers.add(new MapLayer("TACTICAL_TRANSITION", effect.transitionId(), LayerVisibility.PLAYER_VISIBLE));
         if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.SUCCESS || effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.FAILURE || effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.EXIT)
             nextLayers.add(new MapLayer("TACTICAL_OUTCOME", effect.kind().name(), LayerVisibility.PLAYER_VISIBLE));
         CombatMap next = new CombatMap(id, adventureId, ruleSetId, grid, ownerPlayerId, nextTokens, obstacles, nextLayers, version + 1, null, null);

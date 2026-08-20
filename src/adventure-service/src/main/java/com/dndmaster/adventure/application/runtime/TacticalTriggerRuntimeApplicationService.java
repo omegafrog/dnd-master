@@ -34,9 +34,18 @@ public final class TacticalTriggerRuntimeApplicationService {
 
     public TacticalTriggerEvaluator.Evaluation apply(UUID adventureId, int stagePosition, TacticalScenePlan scene,
             String triggerId, UUID combatMapId, UUID ownerPlayerId, long expectedVersion, UUID commandId) {
+        return apply(adventureId, stagePosition, scene, triggerId, null, combatMapId, ownerPlayerId, expectedVersion, commandId);
+    }
+
+    public TacticalTriggerEvaluator.Evaluation apply(UUID adventureId, int stagePosition, TacticalScenePlan scene,
+            String triggerId, String qualifyingAction, UUID combatMapId, UUID ownerPlayerId, long expectedVersion, UUID commandId) {
         UUID active = activeMaps.findActiveMap(adventureId, stagePosition, ownerPlayerId).orElse(null);
         if (active == null || !active.equals(combatMapId)) throw new IllegalArgumentException("combat map is not active for this tactical stage");
-        return apply(scene, triggerId, combatMapId, ownerPlayerId, expectedVersion, commandId);
+        // This is the player/session-scoped entry point.  A trigger id alone is
+        // not evidence that the player performed the authored qualifying action.
+        var evaluation = evaluator.evaluate(scene, triggerId, qualifyingAction);
+        runtime.apply(combatMapId, ownerPlayerId, expectedVersion, commandId, evaluation);
+        return evaluation;
     }
 
 }

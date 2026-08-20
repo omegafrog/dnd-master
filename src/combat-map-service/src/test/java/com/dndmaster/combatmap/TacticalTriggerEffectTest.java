@@ -2,6 +2,7 @@ package com.dndmaster.combatmap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.combatmap.application.view.TacticalTriggerEffect;
 import com.dndmaster.combatmap.domain.*;
@@ -45,5 +46,21 @@ class TacticalTriggerEffectTest {
                 List.of("enemy-1")));
 
         assertEquals(TokenDiscovery.DISCOVERED, updated.tokens().get(1).discovery());
+    }
+
+    @Test
+    void materializesEveryPlannedRuntimeEffectIncludingTransitionsAndSurrender() {
+        var map = new CombatMap(new MapId(UUID.randomUUID()), new AdventureId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()),
+                new GridSpec(3, 3, 5, 5), List.of(new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,
+                        new GridPosition(0, 0), TokenController.PLAYER, new PlayerId(UUID.randomUUID()))), List.of(), List.of());
+        for (TacticalTriggerEffect.Kind kind : List.of(TacticalTriggerEffect.Kind.COMBAT_ENTRY, TacticalTriggerEffect.Kind.REINFORCEMENT,
+                TacticalTriggerEffect.Kind.BOSS, TacticalTriggerEffect.Kind.SURRENDER)) {
+            map = map.apply(TacticalTriggerEffect.planned(kind.name().toLowerCase(), kind, List.of()));
+        }
+        assertEquals(List.of("COMBAT_ENTRY", "REINFORCEMENT", "BOSS_TRANSITION", "SURRENDER"),
+                map.layers().stream().map(MapLayer::type).toList());
+        map = map.apply(TacticalTriggerEffect.planned("success", TacticalTriggerEffect.Kind.SUCCESS, List.of(), "ending-1"));
+        assertTrue(map.layers().stream().anyMatch(layer -> layer.type().equals("TACTICAL_OUTCOME")));
+        assertTrue(map.layers().stream().anyMatch(layer -> layer.type().equals("TACTICAL_TRANSITION") && layer.value().equals("ending-1")));
     }
 }

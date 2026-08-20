@@ -42,6 +42,30 @@ class TacticalScenePlanTest {
     }
 
     @Test
+    void rejectsPlayerActionThatDoesNotQualifyTheAuthoredTrigger() {
+        var scene = new TacticalScenePlan(TacticalScenePlan.CURRENT_SCHEMA_VERSION, TacticalScenePlanStatus.READY, boundary(),
+                List.of(placement("party", TacticalPlacementKind.PLAYER, .1, .1)), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                new FogPlan(List.of(), grounding("fog")),
+                List.of(new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of(), "", grounding("entry"))), List.of(), List.of());
+        var evaluator = new TacticalTriggerEvaluator();
+        assertThrows(IllegalArgumentException.class, () -> evaluator.evaluate(scene, "entry", "reward"));
+        assertEquals("COMBAT_ENTRY", evaluator.evaluate(scene, "entry", "combat_entry").type());
+    }
+
+    @Test
+    void requiresAQualifyingActionAtThePlayerScopedRuntimeBoundary() {
+        var scene = new TacticalScenePlan(TacticalScenePlan.CURRENT_SCHEMA_VERSION, TacticalScenePlanStatus.READY, boundary(),
+                List.of(placement("party", TacticalPlacementKind.PLAYER, .1, .1)), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                new FogPlan(List.of(), grounding("fog")),
+                List.of(new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of(), "", grounding("entry"))), List.of(), List.of());
+        var activeMap = UUID.randomUUID();
+        var service = new TacticalTriggerRuntimeApplicationService(new TacticalTriggerEvaluator(), (map, owner, version, command, evaluation) -> { },
+                (adventureId, stagePosition, ownerId) -> java.util.Optional.of(activeMap));
+        assertThrows(IllegalArgumentException.class, () -> service.apply(UUID.randomUUID(), 1, scene, "entry", null,
+                activeMap, UUID.randomUUID(), 0, UUID.randomUUID()));
+    }
+
+    @Test
     void rejectsAMapThatIsNotTheActiveMapForTheAdventureStage() {
         var scene = new TacticalScenePlan(1, TacticalScenePlanStatus.READY, boundary(),
                 List.of(placement("party", TacticalPlacementKind.PLAYER, .1, .1)), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
@@ -66,7 +90,7 @@ class TacticalScenePlanTest {
         var service = new TacticalTriggerRuntimeApplicationService(new TacticalTriggerEvaluator(), (map, player, version, command, evaluation) -> seen[0] = evaluation,
                 (adventureId, stagePosition, ownerId) -> java.util.Optional.of(activeMap));
 
-        service.apply(adventure, 1, scene, "entry", activeMap, owner, 0, UUID.randomUUID());
+        service.apply(adventure, 1, scene, "entry", "combat_entry", activeMap, owner, 0, UUID.randomUUID());
 
         assertEquals("COMBAT_ENTRY", seen[0].type());
     }

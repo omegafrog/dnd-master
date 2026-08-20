@@ -130,6 +130,7 @@ paths:
                 triggerId: { type: string }
                 kind: { type: string }
                 targetIds: { type: array, items: { type: string } }
+                transitionId: { type: string }
       responses:
         '200': { description: planned trigger applied }
         '401': { description: internal service authorization required }

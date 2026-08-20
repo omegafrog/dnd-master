@@ -106,13 +106,17 @@ public final class AdventureStoryPlanController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "story plan stage not found"));
         if (!stage.tacticalScenePlan().readyForActivation()) throw new ResponseStatusException(HttpStatus.CONFLICT, "tactical scene is not ready");
         if (session.startedAdventureId() == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "adventure must be started");
-        var evaluation = triggerRuntime.apply(session.startedAdventureId().value(), position, stage.tacticalScenePlan(), triggerId, request.combatMapId(), owner().value(),
+        var evaluation = triggerRuntime.apply(session.startedAdventureId().value(), position, stage.tacticalScenePlan(), triggerId, request.qualifyingAction(), request.combatMapId(), owner().value(),
                 request.expectedVersion(), request.commandId());
         return new TriggerApplicationView(evaluation.triggerId(), evaluation.type(), evaluation.targetIds(), evaluation.transitionId());
     }
 
     public record MapActivationView(int stagePosition, UUID mapDefinitionId, String assetId, String assetLocator, UUID combatMapId) {}
-    public record TriggerApplicationRequest(UUID combatMapId, UUID commandId, long expectedVersion) {}
+    public record TriggerApplicationRequest(UUID combatMapId, UUID commandId, long expectedVersion, String qualifyingAction) {
+        public TriggerApplicationRequest(UUID combatMapId, UUID commandId, long expectedVersion) {
+            this(combatMapId, commandId, expectedVersion, null);
+        }
+    }
     public record TriggerApplicationView(String triggerId, String type, List<String> targetIds, String transitionId) {}
 
     private OwnerPlayerId owner() { return new OwnerPlayerId(playerResolver.playerId()); }

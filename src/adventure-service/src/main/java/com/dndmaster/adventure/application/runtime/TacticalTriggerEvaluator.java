@@ -13,5 +13,12 @@ public final class TacticalTriggerEvaluator {
                 .orElseThrow(() -> new IllegalArgumentException("tactical trigger is not planned"));
         return new Evaluation(trigger.id(), trigger.type().name(), trigger.targetIds(), trigger.transitionId());
     }
+    public Evaluation evaluate(TacticalScenePlan scene, String triggerId, String qualifyingAction) {
+        Evaluation evaluation = evaluate(scene, triggerId);
+        if (qualifyingAction == null || !evaluation.type().equalsIgnoreCase(qualifyingAction.trim())) {
+            throw new IllegalArgumentException("player action does not qualify the planned tactical trigger");
+        }
+        return evaluation;
+    }
     public record Evaluation(String triggerId, String type, java.util.List<String> targetIds, String transitionId) { }
 }
