@@ -61,13 +61,39 @@ class FutureTacticalSceneRevisionPolicyTest {
         };
         var service = new FutureTacticalSceneRevisionService(plans, sessions, generator);
 
-        service.revise(sessionId, owner, 2);
+        service.revise(sessionId, owner, 2, java.util.UUID.randomUUID());
 
         verify(plans).save(argThat(value -> value.version() == 3
                 && value.stages().get(0).title().equals("current")
                 && value.stages().get(1).title().equals("future")
-                && value.stages().get(1).tacticalScenePlan().status() == TacticalScenePlanStatus.READY));
+                && value.stages().get(1).tacticalScenePlan().status() == TacticalScenePlanStatus.READY), startsWith("GM_TURN:"));
         assertThrows(IllegalStateException.class, () -> service.revise(sessionId, owner, 1));
+    }
+
+    @Test
+    void persistsTheCausingGmTurnAsRevisionAuditProvenance() {
+        var sessionId = new SessionId(java.util.UUID.randomUUID());
+        var owner = new OwnerPlayerId(java.util.UUID.randomUUID());
+        var session = mock(AdventureSession.class);
+        when(session.ownerPlayerId()).thenReturn(owner);
+        when(session.status()).thenReturn(AdventureSession.Status.STARTED);
+        var plan = AdventureStoryPlan.ready(sessionId, 0, 1,
+                List.of(stage(1, "current"), tacticalStage(2, "future", validScene()))).advanceTo(0);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        when(plans.findBySessionId(sessionId)).thenReturn(java.util.Optional.of(plan));
+        var sessions = mock(AdventureSessionRepository.class);
+        when(sessions.findById(sessionId)).thenReturn(java.util.Optional.of(session));
+        var generator = mock(AdventureStoryPlanGenerationPort.class);
+        when(generator.generateTacticalScene(any())).thenReturn(TacticalScenePlanCandidate.ready(2, validScene(),
+                List.of(new AdventureStoryPlanGenerationPort.SourceCitation(
+                        "STORYBOOK", EVIDENCE_DOCUMENT_ID, 1, EVIDENCE_LOCATOR,
+                        "Hero enters. Entry alarm reinforcement boss reward success failure exit surrender. Clear.", 1.0))));
+        var service = new FutureTacticalSceneRevisionService(plans, sessions, generator);
+        var causingGmTurnId = java.util.UUID.randomUUID();
+
+        service.revise(sessionId, owner, 2, causingGmTurnId);
+
+        verify(plans).save(any(AdventureStoryPlan.class), eq("GM_TURN:" + causingGmTurnId));
     }
 
     @Test

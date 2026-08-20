@@ -98,9 +98,15 @@ public final class AdventureStoryPlanController {
 
     @PostMapping("/stages/{position}/tactical-scene/revise")
     PlayerPlanView reviseFutureTacticalScene(@PathVariable UUID sessionId, @PathVariable int position,
-            @RequestHeader(value = "X-Internal-Token", required = false) String internalToken) {
+            @RequestHeader(value = "X-Internal-Token", required = false) String internalToken,
+            @RequestBody RevisionRequest request) {
         requestGuard.internal(internalToken);
-        return PlayerPlanView.from(futureRevision.revise(new SessionId(sessionId), owner(), position));
+        return PlayerPlanView.from(futureRevision.revise(new SessionId(sessionId), owner(), position, request.causingGmTurnId()));
+    }
+
+    PlayerPlanView reviseFutureTacticalScene(UUID sessionId, int position, String internalToken) {
+        requestGuard.internal(internalToken);
+        return PlayerPlanView.from(futureRevision.revise(new SessionId(sessionId), owner(), position, null));
     }
 
     @PostMapping("/stages/{position}/triggers/{triggerId}/apply")
@@ -127,6 +133,7 @@ public final class AdventureStoryPlanController {
         }
     }
     public record TriggerApplicationView(String triggerId, String type, List<String> targetIds, String transitionId) {}
+    public record RevisionRequest(UUID causingGmTurnId) {}
 
     private OwnerPlayerId owner() { return new OwnerPlayerId(playerResolver.playerId()); }
 
@@ -171,17 +178,17 @@ public final class AdventureStoryPlanController {
 
     public record GmPlanView(UUID planId, long packageRevision, long partyRevision, long version, String status, int currentStage,
             int endingCount, String adventureLength, List<GmStageView> stages, String failureReason, String auditId,
-            java.time.Instant recordedAt, String cause) {
+            java.time.Instant recordedAt, String cause, String predecessorHistoryId) {
         static GmPlanView from(com.dndmaster.adventure.application.storyplan.AdventureStoryPlanHistoryEntry entry) {
             AdventureStoryPlan plan = entry.plan();
             return new GmPlanView(plan.planId(), plan.packageRevision(), plan.partyRevision(), plan.version(), plan.status().name(), plan.currentStage(),
                     plan.configuration().endingCount(), plan.configuration().adventureLength().name(), plan.stages().stream().map(GmStageView::from).toList(), plan.failureReason(),
-                    entry.historyId().toString(), entry.recordedAt(), entry.cause());
+                    entry.historyId().toString(), entry.recordedAt(), entry.cause(), entry.predecessorHistoryId() == null ? null : entry.predecessorHistoryId().toString());
         }
         static GmPlanView from(AdventureStoryPlan plan) {
             return new GmPlanView(plan.planId(), plan.packageRevision(), plan.partyRevision(), plan.version(), plan.status().name(), plan.currentStage(),
                     plan.configuration().endingCount(), plan.configuration().adventureLength().name(), plan.stages().stream().map(GmStageView::from).toList(), plan.failureReason(),
-                    plan.planId().toString(), plan.updatedAt(), "CURRENT");
+                    plan.planId().toString(), plan.updatedAt(), "CURRENT", null);
         }
     }
     public record GmStageView(int position, String title, String stageType, String location, String goal, String conflict,

@@ -60,6 +60,12 @@ class OpenApiSchemaTest {
         assertTrue(body.contains("append-only"), "GM history must describe revision audit semantics");
         assertTrue(body.contains("auditId"), "GM history must expose durable audit identifier");
         assertTrue(body.contains("recordedAt"), "GM history must expose durable recording time");
+        assertTrue(body.contains("predecessorHistoryId"), "GM history must expose the prior revision identifier");
+
+        Map<String, Object> revise = (Map<String, Object>) ((Map<String, Object>) paths
+                .get("/api/v1/adventure-sessions/{sessionId}/story-plan/stages/{position}/tactical-scene/revise")).get("post");
+        String reviseBody = revise.toString();
+        assertTrue(reviseBody.contains("causingGmTurnId"), "future revision must carry its causing GM turn provenance");
     }
 
     @Test

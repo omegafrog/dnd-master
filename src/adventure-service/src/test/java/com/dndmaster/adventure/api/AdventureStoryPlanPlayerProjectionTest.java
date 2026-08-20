@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 
@@ -65,8 +66,9 @@ class AdventureStoryPlanPlayerProjectionTest {
                 new AdventureStoryPlanStage(1, "Revealed", "Goal", "Conflict", "Next", List.of(), List.of("ending-a"))));
         when(resolver.playerId()).thenReturn(owner);
         var historyId = UUID.randomUUID();
+        var predecessorId = UUID.randomUUID();
         when(stories.readHistoryEntries(new SessionId(sessionId), new OwnerPlayerId(owner))).thenReturn(List.of(
-                new com.dndmaster.adventure.application.storyplan.AdventureStoryPlanHistoryEntry(plan, historyId, plan.updatedAt(), "INITIAL", null)));
+                new com.dndmaster.adventure.application.storyplan.AdventureStoryPlanHistoryEntry(plan, historyId, plan.updatedAt(), "GM_TURN:" + UUID.randomUUID(), predecessorId)));
         var controller = new AdventureStoryPlanController(stories, null, null, resolver, null, null, new ApiRequestGuard("test-internal-token"));
 
         var history = controller.history(sessionId, "test-internal-token");
@@ -75,7 +77,8 @@ class AdventureStoryPlanPlayerProjectionTest {
         assertEquals(plan.planId(), history.getFirst().planId());
         assertEquals(historyId.toString(), history.getFirst().auditId());
         assertEquals(plan.updatedAt(), history.getFirst().recordedAt());
-        assertEquals("INITIAL", history.getFirst().cause());
+        assertTrue(history.getFirst().cause().startsWith("GM_TURN:"));
+        assertEquals(predecessorId.toString(), history.getFirst().predecessorHistoryId());
         verify(stories).readHistoryEntries(new SessionId(sessionId), new OwnerPlayerId(owner));
     }
 

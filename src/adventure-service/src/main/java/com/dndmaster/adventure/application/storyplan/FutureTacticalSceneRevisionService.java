@@ -40,11 +40,15 @@ public final class FutureTacticalSceneRevisionService {
     }
 
     public AdventureStoryPlan revise(SessionId sessionId, OwnerPlayerId owner, int position) {
-        if (generator == null) throw new IllegalStateException("future tactical revision requires the grounded generator");
-        return reviseGenerated(sessionId, owner, position);
+        return revise(sessionId, owner, position, null);
     }
 
-    private AdventureStoryPlan reviseGenerated(SessionId sessionId, OwnerPlayerId owner, int position) {
+    public AdventureStoryPlan revise(SessionId sessionId, OwnerPlayerId owner, int position, java.util.UUID causingGmTurnId) {
+        if (generator == null) throw new IllegalStateException("future tactical revision requires the grounded generator");
+        return reviseGenerated(sessionId, owner, position, causingGmTurnId);
+    }
+
+    private AdventureStoryPlan reviseGenerated(SessionId sessionId, OwnerPlayerId owner, int position, java.util.UUID causingGmTurnId) {
         AdventureSession session = sessions.findById(sessionId).orElseThrow(() -> new IllegalArgumentException("adventure session not found"));
         if (!session.ownerPlayerId().equals(owner)) throw new SecurityException("adventure session access denied");
         if (session.status() != AdventureSession.Status.STARTED) throw new IllegalStateException("future tactical revision requires a started adventure");
@@ -78,7 +82,8 @@ public final class FutureTacticalSceneRevisionService {
             if (attempt == 3) throw new IllegalArgumentException("tactical scene revision blocked after 3 attempts: " + String.join(", ", violations));
         }
         AdventureStoryPlan revised = current.reviseFutureStage(position, existing.withTacticalScenePlan(scene));
-        plans.save(revised);
+        if (causingGmTurnId == null) throw new IllegalArgumentException("future tactical revision requires causing GM turn id");
+        plans.save(revised, "GM_TURN:" + causingGmTurnId);
         return revised;
     }
 }
