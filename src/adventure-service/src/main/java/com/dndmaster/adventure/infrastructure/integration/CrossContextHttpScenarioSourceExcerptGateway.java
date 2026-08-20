@@ -77,7 +77,7 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
                     .filter(Objects::nonNull)
                     .limit(MAX_EXCERPTS_FOR_BLUEPRINT_EXTRACTION)
                     .map(excerpt -> new ResolutionExtractionPort.SourceExcerpt(
-                            new KnowledgeDocumentId(excerpt.knowledgeDocumentId()), excerpt.extractionVersion(),
+                            "STORYBOOK", new KnowledgeDocumentId(excerpt.knowledgeDocumentId()), excerpt.extractionVersion(),
                             excerpt.locator(), abbreviate(excerpt.excerpt()))).toList();
             List<ResolutionExtractionPort.SourceExcerpt> mapAssets = bundle.currentRevision().documents().stream()
                     .filter(document -> document.role() == com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.MAP)
@@ -139,7 +139,7 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
             for (int start = 0; start < content.length(); start += MAX_EXCERPT_CHARACTERS) {
                 int end = Math.min(content.length(), start + MAX_EXCERPT_CHARACTERS);
                 excerpts.add(new ResolutionExtractionPort.SourceExcerpt(
-                        new KnowledgeDocumentId(document.knowledgeDocumentId()), document.extractionVersion(),
+                        "RULEBOOK", new KnowledgeDocumentId(document.knowledgeDocumentId()), document.extractionVersion(),
                         "document:offset:" + start + "-" + end, content.substring(start, end)));
             }
             return excerpts;
@@ -164,7 +164,7 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
             SourcePreviewResponse preview = objectMapper.readValue(response.body(), SourcePreviewResponse.class);
             if (preview.assets() == null) return List.of();
             return preview.assets().stream().filter(Objects::nonNull).map(asset ->
-                    new ResolutionExtractionPort.SourceExcerpt(document.knowledgeDocumentId(), document.extractionVersion(),
+                    new ResolutionExtractionPort.SourceExcerpt(document.documentType(), document.knowledgeDocumentId(), document.extractionVersion(),
                             "asset:" + asset.locator(), "MAP asset=\"" + asset.locator()
                                     + "\" image=\"" + asset.locator() + "\" confidence=0.9 safety=SAFE"))
                     .toList();

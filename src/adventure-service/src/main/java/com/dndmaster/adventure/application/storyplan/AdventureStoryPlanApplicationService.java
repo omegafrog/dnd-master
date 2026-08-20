@@ -240,15 +240,11 @@ public final class AdventureStoryPlanApplicationService {
         if (bundles != null && sourceExcerptPort != null) {
             bundles.findById(scenarioPackage.bundleId()).ifPresent(bundle -> {
                 try {
-                    java.util.Map<UUID, String> documentTypes = bundle.currentRevision().documents().stream()
-                            .collect(java.util.stream.Collectors.toMap(
-                                    document -> document.knowledgeDocumentId().value(),
-                                    document -> document.documentType(), (left, right) -> left));
                     sourceExcerptPort.load(bundle).stream()
                             .filter(excerpt -> excerpt.text() != null && excerpt.text().matches(
                                     "(?is).*\\b(cellar|corridor|tower|dungeon|brewery|trap|staircase)\\b.*"))
                             .limit(8).forEach(excerpt -> related.add(new AdventureStoryPlanGenerationPort.SourceCitation(
-                                    documentTypes.getOrDefault(excerpt.documentId().value(), "STORYBOOK"),
+                                    excerpt.documentType(),
                                     excerpt.documentId().value(), excerpt.extractionVersion(), excerpt.locator(),
                                     excerpt.text().replaceAll("\\s+", " ").trim(), .9)));
                 } catch (RuntimeException ignored) { }
@@ -267,10 +263,8 @@ public final class AdventureStoryPlanApplicationService {
                 .filter(java.util.Objects::nonNull).toList());
         if (bundles != null && sourceExcerptPort != null) {
             bundles.findById(scenarioPackage.bundleId()).ifPresent(bundle -> {
-                java.util.Map<UUID, String> bundleTypes = bundle.currentRevision().documents().stream().collect(java.util.stream.Collectors.toMap(
-                        document -> document.knowledgeDocumentId().value(), document -> document.documentType(), (left, right) -> left));
                 sourceExcerptPort.load(bundle).stream().limit(12).forEach(excerpt -> result.add(new AdventureStoryPlanGenerationPort.SourceCitation(
-                        bundleTypes.getOrDefault(excerpt.documentId().value(), "STORYBOOK"), excerpt.documentId().value(),
+                        excerpt.documentType(), excerpt.documentId().value(),
                         excerpt.extractionVersion(), excerpt.locator(), excerpt.text(), .9)));
             });
         }

@@ -147,6 +147,8 @@ public final class AdventureStoryPlanController {
             if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("Ollama returned HTTP " + response.statusCode());
             JsonNode envelope = mapper.readTree(response.body());
             return new Response(parse(envelope.path("response").asText(), configuration));
+        } catch (CandidateResponseValidationException invalidCandidate) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, invalidCandidate.getMessage(), invalidCandidate);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("story plan generation interrupted via " + endpoint.provider(), e);
@@ -188,6 +190,8 @@ public final class AdventureStoryPlanController {
             } else {
                 return adapter.completeWithModel(operationId, prompt, this::parseTacticalCandidate, endpoint.model());
             }
+        } catch (CandidateResponseValidationException invalidCandidate) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, invalidCandidate.getMessage(), invalidCandidate);
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI tactical scene response malformed", e);
         }
@@ -201,7 +205,7 @@ public final class AdventureStoryPlanController {
             }
             return candidate;
         } catch (Exception e) {
-            throw new IllegalArgumentException("tactical candidate is not valid JSON", e);
+            throw new CandidateResponseValidationException("tactical candidate is not valid JSON", e);
         }
     }
 
@@ -219,14 +223,18 @@ public final class AdventureStoryPlanController {
             if (stages == null || !stages.isArray()) throw new IllegalArgumentException("stages missing");
             List<Stage> result = new ArrayList<>();
             for (JsonNode n : stages) {
-                List<String> endings = strings(n.get("endingIds")); if (endings.isEmpty()) throw new IllegalArgumentException("endingIds missing");
-                result.add(new Stage(n.path("position").asInt(result.size() + 1), required(n,"title"), text(n, "stageType", "EVENT"), text(n, "location", required(n, "title")), required(n,"goal"), required(n,"conflict"), required(n,"transitionCondition"), strings(n.get("npcOrClues")), endings,
-                        text(n, "mapDefinitionId", ""), text(n, "mapAssetId", ""), text(n, "mapAssetLocator", ""), strings(n.get("enemies")), text(n, "boss", ""), text(n, "clearCondition", required(n, "transitionCondition")), text(n, "failureCondition", ""), strings(n.get("rewards")), strings(n.get("branchIds")), maps(n.get("branchTargets")), citations(n.get("evidence"))));
+                List<String> endings = strings(n.get("endingIds"), "endingIds"); if (endings.isEmpty()) throw new IllegalArgumentException("endingIds missing");
+                result.add(new Stage(n.path("position").asInt(result.size() + 1), required(n,"title"), text(n, "stageType", "EVENT"), text(n, "location", required(n, "title")), required(n,"goal"), required(n,"conflict"), required(n,"transitionCondition"), strings(n.get("npcOrClues"), "npcOrClues"), endings,
+                        text(n, "mapDefinitionId", ""), text(n, "mapAssetId", ""), text(n, "mapAssetLocator", ""), strings(n.get("enemies"), "enemies"), text(n, "boss", ""), text(n, "clearCondition", required(n, "transitionCondition")), text(n, "failureCondition", ""), strings(n.get("rewards"), "rewards"), strings(n.get("branchIds"), "branchIds"), maps(n.get("branchTargets"), "branchTargets"), citations(n.get("evidence"), "evidence")));
             }
             if (result.size() < configuration.minimumStages() || result.size() > configuration.maximumStages()) throw new IllegalArgumentException("invalid stage count");
             if (result.stream().flatMap(s -> s.endingIds().stream()).distinct().count() != configuration.endingCount()) throw new IllegalArgumentException("invalid ending count");
             return List.copyOf(result);
-        } catch (Exception e) { throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI story plan response malformed", e); }
+        } catch (CandidateResponseValidationException invalidCandidate) {
+            throw invalidCandidate;
+        } catch (Exception e) {
+            throw new CandidateResponseValidationException(rootMessage(e), e);
+        }
     }
     List<Stage> parseMarkdown(String markdown, Configuration configuration) {
         String clean = markdown == null ? "" : markdown.replace("\r", "").trim();
@@ -276,16 +284,21 @@ public final class AdventureStoryPlanController {
     }
     private static String extractObject(String text) { int a = text.indexOf('{'), b = text.lastIndexOf('}'); if (a < 0 || b < a) throw new IllegalArgumentException("JSON object missing"); return text.substring(a,b+1); }
     private static String required(JsonNode n, String key) { String v = n.path(key).asText("").trim(); if (v.isBlank()) throw new IllegalArgumentException(key + " missing"); return v; }
-    private static List<String> strings(JsonNode n) { if (n == null || !n.isArray()) return List.of(); List<String> r = new ArrayList<>(); n.forEach(v -> { if (v.isTextual() && !v.asText().isBlank()) r.add(v.asText()); }); return List.copyOf(r); }
+    private static List<String> strings(JsonNode n, String field) {
+        if (n == null || !n.isArray()) throw new IllegalArgumentException(field + " must be explicit");
+        List<String> r = new ArrayList<>();
+        n.forEach(v -> { if (v.isTextual() && !v.asText().isBlank()) r.add(v.asText()); });
+        return List.copyOf(r);
+    }
     private static String text(JsonNode node, String key, String fallback) { String value = node.path(key).asText("").trim(); return value.isBlank() ? fallback : value; }
-    private static Map<String, String> maps(JsonNode node) {
-        if (node == null || !node.isObject()) return Map.of();
+    private static Map<String, String> maps(JsonNode node, String field) {
+        if (node == null || !node.isObject()) throw new IllegalArgumentException(field + " must be explicit");
         Map<String, String> result = new HashMap<>();
         node.fields().forEachRemaining(entry -> result.put(entry.getKey(), entry.getValue().asText()));
         return Map.copyOf(result);
     }
-    private static List<SourceCitation> citations(JsonNode node) {
-        if (node == null || !node.isArray()) return List.of();
+    private static List<SourceCitation> citations(JsonNode node, String field) {
+        if (node == null || !node.isArray()) throw new IllegalArgumentException(field + " must be explicit");
         List<SourceCitation> result = new ArrayList<>();
         node.forEach(item -> {
             String documentType = text(item, "documentType", ""); String documentId = text(item, "documentId", "");
@@ -295,6 +308,9 @@ public final class AdventureStoryPlanController {
             }
         });
         return List.copyOf(result);
+    }
+    private static final class CandidateResponseValidationException extends RuntimeException {
+        CandidateResponseValidationException(String message, Throwable cause) { super(message, cause); }
     }
     public record Request(String operationId, long packageRevision, int partySize, Configuration configuration, List<String> sourceDocuments,
             List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations, List<String> violations) {

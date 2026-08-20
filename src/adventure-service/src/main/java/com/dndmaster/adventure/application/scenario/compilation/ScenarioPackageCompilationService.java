@@ -242,7 +242,7 @@ public final class ScenarioPackageCompilationService {
                                 || (sourceType.equals("HANDOUT") && candidate.role() == ScenarioBundleDocumentRole.HANDOUT))
                         .findFirst().orElse(null);
                 if (document != null) evidence = new ResolutionExtractionPort.SourceExcerpt(
-                        document.knowledgeDocumentId(), document.extractionVersion(), "document", "");
+                        document.documentType(), document.knowledgeDocumentId(), document.extractionVersion(), "document", "");
                 evidenceSourceType = sourceType;
             }
             if (evidence != null) candidates.add(new CharacterCreationBlueprintCompiler.FieldCandidate(

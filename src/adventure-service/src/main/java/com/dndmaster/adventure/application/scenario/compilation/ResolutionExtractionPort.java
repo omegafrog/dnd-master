@@ -30,6 +30,16 @@ public interface ResolutionExtractionPort {
         }
     }
 
-    record SourceExcerpt(KnowledgeDocumentId documentId, long extractionVersion, String locator, String text) {}
+    record SourceExcerpt(String documentType, KnowledgeDocumentId documentId, long extractionVersion, String locator, String text) {
+        public SourceExcerpt(KnowledgeDocumentId documentId, long extractionVersion, String locator, String text) {
+            this("STORYBOOK", documentId, extractionVersion, locator, text);
+        }
+
+        public SourceExcerpt {
+            if (documentType == null || documentType.isBlank()) {
+                throw new IllegalArgumentException("source excerpt document type must not be blank");
+            }
+        }
+    }
     record CandidateRetryRequest(String operationId, ResolutionCandidate failedCandidate, List<SourceExcerpt> excerpts, String schemaVersion, String promptVersion, int attempt, List<String> diagnostics) { }
 }

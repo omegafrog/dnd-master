@@ -91,6 +91,37 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
     }
 
     @Test
+    void normalizesRemoteMalformedTacticalCandidateAsTypedValidationButNotProviderFailure() {
+        server = new WireMockServer(0);
+        server.start();
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/tactical-scene-plan"))
+                .willReturn(aResponse().withStatus(422).withHeader("Content-Type", "application/json")
+                        .withBody("{\"detail\":\"tactical candidate fields missing\"}")));
+        var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "test-internal-token");
+
+        var failure = assertThrows(AdventureStoryPlanCandidateValidationException.class,
+                () -> gateway.generateTacticalScene(request(UUID.randomUUID())));
+
+        assertEquals(List.of("tactical candidate fields missing"), failure.violations());
+    }
+
+    @Test
+    void keepsRemoteTacticalProviderFailureOperational() {
+        server = new WireMockServer(0);
+        server.start();
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/tactical-scene-plan"))
+                .willReturn(aResponse().withStatus(503)));
+        var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "test-internal-token");
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> gateway.generateTacticalScene(request(UUID.randomUUID())));
+
+        assertEquals("tactical scene AI failed: 503", failure.getMessage());
+    }
+
+    @Test
     void rejectsOmittedRequiredOutlineCollectionsInsteadOfInventingEmptyLists() {
         server = new WireMockServer(0);
         server.start();

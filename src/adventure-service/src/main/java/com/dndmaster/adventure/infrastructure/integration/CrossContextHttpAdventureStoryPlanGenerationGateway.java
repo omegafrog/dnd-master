@@ -43,6 +43,10 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             var response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/adventure-story-plan"))
                     .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 422) {
+                throw new AdventureStoryPlanCandidateValidationException(List.of(
+                        remoteCandidateViolation(response.body(), "AI returned an invalid story plan candidate")));
+            }
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 String detail = response.body() == null ? "" : response.body().replaceAll("\\s+", " ");
                 if (detail.length() > 1200) detail = detail.substring(0, 1200);
@@ -97,6 +101,10 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             var response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/tactical-scene-plan"))
                     .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(request))).build(), HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 422) {
+                throw new AdventureStoryPlanCandidateValidationException(List.of(
+                        remoteCandidateViolation(response.body(), "AI returned an invalid tactical scene candidate")));
+            }
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IllegalStateException("tactical scene AI failed: " + response.statusCode());
             }
@@ -135,6 +143,18 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         Throwable root = failure;
         while (root.getCause() != null) root = root.getCause();
         return root.getMessage() == null || root.getMessage().isBlank() ? fallback : root.getMessage();
+    }
+
+    private String remoteCandidateViolation(String body, String fallback) {
+        try {
+            var error = mapper.readTree(body == null ? "" : body);
+            String detail = error.path("detail").asText("").trim();
+            if (!detail.isBlank()) return detail;
+            String message = error.path("message").asText("").trim();
+            return message.isBlank() ? fallback : message;
+        } catch (RuntimeException | IOException ignored) {
+            return fallback;
+        }
     }
 
     private static List<String> sourceCitations(TacticalScenePlan scene) {

@@ -210,6 +210,23 @@ class TacticalScenePlanGenerationRetryTest {
     }
 
     @Test
+    void doesNotFabricateStorybookProvenanceForAnOutOfBundleRulebookExcerpt() {
+        var fixture = new Fixture(false, true);
+        fixture.generator.candidates.add(TacticalScenePlanCandidate.absent(1));
+        fixture.generator.candidates.add(TacticalScenePlanCandidate.absent(1));
+        fixture.generator.candidates.add(TacticalScenePlanCandidate.absent(1));
+
+        fixture.service.generate(fixture.session.id(), fixture.session.ownerPlayerId(), SHORT_ADVENTURE);
+
+        assertFalse(fixture.generator.outlineRequests.getFirst().citations().stream()
+                .anyMatch(citation -> citation.documentId().equals(fixture.externalEvidenceId)
+                        && citation.documentType().equals("STORYBOOK")));
+        assertTrue(fixture.generator.outlineRequests.getFirst().citations().stream()
+                .anyMatch(citation -> citation.documentId().equals(fixture.externalEvidenceId)
+                        && citation.documentType().equals("RULEBOOK")));
+    }
+
+    @Test
     void rejectsReadyEnemyOnlyTacticalScenes() {
         var grounding = PlacementGrounding.aiInference("bounded");
         assertThrows(IllegalArgumentException.class, () -> new TacticalScenePlan(1, TacticalScenePlanStatus.READY,
@@ -226,14 +243,20 @@ class TacticalScenePlanGenerationRetryTest {
         private final AdventureStoryPlanGenerationPort.SourceCitation sourceCitation;
         private final UUID mapId;
         private final String playerId;
+        private final UUID externalEvidenceId = UUID.randomUUID();
 
         private Fixture() {
             this(false);
         }
 
         private Fixture(boolean twoTacticalStages) {
+            this(twoTacticalStages, false);
+        }
+
+        private Fixture(boolean twoTacticalStages, boolean includeExternalRulebookExcerpt) {
             mapId = UUID.randomUUID();
             UUID secondMapId = UUID.randomUUID();
+            var bundleId = ScenarioBundleId.generate();
             var sourceDocument = new KnowledgeDocumentId(UUID.randomUUID());
             String sourceQuote = "The cellar includes entry, alarm, reinforcement, boss, reward, success, failure, exit, and surrender. The party leaves.";
             sourceCitation = new AdventureStoryPlanGenerationPort.SourceCitation(
@@ -255,7 +278,7 @@ class TacticalScenePlanGenerationRetryTest {
                     new MapSourceReference(sourceDocument, 1, "page:1"), .9, MapSafetyStatus.SAFE);
             var secondMap = new MapDefinition(secondMapId, "brewery-upper", "page 2", new MapDefinition.MapGrid(0, 0, 1, 0, "5ft"), List.of(), List.of(), List.of(),
                     new MapSourceReference(sourceDocument, 1, "page:1"), .9, MapSafetyStatus.SAFE);
-            var scenarioPackage = ScenarioPackage.publishWithMaps(ScenarioBundleId.generate(), 1, "tactical", List.of(document), List.of(unit),
+            var scenarioPackage = ScenarioPackage.publishWithMaps(bundleId, 1, "tactical", List.of(document), List.of(unit),
                     new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()), CharacterLimit.defaultLimit(), null,
                     twoTacticalStages ? List.of(map, secondMap) : List.of(map), List.of());
             session = AdventureSession.create(SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), scenarioPackage.packageId(), 1, 1,
@@ -266,8 +289,25 @@ class TacticalScenePlanGenerationRetryTest {
                     false, false, false, false, false, false));
             generator.stage = mappedStage(1, mapId, sourceCitation);
             if (twoTacticalStages) generator.additionalTacticalStage = mappedStage(2, secondMapId, sourceCitation);
+            var sourceBundle = com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle.create(
+                    bundleId,
+                    new com.dndmaster.adventure.domain.scenario.OwnerPlayerId(session.ownerPlayerId().value()),
+                    new com.dndmaster.adventure.domain.scenario.ScenarioSourceBundleRevision(1, List.of(document)));
+            com.dndmaster.adventure.application.scenario.ScenarioBundleRepository bundleRepository =
+                    new com.dndmaster.adventure.application.scenario.ScenarioBundleRepository() {
+                        @Override public Optional<com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle> findById(ScenarioBundleId id) {
+                            return id.equals(bundleId) ? Optional.of(sourceBundle) : Optional.empty();
+                        }
+                        @Override public void save(com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle ignored) { }
+                    };
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort excerptPort = ignored ->
+                    includeExternalRulebookExcerpt
+                            ? List.of(new ResolutionExtractionPort.SourceExcerpt(
+                                    "RULEBOOK", new KnowledgeDocumentId(externalEvidenceId), 7,
+                                    "document:page:4", "cellar rule"))
+                            : List.of();
             service = new AdventureStoryPlanApplicationService(plans, new Sessions(session),
-                    new PackageRepository(scenarioPackage), generator);
+                    new PackageRepository(scenarioPackage), generator, bundleRepository, excerptPort);
         }
     }
 
