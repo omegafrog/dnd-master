@@ -172,7 +172,7 @@ public class AdventureController {
             result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
                     new AdventureId(adventureId), new OwnerPlayerId(owner), request.turnId(), commandId,
                     input.actionText(), expectedVersion,
-                    !(input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput)));
+                    null, -1, !(input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput), true));
         } catch (RuntimeException exception) {
             gmTurnFailureRecorder.record(turn, adventureId, adventure.sessionId().value(), exception.getMessage(), expectedVersion);
             return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_GATEWAY).build();
