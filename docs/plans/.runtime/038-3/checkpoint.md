@@ -1,7 +1,8 @@
 # 038-3 checkpoint
 
-- attempt: 2
+- attempt: 3
 - status: completed
+- attempt-3-completed: player-safe INITIAL_FOG filtering for observed and last-seen tokens with GM projection preserved
 - attempt-2-completed: fresh active binding schema, transactional rebinding rollback, player-view ownerId contract
 - completed: active map filtering/owner scoping, durable normal-start binding verification, required internal-token OpenAPI contract and regression tests
 - attempt-2-scope: fresh migration schema, atomic active-map rebinding with rollback, player-view ownerId contract
