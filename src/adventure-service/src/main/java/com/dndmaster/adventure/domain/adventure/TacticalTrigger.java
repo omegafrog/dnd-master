@@ -6,11 +6,15 @@ import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
 
 @JsonDeserialize(using = TacticalTriggerDeserializer.class)
 public record TacticalTrigger(String id, TacticalTriggerType type, List<String> targetIds, String transitionId,
-        PlacementGrounding grounding, String qualifyingAction) {
+        PlacementGrounding grounding, String qualifyingAction, boolean legacyUnqualified) {
     public TacticalTrigger(String id, TacticalTriggerType type, List<String> targetIds, String transitionId,
             PlacementGrounding grounding) {
         this(id, type, targetIds, transitionId, grounding,
                 type == null ? null : type.name().toLowerCase(java.util.Locale.ROOT));
+    }
+    public TacticalTrigger(String id, TacticalTriggerType type, List<String> targetIds, String transitionId,
+            PlacementGrounding grounding, String qualifyingAction) {
+        this(id, type, targetIds, transitionId, grounding, qualifyingAction, false);
     }
     public TacticalTrigger {
         id = required(id, "trigger id");

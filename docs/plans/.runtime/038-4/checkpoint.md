@@ -1,6 +1,6 @@
 # 038-4 checkpoint
 
-- attempt: 25
+- attempt: 26
 - status: in-progress
 - scope: player trigger qualification, durable planned trigger effects, active-map/session ownership, immutable revealed stages and append-only future revision
 - resumed after 038-3 completion at `5f55cc4d`
@@ -34,3 +34,4 @@
 - completed attempt 24: absent qualifyingAction in legacy trigger JSON is backfilled from trigger type by an explicit deserializer, while explicit null remains strict and invalid for new candidates
 - attempt 25 started: legacy runtime/application compatibility boundaries must resolve authored qualifyingAction before execution
 - completed attempt 25: Adventure compatibility overloads resolve the authored/backfilled action from the scene before enforcing recorded PLAYER evidence; Combat Map action-less overload remains an explicit safe rejection rather than accepting client input
+- attempt 26 started: legacy backfill must remain display-only and blank trigger actions must map to HTTP 400

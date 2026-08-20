@@ -32,6 +32,10 @@ class TacticalScenePlanTest {
         legacy.remove("qualifyingAction");
         TacticalTrigger restored = mapper.treeToValue(legacy, TacticalTrigger.class);
         assertEquals("combat_entry", restored.qualifyingAction());
+        assertThrows(IllegalArgumentException.class, () -> new TacticalTriggerEvaluator().evaluate(
+                new TacticalScenePlan(TacticalScenePlan.CURRENT_SCHEMA_VERSION, TacticalScenePlanStatus.READY, boundary(),
+                        List.of(placement("party", TacticalPlacementKind.PLAYER, .1, .1)), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                        new FogPlan(List.of(), grounding("fog")), List.of(restored), List.of(), List.of()), "entry"));
     }
     @Test
     void evaluatesAuthoredTriggerAndAppliesItsEffectToTheRuntimeSeam() {
