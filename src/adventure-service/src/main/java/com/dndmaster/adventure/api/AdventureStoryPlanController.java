@@ -54,6 +54,13 @@ public final class AdventureStoryPlanController {
         throw new ResponseStatusException(HttpStatus.FORBIDDEN, "story plan history is GM-only");
     }
 
+    @GetMapping(path = "/history", headers = "X-Internal-Token")
+    List<GmPlanView> history(@PathVariable UUID sessionId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String internalToken) {
+        requestGuard.internal(internalToken);
+        return service.readHistory(new SessionId(sessionId), owner()).stream().map(GmPlanView::from).toList();
+    }
+
     @GetMapping("/gm")
     GmPlanView gm(@PathVariable UUID sessionId,
             @RequestHeader(value = "X-Internal-Token", required = false) String internalToken) {

@@ -56,6 +56,25 @@ class AdventureStoryPlanPlayerProjectionTest {
     }
 
     @Test
+    void internalHistoryReturnsOwnerScopedGmRevisionProjection() {
+        var sessionId = UUID.randomUUID();
+        var owner = UUID.randomUUID();
+        var resolver = mock(AuthenticatedPlayerResolver.class);
+        var stories = mock(AdventureStoryPlanApplicationService.class);
+        var plan = AdventureStoryPlan.ready(SessionId.generate(), 4, 3, List.of(
+                new AdventureStoryPlanStage(1, "Revealed", "Goal", "Conflict", "Next", List.of(), List.of("ending-a"))));
+        when(resolver.playerId()).thenReturn(owner);
+        when(stories.readHistory(new SessionId(sessionId), new OwnerPlayerId(owner))).thenReturn(List.of(plan));
+        var controller = new AdventureStoryPlanController(stories, null, null, resolver, null, null, new ApiRequestGuard("test-internal-token"));
+
+        var history = controller.history(sessionId, "test-internal-token");
+
+        assertEquals(1, history.size());
+        assertEquals(plan.planId(), history.getFirst().planId());
+        verify(stories).readHistory(new SessionId(sessionId), new OwnerPlayerId(owner));
+    }
+
+    @Test
     void blockedPlayerProjectionIncludesOnlyUsableRetryDiagnostics() {
         var sessionId = SessionId.generate();
         AdventureStoryPlan plan = AdventureStoryPlan.blocked(
