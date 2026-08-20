@@ -104,11 +104,6 @@ public final class AdventureStoryPlanController {
         return PlayerPlanView.from(futureRevision.revise(new SessionId(sessionId), owner(), position, request.causingGmTurnId()));
     }
 
-    PlayerPlanView reviseFutureTacticalScene(UUID sessionId, int position, String internalToken) {
-        requestGuard.internal(internalToken);
-        return PlayerPlanView.from(futureRevision.revise(new SessionId(sessionId), owner(), position, null));
-    }
-
     @PostMapping("/stages/{position}/triggers/{triggerId}/apply")
     TriggerApplicationView applyTrigger(@PathVariable UUID sessionId, @PathVariable int position,
             @PathVariable String triggerId, @RequestBody TriggerApplicationRequest request) {
