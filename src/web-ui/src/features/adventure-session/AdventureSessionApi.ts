@@ -60,13 +60,9 @@ export type CreateAdventureSessionRequest = {
 }
 
 export type AdventureStoryPlanView = {
-  planId: string
-  packageRevision: number
-  partyRevision: number
-  version: number
-  status: 'GENERATING' | 'READY' | 'FAILED'
+  status: 'GENERATING' | 'READY' | 'BLOCKED' | 'FAILED'
   currentStage: number
-  stageCount: number
+  planRevision: number
   endingCount: number
   adventureLength: 'SHORT' | 'STANDARD' | 'LONG'
   stages: Array<{
@@ -75,15 +71,6 @@ export type AdventureStoryPlanView = {
     stageType: string
     location: string
     goal: string
-    rewards: string[]
-    mapDefinitionId: string | null
-    mapAssetId: string
-    mapAssetLocator: string
-    groundingStatus: 'GROUNDED' | 'AI_SUGGESTION'
-    aiSuggestions: string[]
-    mapSafetyStatus: string
-    mapConfidence: number | null
-    evidenceCount: number
   }>
   failureReason: string | null
 }

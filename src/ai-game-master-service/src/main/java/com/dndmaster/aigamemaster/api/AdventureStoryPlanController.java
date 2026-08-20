@@ -167,7 +167,7 @@ public final class AdventureStoryPlanController {
                 scene MUST use schemaVersion 1 and status READY. It must contain boundary {minimum:{x,y},maximum:{x,y},forbiddenCoordinates:[]},
                 players/allies/npcs/enemies/bosses/interactiveObjects/environments arrays, initialFog {hiddenRegions,grounding}, triggers, outcomes, and transitionIds.
                 Every coordinate is normalized from 0 through 1. Every placement/environment must have id, kind, coordinate, and grounding.
-                A grounding is either {type:"SOURCE_CITATION",citation:"documentType:documentUuid:locator",rationale:""} using ONLY a supplied citation,
+                A grounding is either {type:"SOURCE_CITATION",citation:"documentType:documentUuid:extractionVersion:locator",rationale:""} using ONLY a supplied citation,
                 or {type:"AI_INFERENCE",citation:"",rationale:"bounded explanation tied to the supplied map or story evidence"}.
                 Source citations and supplied map/story evidence take precedence. Use the supplied partyMemberIds exactly for player identities.
                 AI_INFERENCE may choose coordinates or bounded placement details only for identities already present in partyMemberIds, the stage, map evidence, or source citations.
@@ -312,7 +312,8 @@ public final class AdventureStoryPlanController {
             violations = violations == null ? List.of() : List.copyOf(violations);
         }
     }
-    public record MapContext(String mapDefinitionId, String assetId, String assetLocator, String sourceLocator, double confidence, String safetyStatus, List<String> relatedEvidence) {}
+    public record MapContext(String mapDefinitionId, String assetId, String assetLocator, String sourceLocator,
+            double confidence, String safetyStatus, List<SourceCitation> relatedEvidence) {}
     public record SourceCitation(String documentType, String documentId, long extractionVersion, String locator, String quote, double confidence) {}
     public record Configuration(int endingCount, String adventureLength) {
         public Configuration {

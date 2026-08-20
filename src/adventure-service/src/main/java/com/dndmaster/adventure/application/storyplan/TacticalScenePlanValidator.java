@@ -111,7 +111,8 @@ public final class TacticalScenePlanValidator {
     }
 
     public static String key(AdventureStoryPlanGenerationPort.SourceCitation citation) {
-        return citation.documentType() + ":" + citation.documentId() + ":" + citation.locator();
+        return citation.documentType() + ":" + citation.documentId() + ":"
+                + citation.extractionVersion() + ":" + citation.locator();
     }
 
     private static List<PlacementGrounding> groundings(TacticalScenePlan scene) {

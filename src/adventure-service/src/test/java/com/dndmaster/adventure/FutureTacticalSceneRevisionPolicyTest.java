@@ -18,7 +18,7 @@ import com.dndmaster.adventure.application.storyplan.TacticalSceneRequest;
 class FutureTacticalSceneRevisionPolicyTest {
     private static final java.util.UUID EVIDENCE_DOCUMENT_ID = java.util.UUID.randomUUID();
     private static final String EVIDENCE_LOCATOR = "page:1";
-    private static final String EVIDENCE_KEY = "STORYBOOK:" + EVIDENCE_DOCUMENT_ID + ":" + EVIDENCE_LOCATOR;
+    private static final String EVIDENCE_KEY = "STORYBOOK:" + EVIDENCE_DOCUMENT_ID + ":1:" + EVIDENCE_LOCATOR;
 
     @Test
     void preservesRevealedStagesAndCreatesSuccessorRevisionForFutureStages() {

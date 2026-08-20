@@ -41,9 +41,14 @@ public interface AdventureStoryPlanGenerationPort {
         }
     }
 
-    record MapContext(UUID mapDefinitionId, String assetId, String assetLocator, String sourceLocator, double confidence, String safetyStatus, List<String> relatedEvidence) {
+    record MapContext(UUID mapDefinitionId, String assetId, String assetLocator, String sourceLocator, double confidence,
+            String safetyStatus, List<SourceCitation> relatedEvidence) {
         public MapContext(UUID mapDefinitionId, String assetId, String assetLocator, String sourceLocator, double confidence, String safetyStatus) {
             this(mapDefinitionId, assetId, assetLocator, sourceLocator, confidence, safetyStatus, List.of());
+        }
+        public MapContext {
+            relatedEvidence = List.copyOf(java.util.Objects.requireNonNull(
+                    relatedEvidence, "map related evidence must be explicit"));
         }
     }
     record SourceCitation(String documentType, UUID documentId, long extractionVersion, String locator, String quote, double confidence) {}

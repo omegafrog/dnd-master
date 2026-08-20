@@ -39,7 +39,7 @@ class TacticalSourceEvidenceReconciliationTest {
     }
 
     @Test
-    void rejectsAnAiInferenceThatContradictsASourceFact() {
+    void leavesContradictionDecisionsToStructuredTypedValidation() {
         var documentId = UUID.randomUUID();
         var source = new AdventureStoryPlanGenerationPort.SourceCitation("STORYBOOK", documentId, 7,
                 "page:1", "The cellar contains a rat swarm.", 1.0);
@@ -53,7 +53,7 @@ class TacticalSourceEvidenceReconciliationTest {
 
         var violations = SourceEvidenceReconciliationPort.exact().reconcile(List.of(source), List.of(source), scene);
 
-        assertTrue(violations.stream().anyMatch(value -> value.contains("contradicts authoritative source")));
+        assertFalse(violations.stream().anyMatch(value -> value.contains("contradicts authoritative source")));
     }
 
     @Test

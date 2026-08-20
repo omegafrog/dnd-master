@@ -68,11 +68,26 @@ final class TacticalEntityIdentityValidator {
     }
 
     private static boolean inferredIdentityEvidence(TacticalSceneRequest request, String identity) {
-        return request.stage().evidence().stream()
+        return request.citations().stream()
+                .map(AdventureStoryPlanGenerationPort.SourceCitation::quote)
+                .anyMatch(quote -> SourceClaimSupport.supports(quote, identity))
+                || request.stage().evidence().stream()
                 .map(AdventurePlanEvidence::quote)
                 .anyMatch(quote -> SourceClaimSupport.supports(quote, identity))
                 || request.map().relatedEvidence().stream()
+                .filter(related -> request.citations().stream().anyMatch(authoritative -> sameEvidence(authoritative, related)))
+                .map(AdventureStoryPlanGenerationPort.SourceCitation::quote)
                 .anyMatch(quote -> SourceClaimSupport.supports(quote, identity));
+    }
+
+    private static boolean sameEvidence(
+            AdventureStoryPlanGenerationPort.SourceCitation authoritative,
+            AdventureStoryPlanGenerationPort.SourceCitation related) {
+        return authoritative.documentType().equals(related.documentType())
+                && authoritative.documentId().equals(related.documentId())
+                && authoritative.extractionVersion() == related.extractionVersion()
+                && authoritative.locator().equals(related.locator())
+                && authoritative.quote().equals(related.quote());
     }
 
     private static boolean environmentIdentitySupported(

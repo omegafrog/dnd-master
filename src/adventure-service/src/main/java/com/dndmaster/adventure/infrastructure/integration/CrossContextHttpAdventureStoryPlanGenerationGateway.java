@@ -87,11 +87,8 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         } catch (AdventureStoryPlanCandidateValidationException invalidCandidate) {
             throw invalidCandidate;
         } catch (RuntimeException | IOException invalidCandidate) {
-            String message = invalidCandidate.getMessage();
             throw new AdventureStoryPlanCandidateValidationException(List.of(
-                    message == null || message.isBlank()
-                            ? "AI returned an invalid story plan candidate"
-                            : message));
+                    validationMessage(invalidCandidate, "AI returned an invalid story plan candidate")));
         }
     }
 
@@ -103,11 +100,22 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IllegalStateException("tactical scene AI failed: " + response.statusCode());
             }
-            TacticalResponse parsed = mapper.readValue(response.body(), TacticalResponse.class);
+            return parseTacticalCandidate(response.body(), request);
+        } catch (HttpTimeoutException e) { throw new IllegalStateException("tactical scene AI timed out after " + timeout, e); }
+        catch (IOException e) { throw new IllegalStateException("tactical scene AI request encoding failed", e); }
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("tactical scene AI interrupted", e); }
+    }
+
+    private TacticalScenePlanCandidate parseTacticalCandidate(String responseBody, TacticalSceneRequest request) {
+        try {
+            TacticalResponse parsed = mapper.readValue(responseBody, TacticalResponse.class);
             if (parsed.scene() == null) throw new IllegalStateException("AI returned no tactical scene");
-            List<AdventureStoryPlanGenerationPort.SourceCitation> citations = parsed.citations().stream().map(item -> new AdventureStoryPlanGenerationPort.SourceCitation(
-                    item.documentType(), UUID.fromString(item.documentId()), item.extractionVersion(), item.locator(), item.quote(), item.confidence())).toList();
-            if (citations.stream().anyMatch(item -> !matchesCitation(new SourceCitation(item.documentType(), item.documentId().toString(), item.extractionVersion(), item.locator(), item.quote(), item.confidence()), request.citations()))) {
+            List<AdventureStoryPlanGenerationPort.SourceCitation> citations = parsed.citations().stream().map(item ->
+                    new AdventureStoryPlanGenerationPort.SourceCitation(item.documentType(), UUID.fromString(item.documentId()),
+                            item.extractionVersion(), item.locator(), item.quote(), item.confidence())).toList();
+            if (citations.stream().anyMatch(item -> !matchesCitation(new SourceCitation(
+                    item.documentType(), item.documentId().toString(), item.extractionVersion(), item.locator(),
+                    item.quote(), item.confidence()), request.citations()))) {
                 throw new IllegalStateException("AI returned an unknown tactical source citation");
             }
             if (sourceCitations(parsed.scene()).stream().anyMatch(citation -> request.citations().stream()
@@ -115,9 +123,18 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                 throw new IllegalStateException("AI returned tactical grounding without a supplied citation");
             }
             return TacticalScenePlanCandidate.ready(parsed.stagePosition(), parsed.scene(), citations);
-        } catch (HttpTimeoutException e) { throw new IllegalStateException("tactical scene AI timed out after " + timeout, e); }
-        catch (IOException e) { throw new IllegalStateException("tactical scene AI response malformed", e); }
-        catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("tactical scene AI interrupted", e); }
+        } catch (AdventureStoryPlanCandidateValidationException invalidCandidate) {
+            throw invalidCandidate;
+        } catch (RuntimeException | IOException invalidCandidate) {
+            throw new AdventureStoryPlanCandidateValidationException(List.of(
+                    validationMessage(invalidCandidate, "AI returned an invalid tactical scene candidate")));
+        }
+    }
+
+    private static String validationMessage(Throwable failure, String fallback) {
+        Throwable root = failure;
+        while (root.getCause() != null) root = root.getCause();
+        return root.getMessage() == null || root.getMessage().isBlank() ? fallback : root.getMessage();
     }
 
     private static List<String> sourceCitations(TacticalScenePlan scene) {
@@ -182,7 +199,7 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
     private record Spawn(int x, int y, String confidence, String rationale) {}
     @JsonIgnoreProperties(ignoreUnknown = true) record Response(List<Stage> stages) {}
     @JsonIgnoreProperties(ignoreUnknown = true) record TacticalResponse(int stagePosition, TacticalScenePlan scene, List<SourceCitation> citations) {
-        TacticalResponse { citations = citations == null ? List.of() : List.copyOf(citations); }
+        TacticalResponse { citations = List.copyOf(Objects.requireNonNull(citations, "tactical citations must be explicit")); }
     }
     @JsonIgnoreProperties(ignoreUnknown = true) record Stage(int position, String title, String goal, String conflict, String transitionCondition,
             List<String> npcOrClues, List<String> endingIds, String stageType, String location, String mapDefinitionId,
@@ -190,13 +207,13 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             List<String> branchIds, java.util.Map<String, String> branchTargets, List<SourceCitation> evidence,
             Integer playerSpawnX, Integer playerSpawnY, String playerSpawnConfidence, String playerSpawnRationale) {
         Stage {
-            npcOrClues = npcOrClues == null ? List.of() : npcOrClues;
-            endingIds = endingIds == null ? List.of() : endingIds;
-            enemies = enemies == null ? List.of() : enemies;
-            rewards = rewards == null ? List.of() : rewards;
-            branchIds = branchIds == null ? endingIds : branchIds;
-            branchTargets = branchTargets == null ? java.util.Map.of() : branchTargets;
-            evidence = evidence == null ? List.of() : evidence;
+            npcOrClues = List.copyOf(Objects.requireNonNull(npcOrClues, "npcOrClues must be explicit"));
+            endingIds = List.copyOf(Objects.requireNonNull(endingIds, "endingIds must be explicit"));
+            enemies = List.copyOf(Objects.requireNonNull(enemies, "enemies must be explicit"));
+            rewards = List.copyOf(Objects.requireNonNull(rewards, "rewards must be explicit"));
+            branchIds = List.copyOf(Objects.requireNonNull(branchIds, "branchIds must be explicit"));
+            branchTargets = java.util.Map.copyOf(Objects.requireNonNull(branchTargets, "branchTargets must be explicit"));
+            evidence = List.copyOf(Objects.requireNonNull(evidence, "evidence must be explicit"));
             mapAssetId = mapAssetId == null ? "" : mapAssetId;
             mapAssetLocator = mapAssetLocator == null ? "" : mapAssetLocator;
         }

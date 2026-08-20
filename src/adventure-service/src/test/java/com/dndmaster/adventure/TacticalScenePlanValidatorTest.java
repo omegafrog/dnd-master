@@ -144,7 +144,7 @@ class TacticalScenePlanValidatorTest {
         var rulebook = new AdventureStoryPlanGenerationPort.SourceCitation(
                 "RULEBOOK", documentId, 1, "page:1", quote, 1.0);
         var storybookGrounding = PlacementGrounding.sourceCitation(
-                "STORYBOOK:" + documentId + ":page:1");
+                "STORYBOOK:" + documentId + ":1:page:1");
         var scene = scene(requiredTriggers(storybookGrounding),
                 List.of(new TacticalOutcome("ending", "The party leaves safely.", storybookGrounding)),
                 List.of(), storybookGrounding);
@@ -211,7 +211,7 @@ class TacticalScenePlanValidatorTest {
     }
 
     @Test
-    void allowsBoundedPositionInferenceForASourceBackedEnemyIdentity() {
+    void allowsBoundedPositionInferenceForAnIdentityBackedOnlyByAnAuthoritativeCitation() {
         String quote = "지도 표식: 그림자 늑대. The party leaves safely.";
         var evidence = new AdventureStoryPlanGenerationPort.SourceCitation(
                 "STORYBOOK", UUID.randomUUID(), 1, "page:1", quote, 1.0);
@@ -228,12 +228,62 @@ class TacticalScenePlanValidatorTest {
                 List.of(new TacticalOutcome("ending", "The party leaves safely.", source)), List.of());
         var request = new TacticalSceneRequest(
                 new AdventureStoryPlanStage(1, "cellar", "goal", "conflict", "exit", List.of(), List.of()),
-                new AdventureStoryPlanGenerationPort.MapContext(UUID.randomUUID(), "map", "locator", "page:1", 1.0, "SAFE", List.of(quote)),
+                new AdventureStoryPlanGenerationPort.MapContext(UUID.randomUUID(), "map", "locator", "page:1", 1.0, "SAFE", List.of()),
                 List.of(evidence), List.of("hero"), List.of());
 
         var violations = new TacticalScenePlanValidator().validate(
                 request, new TacticalScenePlanCandidate(1, scene, List.of(evidence)));
         assertTrue(violations.isEmpty(), () -> "expected bounded placement inference but got " + violations);
+    }
+
+    @Test
+    void rejectsIdentitySupportFromUnreconciledMapRelatedEvidence() {
+        var evidence = evidence();
+        var source = PlacementGrounding.sourceCitation(key(evidence));
+        var inferred = PlacementGrounding.aiInference("Only the coordinate was inferred");
+        var enemy = new TacticalPlacement("invented enemy", TacticalPlacementKind.ENEMY,
+                new NormalizedCoordinate(.7, .7), inferred);
+        var scene = new TacticalScenePlan(1, TacticalScenePlanStatus.READY,
+                new TacticalSceneBoundary(new NormalizedCoordinate(0, 0), new NormalizedCoordinate(1, 1), List.of()),
+                List.of(new TacticalPlacement("hero", TacticalPlacementKind.PLAYER,
+                        new NormalizedCoordinate(.1, .1), inferred)),
+                List.of(), List.of(), List.of(enemy), List.of(), List.of(), List.of(),
+                new FogPlan(List.of(), inferred), requiredTriggers(source),
+                List.of(new TacticalOutcome("ending", "The party leaves safely.", source)), List.of());
+        var request = new TacticalSceneRequest(
+                new AdventureStoryPlanStage(1, "cellar", "goal", "conflict", "exit", List.of(), List.of()),
+                new AdventureStoryPlanGenerationPort.MapContext(UUID.randomUUID(), "map", "locator", "page:1", 1.0, "SAFE",
+                        List.of(new AdventureStoryPlanGenerationPort.SourceCitation(
+                                "STORYBOOK", UUID.randomUUID(), 1, "page:9", "invented enemy", 1.0))),
+                List.of(evidence), List.of("hero"), List.of());
+
+        var violations = new TacticalScenePlanValidator().validate(
+                request, new TacticalScenePlanCandidate(1, scene, List.of(evidence)));
+
+        assertTrue(violations.contains("tactical enemy identity is not supported by source evidence"));
+    }
+
+    @Test
+    void groundingIdentityDistinguishesExtractionVersions() {
+        var documentId = UUID.randomUUID();
+        String quote = "Entry alarm reinforcement boss reward success failure exit surrender. The party leaves safely.";
+        var versionOne = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "STORYBOOK", documentId, 1, "page:1", quote, 1.0);
+        var versionTwo = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "STORYBOOK", documentId, 2, "page:1", quote, 1.0);
+        var grounding = PlacementGrounding.sourceCitation(key(versionOne));
+        var scene = scene(requiredTriggers(grounding),
+                List.of(new TacticalOutcome("ending", "The party leaves safely.", grounding)),
+                List.of(), grounding);
+        var request = new TacticalSceneRequest(
+                new AdventureStoryPlanStage(1, "cellar", "goal", "conflict", "exit", List.of(), List.of()),
+                new AdventureStoryPlanGenerationPort.MapContext(UUID.randomUUID(), "map", "locator", "page:1", 1.0, "SAFE"),
+                List.of(versionOne, versionTwo), List.of("hero"), List.of());
+
+        var violations = new TacticalScenePlanValidator().validate(
+                request, new TacticalScenePlanCandidate(1, scene, List.of(versionTwo)));
+
+        assertTrue(violations.contains("tactical source fact was not supplied by the candidate"));
     }
 
     private static AdventureStoryPlanGenerationPort.SourceCitation evidence() {

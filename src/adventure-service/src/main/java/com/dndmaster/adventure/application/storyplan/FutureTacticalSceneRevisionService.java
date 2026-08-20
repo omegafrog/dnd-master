@@ -66,10 +66,8 @@ public final class FutureTacticalSceneRevisionService {
                         scene = candidate.scene();
                         break;
                     }
-                } catch (RuntimeException failure) {
-                    violations = List.of("tactical scene revision generation failed: "
-                            + failure.getClass().getSimpleName()
-                            + (failure.getMessage() == null || failure.getMessage().isBlank() ? "" : ": " + failure.getMessage()));
+                } catch (AdventureStoryPlanCandidateValidationException invalidCandidate) {
+                    violations = invalidCandidate.violations();
                 }
                 if (attempt == 3) throw new IllegalArgumentException("tactical scene revision blocked after 3 attempts: " + String.join(", ", violations));
             }

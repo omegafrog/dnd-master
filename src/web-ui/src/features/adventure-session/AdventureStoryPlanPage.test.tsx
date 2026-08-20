@@ -8,7 +8,7 @@ describe('AdventureStoryPlanPage configuration', () => {
     const api = {
       read: vi.fn().mockResolvedValue({ sessionId: 's', version: 1, party: [{ characterSheetId: 'c' }], runtimeConfiguration: null }),
       readStoryPlan: vi.fn().mockRejectedValue(new Error('not found')),
-      generateStoryPlan: vi.fn().mockResolvedValue({ planId: 'p', packageRevision: 1, partyRevision: 1, version: 1, status: 'READY', currentStage: 0, stageCount: 7, endingCount: 3, adventureLength: 'LONG', stages: [], failureReason: null }),
+      generateStoryPlan: vi.fn().mockResolvedValue({ status: 'READY', currentStage: 0, planRevision: 0, endingCount: 3, adventureLength: 'LONG', stages: [], failureReason: null }),
       retryStoryPlan: vi.fn(), start: vi.fn(), recoverStart: vi.fn(), saveAppliedRuleSet: vi.fn(),
     }
     render(<AdventureStoryPlanPage api={api} sessionId="s" />)
@@ -19,5 +19,32 @@ describe('AdventureStoryPlanPage configuration', () => {
     await userEvent.click(screen.getByRole('button', { name: '모험 계획 생성' }))
 
     expect(api.generateStoryPlan).toHaveBeenCalledWith('s', { endingCount: 4, adventureLength: 'LONG' })
+  })
+
+  it('shows blocked diagnostics, keeps start disabled, and offers regeneration', async () => {
+    const blockedPlan = {
+      status: 'BLOCKED' as const, currentStage: 0, planRevision: 0,
+      endingCount: 2, adventureLength: 'STANDARD' as const, stages: [],
+      failureReason: '근거 없는 적 배치',
+    }
+    const api = {
+      read: vi.fn().mockResolvedValue({
+        sessionId: 's', version: 1, status: 'DRAFT', party: [],
+        runtimeConfiguration: { scenarioId: 'scenario', ruleSetId: 'rules', rulebookIds: ['book'], engineId: 'engine', toolIds: [], initialScene: 'opening' },
+      }),
+      readStoryPlan: vi.fn().mockResolvedValue(blockedPlan),
+      generateStoryPlan: vi.fn(),
+      retryStoryPlan: vi.fn().mockResolvedValue({ ...blockedPlan, status: 'READY', failureReason: null }),
+      start: vi.fn(), recoverStart: vi.fn(), saveAppliedRuleSet: vi.fn(),
+    }
+    render(<AdventureStoryPlanPage api={api} sessionId="s" />)
+
+    expect(await screen.findByText('BLOCKED')).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toContain('근거 없는 적 배치')
+    expect((screen.getByRole('button', { name: '모험 시작' }) as HTMLButtonElement).disabled).toBe(true)
+
+    await userEvent.click(screen.getByRole('button', { name: '다시 생성' }))
+
+    expect(api.retryStoryPlan).toHaveBeenCalledWith('s', { endingCount: 2, adventureLength: 'STANDARD' })
   })
 })

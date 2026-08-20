@@ -163,9 +163,8 @@ public final class AdventureStoryPlanApplicationService {
                             stage, map, request.citations(), partyMemberIds, violations);
                     candidate = generator.generateTacticalScene(tacticalRequest);
                     violations = tacticalSceneValidator.validate(tacticalRequest, candidate);
-                } catch (RuntimeException failure) {
-                    violations = List.of("tactical scene generation failed: " + failure.getClass().getSimpleName()
-                            + (failure.getMessage() == null || failure.getMessage().isBlank() ? "" : ": " + failure.getMessage()));
+                } catch (AdventureStoryPlanCandidateValidationException invalidCandidate) {
+                    violations = invalidCandidate.violations();
                     candidate = null;
                 }
                 if (violations.isEmpty()) {
@@ -237,14 +236,21 @@ public final class AdventureStoryPlanApplicationService {
 
     private List<AdventureStoryPlanGenerationPort.MapContext> mapContexts(ScenarioPackage scenarioPackage) {
         if (scenarioPackage == null) return List.of();
-        List<String> related = new ArrayList<>();
+        List<AdventureStoryPlanGenerationPort.SourceCitation> related = new ArrayList<>();
         if (bundles != null && sourceExcerptPort != null) {
             bundles.findById(scenarioPackage.bundleId()).ifPresent(bundle -> {
                 try {
+                    java.util.Map<UUID, String> documentTypes = bundle.currentRevision().documents().stream()
+                            .collect(java.util.stream.Collectors.toMap(
+                                    document -> document.knowledgeDocumentId().value(),
+                                    document -> document.documentType(), (left, right) -> left));
                     sourceExcerptPort.load(bundle).stream()
-                            .map(ResolutionExtractionPort.SourceExcerpt::text)
-                            .filter(text -> text != null && text.matches("(?is).*\\b(cellar|corridor|tower|dungeon|brewery|trap|staircase)\\b.*"))
-                            .limit(8).forEach(text -> related.add(text.replaceAll("\\s+", " ").trim()));
+                            .filter(excerpt -> excerpt.text() != null && excerpt.text().matches(
+                                    "(?is).*\\b(cellar|corridor|tower|dungeon|brewery|trap|staircase)\\b.*"))
+                            .limit(8).forEach(excerpt -> related.add(new AdventureStoryPlanGenerationPort.SourceCitation(
+                                    documentTypes.getOrDefault(excerpt.documentId().value(), "STORYBOOK"),
+                                    excerpt.documentId().value(), excerpt.extractionVersion(), excerpt.locator(),
+                                    excerpt.text().replaceAll("\\s+", " ").trim(), .9)));
                 } catch (RuntimeException ignored) { }
             });
         }

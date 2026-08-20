@@ -56,6 +56,22 @@ class AdventureStoryPlanPlayerProjectionTest {
     }
 
     @Test
+    void blockedPlayerProjectionIncludesOnlyUsableRetryDiagnostics() {
+        var sessionId = SessionId.generate();
+        AdventureStoryPlan plan = AdventureStoryPlan.blocked(
+                UUID.randomUUID(), sessionId, 1, 0, 1,
+                com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration.defaults(),
+                List.of(), "근거 없는 적 배치");
+
+        AdventureStoryPlanController.PlayerPlanView view = AdventureStoryPlanController.PlayerPlanView.from(plan);
+
+        assertEquals("BLOCKED", view.status());
+        assertEquals("근거 없는 적 배치", view.failureReason());
+        assertEquals(2, view.endingCount());
+        assertEquals("STANDARD", view.adventureLength());
+    }
+
+    @Test
     void fullGmProjectionRequiresInternalAuthorization() {
         var controller = new AdventureStoryPlanController(null, null, null, null, null, null, new ApiRequestGuard("production-secret"));
         assertThrows(ApiRequestGuard.ApiContractException.class,

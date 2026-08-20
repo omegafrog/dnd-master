@@ -185,14 +185,28 @@ class TacticalScenePlanGenerationRetryTest {
     }
 
     @Test
-    void retriesGeneratorFailuresExactlyThreeTimesThenBlocksTheStartGate() {
+    void retriesTypedCandidateFailuresExactlyThreeTimesThenBlocksTheStartGate() {
         var fixture = new Fixture();
-        fixture.generator.failuresRemaining = 3;
+        fixture.generator.candidateValidationFailuresRemaining = 3;
         AdventureStoryPlan plan = fixture.service.generate(fixture.session.id(), fixture.session.ownerPlayerId(), SHORT_ADVENTURE);
         assertEquals(AdventureStoryPlanStatus.BLOCKED, plan.status());
         assertEquals(3, fixture.generator.requests.size());
-        assertEquals("tactical scene generation failed: IllegalArgumentException: malformed provider payload", plan.failureReason());
+        assertEquals("malformed tactical candidate", plan.failureReason());
         assertFalse(fixture.service.isReadyFor(fixture.session));
+    }
+
+    @Test
+    void doesNotPersistProviderAvailabilityFailureAsInvalidCandidateContent() {
+        var fixture = new Fixture();
+        fixture.generator.providerFailuresRemaining = 1;
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> fixture.service.generate(
+                        fixture.session.id(), fixture.session.ownerPlayerId(), SHORT_ADVENTURE));
+
+        assertEquals("provider unavailable", failure.getMessage());
+        assertEquals(1, fixture.generator.requests.size());
+        assertEquals(null, fixture.plans.value);
     }
 
     @Test
@@ -285,7 +299,8 @@ class TacticalScenePlanGenerationRetryTest {
         private final List<TacticalSceneRequest> requests = new ArrayList<>();
         private final List<Request> outlineRequests = new ArrayList<>();
         private int outlineValidationFailuresRemaining;
-        private int failuresRemaining;
+        private int candidateValidationFailuresRemaining;
+        private int providerFailuresRemaining;
         public List<AdventureStoryPlanStage> generate(Request request) {
             outlineRequests.add(request);
             if (outlineValidationFailuresRemaining-- > 0) {
@@ -302,7 +317,11 @@ class TacticalScenePlanGenerationRetryTest {
         }
         public TacticalScenePlanCandidate generateTacticalScene(TacticalSceneRequest request) {
             requests.add(request);
-            if (failuresRemaining-- > 0) throw new IllegalArgumentException("malformed provider payload");
+            if (candidateValidationFailuresRemaining-- > 0) {
+                throw new AdventureStoryPlanCandidateValidationException(
+                        List.of("malformed tactical candidate"));
+            }
+            if (providerFailuresRemaining-- > 0) throw new IllegalStateException("provider unavailable");
             return candidates.removeFirst();
         }
     }

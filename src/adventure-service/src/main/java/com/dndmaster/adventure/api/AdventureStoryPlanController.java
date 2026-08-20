@@ -122,13 +122,19 @@ public final class AdventureStoryPlanController {
         static PlanView from(AdventureStoryPlan plan) { return new PlanView(plan.planId(), plan.packageRevision(), plan.partyRevision(), plan.version(), plan.status().name(), plan.currentStage(), plan.stageCount(), plan.configuration().endingCount(), plan.configuration().adventureLength().name(), plan.stages().stream().map(StageView::from).toList(), plan.failureReason()); }
     }
 
-    public record PlayerPlanView(String status, int currentStage, List<PlayerStageView> stages, int planRevision) {
+    public record PlayerPlanView(String status, int currentStage, List<PlayerStageView> stages, int planRevision,
+            int endingCount, String adventureLength,
+            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+            String failureReason) {
         static PlayerPlanView from(AdventureStoryPlan plan) {
             List<StageView> visible = plan.stages().stream()
                     .filter(stage -> stage.position() == plan.currentStage() + 1)
                     .map(StageView::from)
                     .toList();
-            return new PlayerPlanView(plan.status().name(), plan.currentStage(), visible.stream().map(PlayerStageView::from).toList(), 0);
+            return new PlayerPlanView(plan.status().name(), plan.currentStage(),
+                    visible.stream().map(PlayerStageView::from).toList(), 0,
+                    plan.configuration().endingCount(), plan.configuration().adventureLength().name(),
+                    plan.failureReason());
         }
     }
 

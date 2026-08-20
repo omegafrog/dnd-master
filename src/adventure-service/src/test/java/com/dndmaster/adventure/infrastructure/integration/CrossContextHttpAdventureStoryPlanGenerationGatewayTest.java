@@ -44,9 +44,9 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
                 .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody("""
                         {"stagePosition":1,"scene":{"schemaVersion":1,"status":"READY",
                         "boundary":{"minimum":{"x":0,"y":0},"maximum":{"x":1,"y":1},"forbiddenCoordinates":[]},
-                        "players":[{"id":"party","kind":"PLAYER","coordinate":{"x":0.1,"y":0.1},"grounding":{"type":"SOURCE_CITATION","citation":"STORYBOOK:%s:page:1","rationale":""}}],
+                        "players":[{"id":"party","kind":"PLAYER","coordinate":{"x":0.1,"y":0.1},"grounding":{"type":"SOURCE_CITATION","citation":"STORYBOOK:%s:1:page:1","rationale":""}}],
                         "allies":[],"npcs":[],"enemies":[],"bosses":[],"interactiveObjects":[],"environments":[],
-                        "initialFog":{"hiddenRegions":[],"grounding":{"type":"SOURCE_CITATION","citation":"STORYBOOK:%s:page:1","rationale":""}},
+                        "initialFog":{"hiddenRegions":[],"grounding":{"type":"SOURCE_CITATION","citation":"STORYBOOK:%s:1:page:1","rationale":""}},
                         "triggers":[],"outcomes":[],"transitionIds":[]},
                         "citations":[{"documentType":"STORYBOOK","documentId":"%s","extractionVersion":1,"locator":"page:1","quote":"cellar entrance","confidence":0.8}]}
                         """.formatted(documentId, documentId, documentId))));
@@ -58,7 +58,7 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
         var candidate = gateway.generateTacticalScene(request);
 
         assertEquals(1, candidate.stagePosition());
-        assertEquals("STORYBOOK:%s:page:1".formatted(documentId), candidate.scene().players().getFirst().grounding().citation());
+        assertEquals("STORYBOOK:%s:1:page:1".formatted(documentId), candidate.scene().players().getFirst().grounding().citation());
         assertEquals(1, candidate.citations().size());
         server.verify(exactly(1), postRequestedFor(urlEqualTo("/internal/v1/gm/tactical-scene-plan")));
         server.verify(postRequestedFor(urlEqualTo("/internal/v1/gm/tactical-scene-plan"))
@@ -88,6 +88,30 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
                 () -> gateway.generate(request));
 
         assertEquals(List.of("AI returned an invalid stage count for adventure length"), failure.violations());
+    }
+
+    @Test
+    void rejectsOmittedRequiredOutlineCollectionsInsteadOfInventingEmptyLists() {
+        server = new WireMockServer(0);
+        server.start();
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/adventure-story-plan"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody("""
+                        {"stages":[
+                          {"position":1,"title":"Start","goal":"Begin","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Start","rewards":[],"branchIds":["ending-1"],"branchTargets":{},"evidence":[]},
+                          {"position":2,"title":"Middle","goal":"Advance","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Middle","enemies":[],"rewards":[],"branchIds":["ending-1"],"branchTargets":{},"evidence":[]},
+                          {"position":3,"title":"Finish","goal":"End","conflict":"Choice","transitionCondition":"Finish","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Finish","enemies":[],"rewards":[],"branchIds":["ending-1"],"branchTargets":{},"evidence":[]}
+                        ]}
+                        """)));
+        var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "test-internal-token");
+        var request = new AdventureStoryPlanGenerationPort.Request(
+                "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT),
+                List.of(), List.of(), List.of(), List.of());
+
+        var failure = assertThrows(AdventureStoryPlanCandidateValidationException.class,
+                () -> gateway.generate(request));
+
+        assertEquals(List.of("enemies must be explicit"), failure.violations());
     }
 
     @Test
