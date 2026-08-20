@@ -128,9 +128,7 @@ public final class AdventureStoryPlanController {
         }
     }
     public record TriggerApplicationView(String triggerId, String type, List<String> targetIds, String transitionId) {}
-    public record RevisionRequest(UUID causingGmTurnId, UUID causingGmCommandId) {
-        public RevisionRequest(UUID causingGmTurnId) { this(causingGmTurnId, null); }
-    }
+    public record RevisionRequest(UUID causingGmTurnId, UUID causingGmCommandId) {}
 
     private OwnerPlayerId owner() { return new OwnerPlayerId(playerResolver.playerId()); }
 

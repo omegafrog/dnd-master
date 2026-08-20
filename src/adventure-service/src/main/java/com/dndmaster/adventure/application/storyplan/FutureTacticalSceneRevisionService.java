@@ -55,7 +55,7 @@ public final class FutureTacticalSceneRevisionService {
 
     public AdventureStoryPlan revise(SessionId sessionId, OwnerPlayerId owner, int position, java.util.UUID causingGmTurnId) {
         if (generator == null) throw new IllegalStateException("future tactical revision requires the grounded generator");
-        return reviseGenerated(sessionId, owner, position, causingGmTurnId, null);
+        throw new IllegalArgumentException("causing GM command id is required");
     }
 
     public AdventureStoryPlan revise(SessionId sessionId, OwnerPlayerId owner, int position,
@@ -70,6 +70,7 @@ public final class FutureTacticalSceneRevisionService {
         if (!session.ownerPlayerId().equals(owner)) throw new SecurityException("adventure session access denied");
         if (session.status() != AdventureSession.Status.STARTED) throw new IllegalStateException("future tactical revision requires a started adventure");
         if (causingGmTurnId == null) throw new IllegalArgumentException("future tactical revision requires causing GM turn id");
+        if (causingGmCommandId == null) throw new IllegalArgumentException("future tactical revision requires causing GM command id");
         if (gmTurns == null) throw new IllegalStateException("GM turn repository is required for future tactical revision");
         if (session.startedAdventureId() == null) throw new IllegalArgumentException("adventure is not started");
         GmTurn causingTurn = gmTurns.findByTurnIdAndAdventureId(causingGmTurnId, session.startedAdventureId().value())
