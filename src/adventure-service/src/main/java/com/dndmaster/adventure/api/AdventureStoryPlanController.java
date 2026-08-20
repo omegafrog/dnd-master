@@ -98,9 +98,12 @@ public final class AdventureStoryPlanController {
 
     @PostMapping("/stages/{position}/tactical-scene/revise")
     PlayerPlanView reviseFutureTacticalScene(@PathVariable UUID sessionId, @PathVariable int position,
-            @RequestHeader(value = "X-Internal-Token", required = false) String internalToken,
+        @RequestHeader(value = "X-Internal-Token", required = false) String internalToken,
             @RequestBody RevisionRequest request) {
         requestGuard.internal(internalToken);
+        if (request == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "revision request is required");
+        }
         return PlayerPlanView.from(futureRevision.revise(new SessionId(sessionId), owner(), position, request.causingGmTurnId(), request.causingGmCommandId()));
     }
 

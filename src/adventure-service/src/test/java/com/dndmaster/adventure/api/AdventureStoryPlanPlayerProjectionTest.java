@@ -162,4 +162,14 @@ class AdventureStoryPlanPlayerProjectionTest {
         assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.reviseFutureTacticalScene(
                 UUID.randomUUID(), 2, null, new AdventureStoryPlanController.RevisionRequest(UUID.randomUUID(), UUID.randomUUID())));
     }
+
+    @Test
+    void revisionRequestIsRejectedAsBadRequestBeforeDereference() {
+        var controller = new AdventureStoryPlanController(null, null, null, null, null, null, new ApiRequestGuard("test-internal-token"));
+
+        ResponseStatusException failure = assertThrows(ResponseStatusException.class, () -> controller.reviseFutureTacticalScene(
+                UUID.randomUUID(), 2, "test-internal-token", null));
+
+        assertEquals(400, failure.getStatusCode().value());
+    }
 }
