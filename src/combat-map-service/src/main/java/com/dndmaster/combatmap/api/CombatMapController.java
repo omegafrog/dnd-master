@@ -55,7 +55,7 @@ public class CombatMapController {
         catch (RuntimeException exception) { throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "invalid tactical trigger kind", exception); }
         var map = mapViewService.applyTacticalTrigger(new MapId(mapId), new MapOwnerId(request.ownerId()), request.expectedVersion(),
                 request.commandId(), TacticalTriggerEffect.planned(request.triggerId(),
-                        kind, request.targetIds(), request.transitionId()));
+                        kind, request.targetIds(), request.transitionId(), request.qualifyingAction()));
         return new CombatMapAiStateResponse(map.id().value());
     }
 
@@ -165,9 +165,12 @@ public class CombatMapController {
     public record RevealRequest(UUID ownerId,UUID tokenId,UUID commandId,long expectedVersion) {}
     public record GameTimeRequest(UUID ownerId,UUID adventureId,long ruleTurn,UUID causeId,long expectedVersion) {}
     public record TacticalTriggerRequest(UUID ownerId, UUID commandId, long expectedVersion,
-                                         String triggerId, String kind, List<String> targetIds, String transitionId) {
+                                         String triggerId, String kind, List<String> targetIds, String transitionId, String qualifyingAction) {
         public TacticalTriggerRequest(UUID ownerId, UUID commandId, long expectedVersion, String triggerId, String kind, List<String> targetIds) {
-            this(ownerId, commandId, expectedVersion, triggerId, kind, targetIds, "");
+            this(ownerId, commandId, expectedVersion, triggerId, kind, targetIds, "", "");
+        }
+        public TacticalTriggerRequest(UUID ownerId, UUID commandId, long expectedVersion, String triggerId, String kind, List<String> targetIds, String transitionId) {
+            this(ownerId, commandId, expectedVersion, triggerId, kind, targetIds, transitionId, "");
         }
     }
 

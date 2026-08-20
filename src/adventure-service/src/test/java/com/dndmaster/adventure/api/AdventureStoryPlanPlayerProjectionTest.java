@@ -75,6 +75,33 @@ class AdventureStoryPlanPlayerProjectionTest {
     }
 
     @Test
+    void internalHistoryRejectsMissingTokenWith401() {
+        var controller = new AdventureStoryPlanController(null, null, null, null, null, null, new ApiRequestGuard("test-internal-token"));
+
+        var failure = assertThrows(ApiRequestGuard.ApiContractException.class,
+                () -> controller.history(UUID.randomUUID(), null));
+
+        assertEquals(401, failure.status());
+    }
+
+    @Test
+    void internalHistoryMapsForeignSessionTo403() {
+        var sessionId = UUID.randomUUID();
+        var owner = UUID.randomUUID();
+        var resolver = mock(AuthenticatedPlayerResolver.class);
+        var stories = mock(AdventureStoryPlanApplicationService.class);
+        when(resolver.playerId()).thenReturn(owner);
+        when(stories.readHistory(new SessionId(sessionId), new OwnerPlayerId(owner)))
+                .thenThrow(new SecurityException("adventure session access denied"));
+        var controller = new AdventureStoryPlanController(stories, null, null, resolver, null, null, new ApiRequestGuard("test-internal-token"));
+
+        ResponseStatusException failure = assertThrows(ResponseStatusException.class,
+                () -> controller.history(sessionId, "test-internal-token"));
+
+        assertEquals(403, failure.getStatusCode().value());
+    }
+
+    @Test
     void blockedPlayerProjectionIncludesOnlyUsableRetryDiagnostics() {
         var sessionId = SessionId.generate();
         AdventureStoryPlan plan = AdventureStoryPlan.blocked(
