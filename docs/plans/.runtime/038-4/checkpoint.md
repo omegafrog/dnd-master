@@ -1,6 +1,6 @@
 # 038-4 checkpoint
 
-- attempt: 26
+- attempt: 27
 - status: in-progress
 - scope: player trigger qualification, durable planned trigger effects, active-map/session ownership, immutable revealed stages and append-only future revision
 - resumed after 038-3 completion at `5f55cc4d`
@@ -35,3 +35,5 @@
 - attempt 25 started: legacy runtime/application compatibility boundaries must resolve authored qualifyingAction before execution
 - completed attempt 25: Adventure compatibility overloads resolve the authored/backfilled action from the scene before enforcing recorded PLAYER evidence; Combat Map action-less overload remains an explicit safe rejection rather than accepting client input
 - attempt 26 started: legacy backfill must remain display-only and blank trigger actions must map to HTTP 400
+- attempt 27 started: Adventure trigger HTTP boundary must map missing qualifyingAction to documented 400
+- completed attempt 27: Adventure trigger controller rejects null/blank qualifyingAction with HTTP 400 after owner/session authorization checks
