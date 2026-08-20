@@ -1,15 +1,17 @@
 # Implementation Plans
 
 Tracker: GitHub Issues — `omegafrog/dnd-master`
+Parent Issue: [#161 — 036 캐릭터 생성 설정 검토 UX 개선](https://github.com/omegafrog/dnd-master/issues/161)
 
-Parent Issue: [#179](https://github.com/omegafrog/dnd-master/issues/179)
+Status vocabulary: `planned`, `ready-for-agent`, `in-progress`, `completed`, `blocked`.
 
-## 038 — 모험 단계 계획의 전술 장면 세밀화
+## 036 — 캐릭터 생성 설정 검토 UX 개선
 
-1. [038-1 전술 장면 계획 도메인 모델과 검증](038-1-tactical-scene-domain.md) — [#174](https://github.com/omegafrog/dnd-master/issues/174) — `ready-for-agent`
-2. [038-2 근거 기반 전술 장면 생성과 3회 재생성](038-2-grounded-generation-retry.md) — [#175](https://github.com/omegafrog/dnd-master/issues/175) — `planned`
-3. [038-3 전술 맵 활성화와 플레이어 비공개 투영](038-3-map-activation-projection.md) — [#176](https://github.com/omegafrog/dnd-master/issues/176) — `planned`
-4. [038-4 전술 트리거와 미래 단계 개정](038-4-triggers-future-revision.md) — [#177](https://github.com/omegafrog/dnd-master/issues/177) — `planned`
-5. [038-5 Potent Brew 전술 장면 전체 흐름 검증](038-5-potent-brew-e2e.md) — [#178](https://github.com/omegafrog/dnd-master/issues/178) — `planned`
+1. [036-1 스토리북 제안 데이터 계약과 추출 상태](036-1-storybook-proposal-contract-and-extraction-state.md) — [#162](https://github.com/omegafrog/dnd-master/issues/162) — `completed`
+2. [036-2 캐릭터 설정 검토 화면 재구성](036-2-character-blueprint-review-workspace.md) — [#163](https://github.com/omegafrog/dnd-master/issues/163) — `completed`
+3. [036-3 스토리북 제안 사용·제외 흐름](036-3-storybook-proposal-decision-flow.md) — [#164](https://github.com/omegafrog/dnd-master/issues/164) — `completed`
+4. [036-4 설정 확정·게시·캐릭터 생성 연계](036-4-publish-and-character-creation-entry.md) — [#165](https://github.com/omegafrog/dnd-master/issues/165) — `completed`
 
-Dependency chain: `038-1 → 038-2 → 038-3 → 038-4 → 038-5`.
+Dependency chain: `036-1 → 036-2 → 036-3 → 036-4`.
+
+Cross-dependencies: `036-1 → 036-3`, `036-1 → 036-4`, `036-2 → 036-4`.

@@ -1,146 +1,287 @@
-# Architecture Spec: 모험 단계 계획의 전술 장면 세밀화
+# Architecture Spec
 
-## 1. Design Scope
+# 1. Design Scope
+
+## 1.1 Target
 
 | 항목 | 대상 |
-| --- | --- |
+|---|---|
 | Product Spec | `docs/specs/product-spec.md` |
-| Use Cases | UC-TSP-01 ~ UC-TSP-04 |
-| Domain | 모험 계획, 전술 장면, 전술 맵 활성화, 가시성 |
-| Bounded Contexts | Adventure, AI Game Master, Combat Map, Rule Knowledge |
-| Existing Services | `adventure-service`, `ai-game-master-service`, `combat-map-service`, `rule-knowledge-service` |
-| Affected Data | 모험 플랜 단계 JSON·이력, 전술 맵 토큰·레이어·가시성 |
+| Use Cases | UC-01~UC-06 |
+| Domain | 룰북 기본 스키마와 스토리북 제안의 검토·결정·확정 |
+| Bounded Contexts | Scenario Preparation, Rulebook Catalog, Web UI, Adventure Runtime |
+| Existing Services | `adventure-service`, `rule-knowledge-service`, `web-ui` |
+| External Dependencies | PostgreSQL, 룰북 카탈로그 API |
+| Affected Data | `CharacterCreationBlueprint`, storybook proposal decision, blueprint revision |
 
-| Product requirement | Architecture element |
-| --- | --- |
-| 전술 장면 생성 | `AdventureStoryPlan`의 불변 `TacticalScenePlan` |
-| 3회 재생성 | `TacticalPlacementRetryPolicy` |
-| 정규화 좌표 | activation-time `NormalizedCoordinate → GridPlacement` 변환 |
-| 숨겨진 정보 | GM/internal 및 player-safe projection 분리 |
+## 1.2 Product Spec Mapping
 
-## 2. Domain Flow
+| Product Spec | Architecture 요소 |
+|---|---|
+| 룰북 기본 스키마 읽기 전용 | `BaseSchemaView` UI projection |
+| 스토리북 제안 사용/제외 | `StorybookProposal` decision model and command |
+| 제안 없음·실패·근거 부족 | extraction state and proposal read model |
+| 미결정 제안 확정 차단 | application service and aggregate precondition |
+| 확정 후 캐릭터 생성 | published blueprint revision → session boundary |
+
+# 2. Domain Flow
+
+## 2.1 Event Storming Flow
 
 ```plantuml
 @startuml
-title 전술 장면 계획 생성과 활성화
+title Character Creation Settings Review
 start
-:Generate TacticalScenePlan candidate;
-if (source-grounded and placement-valid?) then (yes)
-  :Record immutable plan revision;
-  :TacticalScenePlanReady;
-else (no)
-  if (attempt < 3?) then (yes)
-    :Request regenerated candidate;
-  else (no)
-    :TacticalScenePlanBlocked;
+:Player opens package review;
+:Load rulebook base schema and storybook extraction result;
+if (Load succeeded?) then (no)
+  :Show actionable failure and retry;
+  stop
+endif
+:Show read-only base schema;
+:Show storybook proposals grouped by source;
+if (Proposals exist?) then (yes)
+  :Player chooses use or exclude for each proposal;
+  if (All proposals decided?) then (no)
+    :Show remaining decisions;
     stop
   endif
+else (no)
+  :Show successful empty state;
 endif
-:Activate stage;
-:Convert normalized positions to grid;
-:Materialize CombatMap runtime state;
+:Build applied projection;
+:Player confirms settings;
+:Publish blueprint revision;
+:Enter character creation;
 stop
 @enduml
 ```
 
-| Command | Target | Preconditions | Result |
-| --- | --- | --- | --- |
-| `GenerateTacticalScenePlan` | `AdventureStoryPlan` | stage has map or is explicitly non-tactical | candidate scene |
-| `ValidateTacticalScenePlan` | `TacticalScenePlan` | candidate exists | ready, retry or blocked |
-| `RegenerateTacticalScenePlan` | `AdventureStoryPlan` | attempt < 3; stage unrevealed | new plan revision |
-| `ActivateTacticalScene` | `CombatMap` | plan revision ready | materialized map state |
-| `ApplyTacticalTrigger` | `CombatMap` | planned trigger matches | state, visibility or transition change |
-| `ReviseFutureTacticalScene` | `AdventureStoryPlan` | stage unrevealed | successor plan revision |
+## 2.2 Commands
 
-## 3. DDD Architecture
+| Command | Actor | Target | Input | Preconditions | Result |
+|---|---|---|---|---|---|
+| ReadCharacterCreationSettings | Player | Scenario Preparation | package ID | package accessible | base schema and proposal view |
+| DecideStorybookProposal | Player | CharacterCreationBlueprint | package ID, proposal ID, decision, expected revision | proposal has identity; apply requires evidence | updated decision projection |
+| ConfirmCharacterCreationSettings | Player | CharacterCreationBlueprint | package ID, expected revision | every proposal decided; base schema valid | published blueprint revision |
+| CreateCharacterSession | Player | Adventure Runtime | package ID, published blueprint revision | blueprint is published | character creation session |
 
-| Context | Responsibility | Owned model |
-| --- | --- | --- |
-| Adventure | immutable plan revisions, tactical intent, validation and regeneration | `AdventureStoryPlan`, `TacticalScenePlan` |
-| AI Game Master | typed source-grounded tactical candidates | generation request/response |
-| Combat Map | mutable grid positions, visibility and trigger effects | `CombatMap`, tokens, layers |
-| Rule Knowledge | source excerpts, citations and map geometry | citations, `MapDefinition` |
+## 2.3 Domain Events
 
-| Aggregate / model | Owner | Invariants |
-| --- | --- | --- |
-| `AdventureStoryPlan` | Adventure | revealed stages are never replaced; tactical stage is ready before activation |
-| `TacticalScenePlan` | Adventure stage child | mandatory categories explicit; placement grounded/inferred; all placement valid |
-| `CombatMap` | Combat Map | runtime changes never mutate plan intent; player projection hides secret state |
-| `MapDefinition` | Rule Knowledge | immutable source-pinned geometry/calibration |
+| Domain Event | Producer | Trigger | Payload | Consumers |
+|---|---|---|---|---|
+| StorybookProposalDecided | CharacterCreationBlueprint | use/exclude decision accepted | proposal ID, decision, revision | review UI |
+| CharacterCreationSettingsConfirmed | CharacterCreationBlueprint | all decisions complete and publish succeeds | package ID, revision, applied proposal IDs | session flow |
 
-| Value object | Values / validation |
-| --- | --- |
-| `NormalizedCoordinate` | x/y in [0, 1], independent of grid resolution |
-| `TacticalPlacement` | stable ID, token/object/environment kind, normalized position, visibility, grounding |
-| `TacticalEnvironment` | obstacle, cover, hazard, door, loot, interactive object |
-| `FogPlan` | hidden regions and planned reveal triggers |
-| `TacticalTrigger` | entry, reveal, boss, reinforcement, reward, success/failure/exit effects |
-| `PlacementGrounding` | source citation or `AI_INFERENCE` rationale |
+## 2.4 Policies
 
-| Rule | Owner | Enforcement point |
-| --- | --- |
-| complete tactical state | `TacticalScenePlan` | factory and validator |
-| source overrides inference | `TacticalScenePlanValidator` | candidate reconciliation |
-| no collision/out-of-bounds/blocked position | validator and activation | persistence and activation |
-| three-attempt limit | retry policy | generation orchestration |
-| player secrecy | projection assembler | API/read boundary |
-| revealed-stage immutability | plan revision policy | revision command |
+| Policy | Trigger | Decision | Owner |
+|---|---|---|---|
+| KeepBaseSchemaReadOnly | review loaded | base fields are never editable in review | Web UI |
+| RequireEvidenceForApply | apply requested | reject proposal without source evidence | Scenario Preparation |
+| RequireAllProposalDecisions | confirm requested | block if any proposal is undecided | Scenario Preparation |
+| PublishAppliedProjectionOnly | confirm succeeds | persist base schema plus applied proposals only | Scenario Preparation |
+| BlockSessionBeforeConfirmation | session requested | reject unpublished blueprint | Adventure Runtime |
 
-## 4. Program Design
+## 2.5 Read Models
+
+| Read Model | Consumer | Source | Required Fields | Owner |
+|---|---|---|---|---|
+| `PlayPreparationView` | existing preparation UI | scenario package | readiness, blueprint, character limit | Scenario Preparation |
+| `CharacterSettingsReviewView` | review page | preparation + extraction metadata | base schema, proposals, empty/failure state, revision | Scenario Preparation |
+| `StorybookProposalView` | proposal cards | storybook extraction | ID, label, description, source document, quote, evidence, decision | Scenario Preparation |
+| `AppliedSettingsSummary` | confirmation panel | review decision projection | base schema included, applied IDs, excluded IDs, unresolved count | Scenario Preparation |
+
+## 2.6 External Interactions
+
+| External System | Trigger | Input | Output | Failure |
+|---|---|---|---|---|
+| Rulebook Catalog API | review load | edition/package context | base schema metadata | no usable catalog revision |
+| Scenario Preparation API | review/decision/confirm | package, proposal decision, revision | updated review view | validation or revision conflict |
+| Adventure Session API | after confirmation | package and published blueprint revision | session ID | unpublished or stale blueprint |
+
+## 2.7 Hotspots and Decisions
+
+| Hotspot | Options | Decision |
+|---|---|---|
+| Proposal source of truth | infer from diagnostics / explicit API projection | explicit proposal collection; UI must not infer from diagnostic strings |
+| Base schema presentation | render full editable tree / read-only summary | read-only grouped summary; actual values are entered in character creation |
+| Proposal decisions | merge into fields immediately / separate staged decisions | separate decision state until confirmation |
+| Empty result | hide proposal area / explicit success state | explicit “추가할 내용 없음” with analyzed document summary |
+| Confirmation wording | 게시 / 설정 확정 | user-facing “캐릭터 생성에 사용할 설정 확정”; API may retain publish terminology |
+
+# 3. DDD Architecture
+
+## 3.1 Bounded Contexts
+
+| Context | Responsibility | Owned Model | Owned Data |
+|---|---|---|---|
+| Rulebook Catalog | edition-specific base schema and choices | `RulebookCharacterSchema` | catalog schema revisions |
+| Scenario Preparation | extract proposals, track decisions, validate and publish applied settings | `CharacterCreationBlueprint`, `StorybookProposal` | blueprint revisions and proposal decisions |
+| Web UI | present base schema, proposals and transient decision state | `CharacterSettingsReviewViewModel` | none; local pending state only |
+| Adventure Runtime | create sessions from confirmed settings | `AdventureSession` | session data |
+
+## 3.2 Context Map
 
 ```plantuml
 @startuml
-title Tactical Scene Components
-component "AdventureStoryPlanApplicationService" as plan
-component "TacticalScenePlanValidator" as validator
-interface "AdventureStoryPlanGenerationPort" as generation
-component "AI GM generator" as ai
-interface "TacticalMapPreparationPort" as mapPort
-component "Combat Map activation" as map
-plan --> generation
-generation --> ai
-plan --> validator
-plan --> mapPort
-mapPort --> map
+rectangle "Rulebook Catalog" as catalog
+rectangle "Scenario Preparation" as preparation
+rectangle "Web UI" as ui
+rectangle "Adventure Runtime" as runtime
+catalog --> preparation : base schema contract
+preparation --> ui : review read model
+ui --> preparation : decision / confirm commands
+preparation --> runtime : published blueprint revision
+runtime --> ui : session entry
 @enduml
 ```
 
-| Component | Responsibility | Must not do |
-| --- | --- | --- |
-| `AdventureStoryPlanApplicationService` | construct source/map request, coordinate retries, persist accepted revision | own mutable grid tokens |
-| `TacticalScenePlanValidator` | validate categories, source precedence, positions and trigger references | call AI or persist |
-| `AdventureStoryPlanGenerationPort` | carry typed tactical candidate | flatten tactical state into prose notes |
-| AI GM generator | return candidate and citations | invent unsupported core facts |
-| `TacticalMapActivationApplicationService` | transform normalized coordinates, apply scene | regenerate/revise plan |
-| Combat Map activation | create mutable hidden/public layers | expose GM plan |
+## 3.3 Aggregates
 
-| Order | Caller | Callee | Contract |
-| ---: | --- | --- | --- |
-| 1 | Adventure | AI GM | typed plan request with stage/map/citations/schema |
-| 2 | Adventure | validator | candidate → violations or ready |
-| 3 | Adventure | AI GM | retry request with violation feedback |
-| 4 | Adventure | Combat Map | `PrepareTacticalScene(MapDefinition, TacticalScenePlan)` |
-| 5 | runtime turn | Combat Map | evaluate planned trigger |
+| Aggregate | Root | Responsibility | Commands | Invariants |
+|---|---|---|---|---|
+| `CharacterCreationBlueprint` | blueprint revision | own applied settings and publication state | decide proposal, confirm | base schema always present; only evidenced proposals can apply; all proposals decided before publish; published immutable |
+| `ScenarioPackage` | package | own preparation scope and source documents | read review | package and current revision are consistent |
+| `AdventureSession` | session | begin character creation from confirmed settings | create | blueprint revision must be published |
 
-## 5. Persistence, Projections, and Failure Contract
+## 3.4 Entities and Value Objects
 
-- Persist `TacticalScenePlan` inside a stage of the existing versioned `stages_json` snapshot, with a schema version. Older plans deserialize as `ABSENT` and cannot activate a tactical stage before regeneration.
-- Reuse append-only story-plan history for regeneration and future-stage revisions. Persist activated grid entities only in Combat Map storage.
-- GM/internal projections contain full tactical state, citations, inference labels, hidden placements and triggers. Player projections contain only revealed regions, visible tokens, discovered objects, resolved rewards and actionable information.
+| Type | Kind | Responsibility |
+|---|---|---|
+| `StorybookProposal` | entity | stable proposal identity, content, source and decision |
+| `ProposalDecision` | value | `UNDECIDED`, `APPLIED`, `EXCLUDED`, `NEEDS_EVIDENCE` |
+| `BlueprintRevision` | value | optimistic concurrency boundary |
+| `CharacterSettingsReviewViewModel` | UI model | separate base schema, proposals, summary and labels |
 
-| Failure | Response |
-| --- | --- |
-| missing category or explicit collection | validation violation; retry |
-| collision, blocked or out-of-bounds conversion | validation violation; retry |
-| source conflict or invented core fact | reject inference; retry |
-| three failures | blocked plan; prevent adventure start |
-| revision of revealed stage | conflict; retain current plan/runtime state |
-| player request for hidden plan data | omit at projection boundary |
+## 3.5 Business Rule Ownership
 
-## 6. Test Strategy
+| Rule | Owner | Enforcement |
+|---|---|---|
+| base schema is always included | Scenario Preparation | applied projection builder |
+| base schema is read-only in review | Web UI | `BaseSchemaPanel` has no mutation callbacks |
+| proposal apply requires evidence | aggregate/application service | decision command validation |
+| all proposals must be decided | aggregate/application service | confirm command precondition |
+| excluded proposal is omitted | aggregate | applied projection builder |
+| published settings are immutable | `CharacterCreationBlueprint` | publish transition |
+| session requires published settings | Adventure Runtime | session creation boundary |
 
-- Domain: coordinate bounds, completeness, collision, source precedence and trigger validity.
-- Application: retry ceiling, blocked state and revealed-stage immutability.
-- Adapter: typed AI parsing, citation reconciliation and violation feedback.
-- Integration: normalized-to-grid conversion, map materialization and player-safe fog/token projection.
-- Fresh Playwright: Potent Brew produces a grounded tactical scene while player UI excludes hidden placement.
+## 3.6 State Transitions
+
+| Current | Command/Event | Next | Owner | Preconditions |
+|---|---|---|---|---|
+| review loaded | no proposal found | `CONFIRMABLE` | preparation | extraction completed successfully |
+| proposal `UNDECIDED` | decide use | `APPLIED` | blueprint | evidence exists |
+| proposal `UNDECIDED` | decide exclude | `EXCLUDED` | blueprint | proposal exists |
+| any unresolved proposal | confirm | rejected | blueprint | all proposals must be decided |
+| confirmable | confirm | `PUBLISHED` | blueprint | base schema valid and revision matches |
+| `PUBLISHED` | create session | session draft | runtime | published revision supplied |
+
+# 4. Program Design
+
+## 4.1 Program Structure
+
+```plantuml
+@startuml
+component PackageBlueprintReviewPage as page
+component CharacterSettingsReviewViewModel as vm
+component BaseSchemaPanel as base
+component StorybookProposalList as proposals
+interface SetupApi as api
+component ScenarioPreparationController as controller
+component ScenarioPreparationService as service
+component CharacterCreationBlueprint as aggregate
+page --> vm
+vm --> base
+vm --> proposals
+vm --> api
+api --> controller
+controller --> service
+service --> aggregate
+@enduml
+```
+
+## 4.2 Major Components and Responsibilities
+
+| Component | Responsibility | Must Not Do |
+|---|---|---|
+| `PackageBlueprintReviewPage.tsx` | load review model, compose page states and confirmation flow | infer proposal identity from diagnostics |
+| `BaseSchemaPanel` | read-only grouped display of rulebook schema | issue mutation commands |
+| `StorybookProposalList` | source-grouped cards, evidence, use/exclude decisions, empty/failure states | publish or create sessions |
+| `AppliedSettingsSummary` | show what will be included and unresolved count | edit base schema |
+| `SetupApi.ts` | typed review/decision/confirm contracts | contain presentation logic |
+| `ScenarioPreparationApplicationService` | build review projection, validate decisions, publish applied projection | know browser layout |
+| `CharacterCreationBlueprint` | own revision and state transitions | HTTP or user-facing labels |
+
+## 4.3 Application Flow
+
+```plantuml
+@startuml
+start
+:Page requests CharacterSettingsReviewView;
+if (request failed?) then (yes)
+  :Show retryable failure;
+  stop
+endif
+:Render read-only base schema;
+:Render proposal cards;
+if (proposal exists?) then (yes)
+  :Player decides use/exclude;
+  :Submit decision with expected revision;
+  :Refresh review model;
+endif
+if (all decisions complete?) then (yes)
+  :Show applied settings summary;
+  :Confirm settings;
+  :Navigate to character creation;
+else (no)
+  :Show unresolved proposal count;
+endif
+stop
+@enduml
+```
+
+## 4.4 Component Call Contracts
+
+| Order | Caller | Callee | Operation | Output | Failure |
+|---:|---|---|---|---|---|
+| 1 | review page | preparation API | `getCharacterSettingsReview` | review view | load failure |
+| 2 | proposal card | preparation API | `decideStorybookProposal` | refreshed review view | invalid evidence or revision conflict |
+| 3 | confirmation panel | preparation API | `confirmCharacterSettings` | published blueprint revision | unresolved proposal or validation error |
+| 4 | page | session API | `createSession` | session ID | unpublished/stale revision |
+
+## 4.5 Major Types
+
+| Type | Kind | Responsibility |
+|---|---|---|
+| `CharacterSettingsReviewView` | DTO | base schema, proposal list, extraction state, revision and summary |
+| `BaseSchemaView` | DTO | read-only edition and grouped base fields |
+| `StorybookProposalView` | DTO | proposal content, source, evidence and decision |
+| `AppliedSettingsSummary` | DTO | included/excluded/unresolved counts and item IDs |
+| `CharacterSettingsReviewViewModel` | UI type | user labels, loading/error/empty states and pending decisions |
+
+## 4.6 Existing Code Seams and Required Changes
+
+- Entry route: `/scenario-packages/{packageId}/character-blueprint` is wired from `src/web-ui/src/app/AppShell.tsx`.
+- Current page implementation: `src/web-ui/src/features/character/PackageBlueprintReviewPage.tsx`.
+- Current field renderer: `src/web-ui/src/features/character/CharacterInputTree.tsx`; it renders all nodes as inputs and infers origin from diagnostic text, which conflicts with this design.
+- Current API types: `src/web-ui/src/features/rulebooks/SetupApi.ts`; `CharacterCreationBlueprintView` exposes roots and diagnostics but no first-class proposal list or proposal decision.
+- Current domain: `src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/CharacterCreationBlueprint.java`; it supports field resolution and publication but not an explicit proposal decision model.
+- Current preparation service: `src/adventure-service/src/main/java/com/dndmaster/adventure/application/scenario/preparation/ScenarioPreparationApplicationService.java`; it combines rulebook and storybook candidate discovery into one blueprint.
+- Current tests: `src/web-ui/src/features/character/PackageBlueprintReviewPage.test.tsx` and `src/web-ui/src/features/character/CharacterInputTree.test.tsx`.
+
+## 4.7 Persistence and Migration Constraints
+
+- Do not create a second browser-owned draft store; proposal decisions must be persisted with the blueprint revision or represented as a server-owned staged revision.
+- Existing field revision and optimistic concurrency behavior must remain intact.
+- Existing published blueprint consumers and character creation routes remain compatible.
+- If proposal decisions are added to the API, older `CharacterCreationBlueprintView` clients must receive a safe empty proposal list rather than infer proposals from diagnostics.
+- The published projection must retain provenance for included storybook proposals.
+
+## 4.8 Risks and Non-goals
+
+- Inferring proposal identity from diagnostic strings is brittle and must be removed from the new contract.
+- Treating every extracted field as user-editable will continue to blur review and character creation; the base panel must not expose mutation callbacks.
+- Empty extraction and failed extraction must have distinct states.
+- Replacing the current `window.prompt` child-field flow is not required for this slice because adding custom character fields is outside the clarified review purpose.
+- The actual character creation page remains responsible for entering character-specific values.

@@ -20,7 +20,7 @@ export const skillDefinitions: SkillDefinition[] = [
   { id: 'performance', label: '공연', ability: 'charisma' },
   { id: 'persuasion', label: '설득', ability: 'charisma' },
   { id: 'religion', label: '종교', ability: 'intelligence' },
-  { id: 'sleight-of-hand', label: '손재주', ability: 'dexterity' },
+  { id: 'sleight-of-hand', label: '손속임', ability: 'dexterity' },
   { id: 'stealth', label: '은신', ability: 'dexterity' },
   { id: 'survival', label: '생존', ability: 'wisdom' },
 ]

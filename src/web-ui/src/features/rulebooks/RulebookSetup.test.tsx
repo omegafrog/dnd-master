@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { RulebookSetup } from './RulebookSetup'
 import type {
   BatchRulebookView,
@@ -101,6 +101,10 @@ class FakeSetupApi implements SetupApi {
 }
 
 describe('rulebook and adventure setup', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
   it('uploads user documents as storybooks only', async () => {
     const api = new FakeSetupApi()
     const user = userEvent.setup()
@@ -197,8 +201,17 @@ describe('rulebook and adventure setup', () => {
   it('saves a scenario bundle', async () => {
     const api = new FakeSetupApi(false, true)
     const user = userEvent.setup()
+    vi.stubGlobal('fetch', async () => new Response(JSON.stringify([{
+      catalogRevisionId: 'catalog-1',
+      edition: 'DND_5E_2014',
+      displayName: 'D&D 5e',
+      rulebookId: 'doc-1',
+      revisionNumber: 1,
+      status: 'READY',
+    }]), { status: 200, headers: { 'Content-Type': 'application/json' } }))
     render(<RulebookSetup api={api} playerId="p1" />)
 
+    await user.click(await screen.findByRole('checkbox', { name: 'D&D 5e 선택' }))
     fireEvent.change(screen.getByLabelText('자료 파일'), { target: { files: [new File(['story'], 'campaign.md')] } })
     await user.click(screen.getByRole('button', { name: '자료 업로드' }))
     await user.click(screen.getByRole('checkbox', { name: 'phb.txt 모험 자료 선택' }))

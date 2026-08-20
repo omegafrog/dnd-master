@@ -53,17 +53,9 @@ public final class AdventureSessionApplicationService {
     }
     public AdventureSession create(OwnerPlayerId owner, java.util.UUID scenarioPackageId, AdventureSessionRuntimeConfiguration runtimeConfiguration) {
         var scenarioPackage = packageRepository.findById(scenarioPackageId).orElseThrow(() -> new IllegalArgumentException("scenario package not found"));
-        if (scenarioPackage.report().status() != ResolutionStatus.COMPLETE) throw new IllegalStateException("scenario package is not compiled successfully");
-        if (scenarioPackage.characterCreationBlueprint() != null
-                && scenarioPackage.characterCreationBlueprint().status() != com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.READY
-                && scenarioPackage.characterCreationBlueprint().status() != com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.PUBLISHED) {
-            throw new IllegalStateException("character creation blueprint requires review");
-        }
-        String characterEdition = scenarioPackage.characterCreationBlueprint() == null ? "DND_5E_2014"
-                : scenarioPackage.characterCreationBlueprint().provenance().edition();
-        AdventureSession session = AdventureSession.create(SessionId.generate(), owner, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), scenarioPackage.packageId(), 1, characterEdition, scenarioPackage.characterLimit().maximumCharacters(),
-                runtimeConfiguration == null ? defaultRuntimeConfiguration(scenarioPackage) : runtimeConfiguration);
-        repository.save(session, 0); return session;
+        var blueprint = requirePublishedBlueprint(scenarioPackage, scenarioPackageId,
+                scenarioPackage.characterCreationBlueprint() == null ? 0 : scenarioPackage.characterCreationBlueprint().revision());
+        return create(owner, scenarioPackageId, scenarioPackageId, blueprint.revision(), runtimeConfiguration, null);
     }
     public AdventureSession create(OwnerPlayerId owner, java.util.UUID scenarioPackageId, java.util.UUID blueprintId, long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration) {
         return create(owner, scenarioPackageId, blueprintId, blueprintRevision, runtimeConfiguration, null);
@@ -71,16 +63,26 @@ public final class AdventureSessionApplicationService {
     public AdventureSession create(OwnerPlayerId owner, java.util.UUID scenarioPackageId, java.util.UUID blueprintId, long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration, Integer requestedPartySize) {
         var scenarioPackage = packageRepository.findById(scenarioPackageId).orElseThrow(() -> new IllegalArgumentException("scenario package not found"));
         var blueprint = scenarioPackage.characterCreationBlueprint();
-        if (blueprint == null || !blueprintId.equals(scenarioPackageId) || blueprint.revision() != blueprintRevision
-                || (blueprint.status() != com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.READY
-                && blueprint.status() != com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.NEEDS_REVIEW
-                && blueprint.status() != com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.PUBLISHED)) {
-            throw new IllegalStateException("character creation blueprint revision is unavailable");
-        }
+        requirePublishedBlueprint(scenarioPackage, blueprintId, blueprintRevision);
         int partySize = partySize(scenarioPackage.characterLimit(), requestedPartySize);
         AdventureSession session = AdventureSession.create(SessionId.generate(), owner, scenarioPackage.packageId(), scenarioPackage.bundleRevision(), blueprintId, blueprintRevision, blueprint.provenance().edition(), partySize,
                 runtimeConfiguration == null ? defaultRuntimeConfiguration(scenarioPackage) : runtimeConfiguration);
         repository.save(session, 0); return session;
+    }
+
+    private static com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint requirePublishedBlueprint(
+            com.dndmaster.adventure.domain.scenario.ScenarioPackage scenarioPackage, java.util.UUID blueprintId,
+            long blueprintRevision) {
+        if (scenarioPackage.report().status() != ResolutionStatus.COMPLETE) {
+            throw new IllegalStateException("scenario package is not compiled successfully");
+        }
+        var blueprint = scenarioPackage.characterCreationBlueprint();
+        if (blueprint == null || !blueprintId.equals(scenarioPackage.packageId())
+                || blueprint.status() != com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.PUBLISHED
+                || blueprint.revision() != blueprintRevision) {
+            throw new IllegalStateException("character creation requires the published blueprint revision");
+        }
+        return blueprint;
     }
     public AdventureSession read(SessionId id, OwnerPlayerId owner) { return authorize(load(id), owner); }
     public List<AdventureSession> listByScenarioPackageId(java.util.UUID scenarioPackageId, OwnerPlayerId owner) {

@@ -362,6 +362,12 @@ body:has(.creator-main) { background:#f4f1eb; }
 .modal-dialog-heading h2 { margin:.15rem 0 0; font-family:Georgia,serif; }
 .preparation-modal .scenario-setup { margin:0; border:0; padding:0; background:transparent; box-shadow:none; }
 .preparation-modal .scenario-setup > h2 { display:none; }
+.preparation-progress { margin:.8rem 0; padding:.75rem; border:1px solid #d8c5a6; border-radius:7px; background:rgb(255 253 248 / 72%); }
+.preparation-progress-heading { display:flex; justify-content:space-between; gap:.75rem; margin-bottom:.45rem; color:#5f503f; font-size:.72rem; }
+.preparation-progress-heading strong { color:#1d6257; }
+.preparation-progress p { margin:.5rem 0 0; color:#766b5d; font-size:.67rem; }
+.ui-progress { position:relative; height:.55rem; overflow:hidden; border-radius:999px; background:#e4dbce; }
+.ui-progress-indicator { width:100%; height:100%; border-radius:inherit; background:#2c766c; transition:transform .3s ease; }
 .spell-picker { width:min(38rem,100%); max-height:min(80vh,42rem); overflow:auto; padding:1.2rem; border:1px solid #c8ad82; border-radius:8px; background:linear-gradient(135deg,#fffaf0,#f0e2cb); box-shadow:0 1rem 3rem rgb(0 0 0 / 28%); }
 .spell-picker-head { display:flex; justify-content:space-between; align-items:start; border-bottom:1px solid #d8c5a6; padding-bottom:.7rem; }.spell-picker-head small { color:#8a6c3e; letter-spacing:.1em; }.spell-picker-head h2 { margin:.15rem 0 0; font-family:Georgia,serif; }.spell-picker-head button { border:0; background:transparent; font-size:1.5rem; color:#6e5636; }
 .spell-picker-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.55rem; margin:1rem 0; }.spell-picker-grid label { display:grid; grid-template-columns:1.2rem 1fr; gap:.15rem .45rem; padding:.65rem; border:1px solid #d9c7ac; border-radius:5px; background:#fffdfa; cursor:pointer; }.spell-picker-grid label.selected { border-color:#1d6257; background:#edf5f0; }.spell-picker-grid input { grid-row:span 2; accent-color:#1d6257; }.spell-picker-grid span { font-weight:700; }.spell-picker-grid small { color:#897862; }
@@ -846,7 +852,6 @@ body {
 .app-content { width:min(100%,88rem); max-width:88rem; padding:1.7rem clamp(1rem,3vw,2.4rem) 3rem; }
 .app-notices { display:flex; min-height:1.7rem; justify-content:flex-end; align-items:center; gap:1rem; margin-bottom:.35rem; color:var(--color-muted); }
 .app-notices [role='status']:empty { display:none; }
-.welcome-message { margin:0; font-size:.75rem; }
 .eyebrow { margin:0 0 .28rem; color:var(--color-accent); font-size:.68rem; font-weight:800; letter-spacing:.16em; text-transform:uppercase; }
 .page-heading { display:flex; align-items:flex-end; justify-content:space-between; gap:1.5rem; margin-bottom:1rem; padding:0 0 .9rem; border-bottom:1px solid var(--color-border); }
 .page-heading h1,.page-heading h2 { margin:0; color:#28231e; font:700 clamp(1.65rem,3vw,2.15rem)/1.15 Georgia,'Times New Roman','Noto Sans KR Variable',sans-serif; letter-spacing:-.025em; }
@@ -938,7 +943,11 @@ body {
 .setup-upload-panel .uploaded-document-select { display:inline-flex; flex:0 0 auto; align-items:center; margin:0; }
 .setup-upload-panel .uploaded-document-select .ui-input[type='checkbox'] { width:1.05rem; height:1.05rem; margin:0; }
 .setup-upload-panel .uploaded-document-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
-.setup-upload-panel .uploaded-document-actions { display:flex; align-items:center; gap:.4rem; margin-left:auto; flex:0 0 auto; }
+.setup-upload-panel .uploaded-document-row > span:not(.uploaded-document-name):not(.uploaded-document-progress):not(.uploaded-document-actions) { flex:0 0 auto; align-self:center; color:#766b5d; font-size:.58rem; font-weight:400; line-height:1.1; white-space:nowrap; }
+.setup-upload-panel .uploaded-document-progress { display:inline-flex; flex:0 0 8.5rem; flex-direction:column; align-items:flex-end; gap:.18rem; margin-left:auto; color:#766b5d; font-size:.58rem; font-weight:400; line-height:1.1; }
+.setup-upload-panel .uploaded-document-progress > span { font-size:.58rem; font-weight:400; }
+.setup-upload-panel .uploaded-document-progress .ui-progress { width:100%; height:.35rem; }
+.setup-upload-panel .uploaded-document-actions { display:flex; align-items:center; gap:.4rem; margin-left:0; flex:0 0 auto; }
 .setup-bundle-list .ui-card-content { padding:0; }
 .bundle-list-heading { padding-bottom:.75rem; border-bottom:1px solid var(--color-border); }
 .bundle-list-heading h2 { margin:0; }
@@ -1130,4 +1139,92 @@ body {
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
+}
+
+/* Character settings review workspace */
+.character-settings-review-page { display:grid; max-width:72rem; gap:1rem; margin:0 auto; font-family:'Noto Sans KR Variable','Noto Sans KR','Malgun Gothic','Droid Sans Fallback','Segoe UI',system-ui,sans-serif; }
+.character-review-header { display:grid; gap:.4rem; padding:1.35rem 1.5rem; border:1px solid var(--color-border); border-radius:12px; background:linear-gradient(135deg,#fffaf0,#f3eadb); box-shadow:var(--shadow-card); }
+.character-review-header h1 { margin:0; color:#392d20; font:700 clamp(1.55rem,3vw,2.15rem)/1.2 'Noto Sans KR Variable','Noto Sans KR','Malgun Gothic','Droid Sans Fallback','Segoe UI',system-ui,sans-serif; }
+.character-review-header p { max-width:60rem; margin:0; color:#625442; line-height:1.65; }
+.character-review-header a { width:max-content; color:#1d6257; font-weight:800; }
+.character-review-layout { display:grid; grid-template-columns:minmax(0,1fr); align-items:start; gap:1rem; }
+.character-review-panel,.character-review-summary,.character-review-preparation { min-width:0; padding:1.2rem; border:1px solid var(--color-border); border-radius:10px; background:#fffdfa; box-shadow:var(--shadow-card); }
+.character-review-panel-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:1rem; margin-bottom:.55rem; }
+.character-review-panel-heading h2,.character-review-summary h2 { margin:.15rem 0 0; color:#392d20; font:700 1.25rem/1.35 'Noto Sans KR Variable','Noto Sans KR','Malgun Gothic','Droid Sans Fallback','Segoe UI',system-ui,sans-serif; }
+.character-review-panel > p,.character-review-summary > p,.character-review-preparation > p { color:#6c5d4b; font-size:.8rem; line-height:1.55; }
+.character-review-read-only,.character-review-count { flex:0 0 auto; padding:.3rem .5rem; border:1px solid #b7d3c9; border-radius:999px; background:#eef8f3; color:#23675b; font-size:.68rem; font-weight:800; }
+.character-review-meta,.character-review-proposal-details { display:grid; grid-template-columns:auto minmax(0,1fr); gap:.35rem .7rem; margin:.9rem 0; font-size:.76rem; }
+.character-review-meta dt,.character-review-proposal-details dt { color:#806a4d; font-weight:800; }
+.character-review-meta dd,.character-review-proposal-details dd { min-width:0; margin:0; color:#443a2f; overflow-wrap:anywhere; }
+.character-review-field-list,.character-review-source-groups,.character-review-proposal-list { display:grid; gap:.6rem; margin:0; padding:0; list-style:none; }
+.character-review-field-list li { padding:.75rem; border:1px solid #e4d9ca; border-radius:8px; background:#fffcf6; }
+.character-review-field-heading,.character-review-proposal-heading { display:flex; align-items:flex-start; justify-content:space-between; gap:.7rem; }
+.character-review-field-heading h3,.character-review-source-group > h3,.character-review-proposal-heading h4 { margin:0; color:#3e3327; font-family:'Noto Sans KR Variable','Noto Sans KR','Malgun Gothic','Droid Sans Fallback','Segoe UI',system-ui,sans-serif; font-weight:800; }
+.character-review-field-heading span { flex:0 0 auto; color:#7a674e; font-size:.68rem; }
+.character-review-field-list p { margin:.35rem 0 0; color:#6d604f; font-size:.72rem; line-height:1.45; }
+.character-review-field-list strong { color:#514231; }
+.character-review-schema-tree { display:grid; gap:.45rem; margin:0; }
+.character-review-schema-group,.character-review-schema-leaf { border:1px solid #e4d9ca; border-radius:8px; background:#fffcf6; }
+.character-review-schema-group summary { padding:.7rem .75rem; color:#3e3327; cursor:pointer; font-family:'Noto Sans KR Variable','Noto Sans KR','Malgun Gothic','Droid Sans Fallback','Segoe UI',system-ui,sans-serif; list-style-position:inside; }
+.character-review-schema-group summary::marker { color:#1d6257; }
+.character-review-schema-group-content { display:grid; gap:.45rem; padding:0 .75rem .75rem 1.55rem; }
+.character-review-schema-children { display:grid; gap:.45rem; }
+.character-review-schema-leaf { padding:.7rem .75rem; }
+.character-review-schema-details { color:#6d604f; font-size:.72rem; line-height:1.45; }
+.character-review-schema-details p { margin:.35rem 0 0; }
+.character-review-schema-details strong { color:#514231; }
+.character-review-schema-options { margin-top:.45rem; color:#70552f; }
+.character-review-schema-options summary { width:max-content; cursor:pointer; font-size:.72rem; font-weight:700; }
+.character-review-schema-options ul { display:grid; grid-template-columns:repeat(auto-fit,minmax(11rem,1fr)); gap:.25rem .75rem; margin:.4rem 0 0; padding-left:1.15rem; color:#6d604f; font-size:.7rem; }
+.character-review-option-warning { margin:.5rem 0 0; padding:.45rem .6rem; border:1px solid #e4c98d; border-radius:6px; background:#fff8e7; color:#735629; font-size:.7rem; }
+.character-review-source-group { display:grid; gap:.45rem; }
+.character-review-source-group > h3 { padding-bottom:.35rem; border-bottom:1px solid #e5dacb; font-size:.82rem; }
+.character-review-proposal-card { padding:.85rem; border:1px solid #d9c9b3; border-radius:8px; background:#fffcf7; }
+.character-review-proposal-heading h4 { font-size:1rem; }
+.character-review-proposal-status { flex:0 0 auto; margin:0; color:#75634c; font-size:.7rem; }
+.character-review-proposal-status strong { color:#1d6257; }
+.character-review-proposal-details { margin:.8rem 0; }
+.character-review-proposal-card details { border-top:1px solid #eadfce; padding-top:.55rem; }
+.character-review-proposal-card summary { width:max-content; color:#70552f; cursor:pointer; font-size:.75rem; font-weight:800; }
+.character-review-evidence { margin-top:.55rem; color:#5f5141; font-size:.74rem; line-height:1.55; }
+.character-review-evidence blockquote { margin:.5rem 0; padding:.6rem .75rem; border-left:3px solid #c79b58; background:#fbf1df; color:#4b3d2e; }
+.character-review-evidence ul { display:grid; gap:.45rem; margin:.55rem 0 0; padding:0; list-style:none; }
+.character-review-evidence li { padding:.5rem .6rem; border:1px solid #eadfce; border-radius:6px; background:#fffdfa; }
+.character-review-evidence li span { color:#8b7453; font-size:.68rem; font-weight:800; }
+.character-review-evidence li p { margin:.25rem 0 0; }
+.character-review-evidence-missing,.character-review-muted { color:#8b7760 !important; font-size:.74rem; }
+.character-review-state { display:grid; gap:.45rem; padding:1rem; border-radius:8px; }
+.character-review-state h2,.character-review-state h3 { margin:0; color:#4c3d2c; font-size:1rem; }
+.character-review-state p { margin:0; color:#665644; line-height:1.55; }
+.character-review-state-error { border:1px solid #dfb9a8; background:#fff4ef; }
+.character-review-state-empty { border:1px solid #bad7ca; background:#f1faf6; }
+.character-review-state button,.character-review-preparation button { width:max-content; min-height:2.35rem; padding:.5rem .8rem; border:1px solid #1d6257; border-radius:6px; background:#1d6257; color:#fff; font:700 .75rem inherit; cursor:pointer; }
+.character-review-state button:focus-visible,.character-review-preparation button:focus-visible,.character-review-header a:focus-visible,.character-review-proposal-card summary:focus-visible { outline:3px solid rgb(40 121 110 / 26%); outline-offset:2px; }
+.character-review-state button:disabled,.character-review-preparation button:disabled { cursor:not-allowed; opacity:.55; }
+.character-review-inline-warning,.character-review-diagnostics { margin:0; padding:.65rem .8rem; border:1px solid #e4c98d; border-radius:7px; background:#fff8e7; color:#735629; font-size:.75rem; line-height:1.5; }
+.character-review-diagnostics { padding-left:2rem; }
+.character-review-preparation { display:grid; gap:.55rem; }
+.character-review-preparation h2 { margin:0; color:#4b3b2b; font-size:1rem; }
+.character-review-preparation-controls { display:flex; flex-wrap:wrap; align-items:end; gap:.7rem; }
+.character-review-preparation-controls label { display:grid; min-width:min(20rem,100%); gap:.3rem; color:#5b4a36; font-size:.75rem; font-weight:800; }
+.character-review-preparation-controls select { min-height:2.35rem; padding:.45rem .55rem; border:1px solid var(--color-border-strong); border-radius:6px; background:#fffdfa; color:var(--color-ink); font:inherit; }
+.character-review-summary { display:grid; grid-template-columns:minmax(12rem,.8fr) minmax(0,1.2fr); gap:.8rem 1.2rem; align-items:start; background:linear-gradient(135deg,#f6fbf8,#fffdfa); }
+.character-review-summary > ul { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.45rem .8rem; margin:0; padding:0; list-style:none; }
+.character-review-summary > ul li { display:flex; justify-content:space-between; gap:.6rem; padding:.45rem 0; border-bottom:1px solid #dfece5; color:#5d5143; font-size:.74rem; }
+.character-review-summary > ul strong { color:#1d6257; }
+.character-review-summary > p { grid-column:1 / -1; margin:0; }
+
+@media (max-width:900px) {
+  .character-review-layout { grid-template-columns:1fr; }
+  .character-review-base-schema { order:0; }
+  .character-review-proposals { order:1; }
+}
+@media (max-width:600px) {
+  .character-review-panel,.character-review-summary,.character-review-preparation,.character-review-header { padding:.9rem; }
+  .character-review-panel-heading,.character-review-proposal-heading { flex-direction:column; gap:.35rem; }
+  .character-review-summary { grid-template-columns:1fr; }
+  .character-review-summary > ul { grid-template-columns:1fr; }
+  .character-review-preparation-controls { align-items:stretch; flex-direction:column; }
+  .character-review-preparation-controls label { min-width:0; }
+  .character-review-preparation-controls button,.character-review-state button { width:100%; }
 }

@@ -39,21 +39,69 @@ class ScenarioCompilationWorkerTest {
     }
 
     @Test
-    void mapsHandoutBundleRoleToItsRegisteredStorybookDocumentTypeForOverlaySearch() {
-        KnowledgeDocumentId handout = new KnowledgeDocumentId(UUID.randomUUID());
+    void sendsSourceDocumentTypeWhenHandoutRoleUsesStorybookDocument() {
+        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(List.of(
-                document(handout, ScenarioBundleDocumentRole.HANDOUT, "STORYBOOK", 7)));
+                document(storybook, ScenarioBundleDocumentRole.HANDOUT, "STORYBOOK", 4)));
         Fixture fixture = new Fixture(bundle);
 
-        ScenarioPackage result = fixture.worker().processNext("worker", Duration.ofMinutes(1)).orElseThrow();
+        fixture.worker().processNext("worker", Duration.ofMinutes(1));
 
-        assertEquals(1, fixture.search.request.documents().size());
-        assertEquals(handout, fixture.search.request.documents().getFirst().documentId());
         assertEquals("STORYBOOK", fixture.search.request.documents().getFirst().documentType());
-        assertEquals(7, fixture.search.request.documents().getFirst().extractionVersion());
+    }
+
+    @Test
+    void retriesOnlyInvalidResolutionCandidatesAndPublishesRecoveredRange() {
+        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(List.of(
+                document(storybook, ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 2)));
+        ResolutionExtractionPort.SourceExcerpt excerpt = new ResolutionExtractionPort.SourceExcerpt(
+                storybook, 2, "page:1", "Burning Web (Recharge 5-6)");
+        com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate invalid = new com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate(
+                ResolutionKind.RECHARGE_ROLL, null, null, null, ResolutionVisibility.GM_REFERENCE,
+                "Burning Web (Recharge 5-6)", List.of(new ScenarioSourceReference(storybook, 2, "page:1")),
+                "source text", null);
+        com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate repaired = new com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate(
+                ResolutionKind.RECHARGE_ROLL, null, null, "5-6", ResolutionVisibility.GM_REFERENCE,
+                "Burning Web (Recharge 5-6)", List.of(new ScenarioSourceReference(storybook, 2, "page:1")),
+                "source text", null);
+        Fixture fixture = new Fixture(bundle);
+        int[] calls = {0};
+        ScenarioCompilationWorker worker = new ScenarioCompilationWorker(fixture.manager, fixture.compilations,
+                fixture.queue, new Bundles(bundle), request -> calls[0]++ == 0 ? List.of(invalid) : List.of(repaired),
+                ignored -> List.of(excerpt), fixture.tags, fixture.search,
+                new ScenarioPackageCompilationService(fixture.packages), fixture.packages);
+
+        ScenarioPackage result = worker.processNext("worker", Duration.ofMinutes(1)).orElseThrow();
+
+        assertEquals(2, calls[0]);
         assertEquals("COMPLETE", result.report().status().name());
-        assertEquals("PUBLISHED", fixture.compilations.values.values().iterator().next().status().name());
-        assertNull(fixture.tags.request);
+        assertEquals("5-6", result.units().getFirst().diceExpression());
+        assertEquals("COMPLETE", result.units().getFirst().status().name());
+    }
+
+    @Test
+    void limitsResolutionRecoveryToThreeRetries() {
+        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(List.of(
+                document(storybook, ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 2)));
+        ResolutionExtractionPort.SourceExcerpt excerpt = new ResolutionExtractionPort.SourceExcerpt(
+                storybook, 2, "page:1", "Burning Web (Recharge 5-6)");
+        com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate invalid = new com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate(
+                ResolutionKind.RECHARGE_ROLL, null, null, null, ResolutionVisibility.GM_REFERENCE,
+                "Burning Web (Recharge 5-6)", List.of(new ScenarioSourceReference(storybook, 2, "page:1")),
+                "source text", null);
+        Fixture fixture = new Fixture(bundle);
+        int[] calls = {0};
+        ScenarioCompilationWorker worker = new ScenarioCompilationWorker(fixture.manager, fixture.compilations,
+                fixture.queue, new Bundles(bundle), request -> { calls[0]++; return List.of(invalid); },
+                ignored -> List.of(excerpt), fixture.tags, fixture.search,
+                new ScenarioPackageCompilationService(fixture.packages), fixture.packages);
+
+        ScenarioPackage result = worker.processNext("worker", Duration.ofMinutes(1)).orElseThrow();
+
+        assertEquals(4, calls[0]);
+        assertEquals("INVALID", result.units().getFirst().status().name());
     }
 
     @Test
@@ -72,19 +120,6 @@ class ScenarioCompilationWorkerTest {
     }
 
     @Test
-    void failsCompilationWithDiagnosticWhenScenarioOverlaySearchReturnsBadRequest() {
-        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
-        Fixture fixture = new Fixture(bundle(List.of(document(storybook, ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 1))));
-        fixture.search.failure = new CharacterContextSearchPort.CharacterContextSearchException("HTTP 400: invalid search request");
-
-        IllegalStateException failure = assertThrows(IllegalStateException.class,
-                () -> fixture.worker().processNext("worker", Duration.ofMinutes(1)));
-
-        assertTrue(failure.getMessage().contains("character overlay search failed: HTTP 400"));
-        assertEquals("WAITING_RETRY", fixture.compilations.values.values().iterator().next().status().name());
-    }
-
-    @Test
     void workerPublishesValidatedPackageFromClaimedJob() {
         ScenarioSourceBundle bundle = bundle(List.of(document(
                 new KnowledgeDocumentId(UUID.randomUUID()),
@@ -94,62 +129,9 @@ class ScenarioCompilationWorkerTest {
 
         ScenarioPackage published = fixture.worker().processNext("worker", Duration.ofMinutes(1)).orElseThrow();
 
-        assertEquals("COMPLETE", published.report().status().name());
+        assertEquals("PARTIAL", published.report().status().name());
         assertEquals("PUBLISHED", fixture.compilations.findByInputFingerprint(fingerprint).orElseThrow().status().name());
         assertTrue(fixture.packages.values.containsKey(published.inputFingerprint()));
-    }
-
-    @Test
-    void missingResolutionKindBecomesAValidationFailureAndSchedulesCompilationRetry() {
-        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
-        ScenarioSourceBundle bundle = bundle(List.of(document(
-                storybook, ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 1)));
-        Fixture fixture = new Fixture(bundle);
-        com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate missingKind =
-                new com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate(
-                null, null, null, "1d20", ResolutionVisibility.GM_REFERENCE,
-                "Roll on the table.",
-                List.of(new ScenarioSourceReference(storybook, 1, "page:1")),
-                "schema-v1", null);
-        ScenarioCompilationWorker worker = new ScenarioCompilationWorker(
-                fixture.manager, fixture.compilations, fixture.queue, new Bundles(bundle),
-                request -> List.of(missingKind), ignored -> List.of(), fixture.tags, fixture.search,
-                new ScenarioPackageCompilationService(fixture.packages), fixture.packages);
-
-        IllegalStateException failure = assertThrows(IllegalStateException.class,
-                () -> worker.processNext("worker", Duration.ofMinutes(1)));
-
-        assertEquals("scenario compilation is not publishable: INVALID", failure.getMessage());
-        assertEquals("WAITING_RETRY", fixture.compilations.values.values().iterator().next().status().name());
-        assertEquals(1, fixture.queue.pending.size());
-    }
-
-    @Test
-    void candidateRetryBudgetIsSharedAcrossOuterCompilationAttempts() {
-        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
-        ScenarioSourceBundle bundle = bundle(List.of(document(
-                storybook, ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 1)));
-        Fixture fixture = new Fixture(bundle);
-        var malformed = com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate.diceRoll(
-                storybook, 1, "page:1", "bad", "Roll on the table.");
-        List<Integer> retryAttempts = new ArrayList<>();
-        ResolutionExtractionPort extraction = request -> {
-            if (request.failedCandidate() != null) retryAttempts.add(request.attempt());
-            return List.of(malformed);
-        };
-        ScenarioCompilationWorker worker = new ScenarioCompilationWorker(
-                fixture.manager, fixture.compilations, fixture.queue, new Bundles(bundle),
-                extraction, ignored -> List.of(), fixture.tags, fixture.search,
-                new ScenarioPackageCompilationService(fixture.packages), fixture.packages);
-
-        for (int attempt = 1; attempt <= 3; attempt++) {
-            assertThrows(IllegalStateException.class,
-                    () -> worker.processNext("worker", Duration.ofMinutes(1)));
-        }
-
-        assertEquals(List.of(1, 2, 3), retryAttempts);
-        assertEquals("FAILED", fixture.compilations.values.values().iterator().next().status().name());
-        assertEquals(0, fixture.queue.pending.size());
     }
 
     @Test
@@ -257,8 +239,7 @@ class ScenarioCompilationWorkerTest {
     private static final class Search implements CharacterContextSearchPort {
         Request request;
         List<Evidence> result = List.of();
-        RuntimeException failure;
-        @Override public List<Evidence> search(Request request) { this.request = request; if (failure != null) throw failure; return result; }
+        @Override public List<Evidence> search(Request request) { this.request = request; return result; }
     }
 
     private static final class Tags implements CharacterInputTagExtractionPort {

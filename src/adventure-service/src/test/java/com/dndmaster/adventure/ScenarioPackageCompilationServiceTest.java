@@ -3,7 +3,6 @@ package com.dndmaster.adventure;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
@@ -159,23 +158,10 @@ class ScenarioPackageCompilationServiceTest {
     }
 
     @Test
-    void emptyCandidateExtractionIsCompleteBasePackage() {
+    void emptyCandidateExtractionIsPartial() {
         ScenarioSourceBundle bundle = bundle(new KnowledgeDocumentId(UUID.randomUUID()), 1);
         var result = new ScenarioPackageCompilationService(new InMemoryPackageRepository()).compile(bundle, List.of());
-        assertEquals("COMPLETE", result.report().status().name());
-    }
-
-    @Test
-    void doesNotPersistIncompleteCompilationPackages() {
-        InMemoryPackageRepository repository = new InMemoryPackageRepository();
-        ScenarioSourceBundle bundle = bundle(new KnowledgeDocumentId(UUID.randomUUID()), 1);
-        KnowledgeDocumentId documentId = bundle.currentRevision().documents().getFirst().knowledgeDocumentId();
-        ResolutionCandidate incomplete = ResolutionCandidate.skillCheck(documentId, 1, "page:1", "Stealth", null, "The cellar is watched.");
-
-        var result = new ScenarioPackageCompilationService(repository).compile(bundle, List.of(incomplete));
-
         assertEquals("PARTIAL", result.report().status().name());
-        assertEquals(0, repository.packages.size());
     }
 
     @Test
@@ -210,26 +196,21 @@ class ScenarioPackageCompilationServiceTest {
     }
 
     @Test
-    void downgradesAnIsolatedMalformedDiceCandidateToPartialWhenOtherRuntimeFactsRemainSafe() {
+    void acceptsRechargeRangesAsRechargeRulesInsteadOfDiceExpressions() {
         KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
-        ScenarioSourceBundle bundle = bundle(documentId, 1);
-        var result = new ScenarioPackageCompilationService(new InMemoryPackageRepository()).compile(bundle, List.of(
-                ResolutionCandidate.skillCheck(documentId, 1, "page:1:span:1", "Stealth", 12, "The cellar is watched."),
-                ResolutionCandidate.diceRoll(documentId, 1, "page:1:span:2", "twenty", "Malformed dice extraction.")));
-        assertEquals("PARTIAL", result.report().status().name());
-        assertEquals(List.of("dice expression is invalid"), result.report().warnings());
-    }
+        ScenarioPackageCompilationService service = new ScenarioPackageCompilationService(new InMemoryPackageRepository());
+        ResolutionCandidate candidate = new ResolutionCandidate(
+                com.dndmaster.adventure.domain.scenario.ResolutionKind.RECHARGE_ROLL,
+                null, null, "5-6",
+                com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
+                "Burning Web (Recharge 5-6)",
+                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 1, "page:1:span:1")),
+                "source text", null);
 
-    @Test
-    void repeatedMalformedDiceCandidatesRemainIsolatedFromUsablePackageFacts() {
-        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
-        ScenarioSourceBundle bundle = bundle(documentId, 1);
-        var bad = ResolutionCandidate.diceRoll(documentId, 1, "page:1:span:2", "bad", "Malformed dice extraction.");
-        var result = new ScenarioPackageCompilationService(new InMemoryPackageRepository()).compile(bundle, List.of(
-                ResolutionCandidate.skillCheck(documentId, 1, "page:1:span:1", "Stealth", 12, "The cellar is watched."), bad, bad, bad));
-        assertEquals("PARTIAL", result.report().status().name());
-        assertEquals(1, result.runtimeCandidates().size());
-        assertEquals(3, result.units().stream().filter(unit -> unit.status().name().equals("INVALID")).count());
+        var unit = service.compile(bundle(documentId, 1), List.of(candidate)).units().get(0);
+
+        assertEquals("COMPLETE", unit.status().name());
+        assertEquals(List.of("RECHARGE"), unit.runtimeCapabilities());
     }
 
     @Test

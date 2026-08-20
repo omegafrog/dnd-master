@@ -5,7 +5,7 @@ ROOT="$(cd "$(dirname "$0")" && pwd)"
 INFRA="$ROOT/infra"
 UI="$ROOT/web-ui"
 DEMO_USER_INIT_SQL="/docker-entrypoint-initdb.d/02-seed-demo-user.sql"
-GRADLEW_TMP=""
+GRADLEW_TMP_DIR=""
 if [ "$(uname -s)" != "Linux" ]; then
     echo "ERROR: start-dev.sh must be run inside WSL/Linux (uname -s=Linux required)." >&2
     exit 1
@@ -70,7 +70,7 @@ cleanup() {
     echo "Shutting down..."
     [ -n "${BACKEND_PID:-}" ] && kill "$BACKEND_PID" 2>/dev/null || true
     [ -n "${FRONTEND_PID:-}" ] && kill "$FRONTEND_PID" 2>/dev/null || true
-    [ -n "$GRADLEW_TMP" ] && rm -f "$GRADLEW_TMP"
+    [ -n "$GRADLEW_TMP_DIR" ] && rm -rf "$GRADLEW_TMP_DIR"
     wait 2>/dev/null || true
     echo "Done."
 }
@@ -87,12 +87,13 @@ echo "    Infra ready."
 
 # WSL bash cannot execute the repository's CRLF gradle wrapper directly.
 # Normalize only a temporary copy so the source wrapper remains untouched.
-GRADLEW_TMP="$(mktemp "${TMPDIR:-/tmp}/dnd-master-gradlew.XXXXXX")"
-tr -d '\r' < "$ROOT/gradlew" > "$GRADLEW_TMP"
-chmod +x "$GRADLEW_TMP"
+GRADLEW_TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/dnd-master-gradlew.XXXXXX")"
+tr -d '\r' < "$ROOT/gradlew" > "$GRADLEW_TMP_DIR/gradlew"
+cp -R "$ROOT/gradle" "$GRADLEW_TMP_DIR/gradle"
+chmod +x "$GRADLEW_TMP_DIR/gradlew"
 
 echo "==> Starting backend (app-all)..."
-(cd "$ROOT" && exec bash "$GRADLEW_TMP" :app-all:bootRun) &
+(cd "$ROOT" && exec bash "$GRADLEW_TMP_DIR/gradlew" :app-all:bootRun) &
 BACKEND_PID=$!
 echo "    Backend PID: $BACKEND_PID"
 

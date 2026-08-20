@@ -6,12 +6,14 @@ import type {
   ScenarioBundleView,
   ScenarioCompilationView,
   ScenarioPackageView,
+  PlayPreparationView,
   SetupApi,
   CharacterInputNodeView,
 } from '../rulebooks/SetupApi'
 import type { AdventureSessionApi, AdventureSessionView } from '../adventure-session/AdventureSessionApi'
 import { Button } from '../../components/ui/button'
 import { Input } from '../../components/ui/input'
+import { Progress } from '../../components/ui/progress'
 import { Select } from '../../components/ui/select'
 
 const roleLabel: Record<ScenarioBundleRole, string> = {
@@ -25,6 +27,10 @@ const roleLabel: Record<ScenarioBundleRole, string> = {
   UNDETERMINED: '미확정',
 }
 
+function sleep(ms: number) {
+  return new Promise(resolve => window.setTimeout(resolve, ms))
+}
+
 const selectableStatuses = new Set<KnowledgeDocumentView['status']>([
   'EXTRACTED',
   'INDEXED',
@@ -34,8 +40,21 @@ const selectableStatuses = new Set<KnowledgeDocumentView['status']>([
 
 const indexingFinishedStatuses = new Set<KnowledgeDocumentView['status']>(['INDEXED', 'PARTIAL_CONFIRMED'])
 
-const compilationPollIntervalMs = 250
-const compilationPollLimit = 240
+const compilationPollIntervalMs = 500
+
+function preparationStorageKey(bundleId: string, revision: number) {
+  return `dnd-preparation:${bundleId}:${revision}`
+}
+
+function compilationProgress(status: ScenarioCompilationView['status']): number {
+  switch (status) {
+    case 'REQUESTED': return 10
+    case 'WAITING_RETRY': return 40
+    case 'RUNNING': return 70
+    case 'PUBLISHED': return 100
+    case 'FAILED': return 0
+  }
+}
 
 // eslint-disable-next-line react-refresh/only-export-components -- Pure serializer is exercised by ScenarioSetup tests.
 export function serializeBlueprintValues(nodes: CharacterInputNodeView[], values: Record<string, string>, parentPath = ''): string[] {
@@ -47,12 +66,13 @@ export function serializeBlueprintValues(nodes: CharacterInputNodeView[], values
   })
 }
 
-export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDocuments, initialBundle, onBundleSaved, preparationOnly = false }: {
+export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDocuments, rulebookDocumentId, initialBundle, onBundleSaved, preparationOnly = false }: {
   api: SetupApi
   playerId: string
   onError: (message: string) => void
   sessionApi?: Pick<AdventureSessionApi, 'create' | 'listByScenarioPackage'>
   availableDocuments?: KnowledgeDocumentView[]
+  rulebookDocumentId?: string
   initialBundle?: ScenarioBundleView | null
   onBundleSaved?: (bundle: ScenarioBundleView) => void
   preparationOnly?: boolean
@@ -62,6 +82,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bundle, setBundle] = useState<ScenarioBundleView | null>(null)
   const [scenarioPackage, setScenarioPackage] = useState<ScenarioPackageView | null>(null)
+  const [playPreparation, setPlayPreparation] = useState<PlayPreparationView | null>(null)
   const [sessions, setSessions] = useState<AdventureSessionView[]>([])
   const [compilation, setCompilation] = useState<ScenarioCompilationView | null>(null)
   const [compilationFailure, setCompilationFailure] = useState<string | null>(null)
@@ -70,9 +91,13 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
   const [saving, setSaving] = useState(false)
   const canCompile = Boolean(api.startScenarioCompilation && api.getScenarioCompilation && api.getScenarioPackage)
   const allDocumentsIndexed = documents.length > 0 && documents.every(document => indexingFinishedStatuses.has(document.status))
+  const blueprintPublished = playPreparation?.characterCreationBlueprint.status === 'PUBLISHED'
 
   useEffect(() => {
     if (initialBundle) {
+      setScenarioPackage(null)
+      setCompilation(null)
+      setCompilationFailure(null)
       setBundle(initialBundle)
       setSelectedIds(new Set(initialBundle.documents.map(document => document.knowledgeDocumentId)))
       setRoles(Object.fromEntries(initialBundle.documents.map(document => [document.knowledgeDocumentId, document.role])))
@@ -86,11 +111,34 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
       .then(packages => {
         if (!active) return
         const currentPackage = packages.find(item => item.bundleRevision === bundle.currentRevision) ?? null
-        setScenarioPackage(currentPackage)
+        if (currentPackage) setScenarioPackage(currentPackage)
         if (!currentPackage) setSessions([])
       })
       .catch(error => {
         if (active) onError(error instanceof Error ? error.message : '모험 준비 결과를 불러오지 못했습니다.')
+      })
+    return () => { active = false }
+  }, [api, bundle, onError])
+
+  useEffect(() => {
+    if (!bundle || !api.getScenarioCompilation) return
+    const storageKey = preparationStorageKey(bundle.bundleId, bundle.currentRevision)
+    const compilationId = window.localStorage.getItem(storageKey)
+    if (!compilationId) return
+    let active = true
+    void api.getScenarioCompilation(compilationId)
+      .then(current => {
+        if (!active || current.bundleId !== bundle.bundleId || current.bundleRevision !== bundle.currentRevision) return
+        setCompilation(current)
+        if (current.status === 'PUBLISHED' && current.packageId && api.getScenarioPackage) {
+          return api.getScenarioPackage(current.packageId).then(packageView => {
+            if (active) setScenarioPackage(packageView)
+          })
+        }
+        return undefined
+      })
+      .catch(error => {
+        if (active) onError(error instanceof Error ? error.message : '게임 준비 상태를 복원하지 못했습니다.')
       })
     return () => { active = false }
   }, [api, bundle, onError])
@@ -106,6 +154,45 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
       .catch(error => { if (active) onError(error instanceof Error ? error.message : '이 자료로 만든 모험을 불러오지 못했습니다.') })
     return () => { active = false }
   }, [onError, scenarioPackage, sessionApi])
+
+  useEffect(() => {
+    if (!scenarioPackage || !api.getPlayPreparation) {
+      setPlayPreparation(null)
+      return
+    }
+    let active = true
+    setPlayPreparation(null)
+    void api.getPlayPreparation(scenarioPackage.packageId)
+      .then(preparation => { if (active) setPlayPreparation(preparation) })
+      .catch(error => {
+        if (active) onError(error instanceof Error ? error.message : '캐릭터 생성 설정을 확인하지 못했습니다.')
+      })
+    return () => { active = false }
+  }, [api, onError, scenarioPackage])
+
+  useEffect(() => {
+    if (!compilation || !api.getScenarioCompilation || compilation.status === 'PUBLISHED' || compilation.status === 'FAILED') return
+    let active = true
+    const poll = async () => {
+      let current = compilation
+      try {
+        while (active && current.status !== 'PUBLISHED' && current.status !== 'FAILED') {
+          await sleep(compilationPollIntervalMs)
+          current = await api.getScenarioCompilation!(current.compilationId)
+          if (!active) return
+          setCompilation(current)
+        }
+        if (current.status === 'PUBLISHED' && current.packageId && api.getScenarioPackage) {
+          setScenarioPackage(await api.getScenarioPackage(current.packageId))
+        }
+        if (current.status === 'FAILED') setCompilationFailure(current.failureReason || '게임 준비에 실패했습니다.')
+      } catch (error) {
+        if (active) setCompilationFailure(error instanceof Error ? error.message : '게임 준비 상태를 확인하지 못했습니다.')
+      }
+    }
+    void poll()
+    return () => { active = false }
+  }, [api, compilation])
 
   useEffect(() => {
     if (initialBundle) return
@@ -163,7 +250,8 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
         knowledgeDocumentId: document.knowledgeDocumentId,
         role: roles[document.knowledgeDocumentId] ?? 'UNDETERMINED',
       }))
-    if (!documentsToSave.length) return
+    if (rulebookDocumentId) documentsToSave.push({ knowledgeDocumentId: rulebookDocumentId, role: 'RULEBOOK' })
+    if (!documentsToSave.length || !rulebookDocumentId) return
     setSaving(true)
     setScenarioPackage(null)
     setCompilationFailure(null)
@@ -187,16 +275,16 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
     setCompilationFailure(null)
     try {
       if (api.startScenarioCompilation && api.getScenarioCompilation && api.getScenarioPackage) {
+        const inputFingerprint = compilation?.status === 'PUBLISHED' || compilation?.status === 'FAILED'
+          ? `scenario-bundle:${bundle.bundleId}:revision:${bundle.currentRevision}:retry:${Date.now()}`
+          : `scenario-bundle:${bundle.bundleId}:revision:${bundle.currentRevision}`
         const started = await api.startScenarioCompilation(
           bundle.bundleId,
           playerId,
-          `scenario-bundle:${bundle.bundleId}:revision:${bundle.currentRevision}`,
+          inputFingerprint,
         )
+        window.localStorage.setItem(preparationStorageKey(bundle.bundleId, bundle.currentRevision), started.compilationId)
         setCompilation(started)
-        const published = await waitForCompilation(api, started, setCompilation)
-        setCompilation(published)
-        if (!published.packageId) throw new Error('모험 준비 결과를 확인할 수 없습니다.')
-        setScenarioPackage(await api.getScenarioPackage(published.packageId))
         return
       }
       throw new Error('자동으로 게임을 준비할 수 없습니다.')
@@ -213,6 +301,11 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
     if (!scenarioPackage || !sessionApi?.create || !api.getPlayPreparation) return
     try {
       const preparation = await api.getPlayPreparation(scenarioPackage.packageId)
+      if (preparation.characterCreationBlueprint.status !== 'PUBLISHED' || preparation.characterCreationBlueprint.revision == null) {
+        setPlayPreparation(preparation)
+        onError('캐릭터 생성 설정을 먼저 검토하고 게시해 주세요.')
+        return
+      }
       const session = await sessionApi.create({ scenarioPackageId: scenarioPackage.packageId, blueprintId: scenarioPackage.packageId, blueprintRevision: preparation.characterCreationBlueprint.revision ?? 0, partySize: Math.min(partySize, scenarioPackage.characterLimit.maximumCharacters) })
       window.location.hash = `#/sessions/${session.sessionId}/party`
     } catch (error) {
@@ -257,10 +350,10 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
             </li>
           ))}
         </ul>
-        <Button type="submit" disabled={saving || selectedIds.size === 0 || !allDocumentsIndexed}>
+        <Button type="submit" disabled={saving || selectedIds.size === 0 || !allDocumentsIndexed || !rulebookDocumentId}>
           {saving ? '저장 중…' : bundle ? '모험 자료 다시 저장' : '모험 자료 저장'}
         </Button>
-        {!allDocumentsIndexed ? <p>모든 자료의 준비가 끝나면 모험 자료를 저장할 수 있습니다.</p> : null}
+        {!rulebookDocumentId ? <p>위에서 룰북을 하나 선택하면 모험 자료를 저장할 수 있습니다.</p> : !allDocumentsIndexed ? <p>모든 자료의 준비가 끝나면 모험 자료를 저장할 수 있습니다.</p> : null}
       </form> : null}
       {bundle && preparationOnly ? (
         <section aria-labelledby="bundle-summary-heading">
@@ -272,11 +365,26 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
             ))}
           </ul>
           {canCompile ? (
-            <Button type="button" disabled={compiling} onClick={() => void compile()}>
-            {compiling ? '게임 준비 중…' : '게임 준비 시작'}
+            <Button
+              type="button"
+              disabled={compiling || compilation?.status === 'REQUESTED' || compilation?.status === 'RUNNING' || compilation?.status === 'WAITING_RETRY'}
+              onClick={() => void compile()}
+            >
+            {compiling || compilation?.status === 'REQUESTED' || compilation?.status === 'RUNNING' || compilation?.status === 'WAITING_RETRY' ? '게임 준비 상태 확인 중…' : '게임 준비 시작'}
             </Button>
           ) : null}
-          {compilation ? <p>게임 준비 상태 {compilation.status} · 시도 {compilation.attempt}</p> : null}
+          {compilation ? (
+            <div className="preparation-progress" role="status" aria-live="polite">
+              <div className="preparation-progress-heading">
+                <span>게임 준비 상태 {compilation.status} · 시도 {compilation.attempt}</span>
+                <strong>{compilationProgress(compilation.status)}%</strong>
+              </div>
+              <Progress value={compilationProgress(compilation.status)} aria-label="게임 준비 진행률" />
+              {compilation.status === 'REQUESTED' || compilation.status === 'RUNNING' || compilation.status === 'WAITING_RETRY' ? (
+                <p>서버에서 준비 작업을 진행 중입니다. 이 창을 열어 둔 동안 상태를 자동으로 확인합니다.</p>
+              ) : null}
+            </div>
+          ) : null}
           {compilationFailure ? <p role="alert">게임 준비 실패: {compilationFailure} · 다시 준비해 주세요.</p> : null}
           {scenarioPackage ? (
             <div role="status">
@@ -293,9 +401,10 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
               <Button type="button" onClick={() => { window.location.hash = `#/scenario-packages/${scenarioPackage.packageId}/character-blueprint` }}>
                 캐릭터 생성 시작
               </Button>
-              <Button type="button" onClick={() => void createAdventure()} disabled={scenarioPackage.reportStatus !== 'COMPLETE'}>
+              <Button type="button" onClick={() => void createAdventure()} disabled={scenarioPackage.reportStatus !== 'COMPLETE' || !blueprintPublished}>
                 이 자료로 모험 만들기
               </Button>
+              {!blueprintPublished ? <p>캐릭터 생성 설정을 검토하고 게시하면 모험을 만들 수 있습니다.</p> : null}
               {scenarioPackage.characterLimit.source ? (
                 <p>인원 제한 기준: {scenarioPackage.characterLimit.source.locator} · {scenarioPackage.characterLimit.sourceQuote}</p>
               ) : <p>고정 인원 조건이 없어 1~{scenarioPackage.characterLimit.maximumCharacters}명 중 선택할 수 있습니다.</p>}
@@ -322,25 +431,4 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
       ) : null}
     </section>
   )
-}
-
-async function waitForCompilation(
-  api: SetupApi,
-  started: ScenarioCompilationView,
-  onProgress: (compilation: ScenarioCompilationView) => void,
-): Promise<ScenarioCompilationView> {
-  if (!api.getScenarioCompilation) throw new Error('게임 준비 상태를 확인할 수 없습니다.')
-  let current = started
-  for (let attempts = 0; attempts < compilationPollLimit; attempts += 1) {
-    if (current.status === 'PUBLISHED') return current
-    if (current.status === 'FAILED') throw new Error(current.failureReason || '게임 준비에 실패했습니다.')
-    await sleep(compilationPollIntervalMs)
-    current = await api.getScenarioCompilation(current.compilationId)
-    onProgress(current)
-  }
-  throw new Error('게임 준비가 아직 진행 중입니다. 잠시 후 상태를 다시 확인하세요.')
-}
-
-function sleep(ms: number) {
-  return new Promise(resolve => window.setTimeout(resolve, ms))
 }
