@@ -41,6 +41,24 @@ public final class PostgresGmTurnRepository implements GmTurnRepository {
     }
 
     @Override
+    public Optional<GmTurn> findByTurnId(UUID turnId) {
+        try (Connection c = dataSource.getConnection(); PreparedStatement s = c.prepareStatement(
+                "SELECT * FROM adventure_gm_turn WHERE turn_id = ?")) {
+            s.setObject(1, turnId);
+            try (ResultSet r = s.executeQuery()) { return r.next() ? Optional.of(read(r)) : Optional.empty(); }
+        } catch (SQLException e) { throw new GmTurnPersistenceException("could not load GM turn", e); }
+    }
+
+    @Override
+    public Optional<GmTurn> findByTurnIdAndAdventureId(UUID turnId, UUID adventureId) {
+        try (Connection c = dataSource.getConnection(); PreparedStatement s = c.prepareStatement(
+                "SELECT * FROM adventure_gm_turn WHERE turn_id = ? AND adventure_id = ?")) {
+            s.setObject(1, turnId); s.setObject(2, adventureId);
+            try (ResultSet r = s.executeQuery()) { return r.next() ? Optional.of(read(r)) : Optional.empty(); }
+        } catch (SQLException e) { throw new GmTurnPersistenceException("could not load GM turn", e); }
+    }
+
+    @Override
     public void save(GmTurn turn, UUID adventureId) {
         try (Connection c = dataSource.getConnection(); PreparedStatement s = c.prepareStatement("""
                 INSERT INTO adventure_gm_turn (turn_id, command_id, adventure_id, expected_session_version, input_type, input_json, fingerprint, status, failure, provider_metadata)

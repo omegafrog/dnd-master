@@ -1002,8 +1002,10 @@ public class AdventureApiConfiguration {
     com.dndmaster.adventure.application.storyplan.FutureTacticalSceneRevisionService futureTacticalSceneRevisionService(
             com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository plans,
             com.dndmaster.adventure.application.session.AdventureSessionRepository sessions,
-            AdventureStoryPlanGenerationPort generator) {
-        return new com.dndmaster.adventure.application.storyplan.FutureTacticalSceneRevisionService(plans, sessions, generator);
+            AdventureStoryPlanGenerationPort generator,
+            GmTurnRepository gmTurns) {
+        return new com.dndmaster.adventure.application.storyplan.FutureTacticalSceneRevisionService(plans, sessions,
+                new com.dndmaster.adventure.application.storyplan.TacticalScenePlanValidator(), generator, gmTurns);
     }
 
     @Bean

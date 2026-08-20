@@ -41,8 +41,8 @@ public final class PostgresAdventureStoryPlanRepository implements AdventureStor
             s.setObject(1, plan.planId()); s.setObject(2, plan.sessionId().value()); s.setLong(3, plan.packageRevision()); s.setLong(4, plan.partyRevision()); s.setLong(5, plan.version()); s.setString(6, plan.status().name()); s.setInt(7, plan.configuration().endingCount()); s.setString(8, plan.configuration().adventureLength().name()); s.setInt(9, plan.currentStage()); s.setString(10, stages); s.setString(11, plan.failureReason()); s.setObject(12, java.sql.Timestamp.from(plan.updatedAt())); s.executeUpdate();
             UUID historyId = UUID.randomUUID();
             UUID predecessor = null;
-            try (PreparedStatement p = c.prepareStatement("SELECT history_id FROM adventure_story_plan_history WHERE session_id=? ORDER BY recorded_at DESC, history_id DESC LIMIT 1")) {
-                p.setObject(1, plan.sessionId().value());
+            try (PreparedStatement p = c.prepareStatement("SELECT history_id FROM adventure_story_plan_history WHERE session_id=? AND plan_version < ? ORDER BY plan_version DESC, history_id DESC LIMIT 1 FOR UPDATE")) {
+                p.setObject(1, plan.sessionId().value()); p.setLong(2, plan.version());
                 try (ResultSet row = p.executeQuery()) { if (row.next()) predecessor = row.getObject("history_id", UUID.class); }
             }
             try (PreparedStatement h = c.prepareStatement("INSERT INTO adventure_story_plan_history(history_id, plan_id, session_id, package_revision, party_revision, plan_version, status, ending_count, adventure_length, current_stage, stages_json, failure_reason, recorded_at, cause, predecessor_history_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (session_id, plan_version) DO NOTHING") ) {

@@ -1,6 +1,9 @@
 package com.dndmaster.adventure.application.storyplan;
 
 import com.dndmaster.adventure.application.session.AdventureSessionRepository;
+import com.dndmaster.adventure.application.runtime.GmTurnRepository;
+import com.dndmaster.adventure.domain.runtime.GmTurn;
+import com.dndmaster.adventure.domain.runtime.GmTurnStatus;
 import com.dndmaster.adventure.domain.adventure.AdventureSession;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlan;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
@@ -16,27 +19,34 @@ public final class FutureTacticalSceneRevisionService {
     private final AdventureSessionRepository sessions;
     private final TacticalScenePlanValidator validator;
     private final AdventureStoryPlanGenerationPort generator;
+    private final GmTurnRepository gmTurns;
 
     public FutureTacticalSceneRevisionService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions) {
-        this(plans, sessions, new TacticalScenePlanValidator(), null);
+        this(plans, sessions, new TacticalScenePlanValidator(), null, null);
     }
 
     public FutureTacticalSceneRevisionService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
             TacticalScenePlanValidator validator) {
-        this(plans, sessions, validator, null);
+        this(plans, sessions, validator, null, null);
     }
 
     public FutureTacticalSceneRevisionService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
             AdventureStoryPlanGenerationPort generator) {
-        this(plans, sessions, new TacticalScenePlanValidator(), generator);
+        this(plans, sessions, new TacticalScenePlanValidator(), generator, null);
     }
 
     public FutureTacticalSceneRevisionService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
             TacticalScenePlanValidator validator, AdventureStoryPlanGenerationPort generator) {
+        this(plans, sessions, validator, generator, null);
+    }
+
+    public FutureTacticalSceneRevisionService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
+            TacticalScenePlanValidator validator, AdventureStoryPlanGenerationPort generator, GmTurnRepository gmTurns) {
         this.plans = Objects.requireNonNull(plans);
         this.sessions = Objects.requireNonNull(sessions);
         this.validator = Objects.requireNonNull(validator);
         this.generator = generator;
+        this.gmTurns = gmTurns;
     }
 
     public AdventureStoryPlan revise(SessionId sessionId, OwnerPlayerId owner, int position) {
@@ -52,6 +62,14 @@ public final class FutureTacticalSceneRevisionService {
         AdventureSession session = sessions.findById(sessionId).orElseThrow(() -> new IllegalArgumentException("adventure session not found"));
         if (!session.ownerPlayerId().equals(owner)) throw new SecurityException("adventure session access denied");
         if (session.status() != AdventureSession.Status.STARTED) throw new IllegalStateException("future tactical revision requires a started adventure");
+        if (causingGmTurnId == null) throw new IllegalArgumentException("future tactical revision requires causing GM turn id");
+        if (gmTurns == null) throw new IllegalStateException("GM turn repository is required for future tactical revision");
+        if (session.startedAdventureId() == null) throw new IllegalArgumentException("adventure is not started");
+        GmTurn causingTurn = gmTurns.findByTurnIdAndAdventureId(causingGmTurnId, session.startedAdventureId().value())
+                .orElseThrow(() -> new IllegalArgumentException("causing GM turn not found"));
+        if (causingTurn.status() != GmTurnStatus.COMMITTED) {
+            throw new IllegalArgumentException("causing GM turn must be committed for this adventure");
+        }
         AdventureStoryPlan current = plans.findBySessionId(sessionId).orElseThrow(() -> new IllegalStateException("adventure story plan not found"));
         if (current.status() != com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStatus.READY) throw new IllegalStateException("story plan is not ready");
         AdventureStoryPlanStage existing = current.stages().stream().filter(stage -> stage.position() == position).findFirst()
@@ -82,7 +100,6 @@ public final class FutureTacticalSceneRevisionService {
             if (attempt == 3) throw new IllegalArgumentException("tactical scene revision blocked after 3 attempts: " + String.join(", ", violations));
         }
         AdventureStoryPlan revised = current.reviseFutureStage(position, existing.withTacticalScenePlan(scene));
-        if (causingGmTurnId == null) throw new IllegalArgumentException("future tactical revision requires causing GM turn id");
         plans.save(revised, "GM_TURN:" + causingGmTurnId);
         return revised;
     }

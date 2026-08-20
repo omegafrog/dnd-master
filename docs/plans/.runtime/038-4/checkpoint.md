@@ -1,6 +1,6 @@
 # 038-4 checkpoint
 
-- attempt: 16
+- attempt: 17
 - status: in-progress
 - scope: player trigger qualification, durable planned trigger effects, active-map/session ownership, immutable revealed stages and append-only future revision
 - resumed after 038-3 completion at `5f55cc4d`
@@ -18,3 +18,4 @@
 - completed: ApiContractException maps to HTTP status, story-plan current/history writes use transactional upsert plus idempotent unique session/version history migration, and GM history exposes auditId/recordedAt/cause metadata
 - completed: legacy duplicate history rows are deterministically deduplicated before uniqueness, and durable history_id/cause/predecessor metadata is read through GM history projection
 - completed: GM history exposes persisted predecessorHistoryId and future revisions persist the causing GM turn as durable audit provenance
+- completed: future revisions require a committed GM turn for the started adventure, and predecessor history selection is ordered by lower plan version within the transaction

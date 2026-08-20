@@ -1,6 +1,7 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 
 import com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlan;
@@ -73,6 +74,24 @@ class PostgresAdventureStoryPlanRepositoryIntegrationTest {
         assertEquals(AdventureStoryPlanStatus.BLOCKED, loaded.status());
         assertEquals("tactical scene generation failed", loaded.failureReason());
         assertEquals(AdventureStoryPlanStatus.BLOCKED, repository.readHistory(sessionId).getFirst().status());
+    }
+
+    @Test
+    void linksPredecessorByLowerPlanVersionEvenWhenRecordedTimesAreSkewed() throws SQLException {
+        AdventureStoryPlan first = AdventureStoryPlan.blocked(UUID.randomUUID(), sessionId, 1, 0, 1,
+                new AdventurePlanConfiguration(2, AdventureLength.STANDARD), List.of(), "first");
+        repository.save(first);
+        AdventureStoryPlan third = AdventureStoryPlan.rehydrate(first.planId(), sessionId, first.packageRevision(), first.partyRevision(), 3,
+                AdventureStoryPlanStatus.BLOCKED, first.configuration(), first.stages(), first.currentStage(), "third", first.updatedAt().plusSeconds(-100));
+        repository.save(third, "GM_TURN:" + UUID.randomUUID());
+        AdventureStoryPlan fourth = AdventureStoryPlan.rehydrate(first.planId(), sessionId, first.packageRevision(), first.partyRevision(), 4,
+                AdventureStoryPlanStatus.BLOCKED, first.configuration(), first.stages(), first.currentStage(), "fourth", first.updatedAt().plusSeconds(-200));
+        repository.save(fourth, "GM_TURN:" + UUID.randomUUID());
+
+        var history = repository.readHistoryEntries(sessionId);
+        assertEquals(3, history.size());
+        assertNotNull(history.get(1).historyId());
+        assertEquals(history.get(1).historyId(), history.get(2).predecessorHistoryId());
     }
 
     private record DriverManagerDataSource(String url, String username, String password) implements DataSource {
