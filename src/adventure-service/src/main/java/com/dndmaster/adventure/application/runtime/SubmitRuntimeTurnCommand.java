@@ -9,17 +9,17 @@ import java.util.UUID;
 // 플레이어 행동 1회를 런타임 턴으로 처리하라고 넘기는 명령이다.
 public record SubmitRuntimeTurnCommand(
         AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID turnId, UUID commandId, String action, long expectedVersion,
-        CharacterSheetId turnCharacterSheetId, int turnIndex, boolean advancesState, boolean gmOnly) {
+        CharacterSheetId turnCharacterSheetId, int turnIndex, boolean advancesState, boolean gmOnly, boolean agentOrigin) {
     public SubmitRuntimeTurnCommand(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID turnId, UUID commandId,
                                     String action, long expectedVersion, CharacterSheetId turnCharacterSheetId, int turnIndex) {
-        this(adventureId, ownerPlayerId, turnId, commandId, action, expectedVersion, turnCharacterSheetId, turnIndex, true);
+        this(adventureId, ownerPlayerId, turnId, commandId, action, expectedVersion, turnCharacterSheetId, turnIndex, true, false, false);
     }
     public SubmitRuntimeTurnCommand(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID turnId, UUID commandId, String action) {
-        this(adventureId, ownerPlayerId, turnId, commandId, action, -1, null, -1, true);
+        this(adventureId, ownerPlayerId, turnId, commandId, action, -1, null, -1, true, false, false);
     }
 
     public SubmitRuntimeTurnCommand(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID turnId, UUID commandId, String action, long expectedVersion) {
-        this(adventureId, ownerPlayerId, turnId, commandId, action, expectedVersion, null, -1, true);
+        this(adventureId, ownerPlayerId, turnId, commandId, action, expectedVersion, null, -1, true, false, false);
     }
     public SubmitRuntimeTurnCommand {
         adventureId = Objects.requireNonNull(adventureId, "adventure id must not be null");
@@ -35,13 +35,19 @@ public record SubmitRuntimeTurnCommand(
 
     public SubmitRuntimeTurnCommand(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID turnId, UUID commandId,
                                     String action, long expectedVersion, boolean advancesState) {
-        this(adventureId, ownerPlayerId, turnId, commandId, action, expectedVersion, null, -1, advancesState);
+        this(adventureId, ownerPlayerId, turnId, commandId, action, expectedVersion, null, -1, advancesState, false, false);
     }
 
     public SubmitRuntimeTurnCommand(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID turnId, UUID commandId,
                                     String action, long expectedVersion, CharacterSheetId turnCharacterSheetId, int turnIndex,
                                     boolean advancesState) {
-        this(adventureId, ownerPlayerId, turnId, commandId, action, expectedVersion, turnCharacterSheetId, turnIndex, advancesState, false);
+        this(adventureId, ownerPlayerId, turnId, commandId, action, expectedVersion, turnCharacterSheetId, turnIndex, advancesState, false, false);
+    }
+
+    public SubmitRuntimeTurnCommand(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID turnId, UUID commandId,
+                                    String action, long expectedVersion, CharacterSheetId turnCharacterSheetId, int turnIndex,
+                                    boolean advancesState, boolean gmOnly) {
+        this(adventureId, ownerPlayerId, turnId, commandId, action, expectedVersion, turnCharacterSheetId, turnIndex, advancesState, gmOnly, false);
     }
 
 }

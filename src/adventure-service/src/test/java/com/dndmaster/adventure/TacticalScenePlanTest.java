@@ -243,4 +243,17 @@ class TacticalScenePlanTest {
                 (id, position, owner) -> java.util.Optional.of(activeMap), evidence(adventure, command, "combat_entry", false));
         assertThrows(IllegalArgumentException.class, () -> service.apply(adventure, 1, scene, "entry", "combat_entry", activeMap, UUID.randomUUID(), 0, command));
     }
+
+    @Test
+    void rejectsAgentOriginTurnAsPlayerTriggerEvidence() {
+        var activeMap = UUID.randomUUID();
+        var adventure = UUID.randomUUID();
+        var command = UUID.randomUUID();
+        var scene = new TacticalScenePlan(1, TacticalScenePlanStatus.READY, boundary(),
+                List.of(placement("party", TacticalPlacementKind.PLAYER, .1, .1)), List.of(), List.of(), List.of(), List.of(), List.of(), List.of(),
+                new FogPlan(List.of(), grounding("fog")), List.of(new TacticalTrigger("entry", TacticalTriggerType.COMBAT_ENTRY, List.of(), "", grounding("entry"))), List.of(), List.of());
+        var service = new TacticalTriggerRuntimeApplicationService(new TacticalTriggerEvaluator(), (map, owner, version, id, evaluation) -> { },
+                (id, position, owner) -> java.util.Optional.of(activeMap), evidence(adventure, command, "combat_entry", false));
+        assertThrows(IllegalArgumentException.class, () -> service.apply(adventure, 1, scene, "entry", "combat_entry", activeMap, UUID.randomUUID(), 0, command));
+    }
 }
