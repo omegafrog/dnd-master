@@ -1,0 +1,60 @@
+package com.dndmaster.adventure;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanStageSourceValidator;
+import com.dndmaster.adventure.domain.adventure.AdventureGroundingStatus;
+import com.dndmaster.adventure.domain.adventure.AdventurePlanEvidence;
+import com.dndmaster.adventure.domain.adventure.AdventureStageType;
+import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
+import java.util.List;
+import java.util.UUID;
+import org.junit.jupiter.api.Test;
+
+class AdventureStoryPlanStageSourceValidatorTest {
+    @Test
+    void rejectsUnsupportedBossRewardEndingAndTransitionFactsDespiteAValidCitation() {
+        var citation = citation("The cellar contains a rat swarm and an exit by the stairs.");
+        var stage = stage(citation, "ancient dragon", List.of("royal crown"),
+                "inherit the kingdom", "coronation-ending");
+
+        var violations = new AdventureStoryPlanStageSourceValidator().validate(stage, List.of(citation));
+
+        assertTrue(violations.contains("story stage boss is not supported by source evidence"));
+        assertTrue(violations.contains("story stage reward is not supported by source evidence: royal crown"));
+        assertTrue(violations.contains("story stage transition is not supported by source evidence"));
+        assertTrue(violations.contains("story stage ending is not supported by source evidence: coronation-ending"));
+    }
+
+    @Test
+    void acceptsCoreStageFactsThatAreSupportedByAuthoritativeEvidence() {
+        var citation = citation("The ancient dragon guards the royal crown. The party can inherit the kingdom and reach the coronation ending.");
+        var stage = stage(citation, "ancient dragon", List.of("royal crown"),
+                "inherit the kingdom", "coronation-ending");
+
+        assertTrue(new AdventureStoryPlanStageSourceValidator().validate(stage, List.of(citation)).isEmpty());
+    }
+
+    private static AdventureStoryPlanGenerationPort.SourceCitation citation(String quote) {
+        return new AdventureStoryPlanGenerationPort.SourceCitation(
+                "STORYBOOK", UUID.randomUUID(), 1, "page:1", quote, 1.0);
+    }
+
+    private static AdventureStoryPlanStage stage(
+            AdventureStoryPlanGenerationPort.SourceCitation citation,
+            String boss,
+            List<String> rewards,
+            String transition,
+            String ending) {
+        var evidence = new AdventurePlanEvidence(
+                citation.documentType(), citation.documentId(), citation.extractionVersion(),
+                citation.locator(), citation.quote(), citation.confidence());
+        return new AdventureStoryPlanStage(
+                1, "Cellar", "Clear the cellar", "Rats attack", transition,
+                List.of(), List.of(ending), List.of(), AdventureStageType.DUNGEON,
+                "Cellar", UUID.randomUUID(), "brewery", "page 1", List.of("rats"), boss,
+                transition, "", rewards, List.of(ending), List.of(evidence),
+                AdventureGroundingStatus.GROUNDED, List.of(), "SAFE", .9);
+    }
+}

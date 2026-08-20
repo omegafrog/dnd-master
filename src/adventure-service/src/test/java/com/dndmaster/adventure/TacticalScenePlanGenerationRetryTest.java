@@ -84,6 +84,28 @@ class TacticalScenePlanGenerationRetryTest {
     }
 
     @Test
+    void eachStageTargetedCandidateHasAnIndependentThreeAttemptBudget() {
+        var fixture = new Fixture(true);
+        fixture.generator.candidates.add(TacticalScenePlanCandidate.absent(1));
+        fixture.generator.candidates.add(TacticalScenePlanCandidate.absent(1));
+        fixture.generator.candidates.add(TacticalScenePlanCandidate.withCitation(
+                1, TacticalSceneFixtures.readyScene(TacticalScenePlanValidator.key(fixture.sourceCitation)),
+                List.of(fixture.sourceCitation)));
+        fixture.generator.candidates.add(TacticalScenePlanCandidate.absent(2));
+        fixture.generator.candidates.add(TacticalScenePlanCandidate.absent(2));
+        fixture.generator.candidates.add(TacticalScenePlanCandidate.withCitation(
+                2, TacticalSceneFixtures.readyScene(TacticalScenePlanValidator.key(fixture.sourceCitation)),
+                List.of(fixture.sourceCitation)));
+
+        AdventureStoryPlan plan = fixture.service.generate(
+                fixture.session.id(), fixture.session.ownerPlayerId(), SHORT_ADVENTURE);
+
+        assertEquals(AdventureStoryPlanStatus.READY, plan.status());
+        assertEquals(List.of(1, 1, 1, 2, 2, 2), fixture.generator.requests.stream()
+                .map(request -> request.stage().position()).toList());
+    }
+
+    @Test
     void acceptsAValidTypedCandidateAndPersistsItWithTheMappedStage() {
         var fixture = new Fixture();
         fixture.generator.candidates.add(TacticalScenePlanCandidate.withCitation(
@@ -126,6 +148,18 @@ class TacticalScenePlanGenerationRetryTest {
     }
 
     @Test
+    void rejectsUnsupportedCoreStoryStageFactsBeforeGeneratingATacticalCandidate() {
+        var fixture = new Fixture();
+        fixture.generator.stage = unsupportedCoreStage(fixture.mapId, fixture.sourceCitation);
+
+        IllegalStateException failure = assertThrows(IllegalStateException.class,
+                () -> fixture.service.generate(fixture.session.id(), fixture.session.ownerPlayerId(), SHORT_ADVENTURE));
+
+        assertEquals("story stage boss is not supported by source evidence", failure.getMessage());
+        assertEquals(0, fixture.generator.requests.size());
+    }
+
+    @Test
     void retriesGeneratorFailuresExactlyThreeTimesThenBlocksTheStartGate() {
         var fixture = new Fixture();
         fixture.generator.failuresRemaining = 3;
@@ -151,9 +185,15 @@ class TacticalScenePlanGenerationRetryTest {
         private final Plans plans = new Plans();
         private final AdventureStoryPlanApplicationService service;
         private final AdventureStoryPlanGenerationPort.SourceCitation sourceCitation;
+        private final UUID mapId;
 
         private Fixture() {
-            UUID mapId = UUID.randomUUID();
+            this(false);
+        }
+
+        private Fixture(boolean twoTacticalStages) {
+            mapId = UUID.randomUUID();
+            UUID secondMapId = UUID.randomUUID();
             var sourceDocument = new KnowledgeDocumentId(UUID.randomUUID());
             String sourceQuote = "The cellar includes combat, alarm, reinforcements, a boss transition, a reward, success, failure, exit, and surrender conditions.";
             sourceCitation = new AdventureStoryPlanGenerationPort.SourceCitation(
@@ -173,30 +213,58 @@ class TacticalScenePlanGenerationRetryTest {
                     ResolutionStatus.COMPLETE, List.of());
             var map = new MapDefinition(mapId, "brewery", "page 1", new MapDefinition.MapGrid(0, 0, 1, 0, "5ft"), List.of(), List.of(), List.of(),
                     new MapSourceReference(sourceDocument, 1, "page:1"), .9, MapSafetyStatus.SAFE);
+            var secondMap = new MapDefinition(secondMapId, "brewery-upper", "page 2", new MapDefinition.MapGrid(0, 0, 1, 0, "5ft"), List.of(), List.of(), List.of(),
+                    new MapSourceReference(sourceDocument, 1, "page:1"), .9, MapSafetyStatus.SAFE);
             var scenarioPackage = ScenarioPackage.publishWithMaps(ScenarioBundleId.generate(), 1, "tactical", List.of(document), List.of(unit),
-                    new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()), CharacterLimit.defaultLimit(), null, List.of(map), List.of());
+                    new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()), CharacterLimit.defaultLimit(), null,
+                    twoTacticalStages ? List.of(map, secondMap) : List.of(map), List.of());
             session = AdventureSession.create(SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), scenarioPackage.packageId(), 1, 1,
                     new AdventureSessionRuntimeConfiguration(new ScenarioId(scenarioPackage.packageId()), new RuleSetId(UUID.randomUUID()), List.of(), "ollama", List.of(), "opening"));
             session.addPartyMember(new AdventurePartyMember(new com.dndmaster.adventure.domain.adventure.CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT,
                     false, false, false, false, false, false));
-            generator.stage = mappedStage(mapId);
+            generator.stage = mappedStage(1, mapId, sourceCitation);
+            if (twoTacticalStages) generator.additionalTacticalStage = mappedStage(2, secondMapId, sourceCitation);
             service = new AdventureStoryPlanApplicationService(plans, new Sessions(session),
                     new PackageRepository(scenarioPackage), generator);
         }
     }
 
-    private static AdventureStoryPlanStage mappedStage(UUID mapId) {
-        return new AdventureStoryPlanStage(1, "Cellar", "Clear the cellar", "Rats attack", "Leave", List.of(), List.of("ending"), List.of(),
-                com.dndmaster.adventure.domain.adventure.AdventureStageType.DUNGEON, "Cellar", mapId, "brewery", "page 1", List.of(), "", "Leave", "", List.of(),
-                List.of("ending"), List.of(), com.dndmaster.adventure.domain.adventure.AdventureGroundingStatus.AI_SUGGESTION, List.of(), "SAFE", .9);
+    private static AdventureStoryPlanStage mappedStage(
+            int position, UUID mapId, AdventureStoryPlanGenerationPort.SourceCitation citation) {
+        return new AdventureStoryPlanStage(position, "Cellar", "Clear the cellar", "Rats attack", "exit", List.of(), List.of("ending"), List.of(),
+                com.dndmaster.adventure.domain.adventure.AdventureStageType.DUNGEON, "Cellar", mapId, "brewery", "page 1", List.of(), "", "exit", "", List.of("reward"),
+                List.of("ending"), List.of(evidence(citation)), com.dndmaster.adventure.domain.adventure.AdventureGroundingStatus.GROUNDED, List.of(), "SAFE", .9);
+    }
+
+    private static AdventureStoryPlanStage unsupportedCoreStage(
+            UUID mapId, AdventureStoryPlanGenerationPort.SourceCitation citation) {
+        return new AdventureStoryPlanStage(1, "Cellar", "Clear the cellar", "Rats attack", "inherit the kingdom", List.of(), List.of("ending"), List.of(),
+                com.dndmaster.adventure.domain.adventure.AdventureStageType.DUNGEON, "Cellar", mapId, "brewery", "page 1", List.of(), "ancient dragon", "inherit the kingdom", "", List.of("royal crown"),
+                List.of("ending"), List.of(evidence(citation)), com.dndmaster.adventure.domain.adventure.AdventureGroundingStatus.GROUNDED, List.of(), "SAFE", .9);
+    }
+
+    private static com.dndmaster.adventure.domain.adventure.AdventurePlanEvidence evidence(
+            AdventureStoryPlanGenerationPort.SourceCitation citation) {
+        return new com.dndmaster.adventure.domain.adventure.AdventurePlanEvidence(
+                citation.documentType(), citation.documentId(), citation.extractionVersion(),
+                citation.locator(), citation.quote(), citation.confidence());
     }
 
     private static final class Generator implements AdventureStoryPlanGenerationPort {
         private AdventureStoryPlanStage stage;
+        private AdventureStoryPlanStage additionalTacticalStage;
         private final List<TacticalScenePlanCandidate> candidates = new ArrayList<>();
         private final List<TacticalSceneRequest> requests = new ArrayList<>();
         private int failuresRemaining;
-        public List<AdventureStoryPlanStage> generate(Request request) { return List.of(stage, new AdventureStoryPlanStage(2, "Return", "Return", "Delay", "Finish", List.of(), List.of("ending")), new AdventureStoryPlanStage(3, "Finish", "Finish", "Choice", "Finish", List.of(), List.of("ending"))); }
+        public List<AdventureStoryPlanStage> generate(Request request) {
+            if (additionalTacticalStage != null) {
+                return List.of(stage, additionalTacticalStage,
+                        new AdventureStoryPlanStage(3, "Finish", "Finish", "Choice", "Finish", List.of(), List.of("ending")));
+            }
+            return List.of(stage,
+                    new AdventureStoryPlanStage(2, "Return", "Return", "Delay", "Finish", List.of(), List.of("ending")),
+                    new AdventureStoryPlanStage(3, "Finish", "Finish", "Choice", "Finish", List.of(), List.of("ending")));
+        }
         public TacticalScenePlanCandidate generateTacticalScene(TacticalSceneRequest request) {
             requests.add(request);
             if (failuresRemaining-- > 0) throw new IllegalArgumentException("malformed provider payload");

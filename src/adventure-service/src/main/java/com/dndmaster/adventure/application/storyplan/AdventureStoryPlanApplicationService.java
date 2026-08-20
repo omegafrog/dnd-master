@@ -37,6 +37,7 @@ public final class AdventureStoryPlanApplicationService {
     private final ScenarioBundleRepository bundles;
     private final ScenarioSourceExcerptPort sourceExcerptPort;
     private final AdventureStoryPlanGenerationPort generator;
+    private final AdventureStoryPlanStageSourceValidator stageSourceValidator = new AdventureStoryPlanStageSourceValidator();
     private final TacticalScenePlanValidator tacticalSceneValidator = new TacticalScenePlanValidator();
 
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions) {
@@ -86,6 +87,7 @@ public final class AdventureStoryPlanApplicationService {
             throw providerFailure;
         }
         validateMaps(stages, request.maps());
+        validateStageSources(stages, request.citations());
         AdventureStoryPlanGraphValidator.validate(stages, configuration);
         try {
             stages = generateTacticalScenes(stages, request);
@@ -249,6 +251,16 @@ public final class AdventureStoryPlanApplicationService {
         stages.stream().map(AdventureStoryPlanStage::mapDefinitionId).filter(java.util.Objects::nonNull).forEach(id -> {
             if (!known.contains(id)) throw new IllegalStateException("story plan references an unknown map definition");
         });
+    }
+
+    private void validateStageSources(
+            List<AdventureStoryPlanStage> stages,
+            List<AdventureStoryPlanGenerationPort.SourceCitation> citations) {
+        for (AdventureStoryPlanStage stage : stages) {
+            if (stage.mapDefinitionId() == null) continue;
+            List<String> violations = stageSourceValidator.validate(stage, citations);
+            if (!violations.isEmpty()) throw new IllegalStateException(violations.getFirst());
+        }
     }
 
     private static AdventureStoryPlanStage stage(int position, String title, String goal, String conflict, String transition, String ending) {
