@@ -92,7 +92,7 @@ export type TacticalScenePreparationView = {
   sessionId: string
   stagePosition: number
   stageName: string
-  status: 'PREPARING' | 'READY' | 'FAILED_RETRYABLE'
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETE' | 'FAILED_RETRYABLE'
   progress: number
   attempts: number
   mapRequired: boolean
@@ -169,5 +169,6 @@ export class AdventureSessionApi {
   readStoryPlanGeneration(jobId: string, sessionId: string) { return this.request<AdventureStoryPlanGenerationJobView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/generation/${jobId}`) }
   activateStageMap(sessionId: string, position: number) { return this.request<StageMapActivation>(`/api/v1/adventure-sessions/${sessionId}/story-plan/stages/${position}/activate-map`, { method: 'POST' }) }
   prepareTacticalScene(sessionId: string, position: number) { return this.request<TacticalScenePreparationView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/stages/${position}/tactical-scene/prepare`, { method: 'POST' }) }
+  readTacticalScenePreparation(sessionId: string, position: number) { return this.request<TacticalScenePreparationView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/stages/${position}/tactical-scene/prepare`) }
   retryTacticalScene(sessionId: string, position: number) { return this.request<TacticalScenePreparationView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/stages/${position}/tactical-scene/retry`, { method: 'POST' }) }
 }

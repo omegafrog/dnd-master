@@ -1020,9 +1020,11 @@ public class AdventureApiConfiguration {
     com.dndmaster.adventure.application.runtime.TacticalScenePreparationApplicationService tacticalScenePreparationApplicationService(
             com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository plans,
             com.dndmaster.adventure.application.session.AdventureSessionRepository sessions,
-            AdventureStoryPlanGenerationPort generator) {
+            AdventureStoryPlanGenerationPort generator,
+            DataSource dataSource) {
         return new com.dndmaster.adventure.application.runtime.TacticalScenePreparationApplicationService(
-                plans, sessions, generator, new com.dndmaster.adventure.application.storyplan.TacticalScenePlanValidator());
+                plans, sessions, generator, new com.dndmaster.adventure.application.storyplan.TacticalScenePlanValidator(),
+                new com.dndmaster.adventure.infrastructure.persistence.PostgresTacticalScenePreparationJobRepository(dataSource));
     }
 
     @Bean

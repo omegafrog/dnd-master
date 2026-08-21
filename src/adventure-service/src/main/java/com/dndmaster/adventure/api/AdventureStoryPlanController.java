@@ -125,7 +125,7 @@ public final class AdventureStoryPlanController {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "only the current stage may be prepared");
             }
             var preparation = tacticalPreparation.prepare(new SessionId(sessionId), owner());
-            if (preparation.status() != TacticalScenePreparationApplicationService.Status.READY) {
+            if (preparation.status() != TacticalScenePreparationApplicationService.Status.COMPLETE) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
                         preparation.message() + " 사유: " + preparation.failureReason());
             }
@@ -146,6 +146,12 @@ public final class AdventureStoryPlanController {
         var view = tacticalPreparation.prepare(new SessionId(sessionId), owner());
         if (view.stagePosition() != position) throw new ResponseStatusException(HttpStatus.CONFLICT, "only the current stage may be prepared");
         return TacticalPreparationView.from(view);
+    }
+
+    @GetMapping("/stages/{position}/tactical-scene/prepare")
+    TacticalPreparationView readTacticalScenePreparation(@PathVariable UUID sessionId, @PathVariable int position) {
+        if (tacticalPreparation == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "tactical preparation is unavailable");
+        return TacticalPreparationView.from(tacticalPreparation.read(new SessionId(sessionId), owner(), position));
     }
 
     @PostMapping("/stages/{position}/tactical-scene/retry")

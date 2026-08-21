@@ -1,7 +1,6 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -52,8 +51,8 @@ class TacticalScenePreparationApplicationServiceTest {
         var first = service.prepare(sessionId, owner);
         var duplicate = service.prepare(sessionId, owner);
 
-        assertEquals(TacticalScenePreparationApplicationService.Status.READY, first.status());
-        assertSame(first, duplicate);
+        assertEquals(TacticalScenePreparationApplicationService.Status.COMPLETE, first.status());
+        assertEquals(first, duplicate);
         verify(generator).generateTacticalScene(any());
         verify(plans).save(any());
     }

@@ -1,6 +1,6 @@
 # 039-3 전술 장면 준비 작업 영속화와 브라우저 검증
 
-- Status: `ready-for-agent`
+- Status: `completed`
 - Dependencies: `039-2`
 - Product Spec: `docs/specs/product-spec.md`
 - Architecture Spec: `docs/specs/architecture-spec.md`

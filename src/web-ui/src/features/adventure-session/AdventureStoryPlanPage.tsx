@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { AdventureSessionApi, AdventureSessionView, AdventureStoryPlanGenerationJobView, AdventureStoryPlanView, TacticalScenePreparationView } from './AdventureSessionApi'
 import { Progress } from '../../components/ui/progress'
 
-type StoryPlanApi = Pick<AdventureSessionApi, 'read' | 'readStoryPlan' | 'startStoryPlanGeneration' | 'readStoryPlanGeneration' | 'retryStoryPlan' | 'start' | 'recoverStart' | 'saveAppliedRuleSet'> & Partial<Pick<AdventureSessionApi, 'prepareTacticalScene' | 'retryTacticalScene' | 'activateStageMap'>>
+type StoryPlanApi = Pick<AdventureSessionApi, 'read' | 'readStoryPlan' | 'startStoryPlanGeneration' | 'readStoryPlanGeneration' | 'retryStoryPlan' | 'start' | 'recoverStart' | 'saveAppliedRuleSet'> & Partial<Pick<AdventureSessionApi, 'prepareTacticalScene' | 'readTacticalScenePreparation' | 'retryTacticalScene' | 'activateStageMap'>>
 type AdventureLength = 'SHORT' | 'STANDARD' | 'LONG'
 
 export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; sessionId: string }) {
@@ -31,6 +31,14 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
     }).catch(error => { if (active) setMessage(error instanceof Error ? error.message : '모험 계획을 불러오지 못했습니다.') })
     return () => { active = false }
   }, [api, sessionId])
+
+  useEffect(() => {
+    const currentStage = plan?.stages.find(stage => stage.position === (plan.currentStage + 1))
+    if (!session || !plan || session.status !== 'STARTED' || !currentStage || !api.readTacticalScenePreparation) return
+    let active = true
+    void api.readTacticalScenePreparation(sessionId, currentStage.position).then(view => { if (active) setTacticalPreparation(view) }).catch(() => undefined)
+    return () => { active = false }
+  }, [api, plan, session, sessionId])
 
   async function retry() {
     setMessage('')
@@ -77,7 +85,7 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
       if (currentStage && api.prepareTacticalScene) {
         const preparation = await api.prepareTacticalScene(sessionId, currentStage.position)
         setTacticalPreparation(preparation)
-        if (preparation.status !== 'READY') throw new Error(preparation.failureReason || preparation.message)
+        if (preparation.status !== 'COMPLETE') throw new Error(preparation.failureReason || preparation.message)
         if (preparation.mapRequired && api.activateStageMap) await api.activateStageMap(sessionId, currentStage.position)
       }
       if (started.adventureId) window.location.hash = `#/adventures/${started.adventureId}`

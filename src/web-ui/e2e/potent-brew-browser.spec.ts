@@ -127,6 +127,13 @@ test('fresh Potent Brew browser journey selects three assets and saves their rol
   await page.getByRole('button', { name: '모험 계획 생성', exact: true }).click()
   await expect(page.locator('.preparation-progress[role="status"]').getByText('플레이 준비 완료', { exact: true })).toBeVisible({ timeout: 600_000 })
   await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/11-adventure-plan-generated.png', fullPage: true })
+  await page.getByRole('button', { name: '모험 시작', exact: true }).click()
+  await expect(page).toHaveURL(/#\/adventures\//, { timeout: 120_000 })
+  await expect(page.getByRole('region', { name: '현재 전장' })).toBeVisible({ timeout: 120_000 })
+  await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/12-adventure-started-map-entry.png', fullPage: true })
+  await page.reload()
+  await expect(page.getByRole('region', { name: '현재 전장' })).toBeVisible({ timeout: 120_000 })
+  await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/13-adventure-reconnected.png', fullPage: true })
 })
 
 test('live Potent Brew browser journey exposes only safe map data and completes tactical contracts', async ({ page }) => {
