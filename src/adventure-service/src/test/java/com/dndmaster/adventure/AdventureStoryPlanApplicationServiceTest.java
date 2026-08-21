@@ -153,6 +153,27 @@ class AdventureStoryPlanApplicationServiceTest {
     }
 
     @Test
+    void retries_candidate_validation_up_to_five_attempts_before_blocking() {
+        var session = AdventureSession.create(SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 1, 1,
+                new AdventureSessionRuntimeConfiguration(new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), java.util.List.of(), "ollama", java.util.List.of("search"), "opening"));
+        session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT, false, false, false, false, false, false));
+        var sessions = mock(AdventureSessionRepository.class);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        var generator = mock(AdventureStoryPlanGenerationPort.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        when(plans.findBySessionId(session.id())).thenReturn(Optional.empty());
+        when(generator.generate(any())).thenThrow(new AdventureStoryPlanCandidateValidationException(List.of("hidden trigger outcomes are incomplete")));
+
+        var result = new AdventureStoryPlanApplicationService(plans, sessions, null, generator)
+                .generate(session.id(), session.ownerPlayerId());
+
+        assertEquals(AdventureStoryPlanStatus.BLOCKED, result.status());
+        verify(generator, times(5)).generate(any());
+        assertTrue(result.failureReason().contains("hidden trigger outcomes are incomplete"));
+        verify(plans).save(result);
+    }
+
+    @Test
     void compatibility_generator_honors_long_configuration() {
         var session = AdventureSession.create(SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 1, 1,
                 new AdventureSessionRuntimeConfiguration(new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), java.util.List.of(), "ollama", java.util.List.of("search"), "opening"));

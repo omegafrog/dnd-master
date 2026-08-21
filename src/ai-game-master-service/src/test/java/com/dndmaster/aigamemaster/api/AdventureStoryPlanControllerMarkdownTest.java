@@ -125,6 +125,8 @@ class AdventureStoryPlanControllerMarkdownTest {
                 AdventureStoryPlanController.Configuration.defaults(), "계획");
 
         assertTrue(prompt.contains("A stage without hidden information, a conditional event, or a rules check may have no trigger"));
+        assertTrue(prompt.contains("Every hidden-information trigger, secret, clue reveal, conditional event, or rules check"));
+        assertTrue(prompt.contains("explicit failure or fail-forward consequence"));
         assertTrue(prompt.contains("heading names, Markdown formatting"));
     }
 
