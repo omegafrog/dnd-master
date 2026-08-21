@@ -1,4 +1,6 @@
 import { expect, test } from '@playwright/test'
+import { existsSync } from 'node:fs'
+import { readFile, writeFile } from 'node:fs/promises'
 import { basename } from 'node:path'
 
 const backend = process.env.BACKEND_E2E_URL
@@ -33,8 +35,23 @@ if (storybooks.length === 3 && new Set(storybooks.map(asset => asset.role)).size
   throw new Error('BACKEND_E2E_STORYBOOKS_JSON must contain exactly MAIN_SCENARIO, MAP, and HANDOUT roles')
 }
 const hasEnvironment = Boolean(backend && email && password && internalToken && storybooks.length === 3)
+const journeyStatePath = '/tmp/dnd-master-potent-brew-browser-state.json'
 
-test('fresh Potent Brew browser journey selects three assets and saves their roles', async ({ page }) => {
+type BrowserJourneyState = { sessionId: string; authSession: string }
+
+async function readJourneyState() {
+  if (!existsSync(journeyStatePath)) throw new Error(`browser journey state is missing: ${journeyStatePath}`)
+  return JSON.parse(await readFile(journeyStatePath, 'utf8')) as BrowserJourneyState
+}
+
+async function installJourneyAuth(page: import('@playwright/test').Page, state: BrowserJourneyState) {
+  await page.addInitScript(({ authSession }) => {
+    window.localStorage.setItem('dnd-master.auth-session', authSession)
+  }, { authSession: state.authSession })
+}
+
+test.describe.serial('fresh Potent Brew browser journey', () => {
+test('prepares the story package, characters, and party', async ({ page }) => {
   test.skip(!hasEnvironment, 'missing BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD, INTERNAL_SERVICE_TOKEN, or three Linux Potent Brew storybooks')
   test.setTimeout(600_000)
 
@@ -121,12 +138,32 @@ test('fresh Potent Brew browser journey selects three assets and saves their rol
     await expect(page.getByRole('button', { name: 'AI 동료로 채택', exact: true })).toBeVisible({ timeout: 60_000 })
     await page.getByRole('button', { name: 'AI 동료로 채택', exact: true }).click()
   }
+  const authSession = await page.evaluate(() => window.localStorage.getItem('dnd-master.auth-session') ?? '')
+  await writeFile(journeyStatePath, JSON.stringify({ sessionId, authSession }), 'utf8')
+})
+
+test('generates the story plan until play preparation is complete', async ({ page }) => {
+  test.skip(!hasEnvironment, 'missing BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD, INTERNAL_SERVICE_TOKEN, or three Linux Potent Brew storybooks')
+  test.setTimeout(600_000)
+  const state = await readJourneyState()
+  await installJourneyAuth(page, state)
+  await page.goto(`/#/sessions/${state.sessionId}/party`)
+  await expect(page.getByRole('heading', { name: '모험을 함께할 파티' })).toBeVisible({ timeout: 60_000 })
   await page.getByRole('button', { name: '모험 계획 만들기', exact: true }).click()
   await expect(page.getByRole('heading', { name: '모험 계획 설정' })).toBeVisible({ timeout: 60_000 })
   await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/10-adventure-plan-settings.png', fullPage: true })
   await page.getByRole('button', { name: '모험 계획 생성', exact: true }).click()
   await expect(page.locator('.preparation-progress[role="status"]').getByText('플레이 준비 완료', { exact: true })).toBeVisible({ timeout: 600_000 })
   await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/11-adventure-plan-generated.png', fullPage: true })
+})
+
+test('starts the prepared adventure and reconnects to the map', async ({ page }) => {
+  test.skip(!hasEnvironment, 'missing BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD, INTERNAL_SERVICE_TOKEN, or three Linux Potent Brew storybooks')
+  test.setTimeout(300_000)
+  const state = await readJourneyState()
+  await installJourneyAuth(page, state)
+  await page.goto(`/#/sessions/${state.sessionId}/story-plan`)
+  await expect(page.getByRole('heading', { name: '모험 계획 준비' })).toBeVisible({ timeout: 60_000 })
   await page.getByRole('button', { name: '모험 시작', exact: true }).click()
   await expect(page).toHaveURL(/#\/adventures\//, { timeout: 120_000 })
   await expect(page.getByRole('region', { name: '현재 전장' })).toBeVisible({ timeout: 120_000 })
@@ -134,6 +171,7 @@ test('fresh Potent Brew browser journey selects three assets and saves their rol
   await page.reload()
   await expect(page.getByRole('region', { name: '현재 전장' })).toBeVisible({ timeout: 120_000 })
   await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/13-adventure-reconnected.png', fullPage: true })
+})
 })
 
 test('live Potent Brew browser journey exposes only safe map data and completes tactical contracts', async ({ page }) => {
