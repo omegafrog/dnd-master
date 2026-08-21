@@ -219,7 +219,8 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                         Integer.toString(stage.position()), stage.location(), stage.transitionCondition(), mapId));
         var spawn = inferPlayerSpawn(stage, map);
         return new AdventureStoryPlanStage(stage.position(), stage.title(), stage.goal(), stage.conflict(), stage.transitionCondition(), stage.npcOrClues(), stage.endingIds(), bindings,
-                stage.stageType() == null ? com.dndmaster.adventure.domain.adventure.AdventureStageType.EVENT : com.dndmaster.adventure.domain.adventure.AdventureStageType.valueOf(stage.stageType()),
+                stage.stageType() == null ? com.dndmaster.adventure.domain.adventure.AdventureStageType.EVENT
+                        : com.dndmaster.adventure.domain.adventure.AdventureStageType.valueOf(stage.stageType().trim().toUpperCase(java.util.Locale.ROOT)),
                 stage.location(), mapId, map == null ? stage.mapAssetId() : map.assetId(), map == null ? stage.mapAssetLocator() : map.assetLocator(),
                 stage.enemies(), stage.boss(), stage.clearCondition(), stage.failureCondition(), stage.rewards(), stage.branchIds(), evidence, grounding, suggestions,
                 map == null ? "UNAVAILABLE" : map.safetyStatus(), map == null ? null : map.confidence(), stage.branchTargets(),

@@ -91,6 +91,29 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
     }
 
     @Test
+    void accepts_case_insensitive_stage_type_from_projection_agent() {
+        server = new WireMockServer(0);
+        server.start();
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/adventure-story-plan"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody("""
+                        {"stages":[
+                          {"position":1,"title":"Start","goal":"Begin","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"town","location":"Start","enemies":[],"rewards":[],"branchIds":[],"branchTargets":{},"evidence":[]},
+                          {"position":2,"title":"Middle","goal":"Advance","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"dungeon","location":"Middle","enemies":[],"rewards":[],"branchIds":[],"branchTargets":{},"evidence":[]},
+                          {"position":3,"title":"Finish","goal":"End","conflict":"Choice","transitionCondition":"Finish","npcOrClues":[],"endingIds":["ending-1"],"stageType":"event","location":"Finish","enemies":[],"rewards":[],"branchIds":[],"branchTargets":{},"evidence":[]}
+                        ]}
+                        """)));
+        var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "test-internal-token");
+
+        var candidate = gateway.generate(new AdventureStoryPlanGenerationPort.Request(
+                "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT),
+                List.of(), List.of(), List.of(), List.of()));
+
+        assertEquals(List.of(AdventureStageType.TOWN, AdventureStageType.DUNGEON, AdventureStageType.EVENT),
+                candidate.stream().map(AdventureStoryPlanStage::stageType).toList());
+    }
+
+    @Test
     void normalizesMissingEndingIdsProjectionAsTypedCandidateValidation() {
         server = new WireMockServer(0);
         server.start();
