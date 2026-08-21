@@ -1,6 +1,7 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.*;
 
@@ -111,8 +112,11 @@ class AdventureStoryPlanApplicationServiceTest {
 
         var request = org.mockito.ArgumentCaptor.forClass(AdventureStoryPlanGenerationPort.Request.class);
         verify(generator).generate(request.capture());
+        verify(generator, never()).generateTacticalScene(any());
         assertEquals(configuration, request.getValue().configuration());
         assertEquals(configuration, plan.configuration());
+        assertTrue(plan.stages().stream().allMatch(stage -> stage.tacticalScenePlan().status()
+                == TacticalScenePlanStatus.ABSENT));
     }
 
     @Test

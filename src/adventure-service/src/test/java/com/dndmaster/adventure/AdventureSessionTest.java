@@ -206,7 +206,7 @@ class AdventureSessionTest {
     }
 
     @Test
-    void refuses_to_start_when_tactical_scene_generation_blocked_the_story_plan() {
+    void starts_with_ready_story_plan_when_tactical_scene_is_absent() {
         var owner = new OwnerPlayerId(UUID.randomUUID());
         var packageId = ScenarioBundleId.generate();
         var blueprint = new com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint(
@@ -225,19 +225,18 @@ class AdventureSessionTest {
         when(sessions.findById(session.id())).thenReturn(java.util.Optional.of(session));
         var plans = mock(com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository.class);
         when(plans.findBySessionId(session.id())).thenReturn(java.util.Optional.of(
-                com.dndmaster.adventure.domain.adventure.AdventureStoryPlan.blocked(UUID.randomUUID(), session.id(), 1, session.version(), 1,
-                        com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration.defaults(), List.of(), "tactical validation failed")));
+                com.dndmaster.adventure.domain.adventure.AdventureStoryPlan.ready(session.id(), session.version(), 1,
+                        List.of(new com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage(
+                                1, "Opening", "Start", "Threat", "Resolve", List.of(), List.of())))));
         var coordinator = mock(AdventureSessionStartCoordinator.class);
         var service = new AdventureSessionApplicationService(sessions, packages, mock(AdventureRepository.class),
                 mock(RuntimeBindingApplicationService.class), coordinator,
                 mock(com.dndmaster.adventure.application.session.CharacterSheetOwnershipPort.class), plans,
                 mock(SessionKnowledgeSetRepository.class));
 
-        var failure = assertThrows(IllegalStateException.class,
-                () -> service.start(session.id(), owner, session.version(), UUID.randomUUID(), AdventureId.generate()));
+        service.start(session.id(), owner, session.version(), UUID.randomUUID(), AdventureId.generate());
 
-        assertEquals("adventure story plan is not ready for current party", failure.getMessage());
-        verify(coordinator, never()).prepare(any(), any(), any(), any());
+        verify(coordinator).prepare(any(), any(), any(), any());
     }
 
     @Test

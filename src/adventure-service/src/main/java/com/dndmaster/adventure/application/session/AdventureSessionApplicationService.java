@@ -148,9 +148,6 @@ public final class AdventureSessionApplicationService {
                 || !partyLockMatches) {
             throw new IllegalStateException("adventure story plan is not ready for current party");
         }
-        if (storyPlan.stages().stream().anyMatch(stage -> stage.mapDefinitionId() != null && !stage.tacticalScenePlan().readyForActivation())) {
-            throw new IllegalStateException("tactical story plan must be regenerated before adventure start");
-        }
         var configuration = session.runtimeConfiguration();
         if (configuration == null) throw new IllegalStateException("adventure session runtime configuration is required");
         boolean newlyStarting = session.beginStart(adventureId, requestId);
