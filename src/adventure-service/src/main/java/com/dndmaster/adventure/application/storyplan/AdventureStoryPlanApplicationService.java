@@ -14,6 +14,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.BiConsumer;
 import com.dndmaster.adventure.domain.adventure.ControlMode;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.adventure.SessionId;
@@ -71,7 +72,13 @@ public final class AdventureStoryPlanApplicationService {
     }
 
     public AdventureStoryPlan generate(SessionId sessionId, OwnerPlayerId owner, AdventurePlanConfiguration configuration) {
+        return generate(sessionId, owner, configuration, (progress, stage) -> { });
+    }
+
+    public AdventureStoryPlan generate(SessionId sessionId, OwnerPlayerId owner, AdventurePlanConfiguration configuration,
+            BiConsumer<Integer, String> progress) {
         AdventureSession session = requireSession(sessionId, owner);
+        progress.accept(15, "파티와 모험 자료 확인");
         if (session.startedAdventureId() != null) {
             throw new IllegalStateException("story plan generation is not allowed after adventure start; use future-stage revision");
         }
@@ -84,7 +91,9 @@ public final class AdventureStoryPlanApplicationService {
         }
         AdventureStoryPlanGenerationPort.Request request = new AdventureStoryPlanGenerationPort.Request(
                 UUID.randomUUID().toString(), session.scenarioPackageRevision(), session.party().size(),
-                configuration, sourceDocuments(session), resolutionEvidence(session), mapContexts(scenarioPackage), citations(session, scenarioPackage));
+                configuration, sourceDocuments(session), resolutionEvidence(session), mapContexts(scenarioPackage), citations(session, scenarioPackage))
+                .withPreviousCandidate(previous == null ? "" : previous.stages().toString());
+        progress.accept(25, "모험 개요 생성 중");
         List<AdventureStoryPlanStage> stages = List.of();
         List<String> outlineViolations = List.of();
         for (int attempt = 1; attempt <= 3; attempt++) {
@@ -104,7 +113,7 @@ public final class AdventureStoryPlanApplicationService {
             if (outlineViolations.isEmpty()) {
                 try {
                     validateMaps(stages, request.maps());
-                    outlineViolations = validateStageSources(stages, request.citations());
+                    outlineViolations = validateStageSources(stages, request.citations(), scenarioPackage);
                     if (outlineViolations.isEmpty()) {
                         AdventureStoryPlanGraphValidator.validate(stages, configuration);
                     }
@@ -125,8 +134,9 @@ public final class AdventureStoryPlanApplicationService {
             outlineViolations = List.of();
         }
         try {
+            progress.accept(60, "전술 장면 생성 중");
             stages = generateTacticalScenes(stages, request, session.party().stream()
-                    .map(member -> member.characterSheetId().value().toString()).toList());
+                    .map(member -> member.characterSheetId().value().toString()).toList(), progress);
         } catch (TacticalScenePlanBlockedException blocked) {
             AdventureStoryPlan plan = AdventureStoryPlan.blocked(previous == null ? java.util.UUID.randomUUID() : previous.planId(), session.id(),
                     session.scenarioPackageRevision(), session.version(), version, configuration, stages, blocked.getMessage());
@@ -137,6 +147,7 @@ public final class AdventureStoryPlanApplicationService {
                 previous == null ? java.util.UUID.randomUUID() : previous.planId(), session.id(),
                 session.scenarioPackageRevision(), session.version(), version, configuration, stages);
         plans.save(plan);
+        progress.accept(100, "플레이 준비 완료");
         return plan;
     }
 
@@ -153,12 +164,16 @@ public final class AdventureStoryPlanApplicationService {
     }
 
     private List<AdventureStoryPlanStage> generateTacticalScenes(List<AdventureStoryPlanStage> stages,
-            AdventureStoryPlanGenerationPort.Request request, List<String> partyMemberIds) {
+            AdventureStoryPlanGenerationPort.Request request, List<String> partyMemberIds,
+            BiConsumer<Integer, String> progress) {
         java.util.Map<UUID, AdventureStoryPlanGenerationPort.MapContext> maps = request.maps().stream()
                 .collect(java.util.stream.Collectors.toMap(AdventureStoryPlanGenerationPort.MapContext::mapDefinitionId, item -> item));
         List<AdventureStoryPlanStage> result = new ArrayList<>();
+        int stageIndex = 0;
         for (AdventureStoryPlanStage stage : stages) {
             if (stage.mapDefinitionId() == null) { result.add(stage); continue; }
+            progress.accept(Math.min(95, 60 + (++stageIndex * 35 / Math.max(1, stages.size()))),
+                    "전술 장면 " + stage.position() + " 준비 중");
             AdventureStoryPlanGenerationPort.MapContext map = maps.get(stage.mapDefinitionId());
             if (map == null) throw new IllegalStateException("story plan references an unknown tactical map");
             List<String> violations = List.of();
@@ -256,8 +271,20 @@ public final class AdventureStoryPlanApplicationService {
                 } catch (RuntimeException ignored) { }
             });
         }
-        return scenarioPackage.mapDefinitions().stream().filter(com.dndmaster.adventure.domain.scenario.MapDefinition::autoActivatable).map(map -> new AdventureStoryPlanGenerationPort.MapContext(
-                map.id(), map.assetId(), map.assetLocator(), map.source().locator(), map.confidence(), map.safetyStatus().name(), List.copyOf(related))).toList();
+        return scenarioPackage.mapDefinitions().stream().filter(com.dndmaster.adventure.domain.scenario.MapDefinition::autoActivatable).map(map -> {
+            String bindings = scenarioPackage.storyMapBindings().stream()
+                    .filter(binding -> binding.mapDefinitionId().equals(map.id()))
+                    .map(binding -> "stage=" + binding.stage() + ", location=" + binding.location()
+                            + ", entryCondition=" + binding.entryCondition())
+                    .collect(java.util.stream.Collectors.joining("; "));
+            var grid = map.grid();
+            String context = "grid origin=(" + grid.originX() + "," + grid.originY() + "), cellSize=" + grid.cellSize()
+                    + ", rotation=" + grid.rotation() + ", distance=" + grid.distance()
+                    + ", walls=" + map.walls() + ", doors=" + map.doors() + ", obstacles=" + map.obstacles()
+                    + ", bindings=[" + bindings + "]";
+            return new AdventureStoryPlanGenerationPort.MapContext(map.id(), map.assetId(), map.assetLocator(),
+                    map.source().locator(), map.confidence(), map.safetyStatus().name(), List.copyOf(related), context);
+        }).toList();
     }
 
     private List<AdventureStoryPlanGenerationPort.SourceCitation> citations(AdventureSession session, ScenarioPackage scenarioPackage) {
@@ -299,11 +326,16 @@ public final class AdventureStoryPlanApplicationService {
 
     private List<String> validateStageSources(
             List<AdventureStoryPlanStage> stages,
-            List<AdventureStoryPlanGenerationPort.SourceCitation> citations) {
+            List<AdventureStoryPlanGenerationPort.SourceCitation> citations,
+            ScenarioPackage scenarioPackage) {
         List<String> violations = new ArrayList<>();
+        Set<UUID> mapDocumentIds = scenarioPackage == null ? Set.of() : scenarioPackage.documents().stream()
+                .filter(document -> document.role() == com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.MAP)
+                .map(document -> document.knowledgeDocumentId().value())
+                .collect(java.util.stream.Collectors.toSet());
         for (AdventureStoryPlanStage stage : stages) {
             if (stage.mapDefinitionId() == null) continue;
-            violations.addAll(stageSourceValidator.validate(stage, citations));
+            violations.addAll(stageSourceValidator.validate(stage, citations, mapDocumentIds));
         }
         return List.copyOf(violations);
     }

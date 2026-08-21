@@ -15,10 +15,13 @@ import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Local Codex app-server JSON-RPC client. One app-server process is shared per local configuration. */
 public final class CodexAppServerClient implements AutoCloseable {
     private static final ConcurrentHashMap<String, CodexAppServerClient> SHARED = new ConcurrentHashMap<>();
+    private static final Logger LOGGER = LoggerFactory.getLogger(CodexAppServerClient.class);
 
     public static CodexAppServerClient shared(String executable, Path workDirectory, Duration timeout, ObjectMapper mapper) {
         String key = executable + "|" + workDirectory.toAbsolutePath().normalize();
@@ -46,6 +49,9 @@ public final class CodexAppServerClient implements AutoCloseable {
         if (operationId == null || operationId.isBlank() || prompt == null || prompt.isBlank()) {
             throw new IllegalArgumentException("operation id and prompt required");
         }
+        long startedAt = System.nanoTime();
+        LOGGER.info("ai_agent_call_started provider=codex operationId={} model={} promptLength={}", operationId,
+                requestedModel == null || requestedModel.isBlank() ? "default" : requestedModel, prompt.length());
         try {
             ensureStarted();
             ObjectNode threadParams = mapper.createObjectNode();
@@ -80,14 +86,35 @@ public final class CodexAppServerClient implements AutoCloseable {
                 if (message.has("error")) throw rpcError(message);
             }
             if (response.isEmpty()) throw new ProviderMalformedResponseException("Codex app-server response missing text");
-            return response.toString().trim();
+            String result = response.toString().trim();
+            LOGGER.info("ai_agent_call_completed provider=codex operationId={} durationMs={} responseLength={}", operationId,
+                    elapsedMillis(startedAt), result.length());
+            return result;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
+            LOGGER.warn("ai_agent_call_interrupted provider=codex operationId={} durationMs={}", operationId, elapsedMillis(startedAt));
             throw new ProviderTimeoutException(exception);
         } catch (IOException exception) {
             closeProcess();
+            LOGGER.error("ai_agent_call_failed provider=codex operationId={} durationMs={} errorType={} message={}", operationId,
+                    elapsedMillis(startedAt), exception.getClass().getSimpleName(), safeMessage(exception));
             throw new IllegalStateException("Codex app-server invocation failed", exception);
+        } catch (RuntimeException exception) {
+            LOGGER.error("ai_agent_call_failed provider=codex operationId={} durationMs={} errorType={} message={}", operationId,
+                    elapsedMillis(startedAt), exception.getClass().getSimpleName(), safeMessage(exception));
+            throw exception;
         }
+    }
+
+    private static long elapsedMillis(long startedAt) {
+        return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
+    }
+
+    private static String safeMessage(Throwable failure) {
+        String message = failure.getMessage();
+        if (message == null || message.isBlank()) return "<none>";
+        String normalized = message.replaceAll("[\\r\\n]+", " ");
+        return normalized.substring(0, Math.min(normalized.length(), 240));
     }
 
     public synchronized boolean isAuthenticated() {

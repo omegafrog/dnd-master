@@ -28,8 +28,11 @@ import java.util.stream.Collectors;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public final class CrossContextHttpAdventureStoryPlanGenerationGateway implements AdventureStoryPlanGenerationPort {
+    private static final Logger LOGGER = LoggerFactory.getLogger(CrossContextHttpAdventureStoryPlanGenerationGateway.class);
     private static final Pattern UUID_TOKEN = Pattern.compile("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}");
     private final HttpClient client; private final URI baseUri; private final Duration timeout; private final ObjectMapper mapper; private final String internalToken;
     public CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient client, URI baseUri, Duration timeout, ObjectMapper mapper, String internalToken) {
@@ -44,8 +47,9 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                     .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 422) {
-                throw new AdventureStoryPlanCandidateValidationException(List.of(
-                        remoteCandidateViolation(response.body(), "AI returned an invalid story plan candidate")));
+                List<String> violations = remoteCandidateViolations(response.body(), "AI returned an invalid story plan candidate");
+                LOGGER.warn("remote_story_plan_candidate_rejected violations={}", violations);
+                throw new AdventureStoryPlanCandidateValidationException(violations);
             }
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 String detail = response.body() == null ? "" : response.body().replaceAll("\\s+", " ");
@@ -103,7 +107,7 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(request))).build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 422) {
                 throw new AdventureStoryPlanCandidateValidationException(List.of(
-                        remoteCandidateViolation(response.body(), "AI returned an invalid tactical scene candidate")));
+                        remoteCandidateViolations(response.body(), "AI returned an invalid tactical scene candidate").getFirst()));
             }
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IllegalStateException("tactical scene AI failed: " + response.statusCode());
@@ -145,15 +149,23 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         return root.getMessage() == null || root.getMessage().isBlank() ? fallback : root.getMessage();
     }
 
-    private String remoteCandidateViolation(String body, String fallback) {
+    private List<String> remoteCandidateViolations(String body, String fallback) {
         try {
             var error = mapper.readTree(body == null ? "" : body);
+            var violations = error.path("violations");
+            if (violations.isArray()) {
+                List<String> parsed = new java.util.ArrayList<>();
+                violations.forEach(item -> {
+                    if (item.isTextual() && !item.asText().isBlank()) parsed.add(item.asText().trim());
+                });
+                if (!parsed.isEmpty()) return List.copyOf(parsed);
+            }
             String detail = error.path("detail").asText("").trim();
-            if (!detail.isBlank()) return detail;
+            if (!detail.isBlank()) return List.of(detail);
             String message = error.path("message").asText("").trim();
-            return message.isBlank() ? fallback : message;
+            return List.of(message.isBlank() ? fallback : message);
         } catch (RuntimeException | IOException ignored) {
-            return fallback;
+            return List.of(fallback);
         }
     }
 

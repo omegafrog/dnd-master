@@ -16,6 +16,7 @@ import com.dndmaster.adventure.application.session.AdventureSessionApplicationSe
 import com.dndmaster.adventure.application.runtime.TacticalMapActivationApplicationService;
 import com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimeApplicationService;
 import com.dndmaster.adventure.application.storyplan.FutureTacticalSceneRevisionService;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationJobService;
 import com.dndmaster.adventure.domain.adventure.TacticalScenePlan;
 
 @RestController
@@ -28,22 +29,31 @@ public final class AdventureStoryPlanController {
     private final TacticalTriggerRuntimeApplicationService triggerRuntime;
     private final FutureTacticalSceneRevisionService futureRevision;
     private final ApiRequestGuard requestGuard;
+    private final AdventureStoryPlanGenerationJobService generationJobs;
 
     @Autowired
     public AdventureStoryPlanController(AdventureStoryPlanApplicationService service, AdventureSessionApplicationService sessions,
             TacticalMapActivationApplicationService mapActivation, AuthenticatedPlayerResolver playerResolver,
             TacticalTriggerRuntimeApplicationService triggerRuntime, FutureTacticalSceneRevisionService futureRevision,
-            @org.springframework.beans.factory.annotation.Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+            @org.springframework.beans.factory.annotation.Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
+            AdventureStoryPlanGenerationJobService generationJobs) {
         this(service, sessions, mapActivation, playerResolver, triggerRuntime, futureRevision,
-                new ApiRequestGuard(internalToken));
+                new ApiRequestGuard(internalToken), generationJobs);
     }
 
     public AdventureStoryPlanController(AdventureStoryPlanApplicationService service, AdventureSessionApplicationService sessions,
             TacticalMapActivationApplicationService mapActivation, AuthenticatedPlayerResolver playerResolver,
             TacticalTriggerRuntimeApplicationService triggerRuntime, FutureTacticalSceneRevisionService futureRevision,
             ApiRequestGuard requestGuard) {
+        this(service, sessions, mapActivation, playerResolver, triggerRuntime, futureRevision, requestGuard, null);
+    }
+
+    public AdventureStoryPlanController(AdventureStoryPlanApplicationService service, AdventureSessionApplicationService sessions,
+            TacticalMapActivationApplicationService mapActivation, AuthenticatedPlayerResolver playerResolver,
+            TacticalTriggerRuntimeApplicationService triggerRuntime, FutureTacticalSceneRevisionService futureRevision,
+            ApiRequestGuard requestGuard, AdventureStoryPlanGenerationJobService generationJobs) {
         this.service = service; this.sessions = sessions; this.mapActivation = mapActivation; this.playerResolver = playerResolver; this.triggerRuntime = triggerRuntime; this.futureRevision = futureRevision;
-        this.requestGuard = requestGuard;
+        this.requestGuard = requestGuard; this.generationJobs = generationJobs;
     }
 
     @GetMapping
@@ -72,13 +82,23 @@ public final class AdventureStoryPlanController {
     }
 
     @PostMapping
-    PlayerPlanView generate(@PathVariable UUID sessionId, @RequestBody(required = false) ConfigurationRequest request) {
-        return PlayerPlanView.from(service.generate(new SessionId(sessionId), owner(), request == null ? AdventurePlanConfiguration.defaults() : request.toDomain()));
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    GenerationJobView generate(@PathVariable UUID sessionId, @RequestBody(required = false) ConfigurationRequest request) {
+        if (generationJobs == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "story plan generation jobs are unavailable");
+        return GenerationJobView.from(generationJobs.start(new SessionId(sessionId), owner(), request == null ? AdventurePlanConfiguration.defaults() : request.toDomain()));
     }
 
     @PostMapping("/retry")
-    PlayerPlanView retry(@PathVariable UUID sessionId, @RequestBody(required = false) ConfigurationRequest request) {
-        return PlayerPlanView.from(service.generate(new SessionId(sessionId), owner(), request == null ? AdventurePlanConfiguration.defaults() : request.toDomain()));
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    GenerationJobView retry(@PathVariable UUID sessionId, @RequestBody(required = false) ConfigurationRequest request) {
+        if (generationJobs == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "story plan generation jobs are unavailable");
+        return GenerationJobView.from(generationJobs.start(new SessionId(sessionId), owner(), request == null ? AdventurePlanConfiguration.defaults() : request.toDomain()));
+    }
+
+    @GetMapping("/generation/{jobId}")
+    GenerationJobView generation(@PathVariable UUID sessionId, @PathVariable UUID jobId) {
+        if (generationJobs == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "story plan generation jobs are unavailable");
+        return GenerationJobView.from(generationJobs.read(jobId, new SessionId(sessionId), owner()));
     }
 
     @PostMapping("/stages/{position}/activate-map")
@@ -171,6 +191,12 @@ public final class AdventureStoryPlanController {
     public record PlayerStageView(int position, String title, String stageType, String location, String goal) {
         static PlayerStageView from(StageView stage) {
             return new PlayerStageView(stage.position(), stage.title(), stage.stageType(), stage.location(), stage.goal());
+        }
+    }
+
+    public record GenerationJobView(UUID jobId, UUID sessionId, String status, int progress, String stage, String message, java.time.Instant updatedAt) {
+        static GenerationJobView from(AdventureStoryPlanGenerationJobService.JobView job) {
+            return new GenerationJobView(job.jobId(), job.sessionId(), job.status().name(), job.progress(), job.stage(), job.message(), job.updatedAt());
         }
     }
 

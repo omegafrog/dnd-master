@@ -4,20 +4,30 @@ import com.dndmaster.adventure.domain.adventure.AdventurePlanEvidence;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 /** Rejects core tactical-stage facts that are not supported by authoritative source evidence. */
 public final class AdventureStoryPlanStageSourceValidator {
     public List<String> validate(
             AdventureStoryPlanStage stage,
             List<AdventureStoryPlanGenerationPort.SourceCitation> authoritative) {
+        return validate(stage, authoritative, Set.of());
+    }
+
+    public List<String> validate(
+            AdventureStoryPlanStage stage,
+            List<AdventureStoryPlanGenerationPort.SourceCitation> authoritative,
+            Set<UUID> nonNarrativeDocumentIds) {
         List<String> violations = new ArrayList<>();
         for (AdventurePlanEvidence evidence : stage.evidence()) {
             if (authoritative.stream().noneMatch(source -> matches(evidence, source))) {
                 violations.add("story stage contains unknown source evidence");
             }
         }
-        String source = stage.evidence().stream()
-                .map(AdventurePlanEvidence::quote)
+        String source = authoritative.stream()
+                .filter(item -> !nonNarrativeDocumentIds.contains(item.documentId()))
+                .map(AdventureStoryPlanGenerationPort.SourceCitation::quote)
                 .reduce("", (left, right) -> left + " " + right);
         if (!stage.boss().isBlank() && !SourceClaimSupport.supports(source, stage.boss())) {
             violations.add("story stage boss is not supported by source evidence");

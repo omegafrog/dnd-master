@@ -27,6 +27,14 @@ public final class CombatMapViewService {
         PreparedMapData tactical = scene.materialize(source.grid(), owner.value());
         return saveNew(owner, adventure, rules, tactical);
     }
+    public CombatMap prepareTactical(MapOwnerId owner, AdventureId adventure, RuleSetId rules, String description,
+            UploadedMapSource source, TacticalSceneMaterialization scene) {
+        if (description == null || description.isBlank()) throw new IllegalArgumentException("description required");
+        PreparedMapData prepared = filePort.prepare(source);
+        PreparedMapData tactical = scene.materialize(prepared.grid(), owner.value());
+        return saveNew(owner, adventure, rules, new PreparedMapData(prepared.grid(), tactical.tokens(), tactical.obstacles(),
+                java.util.stream.Stream.concat(prepared.layers().stream(), tactical.layers().stream()).toList()));
+    }
     private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data) { return saveNew(owner, adventure, rules, data, 0, 0); }
     private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data, int spawnX, int spawnY) {
         List<CombatToken> tokens = data.tokens().isEmpty()

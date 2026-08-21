@@ -58,7 +58,8 @@ for tool in node npm java graphify; do
 done
 
 # Live Playwright separately requires BACKEND_E2E_URL, BACKEND_E2E_EMAIL,
-# BACKEND_E2E_PASSWORD, BACKEND_E2E_RULEBOOK_FILE, and BACKEND_E2E_STORYBOOKS_JSON.
+# BACKEND_E2E_PASSWORD, and BACKEND_E2E_STORYBOOKS_JSON. Rulebooks come from
+# the published shared catalog, not user uploads.
 
 run_node() { "$NODE_BIN" "$@"; }
 run_npm() {

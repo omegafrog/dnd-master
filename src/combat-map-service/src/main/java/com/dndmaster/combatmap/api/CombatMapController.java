@@ -15,6 +15,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.Base64;
 
 @RestController
 @RequestMapping
@@ -72,6 +73,11 @@ public class CombatMapController {
         CombatMap map = request.tacticalScene() == null
                 ? mapViewService.prepareGenerated(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
                         new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(), request.playerSpawnX(), request.playerSpawnY())
+                : request.sourceImage() != null && !request.sourceImage().isBlank()
+                ? mapViewService.prepareTactical(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
+                        new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(),
+                        new UploadedMapSource(request.assetId() + (request.sourceImageContentType() != null && request.sourceImageContentType().contains("jpeg") ? ".jpg" : ".png"),
+                                Base64.getDecoder().decode(request.sourceImage())), request.tacticalScene())
                 : mapViewService.prepareTactical(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
                         new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(), request.tacticalScene());
         return new PrepareResponse(map.id().value());
@@ -188,10 +194,11 @@ public class CombatMapController {
 
     public record PrepareRequest(UUID adventureId, UUID ownerId, UUID ruleSetId,
                                  UUID mapDefinitionId, String assetId, String assetLocator,
-                                 Integer playerSpawnX, Integer playerSpawnY, TacticalSceneMaterialization tacticalScene) {
+                                 Integer playerSpawnX, Integer playerSpawnY, String sourceImage, String sourceImageContentType,
+                                 TacticalSceneMaterialization tacticalScene) {
         public PrepareRequest(UUID adventureId, UUID ownerId, UUID ruleSetId, UUID mapDefinitionId, String assetId,
                 String assetLocator, Integer playerSpawnX, Integer playerSpawnY) {
-            this(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, playerSpawnX, playerSpawnY, null);
+            this(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, playerSpawnX, playerSpawnY, null, null, null);
         }
         public PrepareRequest { playerSpawnX = playerSpawnX == null ? 0 : playerSpawnX; playerSpawnY = playerSpawnY == null ? 0 : playerSpawnY; }
     }

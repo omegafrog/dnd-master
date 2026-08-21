@@ -1,6 +1,5 @@
 import { expect, test } from '@playwright/test'
 import { basename } from 'node:path'
-import { readFile } from 'node:fs/promises'
 
 const backend = process.env.BACKEND_E2E_URL
 const email = process.env.BACKEND_E2E_EMAIL
@@ -9,7 +8,6 @@ const internalToken = process.env.INTERNAL_SERVICE_TOKEN
 const liveAdventureId = process.env.BACKEND_E2E_ADVENTURE_ID
 const liveSessionId = process.env.BACKEND_E2E_SESSION_ID
 const livePlayerId = process.env.BACKEND_E2E_PLAYER_ID
-const rulebookPath = process.env.BACKEND_E2E_RULEBOOK_FILE
 const assetRoot = '/home/jiwoo/workspace/dnd-master/docs/assets/'
 
 type StorybookInput = { path: string; role: 'MAIN_SCENARIO' | 'MAP' | 'HANDOUT' }
@@ -31,46 +29,26 @@ function readStorybooks(): StorybookInput[] {
 }
 
 const storybooks = readStorybooks()
-if (rulebookPath && !rulebookPath.startsWith(assetRoot)) throw new Error('BACKEND_E2E_RULEBOOK_FILE must use a Linux docs/assets path')
 if (storybooks.length === 3 && new Set(storybooks.map(asset => asset.role)).size !== 3) {
   throw new Error('BACKEND_E2E_STORYBOOKS_JSON must contain exactly MAIN_SCENARIO, MAP, and HANDOUT roles')
 }
-const hasEnvironment = Boolean(backend && email && password && internalToken && rulebookPath && storybooks.length === 3)
+const hasEnvironment = Boolean(backend && email && password && internalToken && storybooks.length === 3)
 
 test('fresh Potent Brew browser journey selects three assets and saves their roles', async ({ page }) => {
-  test.skip(!hasEnvironment, 'missing BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD, INTERNAL_SERVICE_TOKEN, BACKEND_E2E_RULEBOOK_FILE, or three Linux Potent Brew storybooks')
-  test.setTimeout(180_000)
+  test.skip(!hasEnvironment, 'missing BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD, INTERNAL_SERVICE_TOKEN, or three Linux Potent Brew storybooks')
+  test.setTimeout(600_000)
 
   await page.goto('/#/login')
   await page.getByLabel('이메일').fill(email!)
   await page.getByLabel('비밀번호').fill(password!)
   await page.getByRole('button', { name: '로그인', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '모험 준비가 완료되었습니다' })).toBeVisible({ timeout: 30_000 })
   const session = await page.evaluate(() => JSON.parse(window.localStorage.getItem('dnd-master.auth-session') ?? '{}') as { accessToken?: string; playerId?: string })
   expect(session.accessToken, 'browser login did not create an access token').toBeTruthy()
   expect(session.playerId, 'browser login did not create a player id').toBeTruthy()
-  const rulebookUpload = await page.request.post(`${backend}/api/v1/rulebooks?ownerPlayerId=${session.playerId}`, {
-    headers: { Authorization: `Bearer ${session.accessToken}` },
-    multipart: {
-      documents: {
-        name: 'documents.json',
-        mimeType: 'application/json',
-        buffer: Buffer.from(JSON.stringify([{
-          idempotencyKey: crypto.randomUUID(),
-          documentType: 'RULEBOOK',
-          originalFilename: basename(rulebookPath!),
-        }])),
-      },
-      files: {
-        name: basename(rulebookPath!),
-        mimeType: 'application/pdf',
-        buffer: await readFile(rulebookPath!),
-      },
-    },
-  })
-  await expect(rulebookUpload).toBeOK()
-  expect((await rulebookUpload.json()).documents).toHaveLength(1)
   await page.goto('/#/setup')
   await expect(page.getByRole('heading', { name: '자료와 모험 설정' })).toBeVisible()
+  await page.getByRole('checkbox', { name: /D&D 5e \(2014\) 선택/ }).check()
 
   const fileInput = page.getByLabel('자료 파일')
   await fileInput.setInputFiles(storybooks.map(asset => asset.path))
@@ -85,7 +63,7 @@ test('fresh Potent Brew browser journey selects three assets and saves their rol
     await expect.poll(async () => documentList.getByText(basename(asset.path), { exact: true }).locator('..').innerText(), {
       timeout: 120_000,
       intervals: [1000, 2000, 5000],
-    }).toMatch(/사용 준비 완료/)
+    }).toMatch(/사용 준비 완료|READY\s+100%/)
     await documentList.getByLabel(`${basename(asset.path)} 모험 자료 선택`).check()
   }
 
@@ -95,26 +73,60 @@ test('fresh Potent Brew browser journey selects three assets and saves their rol
     await scenario.getByLabel(`${basename(asset.path)} 역할`).selectOption(asset.role)
   }
   await scenario.getByRole('button', { name: '모험 자료 저장', exact: true }).click()
-  await expect(scenario.getByText(/저장 완료/)).toBeVisible({ timeout: 30_000 })
-  for (const asset of storybooks) {
-    await expect(scenario.getByText(`${basename(asset.path)} · ${asset.role}`, { exact: true })).toBeVisible()
-  }
+  await expect(scenario.getByRole('button', { name: '모험 자료 다시 저장', exact: true })).toBeVisible({ timeout: 30_000 })
+  await expect(page.getByRole('list', { name: '저장된 모험 자료 목록' }).getByText(/자료 4개/).first()).toBeVisible()
 
   // Continue through the real browser preparation surface. The package action
   // must remain gated by COMPLETE; the API-only acceptance covers the later
   // authenticated tactical calls once this UI journey has created a package.
   await page.getByRole('link', { name: /현재 자료/ }).click()
   await expect(page.getByRole('heading', { name: '모험 자료 구성' })).toBeVisible()
-  await page.getByRole('button', { name: '게임 준비', exact: true }).click()
+  const preparationPanel = page.getByRole('heading', { name: '모험 준비 결과', exact: true }).locator('xpath=../..')
+  await preparationPanel.getByRole('button', { name: '게임 준비', exact: true }).click()
   const preparation = page.getByRole('dialog', { name: '게임 준비' })
   await expect(preparation).toBeVisible()
   await preparation.getByRole('button', { name: '게임 준비 시작', exact: true }).click()
-  await expect(preparation.getByText(/모험 준비 결과 .* · COMPLETE/)).toBeVisible({ timeout: 180_000 })
-  const createAdventure = preparation.getByRole('button', { name: '이 자료로 모험 만들기', exact: true })
-  await expect(createAdventure).toBeEnabled()
-  await createAdventure.click()
-  await expect(page).toHaveURL(/#\/sessions\/[^/]+\/party/)
-  await expect(page.getByRole('heading', { name: '모험을 함께할 파티' })).toBeVisible()
+  await expect(preparation.getByText(/게임 준비 완료|모험 준비 결과 .* · COMPLETE/)).toBeVisible({ timeout: 180_000 })
+  const characterSetup = preparation.getByRole('button', { name: '캐릭터 생성 시작', exact: true })
+  await expect(characterSetup).toBeVisible()
+  await characterSetup.click()
+  await expect(page).toHaveURL(/#\/scenario-packages\/[^/]+\/character-blueprint/)
+  await expect(page.getByRole('heading', { name: '캐릭터 생성 설정 검토' })).toBeVisible()
+  const confirmSettings = page.getByRole('button', { name: '캐릭터 생성에 사용할 설정 확정', exact: true })
+  await expect(confirmSettings).toBeVisible({ timeout: 30_000 })
+  await expect(confirmSettings).toBeEnabled()
+  await confirmSettings.click()
+  await expect(page.getByRole('heading', { name: '설정이 확정되었습니다' })).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: '캐릭터 생성 시작', exact: true }).click()
+  await expect(page).toHaveURL(/#\/sessions\/[^/]+\/character-blueprint/)
+  const sessionId = page.url().match(/#\/sessions\/([^/]+)\/character-blueprint/)?.[1]
+  expect(sessionId).toBeTruthy()
+  await page.goto(`/#/sessions/${sessionId}/party`)
+  await expect(page.getByRole('heading', { name: '모험을 함께할 파티' })).toBeVisible({ timeout: 60_000 })
+  await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/09-party-ready-for-plan.png', fullPage: true })
+  await page.getByRole('button', { name: '새 캐릭터 만들기', exact: true }).click()
+  await page.getByLabel('캐릭터 이름').fill('Aria')
+  await page.getByLabel('직업', { exact: true }).selectOption({ label: '파이터' })
+  await page.getByLabel('종족', { exact: true }).selectOption({ label: '인간' })
+  await page.getByLabel('배경', { exact: true }).selectOption({ label: '학자' })
+  await page.getByLabel('성향', { exact: true }).selectOption({ label: '중립 선' })
+  await page.getByRole('button', { name: '능력치', exact: true }).click()
+  for (const [label, value] of [['근력', '15'], ['민첩', '14'], ['건강', '13'], ['지능', '12'], ['지혜', '10'], ['매력', '8']] as const) {
+    await page.getByLabel(`${label} 능력치`, { exact: true }).selectOption(value)
+  }
+  await page.getByRole('button', { name: /캐릭터 저장하기/ }).click()
+  await expect(page.getByRole('heading', { name: '모험을 함께할 파티' })).toBeVisible({ timeout: 60_000 })
+  for (let i = 0; i < 3; i++) {
+    await page.getByRole('button', { name: 'AI 동료 제안받기', exact: true }).click()
+    await expect(page.getByRole('button', { name: 'AI 동료로 채택', exact: true })).toBeVisible({ timeout: 60_000 })
+    await page.getByRole('button', { name: 'AI 동료로 채택', exact: true }).click()
+  }
+  await page.getByRole('button', { name: '모험 계획 만들기', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '모험 계획 설정' })).toBeVisible({ timeout: 60_000 })
+  await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/10-adventure-plan-settings.png', fullPage: true })
+  await page.getByRole('button', { name: '모험 계획 생성', exact: true }).click()
+  await expect(page.locator('.preparation-progress[role="status"]').getByText('플레이 준비 완료', { exact: true })).toBeVisible({ timeout: 600_000 })
+  await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/11-adventure-plan-generated.png', fullPage: true })
 })
 
 test('live Potent Brew browser journey exposes only safe map data and completes tactical contracts', async ({ page }) => {
@@ -126,6 +138,7 @@ test('live Potent Brew browser journey exposes only safe map data and completes 
   await page.getByLabel('이메일').fill(email!)
   await page.getByLabel('비밀번호').fill(password!)
   await page.getByRole('button', { name: '로그인', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '모험 준비가 완료되었습니다' })).toBeVisible({ timeout: 30_000 })
   await page.goto(`/#/adventures/${liveAdventureId}`)
   await expect(page.getByRole('region', { name: '현재 전장' })).toBeVisible()
   await expect(page.getByText(/모험 ID:/)).toBeVisible()

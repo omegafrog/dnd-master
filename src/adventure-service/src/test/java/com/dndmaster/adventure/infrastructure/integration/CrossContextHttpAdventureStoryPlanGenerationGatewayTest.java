@@ -107,6 +107,25 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
     }
 
     @Test
+    void preservesAllRemoteStoryPlanVerificationViolations() {
+        server = new WireMockServer(0);
+        server.start();
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/adventure-story-plan"))
+                .willReturn(aResponse().withStatus(422).withHeader("Content-Type", "application/json")
+                        .withBody("{\"detail\":\"story plan rejected\",\"violations\":[\"필수 목표가 없습니다\",\"필요한 판정 결과가 연결되지 않았습니다\"]}")));
+        var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "test-internal-token");
+        var request = new AdventureStoryPlanGenerationPort.Request(
+                "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT),
+                List.of(), List.of(), List.of(), List.of());
+
+        var failure = assertThrows(AdventureStoryPlanCandidateValidationException.class,
+                () -> gateway.generate(request));
+
+        assertEquals(List.of("필수 목표가 없습니다", "필요한 판정 결과가 연결되지 않았습니다"), failure.violations());
+    }
+
+    @Test
     void keepsRemoteTacticalProviderFailureOperational() {
         server = new WireMockServer(0);
         server.start();

@@ -11,6 +11,7 @@ import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.Map;
 import java.util.UUID;
+import java.util.Base64;
 
 /** Materializes the plan-selected, source-pinned map in combat-map service. */
 public final class CrossContextHttpTacticalMapPreparationGateway implements TacticalMapPreparationPort {
@@ -19,9 +20,13 @@ public final class CrossContextHttpTacticalMapPreparationGateway implements Tact
     private final Duration timeout;
     private final ObjectMapper mapper;
     private final String internalToken;
+    private final URI sourceBaseUrl;
 
     public CrossContextHttpTacticalMapPreparationGateway(HttpClient client, URI baseUrl, Duration timeout, ObjectMapper mapper, String internalToken) {
-        this.client = client; this.baseUrl = baseUrl; this.timeout = timeout; this.mapper = mapper; this.internalToken = internalToken;
+        this(client, baseUrl, baseUrl, timeout, mapper, internalToken);
+    }
+    public CrossContextHttpTacticalMapPreparationGateway(HttpClient client, URI baseUrl, URI sourceBaseUrl, Duration timeout, ObjectMapper mapper, String internalToken) {
+        this.client = client; this.baseUrl = baseUrl; this.sourceBaseUrl = sourceBaseUrl; this.timeout = timeout; this.mapper = mapper; this.internalToken = internalToken;
     }
 
     @Override
@@ -48,6 +53,15 @@ public final class CrossContextHttpTacticalMapPreparationGateway implements Tact
                     "ruleSetId", ruleSetId,
                     "mapDefinitionId", definition.id(), "assetId", definition.assetId(), "assetLocator", definition.assetLocator(),
                     "playerSpawnX", playerSpawnX, "playerSpawnY", playerSpawnY));
+            HttpResponse<byte[]> asset = client.send(HttpRequest.newBuilder(sourceBaseUrl.resolve(
+                            "internal/v1/story-sources/" + definition.source().knowledgeDocumentId().value() + "/assets?locator="
+                                    + java.net.URLEncoder.encode(definition.assetLocator(), java.nio.charset.StandardCharsets.UTF_8)))
+                    .timeout(timeout).header("X-Internal-Token", internalToken).GET().build(), HttpResponse.BodyHandlers.ofByteArray());
+            if (asset.statusCode() < 200 || asset.statusCode() >= 300) {
+                throw new IllegalStateException("source map asset lookup returned HTTP " + asset.statusCode());
+            }
+            body.put("sourceImage", Base64.getEncoder().encodeToString(asset.body()));
+            body.put("sourceImageContentType", asset.headers().firstValue("Content-Type").orElse("image/png"));
             if (scene != null) body.put("tacticalScene", tacticalScene(scene));
             HttpRequest request = HttpRequest.newBuilder(baseUrl.resolve("internal/v1/combat-maps/prepare"))
                     .timeout(timeout).header("Content-Type", "application/json")

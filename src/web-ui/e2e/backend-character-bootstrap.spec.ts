@@ -15,7 +15,7 @@ const storybookRoles = new Set([
 const backend = process.env.BACKEND_E2E_URL
 const email = process.env.BACKEND_E2E_EMAIL
 const password = process.env.BACKEND_E2E_PASSWORD
-const rulebookPath = process.env.BACKEND_E2E_RULEBOOK_FILE
+const assetRoot = '/home/jiwoo/workspace/dnd-master/docs/assets/'
 const storybooks = parseStorybooks(process.env.BACKEND_E2E_STORYBOOKS_JSON ?? '')
 
 let ownerPlayerId = ''
@@ -46,8 +46,8 @@ function parseStorybooks(value: string): StorybookInput[] {
     }
     const path = 'path' in entry ? entry.path : undefined
     const role = 'role' in entry ? entry.role : undefined
-    if (typeof path !== 'string' || !path.trim()) {
-      throw new Error(`storybook entry ${index} must have a non-empty path`)
+    if (typeof path !== 'string' || !path.startsWith(assetRoot)) {
+      throw new Error(`storybook entry ${index} must use a Linux docs/assets path`)
     }
     if (typeof role !== 'string' || !storybookRoles.has(role)) {
       throw new Error(`storybook entry ${index} has unsupported role: ${String(role)}`)
@@ -61,7 +61,6 @@ function hasEnvironment() {
     ['BACKEND_E2E_URL', backend],
     ['BACKEND_E2E_EMAIL', email],
     ['BACKEND_E2E_PASSWORD', password],
-    ['BACKEND_E2E_RULEBOOK_FILE', rulebookPath],
     ['BACKEND_E2E_STORYBOOKS_JSON', storybooks.length > 0 ? 'configured' : ''],
   ]
     .filter(([, value]) => !value)
@@ -283,7 +282,7 @@ function mimeType(path: string) {
 
 test('fresh database bootstraps scenario package and completes character creation', async ({ request }) => {
   test.skip(!hasEnvironment(),
-    'set BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD, BACKEND_E2E_RULEBOOK_FILE and BACKEND_E2E_STORYBOOKS_JSON')
+    'set BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD and BACKEND_E2E_STORYBOOKS_JSON')
   test.setTimeout(360_000)
 
   await login(request)

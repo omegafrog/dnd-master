@@ -13,6 +13,7 @@ import com.dndmaster.adventure.application.saved.*;
 import com.dndmaster.adventure.application.session.*;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanApplicationService;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationJobService;
 import com.dndmaster.adventure.application.scenario.*;
 import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
@@ -345,6 +346,12 @@ public class AdventureApiConfiguration {
             @Value("${adventure.integration.ai-game-master.story-plan-timeout:1800s}") Duration timeout,
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(), URI.create(baseUrl), timeout, mapper, internalToken);
+    }
+
+    @Bean(destroyMethod = "close")
+    AdventureStoryPlanGenerationJobService adventureStoryPlanGenerationJobService(
+            AdventureStoryPlanApplicationService plans, AdventureSessionRepository sessions) {
+        return new AdventureStoryPlanGenerationJobService(plans, sessions);
     }
 
     @Bean
@@ -961,10 +968,11 @@ public class AdventureApiConfiguration {
     @Bean
     com.dndmaster.adventure.application.runtime.TacticalMapPreparationPort tacticalMapPreparationPort(
             @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String sourceBaseUrl,
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
             ObjectMapper objectMapper) {
         return new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpTacticalMapPreparationGateway(
-                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(10), objectMapper, internalToken);
+                HttpClient.newHttpClient(), URI.create(baseUrl), URI.create(sourceBaseUrl), Duration.ofSeconds(10), objectMapper, internalToken);
     }
 
     @Bean

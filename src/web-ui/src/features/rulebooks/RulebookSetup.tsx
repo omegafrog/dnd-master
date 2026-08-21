@@ -20,7 +20,8 @@ const batchStatusText: Record<BatchRulebookView['status'], string> = {
   VALIDATION_FAILED: '검증 실패',
 }
 
-const indexingFinishedStatuses = new Set<KnowledgeDocumentView['status']>(['INDEXED', 'PARTIAL_CONFIRMED'])
+const indexingFinishedStatuses = new Set<KnowledgeDocumentView['status']>(['INDEXED', 'READY', 'PARTIAL_CONFIRMED'])
+const isIndexingFinished = (document: KnowledgeDocumentView) => indexingFinishedStatuses.has(document.status) || document.progress?.stage === 'READY'
 
 type PendingDocument = RulebookUploadDraft & { originalFilename: string }
 type CatalogRulebook = { catalogRevisionId: string; edition: string; displayName: string; rulebookId: string | null; revisionNumber: number; status: string }
@@ -48,6 +49,7 @@ export function RulebookSetup({
   const [message, setMessage] = useState('')
   const [uploading, setUploading] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [selectedCatalogRulebookId, setSelectedCatalogRulebookId] = useState<string | null>(null)
   const [sourcePreview, setSourcePreview] = useState<SourcePreviewView | null>(null)
   const [bundles, setBundles] = useState<ScenarioBundleView[]>([])
   const [selectedBundleIds, setSelectedBundleIds] = useState<Set<string>>(new Set())
@@ -89,7 +91,7 @@ export function RulebookSetup({
   }, [refreshBundles])
 
   useEffect(() => {
-    const hasNonTerminalDocuments = documents.some(document => !indexingFinishedStatuses.has(document.status) && document.status !== 'FAILED' && document.status !== 'NEEDS_INPUT' && document.status !== 'REJECTED')
+    const hasNonTerminalDocuments = documents.some(document => !isIndexingFinished(document) && document.status !== 'FAILED' && document.status !== 'NEEDS_INPUT' && document.status !== 'REJECTED')
     if (!hasNonTerminalDocuments) return
 
     let active = true
@@ -100,7 +102,7 @@ export function RulebookSetup({
       try {
         const loaded = await refreshDocuments()
         if (!active || !loaded) return
-        if (loaded.every(document => indexingFinishedStatuses.has(document.status) || document.status === 'FAILED' || document.status === 'NEEDS_INPUT' || document.status === 'REJECTED')) {
+        if (loaded.every(document => isIndexingFinished(document) || document.status === 'FAILED' || document.status === 'NEEDS_INPUT' || document.status === 'REJECTED')) {
           active = false
         }
       } finally {
@@ -194,6 +196,10 @@ export function RulebookSetup({
     })
   }
 
+  function toggleCatalogRulebook(rulebookId: string) {
+    setSelectedCatalogRulebookId(current => current === rulebookId ? null : rulebookId)
+  }
+
   async function upload(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     if (!drafts.length) return
@@ -256,7 +262,7 @@ export function RulebookSetup({
       <p role="status" aria-live="polite">{message}</p>
       <section className="setup-panel setup-catalog-panel" aria-labelledby="catalog-rulebook-heading">
         <h2 id="catalog-rulebook-heading">룰북 선택</h2>
-        {catalogRulebooks.length === 0 ? <p>사용 가능한 룰북이 없습니다. 관리자가 준비하면 여기에 표시됩니다.</p> : <ul aria-label="룰북 목록">{catalogRulebooks.map(rulebook => <li key={rulebook.catalogRevisionId}><label><Checkbox aria-label={`${rulebook.displayName} 선택`} checked={selectedIds.has(rulebook.rulebookId!)} onCheckedChange={() => toggleSelected(rulebook.rulebookId!)} />{rulebook.displayName} · revision {rulebook.revisionNumber}</label></li>)}</ul>}
+        {catalogRulebooks.length === 0 ? <p>사용 가능한 룰북이 없습니다. 관리자가 준비하면 여기에 표시됩니다.</p> : <ul aria-label="룰북 목록">{catalogRulebooks.map(rulebook => <li key={rulebook.catalogRevisionId}><label><Checkbox aria-label={`${rulebook.displayName} 선택`} checked={selectedCatalogRulebookId === rulebook.rulebookId} onCheckedChange={() => toggleCatalogRulebook(rulebook.rulebookId!)} />{rulebook.displayName} · revision {rulebook.revisionNumber}</label></li>)}</ul>}
       </section>
       <section className="setup-panel setup-upload-panel" aria-labelledby="rulebook-heading">
         <h2 id="rulebook-heading">스토리북 업로드</h2>
@@ -306,12 +312,12 @@ export function RulebookSetup({
           <h3 id="document-status-heading">올려둔 자료 상태</h3>
           {(() => {
             const trackedDocuments = uploadedDocuments
-            const pendingDocuments = trackedDocuments.filter(document => !indexingFinishedStatuses.has(document.status) && document.status !== 'FAILED' && document.status !== 'NEEDS_INPUT' && document.status !== 'REJECTED')
+            const pendingDocuments = trackedDocuments.filter(document => !isIndexingFinished(document) && document.status !== 'FAILED' && document.status !== 'NEEDS_INPUT' && document.status !== 'REJECTED')
             // The server owns progress. Documents without a progress snapshot must
             // not be treated as 0%, otherwise an unrelated pending/failed document
             // hides the authoritative percentage of the document being processed.
             const progressValues = trackedDocuments
-              .filter(document => document.progress != null || indexingFinishedStatuses.has(document.status))
+              .filter(document => document.progress != null || isIndexingFinished(document))
               .map(document => document.progress?.percent ?? 100)
             const overallProgress = progressValues.length ? Math.round(progressValues.reduce((sum, value) => sum + value, 0) / progressValues.length) : 0
             return trackedDocuments.length > 0 && pendingDocuments.length > 0 ? (
@@ -329,7 +335,7 @@ export function RulebookSetup({
                     type="checkbox"
                     aria-label={`${document.originalFilename} 모험 자료 선택`}
                     checked={selectedUploadedIds.has(document.knowledgeDocumentId)}
-                    disabled={!indexingFinishedStatuses.has(document.status)}
+                    disabled={!isIndexingFinished(document)}
                     onChange={() => setSelectedUploadedIds(current => {
                       const next = new Set(current)
                       if (next.has(document.knowledgeDocumentId)) next.delete(document.knowledgeDocumentId)
@@ -442,7 +448,7 @@ export function RulebookSetup({
           onError={setMessage}
           sessionApi={sessionApi}
           availableDocuments={documents.filter(document => selectedUploadedIds.has(document.knowledgeDocumentId))}
-          rulebookDocumentId={selectedIds.size === 1 ? [...selectedIds][0] : undefined}
+          rulebookDocumentId={selectedCatalogRulebookId ?? undefined}
           initialBundle={selectedBundle}
           onBundleSaved={savedBundle => {
             window.localStorage.setItem('dnd-selected-bundle-id', savedBundle.bundleId)

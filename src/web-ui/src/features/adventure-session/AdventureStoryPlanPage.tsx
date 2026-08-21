@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react'
-import type { AdventureSessionApi, AdventureSessionView, AdventureStoryPlanView } from './AdventureSessionApi'
+import type { AdventureSessionApi, AdventureSessionView, AdventureStoryPlanGenerationJobView, AdventureStoryPlanView } from './AdventureSessionApi'
+import { Progress } from '../../components/ui/progress'
 
-type StoryPlanApi = Pick<AdventureSessionApi, 'read' | 'readStoryPlan' | 'generateStoryPlan' | 'retryStoryPlan' | 'start' | 'recoverStart' | 'saveAppliedRuleSet'>
+type StoryPlanApi = Pick<AdventureSessionApi, 'read' | 'readStoryPlan' | 'startStoryPlanGeneration' | 'readStoryPlanGeneration' | 'retryStoryPlan' | 'start' | 'recoverStart' | 'saveAppliedRuleSet'>
 type AdventureLength = 'SHORT' | 'STANDARD' | 'LONG'
 
 export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; sessionId: string }) {
   const [session, setSession] = useState<AdventureSessionView | null>(null)
   const [plan, setPlan] = useState<AdventureStoryPlanView | null>(null)
+  const [generation, setGeneration] = useState<AdventureStoryPlanGenerationJobView | null>(null)
   const [message, setMessage] = useState('')
   const [endingCount, setEndingCount] = useState(2)
   const [adventureLength, setAdventureLength] = useState<AdventureLength>('STANDARD')
@@ -32,16 +34,34 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
   async function retry() {
     setMessage('')
     setLoadingPlan(true)
-    try { setPlan(await api.retryStoryPlan(sessionId, { endingCount, adventureLength })) } catch (error) { setMessage(error instanceof Error ? error.message : '모험 계획을 다시 생성하지 못했습니다.') }
+    try { setGeneration(await api.retryStoryPlan(sessionId, { endingCount, adventureLength })) } catch (error) { setMessage(error instanceof Error ? error.message : '모험 계획을 다시 생성하지 못했습니다.') }
     finally { setLoadingPlan(false) }
   }
 
   async function generate() {
     setMessage('')
     setLoadingPlan(true)
-    try { setPlan(await api.generateStoryPlan(sessionId, { endingCount, adventureLength })) } catch (error) { setMessage(error instanceof Error ? error.message : '모험 계획을 생성하지 못했습니다.') }
+    try { setGeneration(await api.startStoryPlanGeneration(sessionId, { endingCount, adventureLength })) } catch (error) { setMessage(error instanceof Error ? error.message : '모험 계획을 생성하지 못했습니다.') }
     finally { setLoadingPlan(false) }
   }
+
+  useEffect(() => {
+    if (!generation || generation.status === 'COMPLETE' || generation.status === 'FAILED') return
+    let active = true
+    const poll = async () => {
+      try {
+        const next = await api.readStoryPlanGeneration(generation.jobId, sessionId)
+        if (!active) return
+        setGeneration(next)
+        if (next.status === 'COMPLETE') setPlan(await api.readStoryPlan(sessionId))
+        if (next.status === 'FAILED') setMessage(next.message || '모험 계획 생성에 실패했습니다.')
+      } catch (error) {
+        if (active) setMessage(error instanceof Error ? error.message : '모험 계획 상태를 확인하지 못했습니다.')
+      }
+    }
+    const timer = window.setTimeout(() => void poll(), 1000)
+    return () => { active = false; window.clearTimeout(timer) }
+  }, [api, generation, sessionId])
 
   async function start() {
     if (!session || !plan || plan.status !== 'READY') return
@@ -81,7 +101,8 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
         <option value="LONG">길게 · 6~8회</option>
       </select>
       <p>확정 파티 {session.party.length}명 · 룰북과 스토리북 근거는 생성 결과에 함께 연결됩니다.</p>
-      <button type="button" onClick={() => void generate()} disabled={loadingPlan}>{loadingPlan ? '계획 생성 중…' : '모험 계획 생성'}</button>
+      {generation && <div className="preparation-progress" role="status" aria-live="polite"><div className="preparation-progress-heading"><span>{generation.stage}</span><strong>{generation.progress}%</strong></div><Progress value={generation.progress} aria-label="모험 계획 생성 진행률" />{generation.message && <p>{generation.message}</p>}</div>}
+      <button type="button" onClick={() => void generate()} disabled={loadingPlan || generation?.status === 'QUEUED' || generation?.status === 'RUNNING'}>{loadingPlan || generation?.status === 'QUEUED' || generation?.status === 'RUNNING' ? '계획 생성 중…' : '모험 계획 생성'}</button>
     </div>
     {message && <p role="alert">{message}</p>}
   </section>
@@ -89,6 +110,7 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
   const blocked = plan.status === 'BLOCKED'
   return <section className="story-plan-page" aria-labelledby="story-plan-title">
     <div className="page-heading"><div><p className="eyebrow">ADVENTURE STORY PLAN</p><h1 id="story-plan-title">모험 계획 준비</h1><p>전체 줄거리와 결말은 공개하지 않습니다. 플레이에 필요한 준비 상태만 표시합니다.</p></div><span className="status-chip">{plan.status}</span></div>
+    {generation && <div className="preparation-progress" role="status" aria-live="polite"><div className="preparation-progress-heading"><span>{generation.stage}</span><strong>{generation.progress}%</strong></div><Progress value={generation.progress} aria-label="모험 계획 생성 진행률" />{generation.message && <p>{generation.message}</p>}</div>}
     <ol aria-label="모험 계획 생성 단계" className="story-plan-stages"><li className={ready ? 'complete' : 'active'}>모험 자료 분석</li><li className={ready ? 'complete' : 'active'}>파티 구성 분석</li><li className={ready ? 'complete' : 'active'}>주요 모험 단계 구성</li><li className={ready ? 'complete' : 'active'}>분기와 결말 구성</li><li className={ready ? 'complete' : 'active'}>출처와 규칙 검증</li><li className={ready ? 'complete' : 'active'}>플레이 준비 완료</li></ol>
     <p>확정 파티 {session.party.length}명 · 계획 revision {plan.planRevision} · 결말 {plan.endingCount}개 · {plan.adventureLength}</p>
     {ready && <ol className="story-plan-node-list" aria-label="모험 단계 요약">
@@ -97,7 +119,7 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
         <p>{stage.goal}</p>
       </li>)}
     </ol>}
-    {(blocked || plan.status === 'FAILED') && <><p role="alert">{plan.failureReason || (blocked ? '근거 검증을 통과하지 못해 모험 시작이 차단되었습니다.' : '계획 생성에 실패했습니다.')}</p><button type="button" onClick={() => void retry()} disabled={loadingPlan}>{loadingPlan ? '다시 생성 중…' : '다시 생성'}</button></>}
+    {(blocked || plan.status === 'FAILED') && <><p role="alert">{plan.failureReason || (blocked ? '근거 검증을 통과하지 못해 모험 시작이 차단되었습니다.' : '계획 생성에 실패했습니다.')}</p><button type="button" onClick={() => void retry()} disabled={loadingPlan || generation?.status === 'QUEUED' || generation?.status === 'RUNNING'}>{loadingPlan || generation?.status === 'QUEUED' || generation?.status === 'RUNNING' ? '다시 생성 중…' : '다시 생성'}</button></>}
     <button type="button" onClick={() => void start()} disabled={!ready || !session.runtimeConfiguration}>모험 시작</button>
     {session.status === 'STARTING' && <button type="button" onClick={() => void recoverStart()} disabled={recovering}>{recovering ? '복구 중…' : '실패한 시작 복구'}</button>}
     {!session.runtimeConfiguration && <p role="alert">런타임 설정이 없어 시작할 수 없습니다.</p>}

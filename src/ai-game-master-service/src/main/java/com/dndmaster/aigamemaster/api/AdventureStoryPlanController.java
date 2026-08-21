@@ -6,6 +6,7 @@ import com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint;
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -18,6 +19,8 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -27,6 +30,7 @@ import java.time.Duration;
 /** Generates a source-aware outline. JSON is validated before crossing the service boundary. */
 @RestController("aiAdventureStoryPlanController")
 public final class AdventureStoryPlanController {
+    private static final Logger LOGGER = LoggerFactory.getLogger(AdventureStoryPlanController.class);
     private final SpringAiChatAdapter adapter; private final ObjectMapper mapper; private final AgentEndpointRegistry endpointRegistry;
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final URI ollamaBaseUrl; private final String ollamaModel;
@@ -54,6 +58,10 @@ public final class AdventureStoryPlanController {
         requestGuard.internal(internalToken);
         AgentEndpoint endpoint = endpointRegistry.active();
         Configuration configuration = request.configuration() == null ? Configuration.defaults() : request.configuration();
+        String endingTemplate = java.util.stream.IntStream.rangeClosed(1, configuration.endingCount())
+                .mapToObj(index -> "## Ending " + index + " (ending-" + index + "): [ending name]\n"
+                        + "- Resolution: [what happens]\n- Requirements: [what must be true]\n- Rewards: [final rewards]")
+                .collect(java.util.stream.Collectors.joining("\n\n"));
         String template = """
                 # Adventure Plan
 
@@ -82,6 +90,8 @@ public final class AdventureStoryPlanController {
                 - Map definition ID: [exact supplied mapDefinitionId or none]
                 - Map asset: [map filename, page, or none]
                 - Map locator: [exact supplied assetLocator or none]
+                - Map decision: [REQUIRED | OPTIONAL | NONE]
+                - Map decision rationale: [why this scene does or does not need a map]
                 - Map usage: [tactical map | reference image | no map]
                 - Player spawn: [semantic area or coordinates]
                 - Enemy placement: [enemy, count, semantic area or coordinates]
@@ -103,50 +113,45 @@ public final class AdventureStoryPlanController {
                 ## Stage 2: [stage name]
                 [repeat the exact fields above for every stage]
 
-                ## Ending 1: [ending name]
-                - Resolution: [what happens]
-                - Requirements: [what must be true]
-                - Rewards: [final rewards]
-
-                ## Ending 2: [ending name]
-                - Resolution: [what happens]
-                - Requirements: [what must be true]
-                - Rewards: [final rewards]
-                """;
+                [ENDINGS]
+                """.replace("[ENDINGS]", endingTemplate);
         String availableMaps = request.maps().isEmpty() ? "(no maps supplied)" : request.maps().stream()
                 .map(map -> "- mapDefinitionId=" + map.mapDefinitionId() + ", assetId=" + map.assetId()
                         + ", assetLocator=" + map.assetLocator() + ", sourceLocator=" + map.sourceLocator()
                         + ", confidence=" + map.confidence() + ", safetyStatus=" + map.safetyStatus()
-                        + ", relatedStoryEvidence=" + map.relatedEvidence())
+                        + ", relatedStoryEvidence=" + map.relatedEvidence() + ", mapContext=" + map.context())
                 .collect(java.util.stream.Collectors.joining("\n"));
         String prompt = "Create a source-grounded tabletop adventure plan by filling the Markdown template below. "
                 + "All player-facing fields (title, location, goal, conflict, clues, enemies, rewards, conditions, and endings) MUST be written in natural Korean. Keep proper nouns in Korean where possible and never mix English prose into player-facing text. "
                 + "Return the completed Markdown document only. Replace every bracketed placeholder with concrete content; do not leave placeholders. "
                 + "Keep the headings and field labels stable so another agent can read the plan. "
                 + "Create " + configuration.minimumStages() + "-" + configuration.maximumStages() + " stages and exactly " + configuration.endingCount() + " endings; duplicate or remove the sample stage/ending sections as needed. "
-                + "MAP CONTRACT (mandatory): the AVAILABLE MAPS block below is authoritative. For every stage whose Type is dungeon, write a non-empty Map definition ID field using one exact mapDefinitionId from that block. Also copy the matching Map asset and Map locator fields. Never write none, blank, or an invented ID for a dungeon stage. A dungeon stage without these three map fields is invalid and must be corrected before returning the document. Non-dungeon stages may use no map. "
+                + "Use exactly the explicit ending IDs ending-1 through ending-" + configuration.endingCount() + ". Keep these IDs in the ending headings and use only these IDs in every stage's endingIds field. "
+                + "MAP CONTRACT: decide map usage per stage as REQUIRED, OPTIONAL, or NONE. Use REQUIRED only when tactical positioning, exploration, movement, or spatial interaction materially needs a map; use NONE for scenes that can run without spatial representation. When REQUIRED, copy the exact mapDefinitionId, assetId, and assetLocator from one AVAILABLE MAPS entry. OPTIONAL and NONE stages may leave map fields empty. Never invent a map ID or locator. "
+                + "MAP CONTEXT LOOKUP: treat each AVAILABLE MAPS entry as the map-context registry. Match a stage to a map using its location, binding, and source locator; then copy the exact mapDefinitionId, assetId, and assetLocator from that same entry. Use the supplied grid, walls, doors, obstacles, and binding context when describing player spawn or movement. Do not guess a filesystem path and do not create a new map identifier. "
                 + "For every mapped dungeon, use the supplied map image/page and the supplied story evidence to infer the party's starting area. In Player spawn, write the semantic entrance and grid coordinates when the map grid makes them identifiable; otherwise state 'GM confirmation required' and explain the evidence. Do not silently default to (0,0). "
                 + "Do not invent named rules, DCs, monsters, or facts absent from evidence. For a check without an evidenced DC, write 'GM adjudication' rather than inventing a number. Include checks only when a trigger exists. Documents=" + request.sourceDocuments()
                 + " Evidence=" + request.resolutionEvidence() + " citations=" + request.citations() + " maps=" + request.maps()
                 + " Previous validation violations=" + request.violations()
+                + " Previous candidate to repair=" + request.previousCandidate()
                 + " partySize=" + request.partySize() + " configuration=" + configuration + "\n\nAVAILABLE MAPS (authoritative):\n" + availableMaps
                 + "\n\nTEMPLATE:\n" + template;
         try {
-            if (endpoint.provider() == AgentEndpoint.Provider.CODEX_CLI) {
-                String response = new CodexCliStoryPlanAdapter(codexExecutable, endpoint.model(), codexWorkDirectory, codexTimeout)
-                        .complete(request.operationId(), prompt);
-                return new Response(parse(response, configuration));
+            String generatedMarkdown = complete(endpoint, request.operationId(), prompt, configuration);
+            if (generatedMarkdown == null || generatedMarkdown.trim().length() < 500) {
+                throw new CandidateResponseValidationException(
+                        "generated plan is incomplete: return the full adventure plan with goals, stages, map scenes, and endings", null);
             }
-            URI baseUrl = endpoint.provider() == AgentEndpoint.Provider.OLLAMA ? endpoint.baseUrl() : ollamaBaseUrl;
-            String model = endpoint.model().isBlank() ? ollamaModel : endpoint.model();
-            String body = mapper.writeValueAsString(Map.of("model", model, "prompt", prompt,
-                    "stream", false, "think", false, "options", Map.of("num_predict", 1200)));
-            HttpResponse<String> response = httpClient.send(HttpRequest.newBuilder(baseUrl.resolve("/api/generate"))
-                    .timeout(Duration.ofMinutes(10)).header("Content-Type", "application/json")
-                    .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
-            if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("Ollama returned HTTP " + response.statusCode());
-            JsonNode envelope = mapper.readTree(response.body());
-            return new Response(parse(envelope.path("response").asText(), configuration));
+            VerificationResponse verification = parseVerificationResponse(complete(endpoint, request.operationId() + "-verification",
+                    verificationDecisionPrompt(request, configuration, generatedMarkdown), configuration));
+            LOGGER.warn("ai_agent_verification_result operationId={} status={} violations={}", request.operationId(),
+                    verification.status(), safeViolations(verification.violations()));
+            if (verification.status().equals("FAIL")) {
+                throw new CandidateResponseValidationException(String.join("; ", verification.violations()), null);
+            }
+            String projectedJson = complete(endpoint, request.operationId() + "-execution-projection",
+                    projectionPrompt(request, configuration, generatedMarkdown), configuration);
+            return new Response(parseJson(projectedJson, configuration));
         } catch (CandidateResponseValidationException invalidCandidate) {
             throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, invalidCandidate.getMessage(), invalidCandidate);
         } catch (InterruptedException e) {
@@ -155,6 +160,149 @@ public final class AdventureStoryPlanController {
         } catch (Exception e) {
             throw new IllegalStateException("story plan generation failed via " + endpoint.provider() + ": " + rootMessage(e), e);
         }
+    }
+
+    private String complete(AgentEndpoint endpoint, String operationId, String prompt, Configuration configuration) throws IOException, InterruptedException {
+        long startedAt = System.nanoTime();
+        LOGGER.info("ai_agent_phase_started phase={} provider={} operationId={} promptLength={}", phase(operationId), endpoint.provider(), operationId, prompt.length());
+        if (endpoint.provider() == AgentEndpoint.Provider.CODEX_CLI) {
+            return new CodexCliStoryPlanAdapter(codexExecutable, endpoint.model(), codexWorkDirectory, codexTimeout)
+                    .complete(operationId, prompt);
+        }
+        URI baseUrl = endpoint.provider() == AgentEndpoint.Provider.OLLAMA ? endpoint.baseUrl() : ollamaBaseUrl;
+        String model = endpoint.model().isBlank() ? ollamaModel : endpoint.model();
+        int outputTokens = Math.max(4096, configuration.maximumStages() * 900);
+        String body = mapper.writeValueAsString(Map.of("model", model, "prompt", prompt,
+                "stream", false, "think", false, "options", Map.of("num_predict", outputTokens)));
+        HttpResponse<String> response = httpClient.send(HttpRequest.newBuilder(baseUrl.resolve("/api/generate"))
+                .timeout(Duration.ofMinutes(10)).header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
+        if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("Ollama returned HTTP " + response.statusCode());
+        String result = mapper.readTree(response.body()).path("response").asText();
+        LOGGER.info("ai_agent_phase_completed phase={} provider={} operationId={} durationMs={} responseLength={}", phase(operationId), endpoint.provider(), operationId,
+                java.time.Duration.ofNanos(System.nanoTime() - startedAt).toMillis(), result.length());
+        return result;
+    }
+
+    private static String phase(String operationId) {
+        if (operationId.endsWith("-verification")) return "story-plan-verification";
+        if (operationId.endsWith("-execution-projection")) return "story-plan-execution-projection";
+        return "story-plan-generation";
+    }
+
+    private String projectionPrompt(Request request, Configuration configuration, String generatedMarkdown) {
+        return """
+                You are the execution projection agent. Read the verified Markdown plan and convert it into the smallest usable execution outline.
+                Return ONLY JSON with a stages array. Do not rewrite the narrative or invent facts.
+                Each stage MUST include only these core fields: position, title, goal, conflict, transitionCondition, and endingIds.
+                The plan configuration requires exactly %s distinct ending IDs. Preserve the explicit ending-1 through ending-%s IDs from the plan; do not omit, merge, rename, or invent ending IDs.
+                Include stageType, location, and mapUsage (REQUIRED, OPTIONAL, or NONE) when present. Include mapDefinitionId, mapAssetId, and mapAssetLocator only when mapUsage is REQUIRED; copy all three from the same AVAILABLE MAPS entry. OPTIONAL and NONE may omit them.
+                Optional fields may be omitted or empty: npcOrClues, enemies, boss, clearCondition, failureCondition, rewards, branchIds, branchTargets, evidence, and player spawn fields. A trigger is represented only by a short reference or lookup key; never copy the full trigger or rule text.
+                Arrays may be empty arrays and branchTargets may be an empty object. Never invent a map, trigger, citation, enemy, reward, or ending. Use the ending IDs stated in the plan, or a stable structural ending ID when necessary.
+                If the plan is invalid, return the best faithful projection so the application can report the violation.
+                configuration=%s
+                sourceDocuments=%s
+                resolutionEvidence=%s
+                maps=%s
+                citations=%s
+                previousViolations=%s
+
+                GENERATED MARKDOWN:
+                %s
+                """.formatted(configuration.endingCount(), configuration.endingCount(), configuration, request.sourceDocuments(), request.resolutionEvidence(), request.maps(), request.citations(), request.violations(), generatedMarkdown);
+    }
+
+    private String verificationDecisionPrompt(Request request, Configuration configuration, String generatedMarkdown) {
+        return """
+                You are an independent verifier for a generated tabletop adventure plan.
+                Inspect only whether essential information is present and usable against the supplied source evidence, citations, map contract, and configuration.
+                Do not rewrite, summarize, extract, or normalize the plan. Do not return stages or any other plan data.
+                Return ONLY one JSON object with exactly these fields: {"status":"PASS"|"FAIL","violations":["..."]}.
+                Use PASS when the plan has a goal, start situation, playable progression, transition or completion conditions, and at least one ending.
+                Check map usage per stage. A stage marked REQUIRED must contain an exact supplied mapDefinitionId, assetId, and assetLocator from the same map entry. OPTIONAL and NONE stages may omit map references. Do not infer that every dungeon or exploration stage requires a map.
+                For triggers and checks, first decide whether a stage actually needs one. A stage without hidden information, a conditional event, or a rules check may have no trigger and still PASS.
+                When a trigger or check is needed, verify only that its activation condition, check (if any), and resulting outcome are usable, and that explicitly evidenced core triggers or checks were not omitted.
+                Do not fail for heading names, Markdown formatting, stage count wording, prose style, optional details, or reasonable additions not contradicted by evidence.
+                Fail only for missing essential information, an unusable required trigger/check, a missing required map reference, or a clear contradiction with supplied evidence.
+                violations must contain concise actionable descriptions. Return an empty array only for PASS.
+                configuration=%s
+                sourceDocuments=%s
+                resolutionEvidence=%s
+                maps=%s
+                citations=%s
+                generatedMarkdown=
+                %s
+                """.formatted(configuration, request.sourceDocuments(), request.resolutionEvidence(), request.maps(), request.citations(), generatedMarkdown);
+    }
+
+    /** Verifies an already generated plan without rewriting it into the execution model. */
+    @PostMapping("/internal/v1/gm/adventure-story-plan/verify")
+    VerificationResponse verify(@RequestHeader(value = "X-Internal-Token", required = false) String internalToken,
+            @RequestBody VerificationRequest request) {
+        requestGuard.internal(internalToken);
+        if (request.generatedMarkdown() == null || request.generatedMarkdown().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "generated markdown is required");
+        }
+        AgentEndpoint endpoint = endpointRegistry.active();
+        Configuration configuration = request.configuration() == null ? Configuration.defaults() : request.configuration();
+        String prompt = """
+                You are an independent verifier for a generated tabletop adventure plan.
+                Inspect only whether essential information is present and usable against the supplied source evidence, citations, map contract, and configuration.
+                Do not rewrite, summarize, extract, or normalize the plan. Do not return stages or any other plan data.
+                Return ONLY one JSON object with exactly these fields: {"status":"PASS"|"FAIL","violations":["..."]}.
+                Use PASS when the plan has a goal, start situation, playable progression, transition or completion conditions, and at least one ending.
+                Check map usage per stage. A stage marked REQUIRED must have an exact supplied map reference; OPTIONAL and NONE may omit one. Do not require maps solely because a stage is a dungeon or exploration scene.
+                A stage without hidden information, a conditional event, or a rules check may have no trigger and still PASS.
+                When a trigger or check is needed, verify only that its activation condition, check (if any), and outcome are usable.
+                Do not fail for heading names, Markdown formatting, stage count wording, prose style, or optional details.
+                Fail only for missing essential information, an unusable required trigger/check, a missing required map reference, or a clear contradiction.
+                violations must contain concise, actionable Korean or English descriptions. Return an empty array only for PASS.
+                configuration=%s
+                sourceDocuments=%s
+                resolutionEvidence=%s
+                maps=%s
+                citations=%s
+                generatedMarkdown=
+                %s
+                """.formatted(configuration, request.sourceDocuments(), request.resolutionEvidence(), request.maps(), request.citations(), request.generatedMarkdown());
+        try {
+            String response = complete(endpoint, request.operationId(), prompt, configuration);
+            return parseVerificationResponse(response);
+        } catch (CandidateResponseValidationException invalidCandidate) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, invalidCandidate.getMessage(), invalidCandidate);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("adventure story plan verification interrupted", e);
+        } catch (Exception e) {
+            throw new IllegalStateException("adventure story plan verification failed: " + rootMessage(e), e);
+        }
+    }
+
+    private VerificationResponse parseVerificationResponse(String text) {
+        try {
+            JsonNode root = mapper.readTree(extractObject(text));
+            String status = root.path("status").asText("").trim().toUpperCase(java.util.Locale.ROOT);
+            if (!status.equals("PASS") && !status.equals("FAIL")) throw new IllegalArgumentException("verification status must be PASS or FAIL");
+            JsonNode violationsNode = root.get("violations");
+            if (violationsNode == null || !violationsNode.isArray()) throw new IllegalArgumentException("verification violations must be explicit");
+            List<String> violations = new ArrayList<>();
+            violationsNode.forEach(item -> {
+                if (!item.isTextual() || item.asText().isBlank()) throw new IllegalArgumentException("verification violations must contain text");
+                violations.add(item.asText().trim());
+            });
+            if (status.equals("PASS") && !violations.isEmpty()) throw new IllegalArgumentException("PASS verification must have no violations");
+            if (status.equals("FAIL") && violations.isEmpty()) throw new IllegalArgumentException("FAIL verification must include violations");
+            return new VerificationResponse(status, List.copyOf(violations));
+        } catch (RuntimeException | IOException invalid) {
+            throw new CandidateResponseValidationException("invalid verification response: " + rootMessage(invalid), invalid);
+        }
+    }
+
+    private static List<String> safeViolations(List<String> violations) {
+        return violations.stream().map(item -> {
+            String normalized = item.replaceAll("\\s+", " ").trim();
+            return normalized.length() > 500 ? normalized.substring(0, 500) + "..." : normalized;
+        }).toList();
     }
 
     /** Produces one typed, source-grounded tactical scene candidate for a mapped story-plan stage. */
@@ -214,18 +362,17 @@ public final class AdventureStoryPlanController {
         while (root.getCause() != null) root = root.getCause();
         return root.getMessage() == null || root.getMessage().isBlank() ? root.getClass().getSimpleName() : root.getMessage();
     }
-    private List<Stage> parse(String text, Configuration configuration) {
+    private List<Stage> parseJson(String text, Configuration configuration) {
         try {
-            JsonNode root;
-            try { root = mapper.readTree(extractObject(text)); }
-            catch (Exception markdown) { return parseMarkdown(text, configuration); }
+            JsonNode root = mapper.readTree(extractObject(text));
             JsonNode stages = root.get("stages");
             if (stages == null || !stages.isArray()) throw new IllegalArgumentException("stages missing");
             List<Stage> result = new ArrayList<>();
             for (JsonNode n : stages) {
-                List<String> endings = strings(n.get("endingIds"), "endingIds"); if (endings.isEmpty()) throw new IllegalArgumentException("endingIds missing");
-                result.add(new Stage(n.path("position").asInt(result.size() + 1), required(n,"title"), text(n, "stageType", "EVENT"), text(n, "location", required(n, "title")), required(n,"goal"), required(n,"conflict"), required(n,"transitionCondition"), strings(n.get("npcOrClues"), "npcOrClues"), endings,
-                        text(n, "mapDefinitionId", ""), text(n, "mapAssetId", ""), text(n, "mapAssetLocator", ""), strings(n.get("enemies"), "enemies"), text(n, "boss", ""), text(n, "clearCondition", required(n, "transitionCondition")), text(n, "failureCondition", ""), strings(n.get("rewards"), "rewards"), strings(n.get("branchIds"), "branchIds"), maps(n.get("branchTargets"), "branchTargets"), citations(n.get("evidence"), "evidence")));
+                List<String> endings = strings(n.get("endingIds"), "endingIds");
+                if (endings.isEmpty()) throw new IllegalArgumentException("endingIds must be explicit");
+                result.add(new Stage(n.path("position").asInt(result.size() + 1), required(n,"title"), text(n, "stageType", "EVENT"), text(n, "location", required(n, "title")), required(n,"goal"), required(n,"conflict"), required(n,"transitionCondition"), optionalStrings(n.get("npcOrClues")), endings,
+                        text(n, "mapDefinitionId", ""), text(n, "mapAssetId", ""), text(n, "mapAssetLocator", ""), optionalStrings(n.get("enemies")), text(n, "boss", ""), text(n, "clearCondition", required(n, "transitionCondition")), text(n, "failureCondition", ""), optionalStrings(n.get("rewards")), optionalStrings(n.get("branchIds")), optionalMaps(n.get("branchTargets")), optionalCitations(n.get("evidence"))));
             }
             if (result.size() < configuration.minimumStages() || result.size() > configuration.maximumStages()) throw new IllegalArgumentException("invalid stage count");
             if (result.stream().flatMap(s -> s.endingIds().stream()).distinct().count() != configuration.endingCount()) throw new IllegalArgumentException("invalid ending count");
@@ -236,52 +383,6 @@ public final class AdventureStoryPlanController {
             throw new CandidateResponseValidationException(rootMessage(e), e);
         }
     }
-    List<Stage> parseMarkdown(String markdown, Configuration configuration) {
-        String clean = markdown == null ? "" : markdown.replace("\r", "").trim();
-        if (clean.isBlank()) throw new IllegalArgumentException("markdown response empty");
-        java.util.regex.Matcher headings = java.util.regex.Pattern.compile("(?mi)^##\\s*Stage\\s*\\d+\\s*[:.-]?\\s*(.+?)\\s*$").matcher(clean);
-        List<String> titles = new ArrayList<>(); List<Integer> starts = new ArrayList<>();
-        while (headings.find()) { String title = headings.group(1).trim(); titles.add(title); starts.add(headings.start()); }
-        if (titles.isEmpty()) throw new IllegalArgumentException("markdown stage headings missing");
-        List<Stage> result = new ArrayList<>();
-        for (int i = 0; i < titles.size(); i++) {
-            int from = starts.get(i), to = i + 1 < starts.size() ? starts.get(i + 1) : clean.length();
-            String body = clean.substring(from, to).trim();
-            String ending = "ending-" + ((i % configuration.endingCount()) + 1);
-            result.add(new Stage(i + 1, titles.get(i), value(body, "Type", "EVENT").toUpperCase(java.util.Locale.ROOT), value(body, "Location", titles.get(i)), value(body, "Goal", firstLine(body)),
-                    value(body, "Conflict", body), value(body, "Clear condition", "Continue when the stage goal is achieved"),
-                    placementNotes(body), List.of(ending), noneToBlank(value(body, "Map definition ID", "")),
-                    noneToBlank(value(body, "Map asset", "")), noneToBlank(value(body, "Map locator", "")), split(value(body, "Enemies", "")),
-                    value(body, "Boss", ""), value(body, "Clear condition", ""), value(body, "Failure condition", ""), split(value(body, "Rewards", "")), split(value(body, "Branches", "")), Map.of(), List.of()));
-        }
-        if (result.size() < configuration.minimumStages() || result.size() > configuration.maximumStages()) throw new IllegalArgumentException("invalid markdown stage count");
-        return List.copyOf(result);
-    }
-    private static String firstLine(String body) {
-        return java.util.Arrays.stream(body.split("\\n")).map(String::trim).filter(line -> !line.isBlank() && !line.startsWith("#") && !line.startsWith("-")).findFirst().orElse("Advance the adventure");
-    }
-    private static String value(String body, String label, String fallback) {
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(?im)^\\s*-\\s*" + java.util.regex.Pattern.quote(label) + "\\s*:\\s*(.+?)\\s*$").matcher(body);
-        return m.find() ? m.group(1).trim() : fallback;
-    }
-    private static List<String> split(String value) {
-        if (value == null || value.isBlank() || value.equalsIgnoreCase("none")) return List.of();
-        return java.util.Arrays.stream(value.split("[,;]\\s*|\\s+\\+\\s+"))
-                .map(String::trim).filter(s -> !s.isBlank()).toList();
-    }
-    private static String noneToBlank(String value) {
-        return value == null || value.equalsIgnoreCase("none") ? "" : value.trim();
-    }
-    private static List<String> placementNotes(String body) {
-        List<String> notes = new ArrayList<>();
-        for (String label : List.of("Purpose", "Entry condition", "Exit condition", "Map asset", "Map usage", "Player spawn",
-                "Enemy placement", "Boss placement", "NPC placement", "Interactive objects", "Hazards", "State flags set", "State flags required",
-                "Trigger", "Check type", "Ability or skill", "DC or dice", "Success", "Failure", "Source notes")) {
-            String value = value(body, label, "");
-            if (!value.isBlank() && !value.startsWith("[")) notes.add("MAP_" + label.toUpperCase(java.util.Locale.ROOT).replace(' ', '_') + ": " + value);
-        }
-        return List.copyOf(notes);
-    }
     private static String extractObject(String text) { int a = text.indexOf('{'), b = text.lastIndexOf('}'); if (a < 0 || b < a) throw new IllegalArgumentException("JSON object missing"); return text.substring(a,b+1); }
     private static String required(JsonNode n, String key) { String v = n.path(key).asText("").trim(); if (v.isBlank()) throw new IllegalArgumentException(key + " missing"); return v; }
     private static List<String> strings(JsonNode n, String field) {
@@ -289,6 +390,19 @@ public final class AdventureStoryPlanController {
         List<String> r = new ArrayList<>();
         n.forEach(v -> { if (v.isTextual() && !v.asText().isBlank()) r.add(v.asText()); });
         return List.copyOf(r);
+    }
+    private static List<String> optionalStrings(JsonNode n) {
+        if (n == null || n.isNull()) return List.of();
+        if (!n.isArray()) throw new IllegalArgumentException("optional collection must be an array");
+        List<String> result = new ArrayList<>();
+        n.forEach(item -> { if (item.isTextual() && !item.asText().isBlank()) result.add(item.asText().trim()); });
+        return List.copyOf(result);
+    }
+    private static Map<String, String> optionalMaps(JsonNode n) {
+        return n == null || n.isNull() ? Map.of() : maps(n, "branchTargets");
+    }
+    private static List<SourceCitation> optionalCitations(JsonNode n) {
+        return n == null || n.isNull() ? List.of() : citations(n, "evidence");
     }
     private static String text(JsonNode node, String key, String fallback) { String value = node.path(key).asText("").trim(); return value.isBlank() ? fallback : value; }
     private static Map<String, String> maps(JsonNode node, String field) {
@@ -313,23 +427,46 @@ public final class AdventureStoryPlanController {
         CandidateResponseValidationException(String message, Throwable cause) { super(message, cause); }
     }
     public record Request(String operationId, long packageRevision, int partySize, Configuration configuration, List<String> sourceDocuments,
-            List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations, List<String> violations) {
+            List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations, List<String> violations,
+            String previousCandidate) {
         public Request(String operationId, long packageRevision, int partySize, Configuration configuration,
                 List<String> sourceDocuments, List<String> resolutionEvidence,
                 List<MapContext> maps, List<SourceCitation> citations) {
             this(operationId, packageRevision, partySize, configuration, sourceDocuments,
-                    resolutionEvidence, maps, citations, List.of());
+                    resolutionEvidence, maps, citations, List.of(), "");
         }
         public Request(String operationId, long packageRevision, int partySize, Configuration configuration, List<String> sourceDocuments, List<String> resolutionEvidence) {
             this(operationId, packageRevision, partySize, configuration, sourceDocuments,
-                    resolutionEvidence, List.of(), List.of(), List.of());
+                    resolutionEvidence, List.of(), List.of(), List.of(), "");
         }
         public Request {
             violations = violations == null ? List.of() : List.copyOf(violations);
+            previousCandidate = previousCandidate == null ? "" : previousCandidate;
         }
     }
+    public record VerificationRequest(String operationId, Configuration configuration, List<String> sourceDocuments,
+            List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations, String generatedMarkdown) {
+        public VerificationRequest {
+            sourceDocuments = sourceDocuments == null ? List.of() : List.copyOf(sourceDocuments);
+            resolutionEvidence = resolutionEvidence == null ? List.of() : List.copyOf(resolutionEvidence);
+            maps = maps == null ? List.of() : List.copyOf(maps);
+            citations = citations == null ? List.of() : List.copyOf(citations);
+        }
+    }
+    public record VerificationResponse(String status, List<String> violations) {
+        public VerificationResponse { violations = List.copyOf(violations); }
+    }
     public record MapContext(String mapDefinitionId, String assetId, String assetLocator, String sourceLocator,
-            double confidence, String safetyStatus, List<SourceCitation> relatedEvidence) {}
+            double confidence, String safetyStatus, List<SourceCitation> relatedEvidence, String context) {
+        public MapContext(String mapDefinitionId, String assetId, String assetLocator, String sourceLocator,
+                double confidence, String safetyStatus, List<SourceCitation> relatedEvidence) {
+            this(mapDefinitionId, assetId, assetLocator, sourceLocator, confidence, safetyStatus, relatedEvidence, "");
+        }
+        public MapContext {
+            relatedEvidence = relatedEvidence == null ? List.of() : List.copyOf(relatedEvidence);
+            context = context == null ? "" : context;
+        }
+    }
     public record SourceCitation(String documentType, String documentId, long extractionVersion, String locator, String quote, double confidence) {}
     public record Configuration(int endingCount, String adventureLength) {
         public Configuration {
