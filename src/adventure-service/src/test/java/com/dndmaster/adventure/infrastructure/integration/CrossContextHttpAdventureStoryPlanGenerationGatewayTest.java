@@ -114,6 +114,31 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
     }
 
     @Test
+    void rejects_localized_dungeon_without_supplied_map() {
+        server = new WireMockServer(0);
+        server.start();
+        UUID mapId = UUID.randomUUID();
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/adventure-story-plan"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody("""
+                        {"stages":[
+                          {"position":1,"title":"Start","goal":"Begin","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"마을","location":"Start","enemies":[],"rewards":[],"branchIds":[],"branchTargets":{},"evidence":[]},
+                          {"position":2,"title":"Middle","goal":"Advance","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"던전","location":"Middle","mapUsage":"OPTIONAL","enemies":[],"rewards":[],"branchIds":[],"branchTargets":{},"evidence":[]},
+                          {"position":3,"title":"Finish","goal":"End","conflict":"Choice","transitionCondition":"Finish","npcOrClues":[],"endingIds":["ending-1"],"stageType":"이벤트","location":"Finish","enemies":[],"rewards":[],"branchIds":[],"branchTargets":{},"evidence":[]}
+                        ]}
+                        """)));
+        var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "test-internal-token");
+
+        var failure = assertThrows(AdventureStoryPlanCandidateValidationException.class,
+                () -> gateway.generate(new AdventureStoryPlanGenerationPort.Request(
+                        "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT),
+                        List.of(), List.of(), List.of(new AdventureStoryPlanGenerationPort.MapContext(
+                                mapId, "brewery", "page 1 image 1", "page 1 image 1", .9, "SAFE")), List.of())));
+
+        assertEquals(List.of("map-backed bundle requires every dungeon stage to reference a map definition"), failure.violations());
+    }
+
+    @Test
     void normalizesMissingEndingIdsProjectionAsTypedCandidateValidation() {
         server = new WireMockServer(0);
         server.start();

@@ -86,8 +86,9 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             }
             Map<UUID, AdventureStoryPlanGenerationPort.MapContext> maps = request.maps().stream().collect(
                     Collectors.toMap(AdventureStoryPlanGenerationPort.MapContext::mapDefinitionId, item -> item));
-            if (!maps.isEmpty() && parsed.stages().stream().anyMatch(stage -> "DUNGEON".equalsIgnoreCase(stage.stageType())
-                    && stage.mapDefinitionId().isBlank())) {
+            if (!maps.isEmpty() && parsed.stages().stream().anyMatch(stage ->
+                    parseStageType(stage.stageType()) == com.dndmaster.adventure.domain.adventure.AdventureStageType.DUNGEON
+                            && stage.mapDefinitionId().isBlank())) {
                 throw new IllegalStateException("map-backed bundle requires every dungeon stage to reference a map definition");
             }
             List<AdventureStoryPlanStage> stages = parsed.stages().stream().map(stage -> toDomain(stage, maps)).toList();
@@ -275,6 +276,7 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             branchIds = List.copyOf(Objects.requireNonNull(branchIds, "branchIds must be explicit"));
             branchTargets = java.util.Map.copyOf(Objects.requireNonNull(branchTargets, "branchTargets must be explicit"));
             evidence = List.copyOf(Objects.requireNonNull(evidence, "evidence must be explicit"));
+            mapDefinitionId = mapDefinitionId == null ? "" : mapDefinitionId;
             mapAssetId = mapAssetId == null ? "" : mapAssetId;
             mapAssetLocator = mapAssetLocator == null ? "" : mapAssetLocator;
         }
