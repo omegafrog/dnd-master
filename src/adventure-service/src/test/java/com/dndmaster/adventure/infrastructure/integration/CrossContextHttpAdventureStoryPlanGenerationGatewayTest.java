@@ -139,6 +139,31 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
     }
 
     @Test
+    void canonicalizes_provider_quote_formatting_to_supplied_source_evidence() {
+        server = new WireMockServer(0);
+        server.start();
+        UUID documentId = UUID.randomUUID();
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/adventure-story-plan"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody("""
+                        {"stages":[
+                          {"position":1,"title":"Start","goal":"Begin","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Start","evidence":[{"documentType":"STORYBOOK","documentId":"%s","extractionVersion":1,"locator":"page:1","quote":"authoritative   quote","confidence":0.8}],"enemies":[],"rewards":[],"branchIds":[],"branchTargets":{}},
+                          {"position":2,"title":"Middle","goal":"Advance","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Middle","evidence":[{"documentType":"STORYBOOK","documentId":"%s","extractionVersion":1,"locator":"page:1","quote":"authoritative   quote","confidence":0.8}],"enemies":[],"rewards":[],"branchIds":[],"branchTargets":{}},
+                          {"position":3,"title":"Finish","goal":"End","conflict":"Choice","transitionCondition":"Finish","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Finish","evidence":[{"documentType":"STORYBOOK","documentId":"%s","extractionVersion":1,"locator":"page:1","quote":"authoritative   quote","confidence":0.8}],"enemies":[],"rewards":[],"branchIds":[],"branchTargets":{}}
+                        ]}
+                        """.formatted(documentId, documentId, documentId))));
+        var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "test-internal-token");
+        var request = new AdventureStoryPlanGenerationPort.Request(
+                "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT), List.of(), List.of(), List.of(),
+                List.of(new AdventureStoryPlanGenerationPort.SourceCitation(
+                        "STORYBOOK", documentId, 1, "page:1", "authoritative quote", .9)));
+
+        var candidate = gateway.generate(request);
+
+        assertEquals("authoritative quote", candidate.getFirst().evidence().getFirst().quote());
+    }
+
+    @Test
     void normalizesMissingEndingIdsProjectionAsTypedCandidateValidation() {
         server = new WireMockServer(0);
         server.start();

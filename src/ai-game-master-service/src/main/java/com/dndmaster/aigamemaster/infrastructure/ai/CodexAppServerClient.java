@@ -14,7 +14,10 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -76,9 +79,20 @@ public final class CodexAppServerClient implements AutoCloseable {
             request("turn/start", turnParams);
 
             StringBuilder response = new StringBuilder();
+            long turnDeadline = System.nanoTime() + timeout.toNanos();
+            String lastMethod = "turn/start";
             while (true) {
-                JsonNode message = readMessage();
+                JsonNode message;
+                try {
+                    message = readMessageUntil(turnDeadline);
+                } catch (ProviderTimeoutException exception) {
+                    LOGGER.error("ai_agent_call_timeout provider=codex operationId={} phase=turn-events lastMethod={} timeoutMs={}",
+                            operationId, lastMethod, timeout.toMillis());
+                    closeProcess();
+                    throw exception;
+                }
                 String method = message.path("method").asText("");
+                if (!method.isBlank()) lastMethod = method;
                 JsonNode params = message.path("params");
                 if (!method.isBlank() && !"item/agentMessage/delta".equals(method)) {
                     LOGGER.info("ai_agent_event provider=codex operationId={} method={} params={}", operationId, method, compact(params));
@@ -200,6 +214,29 @@ public final class CodexAppServerClient implements AutoCloseable {
         String line = output.readLine();
         if (line == null) throw new IOException("Codex app-server closed stdout");
         return mapper.readTree(line);
+    }
+
+    private JsonNode readMessageUntil(long deadlineNanos) throws IOException, InterruptedException {
+        long remainingNanos = deadlineNanos - System.nanoTime();
+        if (remainingNanos <= 0) throw new ProviderTimeoutException(new TimeoutException("Codex turn event deadline exceeded"));
+        CompletableFuture<JsonNode> read = CompletableFuture.supplyAsync(() -> {
+            try {
+                return readMessage();
+            } catch (IOException exception) {
+                throw new RuntimeException(exception);
+            }
+        });
+        try {
+            return read.get(remainingNanos, TimeUnit.NANOSECONDS);
+        } catch (TimeoutException exception) {
+            read.cancel(true);
+            throw new ProviderTimeoutException(exception);
+        } catch (ExecutionException exception) {
+            Throwable cause = exception.getCause();
+            if (cause instanceof RuntimeException runtime && runtime.getCause() instanceof IOException io) throw io;
+            if (cause instanceof RuntimeException runtime) throw runtime;
+            throw new IllegalStateException("Codex app-server reader failed", cause);
+        }
     }
 
     private void send(JsonNode message) throws IOException {

@@ -92,6 +92,12 @@ public final class AdventureStoryPlanApplicationService {
                 UUID.randomUUID().toString(), session.scenarioPackageRevision(), session.party().size(),
                 configuration, sourceDocuments(session), resolutionEvidence(session), mapContexts(scenarioPackage), citations(session, scenarioPackage))
                 .withPreviousCandidate(previous == null ? "" : previous.stages().toString());
+        LOGGER.info("story_plan_generation_input packageId={} citations={} resolutionEvidence={} maps={} sourceDocuments={}",
+                session.scenarioPackageId(), request.citations().size(), request.resolutionEvidence().size(),
+                request.maps().size(), request.sourceDocuments().size());
+        LOGGER.info("story_plan_generation_citation_keys={}", request.citations().stream()
+                .map(item -> item.documentType() + ":" + item.documentId() + ":" + item.extractionVersion() + ":" + item.locator())
+                .toList());
         progress.accept(25, "모험 개요 생성 중");
         List<AdventureStoryPlanStage> stages = List.of();
         List<String> outlineViolations = List.of();
@@ -207,7 +213,7 @@ public final class AdventureStoryPlanApplicationService {
 
     private void appendIndexedExcerpts(List<String> evidence, ScenarioSourceBundle bundle) {
         try {
-            sourceExcerptPort.load(bundle).stream().map(ResolutionExtractionPort.SourceExcerpt::text)
+            planExcerpts(bundle).stream().map(ResolutionExtractionPort.SourceExcerpt::text)
                     .filter(s -> s != null && !s.isBlank()).limit(12).forEach(evidence::add);
         } catch (RuntimeException ignored) {
             // Existing compiled evidence remains usable if the retrieval gateway is unavailable.
@@ -255,12 +261,19 @@ public final class AdventureStoryPlanApplicationService {
                 .filter(java.util.Objects::nonNull).toList());
         if (bundles != null && sourceExcerptPort != null) {
             bundles.findById(scenarioPackage.bundleId()).ifPresent(bundle -> {
-                sourceExcerptPort.load(bundle).stream().limit(12).forEach(excerpt -> result.add(new AdventureStoryPlanGenerationPort.SourceCitation(
+                planExcerpts(bundle).forEach(excerpt -> result.add(new AdventureStoryPlanGenerationPort.SourceCitation(
                         excerpt.documentType(), excerpt.documentId().value(),
                         excerpt.extractionVersion(), excerpt.locator(), excerpt.text(), .9)));
             });
         }
         return result.stream().filter(java.util.Objects::nonNull).distinct().limit(20).toList();
+    }
+
+    private List<ResolutionExtractionPort.SourceExcerpt> planExcerpts(ScenarioSourceBundle bundle) {
+        List<ResolutionExtractionPort.SourceExcerpt> available = sourceExcerptPort.load(bundle);
+        return java.util.stream.Stream.of("STORYBOOK", "RULEBOOK", "MAP")
+                .flatMap(type -> available.stream().filter(excerpt -> type.equalsIgnoreCase(excerpt.documentType())).limit(8))
+                .distinct().limit(20).toList();
     }
 
     private static AdventureStoryPlanGenerationPort.SourceCitation citation(ScenarioResolutionUnit unit, ScenarioSourceReference reference, String documentType) {

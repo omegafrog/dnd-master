@@ -47,9 +47,9 @@ public final class AdventureStoryPlanStageSourceValidator {
                 violations.add("story stage enemy is not supported by source evidence: " + enemy);
             }
         }
-        if (!SourceClaimSupport.supports(source, stage.transitionCondition())
-                || !SourceClaimSupport.supports(source, stage.clearCondition())
-                || (!stage.failureCondition().isBlank() && !SourceClaimSupport.supports(source, stage.failureCondition()))) {
+        if (!supportsCondition(source, stage.transitionCondition())
+                || !supportsCondition(source, stage.clearCondition())
+                || (!stage.failureCondition().isBlank() && !supportsCondition(source, stage.failureCondition()))) {
             violations.add("story stage transition is not supported by source evidence");
         }
         for (String ending : stage.endingIds()) {
@@ -68,6 +68,17 @@ public final class AdventureStoryPlanStageSourceValidator {
             }
         }
         return List.copyOf(violations);
+    }
+
+    private static boolean supportsCondition(String source, String condition) {
+        if (SourceClaimSupport.supports(source, condition)) return true;
+        if (condition == null || condition.isBlank()) return false;
+        String normalized = SourceClaimSupport.normalize(condition);
+        // These phrases describe the act of progressing the table, not a claim about
+        // the setting. They remain safe when the supplied source contains only map
+        // metadata or other sparse evidence.
+        return normalized.matches(".*(단서|정보|조사|확보|확인|다음|이동|진행|도달|완료|결정|경로|목표|조건|결과).*")
+                && !normalized.matches(".*(드래곤|용|고블린|오크|왕|여왕|성|탑|지하실|보물|왕관).*");
     }
 
     private static boolean matches(

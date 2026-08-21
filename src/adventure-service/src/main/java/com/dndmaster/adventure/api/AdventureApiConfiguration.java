@@ -125,8 +125,10 @@ public class AdventureApiConfiguration {
     @Bean
     AdventurePrologueApplicationService adventurePrologueApplicationService(AdventureRepository adventures,
             AdventureStoryPlanRepository plans, CharacterSheetReadPort sheets, AdventurePrologueGenerationPort generator,
-            GmAgentPort gmAgentPort) {
-        return new AdventurePrologueApplicationService(adventures, plans, sheets, generator, gmAgentPort);
+            GmAgentPort gmAgentPort, com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
+            RuntimeEvidenceSearchPort runtimeEvidenceSearchPort) {
+        return new AdventurePrologueApplicationService(adventures, plans, sheets, generator, gmAgentPort,
+                packageRepository, runtimeEvidenceSearchPort);
     }
 
     @Bean

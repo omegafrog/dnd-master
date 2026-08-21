@@ -66,34 +66,42 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         try {
             var parsed = mapper.readValue(responseBody, Response.class);
             if (parsed.stages() == null) throw new IllegalStateException("AI returned no story stages");
-            validateEndingIdProjection(parsed.stages());
+            List<Stage> stages = parsed.stages().stream().map(stage -> canonicalizeEvidence(stage, request.citations())).toList();
+            validateEndingIdProjection(stages);
+            if (!request.citations().isEmpty() && stages.stream().anyMatch(stage -> stage.evidence().isEmpty())) {
+                throw new IllegalStateException("every story stage must include at least one supplied source citation");
+            }
             AdventurePlanConfiguration configuration = request.configuration();
-            if (parsed.stages().size() < configuration.adventureLength().minimumStages()
-                    || parsed.stages().size() > configuration.adventureLength().maximumStages()) {
+            if (stages.size() < configuration.adventureLength().minimumStages()
+                    || stages.size() > configuration.adventureLength().maximumStages()) {
                 throw new IllegalStateException("AI returned an invalid stage count for adventure length");
             }
-            long endingCount = parsed.stages().stream().flatMap(stage -> stage.endingIds().stream()).distinct().count();
+            long endingCount = stages.stream().flatMap(stage -> stage.endingIds().stream()).distinct().count();
             if (endingCount != configuration.endingCount()) throw new IllegalStateException("AI returned an invalid ending count");
             Set<String> knownCitations = request.citations().stream()
                     .map(TacticalScenePlanValidator::key).collect(Collectors.toSet());
-            if (knownCitations.isEmpty() && parsed.stages().stream().flatMap(stage -> stage.evidence().stream()).findAny().isPresent()) {
+            if (knownCitations.isEmpty() && stages.stream().flatMap(stage -> stage.evidence().stream()).findAny().isPresent()) {
                 throw new IllegalStateException("AI returned source evidence without a supplied citation");
             }
             // Markdown plans are intentionally loose agent working documents. Missing
             // per-stage evidence is allowed; the retrieved excerpts remain in the prompt.
-            if (parsed.stages().stream().flatMap(stage -> stage.evidence().stream()).anyMatch(item -> !matchesCitation(item, request.citations()))) {
-                throw new IllegalStateException("AI returned an unknown source citation");
+            if (stages.stream().flatMap(stage -> stage.evidence().stream()).anyMatch(item -> !matchesCitation(item, request.citations()))) {
+                SourceCitation unknown = stages.stream().flatMap(stage -> stage.evidence().stream())
+                        .filter(item -> !matchesCitation(item, request.citations())).findFirst().orElseThrow();
+                throw new IllegalStateException("AI returned an unknown source citation: "
+                        + unknown.documentType() + ":" + unknown.documentId() + ":" + unknown.extractionVersion()
+                        + ":" + unknown.locator());
             }
             Map<UUID, AdventureStoryPlanGenerationPort.MapContext> maps = request.maps().stream().collect(
                     Collectors.toMap(AdventureStoryPlanGenerationPort.MapContext::mapDefinitionId, item -> item));
-            if (!maps.isEmpty() && parsed.stages().stream().anyMatch(stage ->
+            if (!maps.isEmpty() && stages.stream().anyMatch(stage ->
                     parseStageType(stage.stageType()) == com.dndmaster.adventure.domain.adventure.AdventureStageType.DUNGEON
                             && stage.mapDefinitionId().isBlank())) {
                 throw new IllegalStateException("map-backed bundle requires every dungeon stage to reference a map definition");
             }
-            List<AdventureStoryPlanStage> stages = parsed.stages().stream().map(stage -> toDomain(stage, maps)).toList();
-            AdventureStoryPlanGraphValidator.validate(stages, configuration);
-            return stages;
+            List<AdventureStoryPlanStage> domainStages = stages.stream().map(stage -> toDomain(stage, maps)).toList();
+            AdventureStoryPlanGraphValidator.validate(domainStages, configuration);
+            return domainStages;
         } catch (AdventureStoryPlanCandidateValidationException invalidCandidate) {
             throw invalidCandidate;
         } catch (RuntimeException | IOException invalidCandidate) {
@@ -203,6 +211,25 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                 && source.quote().equals(item.quote())
                 && item.confidence() >= 0 && item.confidence() <= source.confidence());
     }
+
+    private static Stage canonicalizeEvidence(Stage stage, List<AdventureStoryPlanGenerationPort.SourceCitation> citations) {
+        if (stage.evidence().isEmpty() || citations.isEmpty()) return stage;
+        List<SourceCitation> canonical = stage.evidence().stream().map(item -> citations.stream()
+                .filter(source -> sameCitationIdentity(item, source))
+                .findFirst()
+                .map(source -> new SourceCitation(source.documentType(), source.documentId().toString(),
+                        source.extractionVersion(), source.locator(), source.quote(),
+                        Math.min(item.confidence(), source.confidence())))
+                .orElse(item)).toList();
+        return stage.withEvidence(canonical);
+    }
+
+    private static boolean sameCitationIdentity(SourceCitation item, AdventureStoryPlanGenerationPort.SourceCitation source) {
+        return source.documentType().equals(item.documentType())
+                && source.documentId().toString().equals(item.documentId())
+                && source.extractionVersion() == item.extractionVersion()
+                && source.locator().equals(item.locator());
+    }
     private static AdventureStoryPlanStage toDomain(Stage stage, Map<UUID, AdventureStoryPlanGenerationPort.MapContext> maps) {
         UUID mapId = parseMapDefinitionId(stage.mapDefinitionId());
         if (mapId == null && (!stage.mapAssetId().isBlank() || !stage.mapAssetLocator().isBlank())) throw new IllegalStateException("map asset requires a map definition");
@@ -279,6 +306,11 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             mapDefinitionId = mapDefinitionId == null ? "" : mapDefinitionId;
             mapAssetId = mapAssetId == null ? "" : mapAssetId;
             mapAssetLocator = mapAssetLocator == null ? "" : mapAssetLocator;
+        }
+        Stage withEvidence(List<SourceCitation> nextEvidence) {
+            return new Stage(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, stageType, location,
+                    mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition, rewards,
+                    branchIds, branchTargets, nextEvidence, playerSpawnX, playerSpawnY, playerSpawnConfidence, playerSpawnRationale);
         }
     }
     @JsonIgnoreProperties(ignoreUnknown = true) record SourceCitation(String documentType, String documentId, long extractionVersion, String locator, String quote, double confidence) {}
