@@ -151,12 +151,10 @@ public final class AdventureSession {
         status = Status.STARTED; version++;
     }
 
-    /** Return a failed start attempt to an editable draft so the caller can repair and retry. */
+    /** Return a failed start attempt to a draft while retaining its durable retry identity. */
     public void recoverFailedStart() {
         if (status != Status.STARTING) throw new IllegalStateException("adventure session is not waiting for start recovery");
         status = Status.DRAFT;
-        startedAdventureId = null;
-        startRequestId = null;
         version++;
     }
 

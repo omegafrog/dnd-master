@@ -140,8 +140,14 @@ public final class AdventureSessionApplicationService {
         session.validateStart();
         var storyPlan = storyPlanRepository.findBySessionId(session.id())
                 .orElseThrow(() -> new IllegalStateException("adventure story plan is required"));
+        boolean recoveredStart = session.status() == AdventureSession.Status.DRAFT
+                && session.startedAdventureId() != null
+                && session.startedAdventureId().equals(adventureId)
+                && session.startRequestId() != null;
         boolean partyLockMatches = session.status() == AdventureSession.Status.STARTING
                 ? storyPlan.partyRevision() <= session.version()
+                : recoveredStart
+                ? storyPlan.partyRevision() == session.version() - 2
                 : storyPlan.partyRevision() == session.version();
         if (storyPlan.status() != AdventureStoryPlanStatus.READY
                 || storyPlan.packageRevision() != session.scenarioPackageRevision()

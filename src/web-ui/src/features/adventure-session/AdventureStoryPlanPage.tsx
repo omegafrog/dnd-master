@@ -15,13 +15,14 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
   const [loadingPlan, setLoadingPlan] = useState(false)
   const [recovering, setRecovering] = useState(false)
   const [tacticalPreparation, setTacticalPreparation] = useState<TacticalScenePreparationView | null>(null)
-  const [adventureId] = useState(crypto.randomUUID())
+  const [adventureId, setAdventureId] = useState<string | null>(null)
 
   useEffect(() => {
     let active = true
     void api.read(sessionId).then(next => {
       if (!active) return
       setSession(next)
+      setAdventureId(next.adventureId ?? crypto.randomUUID())
       return api.readStoryPlan(sessionId).catch(() => null)
     }).then(nextPlan => {
       if (!active || !nextPlan) return
@@ -79,8 +80,10 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
       if (!configuration || configuration.rulebookIds.length === 0) throw new Error('공유 룰북을 하나 이상 선택하세요.')
       const catalog = await fetch('/api/v1/rulebook-catalog').then(response => response.ok ? response.json() : []) as Array<{ rulebookId?: string; edition?: string }>
       const edition = catalog.find(item => item.rulebookId && configuration.rulebookIds.includes(item.rulebookId))?.edition ?? 'DND_5E_2014'
-      await api.saveAppliedRuleSet(adventureId, configuration.ruleSetId, edition, configuration.rulebookIds)
-      const started = await api.start(sessionId, session.version, adventureId)
+      const currentAdventureId = adventureId ?? session.adventureId ?? crypto.randomUUID()
+      setAdventureId(currentAdventureId)
+      await api.saveAppliedRuleSet(currentAdventureId, configuration.ruleSetId, edition, configuration.rulebookIds)
+      const started = await api.start(sessionId, session.version, currentAdventureId)
       const currentStage = plan.stages.find(stage => stage.position === plan.currentStage + 1)
       if (currentStage && api.prepareTacticalScene) {
         const preparation = await api.prepareTacticalScene(sessionId, currentStage.position)

@@ -85,18 +85,23 @@ public final class AdventurePrologueApplicationService {
                         "첫 단계: " + stage.title(), "", "", "")).plan().narration();
             } catch (RuntimeException failure) {
                 LOGGER.warn("adventure_prologue_gm_failed fallback=deterministic errorType={} message={}",
-                        failure.getClass().getSimpleName(), failure.getMessage());
+                        failure.getClass().getSimpleName(), failure.getMessage(), failure);
                 narration = generator.generate(fallbackRequest);
             }
         }
-        narration = Objects.requireNonNull(narration);
-        var conversation = new ArrayList<>(adventure.conversation());
-        conversation.add(new ConversationEntry(0, "AI_GAME_MASTER", narration));
-        adventure.preserveProgress(owner, adventure.version(), adventure.currentContext(), conversation);
         try {
+            if (narration == null || narration.isBlank()) {
+                throw new IllegalStateException("prologue narration is blank after GM and deterministic generation");
+            }
+            var conversation = new ArrayList<>(adventure.conversation());
+            conversation.add(new ConversationEntry(0, "AI_GAME_MASTER", narration));
+            adventure.preserveProgress(owner, adventure.version(), adventure.currentContext(), conversation);
             adventures.save(adventure);
         } catch (com.dndmaster.adventure.infrastructure.persistence.OptimisticAdventureLockException concurrentRecovery) {
             return adventures.findById(adventureId).orElseThrow(() -> concurrentRecovery);
+        } catch (RuntimeException failure) {
+            LOGGER.error("adventure_prologue_persist_failed adventureId={} phase=conversation-save", adventureId.value(), failure);
+            throw failure;
         }
         return adventure;
     }

@@ -255,6 +255,25 @@ class AdventureSessionTest {
         assertEquals(session, session.start(adventureId, requestId));
     }
 
+    @Test
+    void failed_start_recovery_retains_retry_identity_for_same_adventure() {
+        AdventureSession session = configuredSession();
+        session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT, true, true, true, true, true, true));
+        session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.AGENT, true, true, true, true, true, true));
+        AdventureId adventureId = AdventureId.generate();
+        UUID requestId = UUID.randomUUID();
+
+        long planPartyRevision = session.version();
+        session.beginStart(adventureId, requestId);
+        session.recoverFailedStart();
+
+        assertEquals(AdventureSession.Status.DRAFT, session.status());
+        assertEquals(adventureId, session.startedAdventureId());
+        assertEquals(requestId, session.startRequestId());
+        assertEquals(planPartyRevision + 2, session.version());
+        assertTrue(session.version() - 2 == planPartyRevision);
+    }
+
     private static AdventureSession configuredSession() {
         return AdventureSession.create(SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 1, 2,
                 new AdventureSessionRuntimeConfiguration(new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), List.of(), "ollama", List.of("search"), "opening"));
