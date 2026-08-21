@@ -293,7 +293,11 @@ public final class AdventureStoryPlanApplicationService {
                 .map(document -> document.knowledgeDocumentId().value())
                 .collect(java.util.stream.Collectors.toSet());
         for (AdventureStoryPlanStage stage : stages) {
-            if (stage.mapDefinitionId() == null) continue;
+            // The execution projection may intentionally omit evidence and mark
+            // connective details as AI suggestions. Only explicit evidence is
+            // authoritative enough for source-claim validation here; map
+            // identity is still checked separately by validateMaps().
+            if (stage.mapDefinitionId() == null || stage.evidence().isEmpty()) continue;
             violations.addAll(stageSourceValidator.validate(stage, citations, mapDocumentIds));
         }
         return List.copyOf(violations);
