@@ -97,9 +97,9 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
         server.stubFor(post(urlEqualTo("/internal/v1/gm/adventure-story-plan"))
                 .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody("""
                         {"stages":[
-                          {"position":1,"title":"Start","goal":"Begin","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"town","location":"Start","enemies":[],"rewards":[],"branchIds":[],"branchTargets":{},"evidence":[]},
-                          {"position":2,"title":"Middle","goal":"Advance","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"dungeon","location":"Middle","enemies":[],"rewards":[],"branchIds":[],"branchTargets":{},"evidence":[]},
-                          {"position":3,"title":"Finish","goal":"End","conflict":"Choice","transitionCondition":"Finish","npcOrClues":[],"endingIds":["ending-1"],"stageType":"event","location":"Finish","enemies":[],"rewards":[],"branchIds":[],"branchTargets":{},"evidence":[]}
+                          {"position":1,"title":"Start","goal":"Begin","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"마을","location":"Start","enemies":[],"rewards":[],"branchIds":[],"branchTargets":{},"evidence":[]},
+                          {"position":2,"title":"Middle","goal":"Advance","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"던전","location":"Middle","enemies":[],"rewards":[],"branchIds":[],"branchTargets":{},"evidence":[]},
+                          {"position":3,"title":"Finish","goal":"End","conflict":"Choice","transitionCondition":"Finish","npcOrClues":[],"endingIds":["ending-1"],"stageType":"이벤트","location":"Finish","enemies":[],"rewards":[],"branchIds":[],"branchTargets":{},"evidence":[]}
                         ]}
                         """)));
         var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),

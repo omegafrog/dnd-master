@@ -219,8 +219,7 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                         Integer.toString(stage.position()), stage.location(), stage.transitionCondition(), mapId));
         var spawn = inferPlayerSpawn(stage, map);
         return new AdventureStoryPlanStage(stage.position(), stage.title(), stage.goal(), stage.conflict(), stage.transitionCondition(), stage.npcOrClues(), stage.endingIds(), bindings,
-                stage.stageType() == null ? com.dndmaster.adventure.domain.adventure.AdventureStageType.EVENT
-                        : com.dndmaster.adventure.domain.adventure.AdventureStageType.valueOf(stage.stageType().trim().toUpperCase(java.util.Locale.ROOT)),
+                parseStageType(stage.stageType()),
                 stage.location(), mapId, map == null ? stage.mapAssetId() : map.assetId(), map == null ? stage.mapAssetLocator() : map.assetLocator(),
                 stage.enemies(), stage.boss(), stage.clearCondition(), stage.failureCondition(), stage.rewards(), stage.branchIds(), evidence, grounding, suggestions,
                 map == null ? "UNAVAILABLE" : map.safetyStatus(), map == null ? null : map.confidence(), stage.branchTargets(),
@@ -231,6 +230,20 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         Matcher matcher = UUID_TOKEN.matcher(value);
         if (!matcher.find()) throw new IllegalArgumentException("map definition ID is not a UUID: " + value);
         return UUID.fromString(matcher.group());
+    }
+
+    private static com.dndmaster.adventure.domain.adventure.AdventureStageType parseStageType(String value) {
+        if (value == null || value.isBlank()) return com.dndmaster.adventure.domain.adventure.AdventureStageType.EVENT;
+        String normalized = value.trim().toLowerCase(java.util.Locale.ROOT);
+        return switch (normalized) {
+            case "town", "마을", "도시", "사회" -> com.dndmaster.adventure.domain.adventure.AdventureStageType.TOWN;
+            case "dungeon", "던전", "지하", "탐험" -> com.dndmaster.adventure.domain.adventure.AdventureStageType.DUNGEON;
+            case "travel", "여행", "이동" -> com.dndmaster.adventure.domain.adventure.AdventureStageType.TRAVEL;
+            case "event", "이벤트", "사건" -> com.dndmaster.adventure.domain.adventure.AdventureStageType.EVENT;
+            case "encounter", "조우", "전투" -> com.dndmaster.adventure.domain.adventure.AdventureStageType.ENCOUNTER;
+            case "finale", "최종", "결전" -> com.dndmaster.adventure.domain.adventure.AdventureStageType.FINALE;
+            default -> com.dndmaster.adventure.domain.adventure.AdventureStageType.valueOf(normalized.toUpperCase(java.util.Locale.ROOT));
+        };
     }
     private static Spawn inferPlayerSpawn(Stage stage, AdventureStoryPlanGenerationPort.MapContext map) {
         if (stage.playerSpawnX() != null && stage.playerSpawnY() != null)
