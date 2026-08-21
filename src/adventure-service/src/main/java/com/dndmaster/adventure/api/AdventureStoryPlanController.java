@@ -38,9 +38,10 @@ public final class AdventureStoryPlanController {
             TacticalMapActivationApplicationService mapActivation, AuthenticatedPlayerResolver playerResolver,
             TacticalTriggerRuntimeApplicationService triggerRuntime, FutureTacticalSceneRevisionService futureRevision,
             @org.springframework.beans.factory.annotation.Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
-            AdventureStoryPlanGenerationJobService generationJobs) {
+            AdventureStoryPlanGenerationJobService generationJobs,
+            TacticalScenePreparationApplicationService tacticalPreparation) {
         this(service, sessions, mapActivation, playerResolver, triggerRuntime, futureRevision,
-                new ApiRequestGuard(internalToken), generationJobs, null);
+                new ApiRequestGuard(internalToken), generationJobs, tacticalPreparation);
     }
 
     public AdventureStoryPlanController(AdventureStoryPlanApplicationService service, AdventureSessionApplicationService sessions,
