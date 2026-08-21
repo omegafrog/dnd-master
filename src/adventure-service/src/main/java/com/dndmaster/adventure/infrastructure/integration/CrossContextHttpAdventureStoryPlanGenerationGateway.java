@@ -66,6 +66,7 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         try {
             var parsed = mapper.readValue(responseBody, Response.class);
             if (parsed.stages() == null) throw new IllegalStateException("AI returned no story stages");
+            validateEndingIdProjection(parsed.stages());
             AdventurePlanConfiguration configuration = request.configuration();
             if (parsed.stages().size() < configuration.adventureLength().minimumStages()
                     || parsed.stages().size() > configuration.adventureLength().maximumStages()) {
@@ -97,6 +98,20 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         } catch (RuntimeException | IOException invalidCandidate) {
             throw new AdventureStoryPlanCandidateValidationException(List.of(
                     validationMessage(invalidCandidate, "AI returned an invalid story plan candidate")));
+        }
+    }
+
+    private static void validateEndingIdProjection(List<Stage> stages) {
+        for (Stage stage : stages) {
+            if (stage.endingIds() == null) {
+                throw new IllegalStateException("endingIds must be explicit");
+            }
+            if (stage.endingIds().stream().anyMatch(item -> item == null || item.isBlank())) {
+                throw new IllegalStateException("endingIds must not contain blank values");
+            }
+            if (stage.endingIds().isEmpty()) {
+                throw new IllegalStateException("endingIds must not be empty");
+            }
         }
     }
 

@@ -91,6 +91,48 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
     }
 
     @Test
+    void normalizesMissingEndingIdsProjectionAsTypedCandidateValidation() {
+        server = new WireMockServer(0);
+        server.start();
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/adventure-story-plan"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody("""
+                        {"stages":[{"position":1,"title":"Start","goal":"Begin","conflict":"Choice",
+                        "transitionCondition":"Continue","npcOrClues":[],"stageType":"EVENT","location":"Start",
+                        "enemies":[],"rewards":[],"branchIds":[],"branchTargets":{},"evidence":[]}]}
+                        """)));
+        var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "test-internal-token");
+
+        var failure = assertThrows(AdventureStoryPlanCandidateValidationException.class,
+                () -> gateway.generate(new AdventureStoryPlanGenerationPort.Request(
+                        "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT),
+                        List.of(), List.of(), List.of(), List.of())));
+
+        assertEquals(List.of("endingIds must be explicit"), failure.violations());
+    }
+
+    @Test
+    void normalizesEmptyEndingIdsProjectionAsTypedCandidateValidation() {
+        server = new WireMockServer(0);
+        server.start();
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/adventure-story-plan"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody("""
+                        {"stages":[{"position":1,"title":"Start","goal":"Begin","conflict":"Choice",
+                        "transitionCondition":"Continue","npcOrClues":[],"endingIds":[],"stageType":"EVENT","location":"Start",
+                        "enemies":[],"rewards":[],"branchIds":[],"branchTargets":{},"evidence":[]}]}
+                        """)));
+        var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "test-internal-token");
+
+        var failure = assertThrows(AdventureStoryPlanCandidateValidationException.class,
+                () -> gateway.generate(new AdventureStoryPlanGenerationPort.Request(
+                        "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT),
+                        List.of(), List.of(), List.of(), List.of())));
+
+        assertEquals(List.of("endingIds must not be empty"), failure.violations());
+    }
+
+    @Test
     void normalizesRemoteMalformedTacticalCandidateAsTypedValidationButNotProviderFailure() {
         server = new WireMockServer(0);
         server.start();

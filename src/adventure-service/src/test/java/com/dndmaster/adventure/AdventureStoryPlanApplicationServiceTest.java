@@ -9,12 +9,14 @@ import com.dndmaster.adventure.application.session.AdventureSessionRepository;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanApplicationService;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanCandidateValidationException;
 import com.dndmaster.adventure.domain.adventure.*;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import java.util.Optional;
+import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
@@ -122,6 +124,32 @@ class AdventureStoryPlanApplicationServiceTest {
     @Test
     void rejects_more_than_four_endings() {
         assertThrows(IllegalArgumentException.class, () -> new AdventurePlanConfiguration(5, AdventureLength.STANDARD));
+    }
+
+    @Test
+    void retries_projection_validation_with_violations_and_publishes_next_ready_candidate() {
+        var session = AdventureSession.create(SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 1, 1,
+                new AdventureSessionRuntimeConfiguration(new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), java.util.List.of(), "ollama", java.util.List.of("search"), "opening"));
+        session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT, false, false, false, false, false, false));
+        var sessions = mock(AdventureSessionRepository.class);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        var generator = mock(AdventureStoryPlanGenerationPort.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        when(plans.findBySessionId(session.id())).thenReturn(Optional.empty());
+        var readyStages = java.util.stream.IntStream.rangeClosed(1, 4)
+                .mapToObj(position -> new AdventureStoryPlanStage(position, "Stage " + position, "Goal", "Conflict", "Continue",
+                        java.util.List.of(), java.util.List.of("ending-a", "ending-b"))).toList();
+        when(generator.generate(any())).thenThrow(new AdventureStoryPlanCandidateValidationException(List.of("endingIds must be explicit")))
+                .thenReturn(readyStages);
+
+        var service = new AdventureStoryPlanApplicationService(plans, sessions, null, generator);
+        var result = service.generate(session.id(), session.ownerPlayerId());
+
+        assertEquals(AdventureStoryPlanStatus.READY, result.status());
+        var requests = org.mockito.ArgumentCaptor.forClass(AdventureStoryPlanGenerationPort.Request.class);
+        verify(generator, times(2)).generate(requests.capture());
+        assertEquals(java.util.List.of("endingIds must be explicit"), requests.getAllValues().get(1).violations());
+        verify(plans).save(result);
     }
 
     @Test
