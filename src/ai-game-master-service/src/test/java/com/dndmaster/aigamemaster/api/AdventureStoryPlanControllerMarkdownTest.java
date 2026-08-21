@@ -152,6 +152,47 @@ class AdventureStoryPlanControllerMarkdownTest {
     }
 
     @Test
+    void json_outline_requires_position_but_tolerates_optional_and_additional_fields() throws Exception {
+        var controller = new AdventureStoryPlanController(null, new ObjectMapper(), null,
+                "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
+                new ApiRequestGuard("test-internal-token"));
+        String valid = """
+                {"stages":[
+                  {"position":1,"title":"Start","goal":"Begin","conflict":"Choice","transitionCondition":"Continue","endingIds":["ending-1"],"optionalObject":{"nested":true},"unknownField":[1,2]},
+                  {"position":2,"title":"Middle","goal":"Advance","conflict":"Choice","transitionCondition":"Continue","endingIds":["ending-1"]},
+                  {"position":3,"title":"Finish","goal":"End","conflict":"Choice","transitionCondition":"Finish","endingIds":["ending-1"]}
+                ]}
+                """;
+        var parse = AdventureStoryPlanController.class.getDeclaredMethod("parseJson", String.class,
+                AdventureStoryPlanController.Configuration.class);
+        parse.setAccessible(true);
+        assertEquals(3, ((List<?>) parse.invoke(controller, valid,
+                new AdventureStoryPlanController.Configuration(1, "SHORT"))).size());
+
+        String missingPosition = valid.replace("\"position\":1,", "");
+        InvocationTargetException failure = assertThrows(InvocationTargetException.class,
+                () -> parse.invoke(controller, missingPosition,
+                        new AdventureStoryPlanController.Configuration(1, "SHORT")));
+        assertEquals("position missing", deepestMessage(failure));
+    }
+
+    @Test
+    void projection_prompt_describes_structured_required_fields_and_retry_context() throws Exception {
+        var controller = new AdventureStoryPlanController(null, new ObjectMapper(), null,
+                "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
+                new ApiRequestGuard("test-internal-token"));
+        var method = AdventureStoryPlanController.class.getDeclaredMethod("projectionPrompt",
+                AdventureStoryPlanController.Request.class, AdventureStoryPlanController.Configuration.class, String.class);
+        method.setAccessible(true);
+        var request = new AdventureStoryPlanController.Request("op", 1L, 1,
+                new AdventureStoryPlanController.Configuration(1, "SHORT"), List.of(), List.of());
+        String prompt = (String) method.invoke(controller, request, request.configuration(), "계획");
+        assertTrue(prompt.contains("JSON shape constraint"));
+        assertTrue(prompt.contains("non-empty array of strings"));
+        assertTrue(prompt.contains("previousViolations"));
+    }
+
+    @Test
     void malformed_tactical_candidate_is_reported_as_unprocessable_content() {
         var model = mock(ChatModel.class);
         when(model.call(any(Prompt.class))).thenReturn(new ChatResponse(

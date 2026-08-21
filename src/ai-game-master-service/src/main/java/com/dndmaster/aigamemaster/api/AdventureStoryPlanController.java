@@ -194,7 +194,9 @@ public final class AdventureStoryPlanController {
         return """
                 You are the execution projection agent. Read the verified Markdown plan and convert it into the smallest usable execution outline.
                 Return ONLY JSON with a stages array. Do not rewrite the narrative or invent facts.
-                Each stage MUST include only these core fields: position, title, goal, conflict, transitionCondition, and endingIds.
+                Each stage MUST include these required fields: position (integer), title, goal, conflict, transitionCondition, and endingIds (a non-empty array of strings).
+                The root object MUST contain stages (an array). Optional fields may be omitted, and additional properties are allowed and ignored.
+                JSON shape constraint: {"type":"object","required":["stages"],"properties":{"stages":{"type":"array","items":{"type":"object","required":["position","title","goal","conflict","transitionCondition","endingIds"],"properties":{"position":{"type":"integer"},"title":{"type":"string"},"goal":{"type":"string"},"conflict":{"type":"string"},"transitionCondition":{"type":"string"},"endingIds":{"type":"array","items":{"type":"string"},"minItems":1}},"additionalProperties":true}}},"additionalProperties":true}
                 The plan configuration requires exactly %s distinct ending IDs. Preserve the explicit ending-1 through ending-%s IDs from the plan; do not omit, merge, rename, or invent ending IDs.
                 Include stageType, location, and mapUsage (REQUIRED, OPTIONAL, or NONE) when present. Include mapDefinitionId, mapAssetId, and mapAssetLocator only when mapUsage is REQUIRED; copy all three from the same AVAILABLE MAPS entry. OPTIONAL and NONE may omit them.
                 Optional fields may be omitted or empty: npcOrClues, enemies, boss, clearCondition, failureCondition, rewards, branchIds, branchTargets, evidence, and player spawn fields. A trigger is represented only by a short reference or lookup key; never copy the full trigger or rule text.
@@ -369,9 +371,12 @@ public final class AdventureStoryPlanController {
             if (stages == null || !stages.isArray()) throw new IllegalArgumentException("stages missing");
             List<Stage> result = new ArrayList<>();
             for (JsonNode n : stages) {
+                if (!n.isObject()) throw new IllegalArgumentException("stage must be an object");
+                JsonNode position = n.get("position");
+                if (position == null || !position.isIntegralNumber()) throw new IllegalArgumentException("position missing");
                 List<String> endings = strings(n.get("endingIds"), "endingIds");
                 if (endings.isEmpty()) throw new IllegalArgumentException("endingIds must be explicit");
-                result.add(new Stage(n.path("position").asInt(result.size() + 1), required(n,"title"), text(n, "stageType", "EVENT"), text(n, "location", required(n, "title")), required(n,"goal"), required(n,"conflict"), required(n,"transitionCondition"), optionalStrings(n.get("npcOrClues")), endings,
+                result.add(new Stage(position.intValue(), required(n,"title"), text(n, "stageType", "EVENT"), text(n, "location", required(n, "title")), required(n,"goal"), required(n,"conflict"), required(n,"transitionCondition"), optionalStrings(n.get("npcOrClues")), endings,
                         text(n, "mapDefinitionId", ""), text(n, "mapAssetId", ""), text(n, "mapAssetLocator", ""), optionalStrings(n.get("enemies")), text(n, "boss", ""), text(n, "clearCondition", required(n, "transitionCondition")), text(n, "failureCondition", ""), optionalStrings(n.get("rewards")), optionalStrings(n.get("branchIds")), optionalMaps(n.get("branchTargets")), optionalCitations(n.get("evidence"))));
             }
             if (result.size() < configuration.minimumStages() || result.size() > configuration.maximumStages()) throw new IllegalArgumentException("invalid stage count");
