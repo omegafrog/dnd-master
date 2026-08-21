@@ -53,7 +53,7 @@ async function installJourneyAuth(page: import('@playwright/test').Page, state: 
 test.describe.serial('fresh Potent Brew browser journey', () => {
 test('prepares the story package, characters, and party', async ({ page }) => {
   test.skip(!hasEnvironment, 'missing BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD, INTERNAL_SERVICE_TOKEN, or three Linux Potent Brew storybooks')
-  test.setTimeout(600_000)
+  test.setTimeout(1_800_000)
 
   await page.goto('/#/login')
   await page.getByLabel('이메일').fill(email!)

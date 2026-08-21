@@ -96,6 +96,8 @@ public final class AdventureStoryPlanApplicationService {
         List<AdventureStoryPlanStage> stages = List.of();
         List<String> outlineViolations = List.of();
         for (int attempt = 1; attempt <= 5; attempt++) {
+            progress.accept(Math.min(85, 25 + ((attempt - 1) * 15)),
+                    attempt == 1 ? "모험 개요 생성 중" : "모험 개요 재생성 중 (재시도 " + attempt + "/5)");
             try {
                 List<AdventureStoryPlanStage> candidateStages = generator.generate(request);
                 if (candidateStages == null) {
@@ -121,6 +123,8 @@ public final class AdventureStoryPlanApplicationService {
                 }
             }
             if (outlineViolations.isEmpty()) break;
+            progress.accept(Math.min(90, 30 + (attempt * 12)),
+                    "계획 검증 실패, 재시도 준비 중 (" + attempt + "/5)");
             if (attempt == 5) {
                 AdventureStoryPlan blocked = AdventureStoryPlan.blocked(
                         previous == null ? UUID.randomUUID() : previous.planId(), session.id(),

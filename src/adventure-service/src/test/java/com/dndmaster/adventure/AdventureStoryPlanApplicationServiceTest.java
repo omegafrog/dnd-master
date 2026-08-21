@@ -143,12 +143,17 @@ class AdventureStoryPlanApplicationServiceTest {
                 .thenReturn(readyStages);
 
         var service = new AdventureStoryPlanApplicationService(plans, sessions, null, generator);
-        var result = service.generate(session.id(), session.ownerPlayerId());
+        var progressStages = new java.util.ArrayList<String>();
+        var result = service.generate(session.id(), session.ownerPlayerId(), AdventurePlanConfiguration.defaults(),
+                (percent, stage) -> progressStages.add(stage));
 
         assertEquals(AdventureStoryPlanStatus.READY, result.status());
         var requests = org.mockito.ArgumentCaptor.forClass(AdventureStoryPlanGenerationPort.Request.class);
         verify(generator, times(2)).generate(requests.capture());
         assertEquals(java.util.List.of("endingIds must be explicit"), requests.getAllValues().get(1).violations());
+        assertTrue(progressStages.contains("계획 검증 실패, 재시도 준비 중 (1/5)"));
+        assertTrue(progressStages.contains("모험 개요 재생성 중 (재시도 2/5)"));
+        assertEquals("플레이 준비 완료", progressStages.get(progressStages.size() - 1));
         verify(plans).save(result);
     }
 
