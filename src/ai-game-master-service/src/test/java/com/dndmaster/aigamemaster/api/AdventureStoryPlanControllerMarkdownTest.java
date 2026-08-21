@@ -27,6 +27,7 @@ import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.web.server.ResponseStatusException;
+import org.springframework.http.HttpStatus;
 
 class AdventureStoryPlanControllerMarkdownTest {
     @Test
@@ -125,6 +126,22 @@ class AdventureStoryPlanControllerMarkdownTest {
 
         assertTrue(prompt.contains("A stage without hidden information, a conditional event, or a rules check may have no trigger"));
         assertTrue(prompt.contains("heading names, Markdown formatting"));
+    }
+
+    @Test
+    void returns_structured_candidate_violations_for_retry() {
+        var controller = new AdventureStoryPlanController(
+                null, new ObjectMapper(), null,
+                "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
+                new ApiRequestGuard("test-internal-token"));
+
+        var response = controller.candidateValidation(
+                new AdventureStoryPlanController.CandidateResponseValidationException(
+                        List.of("Stage 1에 성공 결과가 없습니다", "Stage 1에 실패 결과가 없습니다"), null));
+
+        assertEquals(HttpStatus.UNPROCESSABLE_ENTITY, response.getStatusCode());
+        assertEquals(List.of("Stage 1에 성공 결과가 없습니다", "Stage 1에 실패 결과가 없습니다"),
+                response.getBody().violations());
     }
 
     @Test

@@ -13,8 +13,10 @@ import java.util.Map;
 import java.util.HashMap;
 import java.util.UUID;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.beans.factory.annotation.Value;
@@ -147,7 +149,7 @@ public final class AdventureStoryPlanController {
             LOGGER.warn("ai_agent_verification_result operationId={} status={} violations={}", request.operationId(),
                     verification.status(), safeViolations(verification.violations()));
             if (verification.status().equals("FAIL")) {
-                throw new CandidateResponseValidationException(String.join("; ", verification.violations()), null);
+                throw new CandidateResponseValidationException(verification.violations(), null);
             }
             String projectedJson = complete(endpoint, request.operationId() + "-execution-projection",
                     projectionPrompt(request, configuration, generatedMarkdown), configuration);
@@ -160,6 +162,12 @@ public final class AdventureStoryPlanController {
         } catch (Exception e) {
             throw new IllegalStateException("story plan generation failed via " + endpoint.provider() + ": " + rootMessage(e), e);
         }
+    }
+
+    @ExceptionHandler(CandidateResponseValidationException.class)
+    ResponseEntity<CandidateValidationError> candidateValidation(CandidateResponseValidationException failure) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(new CandidateValidationError(failure.violations()));
     }
 
     private String complete(AgentEndpoint endpoint, String operationId, String prompt, Configuration configuration) throws IOException, InterruptedException {
@@ -428,8 +436,17 @@ public final class AdventureStoryPlanController {
         });
         return List.copyOf(result);
     }
-    private static final class CandidateResponseValidationException extends RuntimeException {
-        CandidateResponseValidationException(String message, Throwable cause) { super(message, cause); }
+    static final class CandidateResponseValidationException extends RuntimeException {
+        private final List<String> violations;
+        CandidateResponseValidationException(String message, Throwable cause) {
+            this(List.of(message), cause);
+        }
+        CandidateResponseValidationException(List<String> violations, Throwable cause) {
+            super(String.join("; ", violations), cause);
+            if (violations == null || violations.isEmpty()) throw new IllegalArgumentException("candidate violations must not be empty");
+            this.violations = List.copyOf(violations);
+        }
+        List<String> violations() { return violations; }
     }
     public record Request(String operationId, long packageRevision, int partySize, Configuration configuration, List<String> sourceDocuments,
             List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations, List<String> violations,
@@ -460,6 +477,9 @@ public final class AdventureStoryPlanController {
     }
     public record VerificationResponse(String status, List<String> violations) {
         public VerificationResponse { violations = List.copyOf(violations); }
+    }
+    public record CandidateValidationError(List<String> violations) {
+        public CandidateValidationError { violations = List.copyOf(violations); }
     }
     public record MapContext(String mapDefinitionId, String assetId, String assetLocator, String sourceLocator,
             double confidence, String safetyStatus, List<SourceCitation> relatedEvidence, String context) {
