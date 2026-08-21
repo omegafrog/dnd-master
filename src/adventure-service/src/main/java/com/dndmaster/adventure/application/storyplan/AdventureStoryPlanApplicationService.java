@@ -123,6 +123,7 @@ public final class AdventureStoryPlanApplicationService {
                 }
             }
             if (outlineViolations.isEmpty()) break;
+            LOGGER.warn("story_plan_candidate_rejected attempt={} violations={}", attempt, outlineViolations);
             progress.accept(Math.min(90, 30 + (attempt * 12)),
                     "계획 검증 실패, 재시도 준비 중 (" + attempt + "/5)");
             if (attempt == 5) {
