@@ -80,9 +80,15 @@ public final class CodexAppServerClient implements AutoCloseable {
                 JsonNode message = readMessage();
                 String method = message.path("method").asText("");
                 JsonNode params = message.path("params");
+                if (!method.isBlank() && !"item/agentMessage/delta".equals(method)) {
+                    LOGGER.info("ai_agent_event provider=codex operationId={} method={} params={}", operationId, method, compact(params));
+                }
                 if ("item/agentMessage/delta".equals(method)) response.append(params.path("delta").asText(""));
                 if ("item/completed".equals(method)) appendCompletedAgentMessage(response, params.path("item"));
                 if ("turn/completed".equals(method)) break;
+                if ("turn/failed".equals(method) || "turn/aborted".equals(method)) {
+                    throw new IllegalStateException("Codex turn terminated: " + compact(params));
+                }
                 if (message.has("error")) throw rpcError(message);
             }
             if (response.isEmpty()) throw new ProviderMalformedResponseException("Codex app-server response missing text");
@@ -115,6 +121,12 @@ public final class CodexAppServerClient implements AutoCloseable {
         if (message == null || message.isBlank()) return "<none>";
         String normalized = message.replaceAll("[\\r\\n]+", " ");
         return normalized.substring(0, Math.min(normalized.length(), 240));
+    }
+
+    private static String compact(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) return "{}";
+        String value = node.toString();
+        return value.length() <= 2000 ? value : value.substring(0, 2000) + "…";
     }
 
     public synchronized boolean isAuthenticated() {
