@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import type { AdventureSessionApi, AdventureSessionView, AdventureStoryPlanGenerationJobView, AdventureStoryPlanView } from './AdventureSessionApi'
+import type { AdventureSessionApi, AdventureSessionView, AdventureStoryPlanGenerationJobView, AdventureStoryPlanView, TacticalScenePreparationView } from './AdventureSessionApi'
 import { Progress } from '../../components/ui/progress'
 
-type StoryPlanApi = Pick<AdventureSessionApi, 'read' | 'readStoryPlan' | 'startStoryPlanGeneration' | 'readStoryPlanGeneration' | 'retryStoryPlan' | 'start' | 'recoverStart' | 'saveAppliedRuleSet'>
+type StoryPlanApi = Pick<AdventureSessionApi, 'read' | 'readStoryPlan' | 'startStoryPlanGeneration' | 'readStoryPlanGeneration' | 'retryStoryPlan' | 'start' | 'recoverStart' | 'saveAppliedRuleSet'> & Partial<Pick<AdventureSessionApi, 'prepareTacticalScene' | 'retryTacticalScene' | 'activateStageMap'>>
 type AdventureLength = 'SHORT' | 'STANDARD' | 'LONG'
 
 export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; sessionId: string }) {
@@ -14,6 +14,7 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
   const [adventureLength, setAdventureLength] = useState<AdventureLength>('STANDARD')
   const [loadingPlan, setLoadingPlan] = useState(false)
   const [recovering, setRecovering] = useState(false)
+  const [tacticalPreparation, setTacticalPreparation] = useState<TacticalScenePreparationView | null>(null)
   const [adventureId] = useState(crypto.randomUUID())
 
   useEffect(() => {
@@ -72,6 +73,13 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
       const edition = catalog.find(item => item.rulebookId && configuration.rulebookIds.includes(item.rulebookId))?.edition ?? 'DND_5E_2014'
       await api.saveAppliedRuleSet(adventureId, configuration.ruleSetId, edition, configuration.rulebookIds)
       const started = await api.start(sessionId, session.version, adventureId)
+      const currentStage = plan.stages.find(stage => stage.position === plan.currentStage + 1)
+      if (currentStage && api.prepareTacticalScene) {
+        const preparation = await api.prepareTacticalScene(sessionId, currentStage.position)
+        setTacticalPreparation(preparation)
+        if (preparation.status !== 'READY') throw new Error(preparation.failureReason || preparation.message)
+        if (preparation.mapRequired && api.activateStageMap) await api.activateStageMap(sessionId, currentStage.position)
+      }
       if (started.adventureId) window.location.hash = `#/adventures/${started.adventureId}`
     } catch (error) {
       setMessage(error instanceof Error ? error.message : '모험을 시작하지 못했습니다.')
@@ -111,6 +119,7 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
   return <section className="story-plan-page" aria-labelledby="story-plan-title">
     <div className="page-heading"><div><p className="eyebrow">ADVENTURE STORY PLAN</p><h1 id="story-plan-title">모험 계획 준비</h1><p>전체 줄거리와 결말은 공개하지 않습니다. 플레이에 필요한 준비 상태만 표시합니다.</p></div><span className="status-chip">{plan.status}</span></div>
     {generation && <div className="preparation-progress" role="status" aria-live="polite"><div className="preparation-progress-heading"><span>{generation.stage}</span><strong>{generation.progress}%</strong></div><Progress value={generation.progress} aria-label="모험 계획 생성 진행률" />{generation.message && <p>{generation.message}</p>}</div>}
+    {tacticalPreparation && <div className="preparation-progress" role="status" aria-live="polite"><div className="preparation-progress-heading"><span>{tacticalPreparation.stageName}</span><strong>{tacticalPreparation.progress}%</strong></div><Progress value={tacticalPreparation.progress} aria-label="Shard CN 전술 장면 준비 진행률" />{tacticalPreparation.failureReason ? <p role="alert">{tacticalPreparation.message} {tacticalPreparation.failureReason}</p> : <p>{tacticalPreparation.message}</p>}{tacticalPreparation.status === 'FAILED_RETRYABLE' && api.retryTacticalScene && <button type="button" onClick={() => { const retry = api.retryTacticalScene; if (retry) void retry(sessionId, tacticalPreparation.stagePosition).then(setTacticalPreparation).catch(error => setMessage(error instanceof Error ? error.message : '전술 장면을 다시 준비하지 못했습니다.')) }}>전술 장면 다시 준비</button>}</div>}
     <ol aria-label="모험 계획 생성 단계" className="story-plan-stages"><li className={ready ? 'complete' : 'active'}>모험 자료 분석</li><li className={ready ? 'complete' : 'active'}>파티 구성 분석</li><li className={ready ? 'complete' : 'active'}>주요 모험 단계 구성</li><li className={ready ? 'complete' : 'active'}>분기와 결말 구성</li><li className={ready ? 'complete' : 'active'}>출처와 규칙 검증</li><li className={ready ? 'complete' : 'active'}>플레이 준비 완료</li></ol>
     <p>확정 파티 {session.party.length}명 · 계획 revision {plan.planRevision} · 결말 {plan.endingCount}개 · {plan.adventureLength}</p>
     {ready && <ol className="story-plan-node-list" aria-label="모험 단계 요약">

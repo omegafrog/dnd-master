@@ -1017,6 +1017,15 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.runtime.TacticalScenePreparationApplicationService tacticalScenePreparationApplicationService(
+            com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository plans,
+            com.dndmaster.adventure.application.session.AdventureSessionRepository sessions,
+            AdventureStoryPlanGenerationPort generator) {
+        return new com.dndmaster.adventure.application.runtime.TacticalScenePreparationApplicationService(
+                plans, sessions, generator, new com.dndmaster.adventure.application.storyplan.TacticalScenePlanValidator());
+    }
+
+    @Bean
     AiCombatPort aiCombatPort() {
         return new AiCombatPort() {
             @Override

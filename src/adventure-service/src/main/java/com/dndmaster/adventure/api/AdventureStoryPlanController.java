@@ -17,6 +17,7 @@ import com.dndmaster.adventure.application.runtime.TacticalMapActivationApplicat
 import com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimeApplicationService;
 import com.dndmaster.adventure.application.storyplan.FutureTacticalSceneRevisionService;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationJobService;
+import com.dndmaster.adventure.application.runtime.TacticalScenePreparationApplicationService;
 import com.dndmaster.adventure.domain.adventure.TacticalScenePlan;
 
 @RestController
@@ -30,6 +31,7 @@ public final class AdventureStoryPlanController {
     private final FutureTacticalSceneRevisionService futureRevision;
     private final ApiRequestGuard requestGuard;
     private final AdventureStoryPlanGenerationJobService generationJobs;
+    private final TacticalScenePreparationApplicationService tacticalPreparation;
 
     @Autowired
     public AdventureStoryPlanController(AdventureStoryPlanApplicationService service, AdventureSessionApplicationService sessions,
@@ -38,22 +40,30 @@ public final class AdventureStoryPlanController {
             @org.springframework.beans.factory.annotation.Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
             AdventureStoryPlanGenerationJobService generationJobs) {
         this(service, sessions, mapActivation, playerResolver, triggerRuntime, futureRevision,
-                new ApiRequestGuard(internalToken), generationJobs);
+                new ApiRequestGuard(internalToken), generationJobs, null);
     }
 
     public AdventureStoryPlanController(AdventureStoryPlanApplicationService service, AdventureSessionApplicationService sessions,
             TacticalMapActivationApplicationService mapActivation, AuthenticatedPlayerResolver playerResolver,
             TacticalTriggerRuntimeApplicationService triggerRuntime, FutureTacticalSceneRevisionService futureRevision,
             ApiRequestGuard requestGuard) {
-        this(service, sessions, mapActivation, playerResolver, triggerRuntime, futureRevision, requestGuard, null);
+        this(service, sessions, mapActivation, playerResolver, triggerRuntime, futureRevision, requestGuard, null, null);
     }
 
     public AdventureStoryPlanController(AdventureStoryPlanApplicationService service, AdventureSessionApplicationService sessions,
             TacticalMapActivationApplicationService mapActivation, AuthenticatedPlayerResolver playerResolver,
             TacticalTriggerRuntimeApplicationService triggerRuntime, FutureTacticalSceneRevisionService futureRevision,
             ApiRequestGuard requestGuard, AdventureStoryPlanGenerationJobService generationJobs) {
+        this(service, sessions, mapActivation, playerResolver, triggerRuntime, futureRevision, requestGuard, generationJobs, null);
+    }
+
+    public AdventureStoryPlanController(AdventureStoryPlanApplicationService service, AdventureSessionApplicationService sessions,
+            TacticalMapActivationApplicationService mapActivation, AuthenticatedPlayerResolver playerResolver,
+            TacticalTriggerRuntimeApplicationService triggerRuntime, FutureTacticalSceneRevisionService futureRevision,
+            ApiRequestGuard requestGuard, AdventureStoryPlanGenerationJobService generationJobs,
+            TacticalScenePreparationApplicationService tacticalPreparation) {
         this.service = service; this.sessions = sessions; this.mapActivation = mapActivation; this.playerResolver = playerResolver; this.triggerRuntime = triggerRuntime; this.futureRevision = futureRevision;
-        this.requestGuard = requestGuard; this.generationJobs = generationJobs;
+        this.requestGuard = requestGuard; this.generationJobs = generationJobs; this.tacticalPreparation = tacticalPreparation;
     }
 
     @GetMapping
@@ -110,10 +120,42 @@ public final class AdventureStoryPlanController {
         var stage = plan.stages().stream().filter(item -> item.position() == position).findFirst()
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "story plan stage not found"));
         if (stage.mapDefinitionId() == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "stage has no tactical map");
+        if (tacticalPreparation != null) {
+            if (plan.currentStage() + 1 != position) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT, "only the current stage may be prepared");
+            }
+            var preparation = tacticalPreparation.prepare(new SessionId(sessionId), owner());
+            if (preparation.status() != TacticalScenePreparationApplicationService.Status.READY) {
+                throw new ResponseStatusException(HttpStatus.CONFLICT,
+                        preparation.message() + " 사유: " + preparation.failureReason());
+            }
+            plan = service.read(new SessionId(sessionId), owner());
+            stage = plan.stages().stream().filter(item -> item.position() == position).findFirst().orElseThrow();
+        }
         var activation = mapActivation.activateDefinition(session.scenarioPackageId(), session.startedAdventureId().value(), owner().value(),
                 session.runtimeConfiguration().ruleSetId().value(), stage.mapDefinitionId(), stage.tacticalScenePlan(), stage.playerSpawnX(), stage.playerSpawnY());
         activation.combatMapId().ifPresent(id -> triggerRuntime.bindActiveMap(session.startedAdventureId().value(), position, owner().value(), id));
         return new MapActivationView(position, stage.mapDefinitionId(), stage.mapAssetId(), stage.mapAssetLocator(), activation.combatMapId().orElse(null));
+    }
+
+    @PostMapping("/stages/{position}/tactical-scene/prepare")
+    TacticalPreparationView prepareTacticalScene(@PathVariable UUID sessionId, @PathVariable int position) {
+        if (tacticalPreparation == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "tactical preparation is unavailable");
+        var plan = service.read(new SessionId(sessionId), owner());
+        if (plan.currentStage() + 1 != position) throw new ResponseStatusException(HttpStatus.CONFLICT, "only the current stage may be prepared");
+        var view = tacticalPreparation.prepare(new SessionId(sessionId), owner());
+        if (view.stagePosition() != position) throw new ResponseStatusException(HttpStatus.CONFLICT, "only the current stage may be prepared");
+        return TacticalPreparationView.from(view);
+    }
+
+    @PostMapping("/stages/{position}/tactical-scene/retry")
+    TacticalPreparationView retryTacticalScene(@PathVariable UUID sessionId, @PathVariable int position) {
+        if (tacticalPreparation == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "tactical preparation is unavailable");
+        var plan = service.read(new SessionId(sessionId), owner());
+        if (plan.currentStage() + 1 != position) throw new ResponseStatusException(HttpStatus.CONFLICT, "only the current stage may be retried");
+        var view = tacticalPreparation.retry(new SessionId(sessionId), owner());
+        if (view.stagePosition() != position) throw new ResponseStatusException(HttpStatus.CONFLICT, "only the current stage may be retried");
+        return TacticalPreparationView.from(view);
     }
 
     @PostMapping("/stages/{position}/tactical-scene/revise")
@@ -157,6 +199,13 @@ public final class AdventureStoryPlanController {
     }
 
     public record MapActivationView(int stagePosition, UUID mapDefinitionId, String assetId, String assetLocator, UUID combatMapId) {}
+    public record TacticalPreparationView(UUID jobId, UUID sessionId, int stagePosition, String stageName, String status,
+            int progress, int attempts, boolean mapRequired, String message, String failureReason, java.time.Instant updatedAt) {
+        static TacticalPreparationView from(TacticalScenePreparationApplicationService.PreparationView view) {
+            return new TacticalPreparationView(view.jobId(), view.sessionId(), view.stagePosition(), view.stageName(),
+                    view.status().name(), view.progress(), view.attempts(), view.mapRequired(), view.message(), view.failureReason(), view.updatedAt());
+        }
+    }
     public record TriggerApplicationRequest(UUID combatMapId, UUID commandId, long expectedVersion, String qualifyingAction) {
         public TriggerApplicationRequest(UUID combatMapId, UUID commandId, long expectedVersion) {
             this(combatMapId, commandId, expectedVersion, null);

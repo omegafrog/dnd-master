@@ -71,6 +71,7 @@ export type AdventureStoryPlanView = {
     stageType: string
     location: string
     goal: string
+    mapDefinitionId?: string | null
   }>
   failureReason: string | null
 }
@@ -86,6 +87,19 @@ export type AdventureStoryPlanGenerationJobView = {
 }
 
 export type StageMapActivation = { stagePosition: number; mapDefinitionId: string; assetId: string; assetLocator: string; combatMapId: string }
+export type TacticalScenePreparationView = {
+  jobId: string
+  sessionId: string
+  stagePosition: number
+  stageName: string
+  status: 'PREPARING' | 'READY' | 'FAILED_RETRYABLE'
+  progress: number
+  attempts: number
+  mapRequired: boolean
+  message: string
+  failureReason: string | null
+  updatedAt: string
+}
 
 export type GmProviderView = {
   sessionId: string
@@ -154,4 +168,6 @@ export class AdventureSessionApi {
   retryStoryPlan(sessionId: string, configuration: { endingCount: number; adventureLength: AdventureStoryPlanView['adventureLength'] }) { return this.request<AdventureStoryPlanGenerationJobView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/retry`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(configuration) }) }
   readStoryPlanGeneration(jobId: string, sessionId: string) { return this.request<AdventureStoryPlanGenerationJobView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/generation/${jobId}`) }
   activateStageMap(sessionId: string, position: number) { return this.request<StageMapActivation>(`/api/v1/adventure-sessions/${sessionId}/story-plan/stages/${position}/activate-map`, { method: 'POST' }) }
+  prepareTacticalScene(sessionId: string, position: number) { return this.request<TacticalScenePreparationView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/stages/${position}/tactical-scene/prepare`, { method: 'POST' }) }
+  retryTacticalScene(sessionId: string, position: number) { return this.request<TacticalScenePreparationView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/stages/${position}/tactical-scene/retry`, { method: 'POST' }) }
 }

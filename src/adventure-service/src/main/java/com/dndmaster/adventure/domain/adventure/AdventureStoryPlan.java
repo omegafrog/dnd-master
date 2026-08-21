@@ -115,4 +115,16 @@ public final class AdventureStoryPlan {
         candidate.set(position - 1, replacement);
         return reviseFutureStages(candidate);
     }
+
+    /** Publishes the scene for the stage being entered without changing the future stage graph. */
+    public AdventureStoryPlan prepareCurrentStage(AdventureStoryPlanStage replacement) {
+        Objects.requireNonNull(replacement, "replacement stage must not be null");
+        if (replacement.position() != currentStage + 1) {
+            throw new IllegalStateException("only the current stage may be prepared");
+        }
+        List<AdventureStoryPlanStage> candidate = new java.util.ArrayList<>(stages);
+        candidate.set(currentStage, replacement);
+        return new AdventureStoryPlan(planId, sessionId, packageRevision, partyRevision, version + 1, status,
+                configuration, candidate, currentStage, failureReason, Instant.now());
+    }
 }
