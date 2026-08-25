@@ -13,6 +13,7 @@ from typing import Any, Callable, Iterable, Mapping
 
 from preprocessing_agent.domain import ParsedBlock, ParsedDocument, ParsedPage, SourceSpan
 from preprocessing_agent.layout import ReadingOrderPlanner
+from preprocessing_agent.domain.serialization import to_dict
 from .base import ParserError
 from .normalize import normalize_text
 
@@ -31,6 +32,7 @@ class PdfDocumentParser:
         except Exception as exc:  # normalize adapter errors at the port boundary
             raise ParserError(f"failed to parse {source}: {exc}") from exc
         pages: list[ParsedPage] = []
+        layout_diagnostics: list[dict[str, Any]] = []
         document_parts: list[str] = []
         for page_position, raw_page in enumerate(raw_pages, start=1):
             page_number = int(raw_page.get("page_number", page_position))
@@ -40,7 +42,22 @@ class PdfDocumentParser:
                 ({**raw_block, "block_id": str(raw_block.get("block_id", f"p{page_number}-b{index}"))})
                 for index, raw_block in enumerate(raw_page.get("blocks", ()))
             )
-            raw_blocks = _order_blocks(source_blocks)
+            missing_geometry = any(raw_block.get("bbox") is None for raw_block in source_blocks)
+            plan = None if missing_geometry else ReadingOrderPlanner().plan(source_blocks)
+            if missing_geometry:
+                # Text-only callers remain compatible, but the missing
+                # geometry is explicit evidence and cannot be READY-published.
+                raw_blocks = source_blocks
+                layout_diagnostics.append({"page_number": page_number, "finding": "LAYOUT_GEOMETRY_REQUIRED"})
+            elif plan.ambiguous:
+                # Keep the adapter's source projection only as an explicitly
+                # diagnosed, non-confirmed result; the application gate blocks
+                # such pages from READY publication.
+                raw_blocks = source_blocks
+                layout_diagnostics.append({"page_number": page_number, "layout": to_dict(plan)})
+            else:
+                by_id = {str(block["block_id"]): block for block in source_blocks}
+                raw_blocks = tuple(by_id[block_id] for block_id in (*plan.ordered_block_ids, *plan.furniture_block_ids))
             blocks: list[ParsedBlock] = []
             page_parts: list[str] = []
             char_cursor = 0
@@ -68,7 +85,10 @@ class PdfDocumentParser:
             document_parts.append(page_text)
         source_text = normalize_text("\n".join(document_parts))
         document_id = hashlib.sha256(source_text.encode("utf-8")).hexdigest()[:16]
-        return ParsedDocument(document_id, str(source), source_text, tuple(pages), {"format": "pdf"})
+        metadata = {"format": "pdf"}
+        if layout_diagnostics:
+            metadata["layout_diagnostics"] = layout_diagnostics
+        return ParsedDocument(document_id, str(source), source_text, tuple(pages), metadata)
 
 
 def _bbox(value: Any) -> tuple[float, float, float, float] | None:
@@ -127,47 +147,11 @@ def _order_blocks(blocks: tuple[Mapping[str, Any], ...]) -> tuple[Mapping[str, A
         return blocks
     plan = ReadingOrderPlanner().plan(blocks)
     if plan.ambiguous:
-        # Preserve extractor order only as an explicitly flagged diagnostic
-        # state; callers must not treat this projection as confirmed order.
-        return blocks
+        # Deterministic geometry is diagnostic only; the application gate must
+        # reject the corresponding page as NEEDS_REVIEW.
+        return tuple(sorted(blocks, key=lambda block: (_bbox(block["bbox"])[1], _bbox(block["bbox"])[0], str(block.get("block_id", "")))))
     by_id = {str(block.get("block_id", f"block-{index}")): block for index, block in enumerate(blocks)}
     return tuple(by_id[block_id] for block_id in plan.ordered_block_ids if block_id in by_id)
-
-
-def _strong_column_split(blocks: tuple[Mapping[str, Any], ...]) -> float | None:
-    if len(blocks) < 4:
-        return None
-    bboxes = [_bbox(block.get("bbox")) for block in blocks]
-    if any(bbox is None for bbox in bboxes):
-        return None
-    valid_bboxes = [bbox for bbox in bboxes if bbox is not None]
-    x_starts = sorted({bbox[0] for bbox in valid_bboxes})
-    if len(x_starts) < 2:
-        return None
-
-    page_left = min(bbox[0] for bbox in valid_bboxes)
-    page_right = max(bbox[2] for bbox in valid_bboxes)
-    page_width = page_right - page_left
-    if page_width <= 0:
-        return None
-    gaps = [(x_starts[index + 1] - x_starts[index], x_starts[index], x_starts[index + 1])
-            for index in range(len(x_starts) - 1)]
-    gap_index, (gap, left_start, right_start) = max(enumerate(gaps), key=lambda item: item[1][0])
-    if gap < page_width * 0.2:
-        return None
-    other_gaps = [candidate[0] for index, candidate in enumerate(gaps) if index != gap_index]
-    if other_gaps and gap < max(other_gaps) * 2:
-        return None
-
-    left_blocks = [bbox for bbox in valid_bboxes if bbox[0] < right_start and bbox[2] <= right_start]
-    right_blocks = [bbox for bbox in valid_bboxes if bbox[0] >= right_start]
-    if len(left_blocks) < 2 or len(right_blocks) < 2:
-        return None
-    left_right = max(bbox[2] for bbox in left_blocks)
-    right_left = min(bbox[0] for bbox in right_blocks)
-    if left_right >= right_left:
-        return None
-    return (left_right + right_left) / 2
 
 
 def _default_extractor(source: Path) -> Iterable[Mapping[str, Any]]:

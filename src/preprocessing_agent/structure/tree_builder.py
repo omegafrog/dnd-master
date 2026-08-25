@@ -29,7 +29,8 @@ class DocumentTreeBuilder:
         repeated = _repeated_furniture(document)
         for page in document.pages:
             for block in page.blocks:
-                if normalized_key(block.source_text) in repeated:
+                edge_furniture = block.bbox is not None and (block.font_size or 0) <= 9 and (block.bbox[1] < 60 or block.bbox[3] > 720)
+                if normalized_key(block.source_text) in repeated or edge_furniture:
                     continue
                 decision = self.detector.detect(block)
                 if decision.is_heading:

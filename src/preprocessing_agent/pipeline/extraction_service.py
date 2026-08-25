@@ -245,9 +245,10 @@ class ExtractionApplicationService:
                         raise ValueError("INVALID_GEOMETRY")
                     LayoutBlock(str(block.get("block_id", "")), str(block.get("kind", "text")), bbox, str(block.get("text", "")), extraction_method, float(block.get("confidence", 1.0)), document_id, number, geometry)
                     blocks.append({**block, "bbox": [bbox.x0, bbox.y0, bbox.x1, bbox.y1], "source_document_id": document_id, "page_number": number, "page_geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}})
-                if raw.get("column_count", 1) != 1 or raw.get("layout") in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, []):
-                    raise ValueError("MULTI_COLUMN_UNSUPPORTED")
                 raw = {**raw, "blocks": blocks}
+                declared_multi = raw.get("column_count", 1) != 1 or raw.get("layout") in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, [])
+                if declared_multi and not blocks:
+                    raise ValueError("MULTI_COLUMN_UNSUPPORTED: MULTI_COLUMN_GEOMETRY_REQUIRED")
                 layout_plan = ReadingOrderPlanner().plan(blocks, geometry)
                 if layout_plan.ambiguous:
                     raise ValueError("AMBIGUOUS_COLUMN_HYPOTHESIS")
@@ -259,7 +260,9 @@ class ExtractionApplicationService:
                 page_artifacts.append({**evidence, "status": PageStatus.VALIDATED.value, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
             except (KeyError, TypeError, ValueError) as exc:
                 safe_number = number if "number" in locals() and 1 <= number <= version.page_count else position
-                version.record_page(PageExtraction.needs_review(safe_number, str(exc) or "INVALID_GEOMETRY"))
+                finding = str(exc) or "INVALID_GEOMETRY"
+                findings = [item.strip() for item in finding.split(":") if item.strip()]
+                version.record_page(PageExtraction(safe_number, PageStatus.NEEDS_REVIEW, findings))
                 page_artifacts[:] = [item for item in page_artifacts if item.get("page_number") != safe_number]
                 evidence = {"page_number": safe_number, "status": PageStatus.NEEDS_REVIEW.value, "findings": version.pages[safe_number].findings}
                 page_artifacts.append({**evidence, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})

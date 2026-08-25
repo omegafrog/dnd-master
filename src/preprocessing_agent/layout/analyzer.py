@@ -42,7 +42,9 @@ class LayoutAnalyzer:
         boundaries = [y_min] + cuts + [y_max]
         regions: list[LayoutRegion] = []
         for start, end in zip(boundaries, boundaries[1:]):
-            members = [item for item in entries if item[1].y0 < end and item[1].y1 > start]
+            # Assign by block centre so a block crossing a cut belongs to one
+            # region only. Boundary ties are resolved toward the later region.
+            members = [item for item in entries if start <= (item[1].y0 + item[1].y1) / 2 <= end]
             if not members:
                 continue
             # A spanning block belongs to the nearest region; it is separately
@@ -86,6 +88,32 @@ class LayoutAnalyzer:
             balance = min(len(left_items), len(right_items)) / max(len(entries), 1)
             score = min(1.0, .45 + separation + balance * .35)
             candidates.append(ColumnHypothesis(2, (BoundingBox(overall_left, overall_top, max(box.x1 for box in left_items), overall_bottom), BoundingBox(min(box.x0 for box in right_items), overall_top, overall_right, overall_bottom)), score, "gutter"))
+        # N-column candidates are formed from the strongest x gutters. This is
+        # intentionally geometry-only; semantic table interpretation belongs
+        # to the following plan.
+        for count in range(3, min(4, len(starts)) + 1):
+            chosen = sorted(gaps, reverse=True)[: count - 1]
+            cuts = []
+            for _, _, right_start in chosen:
+                left_boxes = [box for box, _ in entries if box.x0 < right_start]
+                right_boxes = [box for box, _ in entries if box.x0 >= right_start]
+                if not left_boxes or not right_boxes:
+                    cuts = []
+                    break
+                cuts.append((max(box.x1 for box in left_boxes) + min(box.x0 for box in right_boxes)) / 2)
+            cuts.sort()
+            if len(cuts) != count - 1:
+                continue
+            bands = [overall_left, *cuts, overall_right]
+            groups = [[box for box, _ in entries if bands[index] <= box.x0 and box.x1 <= bands[index + 1]] for index in range(count)]
+            if any(not group for group in groups):
+                continue
+            if any(not any(min(left_box.y1, right_box.y1) > max(left_box.y0, right_box.y0) for left_box in groups[index] for right_box in groups[index + 1]) for index in range(count - 1)):
+                continue
+            balance = min(len(group) for group in groups) / max(len(entries), 1)
+            separation = sum(item[0] for item in chosen) / max(overall_right - overall_left, 1.0)
+            score = min(1.0, .45 + separation + balance * .35)
+            candidates.append(ColumnHypothesis(count, tuple(BoundingBox(min(box.x0 for box in group), overall_top, max(box.x1 for box in group), overall_bottom) for group in groups), score, "gutter-cluster"))
         candidates.sort(key=lambda item: (-item.score, item.column_count))
         best = candidates[0]
         second = candidates[1] if len(candidates) > 1 else None
