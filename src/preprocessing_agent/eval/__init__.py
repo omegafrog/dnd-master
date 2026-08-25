@@ -20,3 +20,7 @@ __all__ += ["DenseBaselineResult", "DenseEmbeddingError", "DenseEmbeddingIndexAd
             "EmbeddingProvider", "run_dense_baseline", "write_dense_blocked"]
 from .bm25 import Bm25BaselineResult, Bm25IndexAdapter, Bm25InputError, run_bm25_baseline, tokenize_bm25, write_bm25_blocked
 __all__ += ["Bm25BaselineResult", "Bm25IndexAdapter", "Bm25InputError", "run_bm25_baseline", "tokenize_bm25", "write_bm25_blocked"]
+from .hybrid import (FAILURE_TAXONOMY as RETRIEVAL_FAILURE_TAXONOMY, HybridBaselineResult, RrfHybridRetriever,
+                     classify_retrieval_failure, compare_retrieval_experiments, run_hybrid_baseline)
+__all__ += ["RETRIEVAL_FAILURE_TAXONOMY", "HybridBaselineResult", "RrfHybridRetriever",
+            "classify_retrieval_failure", "compare_retrieval_experiments", "run_hybrid_baseline"]

@@ -1,6 +1,6 @@
 # RAG-005 Hybrid Comparison
 
-- 상태: `ready-for-agent`
+- 상태: `completed`
 - 의존성: RAG-003, RAG-004
 
 ## 구현 목적
