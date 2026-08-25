@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from preprocessing_agent.domain import Chunk, DocumentTree
 from preprocessing_agent.domain.serialization import from_dict
@@ -34,7 +34,27 @@ class EvalConfig:
     source_mutation_max: float = 0.0
 
 
-def load_exported_run(run_dir: str | Path) -> ExportedRun:
+SourceExtractor = Callable[[Path], str]
+
+
+def _read_source_text(source_path: Path, extractor: SourceExtractor | None = None) -> str:
+    """Read an exported source without applying text decoding to known PDFs."""
+    if source_path.suffix.lower() == ".pdf":
+        if extractor is not None:
+            return extractor(source_path)
+        try:
+            import pymupdf
+        except ImportError as exc:
+            raise EvaluationInputError("PDF source requires PyMuPDF or an injected source extractor") from exc
+        with pymupdf.open(source_path) as document:
+            return "".join(page.get_text("text") for page in document)
+    try:
+        return source_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise EvaluationInputError(f"source is neither a PDF nor valid UTF-8 text: {source_path}") from exc
+
+
+def load_exported_run(run_dir: str | Path, source_extractor: SourceExtractor | None = None) -> ExportedRun:
     root = Path(run_dir)
     required = ("chunks.jsonl", "document_tree.json", "manifest.json")
     missing = [name for name in required if not (root / name).is_file()]
@@ -51,7 +71,7 @@ def load_exported_run(run_dir: str | Path) -> ExportedRun:
         source_path = Path(str(manifest["source"].get("path", "")))
         for candidate in (source_path, root / source_path, root.parent / source_path):
             if candidate.is_file():
-                source_text = candidate.read_text(encoding="utf-8")
+                source_text = _read_source_text(candidate, source_extractor)
                 break
     return ExportedRun(root, tuple(sorted(chunks, key=lambda item: item.chunk_id)), tree, manifest, source_text)
 
