@@ -11,6 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from preprocessing_agent.eval.preprocessing import EvalConfig, EvaluationInputError, load_exported_run  # noqa: E402
 from preprocessing_agent.eval.report import write_report  # noqa: E402
+from preprocessing_agent.eval.retrieval import OfflineRankedIdRetriever  # noqa: E402
 
 
 def _config(path: Path | None) -> EvalConfig:
@@ -33,9 +34,13 @@ def main() -> int:
     parser.add_argument("--eval", dest="eval_jsonl", type=Path, help="accepted for the shared evaluator CLI; intrinsic metrics need no cases")
     parser.add_argument("--config", type=Path, default=Path(__file__).resolve().parents[1] / "configs/preprocessing_eval.yaml")
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--retrieved", type=Path, help="JSON object mapping query IDs to ranked evaluator chunk IDs")
     args = parser.parse_args()
     try:
-        report, failures = write_report(load_exported_run(args.run), args.output, _config(args.config), args.eval_jsonl)
+        retriever = None
+        if args.retrieved:
+            retriever = OfflineRankedIdRetriever(json.loads(args.retrieved.read_text(encoding="utf-8")))
+        report, failures = write_report(load_exported_run(args.run), args.output, _config(args.config), args.eval_jsonl, retriever)
     except EvaluationInputError as exc:
         print(f"input error: {exc}", file=sys.stderr)
         return 2
