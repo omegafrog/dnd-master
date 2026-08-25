@@ -92,6 +92,13 @@ def test_status_requires_artifact_root_and_rejects_unsafe_version_id(tmp_path: P
     assert json.loads(proc.stdout)["error"]["code"] == "INVALID_REQUEST"
 
 
+def test_relative_parent_paths_are_rejected(tmp_path: Path) -> None:
+    request = {"schema_version": "1", "operation": "preprocess", "request_id": "r", "source_path": str(tmp_path / ".." / "input.md"), "source_sha256": "0" * 64, "policy_version": "p", "output_dir": str(tmp_path)}
+    proc = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env={"PYTHONPATH": "src"})
+    assert proc.returncode == 2
+    assert json.loads(proc.stdout)["error"]["code"] == "INVALID_REQUEST"
+
+
 def test_status_requires_request_id_and_exposes_page_read_model(tmp_path: Path) -> None:
     source = tmp_path / "input.md"
     source.write_text("content", encoding="utf-8")

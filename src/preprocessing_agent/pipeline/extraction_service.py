@@ -119,11 +119,15 @@ def _canonical_path(value: str, *, require_file: bool = False) -> Path:
     raw = Path(value).expanduser()
     if not raw.is_absolute() or str(raw).startswith("/mnt/"):
         raise ValueError("INVALID_REQUEST")
+    if any(part in {".", ".."} for part in raw.parts):
+        raise ValueError("INVALID_REQUEST")
     resolved = raw.resolve()
     if require_file and not resolved.is_file():
         raise ValueError("SOURCE_NOT_FOUND")
-    if any(part == "." for part in raw.parts):
-        raise ValueError("INVALID_REQUEST")
+    cursor = raw
+    for parent in [cursor, *cursor.parents]:
+        if parent.exists() and parent.is_symlink():
+            raise ValueError("INVALID_REQUEST")
     return resolved
 
 
