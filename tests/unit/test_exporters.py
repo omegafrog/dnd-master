@@ -54,3 +54,16 @@ def test_exporter_keeps_unicode_paragraph_separator_inside_one_jsonl_line(tmp_pa
 
     assert len(lines) == 1
     assert json.loads(lines[0])["source_text"] == text
+
+
+def test_exporter_drops_numeric_separator_unknown_garbage_but_keeps_short_meaningful_rows(tmp_path):
+    garbage = Chunk("chk-garbage", "rules.garbage", ContentType.UNKNOWN, "7", "7", 1,
+                    (SourceSpan(1, 0, 0, 1),), ("rules",))
+    row = Chunk("chk-row", "rules.row", ContentType.UNKNOWN, "7. Longsword", "7. Longsword", 2,
+                (SourceSpan(1, 1, 0, 13),), ("rules",))
+    tree = DocumentTree("doc", SectionNode("root", "Rules", 0, ContentType.RULE))
+
+    ArtifactExporter().export(tmp_path, "doc.pdf", "source", (garbage, row), (), tree)
+
+    exported = [json.loads(line) for line in (tmp_path / "chunks.jsonl").read_text().splitlines()]
+    assert [item["chunk_id"] for item in exported] == ["chk-row"]

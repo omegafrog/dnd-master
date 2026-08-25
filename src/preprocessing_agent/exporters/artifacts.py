@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Iterable
 
 from preprocessing_agent.domain import Chunk, DocumentTree, ValidationIssue, to_dict
+from preprocessing_agent.validation.deterministic import is_numeric_separator_only_unknown
 
 
 _CHUNK_FIELDS = (
@@ -33,7 +34,8 @@ class ArtifactExporter:
         output = Path(output_dir); output.mkdir(parents=True, exist_ok=True)
         all_chunks = tuple(chunks); all_issues = tuple(issues)
         invalid = invalid_chunk_ids or {item.path for item in all_issues if item.issue_type == "invalid_source_span"}
-        exported = tuple(item for item in all_chunks if item.chunk_id not in invalid)
+        exported = tuple(item for item in all_chunks
+                         if item.chunk_id not in invalid and not is_numeric_separator_only_unknown(item))
         self._jsonl(output / "chunks.jsonl", exported, serializer=_chunk_to_dict)
         self._jsonl(output / "issues.jsonl", all_issues)
         (output / "document_tree.json").write_text(json.dumps(to_dict(tree), ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")

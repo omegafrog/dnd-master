@@ -27,3 +27,18 @@ def test_repeated_noise_is_removed_only_when_repeated():
 
     assert all(item.source_text.startswith("Page title") for item in processed)
     assert all(not item.embedding_text.startswith("Page title") for item in processed)
+
+
+def test_repeated_footer_and_page_number_are_removed_from_embedding_only():
+    footer = "D&D Basic Rules"
+    chunks = (
+        make_chunk(f"Body one.\n{footer} | 7", "a"),
+        make_chunk(f"Body two.\n{footer} | 8", "b"),
+    )
+
+    processed = postprocess_chunks(chunks)
+
+    assert [item.source_text for item in processed] == [item.source_text for item in chunks]
+    assert all(footer in item.source_text for item in processed)
+    assert all(footer not in item.embedding_text for item in processed)
+    assert all(item.source_spans == chunks[index].source_spans for index, item in enumerate(processed))

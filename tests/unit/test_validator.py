@@ -79,3 +79,15 @@ def test_validator_rejects_invalid_page_block_and_page_offsets(span):
     )
 
     assert any(issue.issue_type == "invalid_source_span" for issue in result.issues)
+
+
+def test_validator_rejects_duplicate_chunk_and_canonical_ids():
+    first = chunk("same", "First.")
+    duplicate_chunk_id = Chunk(first.chunk_id, "rules.other", ContentType.RULE, "Second.", "Second.", 1,
+                               first.source_spans, first.section_path)
+    duplicate_key = Chunk("chk-other", first.canonical_key, ContentType.RULE, "Third.", "Third.", 1,
+                          first.source_spans, first.section_path)
+
+    result = validate_chunks((first, duplicate_chunk_id, duplicate_key), page_count=1, block_count=1)
+
+    assert {issue.issue_type for issue in result.issues} >= {"duplicate_chunk_id", "duplicate_canonical_key"}

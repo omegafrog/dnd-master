@@ -19,7 +19,9 @@ def test_pipeline_runs_fixture_and_exports_all_public_artifacts(tmp_path):
         output_dir=tmp_path / "out",
     ).run(source=source)
     assert result.chunks
-    assert any(chunk.canonical_key.endswith("fire_bolt") for chunk in result.chunks)
+    assert any("fire_bolt" in chunk.canonical_key and ".p" in chunk.canonical_key for chunk in result.chunks)
+    assert len({chunk.chunk_id for chunk in result.chunks}) == len(result.chunks)
+    assert len({chunk.canonical_key for chunk in result.chunks}) == len(result.chunks)
     assert result.manifest["source_sha256"]
     assert {name for name in ("chunks.jsonl", "issues.jsonl", "document_tree.json", "manifest.json") if (tmp_path / "out" / name).exists()} == {
         "chunks.jsonl", "issues.jsonl", "document_tree.json", "manifest.json"

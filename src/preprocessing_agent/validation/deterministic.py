@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable
 
-from preprocessing_agent.domain import Chunk, ParsedDocument, ValidationIssue, ValidationResult
+from preprocessing_agent.domain import Chunk, ContentType, ParsedDocument, ValidationIssue, ValidationResult
 from preprocessing_agent.utils.tokens import count_tokens
 import re
 
@@ -42,8 +42,18 @@ def validate_chunks(
     issues: list[ValidationIssue] = []
     seen_text: dict[str, str] = {}
     seen_identity: set[tuple[str, str]] = set()
+    seen_chunk_ids: dict[str, str] = {}
+    seen_canonical_keys: dict[str, str] = {}
     for chunk in items:
         path = chunk.chunk_id
+        if chunk.chunk_id in seen_chunk_ids:
+            issues.append(ValidationIssue("duplicate_chunk_id", f"duplicate chunk id of {seen_chunk_ids[chunk.chunk_id]}", path=path))
+        else:
+            seen_chunk_ids[chunk.chunk_id] = path
+        if chunk.canonical_key in seen_canonical_keys:
+            issues.append(ValidationIssue("duplicate_canonical_key", f"duplicate canonical key of {seen_canonical_keys[chunk.canonical_key]}", path=path))
+        else:
+            seen_canonical_keys[chunk.canonical_key] = path
         text = chunk.source_text.strip()
         if not _CANONICAL_KEY.fullmatch(chunk.canonical_key):
             issues.append(ValidationIssue("malformed_canonical_key", "canonical key is not in canonical format", path=path))
@@ -98,3 +108,11 @@ def _is_garbage_candidate(text: str) -> bool:
     if any(character.isalpha() for character in compact):
         return False
     return any(character.isdigit() for character in compact) or any(not character.isalnum() for character in compact)
+
+
+def is_numeric_separator_only_unknown(chunk: Chunk) -> bool:
+    """Identify deterministic extraction noise safe to exclude at export time."""
+    if chunk.content_type is not ContentType.UNKNOWN:
+        return False
+    compact = "".join(chunk.source_text.split())
+    return bool(compact) and not any(character.isalpha() for character in compact) and _is_garbage_candidate(chunk.source_text)

@@ -30,21 +30,28 @@ def _normalize_embedding_text(text: str) -> str:
     return text
 
 
+def _boundary_signature(line: str) -> str:
+    return re.sub(r"\b\d+\b", "<page>", " ".join(line.split()).casefold())
+
+
 def _repeated_boundary_lines(chunks: tuple[Chunk, ...]) -> frozenset[str]:
     counts: Counter[str] = Counter()
     for chunk in chunks:
         lines = [line.strip() for line in chunk.source_text.splitlines() if line.strip()]
-        if lines:
-            counts[lines[0]] += 1
-    return frozenset(line for line, count in counts.items() if count >= 2 and len(line.split()) <= 12)
+        for line in {lines[0], lines[-1]} if lines else ():
+            counts[_boundary_signature(line)] += 1
+    return frozenset(signature for signature, count in counts.items()
+                     if count >= 2 and len(signature.split()) <= 12)
 
 
 def _remove_repeated_noise(text: str, repeated: frozenset[str]) -> str:
     if not repeated:
         return text
     lines = text.splitlines()
-    while lines and lines[0].strip() in repeated:
+    while lines and _boundary_signature(lines[0].strip()) in repeated:
         lines.pop(0)
+    while lines and _boundary_signature(lines[-1].strip()) in repeated:
+        lines.pop()
     return "\n".join(lines)
 
 
