@@ -10,6 +10,8 @@ import fcntl
 import re
 import os
 import math
+import contextlib
+import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -87,7 +89,8 @@ class NativePdfPort(Protocol):
 class PyMuPdfNativePdfAdapter:
     def extract(self, source: Path) -> list[Mapping[str, Any]]:
         try:
-            import fitz  # type: ignore
+            with contextlib.redirect_stdout(sys.stderr):
+                import fitz  # type: ignore
         except ImportError as exc:
             raise RuntimeError("PyMuPDF is required for PDF process requests") from exc
         pages: list[Mapping[str, Any]] = []
