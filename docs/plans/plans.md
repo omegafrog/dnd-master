@@ -7,5 +7,5 @@
 | [RAG-003 Dense Baseline](rag-003-dense-baseline.md) | `completed` | RAG-002 | injected Dense adapter and baseline artifacts |
 | [RAG-004 BM25 Baseline](rag-004-bm25-baseline.md) | `completed` | RAG-002 | BM25 adapter and baseline artifacts |
 | [RAG-005 Hybrid Comparison](rag-005-hybrid-comparison.md) | `completed` | RAG-003, RAG-004 | RRF, comparison, failure taxonomy |
-| [RAG-006 Reranker and Context](rag-006-reranker-context.md) | `ready-for-agent` | RAG-005 | reranker, parent context, generation handoff |
-| [RAG-007 Generation Abstention](rag-007-generation-abstention.md) | `planned` | RAG-006 | generation, citation, unanswerable evaluation |
+| [RAG-006 Reranker and Context](rag-006-reranker-context.md) | `completed` | RAG-005 | reranker, parent context, generation handoff |
+| [RAG-007 Generation Abstention](rag-007-generation-abstention.md) | `completed` | RAG-006 | generation, citation, unanswerable evaluation |
