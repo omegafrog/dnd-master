@@ -14,15 +14,24 @@ SUPPORTED_SCHEMA = "1"
 def main() -> int:
     try:
         request = json.loads(sys.stdin.read())
-        if not isinstance(request, dict):
+        if not isinstance(request, dict) or request.get("schema_version") != SUPPORTED_SCHEMA:
             raise ValueError("INVALID_REQUEST")
-        if request.get("schema_version") != SUPPORTED_SCHEMA:
-            raise ValueError("UNSUPPORTED_SCHEMA")
-        response = ExtractionApplicationService().preprocess(request)
+        operation = request.get("operation")
+        if operation == "preprocess":
+            required = ("request_id", "source_path", "policy_version")
+            if any(not isinstance(request.get(key), str) or not request[key] for key in required):
+                raise ValueError("INVALID_REQUEST")
+            response = ExtractionApplicationService().preprocess(request)
+        elif operation == "status":
+            if not isinstance(request.get("version_id"), str) or not isinstance(request.get("artifact_root"), str):
+                raise ValueError("INVALID_REQUEST")
+            response = ExtractionApplicationService().get_status(request["version_id"], request["artifact_root"])
+        else:
+            raise ValueError("INVALID_REQUEST")
         print(json.dumps(response, ensure_ascii=False, sort_keys=True))
         return 0
     except Exception as exc:
-        code = str(exc) if str(exc) in {"UNSUPPORTED_SCHEMA", "SOURCE_NOT_FOUND", "VERSION_NOT_FOUND"} else "PROCESSING_FAILED"
+        code = str(exc) if str(exc) in {"SOURCE_NOT_FOUND", "VERSION_NOT_FOUND", "SOURCE_HASH_MISMATCH", "VERSION_ID_CONFLICT", "INVALID_REQUEST"} else "PROCESSING_FAILED"
         print(json.dumps({"schema_version": SUPPORTED_SCHEMA, "error": {"code": code, "message": str(exc)}}, ensure_ascii=False, sort_keys=True))
         print(f"preprocessing failed: {code}: {exc}", file=sys.stderr)
         return 2

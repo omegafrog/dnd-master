@@ -4,6 +4,8 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
+import shutil
+import tempfile
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -11,7 +13,6 @@ from typing import Any, Mapping, Protocol
 
 from preprocessing_agent.domain import PageStatus, ParsedDocument, ParsedPage, ParsedBlock, SourceSpan
 from preprocessing_agent.domain.layout import BoundingBox, PageGeometry
-from preprocessing_agent.exporters import ArtifactExporter
 from preprocessing_agent.parsers.pdf import PdfDocumentParser
 from preprocessing_agent.pipeline.pipeline import PreprocessingPipeline
 
@@ -93,19 +94,39 @@ class PyMuPdfNativePdfAdapter:
         return pages
 
 
+def _sha256(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
 class ExtractionApplicationService:
     def __init__(self, native_pdf: NativePdfPort | None = None) -> None:
         self.native_pdf = native_pdf or PyMuPdfNativePdfAdapter()
         self._versions: dict[str, Mapping[str, Any]] = {}
 
     def preprocess(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
-        source = Path(str(request.get("source_path", request.get("source", ""))))
+        source = Path(str(request["source_path"]))
         if not source.is_file():
             raise ValueError("SOURCE_NOT_FOUND")
         output = Path(str(request.get("output_dir", source.parent / "preprocessed")))
-        policy = str(request.get("policy_version", "rag-008"))
+        request_id = str(request["request_id"])
+        policy = str(request["policy_version"])
+        source_hash = _sha256(source)
+        if request.get("source_sha256") is not None and request["source_sha256"] != source_hash:
+            raise ValueError("SOURCE_HASH_MISMATCH")
+        output.mkdir(parents=True, exist_ok=True)
+        index_path = output / "request-index.json"
+        index = json.loads(index_path.read_text()) if index_path.exists() else {}
+        idempotency_key = f"{request_id}:{source_hash}:{policy}"
+        if idempotency_key in index:
+            saved = output / "versions" / index[idempotency_key] / "response.json"
+            if saved.exists():
+                return json.loads(saved.read_text())
         raw_pages = self.native_pdf.extract(source) if source.suffix.lower() == ".pdf" else self._text_pages(source)
-        document_id = hashlib.sha256(source.read_bytes()).hexdigest()[:16]
+        document_id = source_hash[:16]
         version_id = str(request.get("version_id") or f"ev-{uuid.uuid4().hex[:12]}")
         version = ExtractionVersion.create(version_id, document_id, policy, len(raw_pages) or 1)
         parser_pages: list[Mapping[str, Any]] = []
@@ -115,41 +136,74 @@ class ExtractionApplicationService:
             geometry_raw = raw.get("geometry", {})
             try:
                 geometry = PageGeometry(float(geometry_raw["width"]), float(geometry_raw["height"]))
-                blocks = list(raw.get("blocks", ()))
-                for block in blocks:
+                blocks = []
+                for block in raw.get("blocks", ()):
                     bbox = BoundingBox(*(float(item) for item in block["bbox"]))
                     if not geometry.contains(bbox):
                         raise ValueError("INVALID_GEOMETRY")
+                    blocks.append({**block, "bbox": [bbox.x0, bbox.y0, bbox.x1, bbox.y1]})
+                raw = {**raw, "blocks": blocks}
                 version.record_page(PageExtraction.validated(number))
                 parser_pages.append(raw)
-                page_artifacts.append({"page_number": number, "status": PageStatus.VALIDATED.value, "geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}})
+                evidence = {"page_number": number, "geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}, "blocks": blocks}
+                page_artifacts.append({**evidence, "status": PageStatus.VALIDATED.value, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
             except (KeyError, TypeError, ValueError) as exc:
                 version.record_page(PageExtraction.needs_review(number, str(exc) or "INVALID_GEOMETRY"))
-                page_artifacts.append({"page_number": number, "status": PageStatus.NEEDS_REVIEW.value, "findings": version.pages[number].findings})
+                evidence = {"page_number": number, "status": PageStatus.NEEDS_REVIEW.value, "findings": version.pages[number].findings}
+                page_artifacts.append({**evidence, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
         ready = False
         manifest: Mapping[str, Any] = {}
-        if all(page.status == PageStatus.VALIDATED for page in version.pages.values()) and version.pages:
-            version.publish()
-            parser = PdfDocumentParser(extractor=lambda _source: parser_pages)
-            result = PreprocessingPipeline.from_config({"name": "extraction-version", "pipeline_version": policy}, parser=parser, output_dir=output).run(source=source)
-            manifest = dict(result.manifest)
-            ready = True
-        else:
-            output.mkdir(parents=True, exist_ok=True)
-            for name in ("chunks.jsonl", "document_tree.json"):
-                path = output / name
-                if path.exists(): path.unlink()
-            (output / "manifest.json").write_text(json.dumps({"status": version.status.value, "version_id": version.version_id}, sort_keys=True) + "\n", encoding="utf-8")
-        version_artifact = {"version_id": version.version_id, "status": version.status.value, "pages": page_artifacts, "manifest": str(output / "manifest.json")}
-        (output / "version.json").write_text(json.dumps(version_artifact, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
-        response = {"schema_version": "1", "request_id": str(request.get("request_id", "")), "version_id": version.version_id, "status": version.status.value, "page_summary": {"count": len(page_artifacts), "ready": sum(item["status"] == "VALIDATED" for item in page_artifacts)}, "artifacts": {"manifest": str(output / "manifest.json"), "version": str(output / "version.json"), "chunks": str(output / "chunks.jsonl") if ready else None}, "manifest": manifest}
-        self._versions[version.version_id] = response
-        return response
+        output.mkdir(parents=True, exist_ok=True)
+        versions = output / "versions"
+        versions.mkdir(exist_ok=True)
+        temp_dir = Path(tempfile.mkdtemp(prefix=f".{version_id}-", dir=str(versions)))
+        try:
+            if all(page.status == PageStatus.VALIDATED for page in version.pages.values()) and version.pages:
+                version.publish()
+                parser = PdfDocumentParser(extractor=lambda _source: parser_pages)
+                result = PreprocessingPipeline.from_config({"name": "extraction-version", "pipeline_version": policy}, parser=parser, output_dir=temp_dir).run(source=source)
+                manifest = dict(result.manifest)
+                ready = True
+            else:
+                version.status = ExtractionStatus.NEEDS_REVIEW
+                (temp_dir / "manifest.json").write_text(json.dumps({"status": version.status.value, "version_id": version.version_id}, sort_keys=True) + "\n")
+            version_artifact = {"version_id": version.version_id, "status": version.status.value, "source_sha256": source_hash, "pages": page_artifacts}
+            (temp_dir / "version.json").write_text(json.dumps(version_artifact, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+            response = {"schema_version": "1", "operation": "preprocess", "request_id": request_id, "version_id": version.version_id, "status": version.status.value, "page_summary": {"count": len(page_artifacts), "processed": len(page_artifacts), "validated": sum(item["status"] == "VALIDATED" for item in page_artifacts), "needs_review": sum(item["status"] == "NEEDS_REVIEW" for item in page_artifacts), "ready": sum(item["status"] == "VALIDATED" for item in page_artifacts)}, "artifacts": self._artifact_refs(temp_dir, ready), "manifest": manifest}
+            (temp_dir / "response.json").write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+            version_dir = versions / version_id
+            if version_dir.exists():
+                raise ValueError("VERSION_ID_CONFLICT")
+            temp_dir.rename(version_dir)
+            index[idempotency_key] = version_id
+            index_path.write_text(json.dumps(index, sort_keys=True, indent=2) + "\n")
+            if ready:
+                for name in ("chunks.jsonl", "manifest.json"):
+                    if not (output / name).exists(): shutil.copy2(version_dir / name, output / name)
+            response = {**response, "artifacts": self._artifact_refs(version_dir, ready)}
+            (version_dir / "response.json").write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+            return response
+        except Exception:
+            if temp_dir.exists(): shutil.rmtree(temp_dir)
+            raise
 
-    def get_status(self, version_id: str) -> Mapping[str, Any]:
-        if version_id not in self._versions:
+    def get_status(self, version_id: str, artifact_root: str | Path) -> Mapping[str, Any]:
+        path = Path(artifact_root) / "versions" / version_id / "response.json"
+        if not path.exists():
             raise ValueError("VERSION_NOT_FOUND")
-        return self._versions[version_id]
+        return {**json.loads(path.read_text()), "operation": "status"}
+
+    @staticmethod
+    def _artifact_refs(directory: Path, ready: bool) -> dict[str, Any]:
+        names = ["manifest.json", "version.json"] + (["chunks.jsonl", "document_tree.json", "issues.jsonl"] if ready else [])
+        refs: dict[str, Any] = {}
+        for name in names:
+            path = directory / name
+            if path.exists():
+                key = name.replace(".jsonl", "").replace(".json", "")
+                refs[key] = {"path": str(path), "sha256": _sha256(path)}
+        refs["manifest_sha256"] = refs.get("manifest", {}).get("sha256")
+        return refs
 
     @staticmethod
     def _text_pages(source: Path) -> list[Mapping[str, Any]]:
