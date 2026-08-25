@@ -193,7 +193,7 @@ class ExtractionApplicationService:
                         # a partially written/tampered cache is never a fast return.
                         validated = self.get_status(index[idempotency_key], output, _lock=False)
                         if validated.get("version_id") == cached.get("version_id") and validated.get("status") == cached.get("status"):
-                            return cached
+                            return validated
                 except (OSError, ValueError, TypeError, json.JSONDecodeError):
                     pass
                 index.pop(idempotency_key, None)

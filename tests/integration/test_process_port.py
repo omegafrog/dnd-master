@@ -121,6 +121,26 @@ def test_cached_replay_does_not_read_symlinked_response(tmp_path: Path) -> None:
     assert json.loads(replay.stdout)["error"]["code"] in {"VERSION_ARTIFACT_CORRUPT", "VERSION_ID_CONFLICT", "PROCESSING_FAILED"}
 
 
+def test_cached_replay_returns_validated_generation_not_tampered_version_response(tmp_path: Path) -> None:
+    source = tmp_path / "input.md"
+    source.write_text("content", encoding="utf-8")
+    output = tmp_path / "out"
+    request = {"schema_version": "1", "operation": "preprocess", "request_id": "tampered-cache", "source_path": str(source), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "policy_version": "p", "output_dir": str(output), "version_id": "v1"}
+    first = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env={"PYTHONPATH": "src"})
+    assert first.returncode == 0
+    response_path = output / "versions" / "v1" / "response.json"
+    tampered = json.loads(response_path.read_text(encoding="utf-8"))
+    tampered["request_id"] = "tampered"
+    tampered["pages"][0]["findings"] = ["forged"]
+    response_path.write_text(json.dumps(tampered), encoding="utf-8")
+    replay = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env={"PYTHONPATH": "src"})
+    assert replay.returncode == 0, replay.stderr
+    payload = json.loads(replay.stdout)
+    assert payload["operation"] == "status"
+    assert payload["request_id"] != "tampered"
+    assert payload["pages"][0]["findings"] != ["forged"]
+
+
 def test_relative_parent_paths_are_rejected(tmp_path: Path) -> None:
     request = {"schema_version": "1", "operation": "preprocess", "request_id": "r", "source_path": str(tmp_path / ".." / "input.md"), "source_sha256": "0" * 64, "policy_version": "p", "output_dir": str(tmp_path)}
     proc = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env={"PYTHONPATH": "src"})
