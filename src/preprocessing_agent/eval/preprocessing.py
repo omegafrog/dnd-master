@@ -6,10 +6,13 @@ from dataclasses import dataclass
 import json
 from pathlib import Path
 import re
+from collections.abc import Mapping
 from typing import Any, Callable, Iterable
 
 from preprocessing_agent.domain import Chunk, DocumentTree
 from preprocessing_agent.domain.serialization import from_dict
+from preprocessing_agent.parsers.base import ParserError
+from preprocessing_agent.parsers.pdf import PdfDocumentParser
 from .metrics import boundary_metrics, duplicate_metrics, token_statistics
 
 
@@ -36,21 +39,36 @@ class EvalConfig:
     source_mutation_max: float = 0.0
 
 
-SourceExtractor = Callable[[Path], str | Iterable[str]]
+SourceExtractor = Callable[[Path], str | Iterable[str] | Iterable[Mapping[str, Any]]]
+
+
+def _injected_pdf_extractor(extractor: SourceExtractor, source_path: Path) -> Iterable[Mapping[str, Any]]:
+    extracted = extractor(source_path)
+    if isinstance(extracted, str):
+        extracted = (extracted,)
+    values = tuple(extracted)
+    if all(isinstance(value, Mapping) for value in values):
+        return values
+    if all(isinstance(value, str) for value in values):
+        return tuple({"page_number": position, "blocks": [{"text": value}]} for position, value in enumerate(values, 1))
+    raise EvaluationInputError("injected PDF extractor must return page text or page mappings")
+
+
+def _read_pdf_pages(source_path: Path, extractor: SourceExtractor | None = None) -> tuple[str, tuple[str, ...]]:
+    parser = PdfDocumentParser(
+        None if extractor is None else lambda path: _injected_pdf_extractor(extractor, path)
+    )
+    try:
+        parsed = parser.parse(source_path)
+    except ParserError as exc:
+        raise EvaluationInputError(str(exc)) from exc
+    return parsed.source_text, tuple(page.source_text for page in parsed.pages)
 
 
 def _read_source_text(source_path: Path, extractor: SourceExtractor | None = None) -> str:
     """Read an exported source without applying text decoding to known PDFs."""
     if source_path.suffix.lower() == ".pdf":
-        if extractor is not None:
-            extracted = extractor(source_path)
-            return extracted if isinstance(extracted, str) else "".join(extracted)
-        try:
-            import pymupdf
-        except ImportError as exc:
-            raise EvaluationInputError("PDF source requires PyMuPDF or an injected source extractor") from exc
-        with pymupdf.open(source_path) as document:
-            return "".join(page.get_text("text") for page in document)
+        return _read_pdf_pages(source_path, extractor)[0]
     try:
         return source_path.read_text(encoding="utf-8")
     except UnicodeDecodeError as exc:
@@ -60,15 +78,7 @@ def _read_source_text(source_path: Path, extractor: SourceExtractor | None = Non
 def _read_source_pages(source_path: Path, extractor: SourceExtractor | None = None) -> tuple[str, ...]:
     """Read source text while retaining the page boundary used by source spans."""
     if source_path.suffix.lower() == ".pdf":
-        if extractor is not None:
-            extracted = extractor(source_path)
-            return (extracted,) if isinstance(extracted, str) else tuple(extracted)
-        try:
-            import pymupdf
-        except ImportError as exc:
-            raise EvaluationInputError("PDF source requires PyMuPDF or an injected source extractor") from exc
-        with pymupdf.open(source_path) as document:
-            return tuple(page.get_text("text") for page in document)
+        return _read_pdf_pages(source_path, extractor)[1]
     try:
         return (source_path.read_text(encoding="utf-8"),)
     except UnicodeDecodeError as exc:
@@ -93,8 +103,11 @@ def load_exported_run(run_dir: str | Path, source_extractor: SourceExtractor | N
         source_path = Path(str(manifest["source"].get("path", "")))
         for candidate in (source_path, root / source_path, root.parent / source_path):
             if candidate.is_file():
-                source_pages = _read_source_pages(candidate, source_extractor)
-                source_text = "".join(source_pages)
+                if candidate.suffix.lower() == ".pdf":
+                    source_text, source_pages = _read_pdf_pages(candidate, source_extractor)
+                else:
+                    source_pages = _read_source_pages(candidate, source_extractor)
+                    source_text = "".join(source_pages)
                 break
     return ExportedRun(root, tuple(sorted(chunks, key=lambda item: item.chunk_id)), tree, manifest, source_text, source_pages)
 
