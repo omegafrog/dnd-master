@@ -21,4 +21,5 @@
 - final response contract: strict success/error oneOf schema, corrupt status quarantine, input-byte source hash in READY manifest
 - final integrity: typed conditional request branches, manifest/version source identity agreement, LayoutBlock source provenance
 - lifecycle finalization: status page summary/count/attempt/findings invariants, READY review-page exclusion, required LayoutBlock provenance
+- acceptance closure: malformed status element guards and unknown-operation error envelope schema compatibility
 - next: RAG-009 is ready-for-agent
