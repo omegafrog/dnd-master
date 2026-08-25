@@ -12,6 +12,7 @@ import os
 import math
 import contextlib
 import sys
+import os
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -131,6 +132,16 @@ def _canonical_path(value: str, *, require_file: bool = False) -> Path:
     return resolved
 
 
+def _enforce_root(path: Path, env_name: str) -> None:
+    configured = os.environ.get(env_name)
+    if configured:
+        root = _canonical_path(configured)
+        try:
+            path.relative_to(root)
+        except ValueError as exc:
+            raise ValueError("INVALID_REQUEST") from exc
+
+
 class ExtractionApplicationService:
     def __init__(self, native_pdf: NativePdfPort | None = None) -> None:
         self.native_pdf = native_pdf or PyMuPdfNativePdfAdapter()
@@ -138,6 +149,7 @@ class ExtractionApplicationService:
 
     def preprocess(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
         output = _canonical_path(str(request.get("output_dir", "")))
+        _enforce_root(output, "PREPROCESS_OUTPUT_ROOT")
         output.mkdir(parents=True, exist_ok=True)
         with (output / ".preprocess.lock").open("a+") as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
@@ -148,6 +160,7 @@ class ExtractionApplicationService:
 
     def _preprocess_locked(self, request: Mapping[str, Any], canonical_output: Path) -> Mapping[str, Any]:
         source = _canonical_path(str(request["source_path"]), require_file=True)
+        _enforce_root(source, "PREPROCESS_INPUT_ROOT")
         output = canonical_output
         request_id = str(request["request_id"])
         policy = str(request["policy_version"])
@@ -188,6 +201,7 @@ class ExtractionApplicationService:
         version = ExtractionVersion.create(version_id, document_id, policy, len(raw_pages) or 1)
         parser_pages: list[Mapping[str, Any]] = []
         page_artifacts: list[dict[str, Any]] = []
+        seen_page_numbers: set[int] = set()
         for position, raw in enumerate(raw_pages, 1):
             number: int | None = None
             try:
@@ -200,6 +214,9 @@ class ExtractionApplicationService:
                 number = raw_number
                 if number < 1 or number > len(raw_pages):
                     raise ValueError("INVALID_PAGE_METADATA")
+                if number in seen_page_numbers:
+                    raise ValueError("DUPLICATE_PAGE_NUMBER")
+                seen_page_numbers.add(number)
                 geometry = PageGeometry(float(geometry_raw["width"]), float(geometry_raw["height"]))
                 if not math.isfinite(geometry.width) or not math.isfinite(geometry.height):
                     raise ValueError("INVALID_GEOMETRY")
@@ -290,6 +307,7 @@ class ExtractionApplicationService:
         if not re.fullmatch(r"[A-Za-z0-9._-]+", version_id):
             raise ValueError("INVALID_REQUEST")
         root = _canonical_path(str(artifact_root))
+        _enforce_root(root, "PREPROCESS_ARTIFACT_ROOT")
         try:
                 path = root / "versions" / version_id / "response.json"
                 if not path.exists():
