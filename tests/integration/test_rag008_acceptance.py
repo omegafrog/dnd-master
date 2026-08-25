@@ -52,6 +52,38 @@ def test_invalid_geometry_native_page_is_needs_review_and_does_not_publish_chunk
     assert not (output / "current.json").exists()
 
 
+def test_native_multi_column_page_is_needs_review_and_does_not_publish_ready(tmp_path: Path) -> None:
+    source = tmp_path / "input.pdf"
+    source.write_bytes(b"fixture")
+    output = tmp_path / "out"
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+
+    class Native:
+        def extract(self, _source):
+            return [{"page_number": 1, "geometry": {"width": 100, "height": 100}, "column_count": 2, "blocks": []}]
+
+    result = ExtractionApplicationService(Native()).preprocess({"request_id": "columns", "source_path": str(source), "source_sha256": digest, "policy_version": "p1", "output_dir": str(output)})
+    assert result["status"] == "NEEDS_REVIEW"
+    assert "MULTI_COLUMN_UNSUPPORTED" in result["pages"][0]["findings"]
+    assert "chunks" not in result["artifacts"]
+    assert not (output / "current.json").exists()
+
+
+def test_native_out_of_order_pages_are_needs_review(tmp_path: Path) -> None:
+    source = tmp_path / "input.pdf"
+    source.write_bytes(b"fixture")
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+
+    class Native:
+        def extract(self, _source):
+            page = {"geometry": {"width": 100, "height": 100}, "blocks": []}
+            return [{**page, "page_number": 2}, {**page, "page_number": 1}]
+
+    result = ExtractionApplicationService(Native()).preprocess({"request_id": "order", "source_path": str(source), "source_sha256": digest, "policy_version": "p1", "output_dir": str(tmp_path / "out")})
+    assert result["status"] == "NEEDS_REVIEW"
+    assert any("OUT_OF_ORDER_PAGE_METADATA" in finding for page in result["pages"] for finding in page["findings"])
+
+
 def test_process_cli_invalid_geometry_stdin_stdout_path(tmp_path: Path) -> None:
     fake = tmp_path / "fake"
     fake.mkdir()

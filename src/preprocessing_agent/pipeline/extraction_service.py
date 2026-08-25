@@ -223,6 +223,8 @@ class ExtractionApplicationService:
                 number = raw_number
                 if number < 1 or number > len(raw_pages):
                     raise ValueError("INVALID_PAGE_METADATA")
+                if number != position:
+                    raise ValueError("OUT_OF_ORDER_PAGE_METADATA")
                 if number in seen_page_numbers:
                     raise ValueError("DUPLICATE_PAGE_NUMBER")
                 seen_page_numbers.add(number)
@@ -238,6 +240,8 @@ class ExtractionApplicationService:
                         raise ValueError("INVALID_GEOMETRY")
                     LayoutBlock(str(block.get("block_id", "")), str(block.get("kind", "text")), bbox, str(block.get("text", "")), str(block.get("extraction_method", "native")), float(block.get("confidence", 1.0)), document_id, number, geometry)
                     blocks.append({**block, "bbox": [bbox.x0, bbox.y0, bbox.x1, bbox.y1], "source_document_id": document_id, "page_number": number, "page_geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}})
+                if raw.get("column_count", 1) != 1 or raw.get("layout") in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, []):
+                    raise ValueError("MULTI_COLUMN_UNSUPPORTED")
                 raw = {**raw, "blocks": blocks}
                 version.record_page(PageExtraction.validated(number))
                 parser_pages.append(raw)
@@ -300,17 +304,18 @@ class ExtractionApplicationService:
                     raise
                 finally:
                     pass
-                (output / "current.json.tmp").write_text(json.dumps({"version_id": version_id, "generation": str(generation), "status": version.status.value}, sort_keys=True) + "\n")
-                (output / "current.json.tmp").replace(output / "current.json")
-            else:
-                # Keep the prior current generation visible; this attempt is version-scoped.
-                pass
             response = {**response, "artifacts": self._artifact_refs(version_dir, ready)}
             if ready and 'generation' in locals():
                 response = {**response, "artifacts": self._artifact_refs(generation, ready)}
             (version_dir / "response.json").write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             if ready and 'generation' in locals():
                 shutil.copy2(version_dir / "response.json", generation / "response.json")
+                pointer = {"version_id": version_id, "generation": str(generation), "status": version.status.value}
+                (output / "current.json.tmp").write_text(json.dumps(pointer, sort_keys=True) + "\n")
+                (output / "current.json.tmp").replace(output / "current.json")
+            else:
+                # Keep the prior current generation visible; this attempt is version-scoped.
+                pass
             index[idempotency_key] = version_id
             index_tmp = index_path.with_suffix(".tmp")
             index_tmp.write_text(json.dumps(index, sort_keys=True, indent=2) + "\n")
@@ -331,7 +336,14 @@ class ExtractionApplicationService:
         try:
             current = root / "current.json"
             selected = root / "generations" / version_id / "response.json"
-            if not current.exists() or json.loads(current.read_text()).get("version_id") != version_id:
+            try:
+                pointer = json.loads(current.read_text()) if current.exists() else None
+            except (OSError, json.JSONDecodeError) as exc:
+                raise ValueError("VERSION_ARTIFACT_CORRUPT") from exc
+            expected_generation = str(root / "generations" / version_id)
+            if isinstance(pointer, dict) and pointer.get("version_id") == version_id and pointer.get("generation") in (None, expected_generation):
+                selected = root / "generations" / version_id / "response.json"
+            else:
                 selected = root / "versions" / version_id / "response.json"
             path = selected
             if path.is_symlink() or any(parent.is_symlink() for parent in (path, *path.parents)):
