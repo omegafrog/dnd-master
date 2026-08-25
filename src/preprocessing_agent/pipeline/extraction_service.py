@@ -20,6 +20,8 @@ from typing import Any, Mapping, Protocol
 
 from preprocessing_agent.domain import PageStatus, ParsedDocument, ParsedPage, ParsedBlock, SourceSpan
 from preprocessing_agent.domain.layout import BoundingBox, PageGeometry, LayoutBlock
+from preprocessing_agent.domain.serialization import to_dict
+from preprocessing_agent.layout import ReadingOrderPlanner
 from preprocessing_agent.parsers.pdf import PdfDocumentParser
 from preprocessing_agent.pipeline.pipeline import PreprocessingPipeline
 
@@ -246,9 +248,14 @@ class ExtractionApplicationService:
                 if raw.get("column_count", 1) != 1 or raw.get("layout") in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, []):
                     raise ValueError("MULTI_COLUMN_UNSUPPORTED")
                 raw = {**raw, "blocks": blocks}
+                layout_plan = ReadingOrderPlanner().plan(blocks, geometry)
+                if layout_plan.ambiguous:
+                    raise ValueError("AMBIGUOUS_COLUMN_HYPOTHESIS")
+                layout_evidence = to_dict(layout_plan)
+                raw["layout"] = layout_evidence
                 version.record_page(PageExtraction.validated(number))
                 parser_pages.append(raw)
-                evidence = {"page_number": number, "geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}, "blocks": blocks}
+                evidence = {"page_number": number, "geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}, "blocks": blocks, "layout": layout_evidence}
                 page_artifacts.append({**evidence, "status": PageStatus.VALIDATED.value, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
             except (KeyError, TypeError, ValueError) as exc:
                 safe_number = number if "number" in locals() and 1 <= number <= version.page_count else position

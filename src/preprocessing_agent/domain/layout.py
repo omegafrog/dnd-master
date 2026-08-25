@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from enum import Enum
 import math
+from typing import Any
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,3 +73,67 @@ class LayoutBlock:
             raise ValueError("confidence must be between 0 and 1")
         if not self.source_document_id or self.page_number is None or self.page_number < 1 or self.page_geometry is None:
             raise ValueError("layout block provenance is required")
+
+
+@dataclass(frozen=True, slots=True)
+class LayoutRegion:
+    """A vertically contiguous page area with one column structure."""
+
+    region_id: str
+    bbox: BoundingBox
+    block_ids: tuple[str, ...]
+
+    def __post_init__(self) -> None:
+        if not self.region_id or not self.block_ids:
+            raise ValueError("region identity and block membership are required")
+
+
+@dataclass(frozen=True, slots=True)
+class ColumnHypothesis:
+    """One candidate column partition for a region."""
+
+    column_count: int
+    columns: tuple[BoundingBox, ...]
+    score: float
+    strategy: str = "x-gap"
+
+    def __post_init__(self) -> None:
+        if self.column_count < 1 or len(self.columns) != self.column_count:
+            raise ValueError("column count must match column geometry")
+        if not 0 <= self.score <= 1:
+            raise ValueError("hypothesis score must be between 0 and 1")
+
+
+@dataclass(frozen=True, slots=True)
+class ColumnProfile:
+    region_id: str
+    candidates: tuple[ColumnHypothesis, ...]
+    selected: ColumnHypothesis | None
+    confidence: float
+    ambiguous: bool = False
+    findings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.candidates:
+            raise ValueError("at least one column candidate is required")
+        if not 0 <= self.confidence <= 1:
+            raise ValueError("column confidence must be between 0 and 1")
+        if self.selected is not None and self.selected not in self.candidates:
+            raise ValueError("selected hypothesis must be one of candidates")
+
+
+@dataclass(frozen=True, slots=True)
+class ReadingOrderPlan:
+    """Deterministic projection of page blocks and layout evidence."""
+
+    ordered_block_ids: tuple[str, ...]
+    regions: tuple[LayoutRegion, ...]
+    profiles: tuple[ColumnProfile, ...]
+    spanning_block_ids: tuple[str, ...] = ()
+    furniture_block_ids: tuple[str, ...] = ()
+    ambiguous: bool = False
+    findings: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if len(set(self.ordered_block_ids)) != len(self.ordered_block_ids):
+            raise ValueError("a block may occur only once in reading order")

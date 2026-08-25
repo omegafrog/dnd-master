@@ -1,0 +1,15 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["regions", "profiles", "ordered_block_ids", "ambiguous"],
+  "properties": {
+    "regions": {"type": "array"},
+    "profiles": {"type": "array"},
+    "ordered_block_ids": {"type": "array", "items": {"type": "string"}},
+    "spanning_block_ids": {"type": "array", "items": {"type": "string"}},
+    "furniture_block_ids": {"type": "array", "items": {"type": "string"}},
+    "ambiguous": {"type": "boolean"},
+    "findings": {"type": "array", "items": {"type": "string"}}
+  }
+}

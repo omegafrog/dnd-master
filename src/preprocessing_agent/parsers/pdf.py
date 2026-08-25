@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping
 
 from preprocessing_agent.domain import ParsedBlock, ParsedDocument, ParsedPage, SourceSpan
+from preprocessing_agent.layout import ReadingOrderPlanner
 from .base import ParserError
 from .normalize import normalize_text
 
@@ -33,7 +34,13 @@ class PdfDocumentParser:
         document_parts: list[str] = []
         for page_position, raw_page in enumerate(raw_pages, start=1):
             page_number = int(raw_page.get("page_number", page_position))
-            raw_blocks = _order_blocks(tuple(raw_page.get("blocks", ())))
+            # Keep source identity stable across geometric projection. The
+            # ordinal is provenance, not a reading-order signal.
+            source_blocks = tuple(
+                ({**raw_block, "block_id": str(raw_block.get("block_id", f"p{page_number}-b{index}"))})
+                for index, raw_block in enumerate(raw_page.get("blocks", ()))
+            )
+            raw_blocks = _order_blocks(source_blocks)
             blocks: list[ParsedBlock] = []
             page_parts: list[str] = []
             char_cursor = 0
@@ -43,7 +50,7 @@ class PdfDocumentParser:
                     continue
                 # Sort only when the extractor explicitly supplies reading order;
                 # otherwise its block order is authoritative and deterministic.
-                block_id = str(raw_block.get("block_id", f"p{page_number}-b{block_position}"))
+                block_id = str(raw_block["block_id"])
                 span = SourceSpan(page_number, block_position, char_cursor, char_cursor + len(text))
                 block = ParsedBlock(
                     block_id=block_id,
@@ -115,46 +122,16 @@ def _span_bbox(span: Mapping[str, Any]) -> tuple[float, float, float, float]:
 
 
 def _order_blocks(blocks: tuple[Mapping[str, Any], ...]) -> tuple[Mapping[str, Any], ...]:
-    """Apply reading order only when the page has a clear two-column layout.
-
-    PyMuPDF's dict order is an extraction detail rather than a reading-order
-    contract.  The layout signal is intentionally conservative: every block
-    must have a bbox, the two x-bands must be well separated, and the split
-    must be substantially stronger than any other x gap.  Pages that do not
-    meet those conditions retain the extractor's original order.
-    """
-    split = _strong_column_split(blocks)
-    if split is None:
+    """Project blocks through the regional layout planner."""
+    if any(_bbox(block.get("bbox")) is None for block in blocks):
         return blocks
-
-    left: list[tuple[int, Mapping[str, Any]]] = []
-    right: list[tuple[int, Mapping[str, Any]]] = []
-    spanning: list[tuple[int, Mapping[str, Any]]] = []
-    for position, block in enumerate(blocks):
-        bbox = _bbox(block.get("bbox"))
-        assert bbox is not None
-        if bbox[2] <= split:
-            left.append((position, block))
-        elif bbox[0] >= split:
-            right.append((position, block))
-        else:
-            spanning.append((position, block))
-
-    def reading_key(item: tuple[int, Mapping[str, Any]]) -> tuple[float, int]:
-        bbox = _bbox(item[1].get("bbox"))
-        assert bbox is not None
-        return bbox[1], item[0]
-
-    left.sort(key=reading_key)
-    right.sort(key=reading_key)
-    spanning.sort(key=reading_key)
-    if spanning:
-        column_blocks = left + right
-        first_column_y = min(reading_key(item)[0] for item in column_blocks)
-        leading = [item for item in spanning if reading_key(item)[0] <= first_column_y]
-        trailing = [item for item in spanning if reading_key(item)[0] > first_column_y]
-        return tuple(block for _, block in leading + column_blocks + trailing)
-    return tuple(block for _, block in left + right)
+    plan = ReadingOrderPlanner().plan(blocks)
+    if plan.ambiguous:
+        # Preserve extractor order only as an explicitly flagged diagnostic
+        # state; callers must not treat this projection as confirmed order.
+        return blocks
+    by_id = {str(block.get("block_id", f"block-{index}")): block for index, block in enumerate(blocks)}
+    return tuple(by_id[block_id] for block_id in plan.ordered_block_ids if block_id in by_id)
 
 
 def _strong_column_split(blocks: tuple[Mapping[str, Any], ...]) -> float | None:

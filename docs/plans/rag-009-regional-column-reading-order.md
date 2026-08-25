@@ -1,6 +1,6 @@
 # RAG-009 Regional Column Reading Order
 
-- 상태: `ready-for-agent`
+- 상태: `completed`
 - 의존성: RAG-008
 - Product Spec: UC-02, UC-03; BR-03 ~ BR-06
 - Architecture Spec: Sections 3.5, 3.6, 5.13
