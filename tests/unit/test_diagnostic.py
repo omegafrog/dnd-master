@@ -3,6 +3,7 @@ import json
 from preprocessing_agent.eval.diagnostic import (
     DiagnosticClassification,
     DiagnosticTrace,
+    _bbox_order_evidence,
     classify_trace,
 )
 
@@ -32,3 +33,19 @@ def test_trace_serialization_is_stable_and_json_safe():
     encoded = trace.to_dict()
     assert encoded["classification"] == "VALIDATOR_FALSE_POSITIVE"
     assert json.loads(json.dumps(encoded, sort_keys=True))["chunk_id"] == "chunk-1"
+
+
+def test_reading_order_uses_bbox_geometry_not_block_index():
+    blocks = (
+        {"block_id": "p1-b0", "page": 1, "bbox": [200, 100, 300, 120]},
+        {"block_id": "p1-b1", "page": 1, "bbox": [20, 20, 100, 40]},
+    )
+    evidence = _bbox_order_evidence(blocks)
+    assert evidence["parser_block_ids"] == ["p1-b0", "p1-b1"]
+    assert evidence["bbox_expected_block_ids"] == ["p1-b1", "p1-b0"]
+    assert evidence["reading_order_valid"] is False
+
+
+def test_reading_order_reports_when_bbox_is_unavailable():
+    evidence = _bbox_order_evidence(({"block_id": "p1-b0", "page": 1, "bbox": None},))
+    assert evidence["reading_order_comparable"] is False

@@ -86,6 +86,7 @@ def _source_blocks(document: ParsedDocument, chunk: Chunk) -> tuple[Mapping[str,
         if block:
             result.append({"page": span.page_number, "block_index": span.block_index,
                            "block_id": block.block_id, "text": block.source_text,
+                           "bbox": list(block.bbox) if block.bbox else None,
                            "span": to_dict(span)})
     return tuple(result)
 
@@ -99,13 +100,30 @@ def _same_text(left: str, right: str) -> bool:
     return " ".join(left.split()) == " ".join(right.split())
 
 
-def trace_run(run: ExportedRun, source_pdf: str | Path) -> tuple[DiagnosticTrace, ...]:
+def _bbox_order_evidence(blocks: tuple[Mapping[str, Any], ...]) -> dict[str, Any]:
+    """Compare parser order with the geometric top-to-bottom, left-to-right order."""
+    actual = [str(item["block_id"]) for item in blocks]
+    comparable = all(item.get("bbox") is not None for item in blocks)
+    if not comparable:
+        return {"reading_order_valid": True, "reading_order_comparable": False,
+                "parser_block_ids": actual, "bbox_expected_block_ids": []}
+    expected = [str(item["block_id"]) for item in sorted(
+        blocks, key=lambda item: (int(item["page"]), float(item["bbox"][1]), float(item["bbox"][0]), str(item["block_id"]))) ]
+    return {"reading_order_valid": actual == expected, "reading_order_comparable": True,
+            "parser_block_ids": actual, "bbox_expected_block_ids": expected}
+
+
+def trace_run(run: ExportedRun, source_pdf: str | Path, *, evaluator_failures_path: str | Path | None = None) -> tuple[DiagnosticTrace, ...]:
     document = PdfDocumentParser().parse(Path(source_pdf))
     tree = DocumentTreeBuilder().build(document)
     candidates = ChunkPlanner().plan(tree, document)
     candidate_by_key = {candidate.canonical_key: candidate for candidate in candidates}
     issues_by_chunk: dict[str, list[str]] = {}
-    issue_paths = (run.run_dir / "issues.jsonl", run.run_dir / "preprocessing_eval_failures.jsonl")
+    issue_paths = [run.run_dir / "issues.jsonl"]
+    if evaluator_failures_path is not None:
+        issue_paths.append(Path(evaluator_failures_path))
+    else:
+        issue_paths.append(run.run_dir / "preprocessing_eval_failures.jsonl")
     for issue_path in issue_paths:
         if not issue_path.is_file():
             continue
@@ -129,9 +147,9 @@ def trace_run(run: ExportedRun, source_pdf: str | Path) -> tuple[DiagnosticTrace
         node = _find_node(tree.root, chunk.section_path)
         node_blocks = set(node.block_ids) if node else set()
         source_text = _ordered_text(document, chunk)
-        reading_order_valid = list(block_ids) == sorted(block_ids, key=lambda value: (int(value.split("-")[0][1:]), int(value.split("-b")[1])))
+        reading_order = _bbox_order_evidence(blocks)
         evidence = {
-            "reading_order_valid": reading_order_valid,
+            **reading_order,
             "section_membership_valid": bool(node and set(block_ids).issubset(node_blocks)),
             "table_boundary_valid": not (chunk.content_type.value == "table" and len({item["page"] for item in blocks}) > 1),
             "final_text_matches_source": _same_text(source_text, chunk.source_text),
@@ -150,15 +168,17 @@ def trace_run(run: ExportedRun, source_pdf: str | Path) -> tuple[DiagnosticTrace
     return tuple(traces)
 
 
-def write_diagnostic(run_dir: str | Path, source_pdf: str | Path, output: str | Path, *, min_broken: int = 30) -> Path:
+def write_diagnostic(run_dir: str | Path, source_pdf: str | Path, output: str | Path, *,
+                     evaluator_failures_path: str | Path | None = None, min_broken: int = 30,
+                     expected_mixed: int | None = 22) -> Path:
     run = load_exported_run(run_dir)
-    traces = list(trace_run(run, source_pdf))
+    traces = list(trace_run(run, source_pdf, evaluator_failures_path=evaluator_failures_path))
     broken = [item for item in traces if "broken_sentence" in item.issue_types]
     mixed = [item for item in traces if "MIXED_CONTEXT" in item.issue_types]
     if len(broken) < min_broken:
         raise ValueError(f"expected at least {min_broken} broken_sentence traces, found {len(broken)}")
-    if not mixed:
-        raise ValueError("no MIXED_CONTEXT candidates found in exported issues")
+    if expected_mixed is not None and len(mixed) != expected_mixed:
+        raise ValueError(f"expected {expected_mixed} MIXED_CONTEXT traces, found {len(mixed)}")
     destination = Path(output)
     destination.parent.mkdir(parents=True, exist_ok=True)
     payload = {"source_pdf": str(source_pdf), "run_dir": str(run_dir), "counts": {
