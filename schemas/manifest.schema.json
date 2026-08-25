@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "preprocessing-agent/manifest",
+  "type": "object", "additionalProperties": false,
+  "required": ["source", "source_sha256", "pipeline_version", "schema_version", "profile", "policy", "statistics"],
+  "properties": {
+    "source": {"type": "object", "additionalProperties": false, "required": ["path", "sha256"], "properties": {"path": {"type": "string"}, "sha256": {"type": "string", "minLength": 64}}},
+    "source_sha256": {"type": "string", "minLength": 64}, "pipeline_version": {"type": "string", "minLength": 1}, "schema_version": {"type": "string", "minLength": 1},
+    "profile": {"type": "string", "minLength": 1}, "policy": {"type": "object"}, "token_policy": {"type": "object"},
+    "statistics": {"type": "object"}, "page_statistics": {"type": "object"}, "chunk_statistics": {"type": "object"},
+    "agent_statistics": {"type": "object"}, "validation_statistics": {"type": "object"}
+  }
+}
