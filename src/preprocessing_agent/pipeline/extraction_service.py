@@ -284,8 +284,16 @@ class ExtractionApplicationService:
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 if response["schema_version"] != "1" or response["version_id"] != version_id or response["status"] not in {"QUEUED", "PROCESSING", "VALIDATING", "READY", "NEEDS_REVIEW"}:
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
+                summary = response.get("page_summary", {})
+                if not isinstance(summary, dict) or summary.get("count") != len(response["pages"]) or summary.get("processed") != len(response["pages"]):
+                    raise ValueError("VERSION_ARTIFACT_CORRUPT")
+                if response["status"] == "READY" and any(page.get("status") == "NEEDS_REVIEW" for page in response["pages"]):
+                    raise ValueError("VERSION_ARTIFACT_CORRUPT")
+                page_numbers = [page.get("page_number") for page in response["pages"]]
+                if len(set(page_numbers)) != len(page_numbers) or any(number < 1 for number in page_numbers):
+                    raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 for page in response["pages"]:
-                    if not isinstance(page, dict) or not isinstance(page.get("page_number"), int) or page.get("status") not in {"VALIDATED", "NEEDS_REVIEW"} or not isinstance(page.get("attempts"), int) or not isinstance(page.get("findings"), list):
+                    if not isinstance(page, dict) or not isinstance(page.get("page_number"), int) or page.get("status") not in {"VALIDATED", "NEEDS_REVIEW"} or not isinstance(page.get("attempts"), int) or page.get("attempts") < 1 or not isinstance(page.get("findings"), list) or any(not isinstance(item, str) for item in page.get("findings", [])):
                         raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 for ref in response["artifacts"].values():
                     if isinstance(ref, dict) and "path" in ref and "sha256" in ref:

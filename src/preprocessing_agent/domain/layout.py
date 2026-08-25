@@ -65,3 +65,5 @@ class LayoutBlock:
             raise ValueError("layout block id and text are required")
         if not 0 <= self.confidence <= 1:
             raise ValueError("confidence must be between 0 and 1")
+        if not self.source_document_id or self.page_number is None or self.page_number < 1 or self.page_geometry is None:
+            raise ValueError("layout block provenance is required")
