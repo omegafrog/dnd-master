@@ -179,6 +179,12 @@ class ExtractionApplicationService:
         requested_version = request.get("version_id")
         idempotency_key = f"{request_id}:{source_hash}:{policy}:{requested_version or ''}"
         base_key = f"{request_id}:{source_hash}:{policy}:"
+        if not requested_version:
+            for key, existing in index.items():
+                if key.startswith(base_key):
+                    saved = output / "versions" / existing / "response.json"
+                    if saved.exists():
+                        return json.loads(saved.read_text())
         if requested_version:
             for key, existing in index.items():
                 if key.startswith(base_key) and not key.endswith(f":{requested_version}"):
@@ -320,6 +326,8 @@ class ExtractionApplicationService:
             raise ValueError("INVALID_REQUEST")
         root = _canonical_path(str(artifact_root))
         _enforce_root(root, "PREPROCESS_ARTIFACT_ROOT")
+        status_lock = (root / ".preprocess.lock").open("a+")
+        fcntl.flock(status_lock.fileno(), fcntl.LOCK_SH)
         try:
             path = root / "generations" / version_id / "response.json"
             if True:
@@ -383,6 +391,9 @@ class ExtractionApplicationService:
             raise
         except (ValueError, TypeError, OSError, json.JSONDecodeError) as exc:
             raise ValueError("VERSION_ARTIFACT_CORRUPT") from exc
+        finally:
+            fcntl.flock(status_lock.fileno(), fcntl.LOCK_UN)
+            status_lock.close()
 
     @staticmethod
     def _artifact_refs(directory: Path, ready: bool) -> dict[str, Any]:
