@@ -12,6 +12,7 @@ from preprocessing_agent.chunking import ChunkPlanner
 from preprocessing_agent.domain import Chunk, DocumentTree, ParsedDocument, SectionNode, to_dict
 from preprocessing_agent.eval.preprocessing import ExportedRun, load_exported_run
 from preprocessing_agent.parsers.pdf import PdfDocumentParser
+from preprocessing_agent.parsers import pdf as pdf_parser
 from preprocessing_agent.structure import DocumentTreeBuilder
 
 
@@ -100,6 +101,41 @@ def _same_text(left: str, right: str) -> bool:
     return " ".join(left.split()) == " ".join(right.split())
 
 
+def _legacy_document(source_pdf: str | Path) -> ParsedDocument:
+    """Parse with the pre-44a0c38c extractor order, retaining bbox evidence."""
+    raw_pages = tuple(pdf_parser._default_extractor(Path(source_pdf)))
+    raw_by_id = {
+        str(block.get("block_id", f"p{page.get('page_number', position)}-b{index}")): block
+        for position, page in enumerate(raw_pages, 1)
+        for index, block in enumerate(page.get("blocks", ()))
+    }
+    # Removing bbox from the adapter input disables the post-44a0c38c ordering
+    # seam while preserving the old extractor sequence and source spans.
+    legacy_pages = tuple({**page, "blocks": [
+        {key: value for key, value in block.items() if key != "bbox"}
+        for block in page.get("blocks", ())
+    ]} for page in raw_pages)
+    parsed = PdfDocumentParser(lambda _: legacy_pages).parse(Path(source_pdf))
+    pages = []
+    for page in parsed.pages:
+        blocks = tuple(type(block)(
+            block.block_id, block.source_text, block.source_span,
+            tuple(float(item) for item in raw_by_id[block.block_id]["bbox"])
+            if raw_by_id.get(block.block_id, {}).get("bbox") is not None else None,
+            block.font_size, block.font_weight,
+        ) for block in page.blocks)
+        pages.append(type(page)(page.page_number, blocks, page.source_text))
+    return type(parsed)(parsed.document_id, parsed.source_path, parsed.source_text, tuple(pages), parsed.metadata)
+
+
+def _parse_source_pdf(source_pdf: str | Path, parser_mode: str) -> ParsedDocument:
+    if parser_mode == "before":
+        return _legacy_document(source_pdf)
+    if parser_mode == "after":
+        return PdfDocumentParser().parse(Path(source_pdf))
+    raise ValueError("parser_mode must be before or after")
+
+
 def _bbox_order_evidence(blocks: tuple[Mapping[str, Any], ...]) -> dict[str, Any]:
     """Compare parser order with the geometric top-to-bottom, left-to-right order."""
     actual = [str(item["block_id"]) for item in blocks]
@@ -113,8 +149,9 @@ def _bbox_order_evidence(blocks: tuple[Mapping[str, Any], ...]) -> dict[str, Any
             "parser_block_ids": actual, "bbox_expected_block_ids": expected}
 
 
-def trace_run(run: ExportedRun, source_pdf: str | Path, *, evaluator_failures_path: str | Path | None = None) -> tuple[DiagnosticTrace, ...]:
-    document = PdfDocumentParser().parse(Path(source_pdf))
+def trace_run(run: ExportedRun, source_pdf: str | Path, *, evaluator_failures_path: str | Path | None = None,
+              parser_mode: str = "after") -> tuple[DiagnosticTrace, ...]:
+    document = _parse_source_pdf(source_pdf, parser_mode)
     tree = DocumentTreeBuilder().build(document)
     candidates = ChunkPlanner().plan(tree, document)
     candidate_by_key = {candidate.canonical_key: candidate for candidate in candidates}
@@ -170,9 +207,10 @@ def trace_run(run: ExportedRun, source_pdf: str | Path, *, evaluator_failures_pa
 
 def write_diagnostic(run_dir: str | Path, source_pdf: str | Path, output: str | Path, *,
                      evaluator_failures_path: str | Path | None = None, min_broken: int = 30,
-                     expected_mixed: int | None = 22) -> Path:
+                     expected_mixed: int | None = 22, parser_mode: str = "after") -> Path:
     run = load_exported_run(run_dir)
-    traces = list(trace_run(run, source_pdf, evaluator_failures_path=evaluator_failures_path))
+    traces = list(trace_run(run, source_pdf, evaluator_failures_path=evaluator_failures_path,
+                            parser_mode=parser_mode))
     broken = [item for item in traces if "broken_sentence" in item.issue_types]
     mixed = [item for item in traces if "MIXED_CONTEXT" in item.issue_types]
     if len(broken) < min_broken:
@@ -181,7 +219,7 @@ def write_diagnostic(run_dir: str | Path, source_pdf: str | Path, output: str | 
         raise ValueError(f"expected {expected_mixed} MIXED_CONTEXT traces, found {len(mixed)}")
     destination = Path(output)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    payload = {"source_pdf": str(source_pdf), "run_dir": str(run_dir), "counts": {
+    payload = {"source_pdf": str(source_pdf), "run_dir": str(run_dir), "parser_mode": parser_mode, "counts": {
         "traces": len(traces), "mixed_context": len(mixed), "broken_sentence": len(broken)},
         "classifications": {label.value: sum(item.classification is label for item in traces) for label in DiagnosticClassification},
         "traces": [item.to_dict() for item in traces]}

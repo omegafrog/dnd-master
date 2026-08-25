@@ -22,6 +22,8 @@ def main(argv: list[str] | None = None) -> int:
                           help="directory containing preprocessing_eval_failures.jsonl")
     parser.add_argument("--min-broken", type=int, default=30)
     parser.add_argument("--expected-mixed", type=int, default=22)
+    parser.add_argument("--parser-mode", choices=("before", "after"), default="after",
+                        help="before reproduces pre-44a0c38c block order; after uses current parser")
     args = parser.parse_args(argv)
     evaluator_failures = args.evaluator_failures
     if args.eval_dir is not None:
@@ -29,7 +31,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         path = write_diagnostic(args.run, args.source_pdf, args.output,
                                 evaluator_failures_path=evaluator_failures,
-                                min_broken=args.min_broken, expected_mixed=args.expected_mixed)
+                                min_broken=args.min_broken, expected_mixed=args.expected_mixed,
+                                parser_mode=args.parser_mode)
     except (OSError, ValueError) as exc:
         print(f"diagnostic error: {exc}", file=sys.stderr)
         return 2
