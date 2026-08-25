@@ -129,7 +129,7 @@ class ScenarioCompilationWorkerTest {
 
         ScenarioPackage published = fixture.worker().processNext("worker", Duration.ofMinutes(1)).orElseThrow();
 
-        assertEquals("PARTIAL", published.report().status().name());
+        assertEquals("COMPLETE", published.report().status().name());
         assertEquals("PUBLISHED", fixture.compilations.findByInputFingerprint(fingerprint).orElseThrow().status().name());
         assertTrue(fixture.packages.values.containsKey(published.inputFingerprint()));
     }

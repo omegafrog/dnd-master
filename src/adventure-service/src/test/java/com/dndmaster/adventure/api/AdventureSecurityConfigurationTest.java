@@ -6,6 +6,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 import com.dndmaster.adventure.application.auth.PlayerSessionLookupPort;
+import com.dndmaster.adventure.application.runtime.TacticalScenePreparationApplicationService;
 import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,7 @@ import org.springframework.test.web.servlet.MockMvc;
 class AdventureSecurityConfigurationTest {
     @Autowired MockMvc mockMvc;
     @MockBean PlayerSessionLookupPort playerSessionLookupPort;
+    @MockBean TacticalScenePreparationApplicationService tacticalScenePreparationApplicationService;
 
     @Test
     void bearerTokenFilterStaysOnAdventurePathsOnly() throws Exception {

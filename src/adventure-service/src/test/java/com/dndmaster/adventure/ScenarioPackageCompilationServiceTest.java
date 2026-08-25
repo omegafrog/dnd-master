@@ -158,10 +158,24 @@ class ScenarioPackageCompilationServiceTest {
     }
 
     @Test
-    void emptyCandidateExtractionIsPartial() {
+    void emptyCandidateExtractionIsCompleteBasePackage() {
         ScenarioSourceBundle bundle = bundle(new KnowledgeDocumentId(UUID.randomUUID()), 1);
         var result = new ScenarioPackageCompilationService(new InMemoryPackageRepository()).compile(bundle, List.of());
+        assertEquals("COMPLETE", result.report().status().name());
+    }
+
+    @Test
+    void doesNotPersistIncompleteCompilationPackages() {
+        InMemoryPackageRepository repository = new InMemoryPackageRepository();
+        ScenarioSourceBundle bundle = bundle(new KnowledgeDocumentId(UUID.randomUUID()), 1);
+        KnowledgeDocumentId documentId = bundle.currentRevision().documents().getFirst().knowledgeDocumentId();
+        ResolutionCandidate incomplete = ResolutionCandidate.skillCheck(
+                documentId, 1, "page:1", "Stealth", null, "The cellar is watched.");
+
+        var result = new ScenarioPackageCompilationService(repository).compile(bundle, List.of(incomplete));
+
         assertEquals("PARTIAL", result.report().status().name());
+        assertEquals(0, repository.packages.size());
     }
 
     @Test

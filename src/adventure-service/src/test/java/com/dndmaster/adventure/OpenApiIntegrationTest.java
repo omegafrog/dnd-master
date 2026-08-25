@@ -3,6 +3,7 @@ package com.dndmaster.adventure;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.dndmaster.adventure.AdventureServiceApplication;
+import com.dndmaster.adventure.application.runtime.TacticalScenePreparationApplicationService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -24,6 +25,7 @@ class OpenApiIntegrationTest {
     @LocalServerPort int port;
     @Autowired TestRestTemplate http;
     @MockBean DataSource dataSource;
+    @MockBean TacticalScenePreparationApplicationService tacticalScenePreparationApplicationService;
 
     @Test void exposesSwaggerOpenApiAndHealth() {
         assertThat(http.getForEntity(url("/swagger-ui/index.html"), String.class).getStatusCode().is2xxSuccessful()).isTrue();

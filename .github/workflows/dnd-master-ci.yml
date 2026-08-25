@@ -8,6 +8,9 @@ on:
 permissions:
   contents: read
 
+env:
+  INTERNAL_SERVICE_TOKEN: ci-internal-token
+
 jobs:
   backend-services:
     runs-on: ubuntu-latest
