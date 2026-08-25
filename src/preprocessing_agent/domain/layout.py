@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
+import math
 
 
 @dataclass(frozen=True, slots=True)
@@ -13,6 +14,8 @@ class BoundingBox:
     y1: float
 
     def __post_init__(self) -> None:
+        if not all(math.isfinite(value) for value in (self.x0, self.y0, self.x1, self.y1)):
+            raise ValueError("bounding box coordinates must be finite")
         if self.x0 > self.x1 or self.y0 > self.y1:
             raise ValueError("bounding box coordinates must be ordered")
 
@@ -28,6 +31,8 @@ class PageGeometry:
     origin: str = "top-left"
 
     def __post_init__(self) -> None:
+        if not math.isfinite(self.width) or not math.isfinite(self.height):
+            raise ValueError("page dimensions must be finite")
         if self.width <= 0 or self.height <= 0:
             raise ValueError("page dimensions must be positive")
         if self.unit != "pt" or self.origin != "top-left":

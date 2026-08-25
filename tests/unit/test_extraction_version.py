@@ -12,6 +12,10 @@ def test_geometry_normalizes_top_left_and_bounds_boxes() -> None:
     assert not geometry.contains(BoundingBox(-1, 0, 10, 10))
     with pytest.raises(ValueError):
         BoundingBox(5, 2, 1, 4)
+    with pytest.raises(ValueError):
+        BoundingBox(float("nan"), 0, 1, 1)
+    with pytest.raises(ValueError):
+        PageGeometry(float("inf"), 100)
 
 
 def test_version_is_ready_only_when_every_page_is_validated() -> None:

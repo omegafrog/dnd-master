@@ -295,7 +295,6 @@ class ExtractionApplicationService:
                 except json.JSONDecodeError as exc:
                     raise ValueError("VERSION_ARTIFACT_CORRUPT") from exc
                 if not isinstance(response, dict) or not all(key in response for key in ("schema_version", "operation", "request_id", "version_id", "status", "pages", "page_summary", "artifacts", "manifest")) or not isinstance(response["pages"], list) or not isinstance(response["artifacts"], dict) or not isinstance(response["page_summary"], dict) or not isinstance(response["manifest"], dict):
-                    path.replace(path.with_name("response.corrupt.json"))
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 if response["schema_version"] != "1" or response["operation"] not in {"preprocess", "status"} or not isinstance(response["request_id"], str) or not response["request_id"] or response["version_id"] != version_id or response["status"] not in {"QUEUED", "PROCESSING", "VALIDATING", "READY", "NEEDS_REVIEW"}:
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")

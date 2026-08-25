@@ -76,7 +76,7 @@ def test_malformed_status_page_and_artifact_are_quarantined(tmp_path: Path) -> N
         assert str(exc) == "VERSION_ARTIFACT_CORRUPT"
     else:
         raise AssertionError("malformed status must be quarantined")
-    assert (root / "response.corrupt.json").exists()
+    assert (root / "response.json").exists()
 
 
 def test_explicit_version_id_is_part_of_idempotency_contract(tmp_path: Path) -> None:
