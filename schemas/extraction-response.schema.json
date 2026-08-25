@@ -1,21 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "oneOf": [
-    {"$ref": "#/$defs/success"},
-    {"$ref": "#/$defs/error"}
-  ],
-  "properties": {
-    "schema_version": {"type": "string", "const": "1"},
-    "request_id": {"type": "string"},
-    "version_id": {"type": "string", "minLength": 1},
-    "operation": {"type": "string"},
-    "status": {"enum": ["QUEUED", "PROCESSING", "VALIDATING", "READY", "NEEDS_REVIEW"]},
-    "pages": {"type": "array", "items": {"type": "object", "required": ["page_number", "status", "attempts", "findings"], "properties": {"page_number": {"type": "integer", "minimum": 1}, "status": {"enum": ["VALIDATED", "NEEDS_REVIEW"]}, "attempts": {"type": "integer", "minimum": 1}, "findings": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": false}},
-    "page_summary": {"type": "object", "required": ["count", "processed", "validated", "needs_review", "ready"], "properties": {"count": {"type": "integer", "minimum": 0}, "processed": {"type": "integer", "minimum": 0}, "validated": {"type": "integer", "minimum": 0}, "needs_review": {"type": "integer", "minimum": 0}, "ready": {"type": "integer", "minimum": 0}}, "additionalProperties": false},
-    "artifacts": {"type": "object", "required": ["manifest_sha256"], "properties": {"manifest_sha256": {"type": ["string", "null"]}, "manifest": {"$ref": "#/$defs/artifact"}, "version": {"$ref": "#/$defs/artifact"}, "chunks": {"$ref": "#/$defs/artifact"}, "document_tree": {"$ref": "#/$defs/artifact"}, "issues": {"$ref": "#/$defs/artifact"}}, "additionalProperties": false},
-    "manifest": {"type": "object"},
-    "error": {"type": "object"}
-  },
-  "$defs": {"success": {"type": "object", "required": ["schema_version", "operation", "request_id", "version_id", "status", "pages", "page_summary", "artifacts", "manifest"]}, "error": {"type": "object", "required": ["schema_version", "operation", "request_id", "error"], "properties": {"schema_version": {"const": "1"}, "operation": {"type": "string"}, "request_id": {"type": "string"}, "error": {"type": "object", "required": ["code", "message", "exit_class"], "properties": {"code": {"type": "string"}, "message": {"type": "string"}, "exit_class": {"enum": ["request", "processing", "interruption"]}}, "additionalProperties": false}}, "additionalProperties": false}, "artifact": {"type": "object", "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "additionalProperties": false}},
-  "additionalProperties": false
+  "oneOf": [{"$ref": "#/$defs/success"}, {"$ref": "#/$defs/error"}],
+  "$defs": {
+    "artifact": {"type": "object", "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "additionalProperties": false},
+    "page": {"type": "object", "required": ["page_number", "status", "attempts", "findings"], "properties": {"page_number": {"type": "integer", "minimum": 1}, "status": {"enum": ["VALIDATED", "NEEDS_REVIEW"]}, "attempts": {"type": "integer", "minimum": 1}, "findings": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": false},
+    "success": {"type": "object", "required": ["schema_version", "operation", "request_id", "version_id", "status", "pages", "page_summary", "artifacts", "manifest"], "properties": {"schema_version": {"const": "1"}, "operation": {"enum": ["preprocess", "status"]}, "request_id": {"type": "string", "minLength": 1}, "version_id": {"type": "string", "minLength": 1}, "status": {"enum": ["QUEUED", "PROCESSING", "VALIDATING", "READY", "NEEDS_REVIEW"]}, "pages": {"type": "array", "items": {"$ref": "#/$defs/page"}}, "page_summary": {"type": "object", "required": ["count", "processed", "validated", "needs_review", "ready"], "additionalProperties": false, "properties": {"count": {"type": "integer", "minimum": 0}, "processed": {"type": "integer", "minimum": 0}, "validated": {"type": "integer", "minimum": 0}, "needs_review": {"type": "integer", "minimum": 0}, "ready": {"type": "integer", "minimum": 0}}}, "artifacts": {"type": "object", "required": ["manifest_sha256", "manifest", "version"], "properties": {"manifest_sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}, "manifest": {"$ref": "#/$defs/artifact"}, "version": {"$ref": "#/$defs/artifact"}, "chunks": {"$ref": "#/$defs/artifact"}, "document_tree": {"$ref": "#/$defs/artifact"}, "issues": {"$ref": "#/$defs/artifact"}}, "additionalProperties": false}, "manifest": {"type": "object"}}, "additionalProperties": false},
+    "error": {"type": "object", "required": ["schema_version", "operation", "request_id", "error"], "properties": {"schema_version": {"const": "1"}, "operation": {"type": "string", "minLength": 1}, "request_id": {"type": "string"}, "error": {"type": "object", "required": ["code", "message", "exit_class"], "properties": {"code": {"type": "string", "minLength": 1}, "message": {"type": "string", "minLength": 1}, "exit_class": {"enum": ["request", "processing", "interruption"]}}, "additionalProperties": false}}, "additionalProperties": false}
+  }
 }
