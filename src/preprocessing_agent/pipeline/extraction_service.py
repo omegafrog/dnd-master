@@ -127,7 +127,7 @@ def _canonical_path(value: str, *, require_file: bool = False) -> Path:
         raise ValueError("SOURCE_NOT_FOUND")
     cursor = raw
     for parent in [cursor, *cursor.parents]:
-        if parent.exists() and parent.is_symlink():
+        if parent.is_symlink():
             raise ValueError("INVALID_REQUEST")
     return resolved
 
@@ -237,12 +237,14 @@ class ExtractionApplicationService:
             except (KeyError, TypeError, ValueError) as exc:
                 safe_number = number if "number" in locals() and 1 <= number <= version.page_count else position
                 version.record_page(PageExtraction.needs_review(safe_number, str(exc) or "INVALID_GEOMETRY"))
+                page_artifacts[:] = [item for item in page_artifacts if item.get("page_number") != safe_number]
                 evidence = {"page_number": safe_number, "status": PageStatus.NEEDS_REVIEW.value, "findings": version.pages[safe_number].findings}
                 page_artifacts.append({**evidence, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
         ready = False
         manifest: Mapping[str, Any] = {}
         output.mkdir(parents=True, exist_ok=True)
         versions = output / "versions"
+        _canonical_path(str(versions))
         versions.mkdir(exist_ok=True)
         temp_dir = Path(tempfile.mkdtemp(prefix=f".{version_id}-", dir=str(versions)))
         try:
@@ -272,6 +274,7 @@ class ExtractionApplicationService:
             if ready:
                 try:
                     generations = output / "generations"
+                    _canonical_path(str(generations))
                     generations.mkdir(exist_ok=True)
                     generation_stage = generations / f".{version_id}.tmp"
                     if generation_stage.exists(): shutil.rmtree(generation_stage)
