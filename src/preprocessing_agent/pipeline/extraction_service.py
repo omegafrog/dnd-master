@@ -240,8 +240,9 @@ class ExtractionApplicationService:
                         raise ValueError("INVALID_GEOMETRY")
                     LayoutBlock(str(block.get("block_id", "")), str(block.get("kind", "text")), bbox, str(block.get("text", "")), str(block.get("extraction_method", "native")), float(block.get("confidence", 1.0)), document_id, number, geometry)
                     blocks.append({**block, "bbox": [bbox.x0, bbox.y0, bbox.x1, bbox.y1], "source_document_id": document_id, "page_number": number, "page_geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}})
-                x_starts = sorted({float(block["bbox"][0]) for block in blocks if isinstance(block.get("bbox"), list) and len(block["bbox"]) == 4})
-                geometry_split = len(x_starts) >= 2 and x_starts[-1] - x_starts[0] > geometry.width * 0.35
+                left_blocks = [block for block in blocks if block["bbox"][2] <= geometry.width * 0.48]
+                right_blocks = [block for block in blocks if block["bbox"][0] >= geometry.width * 0.52]
+                geometry_split = bool(left_blocks and right_blocks and min(block["bbox"][0] for block in right_blocks) - max(block["bbox"][2] for block in left_blocks) >= geometry.width * 0.08)
                 if raw.get("column_count", 1) != 1 or raw.get("layout") in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, []) or geometry_split:
                     raise ValueError("MULTI_COLUMN_UNSUPPORTED")
                 raw = {**raw, "blocks": blocks}
@@ -260,6 +261,7 @@ class ExtractionApplicationService:
             if missing not in present_pages:
                 evidence = {"page_number": missing, "status": PageStatus.NEEDS_REVIEW.value, "findings": ["MISSING_PAGE_METADATA"]}
                 page_artifacts.append({**evidence, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
+        page_artifacts.sort(key=lambda item: item["page_number"])
         ready = False
         manifest: Mapping[str, Any] = {}
         output.mkdir(parents=True, exist_ok=True)
@@ -282,7 +284,8 @@ class ExtractionApplicationService:
                 ready = True
             else:
                 version.status = ExtractionStatus.NEEDS_REVIEW
-                (temp_dir / "manifest.json").write_text(json.dumps({"source": {"path": str(source), "sha256": source_hash}, "source_sha256": source_hash, "pipeline_version": policy, "schema_version": "1", "profile": "extraction-version", "policy": {"version": policy}, "statistics": {"pages": version.page_count}, "page_count": version.page_count, "status": version.status.value, "version_id": version.version_id, "document_id": document_id, "policy_version": policy}, sort_keys=True) + "\n")
+                manifest = {"source": {"path": str(source), "sha256": source_hash}, "source_sha256": source_hash, "pipeline_version": policy, "schema_version": "1", "profile": "extraction-version", "policy": {"version": policy}, "statistics": {"pages": version.page_count}, "page_count": version.page_count, "status": version.status.value, "version_id": version.version_id, "document_id": document_id, "policy_version": policy}
+                (temp_dir / "manifest.json").write_text(json.dumps(manifest, sort_keys=True) + "\n")
             version_artifact = {"version_id": version.version_id, "document_id": document_id, "policy_version": policy, "page_count": version.page_count, "status": version.status.value, "source_sha256": source_hash, "pages": page_artifacts}
             (temp_dir / "version.json").write_text(json.dumps(version_artifact, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             response = {"schema_version": "1", "operation": "preprocess", "request_id": request_id, "version_id": version.version_id, "status": version.status.value, "pages": [{"page_number": item["page_number"], "status": item["status"], "attempts": 1, "findings": item.get("findings", [])} for item in page_artifacts], "page_summary": {"count": len(page_artifacts), "processed": len(page_artifacts), "validated": sum(item["status"] == "VALIDATED" for item in page_artifacts), "needs_review": sum(item["status"] == "NEEDS_REVIEW" for item in page_artifacts), "ready": sum(item["status"] == "VALIDATED" for item in page_artifacts)}, "artifacts": self._artifact_refs(temp_dir, ready), "manifest": manifest}

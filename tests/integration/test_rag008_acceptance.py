@@ -86,6 +86,53 @@ def test_native_bbox_column_split_is_detected_without_layout_metadata(tmp_path: 
     assert "MULTI_COLUMN_UNSUPPORTED" in result["pages"][0]["findings"]
 
 
+def test_needs_review_response_manifest_is_readable_by_status(tmp_path: Path) -> None:
+    source = tmp_path / "input.pdf"
+    source.write_bytes(b"fixture")
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+
+    class Native:
+        def extract(self, _source):
+            return [{"page_number": 1, "geometry": {"width": 100, "height": 100}, "blocks": [{"bbox": (0, 0, 101, 10), "text": "bad"}]}]
+
+    service = ExtractionApplicationService(Native())
+    result = service.preprocess({"request_id": "review-status", "source_path": str(source), "source_sha256": digest, "policy_version": "p1", "output_dir": str(tmp_path / "out"), "version_id": "review1"})
+    status = service.get_status("review1", tmp_path / "out")
+    assert result["status"] == status["status"] == "NEEDS_REVIEW"
+    assert status["manifest"]["status"] == "NEEDS_REVIEW"
+
+
+def test_out_of_order_pages_are_sorted_for_readable_status(tmp_path: Path) -> None:
+    source = tmp_path / "input.pdf"
+    source.write_bytes(b"fixture")
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+
+    class Native:
+        def extract(self, _source):
+            page = {"geometry": {"width": 100, "height": 100}, "blocks": []}
+            return [{**page, "page_number": 2}, {**page, "page_number": 1}]
+
+    service = ExtractionApplicationService(Native())
+    service.preprocess({"request_id": "order-status", "source_path": str(source), "source_sha256": digest, "policy_version": "p1", "output_dir": str(tmp_path / "out"), "version_id": "order1"})
+    status = service.get_status("order1", tmp_path / "out")
+    assert [page["page_number"] for page in status["pages"]] == [1, 2]
+
+
+def test_narrow_clear_bbox_gutter_is_multi_column(tmp_path: Path) -> None:
+    source = tmp_path / "input.pdf"
+    source.write_bytes(b"fixture")
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+
+    class Native:
+        def extract(self, _source):
+            return [{"page_number": 1, "geometry": {"width": 100, "height": 100}, "blocks": [
+                {"bbox": (2, 0, 40, 10), "text": "left"}, {"bbox": (60, 0, 98, 10), "text": "right"}
+            ]}]
+
+    result = ExtractionApplicationService(Native()).preprocess({"request_id": "narrow-columns", "source_path": str(source), "source_sha256": digest, "policy_version": "p1", "output_dir": str(tmp_path / "out")})
+    assert result["status"] == "NEEDS_REVIEW"
+
+
 def test_native_out_of_order_pages_are_needs_review(tmp_path: Path) -> None:
     source = tmp_path / "input.pdf"
     source.write_bytes(b"fixture")
