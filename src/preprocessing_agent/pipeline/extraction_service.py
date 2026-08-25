@@ -197,7 +197,7 @@ class ExtractionApplicationService:
                     refs = cached.get("artifacts", {})
                     current = output / "current.json"
                     pointer_ok = cached.get("status") == "NEEDS_REVIEW" or (current.exists() and json.loads(current.read_text()).get("version_id") == index[idempotency_key])
-                    refs_ok = all(isinstance(item, dict) and set(item) == {"path", "sha256"} and Path(item["path"]).exists() and _sha256(Path(item["path"])) == item["sha256"] and ".tmp" not in str(item["path"]) for item in refs.values() if isinstance(item, dict))
+                    refs_ok = all(isinstance(item, dict) and set(item) == {"path", "sha256"} and not Path(item["path"]).is_symlink() and Path(item["path"]).exists() and _sha256(Path(item["path"])) == item["sha256"] and ".tmp" not in str(item["path"]) for item in refs.values() if isinstance(item, dict))
                     if cached.get("version_id") == index[idempotency_key] and cached.get("status") in {"READY", "NEEDS_REVIEW"} and pointer_ok and refs_ok:
                         return cached
                 except (OSError, ValueError, TypeError, json.JSONDecodeError):
@@ -329,7 +329,11 @@ class ExtractionApplicationService:
         status_lock = (root / ".preprocess.lock").open("a+")
         fcntl.flock(status_lock.fileno(), fcntl.LOCK_SH)
         try:
-            path = root / "generations" / version_id / "response.json"
+            current = root / "current.json"
+            selected = root / "generations" / version_id / "response.json"
+            if not current.exists() or json.loads(current.read_text()).get("version_id") != version_id:
+                selected = root / "versions" / version_id / "response.json"
+            path = selected
             if True:
                 if not path.exists():
                     raise VersionNotFoundError("VERSION_NOT_FOUND")
