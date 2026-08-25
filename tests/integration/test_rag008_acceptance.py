@@ -1,5 +1,7 @@
 import hashlib
 import json
+import subprocess
+import sys
 from pathlib import Path
 
 from preprocessing_agent.pipeline.extraction_service import ExtractionApplicationService
@@ -30,6 +32,33 @@ def test_invalid_geometry_native_page_is_needs_review_and_does_not_publish_chunk
     assert result["status"] == "NEEDS_REVIEW"
     assert "chunks" not in result["artifacts"]
     assert not (output / "current.json").exists()
+
+
+def test_process_cli_invalid_geometry_stdin_stdout_path(tmp_path: Path) -> None:
+    fake = tmp_path / "fake"
+    fake.mkdir()
+    (fake / "fitz.py").write_text("class R:\n width=100\n height=100\nclass P:\n rect=R()\n def get_text(self, *_): return [(0,0,101,10,'x')]\nclass D:\n def __enter__(self): return self\n def __exit__(self,*a): pass\n def __iter__(self): return iter([P()])\ndef open(_): return D()\n", encoding="utf-8")
+    source = tmp_path / "input.pdf"
+    source.write_bytes(b"fixture")
+    request = {"schema_version": "1", "operation": "preprocess", "request_id": "cli-bad", "source_path": str(source), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "policy_version": "p", "output_dir": str(tmp_path / "out")}
+    env = {"PYTHONPATH": f"{fake}:src"}
+    proc = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env=env)
+    payload = json.loads(proc.stdout)
+    assert proc.returncode == 0 and payload["status"] == "NEEDS_REVIEW"
+    assert "chunks" not in payload["artifacts"] and not (tmp_path / "out" / "current.json").exists()
+
+
+def test_malformed_status_page_and_artifact_are_quarantined(tmp_path: Path) -> None:
+    root = tmp_path / "out" / "versions" / "v1"
+    root.mkdir(parents=True)
+    (root / "response.json").write_text(json.dumps({"schema_version": "1", "version_id": "v1", "status": "READY", "pages": [None], "page_summary": {}, "artifacts": [], "manifest": {}}), encoding="utf-8")
+    try:
+        ExtractionApplicationService().get_status("v1", tmp_path / "out")
+    except ValueError as exc:
+        assert str(exc) == "VERSION_ARTIFACT_CORRUPT"
+    else:
+        raise AssertionError("malformed status must be quarantined")
+    assert (root / "response.corrupt.json").exists()
 
 
 def test_explicit_version_id_is_part_of_idempotency_contract(tmp_path: Path) -> None:
