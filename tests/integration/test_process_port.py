@@ -1,6 +1,7 @@
 import json
 import subprocess
 import sys
+import hashlib
 from pathlib import Path
 
 
@@ -8,7 +9,7 @@ def test_process_port_returns_one_json_response_and_keeps_logs_off_stdout(tmp_pa
     source = tmp_path / "input.md"
     source.write_text("# Heading\nA native page", encoding="utf-8")
     output = tmp_path / "artifacts"
-    request = {"schema_version": "1", "operation": "preprocess", "request_id": "req-1", "source_path": str(source), "policy_version": "p1", "output_dir": str(output)}
+    request = {"schema_version": "1", "operation": "preprocess", "request_id": "req-1", "source_path": str(source), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "policy_version": "p1", "output_dir": str(output)}
     proc = subprocess.run(
         [sys.executable, "-m", "preprocessing_agent.adapters.process_cli"],
         input=json.dumps(request), text=True, capture_output=True,
@@ -46,7 +47,7 @@ def test_invalid_request_has_stable_error_and_nonzero_exit() -> None:
 def test_expected_hash_and_idempotency_are_enforced(tmp_path: Path) -> None:
     source = tmp_path / "input.md"
     source.write_text("content", encoding="utf-8")
-    request = {"schema_version": "1", "operation": "preprocess", "request_id": "same", "source_path": str(source), "policy_version": "p1", "output_dir": str(tmp_path / "out")}
+    request = {"schema_version": "1", "operation": "preprocess", "request_id": "same", "source_path": str(source), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "policy_version": "p1", "output_dir": str(tmp_path / "out")}
     first = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env={"PYTHONPATH": "src"})
     assert first.returncode == 0
     second = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env={"PYTHONPATH": "src"})
@@ -55,3 +56,28 @@ def test_expected_hash_and_idempotency_are_enforced(tmp_path: Path) -> None:
     rejected = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(bad), text=True, capture_output=True, env={"PYTHONPATH": "src"})
     assert rejected.returncode != 0
     assert json.loads(rejected.stdout)["error"]["code"] == "SOURCE_HASH_MISMATCH"
+
+
+def test_needs_review_quarantines_current_root_artifacts(tmp_path: Path) -> None:
+    source = tmp_path / "input.md"
+    source.write_text("content", encoding="utf-8")
+    output = tmp_path / "out"
+    request = {"schema_version": "1", "operation": "preprocess", "request_id": "ready", "source_path": str(source), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "policy_version": "p1", "output_dir": str(output)}
+    assert subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env={"PYTHONPATH": "src"}).returncode == 0
+    # A malformed PDF adapter failure is represented by a non-ready version and cannot expose old root chunks.
+    bad = tmp_path / "bad.pdf"
+    bad.write_bytes(b"not a pdf")
+    blocked = dict(request, request_id="blocked", source_path=str(bad), source_sha256=hashlib.sha256(bad.read_bytes()).hexdigest())
+    proc = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(blocked), text=True, capture_output=True, env={"PYTHONPATH": "src"})
+    assert proc.returncode == 3
+    assert json.loads(proc.stdout)["error"]["code"] == "NATIVE_EXTRACTION_FAILED"
+    assert not (output / "current.json").exists()
+
+
+def test_schema_and_exit_codes_are_distinct(tmp_path: Path) -> None:
+    unsupported = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input='{"schema_version":"9"}', text=True, capture_output=True, env={"PYTHONPATH": "src"})
+    assert unsupported.returncode == 2
+    assert json.loads(unsupported.stdout)["error"]["code"] == "UNSUPPORTED_SCHEMA"
+    invalid = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input='{"schema_version":"1"}', text=True, capture_output=True, env={"PYTHONPATH": "src"})
+    assert invalid.returncode == 2
+    assert json.loads(invalid.stdout)["error"]["code"] == "INVALID_REQUEST"

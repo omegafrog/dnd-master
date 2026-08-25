@@ -7,4 +7,5 @@
 - tests: 131 passed
 - follow-up: 132 passed; process operation/status, stable errors, idempotency, source hash, atomic version artifacts, evidence hashes
 - fix commit: 9062b529
+- final review fixes: current-pointer quarantine, atomic publish/index lock, canonical roots, malformed metadata, stable schema/error/exit codes, native failure mapping
 - next: RAG-009 is ready-for-agent

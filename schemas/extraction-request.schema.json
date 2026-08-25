@@ -1,13 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "required": ["schema_version", "request_id", "source_path"],
+  "required": ["schema_version", "operation", "request_id", "source_path", "policy_version", "source_sha256"],
   "properties": {
     "schema_version": {"type": "string", "const": "1"},
+    "operation": {"enum": ["preprocess", "status"]},
     "request_id": {"type": "string", "minLength": 1},
     "source_path": {"type": "string", "minLength": 1},
     "output_dir": {"type": "string"},
-    "policy_version": {"type": "string"},
+    "policy_version": {"type": "string", "minLength": 1},
+    "source_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
     "version_id": {"type": "string"}
   },
   "additionalProperties": true

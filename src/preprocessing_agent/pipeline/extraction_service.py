@@ -6,6 +6,7 @@ import json
 import uuid
 import shutil
 import tempfile
+import fcntl
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -108,10 +109,20 @@ class ExtractionApplicationService:
         self._versions: dict[str, Mapping[str, Any]] = {}
 
     def preprocess(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
-        source = Path(str(request["source_path"]))
+        output = Path(str(request.get("output_dir", ""))).expanduser().resolve()
+        output.mkdir(parents=True, exist_ok=True)
+        with (output / ".preprocess.lock").open("a+") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                return self._preprocess_locked(request, output)
+            finally:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+    def _preprocess_locked(self, request: Mapping[str, Any], canonical_output: Path) -> Mapping[str, Any]:
+        source = Path(str(request["source_path"])).expanduser().resolve()
         if not source.is_file():
             raise ValueError("SOURCE_NOT_FOUND")
-        output = Path(str(request.get("output_dir", source.parent / "preprocessed")))
+        output = canonical_output
         request_id = str(request["request_id"])
         policy = str(request["policy_version"])
         source_hash = _sha256(source)
@@ -125,16 +136,25 @@ class ExtractionApplicationService:
             saved = output / "versions" / index[idempotency_key] / "response.json"
             if saved.exists():
                 return json.loads(saved.read_text())
-        raw_pages = self.native_pdf.extract(source) if source.suffix.lower() == ".pdf" else self._text_pages(source)
+        try:
+            raw_pages = self.native_pdf.extract(source) if source.suffix.lower() == ".pdf" else self._text_pages(source)
+        except Exception as exc:
+            for name in ("chunks.jsonl", "manifest.json", "document_tree.json", "issues.jsonl", "current.json"):
+                stale = output / name
+                if stale.exists():
+                    stale.unlink()
+            raise ValueError("NATIVE_EXTRACTION_FAILED") from exc
         document_id = source_hash[:16]
         version_id = str(request.get("version_id") or f"ev-{uuid.uuid4().hex[:12]}")
         version = ExtractionVersion.create(version_id, document_id, policy, len(raw_pages) or 1)
         parser_pages: list[Mapping[str, Any]] = []
         page_artifacts: list[dict[str, Any]] = []
         for position, raw in enumerate(raw_pages, 1):
-            number = int(raw.get("page_number", position))
             geometry_raw = raw.get("geometry", {})
             try:
+                number = int(raw.get("page_number", position))
+                if number < 1 or number > len(raw_pages):
+                    raise ValueError("INVALID_PAGE_METADATA")
                 geometry = PageGeometry(float(geometry_raw["width"]), float(geometry_raw["height"]))
                 blocks = []
                 for block in raw.get("blocks", ()):
@@ -180,6 +200,12 @@ class ExtractionApplicationService:
             if ready:
                 for name in ("chunks.jsonl", "manifest.json"):
                     if not (output / name).exists(): shutil.copy2(version_dir / name, output / name)
+                (output / "current.json.tmp").write_text(json.dumps({"version_id": version_id, "status": version.status.value}, sort_keys=True) + "\n")
+                (output / "current.json.tmp").replace(output / "current.json")
+            else:
+                for name in ("chunks.jsonl", "manifest.json", "document_tree.json", "issues.jsonl", "current.json"):
+                    stale = output / name
+                    if stale.exists(): stale.unlink()
             response = {**response, "artifacts": self._artifact_refs(version_dir, ready)}
             (version_dir / "response.json").write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             return response
