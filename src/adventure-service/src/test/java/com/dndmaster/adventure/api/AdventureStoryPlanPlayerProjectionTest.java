@@ -185,12 +185,16 @@ class AdventureStoryPlanPlayerProjectionTest {
     }
 
     @Test
-    void triggerRequestIsRejectedAsBadRequestBeforeSessionLookup() {
-        var controller = new AdventureStoryPlanController(null, null, null, null, null, null, new ApiRequestGuard("test-internal-token"));
+    void triggerRequestCannotBypassSessionAuthorizationWithMalformedBody() {
+        var sessions = mock(AdventureSessionApplicationService.class);
+        var resolver = mock(AuthenticatedPlayerResolver.class);
+        when(resolver.playerId()).thenReturn(UUID.randomUUID());
+        when(sessions.read(any(), any())).thenThrow(new SecurityException("adventure session access denied"));
+        var controller = new AdventureStoryPlanController(null, sessions, null, resolver, null, null, new ApiRequestGuard("test-internal-token"));
 
-        ResponseStatusException failure = assertThrows(ResponseStatusException.class, () -> controller.applyTrigger(
+        SecurityException failure = assertThrows(SecurityException.class, () -> controller.applyTrigger(
                 UUID.randomUUID(), 1, "entry", null));
 
-        assertEquals(400, failure.getStatusCode().value());
+        assertEquals("adventure session access denied", failure.getMessage());
     }
 }
