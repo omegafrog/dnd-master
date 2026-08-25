@@ -240,7 +240,9 @@ class ExtractionApplicationService:
                         raise ValueError("INVALID_GEOMETRY")
                     LayoutBlock(str(block.get("block_id", "")), str(block.get("kind", "text")), bbox, str(block.get("text", "")), str(block.get("extraction_method", "native")), float(block.get("confidence", 1.0)), document_id, number, geometry)
                     blocks.append({**block, "bbox": [bbox.x0, bbox.y0, bbox.x1, bbox.y1], "source_document_id": document_id, "page_number": number, "page_geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}})
-                if raw.get("column_count", 1) != 1 or raw.get("layout") in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, []):
+                x_starts = sorted({float(block["bbox"][0]) for block in blocks if isinstance(block.get("bbox"), list) and len(block["bbox"]) == 4})
+                geometry_split = len(x_starts) >= 2 and x_starts[-1] - x_starts[0] > geometry.width * 0.35
+                if raw.get("column_count", 1) != 1 or raw.get("layout") in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, []) or geometry_split:
                     raise ValueError("MULTI_COLUMN_UNSUPPORTED")
                 raw = {**raw, "blocks": blocks}
                 version.record_page(PageExtraction.validated(number))
@@ -373,7 +375,7 @@ class ExtractionApplicationService:
                 if response["status"] == "READY" and any(page.get("status") == "NEEDS_REVIEW" for page in response["pages"]):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 page_numbers = [page.get("page_number") if isinstance(page, dict) else None for page in response["pages"]]
-                if len(set(page_numbers)) != len(page_numbers) or any(type(number) is not int or number < 1 for number in page_numbers):
+                if len(set(page_numbers)) != len(page_numbers) or any(type(number) is not int or number < 1 for number in page_numbers) or page_numbers != sorted(page_numbers) or page_numbers != list(range(1, len(page_numbers) + 1)):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 for page in response["pages"]:
                     if not isinstance(page, dict) or type(page.get("page_number")) is not int or page.get("status") not in {"VALIDATED", "NEEDS_REVIEW"} or type(page.get("attempts")) is not int or page.get("attempts") < 1 or not isinstance(page.get("findings"), list) or any(not isinstance(item, str) for item in page.get("findings", [])):
@@ -385,6 +387,8 @@ class ExtractionApplicationService:
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 allowed_refs = {"manifest_sha256", "manifest", "version", "chunks", "document_tree", "issues"}
                 if set(response["artifacts"]) - allowed_refs or not {"manifest_sha256", "manifest", "version"} <= set(response["artifacts"]):
+                    raise ValueError("VERSION_ARTIFACT_CORRUPT")
+                if response["status"] == "READY" and not {"chunks", "document_tree", "issues"} <= set(response["artifacts"]):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 for ref in response["artifacts"].values():
                     if isinstance(ref, dict) and "path" in ref and "sha256" in ref:
@@ -408,6 +412,8 @@ class ExtractionApplicationService:
                     manifest_data = json.loads(Path(manifest_ref["path"]).read_text())
                     version_data = json.loads(Path(version_ref["path"]).read_text())
                     if manifest_data.get("source_sha256") != version_data.get("source_sha256") or version_data.get("version_id") != version_id or version_data.get("status") != response.get("status"):
+                        raise ValueError("VERSION_ARTIFACT_CORRUPT")
+                    if response.get("manifest") != manifest_data:
                         raise ValueError("VERSION_ARTIFACT_CORRUPT")
                     expected_pages = version_data.get("page_count")
                     if type(expected_pages) is not int or expected_pages != len(response["pages"]) or response["page_summary"].get("count") != expected_pages:

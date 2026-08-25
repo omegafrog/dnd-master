@@ -69,6 +69,23 @@ def test_native_multi_column_page_is_needs_review_and_does_not_publish_ready(tmp
     assert not (output / "current.json").exists()
 
 
+def test_native_bbox_column_split_is_detected_without_layout_metadata(tmp_path: Path) -> None:
+    source = tmp_path / "input.pdf"
+    source.write_bytes(b"fixture")
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+
+    class Native:
+        def extract(self, _source):
+            return [{"page_number": 1, "geometry": {"width": 100, "height": 100}, "blocks": [
+                {"block_id": "left", "text": "left", "bbox": (0, 0, 20, 10)},
+                {"block_id": "right", "text": "right", "bbox": (70, 0, 90, 10)},
+            ]}]
+
+    result = ExtractionApplicationService(Native()).preprocess({"request_id": "bbox-columns", "source_path": str(source), "source_sha256": digest, "policy_version": "p1", "output_dir": str(tmp_path / "out")})
+    assert result["status"] == "NEEDS_REVIEW"
+    assert "MULTI_COLUMN_UNSUPPORTED" in result["pages"][0]["findings"]
+
+
 def test_native_out_of_order_pages_are_needs_review(tmp_path: Path) -> None:
     source = tmp_path / "input.pdf"
     source.write_bytes(b"fixture")
