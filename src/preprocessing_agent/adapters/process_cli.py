@@ -22,7 +22,7 @@ def main() -> int:
         operation = request.get("operation")
         if operation == "preprocess":
             required = ("request_id", "source_path", "policy_version", "source_sha256", "output_dir")
-            if any(not isinstance(request.get(key), str) or not request[key] for key in required):
+            if any(not isinstance(request.get(key), str) or not request[key] for key in required) or not re.fullmatch(r"[0-9a-f]{64}", request["source_sha256"]):
                 raise ValueError("INVALID_REQUEST")
             response = ExtractionApplicationService().preprocess(request)
         elif operation == "status":

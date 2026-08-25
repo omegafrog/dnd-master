@@ -223,13 +223,21 @@ class ExtractionApplicationService:
                         shutil.copy2(version_dir / name, root_stage / name)
                     for name in ("chunks.jsonl", "manifest.json", "document_tree.json", "issues.jsonl"):
                         os.replace(root_stage / name, output / name)
+                    generations = output / "generations"
+                    generations.mkdir(exist_ok=True)
+                    generation_stage = generations / f".{version_id}.tmp"
+                    if generation_stage.exists(): shutil.rmtree(generation_stage)
+                    shutil.copytree(version_dir, generation_stage)
+                    generation = generations / version_id
+                    if generation.exists(): shutil.rmtree(generation)
+                    generation_stage.rename(generation)
                 except Exception:
                     current = output / "current.json"
                     if current.exists(): current.unlink()
                     raise
                 finally:
                     if root_stage.exists(): shutil.rmtree(root_stage)
-                (output / "current.json.tmp").write_text(json.dumps({"version_id": version_id, "status": version.status.value}, sort_keys=True) + "\n")
+                (output / "current.json.tmp").write_text(json.dumps({"version_id": version_id, "generation": str(generation), "status": version.status.value}, sort_keys=True) + "\n")
                 (output / "current.json.tmp").replace(output / "current.json")
             else:
                 for name in ("chunks.jsonl", "manifest.json", "document_tree.json", "issues.jsonl", "current.json"):
@@ -240,6 +248,9 @@ class ExtractionApplicationService:
             return response
         except Exception:
             if temp_dir.exists(): shutil.rmtree(temp_dir)
+            for name in ("chunks.jsonl", "manifest.json", "document_tree.json", "issues.jsonl", "current.json", "current.json.tmp"):
+                stale = output / name
+                if stale.exists(): stale.unlink()
             raise
 
     def get_status(self, version_id: str, artifact_root: str | Path) -> Mapping[str, Any]:
@@ -257,6 +268,9 @@ class ExtractionApplicationService:
                     response = json.loads(path.read_text())
                 except json.JSONDecodeError as exc:
                     raise ValueError("VERSION_ARTIFACT_CORRUPT") from exc
+                if not isinstance(response, dict) or not all(key in response for key in ("schema_version", "version_id", "status", "pages", "artifacts")) or not isinstance(response["pages"], list):
+                    path.replace(path.with_name("response.corrupt.json"))
+                    raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 return {**response, "operation": "status"}
             finally:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)

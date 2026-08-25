@@ -119,3 +119,12 @@ def test_corrupt_request_index_is_recovered(tmp_path: Path) -> None:
     result = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env={"PYTHONPATH": "src"})
     assert result.returncode == 0
     assert (output / "request-index.json").exists()
+
+
+def test_source_hash_must_be_lowercase_sha256(tmp_path: Path) -> None:
+    source = tmp_path / "input.md"
+    source.write_text("content", encoding="utf-8")
+    request = {"schema_version": "1", "operation": "preprocess", "request_id": "r", "source_path": str(source), "source_sha256": "A" * 64, "policy_version": "p", "output_dir": str(tmp_path / "out")}
+    proc = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env={"PYTHONPATH": "src"})
+    assert proc.returncode == 2
+    assert json.loads(proc.stdout)["error"]["code"] == "INVALID_REQUEST"

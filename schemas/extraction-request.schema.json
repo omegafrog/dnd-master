@@ -15,5 +15,5 @@
     "source_sha256": {"type": "string", "pattern": "^[a-fA-F0-9]{64}$"},
     "version_id": {"type": "string"}
   },
-  "additionalProperties": true
+  "additionalProperties": false
 }

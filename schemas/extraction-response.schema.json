@@ -10,5 +10,5 @@
     "page_summary": {"type": "object"},
     "artifacts": {"type": "object"}
   },
-  "additionalProperties": true
+  "additionalProperties": false
 }
