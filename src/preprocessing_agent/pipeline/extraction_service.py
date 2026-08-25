@@ -197,7 +197,8 @@ class ExtractionApplicationService:
                     refs = cached.get("artifacts", {})
                     current = output / "current.json"
                     pointer_ok = cached.get("status") == "NEEDS_REVIEW" or (current.exists() and json.loads(current.read_text()).get("version_id") == index[idempotency_key])
-                    refs_ok = all(isinstance(item, dict) and set(item) == {"path", "sha256"} and not Path(item["path"]).is_symlink() and Path(item["path"]).exists() and _sha256(Path(item["path"])) == item["sha256"] and ".tmp" not in str(item["path"]) for item in refs.values() if isinstance(item, dict))
+                    allowed_roots = (output / "versions" / index[idempotency_key], output / "generations" / index[idempotency_key])
+                    refs_ok = all(isinstance(item, dict) and set(item) == {"path", "sha256"} and not any(parent.is_symlink() for parent in (Path(item["path"]), *Path(item["path"]).parents)) and any(Path(item["path"]).resolve().is_relative_to(root.resolve()) for root in allowed_roots) and Path(item["path"]).exists() and _sha256(Path(item["path"])) == item["sha256"] and ".tmp" not in str(item["path"]) for item in refs.values() if isinstance(item, dict))
                     if cached.get("version_id") == index[idempotency_key] and cached.get("status") in {"READY", "NEEDS_REVIEW"} and pointer_ok and refs_ok:
                         return cached
                 except (OSError, ValueError, TypeError, json.JSONDecodeError):
@@ -277,8 +278,8 @@ class ExtractionApplicationService:
                 ready = True
             else:
                 version.status = ExtractionStatus.NEEDS_REVIEW
-                (temp_dir / "manifest.json").write_text(json.dumps({"source": {"path": str(source), "sha256": source_hash}, "source_sha256": source_hash, "pipeline_version": policy, "schema_version": "1", "profile": "extraction-version", "policy": {"version": policy}, "statistics": {}, "status": version.status.value, "version_id": version.version_id, "document_id": document_id, "policy_version": policy}, sort_keys=True) + "\n")
-            version_artifact = {"version_id": version.version_id, "document_id": document_id, "policy_version": policy, "status": version.status.value, "source_sha256": source_hash, "pages": page_artifacts}
+                (temp_dir / "manifest.json").write_text(json.dumps({"source": {"path": str(source), "sha256": source_hash}, "source_sha256": source_hash, "pipeline_version": policy, "schema_version": "1", "profile": "extraction-version", "policy": {"version": policy}, "statistics": {"pages": version.page_count}, "page_count": version.page_count, "status": version.status.value, "version_id": version.version_id, "document_id": document_id, "policy_version": policy}, sort_keys=True) + "\n")
+            version_artifact = {"version_id": version.version_id, "document_id": document_id, "policy_version": policy, "page_count": version.page_count, "status": version.status.value, "source_sha256": source_hash, "pages": page_artifacts}
             (temp_dir / "version.json").write_text(json.dumps(version_artifact, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             response = {"schema_version": "1", "operation": "preprocess", "request_id": request_id, "version_id": version.version_id, "status": version.status.value, "pages": [{"page_number": item["page_number"], "status": item["status"], "attempts": 1, "findings": item.get("findings", [])} for item in page_artifacts], "page_summary": {"count": len(page_artifacts), "processed": len(page_artifacts), "validated": sum(item["status"] == "VALIDATED" for item in page_artifacts), "needs_review": sum(item["status"] == "NEEDS_REVIEW" for item in page_artifacts), "ready": sum(item["status"] == "VALIDATED" for item in page_artifacts)}, "artifacts": self._artifact_refs(temp_dir, ready), "manifest": manifest}
             (temp_dir / "response.json").write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
