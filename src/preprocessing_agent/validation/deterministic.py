@@ -61,15 +61,20 @@ def validate_chunks(
         if chunk.content_type.value == "table" and ("|" in text or "\t" in text) and "\n" in text:
             issues.append(ValidationIssue("split_table", "table content must remain a single chunk", path=path))
         for span in chunk.source_spans:
-            invalid = (page_count is not None and span.page_number > page_count)
-            if block_count is not None and span.block_index is not None and span.block_index >= block_count:
-                invalid = True
             page = pages.get(span.page_number)
-            block = None
-            if page and span.block_index is not None and span.block_index < len(page.blocks):
-                block = page.blocks[span.block_index]
-            if block and span.char_end is not None and span.char_end > len(block.source_text):
-                invalid = True
+            if document is not None:
+                invalid = page is None
+                if page is not None and span.block_index is not None and span.block_index >= len(page.blocks):
+                    invalid = True
+                if page is not None and any(
+                    offset is not None and offset > len(page.source_text)
+                    for offset in (span.char_start, span.char_end)
+                ):
+                    invalid = True
+            else:
+                invalid = page_count is not None and span.page_number > page_count
+                if block_count is not None and span.block_index is not None and span.block_index >= block_count:
+                    invalid = True
             if invalid:
                 issues.append(ValidationIssue("invalid_source_span", "source span is outside the parsed document", path=path, source_span=span))
     checked = tuple(chunk.chunk_id for chunk in items)
