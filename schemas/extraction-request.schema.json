@@ -1,7 +1,10 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
-  "required": ["schema_version", "operation", "request_id", "source_path", "policy_version", "source_sha256"],
+  "anyOf": [
+    {"required": ["schema_version", "operation", "request_id", "source_path", "policy_version", "source_sha256", "output_dir"], "properties": {"operation": {"const": "preprocess"}}},
+    {"required": ["schema_version", "operation", "request_id", "version_id", "artifact_root"], "properties": {"operation": {"const": "status"}}}
+  ],
   "properties": {
     "schema_version": {"type": "string", "const": "1"},
     "operation": {"enum": ["preprocess", "status"]},

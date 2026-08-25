@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import sys
+import re
 from typing import Any
 
 from preprocessing_agent.pipeline.extraction_service import ExtractionApplicationService
@@ -20,18 +21,21 @@ def main() -> int:
             raise ValueError("UNSUPPORTED_SCHEMA")
         operation = request.get("operation")
         if operation == "preprocess":
-            required = ("request_id", "source_path", "policy_version", "source_sha256")
+            required = ("request_id", "source_path", "policy_version", "source_sha256", "output_dir")
             if any(not isinstance(request.get(key), str) or not request[key] for key in required):
                 raise ValueError("INVALID_REQUEST")
             response = ExtractionApplicationService().preprocess(request)
         elif operation == "status":
-            if not isinstance(request.get("version_id"), str) or not isinstance(request.get("artifact_root"), str):
+            if not isinstance(request.get("version_id"), str) or not re.fullmatch(r"[A-Za-z0-9._-]+", request["version_id"]) or not isinstance(request.get("artifact_root"), str) or not request["artifact_root"]:
                 raise ValueError("INVALID_REQUEST")
             response = ExtractionApplicationService().get_status(request["version_id"], request["artifact_root"])
         else:
             raise ValueError("INVALID_REQUEST")
         print(json.dumps(response, ensure_ascii=False, sort_keys=True))
         return 0
+    except json.JSONDecodeError as exc:
+        print(json.dumps({"schema_version": SUPPORTED_SCHEMA, "error": {"code": "INVALID_REQUEST", "message": str(exc)}}, sort_keys=True))
+        return 2
     except KeyboardInterrupt:
         print(json.dumps({"schema_version": SUPPORTED_SCHEMA, "error": {"code": "INTERRUPTED", "message": "request interrupted"}}, sort_keys=True))
         return 4

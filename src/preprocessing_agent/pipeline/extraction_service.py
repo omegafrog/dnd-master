@@ -7,6 +7,8 @@ import uuid
 import shutil
 import tempfile
 import fcntl
+import re
+import os
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -146,10 +148,13 @@ class ExtractionApplicationService:
             raise ValueError("NATIVE_EXTRACTION_FAILED") from exc
         document_id = source_hash[:16]
         version_id = str(request.get("version_id") or f"ev-{uuid.uuid4().hex[:12]}")
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", version_id):
+            raise ValueError("INVALID_REQUEST")
         version = ExtractionVersion.create(version_id, document_id, policy, len(raw_pages) or 1)
         parser_pages: list[Mapping[str, Any]] = []
         page_artifacts: list[dict[str, Any]] = []
         for position, raw in enumerate(raw_pages, 1):
+            number: int | None = None
             geometry_raw = raw.get("geometry", {})
             try:
                 number = int(raw.get("page_number", position))
@@ -168,8 +173,9 @@ class ExtractionApplicationService:
                 evidence = {"page_number": number, "geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}, "blocks": blocks}
                 page_artifacts.append({**evidence, "status": PageStatus.VALIDATED.value, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
             except (KeyError, TypeError, ValueError) as exc:
-                version.record_page(PageExtraction.needs_review(number, str(exc) or "INVALID_GEOMETRY"))
-                evidence = {"page_number": number, "status": PageStatus.NEEDS_REVIEW.value, "findings": version.pages[number].findings}
+                safe_number = number if "number" in locals() and 1 <= number <= version.page_count else position
+                version.record_page(PageExtraction.needs_review(safe_number, str(exc) or "INVALID_GEOMETRY"))
+                evidence = {"page_number": safe_number, "status": PageStatus.NEEDS_REVIEW.value, "findings": version.pages[safe_number].findings}
                 page_artifacts.append({**evidence, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
         ready = False
         manifest: Mapping[str, Any] = {}
@@ -196,10 +202,22 @@ class ExtractionApplicationService:
                 raise ValueError("VERSION_ID_CONFLICT")
             temp_dir.rename(version_dir)
             index[idempotency_key] = version_id
-            index_path.write_text(json.dumps(index, sort_keys=True, indent=2) + "\n")
+            index_tmp = index_path.with_suffix(".tmp")
+            index_tmp.write_text(json.dumps(index, sort_keys=True, indent=2) + "\n")
+            os.replace(index_tmp, index_path)
             if ready:
-                for name in ("chunks.jsonl", "manifest.json"):
-                    if not (output / name).exists(): shutil.copy2(version_dir / name, output / name)
+                root_stage = Path(tempfile.mkdtemp(prefix=".root-", dir=str(output)))
+                try:
+                    for name in ("chunks.jsonl", "manifest.json", "document_tree.json", "issues.jsonl"):
+                        shutil.copy2(version_dir / name, root_stage / name)
+                    for name in ("chunks.jsonl", "manifest.json", "document_tree.json", "issues.jsonl"):
+                        os.replace(root_stage / name, output / name)
+                except Exception:
+                    current = output / "current.json"
+                    if current.exists(): current.unlink()
+                    raise
+                finally:
+                    if root_stage.exists(): shutil.rmtree(root_stage)
                 (output / "current.json.tmp").write_text(json.dumps({"version_id": version_id, "status": version.status.value}, sort_keys=True) + "\n")
                 (output / "current.json.tmp").replace(output / "current.json")
             else:
@@ -214,7 +232,9 @@ class ExtractionApplicationService:
             raise
 
     def get_status(self, version_id: str, artifact_root: str | Path) -> Mapping[str, Any]:
-        path = Path(artifact_root) / "versions" / version_id / "response.json"
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", version_id):
+            raise ValueError("INVALID_REQUEST")
+        path = Path(artifact_root).expanduser().resolve() / "versions" / version_id / "response.json"
         if not path.exists():
             raise ValueError("VERSION_NOT_FOUND")
         return {**json.loads(path.read_text()), "operation": "status"}

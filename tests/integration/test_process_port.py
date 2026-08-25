@@ -81,3 +81,12 @@ def test_schema_and_exit_codes_are_distinct(tmp_path: Path) -> None:
     invalid = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input='{"schema_version":"1"}', text=True, capture_output=True, env={"PYTHONPATH": "src"})
     assert invalid.returncode == 2
     assert json.loads(invalid.stdout)["error"]["code"] == "INVALID_REQUEST"
+    malformed = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input="{", text=True, capture_output=True, env={"PYTHONPATH": "src"})
+    assert malformed.returncode == 2
+    assert json.loads(malformed.stdout)["error"]["code"] == "INVALID_REQUEST"
+
+
+def test_status_requires_artifact_root_and_rejects_unsafe_version_id(tmp_path: Path) -> None:
+    proc = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps({"schema_version": "1", "operation": "status", "version_id": "../escape"}), text=True, capture_output=True, env={"PYTHONPATH": "src"})
+    assert proc.returncode == 2
+    assert json.loads(proc.stdout)["error"]["code"] == "INVALID_REQUEST"

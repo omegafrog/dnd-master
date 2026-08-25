@@ -8,4 +8,5 @@
 - follow-up: 132 passed; process operation/status, stable errors, idempotency, source hash, atomic version artifacts, evidence hashes
 - fix commit: 9062b529
 - final review fixes: current-pointer quarantine, atomic publish/index lock, canonical roots, malformed metadata, stable schema/error/exit codes, native failure mapping
+- follow-up: conditional request schema, malformed JSON/page metadata safety, safe version IDs, deterministic output root, rerun root projection and atomic index/current publication
 - next: RAG-009 is ready-for-agent
