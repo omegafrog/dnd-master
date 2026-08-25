@@ -1,6 +1,9 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "type": "object",
+  "oneOf": [
+    {"$ref": "#/$defs/success"},
+    {"$ref": "#/$defs/error"}
+  ],
   "required": ["schema_version", "operation", "request_id", "version_id", "status", "pages", "page_summary", "artifacts", "manifest"],
   "properties": {
     "schema_version": {"type": "string", "const": "1"},
@@ -13,6 +16,6 @@
     "artifacts": {"type": "object", "required": ["manifest_sha256"], "properties": {"manifest_sha256": {"type": ["string", "null"]}, "manifest": {"$ref": "#/$defs/artifact"}, "version": {"$ref": "#/$defs/artifact"}, "chunks": {"$ref": "#/$defs/artifact"}, "document_tree": {"$ref": "#/$defs/artifact"}, "issues": {"$ref": "#/$defs/artifact"}}, "additionalProperties": false},
     "manifest": {"type": "object"}
   },
-  "$defs": {"artifact": {"type": "object", "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "additionalProperties": false}},
+  "$defs": {"success": {"type": "object", "required": ["schema_version", "operation", "request_id", "version_id", "status", "pages", "page_summary", "artifacts", "manifest"]}, "error": {"type": "object", "required": ["schema_version", "operation", "request_id", "error"], "properties": {"schema_version": {"const": "1"}, "operation": {"type": "string"}, "request_id": {"type": "string"}, "error": {"type": "object", "required": ["code", "message", "exit_class"], "properties": {"code": {"type": "string"}, "message": {"type": "string"}, "exit_class": {"enum": ["request", "processing", "interruption"]}}, "additionalProperties": false}}, "additionalProperties": false}, "artifact": {"type": "object", "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "additionalProperties": false}},
   "additionalProperties": false
 }

@@ -18,4 +18,5 @@
 - publication final: final response generation refs, finite geometry checks, operation-conditional artifact fields, status generation ref validation
 - final atomicity: request index commits after response/current publication; version artifacts persist document/policy identity; retry failures remain prior-generation safe
 - generation-only publication: root consumers use one current pointer; no independently replaced root artifact set; strict generation/version containment and typed artifact refs
+- final response contract: strict success/error oneOf schema, corrupt status quarantine, input-byte source hash in READY manifest
 - next: RAG-009 is ready-for-agent

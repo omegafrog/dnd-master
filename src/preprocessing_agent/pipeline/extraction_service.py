@@ -212,6 +212,12 @@ class ExtractionApplicationService:
                 parser = PdfDocumentParser(extractor=lambda _source: parser_pages)
                 result = PreprocessingPipeline.from_config({"name": "extraction-version", "pipeline_version": policy}, parser=parser, output_dir=temp_dir).run(source=source)
                 manifest = dict(result.manifest)
+                manifest_path = temp_dir / "manifest.json"
+                manifest_data = json.loads(manifest_path.read_text())
+                manifest_data["source_sha256"] = source_hash
+                manifest_data.setdefault("source", {})["sha256"] = source_hash
+                manifest_path.write_text(json.dumps(manifest_data, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+                manifest = manifest_data
                 ready = True
             else:
                 version.status = ExtractionStatus.NEEDS_REVIEW
@@ -289,6 +295,10 @@ class ExtractionApplicationService:
                         if not (target.parent == version_root or target.parent == generation_root) or not re.fullmatch(r"[0-9a-f]{64}", str(ref["sha256"])) or not target.exists() or _sha256(target) != ref["sha256"]:
                             raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 return {**response, "operation": "status"}
+            except ValueError as exc:
+                if path.exists():
+                    path.replace(path.with_name("response.corrupt.json"))
+                raise ValueError("VERSION_ARTIFACT_CORRUPT") from exc
             finally:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
