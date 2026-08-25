@@ -50,3 +50,26 @@ def test_cli_to_entity_writes_retrieval_score_group(tmp_path):
     assert result.returncode == 0, result.stderr
     report = json.loads((run / "preprocessing_eval.json").read_text(encoding="utf-8"))
     assert report["retrieval"]["recall_at_1"] == 1.0
+
+
+def test_cli_dense_provider_absence_is_recorded_as_blocked(tmp_path):
+    source = tmp_path / "source.txt"
+    source.write_text("Fireball.", encoding="utf-8")
+    run = tmp_path / "run"
+    ArtifactExporter().export(
+        run, source, source.read_text(),
+        (Chunk("c1", "spell.fireball", ContentType.SPELL, "Fireball.", "Fireball.", 1, ()),),
+        (), DocumentTree("doc", SectionNode("root", "doc", 0, ContentType.SPELL)),
+    )
+    cases = tmp_path / "cases.jsonl"
+    cases.write_text(json.dumps({"case_id": "q1", "question": "What?", "gold_context_keys": ["spell.fireball"]}) + "\n", encoding="utf-8")
+
+    import subprocess
+    import sys
+    result = subprocess.run([sys.executable, "scripts/evaluate_preprocessing.py", "--run", str(run),
+                             "--eval", str(cases), "--dense"], capture_output=True, text=True)
+
+    assert result.returncode == 2
+    dense = json.loads((run / "retrieval_dense_summary.json").read_text(encoding="utf-8"))
+    assert dense["status"] == "blocked"
+    assert dense["failure"]["type"] == "DENSE_PROVIDER_UNAVAILABLE"
