@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "preprocessing-agent/parsed-document",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["document_id", "source_path", "source_text", "pages", "metadata"],
+  "properties": {
+    "document_id": {"type": "string", "minLength": 1},
+    "source_path": {"type": "string", "minLength": 1},
+    "source_text": {"type": "string"},
+    "pages": {"type": "array", "items": {"$ref": "#/$defs/page"}},
+    "metadata": {"type": "object"}
+  },
+  "$defs": {
+    "span": {
+      "type": "object", "additionalProperties": false,
+      "required": ["page_number", "block_index", "char_start", "char_end", "token_start", "token_end"],
+      "properties": {
+        "page_number": {"type": "integer", "minimum": 1}, "block_index": {"type": ["integer", "null"]},
+        "char_start": {"type": ["integer", "null"]}, "char_end": {"type": ["integer", "null"]},
+        "token_start": {"type": ["integer", "null"]}, "token_end": {"type": ["integer", "null"]}
+      }
+    },
+    "block": {
+      "type": "object", "additionalProperties": false,
+      "required": ["block_id", "source_text", "source_span", "bbox", "font_size", "font_weight"],
+      "properties": {
+        "block_id": {"type": "string", "minLength": 1}, "source_text": {"type": "string", "minLength": 1},
+        "source_span": {"$ref": "#/$defs/span"}, "bbox": {"type": ["array", "null"]},
+        "font_size": {"type": ["number", "null"]}, "font_weight": {"type": ["string", "null"]}
+      }
+    },
+    "page": {
+      "type": "object", "additionalProperties": false,
+      "required": ["page_number", "blocks", "source_text"],
+      "properties": {"page_number": {"type": "integer", "minimum": 1}, "blocks": {"type": "array", "items": {"$ref": "#/$defs/block"}}, "source_text": {"type": "string"}}
+    }
+  }
+}
