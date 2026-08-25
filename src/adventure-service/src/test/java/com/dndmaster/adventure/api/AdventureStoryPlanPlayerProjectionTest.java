@@ -183,4 +183,14 @@ class AdventureStoryPlanPlayerProjectionTest {
 
         assertEquals(400, failure.getStatusCode().value());
     }
+
+    @Test
+    void triggerRequestIsRejectedAsBadRequestBeforeSessionLookup() {
+        var controller = new AdventureStoryPlanController(null, null, null, null, null, null, new ApiRequestGuard("test-internal-token"));
+
+        ResponseStatusException failure = assertThrows(ResponseStatusException.class, () -> controller.applyTrigger(
+                UUID.randomUUID(), 1, "entry", null));
+
+        assertEquals(400, failure.getStatusCode().value());
+    }
 }

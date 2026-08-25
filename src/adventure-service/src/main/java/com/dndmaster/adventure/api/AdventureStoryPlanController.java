@@ -178,12 +178,12 @@ public final class AdventureStoryPlanController {
 
     @PostMapping("/stages/{position}/triggers/{triggerId}/apply")
     TriggerApplicationView applyTrigger(@PathVariable UUID sessionId, @PathVariable int position,
-            @PathVariable String triggerId, @RequestBody TriggerApplicationRequest request) {
-        var session = sessions.read(new SessionId(sessionId), owner());
-        var plan = service.read(new SessionId(sessionId), owner());
+            @PathVariable String triggerId, @RequestBody(required = false) TriggerApplicationRequest request) {
         if (request == null || request.qualifyingAction() == null || request.qualifyingAction().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "qualifyingAction is required");
         }
+        var session = sessions.read(new SessionId(sessionId), owner());
+        var plan = service.read(new SessionId(sessionId), owner());
         if (session.status() != com.dndmaster.adventure.domain.adventure.AdventureSession.Status.STARTED
                 || session.startedAdventureId() == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "adventure is not active");
         if (plan.currentStage() + 1 != position) throw new ResponseStatusException(HttpStatus.CONFLICT, "trigger stage is not the active stage");

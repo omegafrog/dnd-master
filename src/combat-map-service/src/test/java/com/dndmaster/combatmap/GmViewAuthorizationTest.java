@@ -80,4 +80,25 @@ class GmViewAuthorizationTest {
         assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.reveal(mapId, null, null));
         assertThrows(ApiRequestGuard.ApiContractException.class, () -> controller.gameTime(mapId, null, null));
     }
+
+    @Test
+    void rejectsNullBodiesAsBadRequestAfterInternalAuthorization() {
+        var controller = new CombatMapController(mock(CombatMapViewService.class), mock(CombatMapMovementService.class), new ApiRequestGuard("service-secret"));
+        UUID mapId = UUID.randomUUID();
+
+        assertEquals(400, assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.applyTacticalTrigger(mapId, "service-secret", null)).getStatusCode().value());
+        assertEquals(400, assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.prepare("service-secret", null)).getStatusCode().value());
+        assertEquals(400, assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.movePlayer(mapId, "service-secret", null)).getStatusCode().value());
+        assertEquals(400, assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.controlAiState(mapId, "service-secret", null)).getStatusCode().value());
+        assertEquals(400, assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.changeDoor(mapId, "service-secret", null)).getStatusCode().value());
+        assertEquals(400, assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.reveal(mapId, "service-secret", null)).getStatusCode().value());
+        assertEquals(400, assertThrows(org.springframework.web.server.ResponseStatusException.class,
+                () -> controller.gameTime(mapId, "service-secret", null)).getStatusCode().value());
+    }
 }
