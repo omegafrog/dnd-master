@@ -187,7 +187,14 @@ class ExtractionApplicationService:
         if idempotency_key in index:
             saved = output / "versions" / index[idempotency_key] / "response.json"
             if saved.exists():
-                return json.loads(saved.read_text())
+                try:
+                    cached = json.loads(saved.read_text())
+                    refs = cached.get("artifacts", {})
+                    if cached.get("version_id") == index[idempotency_key] and cached.get("status") in {"READY", "NEEDS_REVIEW"} and all(isinstance(item, dict) and ".tmp" not in str(item.get("path", "")) for item in refs.values() if isinstance(item, dict)):
+                        return cached
+                except (OSError, ValueError, TypeError, json.JSONDecodeError):
+                    pass
+                index.pop(idempotency_key, None)
         try:
             raw_pages = self.native_pdf.extract(source) if source.suffix.lower() == ".pdf" else self._text_pages(source)
             if not isinstance(raw_pages, (list, tuple)):
