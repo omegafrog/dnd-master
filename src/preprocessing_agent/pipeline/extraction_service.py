@@ -236,7 +236,7 @@ class ExtractionApplicationService:
                 ready = True
             else:
                 version.status = ExtractionStatus.NEEDS_REVIEW
-                (temp_dir / "manifest.json").write_text(json.dumps({"status": version.status.value, "version_id": version.version_id, "document_id": document_id, "policy_version": policy, "source_sha256": source_hash}, sort_keys=True) + "\n")
+                (temp_dir / "manifest.json").write_text(json.dumps({"source": {"path": str(source), "sha256": source_hash}, "source_sha256": source_hash, "pipeline_version": policy, "schema_version": "1", "profile": "extraction-version", "policy": {"version": policy}, "statistics": {}, "status": version.status.value, "version_id": version.version_id, "document_id": document_id, "policy_version": policy}, sort_keys=True) + "\n")
             version_artifact = {"version_id": version.version_id, "document_id": document_id, "policy_version": policy, "status": version.status.value, "source_sha256": source_hash, "pages": page_artifacts}
             (temp_dir / "version.json").write_text(json.dumps(version_artifact, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             response = {"schema_version": "1", "operation": "preprocess", "request_id": request_id, "version_id": version.version_id, "status": version.status.value, "pages": [{"page_number": item["page_number"], "status": item["status"], "attempts": 1, "findings": item.get("findings", [])} for item in page_artifacts], "page_summary": {"count": len(page_artifacts), "processed": len(page_artifacts), "validated": sum(item["status"] == "VALIDATED" for item in page_artifacts), "needs_review": sum(item["status"] == "NEEDS_REVIEW" for item in page_artifacts), "ready": sum(item["status"] == "VALIDATED" for item in page_artifacts)}, "artifacts": self._artifact_refs(temp_dir, ready), "manifest": manifest}
@@ -307,13 +307,16 @@ class ExtractionApplicationService:
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 if response["status"] == "READY" and any(page.get("status") == "NEEDS_REVIEW" for page in response["pages"]):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
-                page_numbers = [page.get("page_number") for page in response["pages"]]
-                if len(set(page_numbers)) != len(page_numbers) or any(number < 1 for number in page_numbers):
+                page_numbers = [page.get("page_number") if isinstance(page, dict) else None for page in response["pages"]]
+                if len(set(page_numbers)) != len(page_numbers) or any(type(number) is not int or number < 1 for number in page_numbers):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 for page in response["pages"]:
-                    if not isinstance(page, dict) or not isinstance(page.get("page_number"), int) or page.get("status") not in {"VALIDATED", "NEEDS_REVIEW"} or not isinstance(page.get("attempts"), int) or page.get("attempts") < 1 or not isinstance(page.get("findings"), list) or any(not isinstance(item, str) for item in page.get("findings", [])):
+                    if not isinstance(page, dict) or type(page.get("page_number")) is not int or not isinstance(page.get("page_number"), int) or page.get("status") not in {"VALIDATED", "NEEDS_REVIEW"} or not isinstance(page.get("attempts"), int) or page.get("attempts") < 1 or not isinstance(page.get("findings"), list) or any(not isinstance(item, str) for item in page.get("findings", [])):
                         raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 if not isinstance(response["artifacts"].get("manifest_sha256"), (str, type(None))):
+                    raise ValueError("VERSION_ARTIFACT_CORRUPT")
+                manifest_ref = response["artifacts"].get("manifest")
+                if not isinstance(manifest_ref, dict) or not re.fullmatch(r"[0-9a-f]{64}", str(response["artifacts"].get("manifest_sha256"))) or response["artifacts"].get("manifest_sha256") != manifest_ref.get("sha256"):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 allowed_refs = {"manifest_sha256", "manifest", "version", "chunks", "document_tree", "issues"}
                 if set(response["artifacts"]) - allowed_refs or not {"manifest_sha256", "manifest", "version"} <= set(response["artifacts"]):
