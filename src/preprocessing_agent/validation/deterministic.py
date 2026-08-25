@@ -7,6 +7,10 @@ from typing import Iterable
 
 from preprocessing_agent.domain import Chunk, ParsedDocument, ValidationIssue, ValidationResult
 from preprocessing_agent.utils.tokens import count_tokens
+import re
+
+
+_CANONICAL_KEY = re.compile(r"^[a-z0-9]+(?:[._-][a-z0-9]+)*$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,13 +45,18 @@ def validate_chunks(
     for chunk in items:
         path = chunk.chunk_id
         text = chunk.source_text.strip()
+        if not _CANONICAL_KEY.fullmatch(chunk.canonical_key):
+            issues.append(ValidationIssue("malformed_canonical_key", "canonical key is not in canonical format", path=path))
         if not text:
             issues.append(ValidationIssue("empty_chunk", "chunk has no source text", path=path))
+        elif _is_garbage_candidate(text):
+            issues.append(ValidationIssue("garbage_candidate", "chunk looks like extracted noise and needs review", severity="warning", path=path))
         if chunk.token_count < policy.min_tokens or (text and count_tokens(text) < policy.min_tokens):
             issues.append(ValidationIssue("too_small_chunk", "chunk is below the minimum token policy", severity="warning", path=path))
         if not text or not text.endswith((".", "!", "?", ":", ";", "。", "！", "？", "：", "；", "|")):
             issues.append(ValidationIssue("broken_sentence", "chunk ends before a sentence boundary", severity="warning", path=path))
-        if max(chunk.token_count, count_tokens(text)) > policy.max_tokens:
+        if (max(chunk.token_count, count_tokens(text)) > policy.max_tokens and
+                chunk.content_type.value not in {"table", "monster_stat_block"}):
             issues.append(ValidationIssue("max_token_overflow", "chunk exceeds the maximum token policy", path=path))
         if not chunk.section_path:
             issue_type = "orphan_heading" if len(text.split()) <= 12 else "missing_section_path"
@@ -79,3 +88,13 @@ def validate_chunks(
                 issues.append(ValidationIssue("invalid_source_span", "source span is outside the parsed document", path=path, source_span=span))
     checked = tuple(chunk.chunk_id for chunk in items)
     return ValidationResult(not issues, tuple(issues), checked)
+
+
+def _is_garbage_candidate(text: str) -> bool:
+    """Flag likely extraction noise without deciding that a chunk is deletable."""
+    compact = "".join(text.split())
+    if not compact or len(compact) > 80:
+        return False
+    if any(character.isalpha() for character in compact):
+        return False
+    return any(character.isdigit() for character in compact) or any(not character.isalnum() for character in compact)

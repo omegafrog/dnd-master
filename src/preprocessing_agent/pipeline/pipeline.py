@@ -10,6 +10,7 @@ from preprocessing_agent.domain import Chunk, ContentType, DocumentTree, ParsedD
 from preprocessing_agent.exporters import ArtifactExporter
 from preprocessing_agent.parsers.pdf import PdfDocumentParser
 from preprocessing_agent.validation import ValidationPolicy, validate_chunks
+from preprocessing_agent.postprocessing import postprocess_chunks
 from preprocessing_agent.parsers.normalize import normalized_key
 from preprocessing_agent.structure import DocumentTreeBuilder
 @dataclass(frozen=True, slots=True)
@@ -69,6 +70,7 @@ class PreprocessingPipeline:
         tree = self._classify_tree(DocumentTreeBuilder().build(document), document)
         candidates = ChunkPlanner().plan(tree, document)
         chunks = ChunkAssembler(ChunkSplitter(self.policy)).assemble(candidates)
+        chunks = postprocess_chunks(chunks)
         validation = validate_chunks(chunks, document=document, policy=self.validation_policy)
         issues = validation.issues
         manifest = ArtifactExporter().export(

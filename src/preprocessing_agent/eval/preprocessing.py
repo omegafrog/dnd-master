@@ -28,6 +28,7 @@ class ExportedRun:
     manifest: dict[str, Any]
     source_text: str | None
     source_pages: tuple[str, ...]
+    validation_issues: tuple[dict[str, Any], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,7 +110,9 @@ def load_exported_run(run_dir: str | Path, source_extractor: SourceExtractor | N
                     source_pages = _read_source_pages(candidate, source_extractor)
                     source_text = "".join(source_pages)
                 break
-    return ExportedRun(root, tuple(sorted(chunks, key=lambda item: item.chunk_id)), tree, manifest, source_text, source_pages)
+    issue_path = root / "issues.jsonl"
+    validation_issues = tuple(json.loads(line) for line in issue_path.read_text(encoding="utf-8").splitlines() if line.strip()) if issue_path.is_file() else ()
+    return ExportedRun(root, tuple(sorted(chunks, key=lambda item: item.chunk_id)), tree, manifest, source_text, source_pages, validation_issues)
 
 
 def _normalize_layout(text: str) -> str:
@@ -142,10 +145,17 @@ def evaluate_intrinsic(run: ExportedRun, config: EvalConfig = EvalConfig()) -> t
         else:
             mutations += status == "SOURCE_MUTATION"
             failures.append({"type": status, "canonical_key": chunk.canonical_key, "chunk_ids": [chunk.chunk_id], "details": {"message": status.lower()}})
+    for issue in run.validation_issues:
+        failures.append({"type": str(issue.get("issue_type", "VALIDATION")),
+                         "canonical_key": next((chunk.canonical_key for chunk in run.chunks if chunk.chunk_id == issue.get("path")), ""),
+                         "chunk_ids": [str(issue["path"])] if issue.get("path") else [],
+                         "details": {"message": issue.get("message", "")}})
     total = len(run.chunks) or 1
     source = {"source_traceability_rate": traceable / total, "source_mutation_rate": mutations / total,
               "traceable_chunks": traceable, "mutated_chunks": mutations}
     stats = token_statistics(run.chunks, config.tiny_tokens, config.oversized_tokens)
+    validation = {"issues": len(run.validation_issues), "issue_types": sorted({str(item.get("issue_type", "VALIDATION")) for item in run.validation_issues})}
     intrinsic = {"source": source, "boundary": boundary_metrics(run.chunks), "size": stats,
+                 "validation": validation,
                  "duplicate": duplicate_metrics(run.chunks, config.near_duplicate_jaccard), "token_stats": stats}
     return intrinsic, sorted(failures, key=lambda item: (item["type"], item["chunk_ids"]))
