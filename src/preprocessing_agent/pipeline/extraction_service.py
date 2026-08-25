@@ -233,17 +233,17 @@ class ExtractionApplicationService:
                     raise ValueError("INVALID_GEOMETRY")
                 blocks = []
                 for block in raw.get("blocks", ()):
+                    extraction_method = str(block.get("extraction_method", "native"))
+                    if extraction_method != "native":
+                        raise ValueError("NON_NATIVE_EXTRACTION_UNSUPPORTED")
                     bbox = BoundingBox(*(float(item) for item in block["bbox"]))
                     if not all(math.isfinite(value) for value in (bbox.x0, bbox.y0, bbox.x1, bbox.y1)):
                         raise ValueError("INVALID_GEOMETRY")
                     if not geometry.contains(bbox):
                         raise ValueError("INVALID_GEOMETRY")
-                    LayoutBlock(str(block.get("block_id", "")), str(block.get("kind", "text")), bbox, str(block.get("text", "")), str(block.get("extraction_method", "native")), float(block.get("confidence", 1.0)), document_id, number, geometry)
+                    LayoutBlock(str(block.get("block_id", "")), str(block.get("kind", "text")), bbox, str(block.get("text", "")), extraction_method, float(block.get("confidence", 1.0)), document_id, number, geometry)
                     blocks.append({**block, "bbox": [bbox.x0, bbox.y0, bbox.x1, bbox.y1], "source_document_id": document_id, "page_number": number, "page_geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}})
-                left_blocks = [block for block in blocks if block["bbox"][2] <= geometry.width * 0.48]
-                right_blocks = [block for block in blocks if block["bbox"][0] >= geometry.width * 0.52]
-                geometry_split = bool(left_blocks and right_blocks and min(block["bbox"][0] for block in right_blocks) - max(block["bbox"][2] for block in left_blocks) >= geometry.width * 0.08)
-                if raw.get("column_count", 1) != 1 or raw.get("layout") in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, []) or geometry_split:
+                if raw.get("column_count", 1) != 1 or raw.get("layout") in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, []):
                     raise ValueError("MULTI_COLUMN_UNSUPPORTED")
                 raw = {**raw, "blocks": blocks}
                 version.record_page(PageExtraction.validated(number))
@@ -284,7 +284,7 @@ class ExtractionApplicationService:
                 ready = True
             else:
                 version.status = ExtractionStatus.NEEDS_REVIEW
-                manifest = {"source": {"path": str(source), "sha256": source_hash}, "source_sha256": source_hash, "pipeline_version": policy, "schema_version": "1", "profile": "extraction-version", "policy": {"version": policy}, "statistics": {"pages": version.page_count}, "page_count": version.page_count, "status": version.status.value, "version_id": version.version_id, "document_id": document_id, "policy_version": policy}
+                manifest = {"source": {"path": str(source), "sha256": source_hash}, "source_sha256": source_hash, "pipeline_version": policy, "schema_version": "1", "profile": "extraction-version", "policy": {"version": policy}, "statistics": {"pages": version.page_count}}
                 (temp_dir / "manifest.json").write_text(json.dumps(manifest, sort_keys=True) + "\n")
             version_artifact = {"version_id": version.version_id, "document_id": document_id, "policy_version": policy, "page_count": version.page_count, "status": version.status.value, "source_sha256": source_hash, "pages": page_artifacts}
             (temp_dir / "version.json").write_text(json.dumps(version_artifact, ensure_ascii=False, sort_keys=True, indent=2) + "\n")

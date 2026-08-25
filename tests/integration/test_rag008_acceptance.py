@@ -69,7 +69,7 @@ def test_native_multi_column_page_is_needs_review_and_does_not_publish_ready(tmp
     assert not (output / "current.json").exists()
 
 
-def test_native_bbox_column_split_is_detected_without_layout_metadata(tmp_path: Path) -> None:
+def test_native_bbox_split_without_layout_metadata_remains_single_column_scope(tmp_path: Path) -> None:
     source = tmp_path / "input.pdf"
     source.write_bytes(b"fixture")
     digest = hashlib.sha256(source.read_bytes()).hexdigest()
@@ -82,8 +82,21 @@ def test_native_bbox_column_split_is_detected_without_layout_metadata(tmp_path: 
             ]}]
 
     result = ExtractionApplicationService(Native()).preprocess({"request_id": "bbox-columns", "source_path": str(source), "source_sha256": digest, "policy_version": "p1", "output_dir": str(tmp_path / "out")})
+    assert result["status"] == "READY"
+
+
+def test_non_native_block_extraction_is_needs_review(tmp_path: Path) -> None:
+    source = tmp_path / "input.pdf"
+    source.write_bytes(b"fixture")
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+
+    class Native:
+        def extract(self, _source):
+            return [{"page_number": 1, "geometry": {"width": 100, "height": 100}, "blocks": [{"bbox": (0, 0, 20, 10), "text": "ocr", "extraction_method": "ocr"}]}]
+
+    result = ExtractionApplicationService(Native()).preprocess({"request_id": "ocr", "source_path": str(source), "source_sha256": digest, "policy_version": "p1", "output_dir": str(tmp_path / "out")})
     assert result["status"] == "NEEDS_REVIEW"
-    assert "MULTI_COLUMN_UNSUPPORTED" in result["pages"][0]["findings"]
+    assert "NON_NATIVE_EXTRACTION_UNSUPPORTED" in result["pages"][0]["findings"]
 
 
 def test_needs_review_response_manifest_is_readable_by_status(tmp_path: Path) -> None:
@@ -99,7 +112,8 @@ def test_needs_review_response_manifest_is_readable_by_status(tmp_path: Path) ->
     result = service.preprocess({"request_id": "review-status", "source_path": str(source), "source_sha256": digest, "policy_version": "p1", "output_dir": str(tmp_path / "out"), "version_id": "review1"})
     status = service.get_status("review1", tmp_path / "out")
     assert result["status"] == status["status"] == "NEEDS_REVIEW"
-    assert status["manifest"]["status"] == "NEEDS_REVIEW"
+    assert status["manifest"]["source_sha256"] == digest
+    assert status["manifest"]["profile"] == "extraction-version"
 
 
 def test_out_of_order_pages_are_sorted_for_readable_status(tmp_path: Path) -> None:

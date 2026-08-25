@@ -24,3 +24,6 @@
 - lifecycle finalization: status page summary/count/attempt/findings invariants, READY review-page exclusion, required LayoutBlock provenance
 - acceptance closure: malformed status element guards and unknown-operation error envelope schema compatibility
 - next: RAG-009 is ready-for-agent
+- scope reconciliation: bbox-based regional column inference remains deferred to RAG-009; only explicit unsupported layout metadata is gated here
+- capability gate: non-native/OCR extraction methods are NEEDS_REVIEW; RAG-008 publishes native-only pages
+- manifest conformance: NEEDS_REVIEW manifests use the closed manifest schema; RAG-008 completed and RAG-009 ready-for-agent
