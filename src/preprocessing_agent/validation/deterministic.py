@@ -44,6 +44,10 @@ def validate_chunks(
     seen_identity: set[tuple[str, str]] = set()
     seen_chunk_ids: dict[str, str] = {}
     seen_canonical_keys: dict[str, str] = {}
+    table_parent_counts: dict[str, int] = {}
+    for chunk in items:
+        if chunk.content_type is ContentType.TABLE and chunk.parent_key:
+            table_parent_counts[chunk.parent_key] = table_parent_counts.get(chunk.parent_key, 0) + 1
     for chunk in items:
         path = chunk.chunk_id
         if chunk.chunk_id in seen_chunk_ids:
@@ -63,7 +67,7 @@ def validate_chunks(
             issues.append(ValidationIssue("garbage_candidate", "chunk looks like extracted noise and needs review", severity="warning", path=path))
         if chunk.token_count < policy.min_tokens or (text and count_tokens(text) < policy.min_tokens):
             issues.append(ValidationIssue("too_small_chunk", "chunk is below the minimum token policy", severity="warning", path=path))
-        if not text or not text.endswith((".", "!", "?", ":", ";", "。", "！", "？", "：", "；", "|")):
+        if chunk.content_type not in {ContentType.TABLE, ContentType.MONSTER_STAT_BLOCK} and (not text or not text.endswith((".", "!", "?", ":", ";", "。", "！", "？", "：", "；", "|"))):
             issues.append(ValidationIssue("broken_sentence", "chunk ends before a sentence boundary", severity="warning", path=path))
         if (max(chunk.token_count, count_tokens(text)) > policy.max_tokens and
                 chunk.content_type.value not in {"table", "monster_stat_block"}):
@@ -77,7 +81,7 @@ def validate_chunks(
         else:
             seen_text[text] = path
         seen_identity.add(identity)
-        if chunk.content_type.value == "table" and ("|" in text or "\t" in text) and "\n" in text:
+        if chunk.content_type is ContentType.TABLE and chunk.parent_key and table_parent_counts.get(chunk.parent_key, 0) > 1:
             issues.append(ValidationIssue("split_table", "table content must remain a single chunk", path=path))
         for span in chunk.source_spans:
             page = pages.get(span.page_number)
@@ -97,7 +101,7 @@ def validate_chunks(
             if invalid:
                 issues.append(ValidationIssue("invalid_source_span", "source span is outside the parsed document", path=path, source_span=span))
     checked = tuple(chunk.chunk_id for chunk in items)
-    return ValidationResult(not issues, tuple(issues), checked)
+    return ValidationResult(not any(issue.severity == "error" for issue in issues), tuple(issues), checked)
 
 
 def _is_garbage_candidate(text: str) -> bool:

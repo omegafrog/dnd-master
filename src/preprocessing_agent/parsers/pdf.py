@@ -38,7 +38,7 @@ class PdfDocumentParser:
             page_parts: list[str] = []
             char_cursor = 0
             for block_position, raw_block in enumerate(raw_blocks):
-                text = str(raw_block.get("text", raw_block.get("source_text", "")))
+                text = _block_text(raw_block)
                 if not text:
                     continue
                 # Sort only when the extractor explicitly supplies reading order;
@@ -83,6 +83,35 @@ def _font_weight(block: Mapping[str, Any]) -> str | None:
         return str(value)
     font = str(block.get("font", ""))
     return "bold" if "bold" in font.casefold() else (font or None)
+
+
+def _block_text(block: Mapping[str, Any]) -> str:
+    """Preserve extracted text while restoring geometry-implied span boundaries."""
+    text = block.get("text", block.get("source_text"))
+    if text is not None:
+        return str(text)
+    lines = block.get("lines", ())
+    joined_lines = []
+    for line in lines:
+        spans = sorted(line.get("spans", ()), key=lambda item: (_span_bbox(item)[0], _span_bbox(item)[1]))
+        parts: list[str] = []
+        previous = None
+        for span in spans:
+            value = str(span.get("text", ""))
+            if not value:
+                continue
+            if previous is not None and not previous[-1:].isspace() and not value[:1].isspace():
+                parts.append(" ")
+            parts.append(value)
+            previous = value
+        if parts:
+            joined_lines.append("".join(parts))
+    return "\n".join(joined_lines)
+
+
+def _span_bbox(span: Mapping[str, Any]) -> tuple[float, float, float, float]:
+    value = span.get("bbox", (0, 0, 0, 0))
+    return tuple(float(item) for item in value)  # type: ignore[return-value]
 
 
 def _order_blocks(blocks: tuple[Mapping[str, Any], ...]) -> tuple[Mapping[str, Any], ...]:
@@ -175,7 +204,7 @@ def _default_extractor(source: Path) -> Iterable[Mapping[str, Any]]:
             for block in page.get_text("dict").get("blocks", []):
                 lines = block.get("lines", [])
                 spans = [span for line in lines for span in line.get("spans", [])]
-                text = "".join(span.get("text", "") for span in spans).strip()
+                text = _block_text(block).strip()
                 if not text:
                     continue
                 first = spans[0] if spans else {}

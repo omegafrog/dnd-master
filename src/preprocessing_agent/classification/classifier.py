@@ -29,10 +29,11 @@ class DeterministicContentClassifier:
     def classify(self, section: SectionNode, source_text: str = "") -> ClassificationDecision:
         text = f"{section.title}\n{source_text}".strip()
         structural_title = bool(re.match(r"\s*(?:part|chapter|section|appendix|book)\b", section.title, re.I))
+        if _has_table_layout(source_text):
+            return ClassificationDecision(ContentType.TABLE, 0.88, "deterministic table layout", False, source_text)
         rules: tuple[tuple[ContentType, tuple[str, ...], float], ...] = (
             (ContentType.SPELL, (r"\b(?:spell|cantrip)\b", r"\bcasting time\b", r"\brange\b", r"\bduration\b"), 0.92),
             (ContentType.MONSTER_STAT_BLOCK, (r"\barmor class\b", r"\bhit points\b", r"\b(?:challenge|saving throws)\b", r"\bactions\b"), 0.95),
-            (ContentType.TABLE, (r"\btable\b", r"\bd\d+\b", r"\|.*\|"), 0.88),
             (ContentType.RULE, (r"\b(?:rule|rules|advantage|disadvantage|proficiency)\b",), 0.78),
         )
         for label, patterns, confidence in rules:
@@ -49,3 +50,12 @@ class DeterministicContentClassifier:
             if matches_required:
                 return ClassificationDecision(label, confidence, "deterministic content pattern", confidence < self.confidence_threshold, source_text)
         return ClassificationDecision(ContentType.UNKNOWN, 0.0, "no deterministic content pattern", True, source_text)
+
+
+def _has_table_layout(text: str) -> bool:
+    if "|" in text:
+        return True
+    rows = re.findall(r"(?m)^\s*\d+\s+\S+", text)
+    if len(rows) >= 2 and re.search(r"(?m)^\s*d(?:4|6|8|10|12|20|100)\b", text, re.I):
+        return True
+    return False

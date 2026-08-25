@@ -7,6 +7,7 @@ import hashlib
 
 from preprocessing_agent.domain import ContentType, DocumentTree, ParsedDocument, SectionNode, SourceSpan
 from .detector import HeadingDetector
+from preprocessing_agent.parsers.normalize import normalized_key
 
 
 @dataclass
@@ -25,8 +26,11 @@ class DocumentTreeBuilder:
     def build(self, document: ParsedDocument) -> DocumentTree:
         root = _MutableNode(document.document_id, 0, None)
         stack: list[_MutableNode] = [root]
+        repeated = _repeated_furniture(document)
         for page in document.pages:
             for block in page.blocks:
+                if normalized_key(block.source_text) in repeated:
+                    continue
                 decision = self.detector.detect(block)
                 if decision.is_heading:
                     level = max(1, decision.level or 1)
@@ -38,6 +42,18 @@ class DocumentTreeBuilder:
                 else:
                     stack[-1].block_ids.append(block.block_id)
         return DocumentTree(document.document_id, _freeze(root, document.document_id))
+
+
+def _repeated_furniture(document: ParsedDocument) -> frozenset[str]:
+    occurrences: dict[str, set[int]] = {}
+    for page in document.pages:
+        for block in page.blocks:
+            if block.bbox is None:
+                continue
+            key = normalized_key(block.source_text)
+            if key and (block.font_size or 0) <= 9 and (block.bbox[1] < 60 or block.bbox[1] > 720):
+                occurrences.setdefault(key, set()).add(page.page_number)
+    return frozenset(key for key, pages in occurrences.items() if len(pages) > 1)
 
 
 def _freeze(node: _MutableNode, document_id: str, path: tuple[int, ...] = ()) -> SectionNode:

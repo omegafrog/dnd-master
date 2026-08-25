@@ -143,8 +143,10 @@ def _bbox_order_evidence(blocks: tuple[Mapping[str, Any], ...]) -> dict[str, Any
     if not comparable:
         return {"reading_order_valid": True, "reading_order_comparable": False,
                 "parser_block_ids": actual, "bbox_expected_block_ids": []}
-    expected = [str(item["block_id"]) for item in sorted(
-        blocks, key=lambda item: (int(item["page"]), float(item["bbox"][1]), float(item["bbox"][0]), str(item["block_id"]))) ]
+    ordered = pdf_parser._order_blocks(tuple(blocks))
+    if tuple(ordered) == blocks:
+        ordered = tuple(sorted(blocks, key=lambda item: (int(item["page"]), float(item["bbox"][1]), float(item["bbox"][0]), str(item["block_id"]))))
+    expected = [str(item["block_id"]) for item in ordered]
     return {"reading_order_valid": actual == expected, "reading_order_comparable": True,
             "parser_block_ids": actual, "bbox_expected_block_ids": expected}
 

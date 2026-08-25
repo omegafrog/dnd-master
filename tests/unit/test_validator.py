@@ -31,7 +31,7 @@ def test_validator_reports_the_contract_rules_deterministically():
     types = [issue.issue_type for issue in result.issues]
     assert types[:2] == ["too_small_chunk", "broken_sentence"]
     assert {"orphan_heading", "max_token_overflow", "duplicate",
-            "invalid_source_span", "split_table"} <= set(types)
+            "invalid_source_span"} <= set(types)
 
 
 def test_empty_and_broken_sentence_are_reported():
@@ -91,3 +91,22 @@ def test_validator_rejects_duplicate_chunk_and_canonical_ids():
     result = validate_chunks((first, duplicate_chunk_id, duplicate_key), page_count=1, block_count=1)
 
     assert {issue.issue_type for issue in result.issues} >= {"duplicate_chunk_id", "duplicate_canonical_key"}
+
+
+def test_validator_only_reports_split_table_for_a_real_multi_chunk_table_candidate():
+    first = Chunk("chk-table-1", "rules.table.part-001", ContentType.TABLE, "| a |", "| a |", 3,
+                  (SourceSpan(1),), ("rules",), "rules.table")
+    second = Chunk("chk-table-2", "rules.table.part-002", ContentType.TABLE, "| b |", "| b |", 3,
+                   (SourceSpan(1),), ("rules",), "rules.table")
+    single = chunk("single-table", "| a |\n| b |", section=("rules",), content_type=ContentType.TABLE)
+
+    result = validate_chunks((first, second, single), policy=ValidationPolicy(min_tokens=1))
+
+    assert [issue.path for issue in result.issues if issue.issue_type == "split_table"] == ["chk-table-1", "chk-table-2"]
+
+
+def test_warnings_do_not_make_deterministic_validation_invalid():
+    result = validate_chunks((chunk("short", "Fragment", tokens=1),), policy=ValidationPolicy(min_tokens=100))
+
+    assert result.valid
+    assert {issue.severity for issue in result.issues} == {"warning"}

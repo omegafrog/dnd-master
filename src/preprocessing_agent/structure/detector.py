@@ -46,6 +46,9 @@ class HeadingDetector:
 
     def detect(self, block: ParsedBlock) -> HeadingDecision:
         feature = self.features(block)
+        numeric_prefix = bool(re.match(r"^(?:\d+(?:\.\d+)*\.?|[IVX]+\.)\s+", feature.text, re.I))
+        if numeric_prefix and not (feature.font_weight and feature.font_weight.casefold() in {"bold", "semibold", "700", "bolditalic"}) and not (feature.font_size is not None and feature.font_size >= 13):
+            return HeadingDecision(False, None, 0.0, feature, "numeric text without heading layout evidence")
         score = 0.0
         if feature.numbered:
             score += 0.55
@@ -56,7 +59,7 @@ class HeadingDetector:
         if feature.punctuation_free:
             score += 0.10
         if feature.font_size is not None and feature.font_size >= 13:
-            score += 0.15
+            score += 0.50
         is_heading = score >= self.confidence_threshold
         level = _level(feature) if is_heading else None
         return HeadingDecision(is_heading, level, min(score, 1.0), feature, "deterministic heading features" if is_heading else "below heading threshold")

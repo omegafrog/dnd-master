@@ -36,3 +36,13 @@ def test_agent_payload_cannot_replace_source_text():
     assert decision.label is ContentType.UNKNOWN
     assert decision.review_required
     assert decision.source_text == "original"
+
+
+def test_table_words_and_die_notation_in_prose_are_not_table_evidence():
+    classifier = DeterministicContentClassifier()
+
+    prose = "Roll a d20 when the table rule tells you to make an ability check."
+    table = "d8 Specialty\n1 Officer\n2 Scout\n3 Infantry"
+
+    assert classifier.classify(section("Ability Checks"), prose).label is not ContentType.TABLE
+    assert classifier.classify(section("Soldier Specialty"), table).label is ContentType.TABLE

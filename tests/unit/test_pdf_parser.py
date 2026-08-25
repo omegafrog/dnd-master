@@ -52,3 +52,25 @@ def test_pdf_parser_keeps_single_column_table_like_page_order():
         "row-2-right", "row-1-left", "row-2-left", "row-1-far-right",
         "row-1-right", "row-2-far-right",
     ]
+
+
+def test_pdf_parser_joins_spans_by_bbox_without_merging_table_cells():
+    parser = PdfDocumentParser(lambda _: [{"page_number": 31, "blocks": [
+        {"block_id": "wizard-table", "bbox": [54, 401, 535, 660], "lines": [
+            {"spans": [
+                {"text": "Level", "bbox": [58, 411, 76, 421]},
+                {"text": "Proficiency", "bbox": [85, 411, 124, 421]},
+                {"text": "Bonus", "bbox": [127, 411, 163, 421]},
+            ]},
+            {"spans": [
+                {"text": "1st", "bbox": [59, 430, 75, 440]},
+                {"text": "+2", "bbox": [93, 430, 106, 440]},
+                {"text": "Spellcasting", "bbox": [128, 430, 188, 440]},
+            ]},
+        ]},
+    ]}])
+
+    parsed = parser.parse(Path("fixture.pdf"))
+
+    assert parsed.pages[0].blocks[0].source_text == "Level Proficiency Bonus\n1st +2 Spellcasting"
+    assert parsed.source_text == parsed.pages[0].blocks[0].source_text
