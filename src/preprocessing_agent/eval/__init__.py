@@ -32,3 +32,7 @@ __all__ += ["OFFLINE_RERANKER_ADAPTER", "RERANK_CANDIDATE_LIMIT", "RERANK_OUTPUT
             "ContextExpansionPolicy", "ContextItem", "ExpandedContext", "GenerationHandoff",
             "InjectedReranker", "RerankedReport", "RerankerPort", "build_generation_handoff",
             "evaluate_reranked_retrieval", "expand_parent_context", "run_reranker_evaluation"]
+from .generation import (CitedAnswer, CitationValidation, GenerationInputError, GenerationPort,
+                         GenerationReport, InjectedGenerator, evaluate_generation, validate_citations)
+__all__ += ["CitedAnswer", "CitationValidation", "GenerationInputError", "GenerationPort", "GenerationReport",
+            "InjectedGenerator", "evaluate_generation", "validate_citations"]

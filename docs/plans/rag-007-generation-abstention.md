@@ -1,6 +1,6 @@
 # RAG-007 Generation Abstention
 
-- 상태: `ready-for-agent`
+- 상태: `completed`
 - 의존성: RAG-006
 
 ## 구현 목적
