@@ -250,6 +250,11 @@ class ExtractionApplicationService:
                 page_artifacts[:] = [item for item in page_artifacts if item.get("page_number") != safe_number]
                 evidence = {"page_number": safe_number, "status": PageStatus.NEEDS_REVIEW.value, "findings": version.pages[safe_number].findings}
                 page_artifacts.append({**evidence, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
+        present_pages = {item["page_number"] for item in page_artifacts}
+        for missing in range(1, version.page_count + 1):
+            if missing not in present_pages:
+                evidence = {"page_number": missing, "status": PageStatus.NEEDS_REVIEW.value, "findings": ["MISSING_PAGE_METADATA"]}
+                page_artifacts.append({**evidence, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
         ready = False
         manifest: Mapping[str, Any] = {}
         output.mkdir(parents=True, exist_ok=True)
@@ -384,6 +389,9 @@ class ExtractionApplicationService:
                     manifest_data = json.loads(Path(manifest_ref["path"]).read_text())
                     version_data = json.loads(Path(version_ref["path"]).read_text())
                     if manifest_data.get("source_sha256") != version_data.get("source_sha256") or version_data.get("version_id") != version_id:
+                        raise ValueError("VERSION_ARTIFACT_CORRUPT")
+                    expected_pages = version_data.get("page_count")
+                    if type(expected_pages) is not int or expected_pages != len(response["pages"]) or response["page_summary"].get("count") != expected_pages:
                         raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 return {**response, "operation": "status"}
         except VersionNotFoundError:
