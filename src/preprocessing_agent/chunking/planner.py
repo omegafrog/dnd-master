@@ -48,7 +48,7 @@ class ChunkPlanner:
             spans = tuple(block.source_span for block in source_blocks)
             if text:
                 canonical = _anchored_key(_bounded_key(".".join(current_path) or _key(document.document_id)), node, spans)
-                candidate_id = f"cand_{content_hash(canonical + "\n" + text)[:16]}"
+                candidate_id = "cand_" + content_hash(canonical + "\n" + text)[:16]
                 output.append(ChunkCandidate(
                     candidate_id, canonical, node.content_type, text, spans, current_path,
                     source_segments=tuple(SourceSegment(block.source_text, block.source_span) for block in source_blocks),
