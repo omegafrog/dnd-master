@@ -1,4 +1,5 @@
 from preprocessing_agent.layout import LayoutAnalyzer, ReadingOrderPlanner
+from preprocessing_agent.domain.layout import PageGeometry
 from preprocessing_agent.parsers.pdf import PdfDocumentParser
 from pathlib import Path
 import json
@@ -97,6 +98,19 @@ def test_three_column_candidate_is_supported():
     blocks = [block(str(index), str(index), (left, 10, left + 25, 30)) for index, left in enumerate((0, 35, 70))]
     profile = ReadingOrderPlanner().plan(blocks).profiles[0]
     assert any(candidate.column_count == 3 for candidate in profile.candidates)
+
+
+def test_real_page_geometry_margins_preserve_one_two_one_regions():
+    geometry = PageGeometry(612, 792)
+    blocks = [
+        block("title", "Title", (54, 54, 535, 76)),
+        block("left", "Left", (54, 120, 280, 145)),
+        block("right", "Right", (309, 120, 535, 145)),
+        block("bottom", "Bottom", (54, 220, 535, 245)),
+    ]
+    plan = ReadingOrderPlanner().plan(blocks, geometry)
+    assert [profile.selected.column_count for profile in plan.profiles if profile.selected] == [1, 2, 1]
+    assert plan.ordered_block_ids == ("title", "left", "right", "bottom")
 
 
 def test_layout_artifact_schema_validates_typed_plan():

@@ -30,12 +30,21 @@ class LayoutAnalyzer:
         entries = [(_id(block, i), _box(block), block) for i, block in enumerate(blocks)]
         left = min(item[1].x0 for item in entries)
         right = max(item[1].x1 for item in entries)
+        content_width = max(right - left, 1.0)
         width = (page_geometry.width if page_geometry is not None else right - left)
         page_left = 0.0 if page_geometry is not None else left
         page_right = width if page_geometry is not None else right
         # Blocks crossing most of the page are separators/spanning content. They
         # delimit regions but remain part of the final projection.
-        spanning = [item for item in entries if item[1].x0 <= page_left + width * .08 and item[1].x1 >= page_right - width * .08]
+        # Do not compare against the physical page edge: PDFs commonly have
+        # 54pt margins. Compare against observed content bounds instead, while
+        # requiring broad coverage so a normal column block is not promoted.
+        spanning = [
+            item for item in entries
+            if item[1].x0 <= left + content_width * .08
+            and item[1].x1 >= right - content_width * .08
+            and (item[1].x1 - item[1].x0) / content_width >= .82
+        ]
         cuts = sorted({y for _, box, _ in spanning for y in (box.y0, box.y1)})
         y_min = min(box.y0 for _, box, _ in entries)
         y_max = max(box.y1 for _, box, _ in entries)
