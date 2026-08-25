@@ -10,6 +10,17 @@ from typing import Iterable
 from preprocessing_agent.domain import Chunk, DocumentTree, ValidationIssue, to_dict
 
 
+_CHUNK_FIELDS = (
+    "chunk_id", "canonical_key", "content_type", "source_text", "embedding_text",
+    "token_count", "source_spans", "section_path", "parent_key",
+)
+
+
+def _chunk_to_dict(chunk: Chunk) -> dict[str, object]:
+    """Serialize only the public Chunk contract, excluding planning metadata."""
+    return {name: to_dict(getattr(chunk, name)) for name in _CHUNK_FIELDS}
+
+
 class ArtifactExporter:
     PIPELINE_VERSION = "rag-preprocessing-v0.1"
     SCHEMA_VERSION = "1"
@@ -23,7 +34,7 @@ class ArtifactExporter:
         all_chunks = tuple(chunks); all_issues = tuple(issues)
         invalid = invalid_chunk_ids or {item.path for item in all_issues if item.issue_type == "invalid_source_span"}
         exported = tuple(item for item in all_chunks if item.chunk_id not in invalid)
-        self._jsonl(output / "chunks.jsonl", exported)
+        self._jsonl(output / "chunks.jsonl", exported, serializer=_chunk_to_dict)
         self._jsonl(output / "issues.jsonl", all_issues)
         (output / "document_tree.json").write_text(json.dumps(to_dict(tree), ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
         source_bytes = source_text.encode("utf-8")
@@ -47,5 +58,5 @@ class ArtifactExporter:
         return manifest
 
     @staticmethod
-    def _jsonl(path: Path, values: Iterable[object]) -> None:
-        path.write_text("".join(json.dumps(to_dict(value), ensure_ascii=False, sort_keys=True) + "\n" for value in values), encoding="utf-8")
+    def _jsonl(path: Path, values: Iterable[object], *, serializer=to_dict) -> None:
+        path.write_text("".join(json.dumps(serializer(value), ensure_ascii=False, sort_keys=True) + "\n" for value in values), encoding="utf-8")
