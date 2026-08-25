@@ -73,7 +73,7 @@ class SemanticCandidateDetector:
             reasons: list[str] = []
             headings = {part for part in chunk.section_path if part}
             entity_ids = {part.split(":", 1)[1] for part in headings if part.startswith("entity:")}
-            if len(headings) > 1 or len(entity_ids) > 1:
+            if len(entity_ids) > 1:
                 reasons.append("multiple_headings_or_entity_ids")
             expected_types = {fixture.content_type.value for fixture in fixture_values if self._related(chunk, fixture)}
             if expected_types and chunk.content_type.value not in expected_types:
