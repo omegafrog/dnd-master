@@ -5,7 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
-from typing import Any, Callable
+import re
+from typing import Any, Callable, Iterable
 
 from preprocessing_agent.domain import Chunk, DocumentTree
 from preprocessing_agent.domain.serialization import from_dict
@@ -23,6 +24,7 @@ class ExportedRun:
     tree: DocumentTree
     manifest: dict[str, Any]
     source_text: str | None
+    source_pages: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -34,14 +36,15 @@ class EvalConfig:
     source_mutation_max: float = 0.0
 
 
-SourceExtractor = Callable[[Path], str]
+SourceExtractor = Callable[[Path], str | Iterable[str]]
 
 
 def _read_source_text(source_path: Path, extractor: SourceExtractor | None = None) -> str:
     """Read an exported source without applying text decoding to known PDFs."""
     if source_path.suffix.lower() == ".pdf":
         if extractor is not None:
-            return extractor(source_path)
+            extracted = extractor(source_path)
+            return extracted if isinstance(extracted, str) else "".join(extracted)
         try:
             import pymupdf
         except ImportError as exc:
@@ -50,6 +53,24 @@ def _read_source_text(source_path: Path, extractor: SourceExtractor | None = Non
             return "".join(page.get_text("text") for page in document)
     try:
         return source_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise EvaluationInputError(f"source is neither a PDF nor valid UTF-8 text: {source_path}") from exc
+
+
+def _read_source_pages(source_path: Path, extractor: SourceExtractor | None = None) -> tuple[str, ...]:
+    """Read source text while retaining the page boundary used by source spans."""
+    if source_path.suffix.lower() == ".pdf":
+        if extractor is not None:
+            extracted = extractor(source_path)
+            return (extracted,) if isinstance(extracted, str) else tuple(extracted)
+        try:
+            import pymupdf
+        except ImportError as exc:
+            raise EvaluationInputError("PDF source requires PyMuPDF or an injected source extractor") from exc
+        with pymupdf.open(source_path) as document:
+            return tuple(page.get_text("text") for page in document)
+    try:
+        return (source_path.read_text(encoding="utf-8"),)
     except UnicodeDecodeError as exc:
         raise EvaluationInputError(f"source is neither a PDF nor valid UTF-8 text: {source_path}") from exc
 
@@ -67,34 +88,42 @@ def load_exported_run(run_dir: str | Path, source_extractor: SourceExtractor | N
     except (OSError, ValueError, TypeError, KeyError) as exc:
         raise EvaluationInputError(f"invalid exported artifact: {exc}") from exc
     source_text = manifest.get("source_text")
+    source_pages: tuple[str, ...] = (source_text,) if isinstance(source_text, str) else ()
     if source_text is None and isinstance(manifest.get("source"), dict):
         source_path = Path(str(manifest["source"].get("path", "")))
         for candidate in (source_path, root / source_path, root.parent / source_path):
             if candidate.is_file():
-                source_text = _read_source_text(candidate, source_extractor)
+                source_pages = _read_source_pages(candidate, source_extractor)
+                source_text = "".join(source_pages)
                 break
-    return ExportedRun(root, tuple(sorted(chunks, key=lambda item: item.chunk_id)), tree, manifest, source_text)
+    return ExportedRun(root, tuple(sorted(chunks, key=lambda item: item.chunk_id)), tree, manifest, source_text, source_pages)
 
 
-def reconstruct_chunk_source(chunk: Chunk, source_text: str | None) -> tuple[str | None, str]:
-    if not source_text or not chunk.source_spans:
+def _normalize_layout(text: str) -> str:
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def reconstruct_chunk_source(chunk: Chunk, source_text: str | None, source_pages: tuple[str, ...] = ()) -> tuple[str | None, str]:
+    if not source_pages or not chunk.source_spans:
         return None, "SOURCE_TRACE_ERROR"
-    candidates = [source_text[span.char_start:span.char_end] for span in chunk.source_spans
-                  if span.char_start is not None and span.char_end is not None]
-    if candidates:
-        reconstructed = " ".join(candidates)
-        return reconstructed, "SOURCE_MUTATION" if reconstructed != chunk.source_text else "OK"
-    normalized_chunk = " ".join(chunk.source_text.split())
-    if normalized_chunk and normalized_chunk in " ".join(source_text.split()):
-        return chunk.source_text, "OK"
-    return None, "SOURCE_TRACE_ERROR"
+    candidates: list[str] = []
+    for span in chunk.source_spans:
+        page_index = span.page_number - 1
+        if page_index < 0 or page_index >= len(source_pages):
+            return None, "SOURCE_TRACE_ERROR"
+        if (span.char_start is None or span.char_end is None or span.char_start < 0 or
+                span.char_end < span.char_start or span.char_end > len(source_pages[page_index])):
+            return None, "SOURCE_TRACE_ERROR"
+        candidates.append(source_pages[page_index][span.char_start:span.char_end])
+    reconstructed = " ".join(candidates)
+    return reconstructed, "SOURCE_MUTATION" if _normalize_layout(reconstructed) != _normalize_layout(chunk.source_text) else "OK"
 
 
 def evaluate_intrinsic(run: ExportedRun, config: EvalConfig = EvalConfig()) -> tuple[dict[str, object], list[dict[str, object]]]:
     failures: list[dict[str, object]] = []
     traceable = mutations = 0
     for chunk in run.chunks:
-        _, status = reconstruct_chunk_source(chunk, run.source_text)
+        _, status = reconstruct_chunk_source(chunk, run.source_text, run.source_pages)
         if status == "OK":
             traceable += 1
         else:
