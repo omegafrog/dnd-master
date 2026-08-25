@@ -35,14 +35,14 @@ def main() -> int:
         print(json.dumps(response, ensure_ascii=False, sort_keys=True))
         return 0
     except json.JSONDecodeError as exc:
-        print(json.dumps({"schema_version": SUPPORTED_SCHEMA, "error": {"code": "INVALID_REQUEST", "message": str(exc)}}, sort_keys=True))
+        print(json.dumps({"schema_version": SUPPORTED_SCHEMA, "operation": "unknown", "request_id": "", "error": {"code": "INVALID_REQUEST", "message": str(exc), "exit_class": "request"}}, sort_keys=True))
         return 2
     except KeyboardInterrupt:
-        print(json.dumps({"schema_version": SUPPORTED_SCHEMA, "error": {"code": "INTERRUPTED", "message": "request interrupted"}}, sort_keys=True))
+        print(json.dumps({"schema_version": SUPPORTED_SCHEMA, "operation": "unknown", "request_id": "", "error": {"code": "INTERRUPTED", "message": "request interrupted", "exit_class": "interruption"}}, sort_keys=True))
         return 4
     except Exception as exc:
         code = str(exc) if str(exc) in {"SOURCE_NOT_FOUND", "VERSION_NOT_FOUND", "SOURCE_HASH_MISMATCH", "VERSION_ID_CONFLICT", "INVALID_REQUEST", "UNSUPPORTED_SCHEMA", "NATIVE_EXTRACTION_FAILED", "VERSION_ARTIFACT_CORRUPT"} else "PROCESSING_FAILED"
-        print(json.dumps({"schema_version": SUPPORTED_SCHEMA, "error": {"code": code, "message": str(exc)}}, ensure_ascii=False, sort_keys=True))
+        print(json.dumps({"schema_version": SUPPORTED_SCHEMA, "operation": request.get("operation", "unknown") if isinstance(request, dict) else "unknown", "request_id": request.get("request_id", "") if isinstance(request, dict) else "", "error": {"code": code, "message": str(exc), "exit_class": "request" if code in {"INVALID_REQUEST", "UNSUPPORTED_SCHEMA"} else "processing"}}, ensure_ascii=False, sort_keys=True))
         print(f"preprocessing failed: {code}: {exc}", file=sys.stderr)
         return 2 if code in {"INVALID_REQUEST", "UNSUPPORTED_SCHEMA"} else 3
 

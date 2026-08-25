@@ -12,4 +12,5 @@
 - final follow-up: status locking, page read model, malformed payload quarantine, corrupt index recovery, conditional schema/request id alignment
 - publication follow-up: generation-scoped root publication/current pointer, lowercase hash validation, strict schemas, corrupt status read-model quarantine, failure root quarantine
 - contract finalization: complete response schema, generation response rewrite, status semantic/hash/path validation
+- publication safety: preserve prior current on rejected version conflicts, canonical Linux roots, strict error envelope with exit class
 - next: RAG-009 is ready-for-agent

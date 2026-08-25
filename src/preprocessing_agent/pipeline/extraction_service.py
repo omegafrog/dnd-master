@@ -105,13 +105,25 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+def _canonical_path(value: str, *, require_file: bool = False) -> Path:
+    raw = Path(value).expanduser()
+    if not raw.is_absolute() or str(raw).startswith("/mnt/"):
+        raise ValueError("INVALID_REQUEST")
+    resolved = raw.resolve()
+    if require_file and not resolved.is_file():
+        raise ValueError("SOURCE_NOT_FOUND")
+    if any(part == "." for part in raw.parts):
+        raise ValueError("INVALID_REQUEST")
+    return resolved
+
+
 class ExtractionApplicationService:
     def __init__(self, native_pdf: NativePdfPort | None = None) -> None:
         self.native_pdf = native_pdf or PyMuPdfNativePdfAdapter()
         self._versions: dict[str, Mapping[str, Any]] = {}
 
     def preprocess(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
-        output = Path(str(request.get("output_dir", ""))).expanduser().resolve()
+        output = _canonical_path(str(request.get("output_dir", "")))
         output.mkdir(parents=True, exist_ok=True)
         with (output / ".preprocess.lock").open("a+") as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
@@ -121,9 +133,7 @@ class ExtractionApplicationService:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
     def _preprocess_locked(self, request: Mapping[str, Any], canonical_output: Path) -> Mapping[str, Any]:
-        source = Path(str(request["source_path"])).expanduser().resolve()
-        if not source.is_file():
-            raise ValueError("SOURCE_NOT_FOUND")
+        source = _canonical_path(str(request["source_path"]), require_file=True)
         output = canonical_output
         request_id = str(request["request_id"])
         policy = str(request["policy_version"])
@@ -250,15 +260,16 @@ class ExtractionApplicationService:
             return response
         except Exception:
             if temp_dir.exists(): shutil.rmtree(temp_dir)
-            for name in ("chunks.jsonl", "manifest.json", "document_tree.json", "issues.jsonl", "current.json", "current.json.tmp"):
-                stale = output / name
-                if stale.exists(): stale.unlink()
+            if str(exc) != "VERSION_ID_CONFLICT":
+                for name in ("chunks.jsonl", "manifest.json", "document_tree.json", "issues.jsonl", "current.json", "current.json.tmp"):
+                    stale = output / name
+                    if stale.exists(): stale.unlink()
             raise
 
     def get_status(self, version_id: str, artifact_root: str | Path) -> Mapping[str, Any]:
         if not re.fullmatch(r"[A-Za-z0-9._-]+", version_id):
             raise ValueError("INVALID_REQUEST")
-        root = Path(artifact_root).expanduser().resolve()
+        root = _canonical_path(str(artifact_root))
         root.mkdir(parents=True, exist_ok=True)
         with (root / ".preprocess.lock").open("a+") as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)

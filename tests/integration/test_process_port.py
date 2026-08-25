@@ -128,3 +128,14 @@ def test_source_hash_must_be_lowercase_sha256(tmp_path: Path) -> None:
     proc = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env={"PYTHONPATH": "src"})
     assert proc.returncode == 2
     assert json.loads(proc.stdout)["error"]["code"] == "INVALID_REQUEST"
+
+
+def test_rejected_version_id_does_not_remove_previous_current(tmp_path: Path) -> None:
+    source = tmp_path / "input.md"
+    source.write_text("content", encoding="utf-8")
+    output = tmp_path / "out"
+    request = {"schema_version": "1", "operation": "preprocess", "request_id": "r", "source_path": str(source), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "policy_version": "p", "output_dir": str(output), "version_id": "v1"}
+    assert subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env={"PYTHONPATH": "src"}).returncode == 0
+    rejected = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(dict(request, request_id="r2")), text=True, capture_output=True, env={"PYTHONPATH": "src"})
+    assert rejected.returncode == 3
+    assert (output / "current.json").exists()
