@@ -59,4 +59,4 @@ class ArtifactExporter:
 
     @staticmethod
     def _jsonl(path: Path, values: Iterable[object], *, serializer=to_dict) -> None:
-        path.write_text("".join(json.dumps(serializer(value), ensure_ascii=False, sort_keys=True) + "\n" for value in values), encoding="utf-8")
+        path.write_text("".join(json.dumps(serializer(value), ensure_ascii=True, sort_keys=True) + "\n" for value in values), encoding="utf-8")

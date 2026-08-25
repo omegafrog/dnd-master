@@ -41,3 +41,16 @@ def test_exporter_serializes_split_chunk_as_one_schema_valid_jsonl_line(tmp_path
         payload = json.loads(line)
         validate_json(payload, schema)
         assert "source_segments" not in payload
+
+
+def test_exporter_keeps_unicode_paragraph_separator_inside_one_jsonl_line(tmp_path):
+    text = "before\u2029after"
+    chunk = Chunk("chk-paragraph", "rules.paragraph", ContentType.RULE, text, text, 1,
+                  (SourceSpan(1, 0, 0, len(text)),), ("rules",))
+    tree = DocumentTree("doc", SectionNode("root", "Rules", 0, ContentType.RULE))
+
+    ArtifactExporter().export(tmp_path, "doc.pdf", text, (chunk,), (), tree)
+    lines = (tmp_path / "chunks.jsonl").read_text(encoding="utf-8").splitlines()
+
+    assert len(lines) == 1
+    assert json.loads(lines[0])["source_text"] == text
