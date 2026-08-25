@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "anyOf": [
-    {"required": ["schema_version", "operation", "request_id", "source_path", "policy_version", "source_sha256", "output_dir"], "properties": {"operation": {"const": "preprocess"}}},
-    {"required": ["schema_version", "operation", "request_id", "version_id", "artifact_root"], "properties": {"operation": {"const": "status"}}}
+    {"required": ["schema_version", "operation", "request_id", "source_path", "policy_version", "source_sha256", "output_dir"], "properties": {"operation": {"const": "preprocess"}, "output_dir": {"type": "string", "minLength": 1}}},
+    {"required": ["schema_version", "operation", "request_id", "version_id", "artifact_root"], "properties": {"operation": {"const": "status"}, "version_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"}, "artifact_root": {"type": "string", "minLength": 1}}}
   ],
   "properties": {
     "schema_version": {"type": "string", "const": "1"},

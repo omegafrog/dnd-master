@@ -132,7 +132,14 @@ class ExtractionApplicationService:
             raise ValueError("SOURCE_HASH_MISMATCH")
         output.mkdir(parents=True, exist_ok=True)
         index_path = output / "request-index.json"
-        index = json.loads(index_path.read_text()) if index_path.exists() else {}
+        try:
+            index = json.loads(index_path.read_text()) if index_path.exists() else {}
+            if not isinstance(index, dict):
+                raise ValueError("not an object")
+        except (json.JSONDecodeError, ValueError):
+            if index_path.exists():
+                index_path.replace(index_path.with_name("request-index.corrupt.json"))
+            index = {}
         idempotency_key = f"{request_id}:{source_hash}:{policy}"
         if idempotency_key in index:
             saved = output / "versions" / index[idempotency_key] / "response.json"
@@ -140,6 +147,8 @@ class ExtractionApplicationService:
                 return json.loads(saved.read_text())
         try:
             raw_pages = self.native_pdf.extract(source) if source.suffix.lower() == ".pdf" else self._text_pages(source)
+            if not isinstance(raw_pages, (list, tuple)):
+                raw_pages = [{"page_number": 1, "malformed": True}]
         except Exception as exc:
             for name in ("chunks.jsonl", "manifest.json", "document_tree.json", "issues.jsonl", "current.json"):
                 stale = output / name
@@ -155,8 +164,10 @@ class ExtractionApplicationService:
         page_artifacts: list[dict[str, Any]] = []
         for position, raw in enumerate(raw_pages, 1):
             number: int | None = None
-            geometry_raw = raw.get("geometry", {})
             try:
+                if not isinstance(raw, Mapping):
+                    raise ValueError("MALFORMED_EXTRACTION_PAYLOAD")
+                geometry_raw = raw.get("geometry", {})
                 number = int(raw.get("page_number", position))
                 if number < 1 or number > len(raw_pages):
                     raise ValueError("INVALID_PAGE_METADATA")
@@ -195,7 +206,7 @@ class ExtractionApplicationService:
                 (temp_dir / "manifest.json").write_text(json.dumps({"status": version.status.value, "version_id": version.version_id}, sort_keys=True) + "\n")
             version_artifact = {"version_id": version.version_id, "status": version.status.value, "source_sha256": source_hash, "pages": page_artifacts}
             (temp_dir / "version.json").write_text(json.dumps(version_artifact, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
-            response = {"schema_version": "1", "operation": "preprocess", "request_id": request_id, "version_id": version.version_id, "status": version.status.value, "page_summary": {"count": len(page_artifacts), "processed": len(page_artifacts), "validated": sum(item["status"] == "VALIDATED" for item in page_artifacts), "needs_review": sum(item["status"] == "NEEDS_REVIEW" for item in page_artifacts), "ready": sum(item["status"] == "VALIDATED" for item in page_artifacts)}, "artifacts": self._artifact_refs(temp_dir, ready), "manifest": manifest}
+            response = {"schema_version": "1", "operation": "preprocess", "request_id": request_id, "version_id": version.version_id, "status": version.status.value, "pages": [{"page_number": item["page_number"], "status": item["status"], "attempts": 1, "findings": item.get("findings", [])} for item in page_artifacts], "page_summary": {"count": len(page_artifacts), "processed": len(page_artifacts), "validated": sum(item["status"] == "VALIDATED" for item in page_artifacts), "needs_review": sum(item["status"] == "NEEDS_REVIEW" for item in page_artifacts), "ready": sum(item["status"] == "VALIDATED" for item in page_artifacts)}, "artifacts": self._artifact_refs(temp_dir, ready), "manifest": manifest}
             (temp_dir / "response.json").write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             version_dir = versions / version_id
             if version_dir.exists():
@@ -234,10 +245,21 @@ class ExtractionApplicationService:
     def get_status(self, version_id: str, artifact_root: str | Path) -> Mapping[str, Any]:
         if not re.fullmatch(r"[A-Za-z0-9._-]+", version_id):
             raise ValueError("INVALID_REQUEST")
-        path = Path(artifact_root).expanduser().resolve() / "versions" / version_id / "response.json"
-        if not path.exists():
-            raise ValueError("VERSION_NOT_FOUND")
-        return {**json.loads(path.read_text()), "operation": "status"}
+        root = Path(artifact_root).expanduser().resolve()
+        root.mkdir(parents=True, exist_ok=True)
+        with (root / ".preprocess.lock").open("a+") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            try:
+                path = root / "versions" / version_id / "response.json"
+                if not path.exists():
+                    raise ValueError("VERSION_NOT_FOUND")
+                try:
+                    response = json.loads(path.read_text())
+                except json.JSONDecodeError as exc:
+                    raise ValueError("VERSION_ARTIFACT_CORRUPT") from exc
+                return {**response, "operation": "status"}
+            finally:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
     @staticmethod
     def _artifact_refs(directory: Path, ready: bool) -> dict[str, Any]:

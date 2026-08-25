@@ -90,3 +90,32 @@ def test_status_requires_artifact_root_and_rejects_unsafe_version_id(tmp_path: P
     proc = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps({"schema_version": "1", "operation": "status", "version_id": "../escape"}), text=True, capture_output=True, env={"PYTHONPATH": "src"})
     assert proc.returncode == 2
     assert json.loads(proc.stdout)["error"]["code"] == "INVALID_REQUEST"
+
+
+def test_status_requires_request_id_and_exposes_page_read_model(tmp_path: Path) -> None:
+    source = tmp_path / "input.md"
+    source.write_text("content", encoding="utf-8")
+    output = tmp_path / "out"
+    request = {"schema_version": "1", "operation": "preprocess", "request_id": "r1", "source_path": str(source), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "policy_version": "p1", "output_dir": str(output)}
+    first = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env={"PYTHONPATH": "src"})
+    version_id = json.loads(first.stdout)["version_id"]
+    status = dict(schema_version="1", operation="status", request_id="status-1", version_id=version_id, artifact_root=str(output))
+    result = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(status), text=True, capture_output=True, env={"PYTHONPATH": "src"})
+    payload = json.loads(result.stdout)
+    assert payload["request_id"] == "status-1"
+    assert payload["pages"][0]["attempts"] == 1
+    assert "findings" in payload["pages"][0]
+    missing = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(dict(status, request_id=None)), text=True, capture_output=True, env={"PYTHONPATH": "src"})
+    assert missing.returncode == 2
+
+
+def test_corrupt_request_index_is_recovered(tmp_path: Path) -> None:
+    source = tmp_path / "input.md"
+    source.write_text("content", encoding="utf-8")
+    output = tmp_path / "out"
+    output.mkdir()
+    (output / "request-index.json").write_text("{", encoding="utf-8")
+    request = {"schema_version": "1", "operation": "preprocess", "request_id": "r1", "source_path": str(source), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "policy_version": "p1", "output_dir": str(output)}
+    result = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env={"PYTHONPATH": "src"})
+    assert result.returncode == 0
+    assert (output / "request-index.json").exists()
