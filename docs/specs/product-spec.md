@@ -1,117 +1,246 @@
-# RAG Retrieval Evaluation Product Spec
+# Layout-Aware PDF Preprocessing Product Spec
 
 ## 1. Problem and Context
 
-현재 D&D 문서는 전처리되어 388개의 검색 대상 chunk와 50개의 평가 질문을 제공한다. 다음 단계는 gold 근거를 검증하고 Dense, BM25, Hybrid, Reranker 검색 품질을 동일한 평가셋으로 수치화하는 것이다. 검색 실패와 생성 실패를 분리하지 않으면 전처리·검색·생성 중 어느 단계가 품질을 저해하는지 판단할 수 없다.
+현재 PDF 전처리는 추출된 텍스트를 검색용 chunk로 만들 수 있지만, 페이지의 시각적 배치를 정본으로 검증하지 않으면 원문과 다른 읽기 순서가 만들어질 수 있다. 특히 다열 본문, 전체 폭 제목, 표, 사이드바, 반복 머리말·꼬리말이 함께 있는 페이지에서는 원시 텍스트 추출 순서가 실제 독서 순서와 일치하지 않는다.
+
+잘못된 열 판별이나 표 평탄화가 청킹과 인덱싱까지 전달되면 문맥이 섞이고 근거 추적이 깨지며, 이후 검색 평가만으로는 전처리 단계의 구조 손실을 정확히 분리하기 어렵다. 따라서 모든 페이지를 좌표 기반 블록으로 구조화하고, 페이지 안의 레이아웃 영역별 열 수를 자동 판별하여 적합한 읽기 순서 전략을 선택해야 한다. 그 결과는 렌더링된 원본과 검증되고, 구조 요소별 확신도 및 차단 상태와 함께 제공되어야 한다.
 
 ## 2. Goals and Desired Outcomes
 
-- gold case와 실제 chunk의 정합성을 검증한다.
-- answerable 질문에 대해 검색 결과의 Recall@K, MRR, Evidence Recall을 산출한다.
-- Dense와 BM25의 상호 보완 관계를 측정하고 Hybrid 기준선을 만든다.
-- Reranker와 parent-context 확장의 효과를 독립적으로 비교한다.
-- retrieval failure를 원인별로 분류하고 전처리 피드백으로 연결한다.
-- retrieval이 안정된 후 generation과 unanswerable 판단을 별도 평가한다.
+- (GOAL-01) 모든 페이지의 크기와 좌표계를 보존하고 제목, 본문, 표 및 보조 요소를 좌표 기반 블록으로 분리한다.
+- (GOAL-02) 페이지 안의 레이아웃 영역마다 열 수를 자동 판별하고 영역별 읽기 순서를 결정한다.
+- (GOAL-03) 전체 폭 제목·표와 다열 본문의 관계를 보존해 페이지 전체 읽기 순서를 구성한다.
+- (GOAL-04) 네이티브 텍스트, OCR 또는 하이브리드 방식을 페이지·영역별로 선택하고 선택 근거를 남긴다.
+- (GOAL-05) 모든 페이지를 렌더링된 원본과 검증하고, 고위험 페이지는 2차 검증한다.
+- (GOAL-06) 텍스트와 구조에 대한 다차원 확신도 및 검증 결과를 제공한다.
+- (GOAL-07) 검증되지 않은 페이지가 있는 Extraction Version의 청킹·인덱싱 전달을 차단한다.
+- (GOAL-08) 실패한 영역이나 페이지만 원인별로 재처리하고 재현 가능한 진단 산출물을 남긴다.
 
 ## 3. Users and Actors
 
-- 평가 담당자: 평가셋과 gold 근거를 관리하고 실험 결과를 비교한다.
-- RAG 개발자: 검색기·reranker·context builder의 성능을 개선한다.
-- 검색 평가기: 동일 입력에 대해 재현 가능한 결과와 지표를 생성한다.
-- 생성 평가기: 검색 context와 답변·인용의 품질을 분리 측정한다.
+- **전처리 개발자**: 레이아웃 판별·추출 정책을 변경하고 실패 페이지의 진단 근거를 확인한다.
+- **평가 담당자**: 대표 레이아웃 fixture와 기대 구조를 관리하고 회귀 여부를 검증한다.
+- **문서 전처리 파이프라인**: PDF를 페이지별로 분석·추출·검증하고 Extraction Version을 생성한다.
+- **레이아웃 검증기**: 구조화 결과와 렌더링된 페이지를 대조해 확신도와 검증 상태를 산출한다.
+- **청킹·인덱싱 파이프라인**: 검증을 통과한 Extraction Version만 소비하는 하위 시스템이다.
 
 ## 4. Ubiquitous Language and Terminology
 
-- chunk: 전처리 결과의 검색 단위.
-- gold case: 질문, answerability, 정답 근거 chunk, 멀티근거 요구사항을 포함한 평가 사례.
-- answerable: 현재 문서만으로 충분한 근거를 찾을 수 있는 질문.
-- evidence: 답변을 뒷받침하는 필수 근거 chunk 또는 근거 그룹.
-- retriever: 질문에 대해 순위가 있는 chunk 목록을 반환하는 검색기.
-- reranker: 후보 목록을 재정렬하는 평가 대상.
-- parent context: 검색된 child chunk가 속한 상위 문맥.
+- **Layout Block**: 페이지 위의 의미·시각 단위. 식별자, 종류, 좌표, 텍스트, 추출 방식, 확신도를 가진다.
+- **Layout Region**: 동일한 열 구조와 읽기 순서 전략을 적용할 수 있는 페이지 내 좌표 영역.
+- **Column Profile**: 페이지를 위에서 아래로 진행할 때 나타나는 영역별 열 수의 순서. 예: `1 → 2 → 1`.
+- **Reading Order Strategy**: 한 Layout Region의 블록을 사람이 읽는 순서로 배열하는 규칙.
+- **Spanning Block**: 여러 열의 폭을 가로지르는 제목, 표, 그림 등의 블록.
+- **Structural Confidence**: 블록 종류, 열 구조, 읽기 순서, 제목 연결, 표 구조가 원본 레이아웃과 일치한다는 항목별 확신도.
+- **Page Validation**: 구조화 결과를 렌더링된 페이지와 대조해 누락, 중복, 겹침, 잘못된 순서와 연결을 찾는 검증.
+- **Page Review Gate**: 핵심 확신도 또는 검증 규칙을 통과하지 못한 페이지를 `NEEDS_REVIEW`로 차단하는 규칙.
+- **Extraction Version**: 동일 원본과 전처리 정책으로 만든 불변 페이지 추출 결과 묶음.
+- **Diagnostic Overlay**: 원본 렌더 위에 블록 경계, 영역, 열, 읽기 순서를 표시한 검토 산출물.
 
 ## 5. Core Use Cases
 
-### UC-01 Gold Cases 검증
+### UC-01 페이지 분류 및 좌표 추출
 
-평가 담당자는 gold case를 입력하고, 모든 gold chunk ID가 현재 artifact에 존재하는지, answerable 규칙과 evidence 요구사항이 일치하는지 확인한다.
+1. 파이프라인이 PDF와 전처리 정책 버전을 입력받는다.
+2. 각 페이지를 독립적으로 네이티브 텍스트, 이미지, 혼합 또는 구조 모호 페이지로 분류한다.
+3. 페이지 크기와 일관된 좌표계 안에서 단어·행·블록 후보를 추출한다.
+4. 네이티브 텍스트가 없거나 화면과 불일치하는 영역에만 OCR 후보를 생성한다.
+5. 모든 후보에 원본 페이지·좌표·추출 방식을 연결한다.
 
-### UC-02 Retrieval Baseline 평가
+### UC-02 레이아웃 영역과 열 구조 판별
 
-평가 담당자는 동일한 50문항으로 Dense와 BM25를 실행하고 Recall@1/3/5/10/20, MRR, Evidence Recall을 얻는다.
+1. 파이프라인이 블록 정렬, 수평 간격, 여백과 spanning block을 분석한다.
+2. 페이지를 동일한 열 구조를 공유하는 Layout Region으로 나눈다.
+3. 각 영역의 열 수 후보와 확신도를 산출한다.
+4. 가장 타당한 열 구조를 선택하고 Column Profile을 만든다.
+5. 후보 간 차이가 검증 기준보다 작아 모호하면 확정하지 않고 Page Review Gate로 보낸다.
 
-### UC-03 Retrieval 조합 비교
+### UC-03 읽기 순서 구성
 
-개발자는 Dense only, BM25 only, Dense+BM25 Hybrid, Hybrid+Reranker 실험을 동일 조건으로 비교한다.
+1. 각 Layout Region에 선택된 열 구조에 맞는 Reading Order Strategy를 적용한다.
+2. 열 안의 순서를 먼저 결정하고 영역의 열을 결합한다.
+3. 전체 폭 제목·표·그림을 좌표 관계에 맞는 위치에 삽입한다.
+4. 반복 머리말·꼬리말은 보존하되 주 읽기 순서에서 제외한다.
+5. 모든 읽기 순서 항목에 페이지와 블록 좌표를 유지한다.
 
-### UC-04 실패 분석 및 피드백
+### UC-04 제목과 표 구조화
 
-개발자는 검색 실패를 `RETRIEVAL_MISS`, `RANKING_ERROR`, `CHUNK_BOUNDARY`, `QUERY_MISMATCH`, `METADATA_MISMATCH`, `MULTI_EVIDENCE_MISS`, `TABLE_RETRIEVAL_FAILURE`로 분류하고, 실제 검색 실패와 연결된 전처리 문제만 수정 대상으로 선택한다.
+1. 제목을 시각적 위계와 위치에 따라 본문과 별도 블록으로 식별한다.
+2. 제목은 아래쪽의 같은 열 또는 명확히 spanning하는 관련 내용에만 연결한다.
+3. 표를 본문 prose와 분리하고 표의 영역을 보존한다.
+4. 표 헤더, 데이터 행, 셀, 병합 또는 불확실 셀을 구분하고 각각의 좌표를 기록한다.
+5. 표 구조가 모호하면 임의로 평탄화하지 않고 불확실성을 기록한다.
 
-### UC-05 Generation 평가
+### UC-05 페이지 검증 및 차단
 
-검색 결과가 안정된 뒤 생성 결과의 정답성, 충실성, 인용 정확성, context 활용, abstention을 평가한다.
+1. 모든 페이지의 구조화 결과를 렌더링된 원본과 자동 대조한다.
+2. 블록 누락·중복·겹침, 열 경계, 읽기 순서, 제목 연결, 표 구조를 검증한다.
+3. 다열·혼합 열, 표, OCR, 블록 겹침, 모호성 또는 임계값 근접 페이지는 2차 검증한다.
+4. 텍스트 추출, 블록 분류, 열 판별, 읽기 순서, 제목 연결, 표 구조의 확신도를 각각 산출한다.
+5. 핵심 항목 하나라도 기준 미달이면 평균 점수와 무관하게 페이지를 `NEEDS_REVIEW`로 전환한다.
 
-### UC-06 Unanswerable 평가
+### UC-06 원인별 재처리 및 진단
 
-문서에 충분한 근거가 없는 질문에 대해 시스템이 근거 부족을 판단하는지 평가한다.
+1. 검증 실패 이유에 따라 실패 영역 또는 페이지만 재처리한다.
+2. 열 판별 전략 변경, 네이티브/OCR 전환 또는 표 영역 재분할 등 대안 후보를 적용한다.
+3. 최초 시도 이후 최대 2회의 추가 시도와 각 후보의 검증 결과를 기록한다.
+4. 재처리 후 통과하면 해당 페이지를 확정한다.
+5. 모두 실패하면 `NEEDS_REVIEW`를 유지하고 Diagnostic Overlay와 후보·실패 보고서를 제공한다.
+
+### UC-07 Extraction Version 완료
+
+1. 다른 페이지는 일부 페이지가 차단되어도 독립적으로 끝까지 처리한다.
+2. 모든 페이지가 검증을 통과했는지 확인한다.
+3. 하나라도 `NEEDS_REVIEW`이면 Extraction Version 전체를 확정하지 않는다.
+4. 모든 페이지가 통과한 경우에만 청킹·인덱싱 입력으로 게시한다.
 
 ## 6. Business Rules and Invariants
 
-- 평가 실행은 고정된 chunk artifact와 gold case snapshot을 사용해야 한다.
-- answerable case는 최소 하나의 유효한 gold chunk를 가져야 한다.
-- unanswerable case는 gold 근거를 가져서는 안 된다.
-- gold chunk ID는 실제 chunk ID와 정확히 일치해야 한다.
-- 검색 결과는 존재하는 chunk ID만 포함해야 하며 한 결과 내 ID 중복을 허용하지 않는다.
-- 모든 retriever 비교는 동일한 질문·gold·cutoff 집합을 사용한다.
-- 멀티근거 평가는 모든 필수 evidence group 충족 여부를 별도로 계산한다.
-- retrieval failure와 generation failure는 서로 다른 결과로 기록한다.
-- validator 경고만으로 전처리 변경을 강제하지 않으며, retrieval 실패와 연결된 경우에만 feedback 대상으로 승격한다.
+- (BR-01) 모든 Layout Block은 원본 문서, 페이지 번호, 페이지 크기 및 bounding box로 추적 가능해야 한다.
+- (BR-02) 한 Extraction Version 안에서는 하나의 명시된 좌표 규약을 사용해야 한다.
+- (BR-03) 원시 PDF 텍스트 추출 순서를 시각적 읽기 순서의 근거로 사용해서는 안 된다.
+- (BR-04) 열 수는 페이지 전체의 단일 값으로 강제하지 않고 Layout Region마다 판별해야 한다.
+- (BR-05) 선택된 열 수뿐 아니라 경쟁 후보와 후보별 확신도를 보존해야 한다.
+- (BR-06) Spanning Block은 인접 영역과의 좌표 관계에 따라 페이지 읽기 순서에 삽입해야 한다.
+- (BR-07) 제목은 글자 크기 하나만으로 판별하지 않으며, 시각적 위계와 위치를 함께 검증해야 한다.
+- (BR-08) 표는 prose로 평탄화하지 않고 헤더·행·셀 구조와 좌표를 보존해야 한다.
+- (BR-09) 반복 머리말·꼬리말은 원문 블록으로 보존하되 주 읽기 순서에서 제외해야 한다.
+- (BR-10) 네이티브 텍스트가 렌더링과 일치하면 이를 우선하고, OCR은 필요한 페이지나 영역에만 적용해야 한다.
+- (BR-11) 혼합 페이지에서는 블록마다 `native`, `ocr`, `hybrid` 중 적용 방식을 기록해야 한다.
+- (BR-12) 확신도는 OCR 엔진 점수만이 아니라 표시 텍스트와 구조의 신뢰성을 표현해야 한다.
+- (BR-13) 텍스트 추출, 블록 유형, 열 구조, 읽기 순서, 제목 연결, 표 구조의 확신도를 분리해야 한다.
+- (BR-14) 핵심 확신도 하나라도 정책 기준보다 낮거나 구조 검증이 실패하면 페이지는 `NEEDS_REVIEW`다.
+- (BR-15) 모든 페이지는 렌더링된 원본과 검증해야 한다.
+- (BR-16) 다열·혼합 열, 표, OCR, 구조 모호성 또는 임계값 근접 페이지는 독립적인 2차 검증 대상이다.
+- (BR-17) 원인별 자동 재처리는 최초 시도 이후 최대 2회이며 실패 범위를 벗어난 페이지를 다시 처리하지 않는다.
+- (BR-18) 해결되지 않은 모호성은 영역 좌표, 이유, 후보 구조·읽기 순서 및 필요한 검토 행동과 함께 기록해야 한다.
+- (BR-19) `NEEDS_REVIEW` 페이지가 하나라도 있으면 Extraction Version을 청킹·인덱싱에 게시할 수 없다.
+- (BR-20) 별도 검토 UI나 수동 좌표 편집기는 이번 범위에 포함하지 않는다.
+- (BR-21) 확신도 임계값과 검증 규칙은 평가 결과를 재현할 수 있도록 정책 버전과 함께 기록해야 한다.
 
 ## 7. States and State Transitions
 
-`draft gold → validated gold → evaluated baseline → compared experiments → selected retrieval → generation evaluated`.
+페이지 상태:
 
-gold 검증 실패 또는 입력 artifact 불일치 시 retrieval 평가로 진행하지 않는다. 검색 실험은 baseline이 생성된 뒤에만 비교 가능하다.
+```text
+PENDING → CLASSIFIED → EXTRACTED → STRUCTURED → VALIDATING
+         → VALIDATED
+         → RETRYING → VALIDATING
+         → NEEDS_REVIEW
+```
+
+- `VALIDATING → RETRYING`: 재처리 가능한 검증 실패이며 추가 시도가 남아 있다.
+- `VALIDATING → NEEDS_REVIEW`: 핵심 기준 미달이며 추가 시도가 없거나 안전한 대안이 없다.
+- `RETRYING → VALIDATING`: 실패 영역의 대안 결과가 생성되었다.
+- `NEEDS_REVIEW`는 자동으로 성공 상태로 간주되지 않는다.
+
+Extraction Version 상태:
+
+```text
+QUEUED → PROCESSING → VALIDATING → READY
+                              ↘ NEEDS_REVIEW
+```
+
+- 모든 페이지가 `VALIDATED`일 때만 `READY`가 된다.
+- 일부 페이지가 `NEEDS_REVIEW`여도 나머지 페이지 처리는 계속하지만 Extraction Version은 `READY`가 될 수 없다.
 
 ## 8. Failures, Exceptions, and Boundary Conditions
 
-- 없는 chunk ID, 누락된 gold case, 중복 evidence는 gold validation 실패다.
-- answerable인데 gold가 없거나 unanswerable인데 gold가 있으면 case 계약 위반이다.
-- retriever가 알 수 없는 chunk ID나 중복 ID를 반환하면 ranking error다.
-- evidence 일부만 찾으면 multi-evidence miss다.
-- 표·수치·정확한 규칙명 검색 실패는 별도 failure type으로 분류한다.
-- embedding model/index가 없으면 Dense 실험만 차단하고 BM25 실험까지 함께 성공했다고 보고하지 않는다.
-- 문서 밖 질문은 retrieval 성공으로 간주하지 않고 abstention 평가로 보낸다.
+- 선택 가능한 텍스트가 없으면 해당 페이지 또는 영역을 OCR 대상으로 전환한다.
+- 네이티브 텍스트가 존재하지만 렌더링과 실질적으로 불일치하면 네이티브 결과를 그대로 확정하지 않는다.
+- 두 열 구조 후보가 유사한 확신도를 가지면 후보를 기록하고 읽기 순서를 강제하지 않는다.
+- 겹치는 블록, 사이드바, 각주, 회전 텍스트 또는 불규칙 표 때문에 순서가 모호하면 관련 영역을 명시해 차단한다.
+- 제목이 여러 열 또는 여러 섹션과 연결될 수 있으면 임의 연결하지 않는다.
+- 병합 셀이나 다단 헤더를 안정적으로 판별하지 못하면 불확실 셀과 후보 해석을 기록한다.
+- OCR 결과가 낮은 확신도를 가지거나 페이지 geometry와 맞지 않으면 해당 블록을 확정하지 않는다.
+- 검증 또는 렌더링 자체가 실패하면 추출 성공으로 간주하지 않고 재처리 가능 여부와 원인을 기록한다.
+- 매우 큰 문서라도 모든 페이지를 검증한다. 병렬 처리나 실행 시간 최적화는 검증 생략의 근거가 될 수 없다.
+- 빈 페이지는 유효한 빈 레이아웃으로 구분하고 추출 실패와 혼동하지 않는다.
 
 ## 9. Inputs and Outputs
 
-입력은 `chunks.jsonl`, gold cases JSONL, 평가 질문, retriever 설정과 선택적 ranked-result fixture다.
+입력:
 
-출력은 `gold_validation.json`, retriever별 summary/details, `retrieval_comparison.json`, `retrieval_failures.jsonl`, 선택적 generation 평가 결과다.
+- 원본 PDF와 문서 식별자
+- 전처리·레이아웃 판별 정책 버전
+- 확신도 임계값과 검증 규칙
+- 선택적 OCR 자원
+- 재현 가능한 대표 레이아웃 fixture 및 기대 결과
+
+페이지별 출력:
+
+- 페이지 번호, 크기, 좌표 규약, 페이지 분류
+- Layout Region과 영역별 열 수 후보·선택·확신도
+- Layout Block의 종류, bounding box, 텍스트, 열, 읽기 순서, 추출 방식과 확신도
+- 제목과 관련 블록의 연결
+- 표의 bounding box, 헤더, 행, 셀, 병합·불확실성 정보
+- Column Profile 및 페이지 전체 읽기 순서
+- 항목별 Structural Confidence
+- 검증 상태, findings, 재처리 이력
+
+진단 출력:
+
+- 원본 렌더와 Diagnostic Overlay
+- 열 구조 후보 및 후보별 점수
+- 후보 읽기 순서와 선택 근거
+- 검증 실패 유형, 영역 좌표, 확신도와 필요한 검토 행동
+- 네이티브/OCR/하이브리드 선택 및 재처리 이력
+
+문서별 출력:
+
+- Extraction Version 식별자와 정책 버전
+- 페이지별 상태 요약 및 문서 상태
+- 청킹·인덱싱 게시 가능 여부
 
 ## 10. Scope and Non-goals
 
-포함: gold 검증, Dense/BM25 baseline, Hybrid/RRF, reranker 비교, failure taxonomy, parent-context 실험, generation/unanswerable 평가의 계약.
+포함:
 
-제외: 새로운 chunk-size 최적화, PDF 원문 재작성, 특정 LLM·embedding provider 종속, 운영용 vector DB 배포, 자동 모델 선택.
+- PDF 페이지별 분류와 좌표 기반 블록 추출
+- 영역별 열 수 자동 판별과 읽기 순서 전략 선택
+- 혼합 열 구조와 spanning block 처리
+- 제목·본문·표·머리말·꼬리말의 구조적 분리
+- 표 헤더·행·셀 좌표 보존
+- 페이지·영역별 네이티브/OCR 하이브리드 추출
+- 모든 페이지의 렌더 기반 검증과 고위험 페이지 2차 검증
+- 다차원 확신도, Page Review Gate, 원인별 재처리
+- 오버레이 및 기계 판독 가능한 진단 보고서
+
+제외:
+
+- 사람이 좌표와 읽기 순서를 편집하는 검토 UI
+- 원본 PDF 자체 수정
+- 검증 실패 페이지의 무조건적인 best-effort 게시
+- 청킹 전략, embedding, retriever 또는 reranker 최적화
+- 자동 학습 기반 임계값 최적화
+- 모든 문서 형식에 대한 동일 레이아웃 추출 계약 확장
 
 ## 11. Priorities and Trade-offs
 
-1. gold 정합성과 평가 재현성
-2. Dense/BM25 baseline 수치 확보
-3. Hybrid과 reranker 비교
-4. retrieval 실패 기반 전처리 feedback
-5. generation과 abstention 확장
+1. 원문 좌표와 구조의 추적 가능성
+2. 읽기 순서 및 열 구조 정확성
+3. 표와 제목의 의미 구조 보존
+4. 모호한 결과의 안전한 차단
+5. 실패 원인의 재현성과 페이지 단위 재처리
+6. 처리 속도와 자원 사용량
 
-초기에는 최고 성능보다 실패 원인 분리와 재현 가능한 baseline을 우선한다.
+검증 비용과 처리 속도가 충돌하면 레이아웃 정확성을 우선한다. 단일 평균 확신도나 강제 추론으로 처리율을 높이는 것보다, 핵심 항목을 분리하고 불확실한 페이지를 명시적으로 차단하는 것을 우선한다.
 
 ## 12. Success Conditions and Acceptance Criteria
 
-- 50개 평가 질문에 대해 gold validation 결과가 생성된다.
-- invalid chunk ID와 missing gold case가 0이다.
-- answerable/unanswerable 및 멀티근거 사례가 보고된다.
-- Dense와 BM25 각각의 Recall@K, MRR, Evidence Recall 결과가 생성된다.
-- Hybrid과 reranker 비교 결과가 동일 평가셋 기준으로 생성된다.
-- 모든 실패 사례가 taxonomy 중 하나로 분류된다.
-- retrieval 평가가 끝난 뒤에만 generation 평가가 실행된다.
+- (AC-01) 모든 페이지 결과에 페이지 크기, 좌표 규약 및 좌표가 있는 Layout Block이 존재한다.
+- (AC-02) 단일 열, 다열 및 `1 → 2 → 1` 같은 혼합 열 fixture에서 Layout Region과 Column Profile이 기대 결과와 일치한다.
+- (AC-03) 선택된 열 구조와 경쟁 후보, 후보별 확신도가 페이지 결과에 기록된다.
+- (AC-04) 페이지의 읽기 순서는 열 내부 순서와 영역 간 순서를 모두 보존하며 원시 추출 순서에 의존하지 않는다.
+- (AC-05) 전체 폭 제목·표가 다열 본문 사이의 올바른 위치에 배치된다.
+- (AC-06) 표 fixture에서 헤더, 행, 셀과 좌표가 분리되고 불확실하거나 병합된 셀이 표시된다.
+- (AC-07) 네이티브, 이미지 전용, 혼합 페이지 fixture가 각각 적절한 추출 방식으로 처리되며 블록별 방식이 기록된다.
+- (AC-08) 모든 페이지에 렌더 기반 검증 결과가 있고, 고위험 페이지에는 2차 검증 근거가 있다.
+- (AC-09) 텍스트, 블록 유형, 열 구조, 읽기 순서, 제목 연결, 표 구조 확신도가 별도 항목으로 제공된다.
+- (AC-10) 핵심 확신도 기준 미달 또는 구조 검증 실패 페이지는 평균 점수와 무관하게 `NEEDS_REVIEW`가 된다.
+- (AC-11) 실패 페이지는 최초 시도 이후 최대 2회만 원인별 재처리되며, 통과하지 못하면 후보와 진단 근거를 남긴다.
+- (AC-12) `NEEDS_REVIEW` 페이지가 하나라도 있는 Extraction Version은 청킹·인덱싱에 게시되지 않는다.
+- (AC-13) 차단 페이지가 있어도 다른 페이지의 처리는 계속되고, 재실행은 실패한 페이지·영역만 대상으로 할 수 있다.
+- (AC-14) Diagnostic Overlay만으로 블록 경계, 열, 읽기 순서와 실패 영역을 원본 렌더에 대조할 수 있다.
+- (AC-15) 동일 입력과 동일 정책 버전으로 검증 결과와 게시 판정을 재현할 수 있다.

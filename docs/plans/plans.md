@@ -1,11 +1,10 @@
-# RAG Retrieval Evaluation Plan Index
+# Layout-Aware PDF Preprocessing Plan Index
 
-| Plan | Status | Dependencies | Scope |
-|---|---|---|---|
-| [RAG-001 Gold Validation](rag-001-gold-validation.md) | `completed` | none | 50-case schema, chunk/evidence validation, gold report |
-| [RAG-002 Retrieval Contract](rag-002-retrieval-contract.md) | `completed` | RAG-001 | top-20 ranked contract, metrics, offline evaluator harness |
-| [RAG-003 Dense Baseline](rag-003-dense-baseline.md) | `completed` | RAG-002 | injected Dense adapter and baseline artifacts |
-| [RAG-004 BM25 Baseline](rag-004-bm25-baseline.md) | `completed` | RAG-002 | BM25 adapter and baseline artifacts |
-| [RAG-005 Hybrid Comparison](rag-005-hybrid-comparison.md) | `completed` | RAG-003, RAG-004 | RRF, comparison, failure taxonomy |
-| [RAG-006 Reranker and Context](rag-006-reranker-context.md) | `completed` | RAG-005 | reranker, parent context, generation handoff |
-| [RAG-007 Generation Abstention](rag-007-generation-abstention.md) | `completed` | RAG-006 | generation, citation, unanswerable evaluation |
+| Plan | Issue | Status | Dependencies | Scope |
+|---|---|---|---|---|
+| [RAG-008 Extraction Version Process Port](rag-008-extraction-version-process-port.md) | [#181](https://github.com/omegafrog/dnd-master/issues/181) | `ready-for-agent` | none | JSON process port, ExtractionVersion lifecycle, single-column walking skeleton |
+| [RAG-009 Regional Column Reading Order](rag-009-regional-column-reading-order.md) | [#182](https://github.com/omegafrog/dnd-master/issues/182) | `planned` | RAG-008 | layout regions, column hypotheses/profile, spanning-block reading order |
+| [RAG-010 Heading and Table Structure](rag-010-heading-table-structure.md) | [#183](https://github.com/omegafrog/dnd-master/issues/183) | `planned` | RAG-009 | heading association, table headers/rows/cells, uncertainty |
+| [RAG-011 Native OCR Hybrid Extraction](rag-011-native-ocr-hybrid-extraction.md) | [#184](https://github.com/omegafrog/dnd-master/issues/184) | `planned` | RAG-009 | native/OCR/hybrid ports, provenance and capability gate |
+| [RAG-012 Layout Validation Publication Gate](rag-012-layout-validation-publication-gate.md) | [#185](https://github.com/omegafrog/dnd-master/issues/185) | `planned` | RAG-010, RAG-011 | render validation, multidimensional confidence, page/version gate |
+| [RAG-013 Page Retry Diagnostics Recovery](rag-013-page-retry-diagnostics-recovery.md) | [#186](https://github.com/omegafrog/dnd-master/issues/186) | `planned` | RAG-012 | page checkpoints, bounded retry, status/retry process operations, diagnostics |
