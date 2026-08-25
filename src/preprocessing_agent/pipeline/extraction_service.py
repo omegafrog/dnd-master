@@ -133,13 +133,12 @@ def _canonical_path(value: str, *, require_file: bool = False) -> Path:
 
 
 def _enforce_root(path: Path, env_name: str) -> None:
-    configured = os.environ.get(env_name)
-    if configured:
-        root = _canonical_path(configured)
-        try:
-            path.relative_to(root)
-        except ValueError as exc:
-            raise ValueError("INVALID_REQUEST") from exc
+    configured = os.environ.get(env_name, "/tmp")
+    root = _canonical_path(configured)
+    try:
+        path.relative_to(root)
+    except ValueError as exc:
+        raise ValueError("INVALID_REQUEST") from exc
 
 
 class ExtractionApplicationService:
@@ -318,6 +317,15 @@ class ExtractionApplicationService:
             raise ValueError("INVALID_REQUEST")
         root = _canonical_path(str(artifact_root))
         _enforce_root(root, "PREPROCESS_ARTIFACT_ROOT")
+        current = root / "current.json"
+        if current.exists():
+            try:
+                pointer = json.loads(current.read_text())
+                if pointer.get("version_id") == version_id and not (root / "generations" / version_id).exists():
+                    raise ValueError("VERSION_ARTIFACT_CORRUPT")
+            except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
+                if isinstance(exc, ValueError) and str(exc) == "VERSION_ARTIFACT_CORRUPT":
+                    raise
         try:
                 path = root / "versions" / version_id / "response.json"
                 if not path.exists():
