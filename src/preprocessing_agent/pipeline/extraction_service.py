@@ -351,7 +351,10 @@ class ExtractionApplicationService:
                             raise ValueError("VERSION_ARTIFACT_CORRUPT")
                         if not isinstance(ref["path"], str) or not isinstance(ref["sha256"], str):
                             raise ValueError("VERSION_ARTIFACT_CORRUPT")
-                        target = Path(ref["path"]).resolve()
+                        raw_target = Path(ref["path"])
+                        if raw_target.is_symlink():
+                            raise ValueError("VERSION_ARTIFACT_CORRUPT")
+                        target = raw_target.resolve()
                         generation_root = root / "generations" / version_id
                         version_root = root / "versions" / version_id
                         if not (target.parent == version_root or target.parent == generation_root) or not re.fullmatch(r"[0-9a-f]{64}", str(ref["sha256"])) or not target.exists() or _sha256(target) != ref["sha256"]:
