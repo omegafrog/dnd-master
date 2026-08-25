@@ -286,10 +286,7 @@ class ExtractionApplicationService:
         if not re.fullmatch(r"[A-Za-z0-9._-]+", version_id):
             raise ValueError("INVALID_REQUEST")
         root = _canonical_path(str(artifact_root))
-        root.mkdir(parents=True, exist_ok=True)
-        with (root / ".preprocess.lock").open("a+") as lock:
-            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-            try:
+        try:
                 path = root / "versions" / version_id / "response.json"
                 if not path.exists():
                     raise VersionNotFoundError("VERSION_NOT_FOUND")
@@ -326,6 +323,8 @@ class ExtractionApplicationService:
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 for ref in response["artifacts"].values():
                     if isinstance(ref, dict) and "path" in ref and "sha256" in ref:
+                        if not isinstance(ref["path"], str) or not isinstance(ref["sha256"], str):
+                            raise ValueError("VERSION_ARTIFACT_CORRUPT")
                         target = Path(ref["path"]).resolve()
                         generation_root = root / "generations" / version_id
                         version_root = root / "versions" / version_id
@@ -341,14 +340,10 @@ class ExtractionApplicationService:
                     if manifest_data.get("source_sha256") != version_data.get("source_sha256") or version_data.get("version_id") != version_id:
                         raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 return {**response, "operation": "status"}
-            except VersionNotFoundError:
-                raise
-            except ValueError as exc:
-                if path.exists():
-                    path.replace(path.with_name("response.corrupt.json"))
-                raise ValueError("VERSION_ARTIFACT_CORRUPT") from exc
-            finally:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+        except VersionNotFoundError:
+            raise
+        except (ValueError, TypeError, OSError, json.JSONDecodeError) as exc:
+            raise ValueError("VERSION_ARTIFACT_CORRUPT") from exc
 
     @staticmethod
     def _artifact_refs(directory: Path, ready: bool) -> dict[str, Any]:
