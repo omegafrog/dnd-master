@@ -60,6 +60,19 @@ class AdventureStoryPlanStageSourceValidatorTest {
         assertTrue(violations.contains("story stage enemy is not supported by source evidence: lich"));
     }
 
+    @Test
+    void rejectsPlanWhenRulebookIsAvailableButNeverSelectedAsEvidence() {
+        var storybook = citation("The cellar contains a rat swarm and an exit by the stairs.");
+        var rulebook = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "RULEBOOK", UUID.randomUUID(), 1, "page:12", "A rat swarm uses the standard swarm rules.", 1.0);
+
+        var violations = new AdventureStoryPlanStageSourceValidator()
+                .validateCitationCoverage(List.of(stage(storybook, "", List.of(), "move onward", "ending-1")),
+                        List.of(storybook, rulebook));
+
+        assertTrue(violations.contains("story plan must cite at least one RULEBOOK source"));
+    }
+
     private static AdventureStoryPlanGenerationPort.SourceCitation citation(String quote) {
         return new AdventureStoryPlanGenerationPort.SourceCitation(
                 "STORYBOOK", UUID.randomUUID(), 1, "page:1", quote, 1.0);

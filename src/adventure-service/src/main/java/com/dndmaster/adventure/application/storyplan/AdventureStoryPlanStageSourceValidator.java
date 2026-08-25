@@ -4,11 +4,40 @@ import com.dndmaster.adventure.domain.adventure.AdventurePlanEvidence;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 
 /** Rejects core tactical-stage facts that are not supported by authoritative source evidence. */
 public final class AdventureStoryPlanStageSourceValidator {
+    /**
+     * Ensures the model does not silently ground the whole plan in only one
+     * family of supplied sources. Storybook and rulebook citations have
+     * different authority, so both must be represented when both are
+     * available to the generator.
+     */
+    public List<String> validateCitationCoverage(
+            List<AdventureStoryPlanStage> stages,
+            List<AdventureStoryPlanGenerationPort.SourceCitation> authoritative) {
+        Set<String> usedTypes = stages.stream()
+                .flatMap(stage -> stage.evidence().stream())
+                .map(AdventurePlanEvidence::documentType)
+                .map(AdventureStoryPlanStageSourceValidator::normalizeDocumentType)
+                .collect(java.util.stream.Collectors.toSet());
+        Set<String> availableTypes = authoritative.stream()
+                .map(AdventureStoryPlanGenerationPort.SourceCitation::documentType)
+                .map(AdventureStoryPlanStageSourceValidator::normalizeDocumentType)
+                .collect(java.util.stream.Collectors.toSet());
+
+        List<String> violations = new ArrayList<>();
+        for (String requiredType : List.of("STORYBOOK", "RULEBOOK")) {
+            if (availableTypes.contains(requiredType) && !usedTypes.contains(requiredType)) {
+                violations.add("story plan must cite at least one " + requiredType + " source");
+            }
+        }
+        return List.copyOf(violations);
+    }
+
     public List<String> validate(
             AdventureStoryPlanStage stage,
             List<AdventureStoryPlanGenerationPort.SourceCitation> authoritative) {
@@ -90,6 +119,10 @@ public final class AdventureStoryPlanStageSourceValidator {
                 && evidence.locator().equals(source.locator())
                 && evidence.quote().equals(source.quote())
                 && evidence.confidence() <= source.confidence();
+    }
+
+    private static String normalizeDocumentType(String documentType) {
+        return documentType == null ? "" : documentType.trim().toUpperCase(Locale.ROOT);
     }
 
 }

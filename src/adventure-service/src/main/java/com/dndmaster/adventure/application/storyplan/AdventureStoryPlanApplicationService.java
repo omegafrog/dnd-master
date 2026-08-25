@@ -121,6 +121,8 @@ public final class AdventureStoryPlanApplicationService {
                 try {
                     validateMaps(stages, request.maps());
                     outlineViolations = validateStageSources(stages, request.citations(), scenarioPackage);
+                    outlineViolations = appendViolations(outlineViolations,
+                            stageSourceValidator.validateCitationCoverage(stages, request.citations()));
                     if (outlineViolations.isEmpty()) {
                         AdventureStoryPlanGraphValidator.validate(stages, configuration);
                     }
@@ -314,6 +316,14 @@ public final class AdventureStoryPlanApplicationService {
             violations.addAll(stageSourceValidator.validate(stage, citations, mapDocumentIds));
         }
         return List.copyOf(violations);
+    }
+
+    private static List<String> appendViolations(List<String> first, List<String> second) {
+        if (first.isEmpty()) return second;
+        if (second.isEmpty()) return first;
+        List<String> combined = new ArrayList<>(first);
+        combined.addAll(second);
+        return List.copyOf(combined);
     }
 
     private static AdventureStoryPlanStage stage(int position, String title, String goal, String conflict, String transition, String ending) {
