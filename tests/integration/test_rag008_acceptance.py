@@ -18,6 +18,24 @@ def test_request_response_schemas_load_and_declare_envelopes() -> None:
     assert "error" in response["$defs"]["error"]["required"]
 
 
+def test_real_jsonschema_validator_accepts_process_envelope_and_rejects_invalid_request() -> None:
+    validator = __import__("pytest").importorskip("jsonschema")
+    root = Path(__file__).parents[2] / "schemas"
+    request_schema = json.loads((root / "extraction-request.schema.json").read_text())
+    response_schema = json.loads((root / "extraction-response.schema.json").read_text())
+    request = {"schema_version": "1", "operation": "status", "request_id": "r", "version_id": "v1", "artifact_root": "/tmp/artifacts"}
+    validator.Draft202012Validator(request_schema).validate(request)
+    error = {"schema_version": "1", "operation": "unknown", "request_id": "r", "error": {"code": "INVALID_REQUEST", "message": "bad", "exit_class": "request"}}
+    validator.Draft202012Validator(response_schema).validate(error)
+    invalid = dict(request, unexpected=True)
+    try:
+        validator.Draft202012Validator(request_schema).validate(invalid)
+    except validator.ValidationError:
+        pass
+    else:
+        raise AssertionError("unknown request fields must be rejected")
+
+
 def test_invalid_geometry_native_page_is_needs_review_and_does_not_publish_chunks(tmp_path: Path) -> None:
     source = tmp_path / "input.pdf"
     source.write_bytes(b"fixture")
