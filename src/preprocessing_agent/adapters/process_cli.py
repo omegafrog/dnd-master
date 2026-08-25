@@ -13,6 +13,7 @@ SUPPORTED_SCHEMA = "1"
 
 
 def main() -> int:
+    request: dict = {}
     try:
         request = json.loads(sys.stdin.read())
         if not isinstance(request, dict):

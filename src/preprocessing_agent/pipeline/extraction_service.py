@@ -160,10 +160,6 @@ class ExtractionApplicationService:
             if not isinstance(raw_pages, (list, tuple)):
                 raw_pages = [{"page_number": 1, "malformed": True}]
         except Exception as exc:
-            for name in ("chunks.jsonl", "manifest.json", "document_tree.json", "issues.jsonl"):
-                stale = output / name
-                if stale.exists():
-                    stale.unlink()
             raise ValueError("NATIVE_EXTRACTION_FAILED") from exc
         document_id = source_hash[:16]
         version_id = str(request.get("version_id") or f"ev-{uuid.uuid4().hex[:12]}")
@@ -249,9 +245,8 @@ class ExtractionApplicationService:
                 (output / "current.json.tmp").write_text(json.dumps({"version_id": version_id, "generation": str(generation), "status": version.status.value}, sort_keys=True) + "\n")
                 (output / "current.json.tmp").replace(output / "current.json")
             else:
-                for name in ("chunks.jsonl", "manifest.json", "document_tree.json", "issues.jsonl"):
-                    stale = output / name
-                    if stale.exists(): stale.unlink()
+                # Keep the prior current generation visible; this attempt is version-scoped.
+                pass
             response = {**response, "artifacts": self._artifact_refs(version_dir, ready)}
             (version_dir / "response.json").write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             if ready and 'generation' in locals():
@@ -259,10 +254,6 @@ class ExtractionApplicationService:
             return response
         except Exception as exc:
             if temp_dir.exists(): shutil.rmtree(temp_dir)
-            if str(exc) != "VERSION_ID_CONFLICT":
-                for name in ("chunks.jsonl", "manifest.json", "document_tree.json", "issues.jsonl", "current.json", "current.json.tmp"):
-                    stale = output / name
-                    if stale.exists(): stale.unlink()
             raise
 
     def get_status(self, version_id: str, artifact_root: str | Path) -> Mapping[str, Any]:

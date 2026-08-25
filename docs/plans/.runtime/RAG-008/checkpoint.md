@@ -14,4 +14,5 @@
 - contract finalization: complete response schema, generation response rewrite, status semantic/hash/path validation
 - publication safety: preserve prior current on rejected version conflicts, canonical Linux roots, strict error envelope with exit class
 - final rejection safety: bound exception handling, strict CLI unknown-field rejection, LayoutBlock normalization, preserve current on native/NEEDS_REVIEW failures
+- deferred: retry_pages/retry orchestration remains RAG-013 scope and is intentionally not implemented here
 - next: RAG-009 is ready-for-agent
