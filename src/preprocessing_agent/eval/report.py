@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Mapping
 
 from .preprocessing import EvalConfig, ExportedRun, evaluate_intrinsic
-from .gold import GoldCase, evaluate_gold, load_gold_cases
+from .gold import GoldCase, evaluate_gold, load_gold_cases, validate_gold_cases, write_gold_validation
 from .semantic import EntityFixture, evaluate_semantic
 from .retrieval import RetrieverPort, evaluate_ranked_retrieval
 
@@ -152,6 +152,7 @@ def evaluate_run(run: ExportedRun, config: EvalConfig = EvalConfig(), eval_path:
     cases = load_gold_cases(eval_path) if eval_path is not None and Path(eval_path).is_file() else ()
     semantic, semantic_failures = evaluate_semantic(run.chunks, _load_semantic_fixtures(eval_path))
     gold = evaluate_gold(cases, run.chunks)
+    gold_validation = validate_gold_cases(cases, run.chunks)
     gold_report = {**gold.metrics, "unmatched_keys": list(gold.unmatched_keys),
                    "resolutions": [{"case_id": item.case_id, "chunk_ids": list(item.chunk_ids),
                                     "unmatched_keys": list(item.unmatched_keys),
@@ -161,12 +162,19 @@ def evaluate_run(run: ExportedRun, config: EvalConfig = EvalConfig(), eval_path:
                        "recall_at_1": 0.0, "recall_at_3": 0.0, "recall_at_5": 0.0, "recall_at_10": 0.0,
                        "mrr": 0.0, "evidence_recall_at_5": 0.0, "evidence_recall": 0.0,
                        "single_evidence_queries": 0, "multi_evidence_queries": 0, "failures": []}
-    if retriever is not None and cases:
-        gold_ids = {resolution.case_id: resolution.chunk_ids for resolution in gold.resolutions}
-        required_ids = {case.case_id: tuple(key for group in case.required_evidence for key in group.keys)
-                        for case in cases if case.required_evidence}
+    if retriever is not None and cases and gold_validation.valid:
+        legacy_gold_ids = {resolution.case_id: resolution.chunk_ids for resolution in gold.resolutions}
+        gold_ids = {case["case_id"]: (tuple(source.gold_chunk_ids) if source.gold_chunk_ids else legacy_gold_ids.get(case["case_id"], ()))
+                    for source, case in zip(cases, gold_validation.cases)}
+        required_ids = {}
+        for source, normalized in zip(cases, gold_validation.cases):
+            groups = normalized["evidence_groups"]
+            if groups:
+                values = tuple(chunk_id for group in groups for chunk_id in group["chunk_ids"])
+                required_ids[normalized["case_id"]] = values if source.gold_chunk_ids else tuple(
+                    {chunk.canonical_key: chunk.chunk_id for chunk in run.chunks}.get(value, value) for value in values)
         key_to_chunk = {chunk.canonical_key: chunk.chunk_id for chunk in run.chunks}
-        required_chunks = {case_id: tuple(key_to_chunk[key] for key in keys if key in key_to_chunk)
+        required_chunks = {case_id: tuple(key_to_chunk.get(key, key) for key in keys)
                            for case_id, keys in required_ids.items()}
         try:
             retrieval = evaluate_ranked_retrieval(gold_ids, retriever, required_evidence=required_chunks,
@@ -179,6 +187,9 @@ def evaluate_run(run: ExportedRun, config: EvalConfig = EvalConfig(), eval_path:
             retrieval_report["failures"] = [failure]
         else:
             retrieval_report = retrieval.to_dict()
+    if retriever is not None and cases and not gold_validation.valid:
+        retrieval_report["blocked_by_gold_validation"] = True
+        retrieval_report["gold_validation_issues"] = list(gold_validation.issues)
     source = intrinsic["source"]
     preliminary = {"intrinsic": intrinsic, "semantic": semantic, "gold": gold_report}
     passed, gate_failures = apply_quality_gate(preliminary, source_mutation_max=config.source_mutation_max,
@@ -186,9 +197,13 @@ def evaluate_run(run: ExportedRun, config: EvalConfig = EvalConfig(), eval_path:
     if not cases:
         gate_failures = tuple(item for item in gate_failures if item != "gold_context_coverage")
         passed = not gate_failures
+    if cases and not gold_validation.valid:
+        gate_failures = tuple([*gate_failures, "gold_validation"])
+        passed = False
     report = {"run_id": _run_id(run), "passed": passed, "gate_failures": list(gate_failures),
               "failure_taxonomy": list(FAILURE_TAXONOMY),
               "intrinsic": intrinsic, "semantic": semantic, "gold": gold_report, "retrieval": retrieval_report,
+              "gold_validation": gold_validation.to_dict(),
               "counts": {"chunks": len(run.chunks), "failures": len(failures), "gold_cases": len(cases)},
               "baseline": {"id": str(run.manifest.get("baseline_id", "baseline-v1")), "version": "v1"},
               "input": {"run_dir": str(run.run_dir), "manifest": run.manifest,
@@ -207,5 +222,7 @@ def write_report(run: ExportedRun, output_dir: str | Path | None = None, config:
     report_path = destination / "preprocessing_eval.json"
     failure_path = destination / "preprocessing_eval_failures.jsonl"
     report_path.write_text(json.dumps(report, ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    write_gold_validation(validate_gold_cases(load_gold_cases(eval_path), run.chunks) if eval_path is not None and Path(eval_path).is_file()
+                          else validate_gold_cases((), run.chunks), destination / "gold_validation.json")
     failure_path.write_text("".join(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n" for item in failures), encoding="utf-8")
     return report_path, failure_path
