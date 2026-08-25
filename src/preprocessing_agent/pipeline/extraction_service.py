@@ -190,7 +190,10 @@ class ExtractionApplicationService:
                 if not isinstance(raw, Mapping):
                     raise ValueError("MALFORMED_EXTRACTION_PAYLOAD")
                 geometry_raw = raw.get("geometry", {})
-                number = int(raw.get("page_number", position))
+                raw_number = raw.get("page_number", position)
+                if type(raw_number) is not int:
+                    raise ValueError("INVALID_PAGE_METADATA")
+                number = raw_number
                 if number < 1 or number > len(raw_pages):
                     raise ValueError("INVALID_PAGE_METADATA")
                 geometry = PageGeometry(float(geometry_raw["width"]), float(geometry_raw["height"]))
@@ -300,7 +303,7 @@ class ExtractionApplicationService:
                 if response["schema_version"] != "1" or response["operation"] not in {"preprocess", "status"} or not isinstance(response["request_id"], str) or not response["request_id"] or response["version_id"] != version_id or response["status"] not in {"QUEUED", "PROCESSING", "VALIDATING", "READY", "NEEDS_REVIEW"}:
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 summary = response.get("page_summary", {})
-                if not isinstance(summary, dict) or any(not isinstance(summary.get(key), int) for key in ("count", "processed", "validated", "needs_review", "ready")) or summary.get("count") != len(response["pages"]) or summary.get("processed") != len(response["pages"]):
+                if not isinstance(summary, dict) or any(type(summary.get(key)) is not int for key in ("count", "processed", "validated", "needs_review", "ready")) or summary.get("count") != len(response["pages"]) or summary.get("processed") != len(response["pages"]):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 statuses = [page.get("status") for page in response["pages"] if isinstance(page, dict)]
                 if summary.get("validated") != statuses.count("VALIDATED") or summary.get("needs_review") != statuses.count("NEEDS_REVIEW") or summary.get("ready") != statuses.count("VALIDATED"):
@@ -311,7 +314,7 @@ class ExtractionApplicationService:
                 if len(set(page_numbers)) != len(page_numbers) or any(type(number) is not int or number < 1 for number in page_numbers):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 for page in response["pages"]:
-                    if not isinstance(page, dict) or type(page.get("page_number")) is not int or not isinstance(page.get("page_number"), int) or page.get("status") not in {"VALIDATED", "NEEDS_REVIEW"} or not isinstance(page.get("attempts"), int) or page.get("attempts") < 1 or not isinstance(page.get("findings"), list) or any(not isinstance(item, str) for item in page.get("findings", [])):
+                    if not isinstance(page, dict) or type(page.get("page_number")) is not int or page.get("status") not in {"VALIDATED", "NEEDS_REVIEW"} or type(page.get("attempts")) is not int or page.get("attempts") < 1 or not isinstance(page.get("findings"), list) or any(not isinstance(item, str) for item in page.get("findings", [])):
                         raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 if not isinstance(response["artifacts"].get("manifest_sha256"), (str, type(None))):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
