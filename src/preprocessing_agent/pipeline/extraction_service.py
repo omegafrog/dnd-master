@@ -293,6 +293,9 @@ class ExtractionApplicationService:
                 summary = response.get("page_summary", {})
                 if not isinstance(summary, dict) or any(not isinstance(summary.get(key), int) for key in ("count", "processed", "validated", "needs_review", "ready")) or summary.get("count") != len(response["pages"]) or summary.get("processed") != len(response["pages"]):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
+                statuses = [page.get("status") for page in response["pages"] if isinstance(page, dict)]
+                if summary.get("validated") != statuses.count("VALIDATED") or summary.get("needs_review") != statuses.count("NEEDS_REVIEW") or summary.get("ready") != statuses.count("VALIDATED"):
+                    raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 if response["status"] == "READY" and any(page.get("status") == "NEEDS_REVIEW" for page in response["pages"]):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 page_numbers = [page.get("page_number") for page in response["pages"]]
