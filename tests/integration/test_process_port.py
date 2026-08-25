@@ -92,6 +92,35 @@ def test_status_requires_artifact_root_and_rejects_unsafe_version_id(tmp_path: P
     assert json.loads(proc.stdout)["error"]["code"] == "INVALID_REQUEST"
 
 
+def test_exact_dot_version_ids_are_rejected_for_both_operations(tmp_path: Path) -> None:
+    source = tmp_path / "input.md"
+    source.write_text("content", encoding="utf-8")
+    base = {"schema_version": "1", "operation": "preprocess", "request_id": "dots", "source_path": str(source), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "policy_version": "p", "output_dir": str(tmp_path / "out")}
+    for version_id in (".", ".."):
+        preprocess = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps({**base, "version_id": version_id}), text=True, capture_output=True, env={"PYTHONPATH": "src"})
+        assert preprocess.returncode == 2
+        assert json.loads(preprocess.stdout)["error"]["code"] == "INVALID_REQUEST"
+        status = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps({"schema_version": "1", "operation": "status", "request_id": "s", "version_id": version_id, "artifact_root": str(tmp_path / "out")}), text=True, capture_output=True, env={"PYTHONPATH": "src"})
+        assert status.returncode == 2
+        assert json.loads(status.stdout)["error"]["code"] == "INVALID_REQUEST"
+
+
+def test_cached_replay_does_not_read_symlinked_response(tmp_path: Path) -> None:
+    source = tmp_path / "input.md"
+    source.write_text("content", encoding="utf-8")
+    output = tmp_path / "out"
+    request = {"schema_version": "1", "operation": "preprocess", "request_id": "symlink-cache", "source_path": str(source), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "policy_version": "p", "output_dir": str(output), "version_id": "v1"}
+    first = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env={"PYTHONPATH": "src"})
+    assert first.returncode == 0
+    response_path = output / "versions" / "v1" / "response.json"
+    backup = output / "versions" / "v1" / "response.backup.json"
+    response_path.rename(backup)
+    response_path.symlink_to(backup)
+    replay = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env={"PYTHONPATH": "src"})
+    assert replay.returncode != 0
+    assert json.loads(replay.stdout)["error"]["code"] in {"VERSION_ARTIFACT_CORRUPT", "VERSION_ID_CONFLICT", "PROCESSING_FAILED"}
+
+
 def test_relative_parent_paths_are_rejected(tmp_path: Path) -> None:
     request = {"schema_version": "1", "operation": "preprocess", "request_id": "r", "source_path": str(tmp_path / ".." / "input.md"), "source_sha256": "0" * 64, "policy_version": "p", "output_dir": str(tmp_path)}
     proc = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env={"PYTHONPATH": "src"})

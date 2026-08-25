@@ -185,16 +185,15 @@ class ExtractionApplicationService:
                     raise ValueError("VERSION_ID_CONFLICT")
         if idempotency_key in index:
             saved = output / "versions" / index[idempotency_key] / "response.json"
-            if saved.exists():
+            if saved.exists() and not saved.is_symlink():
                 try:
                     cached = json.loads(saved.read_text())
-                    refs = cached.get("artifacts", {})
-                    current = output / "current.json"
-                    pointer_ok = cached.get("status") == "NEEDS_REVIEW" or (current.exists() and json.loads(current.read_text()).get("version_id") == index[idempotency_key])
-                    allowed_roots = (output / "versions" / index[idempotency_key], output / "generations" / index[idempotency_key])
-                    refs_ok = all(isinstance(item, dict) and set(item) == {"path", "sha256"} and not any(parent.is_symlink() for parent in (Path(item["path"]), *Path(item["path"]).parents)) and any(Path(item["path"]).resolve().is_relative_to(root.resolve()) for root in allowed_roots) and Path(item["path"]).exists() and _sha256(Path(item["path"])) == item["sha256"] and ".tmp" not in str(item["path"]) for item in refs.values() if isinstance(item, dict))
-                    if cached.get("version_id") == index[idempotency_key] and cached.get("status") in {"READY", "NEEDS_REVIEW"} and pointer_ok and refs_ok:
-                        return cached
+                    if cached.get("version_id") == index[idempotency_key]:
+                        # Replay uses the same complete read-model validation as status;
+                        # a partially written/tampered cache is never a fast return.
+                        validated = self.get_status(index[idempotency_key], output, _lock=False)
+                        if validated.get("version_id") == cached.get("version_id") and validated.get("status") == cached.get("status"):
+                            return cached
                 except (OSError, ValueError, TypeError, json.JSONDecodeError):
                     pass
                 index.pop(idempotency_key, None)
@@ -206,7 +205,7 @@ class ExtractionApplicationService:
             raise ValueError("NATIVE_EXTRACTION_FAILED") from exc
         document_id = source_hash[:16]
         version_id = str(request.get("version_id") or f"ev-{uuid.uuid4().hex[:12]}")
-        if not re.fullmatch(r"[A-Za-z0-9._-]+", version_id):
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", version_id) or version_id in {".", ".."}:
             raise ValueError("INVALID_REQUEST")
         version = ExtractionVersion.create(version_id, document_id, policy, len(raw_pages) or 1)
         parser_pages: list[Mapping[str, Any]] = []
@@ -321,19 +320,27 @@ class ExtractionApplicationService:
             if temp_dir.exists(): shutil.rmtree(temp_dir)
             raise
 
-    def get_status(self, version_id: str, artifact_root: str | Path) -> Mapping[str, Any]:
-        if not re.fullmatch(r"[A-Za-z0-9._-]+", version_id):
+    def get_status(self, version_id: str, artifact_root: str | Path, *, _lock: bool = True) -> Mapping[str, Any]:
+        if not re.fullmatch(r"[A-Za-z0-9._-]+", version_id) or version_id in {".", ".."}:
             raise ValueError("INVALID_REQUEST")
         root = _canonical_path(str(artifact_root))
         _enforce_root(root, "PREPROCESS_ARTIFACT_ROOT")
-        status_lock = (root / ".preprocess.lock").open("a+")
-        fcntl.flock(status_lock.fileno(), fcntl.LOCK_SH)
+        status_lock = (root / ".preprocess.lock").open("a+") if _lock else None
+        if status_lock is not None:
+            fcntl.flock(status_lock.fileno(), fcntl.LOCK_SH)
         try:
             current = root / "current.json"
             selected = root / "generations" / version_id / "response.json"
             if not current.exists() or json.loads(current.read_text()).get("version_id") != version_id:
                 selected = root / "versions" / version_id / "response.json"
             path = selected
+            if path.is_symlink() or any(parent.is_symlink() for parent in (path, *path.parents)):
+                raise ValueError("VERSION_ARTIFACT_CORRUPT")
+            resolved_path = path.resolve()
+            allowed_response_roots = (root / "generations" / version_id, root / "versions" / version_id)
+            if not any(resolved_path.is_relative_to(response_root.resolve()) for response_root in allowed_response_roots):
+                raise ValueError("VERSION_ARTIFACT_CORRUPT")
+            path = resolved_path
             if True:
                 if not path.exists():
                     raise VersionNotFoundError("VERSION_NOT_FOUND")
@@ -399,8 +406,9 @@ class ExtractionApplicationService:
         except (ValueError, TypeError, OSError, json.JSONDecodeError) as exc:
             raise ValueError("VERSION_ARTIFACT_CORRUPT") from exc
         finally:
-            fcntl.flock(status_lock.fileno(), fcntl.LOCK_UN)
-            status_lock.close()
+            if status_lock is not None:
+                fcntl.flock(status_lock.fileno(), fcntl.LOCK_UN)
+                status_lock.close()
 
     @staticmethod
     def _artifact_refs(directory: Path, ready: bool) -> dict[str, Any]:
