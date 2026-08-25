@@ -26,6 +26,8 @@ def test_gold_resolution_and_offline_retriever_are_separate_report_groups(tmp_pa
     assert report["retrieval"]["recall_at_1"] == 0.0
     assert report["retrieval"]["recall_at_3"] == 1.0
     assert report["retrieval"]["mrr"] == .5
+    assert (run / "retrieval_offline_summary.json").is_file()
+    assert (run / "retrieval_offline_details.jsonl").is_file()
 
 
 def test_cli_to_entity_writes_retrieval_score_group(tmp_path):

@@ -11,7 +11,7 @@ from typing import Any, Iterable, Mapping
 from .preprocessing import EvalConfig, ExportedRun, evaluate_intrinsic
 from .gold import GoldCase, evaluate_gold, load_gold_cases, validate_gold_cases, write_gold_validation
 from .semantic import EntityFixture, evaluate_semantic
-from .retrieval import RetrieverPort, evaluate_ranked_retrieval
+from .retrieval import RetrieverPort, evaluate_ranked_retrieval, write_retrieval_artifacts
 
 FAILURE_TAXONOMY = (
     "SOURCE_MUTATION", "SOURCE_TRACE_ERROR", "BROKEN_BOUNDARY", "SPLIT_ENTITY",
@@ -187,6 +187,7 @@ def evaluate_run(run: ExportedRun, config: EvalConfig = EvalConfig(), eval_path:
             retrieval_report["failures"] = [failure]
         else:
             retrieval_report = retrieval.to_dict()
+            retrieval_report["details"] = list(retrieval.details)
     if retriever is not None and cases and not gold_validation.valid:
         retrieval_report["blocked_by_gold_validation"] = True
         retrieval_report["gold_validation_issues"] = list(gold_validation.issues)
@@ -225,4 +226,7 @@ def write_report(run: ExportedRun, output_dir: str | Path | None = None, config:
     write_gold_validation(validate_gold_cases(load_gold_cases(eval_path), run.chunks) if eval_path is not None and Path(eval_path).is_file()
                           else validate_gold_cases((), run.chunks), destination / "gold_validation.json")
     failure_path.write_text("".join(json.dumps(item, ensure_ascii=False, sort_keys=True) + "\n" for item in failures), encoding="utf-8")
+    if retriever is not None and eval_path is not None and Path(eval_path).is_file() and report["gold_validation"]["valid"]:
+        write_retrieval_artifacts(report["retrieval"], destination, "offline",
+                                  {"run_id": report["run_id"], "gold_validation": "valid"})
     return report_path, failure_path
