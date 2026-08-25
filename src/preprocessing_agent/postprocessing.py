@@ -18,6 +18,13 @@ from preprocessing_agent.utils.tokens import count_tokens
 _LINE_BREAK_HYPHEN = re.compile(r"(?<=[A-Za-z])[-\u00ad]\s*\n\s*(?=[a-z])")
 _EXTRACTED_HYPHEN = re.compile(r"([a-z]{3,})-([a-z]{3,})")
 _MARKDOWN_HEADING = re.compile(r"(?m)^(#{1,6}\s*[^\n]+)\n(?!\n)")
+_BASIC_RULES_FOOTER = re.compile(
+    r"D\s*&\s*D\s+Basic\s+Rules\s+\(\s*Version\s+1\.0\s*\)\s*\.\s*"
+    r"Not\s+for\s+resale\s*\.?\s*"
+    r"Permission\s+(?:is\s+)?granted\s+to\s+print\s+and\s+reproduce\s+"
+    r"this\s+document\s+for\s+personal\s+use\s+only\s*\.?",
+    re.IGNORECASE,
+)
 
 
 def _normalize_embedding_text(text: str) -> str:
@@ -26,6 +33,7 @@ def _normalize_embedding_text(text: str) -> str:
     # lower-case word fragments avoids touching ordinary punctuation.
     text = _LINE_BREAK_HYPHEN.sub("", text)
     text = _EXTRACTED_HYPHEN.sub(r"\1\2", text)
+    text = _BASIC_RULES_FOOTER.sub(" ", text)
     text = _MARKDOWN_HEADING.sub(r"\1\n\n", text)
     return text
 

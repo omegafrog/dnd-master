@@ -42,3 +42,21 @@ def test_repeated_footer_and_page_number_are_removed_from_embedding_only():
     assert all(footer in item.source_text for item in processed)
     assert all(footer not in item.embedding_text for item in processed)
     assert all(item.source_spans == chunks[index].source_spans for index, item in enumerate(processed))
+
+
+def test_footer_artifact_is_removed_when_it_occurs_mid_chunk():
+    source = (
+        "The rule text before the page artifact. D&D Basic Rules (Version 1.0). "
+        "Not for resale. Permission is granted to print and reproduce this document "
+        "for personal use only. The rule text after the page artifact."
+    )
+    chunk = make_chunk(source)
+
+    processed = postprocess_chunks((chunk,))[0]
+
+    assert processed.source_text == source
+    assert processed.source_spans == chunk.source_spans
+    assert "D&D Basic Rules (Version 1.0). Not for resale" not in processed.embedding_text
+    assert "Permission is granted to print and reproduce this document" not in processed.embedding_text
+    assert "before the page artifact" in processed.embedding_text
+    assert "after the page artifact" in processed.embedding_text

@@ -7,7 +7,7 @@ from preprocessing_agent.chunking import ChunkAssembler, ChunkPlanner, ChunkPoli
 from preprocessing_agent.classification import DeterministicContentClassifier
 from preprocessing_agent.config import AgentConfig, load_config
 from preprocessing_agent.domain import Chunk, ContentType, DocumentTree, ParsedDocument, SectionNode, ValidationIssue, ValidationResult
-from preprocessing_agent.exporters import ArtifactExporter
+from preprocessing_agent.exporters import ArtifactExporter, prepare_export_chunks
 from preprocessing_agent.parsers.pdf import PdfDocumentParser
 from preprocessing_agent.validation import ValidationPolicy, validate_chunks
 from preprocessing_agent.postprocessing import postprocess_chunks
@@ -71,12 +71,18 @@ class PreprocessingPipeline:
         candidates = ChunkPlanner().plan(tree, document)
         chunks = ChunkAssembler(ChunkSplitter(self.policy)).assemble(candidates)
         chunks = postprocess_chunks(chunks)
+        initial_validation = validate_chunks(chunks, document=document, policy=self.validation_policy)
+        invalid_chunk_ids = {
+            item.path for item in initial_validation.issues
+            if item.issue_type == "invalid_source_span" and item.path is not None
+        }
+        chunks, _ = prepare_export_chunks(chunks, invalid_chunk_ids=invalid_chunk_ids)
         validation = validate_chunks(chunks, document=document, policy=self.validation_policy)
         issues = validation.issues
         manifest = ArtifactExporter().export(
             self.output_dir, source_path, document.source_text, chunks, issues, tree,
             page_count=len(document.pages), profile=self.config.name, policy=self.policy,
-            pipeline_version=self.config.pipeline_version,
+            pipeline_version=self.config.pipeline_version, invalid_chunk_ids=invalid_chunk_ids,
         )
         return PipelineResult(source_path, document, tree, chunks, validation, issues, manifest)
     def _classify_tree(self, tree: DocumentTree, document: ParsedDocument) -> DocumentTree:

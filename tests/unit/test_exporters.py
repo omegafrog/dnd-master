@@ -1,7 +1,7 @@
 import json
 
 from preprocessing_agent.chunking import ChunkAssembler, ChunkPolicy, ChunkSplitter
-from preprocessing_agent.domain import Chunk, ChunkCandidate, ContentType, DocumentTree, SectionNode, SourceSegment, SourceSpan
+from preprocessing_agent.domain import Chunk, ChunkCandidate, ContentType, DocumentTree, SectionNode, SourceSegment, SourceSpan, ValidationIssue
 from preprocessing_agent.exporters import ArtifactExporter
 from preprocessing_agent.domain import schema_path, validate_json
 
@@ -67,3 +67,44 @@ def test_exporter_drops_numeric_separator_unknown_garbage_but_keeps_short_meanin
 
     exported = [json.loads(line) for line in (tmp_path / "chunks.jsonl").read_text().splitlines()]
     assert [item["chunk_id"] for item in exported] == ["chk-row"]
+
+
+def test_exporter_deduplicates_final_chunks_and_records_exclusion_reasons(tmp_path):
+    first = Chunk("chk-same", "rules.first", ContentType.RULE, "First.", "First.", 1,
+                  (SourceSpan(1, 0, 0, 6),), ("rules",))
+    duplicate = Chunk("chk-same", "rules.second", ContentType.RULE, "Second.", "Second.", 1,
+                      (SourceSpan(1, 1, 0, 7),), ("rules",))
+    garbage = Chunk("chk-garbage", "rules.garbage", ContentType.UNKNOWN, "7", "7", 1,
+                    (SourceSpan(1, 2, 0, 1),), ("rules",))
+    tree = DocumentTree("doc", SectionNode("root", "Rules", 0, ContentType.RULE))
+
+    manifest = ArtifactExporter().export(tmp_path, "doc.pdf", "source",
+                                         (first, duplicate, garbage), (), tree)
+
+    exported = [json.loads(line) for line in (tmp_path / "chunks.jsonl").read_text().splitlines()]
+    assert [item["chunk_id"] for item in exported] == ["chk-same"]
+    assert manifest["statistics"]["chunks"]["excluded"] == 2
+    assert manifest["statistics"]["chunks"]["excluded_by_reason"] == {
+        "duplicate_chunk_id": 1,
+        "numeric_separator_only_unknown": 1,
+    }
+
+
+def test_exporter_issues_follow_the_final_chunk_set(tmp_path):
+    kept = Chunk("chk-kept", "rules.kept", ContentType.RULE, "Kept.", "Kept.", 1,
+                 (SourceSpan(1, 0, 0, 5),), ("rules",))
+    duplicate = Chunk("chk-kept", "rules.duplicate", ContentType.RULE, "Duplicate.", "Duplicate.", 1,
+                      (SourceSpan(1, 1, 0, 10),), ("rules",))
+    garbage = Chunk("chk-garbage", "rules.garbage", ContentType.UNKNOWN, "7", "7", 1,
+                    (SourceSpan(1, 2, 0, 1),), ("rules",))
+    issues = (
+        ValidationIssue("duplicate_chunk_id", "duplicate", path="chk-kept"),
+        ValidationIssue("garbage_candidate", "noise", severity="warning", path="chk-garbage"),
+    )
+    tree = DocumentTree("doc", SectionNode("root", "Rules", 0, ContentType.RULE))
+
+    manifest = ArtifactExporter().export(tmp_path, "doc.pdf", "source",
+                                         (kept, duplicate, garbage), issues, tree)
+
+    assert (tmp_path / "issues.jsonl").read_text() == ""
+    assert manifest["statistics"]["validation"] == {"issues": 0, "valid": True}

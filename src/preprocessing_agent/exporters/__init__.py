@@ -1,3 +1,3 @@
-from .artifacts import ArtifactExporter
+from .artifacts import ArtifactExporter, prepare_export_chunks
 
-__all__ = ["ArtifactExporter"]
+__all__ = ["ArtifactExporter", "prepare_export_chunks"]
