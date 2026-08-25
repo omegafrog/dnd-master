@@ -215,8 +215,8 @@ class ExtractionApplicationService:
                 ready = True
             else:
                 version.status = ExtractionStatus.NEEDS_REVIEW
-                (temp_dir / "manifest.json").write_text(json.dumps({"status": version.status.value, "version_id": version.version_id}, sort_keys=True) + "\n")
-            version_artifact = {"version_id": version.version_id, "status": version.status.value, "source_sha256": source_hash, "pages": page_artifacts}
+                (temp_dir / "manifest.json").write_text(json.dumps({"status": version.status.value, "version_id": version.version_id, "document_id": document_id, "policy_version": policy, "source_sha256": source_hash}, sort_keys=True) + "\n")
+            version_artifact = {"version_id": version.version_id, "document_id": document_id, "policy_version": policy, "status": version.status.value, "source_sha256": source_hash, "pages": page_artifacts}
             (temp_dir / "version.json").write_text(json.dumps(version_artifact, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             response = {"schema_version": "1", "operation": "preprocess", "request_id": request_id, "version_id": version.version_id, "status": version.status.value, "pages": [{"page_number": item["page_number"], "status": item["status"], "attempts": 1, "findings": item.get("findings", [])} for item in page_artifacts], "page_summary": {"count": len(page_artifacts), "processed": len(page_artifacts), "validated": sum(item["status"] == "VALIDATED" for item in page_artifacts), "needs_review": sum(item["status"] == "NEEDS_REVIEW" for item in page_artifacts), "ready": sum(item["status"] == "VALIDATED" for item in page_artifacts)}, "artifacts": self._artifact_refs(temp_dir, ready), "manifest": manifest}
             (temp_dir / "response.json").write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
@@ -224,10 +224,6 @@ class ExtractionApplicationService:
             if version_dir.exists():
                 raise ValueError("VERSION_ID_CONFLICT")
             temp_dir.rename(version_dir)
-            index[idempotency_key] = version_id
-            index_tmp = index_path.with_suffix(".tmp")
-            index_tmp.write_text(json.dumps(index, sort_keys=True, indent=2) + "\n")
-            os.replace(index_tmp, index_path)
             if ready:
                 root_stage = Path(tempfile.mkdtemp(prefix=".root-", dir=str(output)))
                 try:
@@ -258,6 +254,10 @@ class ExtractionApplicationService:
             (version_dir / "response.json").write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             if ready and 'generation' in locals():
                 shutil.copy2(version_dir / "response.json", generation / "response.json")
+            index[idempotency_key] = version_id
+            index_tmp = index_path.with_suffix(".tmp")
+            index_tmp.write_text(json.dumps(index, sort_keys=True, indent=2) + "\n")
+            os.replace(index_tmp, index_path)
             return response
         except Exception as exc:
             if temp_dir.exists(): shutil.rmtree(temp_dir)
