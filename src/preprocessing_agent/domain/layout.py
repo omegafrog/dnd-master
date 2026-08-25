@@ -56,6 +56,9 @@ class LayoutBlock:
     text: str
     extraction_method: str = "native"
     confidence: float = 1.0
+    source_document_id: str | None = None
+    page_number: int | None = None
+    page_geometry: PageGeometry | None = None
 
     def __post_init__(self) -> None:
         if not self.block_id or not self.text:

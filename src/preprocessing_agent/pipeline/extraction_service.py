@@ -188,8 +188,8 @@ class ExtractionApplicationService:
                         raise ValueError("INVALID_GEOMETRY")
                     if not geometry.contains(bbox):
                         raise ValueError("INVALID_GEOMETRY")
-                    LayoutBlock(str(block.get("block_id", "")), str(block.get("kind", "text")), bbox, str(block.get("text", "")), str(block.get("extraction_method", "native")), float(block.get("confidence", 1.0)))
-                    blocks.append({**block, "bbox": [bbox.x0, bbox.y0, bbox.x1, bbox.y1]})
+                    LayoutBlock(str(block.get("block_id", "")), str(block.get("kind", "text")), bbox, str(block.get("text", "")), str(block.get("extraction_method", "native")), float(block.get("confidence", 1.0)), document_id, number, geometry)
+                    blocks.append({**block, "bbox": [bbox.x0, bbox.y0, bbox.x1, bbox.y1], "source_document_id": document_id, "page_number": number, "page_geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}})
                 raw = {**raw, "blocks": blocks}
                 version.record_page(PageExtraction.validated(number))
                 parser_pages.append(raw)
@@ -294,6 +294,13 @@ class ExtractionApplicationService:
                         version_root = root / "versions" / version_id
                         if not (target.parent == version_root or target.parent == generation_root) or not re.fullmatch(r"[0-9a-f]{64}", str(ref["sha256"])) or not target.exists() or _sha256(target) != ref["sha256"]:
                             raise ValueError("VERSION_ARTIFACT_CORRUPT")
+                manifest_ref = response["artifacts"].get("manifest", {})
+                version_ref = response["artifacts"].get("version", {})
+                if manifest_ref and version_ref:
+                    manifest_data = json.loads(Path(manifest_ref["path"]).read_text())
+                    version_data = json.loads(Path(version_ref["path"]).read_text())
+                    if manifest_data.get("source_sha256") != version_data.get("source_sha256") or version_data.get("version_id") != version_id:
+                        raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 return {**response, "operation": "status"}
             except ValueError as exc:
                 if path.exists():

@@ -2,8 +2,8 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "anyOf": [
-    {"required": ["schema_version", "operation", "request_id", "source_path", "policy_version", "source_sha256", "output_dir"], "properties": {"schema_version": {}, "operation": {"const": "preprocess"}, "request_id": {}, "source_path": {}, "policy_version": {}, "source_sha256": {}, "output_dir": {}, "version_id": {}}, "additionalProperties": false},
-    {"required": ["schema_version", "operation", "request_id", "version_id", "artifact_root"], "properties": {"schema_version": {}, "operation": {"const": "status"}, "request_id": {}, "version_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"}, "artifact_root": {"type": "string", "minLength": 1}}, "additionalProperties": false}
+    {"required": ["schema_version", "operation", "request_id", "source_path", "policy_version", "source_sha256", "output_dir"], "properties": {"schema_version": {"type": "string", "const": "1"}, "operation": {"const": "preprocess"}, "request_id": {"type": "string", "minLength": 1}, "source_path": {"type": "string", "minLength": 1}, "policy_version": {"type": "string", "minLength": 1}, "source_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "output_dir": {"type": "string", "minLength": 1}, "version_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"}}, "additionalProperties": false},
+    {"required": ["schema_version", "operation", "request_id", "version_id", "artifact_root"], "properties": {"schema_version": {"type": "string", "const": "1"}, "operation": {"const": "status"}, "request_id": {"type": "string", "minLength": 1}, "version_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"}, "artifact_root": {"type": "string", "minLength": 1}}, "additionalProperties": false}
   ],
   "properties": {
     "schema_version": {"type": "string", "const": "1"},
