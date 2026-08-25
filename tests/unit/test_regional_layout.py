@@ -1,5 +1,5 @@
 from preprocessing_agent.layout import LayoutAnalyzer, ReadingOrderPlanner
-from preprocessing_agent.domain.layout import PageGeometry
+from preprocessing_agent.domain.layout import BoundingBox, LayoutBlock, PageGeometry
 from preprocessing_agent.parsers.pdf import PdfDocumentParser
 from pathlib import Path
 import json
@@ -111,6 +111,28 @@ def test_real_page_geometry_margins_preserve_one_two_one_regions():
     plan = ReadingOrderPlanner().plan(blocks, geometry)
     assert [profile.selected.column_count for profile in plan.profiles if profile.selected] == [1, 2, 1]
     assert plan.ordered_block_ids == ("title", "left", "right", "bottom")
+    assert set(plan.spanning_block_ids) == {"title", "bottom"}
+
+
+def test_single_column_full_width_lines_are_not_spanning():
+    geometry = PageGeometry(612, 792)
+    blocks = [
+        block("line1", "Line 1", (54, 54, 535, 76)),
+        block("line2", "Line 2", (54, 120, 535, 145)),
+    ]
+    plan = ReadingOrderPlanner().plan(blocks, geometry)
+    assert plan.spanning_block_ids == ()
+    assert plan.ordered_block_ids == ("line1", "line2")
+
+
+def test_layout_block_without_mapping_only_fields_is_supported():
+    geometry = PageGeometry(612, 792)
+    blocks = tuple(
+        LayoutBlock(identifier, "text", BoundingBox(*bbox), identifier, "native", 1.0, "doc", 1, geometry)
+        for identifier, bbox in (("left", (54, 120, 280, 145)), ("right", (309, 120, 535, 145)))
+    )
+    plan = ReadingOrderPlanner().plan(blocks, geometry)
+    assert set(plan.ordered_block_ids) == {"left", "right"}
 
 
 def test_layout_artifact_schema_validates_typed_plan():

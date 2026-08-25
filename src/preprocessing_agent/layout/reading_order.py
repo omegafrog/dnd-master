@@ -18,6 +18,11 @@ class ReadingOrderPlanner:
         regions = self.analyzer.analyze(blocks, page_geometry)
         by_id = {_id(block, i): block for i, block in enumerate(blocks)}
         profiles = tuple(self.analyzer.profile(region, blocks) for region in regions)
+        multi_region = any(profile.selected is not None and profile.selected.column_count > 1 for profile in profiles)
+        all_boxes = [_box(block) for block in blocks]
+        content_left = min(box.x0 for box in all_boxes)
+        content_right = max(box.x1 for box in all_boxes)
+        content_width = max(content_right - content_left, 1.0)
         ordered: list[tuple[int, int, float, str]] = []
         spanning: list[str] = []
         furniture: list[str] = []
@@ -33,9 +38,28 @@ class ReadingOrderPlanner:
             region_spanning = []
             for block_id, block in members:
                 box = _box(block)
-                font_size = getattr(block, "font_size", None) if hasattr(block, "font_size") else block.get("font_size")
+                font_size = getattr(block, "font_size", None)
+                if font_size is None and hasattr(block, "get"):
+                    font_size = block.get("font_size")
                 edge_furniture = font_size is not None and float(font_size) <= 9 and (box.y0 < 60 or box.y1 > 720)
-                if edge_furniture:
+                kind = getattr(block, "kind", "")
+                if not kind and hasattr(block, "get"):
+                    kind = block.get("kind", "")
+                named_furniture = str(kind).lower() in {"header", "footer", "repeated-header", "repeated-footer"}
+                broad_block = (
+                    multi_region
+                    and box.x0 <= content_left + content_width * .08
+                    and box.x1 >= content_right - content_width * .08
+                    and (box.x1 - box.x0) / content_width >= .82
+                )
+                if broad_block:
+                    # A title/footer can be both spanning and furniture. Keep
+                    # both roles in evidence while excluding furniture from
+                    # the primary order below.
+                    region_spanning.append((block_id, block))
+                    if edge_furniture or named_furniture:
+                        furniture.append(block_id)
+                elif edge_furniture or named_furniture:
                     furniture.append(block_id)
                 elif len(columns) > 1 and box.x0 <= columns[0].x0 and box.x1 >= columns[-1].x1:
                     region_spanning.append((block_id, block))
