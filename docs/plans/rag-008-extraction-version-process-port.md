@@ -1,6 +1,6 @@
 # RAG-008 Extraction Version Process Port
 
-- 상태: `ready-for-agent`
+- 상태: `completed`
 - 의존성: 없음
 - Product Spec: `docs/specs/product-spec.md` UC-01, UC-07
 - Architecture Spec: `docs/specs/architecture-spec.md` Sections 3, 4, 5.4, 5.5

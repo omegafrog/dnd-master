@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schema_version", "request_id", "version_id", "status", "page_summary", "artifacts"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "1"},
+    "request_id": {"type": "string"},
+    "version_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["QUEUED", "PROCESSING", "VALIDATING", "READY", "NEEDS_REVIEW"]},
+    "page_summary": {"type": "object"},
+    "artifacts": {"type": "object"}
+  },
+  "additionalProperties": true
+}

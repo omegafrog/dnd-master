@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["schema_version", "request_id", "source_path"],
+  "properties": {
+    "schema_version": {"type": "string", "const": "1"},
+    "request_id": {"type": "string", "minLength": 1},
+    "source_path": {"type": "string", "minLength": 1},
+    "output_dir": {"type": "string"},
+    "policy_version": {"type": "string"},
+    "version_id": {"type": "string"}
+  },
+  "additionalProperties": true
+}
