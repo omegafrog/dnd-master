@@ -9,6 +9,7 @@ import tempfile
 import fcntl
 import re
 import os
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -178,9 +179,13 @@ class ExtractionApplicationService:
                 if number < 1 or number > len(raw_pages):
                     raise ValueError("INVALID_PAGE_METADATA")
                 geometry = PageGeometry(float(geometry_raw["width"]), float(geometry_raw["height"]))
+                if not math.isfinite(geometry.width) or not math.isfinite(geometry.height):
+                    raise ValueError("INVALID_GEOMETRY")
                 blocks = []
                 for block in raw.get("blocks", ()):
                     bbox = BoundingBox(*(float(item) for item in block["bbox"]))
+                    if not all(math.isfinite(value) for value in (bbox.x0, bbox.y0, bbox.x1, bbox.y1)):
+                        raise ValueError("INVALID_GEOMETRY")
                     if not geometry.contains(bbox):
                         raise ValueError("INVALID_GEOMETRY")
                     LayoutBlock(str(block.get("block_id", "")), str(block.get("kind", "text")), bbox, str(block.get("text", "")), str(block.get("extraction_method", "native")), float(block.get("confidence", 1.0)))
@@ -248,6 +253,8 @@ class ExtractionApplicationService:
                 # Keep the prior current generation visible; this attempt is version-scoped.
                 pass
             response = {**response, "artifacts": self._artifact_refs(version_dir, ready)}
+            if ready and 'generation' in locals():
+                response = {**response, "artifacts": self._artifact_refs(generation, ready)}
             (version_dir / "response.json").write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             if ready and 'generation' in locals():
                 shutil.copy2(version_dir / "response.json", generation / "response.json")
@@ -282,7 +289,7 @@ class ExtractionApplicationService:
                 for ref in response["artifacts"].values():
                     if isinstance(ref, dict) and "path" in ref and "sha256" in ref:
                         target = Path(ref["path"]).resolve()
-                        if target.parent != path.parent or not re.fullmatch(r"[0-9a-f]{64}", str(ref["sha256"])) or not target.exists() or _sha256(target) != ref["sha256"]:
+                        if not (target.parent == path.parent or target.parent.parent.name == "generations") or not re.fullmatch(r"[0-9a-f]{64}", str(ref["sha256"])) or not target.exists() or _sha256(target) != ref["sha256"]:
                             raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 return {**response, "operation": "status"}
             finally:

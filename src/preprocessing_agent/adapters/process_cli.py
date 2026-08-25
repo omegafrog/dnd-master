@@ -22,7 +22,7 @@ def main() -> int:
             raise ValueError("UNSUPPORTED_SCHEMA")
         operation = request.get("operation")
         if operation == "preprocess":
-            if set(request) - {"schema_version", "operation", "request_id", "source_path", "source_sha256", "policy_version", "output_dir", "artifact_root", "version_id"}:
+            if set(request) - {"schema_version", "operation", "request_id", "source_path", "source_sha256", "policy_version", "output_dir", "version_id"}:
                 raise ValueError("INVALID_REQUEST")
             required = ("request_id", "source_path", "policy_version", "source_sha256", "output_dir")
             if any(not isinstance(request.get(key), str) or not request[key] for key in required) or not re.fullmatch(r"[0-9a-f]{64}", request["source_sha256"]):

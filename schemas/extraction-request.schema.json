@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "anyOf": [
-    {"required": ["schema_version", "operation", "request_id", "source_path", "policy_version", "source_sha256", "output_dir"], "properties": {"schema_version": {}, "operation": {"const": "preprocess"}, "request_id": {}, "source_path": {}, "policy_version": {}, "source_sha256": {}, "output_dir": {}, "artifact_root": {}, "version_id": {}}, "additionalProperties": false},
+    {"required": ["schema_version", "operation", "request_id", "source_path", "policy_version", "source_sha256", "output_dir"], "properties": {"schema_version": {}, "operation": {"const": "preprocess"}, "request_id": {}, "source_path": {}, "policy_version": {}, "source_sha256": {}, "output_dir": {}, "version_id": {}}, "additionalProperties": false},
     {"required": ["schema_version", "operation", "request_id", "version_id", "artifact_root"], "properties": {"schema_version": {}, "operation": {"const": "status"}, "request_id": {}, "version_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"}, "artifact_root": {"type": "string", "minLength": 1}}, "additionalProperties": false}
   ],
   "properties": {
