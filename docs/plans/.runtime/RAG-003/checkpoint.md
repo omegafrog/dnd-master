@@ -11,6 +11,6 @@ changed_files:
   - docs/plans/rag-003-dense-baseline.md
 tests: pytest -q (104 passed); python3 -m compileall -q src scripts; git diff --check passed
 blocker: none
-next_action: RAG-005 remains planned until RAG-004 completes; RAG-004 is ready-for-agent
+next_action: RAG-005 is ready-for-agent; RAG-003 and RAG-004 are completed
 handoff_reason: milestone
-updated_at: 2026-08-25T17:05:00+09:00
+updated_at: 2026-08-25T18:20:00+09:00
