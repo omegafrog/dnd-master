@@ -11,4 +11,5 @@
 - follow-up: conditional request schema, malformed JSON/page metadata safety, safe version IDs, deterministic output root, rerun root projection and atomic index/current publication
 - final follow-up: status locking, page read model, malformed payload quarantine, corrupt index recovery, conditional schema/request id alignment
 - publication follow-up: generation-scoped root publication/current pointer, lowercase hash validation, strict schemas, corrupt status read-model quarantine, failure root quarantine
+- contract finalization: complete response schema, generation response rewrite, status semantic/hash/path validation
 - next: RAG-009 is ready-for-agent

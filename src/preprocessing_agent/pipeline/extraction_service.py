@@ -245,6 +245,8 @@ class ExtractionApplicationService:
                     if stale.exists(): stale.unlink()
             response = {**response, "artifacts": self._artifact_refs(version_dir, ready)}
             (version_dir / "response.json").write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+            if ready and 'generation' in locals():
+                shutil.copy2(version_dir / "response.json", generation / "response.json")
             return response
         except Exception:
             if temp_dir.exists(): shutil.rmtree(temp_dir)
@@ -271,6 +273,16 @@ class ExtractionApplicationService:
                 if not isinstance(response, dict) or not all(key in response for key in ("schema_version", "version_id", "status", "pages", "artifacts")) or not isinstance(response["pages"], list):
                     path.replace(path.with_name("response.corrupt.json"))
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
+                if response["schema_version"] != "1" or response["version_id"] != version_id or response["status"] not in {"QUEUED", "PROCESSING", "VALIDATING", "READY", "NEEDS_REVIEW"}:
+                    raise ValueError("VERSION_ARTIFACT_CORRUPT")
+                for page in response["pages"]:
+                    if not isinstance(page, dict) or not isinstance(page.get("page_number"), int) or page.get("status") not in {"VALIDATED", "NEEDS_REVIEW"} or not isinstance(page.get("attempts"), int) or not isinstance(page.get("findings"), list):
+                        raise ValueError("VERSION_ARTIFACT_CORRUPT")
+                for ref in response["artifacts"].values():
+                    if isinstance(ref, dict) and "path" in ref and "sha256" in ref:
+                        target = Path(ref["path"]).resolve()
+                        if target.parent != path.parent or not re.fullmatch(r"[0-9a-f]{64}", str(ref["sha256"])) or not target.exists() or _sha256(target) != ref["sha256"]:
+                            raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 return {**response, "operation": "status"}
             finally:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
