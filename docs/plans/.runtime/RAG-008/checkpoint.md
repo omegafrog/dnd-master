@@ -17,4 +17,5 @@
 - deferred: retry_pages/retry orchestration remains RAG-013 scope and is intentionally not implemented here
 - publication final: final response generation refs, finite geometry checks, operation-conditional artifact fields, status generation ref validation
 - final atomicity: request index commits after response/current publication; version artifacts persist document/policy identity; retry failures remain prior-generation safe
+- generation-only publication: root consumers use one current pointer; no independently replaced root artifact set; strict generation/version containment and typed artifact refs
 - next: RAG-009 is ready-for-agent

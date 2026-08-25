@@ -22,7 +22,7 @@ def test_process_port_returns_one_json_response_and_keeps_logs_off_stdout(tmp_pa
     assert response["status"] == "READY"
     assert response["page_summary"]["processed"] == 1
     assert response["artifacts"]["manifest_sha256"]
-    assert (output / "chunks.jsonl").exists()
+    assert response["artifacts"]["chunks"]["path"].startswith(str(output / "generations"))
 
     status = subprocess.run(
         [sys.executable, "-m", "preprocessing_agent.adapters.process_cli"],

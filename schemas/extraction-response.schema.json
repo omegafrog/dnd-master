@@ -10,8 +10,9 @@
     "status": {"enum": ["QUEUED", "PROCESSING", "VALIDATING", "READY", "NEEDS_REVIEW"]},
     "pages": {"type": "array", "items": {"type": "object", "required": ["page_number", "status", "attempts", "findings"], "properties": {"page_number": {"type": "integer", "minimum": 1}, "status": {"enum": ["VALIDATED", "NEEDS_REVIEW"]}, "attempts": {"type": "integer", "minimum": 1}, "findings": {"type": "array", "items": {"type": "string"}}}, "additionalProperties": false}},
     "page_summary": {"type": "object", "required": ["count", "processed", "validated", "needs_review", "ready"], "properties": {"count": {"type": "integer", "minimum": 0}, "processed": {"type": "integer", "minimum": 0}, "validated": {"type": "integer", "minimum": 0}, "needs_review": {"type": "integer", "minimum": 0}, "ready": {"type": "integer", "minimum": 0}}, "additionalProperties": false},
-    "artifacts": {"type": "object", "required": ["manifest_sha256"], "properties": {"manifest_sha256": {"type": ["string", "null"]}}, "additionalProperties": true},
+    "artifacts": {"type": "object", "required": ["manifest_sha256"], "properties": {"manifest_sha256": {"type": ["string", "null"]}, "manifest": {"$ref": "#/$defs/artifact"}, "version": {"$ref": "#/$defs/artifact"}, "chunks": {"$ref": "#/$defs/artifact"}, "document_tree": {"$ref": "#/$defs/artifact"}, "issues": {"$ref": "#/$defs/artifact"}}, "additionalProperties": false},
     "manifest": {"type": "object"}
   },
+  "$defs": {"artifact": {"type": "object", "required": ["path", "sha256"], "properties": {"path": {"type": "string", "minLength": 1}, "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"}}, "additionalProperties": false}},
   "additionalProperties": false
 }

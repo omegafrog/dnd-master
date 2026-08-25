@@ -225,12 +225,7 @@ class ExtractionApplicationService:
                 raise ValueError("VERSION_ID_CONFLICT")
             temp_dir.rename(version_dir)
             if ready:
-                root_stage = Path(tempfile.mkdtemp(prefix=".root-", dir=str(output)))
                 try:
-                    for name in ("chunks.jsonl", "manifest.json", "document_tree.json", "issues.jsonl"):
-                        shutil.copy2(version_dir / name, root_stage / name)
-                    for name in ("chunks.jsonl", "manifest.json", "document_tree.json", "issues.jsonl"):
-                        os.replace(root_stage / name, output / name)
                     generations = output / "generations"
                     generations.mkdir(exist_ok=True)
                     generation_stage = generations / f".{version_id}.tmp"
@@ -242,7 +237,7 @@ class ExtractionApplicationService:
                 except Exception:
                     raise
                 finally:
-                    if root_stage.exists(): shutil.rmtree(root_stage)
+                    pass
                 (output / "current.json.tmp").write_text(json.dumps({"version_id": version_id, "generation": str(generation), "status": version.status.value}, sort_keys=True) + "\n")
                 (output / "current.json.tmp").replace(output / "current.json")
             else:
@@ -289,7 +284,9 @@ class ExtractionApplicationService:
                 for ref in response["artifacts"].values():
                     if isinstance(ref, dict) and "path" in ref and "sha256" in ref:
                         target = Path(ref["path"]).resolve()
-                        if not (target.parent == path.parent or target.parent.parent.name == "generations") or not re.fullmatch(r"[0-9a-f]{64}", str(ref["sha256"])) or not target.exists() or _sha256(target) != ref["sha256"]:
+                        generation_root = root / "generations" / version_id
+                        version_root = root / "versions" / version_id
+                        if not (target.parent == version_root or target.parent == generation_root) or not re.fullmatch(r"[0-9a-f]{64}", str(ref["sha256"])) or not target.exists() or _sha256(target) != ref["sha256"]:
                             raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 return {**response, "operation": "status"}
             finally:
