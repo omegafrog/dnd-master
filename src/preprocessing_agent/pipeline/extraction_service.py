@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Mapping, Protocol
 
 from preprocessing_agent.domain import PageStatus, ParsedDocument, ParsedPage, ParsedBlock, SourceSpan
-from preprocessing_agent.domain.layout import BoundingBox, PageGeometry
+from preprocessing_agent.domain.layout import BoundingBox, PageGeometry, LayoutBlock
 from preprocessing_agent.parsers.pdf import PdfDocumentParser
 from preprocessing_agent.pipeline.pipeline import PreprocessingPipeline
 
@@ -160,7 +160,7 @@ class ExtractionApplicationService:
             if not isinstance(raw_pages, (list, tuple)):
                 raw_pages = [{"page_number": 1, "malformed": True}]
         except Exception as exc:
-            for name in ("chunks.jsonl", "manifest.json", "document_tree.json", "issues.jsonl", "current.json"):
+            for name in ("chunks.jsonl", "manifest.json", "document_tree.json", "issues.jsonl"):
                 stale = output / name
                 if stale.exists():
                     stale.unlink()
@@ -187,6 +187,7 @@ class ExtractionApplicationService:
                     bbox = BoundingBox(*(float(item) for item in block["bbox"]))
                     if not geometry.contains(bbox):
                         raise ValueError("INVALID_GEOMETRY")
+                    LayoutBlock(str(block.get("block_id", "")), str(block.get("kind", "text")), bbox, str(block.get("text", "")), str(block.get("extraction_method", "native")), float(block.get("confidence", 1.0)))
                     blocks.append({**block, "bbox": [bbox.x0, bbox.y0, bbox.x1, bbox.y1]})
                 raw = {**raw, "blocks": blocks}
                 version.record_page(PageExtraction.validated(number))
@@ -242,15 +243,13 @@ class ExtractionApplicationService:
                     if generation.exists(): shutil.rmtree(generation)
                     generation_stage.rename(generation)
                 except Exception:
-                    current = output / "current.json"
-                    if current.exists(): current.unlink()
                     raise
                 finally:
                     if root_stage.exists(): shutil.rmtree(root_stage)
                 (output / "current.json.tmp").write_text(json.dumps({"version_id": version_id, "generation": str(generation), "status": version.status.value}, sort_keys=True) + "\n")
                 (output / "current.json.tmp").replace(output / "current.json")
             else:
-                for name in ("chunks.jsonl", "manifest.json", "document_tree.json", "issues.jsonl", "current.json"):
+                for name in ("chunks.jsonl", "manifest.json", "document_tree.json", "issues.jsonl"):
                     stale = output / name
                     if stale.exists(): stale.unlink()
             response = {**response, "artifacts": self._artifact_refs(version_dir, ready)}
@@ -258,7 +257,7 @@ class ExtractionApplicationService:
             if ready and 'generation' in locals():
                 shutil.copy2(version_dir / "response.json", generation / "response.json")
             return response
-        except Exception:
+        except Exception as exc:
             if temp_dir.exists(): shutil.rmtree(temp_dir)
             if str(exc) != "VERSION_ID_CONFLICT":
                 for name in ("chunks.jsonl", "manifest.json", "document_tree.json", "issues.jsonl", "current.json", "current.json.tmp"):

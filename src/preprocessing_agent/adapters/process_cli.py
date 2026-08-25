@@ -21,11 +21,15 @@ def main() -> int:
             raise ValueError("UNSUPPORTED_SCHEMA")
         operation = request.get("operation")
         if operation == "preprocess":
+            if set(request) - {"schema_version", "operation", "request_id", "source_path", "source_sha256", "policy_version", "output_dir", "artifact_root", "version_id"}:
+                raise ValueError("INVALID_REQUEST")
             required = ("request_id", "source_path", "policy_version", "source_sha256", "output_dir")
             if any(not isinstance(request.get(key), str) or not request[key] for key in required) or not re.fullmatch(r"[0-9a-f]{64}", request["source_sha256"]):
                 raise ValueError("INVALID_REQUEST")
             response = ExtractionApplicationService().preprocess(request)
         elif operation == "status":
+            if set(request) - {"schema_version", "operation", "request_id", "version_id", "artifact_root"}:
+                raise ValueError("INVALID_REQUEST")
             if not isinstance(request.get("request_id"), str) or not request["request_id"] or not isinstance(request.get("version_id"), str) or not re.fullmatch(r"[A-Za-z0-9._-]+", request["version_id"]) or not isinstance(request.get("artifact_root"), str) or not request["artifact_root"]:
                 raise ValueError("INVALID_REQUEST")
             response = ExtractionApplicationService().get_status(request["version_id"], request["artifact_root"])

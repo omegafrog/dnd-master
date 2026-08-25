@@ -71,7 +71,7 @@ def test_needs_review_quarantines_current_root_artifacts(tmp_path: Path) -> None
     proc = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(blocked), text=True, capture_output=True, env={"PYTHONPATH": "src"})
     assert proc.returncode == 3
     assert json.loads(proc.stdout)["error"]["code"] == "NATIVE_EXTRACTION_FAILED"
-    assert not (output / "current.json").exists()
+    assert (output / "current.json").exists()
 
 
 def test_schema_and_exit_codes_are_distinct(tmp_path: Path) -> None:
