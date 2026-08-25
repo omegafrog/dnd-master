@@ -109,3 +109,21 @@ def test_explicit_version_id_is_part_of_idempotency_contract(tmp_path: Path) -> 
         assert str(exc) == "VERSION_ID_CONFLICT"
     else:
         raise AssertionError("version mismatch must be rejected")
+
+
+def test_status_rejects_response_lifecycle_tampering_against_version_artifact(tmp_path: Path) -> None:
+    source = tmp_path / "input.md"
+    source.write_text("content", encoding="utf-8")
+    output = tmp_path / "out"
+    digest = hashlib.sha256(source.read_bytes()).hexdigest()
+    response = ExtractionApplicationService().preprocess({"request_id": "lifecycle", "source_path": str(source), "source_sha256": digest, "policy_version": "p", "output_dir": str(output), "version_id": "v1"})
+    generation_response = output / "generations" / response["version_id"] / "response.json"
+    tampered = json.loads(generation_response.read_text(encoding="utf-8"))
+    tampered["status"] = "PROCESSING"
+    generation_response.write_text(json.dumps(tampered), encoding="utf-8")
+    try:
+        ExtractionApplicationService().get_status(response["version_id"], output)
+    except ValueError as exc:
+        assert str(exc) == "VERSION_ARTIFACT_CORRUPT"
+    else:
+        raise AssertionError("status tampering must be rejected")

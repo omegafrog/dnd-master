@@ -395,7 +395,7 @@ class ExtractionApplicationService:
                 if manifest_ref and version_ref:
                     manifest_data = json.loads(Path(manifest_ref["path"]).read_text())
                     version_data = json.loads(Path(version_ref["path"]).read_text())
-                    if manifest_data.get("source_sha256") != version_data.get("source_sha256") or version_data.get("version_id") != version_id:
+                    if manifest_data.get("source_sha256") != version_data.get("source_sha256") or version_data.get("version_id") != version_id or version_data.get("status") != response.get("status"):
                         raise ValueError("VERSION_ARTIFACT_CORRUPT")
                     expected_pages = version_data.get("page_count")
                     if type(expected_pages) is not int or expected_pages != len(response["pages"]) or response["page_summary"].get("count") != expected_pages:
