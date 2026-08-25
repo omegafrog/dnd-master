@@ -60,6 +60,18 @@ class SourceSpan:
 
 
 @dataclass(frozen=True, slots=True)
+class SourceSegment:
+    """Exact candidate text associated with one page-local source span."""
+
+    source_text: str
+    source_span: SourceSpan
+
+    def __post_init__(self) -> None:
+        if not self.source_text:
+            raise ValueError("source_text is required")
+
+
+@dataclass(frozen=True, slots=True)
 class ParsedBlock:
     block_id: str
     source_text: str
@@ -134,6 +146,7 @@ class ChunkCandidate:
     source_spans: tuple[SourceSpan, ...]
     section_path: tuple[str, ...] = ()
     parent_key: str | None = None
+    source_segments: tuple[SourceSegment, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

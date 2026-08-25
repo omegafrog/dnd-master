@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from preprocessing_agent.domain import ChunkCandidate, ContentType, DocumentTree, ParsedDocument, SectionNode
+from preprocessing_agent.domain import ChunkCandidate, ContentType, DocumentTree, ParsedDocument, SectionNode, SourceSegment
 from preprocessing_agent.utils.hashing import content_hash
 
 
@@ -26,7 +26,10 @@ class ChunkPlanner:
             if text:
                 canonical = ".".join(current_path) or _key(document.document_id)
                 candidate_id = f"cand_{content_hash(canonical + "\n" + text)[:16]}"
-                output.append(ChunkCandidate(candidate_id, canonical, node.content_type, text, spans, current_path))
+                output.append(ChunkCandidate(
+                    candidate_id, canonical, node.content_type, text, spans, current_path,
+                    source_segments=tuple(SourceSegment(block.source_text, block.source_span) for block in source_blocks),
+                ))
             for child in node.children:
                 visit(child, current_path)
 

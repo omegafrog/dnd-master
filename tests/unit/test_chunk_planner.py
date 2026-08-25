@@ -11,3 +11,5 @@ def test_planner_creates_semantic_candidates_before_token_splitting():
     assert len(candidates) == 1
     assert candidates[0].canonical_key == "combat"
     assert candidates[0].source_text == block.source_text
+    assert candidates[0].source_segments[0].source_text == block.source_text
+    assert candidates[0].source_segments[0].source_span == span
