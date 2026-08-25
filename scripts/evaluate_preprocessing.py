@@ -35,7 +35,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     try:
-        report, failures = write_report(load_exported_run(args.run), args.output, _config(args.config))
+        report, failures = write_report(load_exported_run(args.run), args.output, _config(args.config), args.eval_jsonl)
     except EvaluationInputError as exc:
         print(f"input error: {exc}", file=sys.stderr)
         return 2
