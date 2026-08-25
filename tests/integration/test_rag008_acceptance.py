@@ -30,3 +30,17 @@ def test_invalid_geometry_native_page_is_needs_review_and_does_not_publish_chunk
     assert result["status"] == "NEEDS_REVIEW"
     assert "chunks" not in result["artifacts"]
     assert not (output / "current.json").exists()
+
+
+def test_explicit_version_id_is_part_of_idempotency_contract(tmp_path: Path) -> None:
+    source = tmp_path / "input.md"
+    source.write_text("content", encoding="utf-8")
+    service = ExtractionApplicationService()
+    base = {"request_id": "r", "source_path": str(source), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "policy_version": "p", "output_dir": str(tmp_path / "out"), "version_id": "v1"}
+    service.preprocess(base)
+    try:
+        service.preprocess({**base, "version_id": "v2"})
+    except ValueError as exc:
+        assert str(exc) == "VERSION_ID_CONFLICT"
+    else:
+        raise AssertionError("version mismatch must be rejected")

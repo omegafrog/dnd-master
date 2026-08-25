@@ -157,7 +157,13 @@ class ExtractionApplicationService:
             if index_path.exists():
                 index_path.replace(index_path.with_name("request-index.corrupt.json"))
             index = {}
-        idempotency_key = f"{request_id}:{source_hash}:{policy}"
+        requested_version = request.get("version_id")
+        idempotency_key = f"{request_id}:{source_hash}:{policy}:{requested_version or ''}"
+        base_key = f"{request_id}:{source_hash}:{policy}:"
+        if requested_version:
+            for key, existing in index.items():
+                if key.startswith(base_key) and not key.endswith(f":{requested_version}"):
+                    raise ValueError("VERSION_ID_CONFLICT")
         if idempotency_key in index:
             saved = output / "versions" / index[idempotency_key] / "response.json"
             if saved.exists():
