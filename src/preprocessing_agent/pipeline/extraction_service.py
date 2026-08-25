@@ -71,7 +71,7 @@ class ExtractionVersion:
         if not 1 <= page.page_number <= self.page_count:
             raise ValueError("page number is outside extraction version")
         self.pages[page.page_number] = page
-        self.status = ExtractionStatus.VALIDATING
+        self.status = ExtractionStatus.NEEDS_REVIEW if any(item.status == PageStatus.NEEDS_REVIEW for item in self.pages.values()) else ExtractionStatus.VALIDATING
         if page.status == PageStatus.NEEDS_REVIEW:
             self.status = ExtractionStatus.NEEDS_REVIEW
 

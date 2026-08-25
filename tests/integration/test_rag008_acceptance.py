@@ -66,6 +66,23 @@ def test_process_cli_invalid_geometry_stdin_stdout_path(tmp_path: Path) -> None:
     assert "chunks" not in payload["artifacts"] and not (tmp_path / "out" / "current.json").exists()
 
 
+def test_process_cli_real_pymupdf_single_column_pdf_ready(tmp_path: Path) -> None:
+    fitz = __import__("pytest").importorskip("fitz")
+    source = tmp_path / "input.pdf"
+    document = fitz.open()
+    page = document.new_page(width=300, height=400)
+    page.insert_text((30, 50), "Single column native text")
+    document.save(source)
+    document.close()
+    output = tmp_path / "out"
+    request = {"schema_version": "1", "operation": "preprocess", "request_id": "real-pdf", "source_path": str(source), "source_sha256": hashlib.sha256(source.read_bytes()).hexdigest(), "policy_version": "p", "output_dir": str(output)}
+    proc = subprocess.run([sys.executable, "-m", "preprocessing_agent.adapters.process_cli"], input=json.dumps(request), text=True, capture_output=True, env={"PYTHONPATH": "src"})
+    payload = json.loads(proc.stdout)
+    assert proc.returncode == 0 and payload["status"] == "READY"
+    assert payload["artifacts"]["chunks"]["path"].startswith(str(output / "generations"))
+    assert payload["manifest"]["source_sha256"] == request["source_sha256"]
+
+
 def test_malformed_status_page_and_artifact_are_quarantined(tmp_path: Path) -> None:
     root = tmp_path / "out" / "versions" / "v1"
     root.mkdir(parents=True)
