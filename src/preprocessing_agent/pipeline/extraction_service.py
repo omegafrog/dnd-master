@@ -317,17 +317,9 @@ class ExtractionApplicationService:
             raise ValueError("INVALID_REQUEST")
         root = _canonical_path(str(artifact_root))
         _enforce_root(root, "PREPROCESS_ARTIFACT_ROOT")
-        current = root / "current.json"
-        if current.exists():
-            try:
-                pointer = json.loads(current.read_text())
-                if pointer.get("version_id") == version_id and not (root / "generations" / version_id).exists():
-                    raise ValueError("VERSION_ARTIFACT_CORRUPT")
-            except (OSError, ValueError, TypeError, json.JSONDecodeError) as exc:
-                if isinstance(exc, ValueError) and str(exc) == "VERSION_ARTIFACT_CORRUPT":
-                    raise
         try:
-                path = root / "versions" / version_id / "response.json"
+            path = root / "generations" / version_id / "response.json"
+            if True:
                 if not path.exists():
                     raise VersionNotFoundError("VERSION_NOT_FOUND")
                 try:

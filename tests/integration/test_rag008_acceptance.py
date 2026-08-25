@@ -84,8 +84,9 @@ def test_process_cli_real_pymupdf_single_column_pdf_ready(tmp_path: Path) -> Non
 
 
 def test_malformed_status_page_and_artifact_are_quarantined(tmp_path: Path) -> None:
-    root = tmp_path / "out" / "versions" / "v1"
+    root = tmp_path / "out" / "generations" / "v1"
     root.mkdir(parents=True)
+    (tmp_path / "out" / "current.json").write_text(json.dumps({"version_id": "v1"}), encoding="utf-8")
     (root / "response.json").write_text(json.dumps({"schema_version": "1", "version_id": "v1", "status": "READY", "pages": [None], "page_summary": {}, "artifacts": [], "manifest": {}}), encoding="utf-8")
     try:
         ExtractionApplicationService().get_status("v1", tmp_path / "out")
