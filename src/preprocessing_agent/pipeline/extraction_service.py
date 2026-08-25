@@ -179,12 +179,6 @@ class ExtractionApplicationService:
         requested_version = request.get("version_id")
         idempotency_key = f"{request_id}:{source_hash}:{policy}:{requested_version or ''}"
         base_key = f"{request_id}:{source_hash}:{policy}:"
-        if not requested_version:
-            for key, existing in index.items():
-                if key.startswith(base_key):
-                    saved = output / "versions" / existing / "response.json"
-                    if saved.exists():
-                        return json.loads(saved.read_text())
         if requested_version:
             for key, existing in index.items():
                 if key.startswith(base_key) and not key.endswith(f":{requested_version}"):

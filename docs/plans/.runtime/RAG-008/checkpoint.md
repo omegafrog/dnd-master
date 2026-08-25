@@ -20,6 +20,7 @@
 - generation-only publication: root consumers use one current pointer; no independently replaced root artifact set; strict generation/version containment and typed artifact refs
 - final response contract: strict success/error oneOf schema, corrupt status quarantine, input-byte source hash in READY manifest
 - final integrity: typed conditional request branches, manifest/version source identity agreement, LayoutBlock source provenance
+- deferred: diagnostic overlays, confidence vectors, and retry history belong to RAG-012/RAG-013 and are not claimed by RAG-008
 - lifecycle finalization: status page summary/count/attempt/findings invariants, READY review-page exclusion, required LayoutBlock provenance
 - acceptance closure: malformed status element guards and unknown-operation error envelope schema compatibility
 - next: RAG-009 is ready-for-agent
