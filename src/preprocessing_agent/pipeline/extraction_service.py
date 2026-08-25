@@ -29,6 +29,10 @@ class ExtractionStatus(str, Enum):
     NEEDS_REVIEW = "NEEDS_REVIEW"
 
 
+class VersionNotFoundError(ValueError):
+    pass
+
+
 @dataclass
 class PageExtraction:
     page_number: int
@@ -60,6 +64,8 @@ class ExtractionVersion:
         return cls(version_id, document_id, policy_version, page_count, ExtractionStatus.PROCESSING)
 
     def record_page(self, page: PageExtraction) -> None:
+        if self.status == ExtractionStatus.READY:
+            raise ValueError("published extraction version is immutable")
         if not 1 <= page.page_number <= self.page_count:
             raise ValueError("page number is outside extraction version")
         self.pages[page.page_number] = page
@@ -274,7 +280,7 @@ class ExtractionApplicationService:
             try:
                 path = root / "versions" / version_id / "response.json"
                 if not path.exists():
-                    raise ValueError("VERSION_NOT_FOUND")
+                    raise VersionNotFoundError("VERSION_NOT_FOUND")
                 try:
                     response = json.loads(path.read_text())
                 except json.JSONDecodeError as exc:
@@ -310,6 +316,8 @@ class ExtractionApplicationService:
                     if manifest_data.get("source_sha256") != version_data.get("source_sha256") or version_data.get("version_id") != version_id:
                         raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 return {**response, "operation": "status"}
+            except VersionNotFoundError:
+                raise
             except ValueError as exc:
                 if path.exists():
                     path.replace(path.with_name("response.corrupt.json"))
