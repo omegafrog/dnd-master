@@ -285,13 +285,13 @@ class ExtractionApplicationService:
                     response = json.loads(path.read_text())
                 except json.JSONDecodeError as exc:
                     raise ValueError("VERSION_ARTIFACT_CORRUPT") from exc
-                if not isinstance(response, dict) or not all(key in response for key in ("schema_version", "version_id", "status", "pages", "artifacts")) or not isinstance(response["pages"], list):
+                if not isinstance(response, dict) or not all(key in response for key in ("schema_version", "version_id", "status", "pages", "page_summary", "artifacts", "manifest")) or not isinstance(response["pages"], list) or not isinstance(response["artifacts"], dict) or not isinstance(response["page_summary"], dict) or not isinstance(response["manifest"], dict):
                     path.replace(path.with_name("response.corrupt.json"))
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 if response["schema_version"] != "1" or response["version_id"] != version_id or response["status"] not in {"QUEUED", "PROCESSING", "VALIDATING", "READY", "NEEDS_REVIEW"}:
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 summary = response.get("page_summary", {})
-                if not isinstance(summary, dict) or summary.get("count") != len(response["pages"]) or summary.get("processed") != len(response["pages"]):
+                if not isinstance(summary, dict) or any(not isinstance(summary.get(key), int) for key in ("count", "processed", "validated", "needs_review", "ready")) or summary.get("count") != len(response["pages"]) or summary.get("processed") != len(response["pages"]):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 if response["status"] == "READY" and any(page.get("status") == "NEEDS_REVIEW" for page in response["pages"]):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
@@ -301,6 +301,8 @@ class ExtractionApplicationService:
                 for page in response["pages"]:
                     if not isinstance(page, dict) or not isinstance(page.get("page_number"), int) or page.get("status") not in {"VALIDATED", "NEEDS_REVIEW"} or not isinstance(page.get("attempts"), int) or page.get("attempts") < 1 or not isinstance(page.get("findings"), list) or any(not isinstance(item, str) for item in page.get("findings", [])):
                         raise ValueError("VERSION_ARTIFACT_CORRUPT")
+                if not isinstance(response["artifacts"].get("manifest_sha256"), (str, type(None))):
+                    raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 for ref in response["artifacts"].values():
                     if isinstance(ref, dict) and "path" in ref and "sha256" in ref:
                         target = Path(ref["path"]).resolve()
@@ -308,6 +310,8 @@ class ExtractionApplicationService:
                         version_root = root / "versions" / version_id
                         if not (target.parent == version_root or target.parent == generation_root) or not re.fullmatch(r"[0-9a-f]{64}", str(ref["sha256"])) or not target.exists() or _sha256(target) != ref["sha256"]:
                             raise ValueError("VERSION_ARTIFACT_CORRUPT")
+                    elif ref is not None and not isinstance(ref, dict) and ref is not response["artifacts"].get("manifest_sha256"):
+                        raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 manifest_ref = response["artifacts"].get("manifest", {})
                 version_ref = response["artifacts"].get("version", {})
                 if manifest_ref and version_ref:
