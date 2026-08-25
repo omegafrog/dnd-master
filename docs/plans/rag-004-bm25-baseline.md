@@ -1,6 +1,6 @@
 # RAG-004 BM25 Baseline
 
-- 상태: `ready-for-agent`
+- 상태: `completed`
 - 의존성: RAG-002
 
 ## 구현 목적

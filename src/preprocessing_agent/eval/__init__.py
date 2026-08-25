@@ -18,3 +18,5 @@ __all__ = ["GoldContextMapper", "GoldMapping", "EvaluationReport", "evaluate_ret
            "RetrieverPort", "evaluate_ranked_retrieval", "write_retrieval_artifacts"]
 __all__ += ["DenseBaselineResult", "DenseEmbeddingError", "DenseEmbeddingIndexAdapter", "DenseProviderUnavailable",
             "EmbeddingProvider", "run_dense_baseline", "write_dense_blocked"]
+from .bm25 import Bm25BaselineResult, Bm25IndexAdapter, Bm25InputError, run_bm25_baseline, tokenize_bm25, write_bm25_blocked
+__all__ += ["Bm25BaselineResult", "Bm25IndexAdapter", "Bm25InputError", "run_bm25_baseline", "tokenize_bm25", "write_bm25_blocked"]

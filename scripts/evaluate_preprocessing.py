@@ -14,6 +14,7 @@ from preprocessing_agent.eval.preprocessing import EvalConfig, EvaluationInputEr
 from preprocessing_agent.eval.report import write_report  # noqa: E402
 from preprocessing_agent.eval.retrieval import OfflineRankedIdRetriever  # noqa: E402
 from preprocessing_agent.eval.dense import run_dense_baseline, write_dense_blocked  # noqa: E402
+from preprocessing_agent.eval.bm25 import run_bm25_baseline, write_bm25_blocked  # noqa: E402
 from preprocessing_agent.eval.gold import load_gold_cases  # noqa: E402
 
 
@@ -49,6 +50,7 @@ def main() -> int:
     parser.add_argument("--output", type=Path)
     parser.add_argument("--retrieved", type=Path, help="JSON object mapping query IDs to ranked evaluator chunk IDs")
     parser.add_argument("--dense", action="store_true", help="run the injected Dense baseline")
+    parser.add_argument("--bm25", action="store_true", help="run the normalized embedding_text BM25 baseline")
     parser.add_argument("--embedding-fixture", type=Path, help="JSON object mapping embedding_text/query to vectors")
     args = parser.parse_args()
     try:
@@ -71,6 +73,18 @@ def main() -> int:
             except Exception as exc:
                 write_dense_blocked(dense_output, exc, source_run_hash=source_hash, gold_snapshot_hash=gold_hash)
                 print(f"Dense baseline blocked: {exc}", file=sys.stderr)
+                return 2
+        if args.bm25:
+            bm25_output = args.output or args.run
+            cases = load_gold_cases(args.eval_jsonl) if args.eval_jsonl and args.eval_jsonl.is_file() else ()
+            source_hash = str(loaded_run.manifest.get("source_sha256", ""))
+            gold_hash = hashlib.sha256(args.eval_jsonl.read_bytes()).hexdigest() if args.eval_jsonl and args.eval_jsonl.is_file() else ""
+            try:
+                run_bm25_baseline(loaded_run.chunks, cases, bm25_output,
+                                  source_run_hash=source_hash, gold_snapshot_hash=gold_hash)
+            except Exception as exc:
+                write_bm25_blocked(bm25_output, exc, source_run_hash=source_hash, gold_snapshot_hash=gold_hash)
+                print(f"BM25 baseline blocked: {exc}", file=sys.stderr)
                 return 2
     except EvaluationInputError as exc:
         print(f"input error: {exc}", file=sys.stderr)
