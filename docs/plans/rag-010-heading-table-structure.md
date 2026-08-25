@@ -1,6 +1,6 @@
 # RAG-010 Heading and Table Structure
 
-- 상태: `planned`
+- 상태: `completed`
 - 의존성: RAG-009
 - Product Spec: UC-04; BR-07 ~ BR-09
 - Architecture Spec: Sections 3.5, 3.6, 11.5

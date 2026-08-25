@@ -24,6 +24,7 @@ from preprocessing_agent.domain.serialization import to_dict
 from preprocessing_agent.layout import ReadingOrderPlanner
 from preprocessing_agent.parsers.pdf import PdfDocumentParser
 from preprocessing_agent.pipeline.pipeline import PreprocessingPipeline
+from preprocessing_agent.structure import HeadingAssociator, TableStructureDetector
 
 
 class ExtractionStatus(str, Enum):
@@ -254,9 +255,19 @@ class ExtractionApplicationService:
                     raise ValueError("AMBIGUOUS_COLUMN_HYPOTHESIS")
                 layout_evidence = to_dict(layout_plan)
                 raw["layout"] = layout_evidence
+                # Structure is page evidence, not flattened prose. An
+                # irregular table remains reviewable and cannot be published.
+                heading_evidence = to_dict(HeadingAssociator().associate(blocks, layout_plan))
+                tables = TableStructureDetector().detect(blocks)
+                table_evidence = to_dict(tables)
+                table_findings = [finding for table in tables for finding in table.findings]
+                if table_findings:
+                    raise ValueError("IRREGULAR_TABLE: " + ",".join(sorted(set(table_findings))))
+                raw["heading_associations"] = heading_evidence
+                raw["tables"] = table_evidence
                 version.record_page(PageExtraction.validated(number))
                 parser_pages.append(raw)
-                evidence = {"page_number": number, "geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}, "blocks": blocks, "layout": layout_evidence}
+                evidence = {"page_number": number, "geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}, "blocks": blocks, "layout": layout_evidence, "heading_associations": heading_evidence, "tables": table_evidence}
                 page_artifacts.append({**evidence, "status": PageStatus.VALIDATED.value, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
             except (KeyError, TypeError, ValueError) as exc:
                 safe_number = number if "number" in locals() and 1 <= number <= version.page_count else position
