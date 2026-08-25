@@ -28,13 +28,24 @@ class DeterministicContentClassifier:
 
     def classify(self, section: SectionNode, source_text: str = "") -> ClassificationDecision:
         text = f"{section.title}\n{source_text}".strip()
+        structural_title = bool(re.match(r"\s*(?:part|chapter|section|appendix|book)\b", section.title, re.I))
         rules: tuple[tuple[ContentType, tuple[str, ...], float], ...] = (
-            (ContentType.SPELL, (r"\b(?:spell|cantrip)\b", r"\bcasting time\b", r"\brange\b.*\bduration\b"), 0.92),
-            (ContentType.MONSTER_STAT_BLOCK, (r"\b(?:armor class|hit points|saving throws)\b", r"\bchallenge\b", r"\bactions\b"), 0.95),
+            (ContentType.SPELL, (r"\b(?:spell|cantrip)\b", r"\bcasting time\b", r"\brange\b", r"\bduration\b"), 0.92),
+            (ContentType.MONSTER_STAT_BLOCK, (r"\barmor class\b", r"\bhit points\b", r"\b(?:challenge|saving throws)\b", r"\bactions\b"), 0.95),
             (ContentType.TABLE, (r"\btable\b", r"\bd\d+\b", r"\|.*\|"), 0.88),
             (ContentType.RULE, (r"\b(?:rule|rules|advantage|disadvantage|proficiency)\b",), 0.78),
         )
         for label, patterns, confidence in rules:
-            if sum(bool(re.search(pattern, text, re.I | re.S)) for pattern in patterns) >= (2 if label in {ContentType.SPELL, ContentType.MONSTER_STAT_BLOCK, ContentType.TABLE} else 1):
+            matches = [bool(re.search(pattern, text, re.I | re.S)) for pattern in patterns]
+            if label is ContentType.SPELL:
+                entry_signal = bool(re.search(r"\b(?:\d+(?:st|nd|rd|th)-level|evocation|abjuration|conjuration|divination|enchantment|illusion|necromancy|transmutation)\b", text, re.I))
+                entry_signal = entry_signal or bool(re.match(r"\s*\d+[.)]\s+", section.title))
+                matches_required = not structural_title and entry_signal and matches[0] and matches[1] and (matches[2] or matches[3])
+            else:
+                required = 4 if label is ContentType.MONSTER_STAT_BLOCK else (2 if label is ContentType.TABLE else 1)
+                matches_required = sum(matches) >= required
+                if label is ContentType.MONSTER_STAT_BLOCK:
+                    matches_required = not structural_title and matches_required
+            if matches_required:
                 return ClassificationDecision(label, confidence, "deterministic content pattern", confidence < self.confidence_threshold, source_text)
         return ClassificationDecision(ContentType.UNKNOWN, 0.0, "no deterministic content pattern", True, source_text)

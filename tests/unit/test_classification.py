@@ -14,6 +14,23 @@ def test_dnd_patterns_are_deterministic_and_low_confidence_is_review():
     assert classifier.classify(section("Unknown"), "ordinary prose").review_required
 
 
+def test_broad_chapter_prose_does_not_become_spell_or_monster_stat_block():
+    classifier = DeterministicContentClassifier()
+    chapter = section("Chapter 9: Combat")
+    prose = (
+        "The spell's range and duration vary by situation. The challenge is to act "
+        "quickly; actions taken during combat can change the outcome."
+    )
+
+    decision = classifier.classify(chapter, prose)
+
+    assert decision.label is ContentType.UNKNOWN
+    assert decision.source_text == prose
+
+    entry_like_prose = "Spell, 3rd-level evocation. Casting Time 1 action. Range 60 feet. Duration 1 minute."
+    assert classifier.classify(chapter, entry_like_prose).label is ContentType.UNKNOWN
+
+
 def test_agent_payload_cannot_replace_source_text():
     decision = structured_decision({"label": "spell", "confidence": 1, "source_text": "tampered"}, "original")
     assert decision.label is ContentType.UNKNOWN

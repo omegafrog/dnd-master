@@ -7,10 +7,20 @@ import re
 from preprocessing_agent.domain import ChunkCandidate, ContentType, DocumentTree, ParsedDocument, SectionNode, SourceSegment
 from preprocessing_agent.utils.hashing import content_hash
 
+_CANONICAL_KEY_MAX_LENGTH = 160
+
 
 def _key(value: str) -> str:
-    value = re.sub(r"[^a-z0-9]+", "_", value.lower()).strip("_")
+    value = re.sub(r"^(\d{1,4})(?:\1|[_ -]+\1)(?:[_ -]+)", "", value.lower())
+    value = re.sub(r"[^a-z0-9]+", "_", value).strip("_")
     return value or "section"
+
+
+def _bounded_key(value: str) -> str:
+    if len(value) <= _CANONICAL_KEY_MAX_LENGTH:
+        return value
+    suffix = content_hash(value)[:12]
+    return f"{value[:_CANONICAL_KEY_MAX_LENGTH - len(suffix) - 1].rstrip('_')}_{suffix}"
 
 
 class ChunkPlanner:
@@ -24,7 +34,7 @@ class ChunkPlanner:
             text = "\n\n".join(block.source_text for block in source_blocks).strip()
             spans = tuple(block.source_span for block in source_blocks)
             if text:
-                canonical = ".".join(current_path) or _key(document.document_id)
+                canonical = _bounded_key(".".join(current_path) or _key(document.document_id))
                 candidate_id = f"cand_{content_hash(canonical + "\n" + text)[:16]}"
                 output.append(ChunkCandidate(
                     candidate_id, canonical, node.content_type, text, spans, current_path,
