@@ -60,3 +60,20 @@ def test_footer_artifact_is_removed_when_it_occurs_mid_chunk():
     assert "Permission is granted to print and reproduce this document" not in processed.embedding_text
     assert "before the page artifact" in processed.embedding_text
     assert "after the page artifact" in processed.embedding_text
+
+
+def test_actual_basic_rules_footer_with_photocopy_is_removed():
+    source = (
+        "The rule text before the page artifact. D&D Basic Rules (Version 1.0). "
+        "Not for resale. Permission granted to print and photocopy this document "
+        "for personal use only. The rule text after the page artifact."
+    )
+    chunk = make_chunk(source)
+
+    processed = postprocess_chunks((chunk,))[0]
+
+    assert processed.source_text == source
+    assert "D&D Basic Rules (Version 1.0). Not for resale" not in processed.embedding_text
+    assert "Permission granted to print and photocopy this document" not in processed.embedding_text
+    assert "before the page artifact" in processed.embedding_text
+    assert "after the page artifact" in processed.embedding_text

@@ -21,7 +21,8 @@ _MARKDOWN_HEADING = re.compile(r"(?m)^(#{1,6}\s*[^\n]+)\n(?!\n)")
 _BASIC_RULES_FOOTER = re.compile(
     r"D\s*&\s*D\s+Basic\s+Rules\s+\(\s*Version\s+1\.0\s*\)\s*\.\s*"
     r"Not\s+for\s+resale\s*\.?\s*"
-    r"Permission\s+(?:is\s+)?granted\s+to\s+print\s+and\s+reproduce\s+"
+    r"Permission\s+(?:is\s+)?granted\s+to\s+print\s+and\s+"
+    r"(?:photocopy|reproduce)\s+"
     r"this\s+document\s+for\s+personal\s+use\s+only\s*\.?",
     re.IGNORECASE,
 )
