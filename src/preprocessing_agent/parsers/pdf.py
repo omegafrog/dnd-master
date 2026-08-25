@@ -33,7 +33,7 @@ class PdfDocumentParser:
         document_parts: list[str] = []
         for page_position, raw_page in enumerate(raw_pages, start=1):
             page_number = int(raw_page.get("page_number", page_position))
-            raw_blocks = tuple(raw_page.get("blocks", ()))
+            raw_blocks = _order_blocks(tuple(raw_page.get("blocks", ())))
             blocks: list[ParsedBlock] = []
             page_parts: list[str] = []
             char_cursor = 0
@@ -83,6 +83,85 @@ def _font_weight(block: Mapping[str, Any]) -> str | None:
         return str(value)
     font = str(block.get("font", ""))
     return "bold" if "bold" in font.casefold() else (font or None)
+
+
+def _order_blocks(blocks: tuple[Mapping[str, Any], ...]) -> tuple[Mapping[str, Any], ...]:
+    """Apply reading order only when the page has a clear two-column layout.
+
+    PyMuPDF's dict order is an extraction detail rather than a reading-order
+    contract.  The layout signal is intentionally conservative: every block
+    must have a bbox, the two x-bands must be well separated, and the split
+    must be substantially stronger than any other x gap.  Pages that do not
+    meet those conditions retain the extractor's original order.
+    """
+    split = _strong_column_split(blocks)
+    if split is None:
+        return blocks
+
+    left: list[tuple[int, Mapping[str, Any]]] = []
+    right: list[tuple[int, Mapping[str, Any]]] = []
+    spanning: list[tuple[int, Mapping[str, Any]]] = []
+    for position, block in enumerate(blocks):
+        bbox = _bbox(block.get("bbox"))
+        assert bbox is not None
+        if bbox[2] <= split:
+            left.append((position, block))
+        elif bbox[0] >= split:
+            right.append((position, block))
+        else:
+            spanning.append((position, block))
+
+    def reading_key(item: tuple[int, Mapping[str, Any]]) -> tuple[float, int]:
+        bbox = _bbox(item[1].get("bbox"))
+        assert bbox is not None
+        return bbox[1], item[0]
+
+    left.sort(key=reading_key)
+    right.sort(key=reading_key)
+    spanning.sort(key=reading_key)
+    if spanning:
+        column_blocks = left + right
+        first_column_y = min(reading_key(item)[0] for item in column_blocks)
+        leading = [item for item in spanning if reading_key(item)[0] <= first_column_y]
+        trailing = [item for item in spanning if reading_key(item)[0] > first_column_y]
+        return tuple(block for _, block in leading + column_blocks + trailing)
+    return tuple(block for _, block in left + right)
+
+
+def _strong_column_split(blocks: tuple[Mapping[str, Any], ...]) -> float | None:
+    if len(blocks) < 4:
+        return None
+    bboxes = [_bbox(block.get("bbox")) for block in blocks]
+    if any(bbox is None for bbox in bboxes):
+        return None
+    valid_bboxes = [bbox for bbox in bboxes if bbox is not None]
+    x_starts = sorted({bbox[0] for bbox in valid_bboxes})
+    if len(x_starts) < 2:
+        return None
+
+    page_left = min(bbox[0] for bbox in valid_bboxes)
+    page_right = max(bbox[2] for bbox in valid_bboxes)
+    page_width = page_right - page_left
+    if page_width <= 0:
+        return None
+    gaps = [(x_starts[index + 1] - x_starts[index], x_starts[index], x_starts[index + 1])
+            for index in range(len(x_starts) - 1)]
+    gap_index, (gap, left_start, right_start) = max(enumerate(gaps), key=lambda item: item[1][0])
+    if gap < page_width * 0.2:
+        return None
+    other_gaps = [candidate[0] for index, candidate in enumerate(gaps) if index != gap_index]
+    if other_gaps and gap < max(other_gaps) * 2:
+        return None
+
+    left_blocks = [bbox for bbox in valid_bboxes if bbox[0] < right_start and bbox[2] <= right_start]
+    right_blocks = [bbox for bbox in valid_bboxes if bbox[0] >= right_start]
+    if len(left_blocks) < 2 or len(right_blocks) < 2:
+        return None
+    left_right = max(bbox[2] for bbox in left_blocks)
+    right_left = min(bbox[0] for bbox in right_blocks)
+    if left_right >= right_left:
+        return None
+    return (left_right + right_left) / 2
 
 
 def _default_extractor(source: Path) -> Iterable[Mapping[str, Any]]:
