@@ -189,7 +189,10 @@ class ExtractionApplicationService:
                 try:
                     cached = json.loads(saved.read_text())
                     refs = cached.get("artifacts", {})
-                    if cached.get("version_id") == index[idempotency_key] and cached.get("status") in {"READY", "NEEDS_REVIEW"} and all(isinstance(item, dict) and ".tmp" not in str(item.get("path", "")) for item in refs.values() if isinstance(item, dict)):
+                    current = output / "current.json"
+                    pointer_ok = cached.get("status") == "NEEDS_REVIEW" or (current.exists() and json.loads(current.read_text()).get("version_id") == index[idempotency_key])
+                    refs_ok = all(isinstance(item, dict) and set(item) == {"path", "sha256"} and Path(item["path"]).exists() and _sha256(Path(item["path"])) == item["sha256"] and ".tmp" not in str(item["path"]) for item in refs.values() if isinstance(item, dict))
+                    if cached.get("version_id") == index[idempotency_key] and cached.get("status") in {"READY", "NEEDS_REVIEW"} and pointer_ok and refs_ok:
                         return cached
                 except (OSError, ValueError, TypeError, json.JSONDecodeError):
                     pass
@@ -359,7 +362,7 @@ class ExtractionApplicationService:
                         if not isinstance(ref["path"], str) or not isinstance(ref["sha256"], str):
                             raise ValueError("VERSION_ARTIFACT_CORRUPT")
                         raw_target = Path(ref["path"])
-                        if raw_target.is_symlink():
+                        if raw_target.is_symlink() or any(parent.is_symlink() for parent in (raw_target, *raw_target.parents)):
                             raise ValueError("VERSION_ARTIFACT_CORRUPT")
                         target = raw_target.resolve()
                         generation_root = root / "generations" / version_id
