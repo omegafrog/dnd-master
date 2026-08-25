@@ -1,16 +1,129 @@
-"""Stable JSON and JSONL output for one intrinsic evaluation run."""
+"""Stable JSON/JSONL output and deterministic comparison for evaluation runs."""
 
 from __future__ import annotations
 
 import hashlib
 import json
 from pathlib import Path
-from typing import Any, Iterable
+from dataclasses import dataclass
+from typing import Any, Iterable, Mapping
 
 from .preprocessing import EvalConfig, ExportedRun, evaluate_intrinsic
 from .gold import GoldCase, evaluate_gold, load_gold_cases
 from .semantic import EntityFixture, evaluate_semantic
 from .retrieval import RetrieverPort, evaluate_ranked_retrieval
+
+FAILURE_TAXONOMY = (
+    "SOURCE_MUTATION", "SOURCE_TRACE_ERROR", "BROKEN_BOUNDARY", "SPLIT_ENTITY",
+    "MIXED_CONTEXT", "TINY_CHUNK", "OVERSIZED_CHUNK", "DUPLICATION",
+    "GOLD_CONTEXT_MISSING", "GOLD_EVIDENCE_SPLIT", "RETRIEVAL_MISS", "RANKING_ERROR",
+)
+
+COMPARISON_PRIORITY = (
+    ("source_mutation_rate", "intrinsic.source.source_mutation_rate", "lower"),
+    ("gold_context_coverage", "gold.gold_context_coverage", "higher"),
+    ("single_chunk_answerability", "gold.single_chunk_answerability_rate", "higher"),
+    ("split_entity_rate", "semantic.split_entity_rate", "lower"),
+    ("mixed_context_rate", "semantic.mixed_context_rate", "lower"),
+    ("recall_at_5", "retrieval.recall_at_5", "higher"),
+    ("mrr", "retrieval.mrr", "higher"),
+)
+
+
+def apply_quality_gate(report: Mapping[str, object], *, source_mutation_max: float = 0.0,
+                       source_traceability_min: float = .999, gold_coverage_min: float = .90,
+                       split_entity_max: float = .05) -> tuple[bool, tuple[str, ...]]:
+    """Apply only the v1 hard gates; score groups remain independent."""
+
+    failures: list[str] = []
+    source = report.get("intrinsic", {}).get("source", {}) if isinstance(report.get("intrinsic", {}), Mapping) else {}
+    gold = report.get("gold", {}) if isinstance(report.get("gold", {}), Mapping) else {}
+    semantic = report.get("semantic", {}) if isinstance(report.get("semantic", {}), Mapping) else {}
+    if _number(source.get("source_mutation_rate")) > source_mutation_max:
+        failures.append("source_mutation_rate")
+    if _number(source.get("source_traceability_rate")) < source_traceability_min:
+        failures.append("source_traceability_rate")
+    if _number(gold.get("gold_context_coverage")) < gold_coverage_min:
+        failures.append("gold_context_coverage")
+    if _number(semantic.get("split_entity_rate")) > split_entity_max:
+        failures.append("split_entity_rate")
+    return not failures, tuple(failures)
+
+
+def _number(value: object) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class ComparisonReport:
+    """A metric-by-metric comparison; deliberately has no aggregate winner."""
+
+    baseline: Mapping[str, object]
+    variant: Mapping[str, object]
+    metrics: tuple[Mapping[str, object], ...]
+    priority_order: tuple[str, ...]
+
+    def to_dict(self) -> dict[str, object]:
+        results = {str(item["result"]) for item in self.metrics}
+        trade_offs = []
+        if "baseline" in results and "variant" in results:
+            trade_offs.append({"type": "metric_trade_off", "baseline_metrics": [item["metric"] for item in self.metrics if item["result"] == "baseline"],
+                               "variant_metrics": [item["metric"] for item in self.metrics if item["result"] == "variant"]})
+        return {"baseline": dict(self.baseline), "variant": dict(self.variant),
+                "priority_order": list(self.priority_order), "metrics": [dict(item) for item in self.metrics],
+                "winner": None, "trade_offs": trade_offs}
+
+
+def _at_path(value: Mapping[str, object], path: str) -> float:
+    current: object = value
+    for part in path.split("."):
+        if not isinstance(current, Mapping):
+            return 0.0
+        current = current.get(part, 0.0)
+    try:
+        return float(current)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _run_metadata(report: Mapping[str, object]) -> dict[str, object]:
+    input_data = report.get("input", {})
+    manifest = input_data.get("manifest", {}) if isinstance(input_data, Mapping) else {}
+    return {"run_id": report.get("run_id", ""), "run_dir": input_data.get("run_dir", "") if isinstance(input_data, Mapping) else "",
+            "source_sha256": manifest.get("source_sha256", "") if isinstance(manifest, Mapping) else "",
+            "pipeline_version": manifest.get("pipeline_version", "") if isinstance(manifest, Mapping) else "",
+            "baseline_id": report.get("baseline", {}).get("id", "baseline-v1") if isinstance(report.get("baseline", {}), Mapping) else "baseline-v1"}
+
+
+def compare_reports(baseline: Mapping[str, object], variant: Mapping[str, object]) -> ComparisonReport:
+    metrics: list[Mapping[str, object]] = []
+    for name, path, direction in COMPARISON_PRIORITY:
+        left, right = _at_path(baseline, path), _at_path(variant, path)
+        better = (right > left) if direction == "higher" else (right < left)
+        worse = (right < left) if direction == "higher" else (right > left)
+        result = "variant" if better else "baseline" if worse else "tie"
+        metrics.append({"metric": name, "path": path, "direction": direction,
+                        "baseline": left, "variant": right, "delta": right - left, "result": result})
+    return ComparisonReport(_run_metadata(baseline), _run_metadata(variant), tuple(metrics), tuple(item[0] for item in COMPARISON_PRIORITY))
+
+
+def load_report(path: str | Path) -> dict[str, object]:
+    root = Path(path)
+    report_path = root if root.is_file() else root / "preprocessing_eval.json"
+    return json.loads(report_path.read_text(encoding="utf-8"))
+
+
+def write_comparison(baseline: Mapping[str, object], variant: Mapping[str, object], output: str | Path) -> Path:
+    destination = Path(output)
+    if destination.suffix.lower() != ".json":
+        destination.mkdir(parents=True, exist_ok=True)
+        destination = destination / "preprocessing_comparison.json"
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    destination.write_text(json.dumps(compare_reports(baseline, variant).to_dict(), ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8")
+    return destination
 
 
 def _run_id(run: ExportedRun) -> str:
@@ -59,25 +172,27 @@ def evaluate_run(run: ExportedRun, config: EvalConfig = EvalConfig(), eval_path:
             retrieval = evaluate_ranked_retrieval(gold_ids, retriever, required_evidence=required_chunks,
                                                    known_chunk_ids=(chunk.chunk_id for chunk in run.chunks))
         except ValueError as exc:
-            failure = {"type": "RETRIEVAL_INPUT_FAILURE", "case_id": "", "chunk_ids": [], "details": {"message": str(exc)}}
+            message = str(exc)
+            failure = {"type": "RANKING_ERROR" if any(token in message for token in ("duplicate", "invalid", "unknown chunk")) else "RETRIEVAL_MISS",
+                       "case_id": "", "canonical_key": "", "chunk_ids": [], "details": {"message": message}}
             failures.append(failure)
             retrieval_report["failures"] = [failure]
         else:
             retrieval_report = retrieval.to_dict()
     source = intrinsic["source"]
-    gates: list[str] = []
-    if source["source_mutation_rate"] > config.source_mutation_max:
-        gates.append("source_mutation_rate")
-    if source["source_traceability_rate"] < config.source_traceability_min:
-        gates.append("source_traceability_rate")
-    if cases and gold.metrics["gold_context_coverage"] < .90:
-        gates.append("gold_context_coverage")
-    if semantic["split_entity_rate"] > .05:
-        gates.append("split_entity_rate")
-    report = {"run_id": _run_id(run), "passed": not gates, "gate_failures": gates,
+    preliminary = {"intrinsic": intrinsic, "semantic": semantic, "gold": gold_report}
+    passed, gate_failures = apply_quality_gate(preliminary, source_mutation_max=config.source_mutation_max,
+                                               source_traceability_min=config.source_traceability_min)
+    if not cases:
+        gate_failures = tuple(item for item in gate_failures if item != "gold_context_coverage")
+        passed = not gate_failures
+    report = {"run_id": _run_id(run), "passed": passed, "gate_failures": list(gate_failures),
+              "failure_taxonomy": list(FAILURE_TAXONOMY),
               "intrinsic": intrinsic, "semantic": semantic, "gold": gold_report, "retrieval": retrieval_report,
               "counts": {"chunks": len(run.chunks), "failures": len(failures), "gold_cases": len(cases)},
-              "input": {"run_dir": str(run.run_dir), "artifacts": ["chunks.jsonl", "document_tree.json", "manifest.json"]},
+              "baseline": {"id": str(run.manifest.get("baseline_id", "baseline-v1")), "version": "v1"},
+              "input": {"run_dir": str(run.run_dir), "manifest": run.manifest,
+                        "artifacts": ["chunks.jsonl", "document_tree.json", "manifest.json"]},
               "config": {"tiny_tokens": config.tiny_tokens, "oversized_tokens": config.oversized_tokens,
                          "near_duplicate_jaccard": config.near_duplicate_jaccard,
                          "source_traceability_min": config.source_traceability_min, "source_mutation_max": config.source_mutation_max}}

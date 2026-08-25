@@ -73,9 +73,9 @@ def evaluate_gold(cases: Iterable[GoldCase], chunks: Iterable[Chunk]) -> GoldEva
                 complete_groups += 1
                 complete.append(group.group_id)
             else:
-                failures.append({"type": "MISSING_REQUIRED_EVIDENCE", "case_id": case.case_id, "canonical_key": case.gold_context_keys[0] if case.gold_context_keys else "", "chunk_ids": list(matched), "details": {"group_id": group.group_id, "keys": list(group.keys)}})
+                failures.append({"type": "GOLD_EVIDENCE_SPLIT", "case_id": case.case_id, "canonical_key": case.gold_context_keys[0] if case.gold_context_keys else "", "chunk_ids": list(matched), "details": {"group_id": group.group_id, "keys": list(group.keys)}})
         if unmatched:
-            failures.append({"type": "MISSING_GOLD_CONTEXT", "case_id": case.case_id, "canonical_key": unmatched[0], "chunk_ids": list(matched), "details": {"unmatched_keys": list(unmatched)}})
+            failures.append({"type": "GOLD_CONTEXT_MISSING", "case_id": case.case_id, "canonical_key": unmatched[0], "chunk_ids": list(matched), "details": {"unmatched_keys": list(unmatched)}})
         resolutions.append(GoldResolution(case.case_id, matched, unmatched, tuple(complete)))
     total_key_count = len(all_keys) or 1
     case_count = len(cases) or 1
