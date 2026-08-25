@@ -23,4 +23,12 @@ __all__ += ["Bm25BaselineResult", "Bm25IndexAdapter", "Bm25InputError", "run_bm2
 from .hybrid import (FAILURE_TAXONOMY as RETRIEVAL_FAILURE_TAXONOMY, HybridBaselineResult, RrfHybridRetriever,
                      classify_retrieval_failure, compare_retrieval_experiments, run_hybrid_baseline)
 __all__ += ["RETRIEVAL_FAILURE_TAXONOMY", "HybridBaselineResult", "RrfHybridRetriever",
-            "classify_retrieval_failure", "compare_retrieval_experiments", "run_hybrid_baseline"]
+             "classify_retrieval_failure", "compare_retrieval_experiments", "run_hybrid_baseline"]
+from .reranker import (OFFLINE_RERANKER_ADAPTER, RERANK_CANDIDATE_LIMIT, RERANK_OUTPUT_LIMIT,
+                       ContextExpansionPolicy, ContextItem, ExpandedContext, GenerationHandoff,
+                       InjectedReranker, RerankedReport, RerankerPort, build_generation_handoff,
+                       evaluate_reranked_retrieval, expand_parent_context, run_reranker_evaluation)
+__all__ += ["OFFLINE_RERANKER_ADAPTER", "RERANK_CANDIDATE_LIMIT", "RERANK_OUTPUT_LIMIT",
+            "ContextExpansionPolicy", "ContextItem", "ExpandedContext", "GenerationHandoff",
+            "InjectedReranker", "RerankedReport", "RerankerPort", "build_generation_handoff",
+            "evaluate_reranked_retrieval", "expand_parent_context", "run_reranker_evaluation"]
