@@ -83,6 +83,17 @@ class AdventureStoryPlanPlayerProjectionTest {
     }
 
     @Test
+    void gmProjectionPreservesEndingIdsAndTransitionCondition() {
+        AdventureStoryPlanStage stage = new AdventureStoryPlanStage(
+                1, "Start", "Goal", "Conflict", "Find the clue", List.of("clue"), List.of("ending-a", "ending-b"));
+
+        AdventureStoryPlanController.GmStageView view = AdventureStoryPlanController.GmStageView.from(stage);
+
+        assertEquals(List.of("ending-a", "ending-b"), view.endingIds());
+        assertEquals("Find the clue", view.transitionCondition());
+    }
+
+    @Test
     void internalHistoryRejectsMissingTokenWith401() {
         var controller = new AdventureStoryPlanController(null, null, null, null, null, null, new ApiRequestGuard("test-internal-token"));
 
