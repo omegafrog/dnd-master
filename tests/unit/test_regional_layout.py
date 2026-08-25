@@ -104,3 +104,13 @@ def test_layout_artifact_schema_validates_typed_plan():
     schema = json.loads(Path("schemas/layout-extraction.schema.json").read_text())
     plan = ReadingOrderPlanner().plan([block("a", "A", (0, 0, 40, 20)), block("b", "B", (60, 0, 100, 20))])
     validator.Draft202012Validator(schema).validate(to_dict(plan))
+
+
+def test_ambiguous_parser_projection_is_geometry_order_and_diagnostic():
+    parsed = PdfDocumentParser(lambda _: [{"blocks": [
+        block("right", "Right", (70, 0, 80, 20)),
+        block("left", "Left", (0, 0, 10, 20)),
+        block("middle", "Middle", (35, 0, 45, 20)),
+    ]}]).parse(Path("ambiguous.pdf"))
+    assert [item.block_id for item in parsed.pages[0].blocks] == ["left", "middle", "right"]
+    assert parsed.metadata["layout_diagnostics"][0]["layout"]["ambiguous"] is True

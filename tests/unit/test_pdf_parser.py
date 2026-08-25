@@ -49,8 +49,8 @@ def test_pdf_parser_keeps_single_column_table_like_page_order():
     parsed = parser.parse(Path("fixture.pdf"))
 
     assert [block.block_id for block in parsed.pages[0].blocks] == [
-        "row-2-right", "row-1-left", "row-2-left", "row-1-far-right",
-        "row-1-right", "row-2-far-right",
+        "row-1-far-right", "row-1-left", "row-1-right", "row-2-far-right",
+        "row-2-left", "row-2-right",
     ]
 
 

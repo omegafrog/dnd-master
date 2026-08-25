@@ -50,10 +50,11 @@ class PdfDocumentParser:
                 raw_blocks = source_blocks
                 layout_diagnostics.append({"page_number": page_number, "finding": "LAYOUT_GEOMETRY_REQUIRED"})
             elif plan.ambiguous:
-                # Keep the adapter's source projection only as an explicitly
-                # diagnosed, non-confirmed result; the application gate blocks
-                # such pages from READY publication.
-                raw_blocks = source_blocks
+                # Use the planner's deterministic geometric diagnostic order,
+                # never the extractor/source order. The application gate still
+                # blocks this page from READY publication.
+                by_id = {str(block["block_id"]): block for block in source_blocks}
+                raw_blocks = tuple(by_id[block_id] for block_id in plan.ordered_block_ids if block_id in by_id)
                 layout_diagnostics.append({"page_number": page_number, "layout": to_dict(plan)})
             else:
                 by_id = {str(block["block_id"]): block for block in source_blocks}
