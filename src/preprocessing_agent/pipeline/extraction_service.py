@@ -225,7 +225,7 @@ class ExtractionApplicationService:
         versions.mkdir(exist_ok=True)
         temp_dir = Path(tempfile.mkdtemp(prefix=f".{version_id}-", dir=str(versions)))
         try:
-            if all(page.status == PageStatus.VALIDATED for page in version.pages.values()) and version.pages:
+            if len(version.pages) == version.page_count and all(page.status == PageStatus.VALIDATED for page in version.pages.values()) and version.pages:
                 version.publish()
                 parser = PdfDocumentParser(extractor=lambda _source: parser_pages)
                 result = PreprocessingPipeline.from_config({"name": "extraction-version", "pipeline_version": policy}, parser=parser, output_dir=temp_dir).run(source=source)
@@ -322,6 +322,8 @@ class ExtractionApplicationService:
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 for ref in response["artifacts"].values():
                     if isinstance(ref, dict) and "path" in ref and "sha256" in ref:
+                        if set(ref) != {"path", "sha256"}:
+                            raise ValueError("VERSION_ARTIFACT_CORRUPT")
                         if not isinstance(ref["path"], str) or not isinstance(ref["sha256"], str):
                             raise ValueError("VERSION_ARTIFACT_CORRUPT")
                         target = Path(ref["path"]).resolve()
