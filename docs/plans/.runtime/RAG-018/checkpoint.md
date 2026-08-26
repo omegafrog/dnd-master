@@ -45,7 +45,7 @@ The prior RAG-018 review findings and the order-independent citation-key fix are
 ## Commit evidence
 
 - Inherited implementation commit: `d6687f0d` (`fix(rag): reserve caller citation keys before generation`) contains the two code files listed above and the inverse-order regression test.
-- Recovery checkpoint commit: `0c1cfa0e1b42347b5fc5f452151af104afe52123` (`docs(rag): record RAG-018 attempt 5 recovery`), containing only `docs/plans/.runtime/RAG-018/checkpoint.md`.
+- Recovery checkpoint commit before self-reference correction: `49f43836917eef65f39ce933a36b2bc7217eb415` (`docs(rag): record RAG-018 attempt 5 recovery`), containing only `docs/plans/.runtime/RAG-018/checkpoint.md`.
 - Previous implementation commits: `0c473901`, `b955c6ec`.
 - Expected post-commit Git status: only pre-existing untracked `src/preprocessing_agent.egg-info/`; preserve and leave unstaged.
 
