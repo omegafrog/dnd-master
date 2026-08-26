@@ -2,7 +2,7 @@
 
 - Issue: #193
 - Parent: #189
-- Status: planned
+- Status: completed
 - Dependencies: RAG-014, RAG-015
 
 ## 구현 목적

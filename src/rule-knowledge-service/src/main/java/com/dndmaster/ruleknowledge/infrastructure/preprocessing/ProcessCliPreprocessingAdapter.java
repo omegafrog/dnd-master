@@ -162,7 +162,8 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
         }
         String versionId = response.path("version_id").asText("");
         if (!VERSION_ID.matcher(versionId).matches() || ".".equals(versionId) || "..".equals(versionId)
-                || (expectedVersionId != null && !expectedVersionId.equals(versionId))) {
+                || (expectedVersionId != null && !expectedVersionId.equals(versionId)
+                && !expectedVersionId.equals(response.path("retry_version_id").asText("")))) {
             throw new PreprocessingProcessException("VERSION_ID_MISMATCH");
         }
         String status = response.path("status").asText("");
@@ -175,7 +176,8 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
         if (!artifacts.isObject()) {
             throw new PreprocessingProcessException("ARTIFACT_MANIFEST_MISMATCH");
         }
-        Map<String, String> hashes = validateArtifacts(artifacts, versionId, status);
+        ArtifactValidation validation = validateArtifacts(artifacts, versionId, status);
+        Map<String, String> hashes = validation.hashes();
         String manifestHash = text(artifacts, "manifest_sha256");
         if (!SHA256.matcher(manifestHash).matches() || !manifestHash.equals(hashes.get("manifest"))) {
             throw new PreprocessingProcessException("ARTIFACT_MANIFEST_MISMATCH");
@@ -209,7 +211,7 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
                 sourceHash,
                 policyVersion,
                 pages,
-                new PreprocessingArtifactManifest(manifestHash, hashes));
+                new PreprocessingArtifactManifest(manifestHash, hashes, validation.paths()));
     }
 
     private List<PreprocessingPageState> parsePages(JsonNode pagesNode) {
@@ -255,8 +257,9 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
         }
     }
 
-    private Map<String, String> validateArtifacts(JsonNode artifacts, String versionId, String status) {
+    private ArtifactValidation validateArtifacts(JsonNode artifacts, String versionId, String status) {
         Map<String, String> hashes = new LinkedHashMap<>();
+        Map<String, Path> paths = new LinkedHashMap<>();
         Iterator<Map.Entry<String, JsonNode>> fields = artifacts.fields();
         while (fields.hasNext()) {
             Map.Entry<String, JsonNode> field = fields.next();
@@ -276,6 +279,7 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
                 throw new PreprocessingProcessException("ARTIFACT_MANIFEST_MISMATCH");
             }
             hashes.put(field.getKey(), ref.path("sha256").asText());
+            paths.put(field.getKey(), path.toAbsolutePath().normalize());
         }
         if (!hashes.containsKey("manifest") || !hashes.containsKey("version")
                 || ("READY".equals(status) && !hashes.keySet().containsAll(List.of("chunks", "document_tree", "issues")))) {
@@ -285,7 +289,7 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
         if (!versionId.equals(version.path("version_id").asText())) {
             throw new PreprocessingProcessException("VERSION_MANIFEST_MISMATCH");
         }
-        return Map.copyOf(hashes);
+        return new ArtifactValidation(Map.copyOf(hashes), Map.copyOf(paths));
     }
 
     private JsonNode readArtifactJson(JsonNode ref) {
@@ -345,5 +349,8 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
 
     private static String safeCode(String code) {
         return code.matches("[A-Z0-9_]{1,80}") ? code : "PREPROCESSING_FAILED";
+    }
+
+    private record ArtifactValidation(Map<String, String> hashes, Map<String, Path> paths) {
     }
 }

@@ -188,8 +188,9 @@ public class RuleKnowledgeController {
                         r.originalFilename(),
                         r.failureCode(),
                         r.version(),
-                        warningsFor(r), progressFor(r), r.candidateExtractionVersion(), r.preprocessingPages()))
-                .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null, null, 0L, List.of(), null, null, List.of()));
+                        warningsFor(r), progressFor(r), r.candidateExtractionVersion(), r.preprocessingPages(), retryabilityFor(r)))
+                .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null, null, 0L, List.of(), null, null, List.of(),
+                        new RetryabilityView(false, List.of(), List.of("DOCUMENT_NOT_FOUND"))));
     }
 
     private DocumentProgressView progressFor(StoredRulebookRegistration registration) {
@@ -303,6 +304,25 @@ public class RuleKnowledgeController {
             return rulebookStatus(rulebookId);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, exception.getMessage(), exception);
+        } catch (IllegalStateException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
+        }
+    }
+
+    @PostMapping("/api/v1/rulebooks/{rulebookId}/retry-pages")
+    RulebookStatusResponse retryPages(
+            @PathVariable UUID rulebookId,
+            @RequestHeader("Authorization") String authorization,
+            @RequestBody RetryPagesRequest request) {
+        StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(rulebookId))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "knowledge document not found"));
+        requireOwner(extractPlayerId(authorization), registration.ownerPlayerId().value());
+        try {
+            pipelineService.retryPages(new RulebookId(rulebookId), request == null ? null : request.requestId(),
+                    request == null ? null : request.pages());
+            return rulebookStatus(rulebookId);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
         } catch (IllegalStateException exception) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
         }
@@ -616,7 +636,9 @@ public class RuleKnowledgeController {
             UUID rulebookId, UUID knowledgeDocumentId, String status, DocumentType documentType,
             String originalFilename, String failureReason, long extractionVersion, List<String> warnings,
             DocumentProgressView progress, String candidateExtractionVersion,
-            List<PreprocessingPageState> preprocessingPages) {}
+            List<PreprocessingPageState> preprocessingPages, RetryabilityView retryability) {}
+    public record RetryabilityView(boolean retryable, List<Integer> pages, List<String> diagnostics) {}
+    public record RetryPagesRequest(String requestId, List<Integer> pages) {}
     public record DocumentProgressView(
             String stage, int percent, Integer completedUnits, Integer totalUnits, String error) {}
     public record SourcePreviewResponse(
@@ -689,5 +711,18 @@ public class RuleKnowledgeController {
         warnings.addAll(registration.missingLocations());
         warnings.addAll(registration.previewWarnings());
         return List.copyOf(warnings);
+    }
+
+    private static RetryabilityView retryabilityFor(StoredRulebookRegistration registration) {
+        List<Integer> pages = registration.preprocessingPages().stream()
+                .filter(page -> "NEEDS_REVIEW".equals(page.status()) && page.attempts() < 3)
+                .map(PreprocessingPageState::pageNumber)
+                .toList();
+        List<String> diagnostics = registration.preprocessingPages().stream()
+                .filter(page -> "NEEDS_REVIEW".equals(page.status()))
+                .flatMap(page -> page.findings().stream())
+                .distinct()
+                .toList();
+        return new RetryabilityView(registration.processingStatus() == ProcessingStatus.NEEDS_REVIEW && !pages.isEmpty(), pages, diagnostics);
     }
 }

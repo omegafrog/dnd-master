@@ -9,14 +9,17 @@ import com.dndmaster.ruleknowledge.application.search.StorySourceSearchPort;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchPort;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingProcessPort;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingRetryLeaseRepository;
 import com.dndmaster.ruleknowledge.application.publication.RagExtractionPublicationRepository;
 import com.dndmaster.ruleknowledge.application.publication.RagExtractionPublicationService;
+import com.dndmaster.ruleknowledge.application.reset.DevelopmentRagResetService;
 import com.dndmaster.ruleknowledge.infrastructure.extraction.*;
 import com.dndmaster.ruleknowledge.infrastructure.ocr.TesseractOcrAdapter;
 import com.dndmaster.ruleknowledge.infrastructure.preprocessing.ProcessCliPreprocessingAdapter;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookIndexRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresGameSystemDefinitionRepository;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresPreprocessingRetryLeaseRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.JdbcCatalogRulebookRepository;
 import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRepository;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchPort;
@@ -36,6 +39,7 @@ import javax.sql.DataSource;
 import java.nio.file.Path;
 import java.util.Map;
 import java.time.Duration;
+import java.util.Set;
 
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat;
 
@@ -123,6 +127,11 @@ public class RuleKnowledgeApiConfiguration {
     }
 
     @Bean
+    PreprocessingRetryLeaseRepository preprocessingRetryLeaseRepository(DataSource dataSource) {
+        return new PostgresPreprocessingRetryLeaseRepository(dataSource);
+    }
+
+    @Bean
     CatalogRulebookRepository catalogRulebookRepository(DataSource dataSource) {
         return new JdbcCatalogRulebookRepository(dataSource);
     }
@@ -172,6 +181,9 @@ public class RuleKnowledgeApiConfiguration {
             SourcePreviewExtractor sourcePreviewExtractor,
             RulebookIndexingApplicationService indexingService,
             PreprocessingProcessPort preprocessingProcessPort,
+            RagExtractionPublicationService ragExtractionPublicationService,
+            PreprocessingRetryLeaseRepository preprocessingRetryLeaseRepository,
+            ObjectMapper objectMapper,
             @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension) {
         return new RulebookPipelineApplicationService(
                 registrationService,
@@ -181,7 +193,23 @@ public class RuleKnowledgeApiConfiguration {
                 sourcePreviewExtractor,
                 indexingService,
                 embeddingDimension,
-                preprocessingProcessPort);
+                preprocessingProcessPort,
+                ragExtractionPublicationService,
+                new com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingArtifactImporter(objectMapper),
+                preprocessingRetryLeaseRepository);
+    }
+
+    @Bean
+    DevelopmentRagResetService developmentRagResetService(
+            DataSource dataSource, org.springframework.core.env.Environment environment) {
+        return new DevelopmentRagResetService(dataSource, Set.of(environment.getActiveProfiles()));
+    }
+
+    @Bean
+    RagDevelopmentResetController ragDevelopmentResetController(
+            DevelopmentRagResetService resetService,
+            @Value("${rule-knowledge.internal-token:}") String internalToken) {
+        return new RagDevelopmentResetController(resetService, internalToken);
     }
 
     @Bean

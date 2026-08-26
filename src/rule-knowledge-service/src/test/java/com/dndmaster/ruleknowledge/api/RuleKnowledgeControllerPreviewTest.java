@@ -87,6 +87,8 @@ class RuleKnowledgeControllerPreviewTest {
         assertFalse(response.preprocessingPages().get(0).findings().get(0).contains("/srv"));
         assertFalse(response.preprocessingPages().get(0).findings().get(0).contains("secret"));
         assertFalse(response.preprocessingPages().get(0).findings().get(1).contains("/var"));
+        assertEquals(true, response.retryability().retryable());
+        assertEquals(List.of(2), response.retryability().pages());
     }
 
     private static final class InMemoryRegistrationRepository implements RulebookRegistrationRepository {

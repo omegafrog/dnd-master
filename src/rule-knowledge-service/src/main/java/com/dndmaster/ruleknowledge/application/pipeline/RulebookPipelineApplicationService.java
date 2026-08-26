@@ -13,8 +13,16 @@ import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegist
 import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingPageState;
 import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingProcessException;
 import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingProcessPort;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingRetryLeaseRepository;
+import com.dndmaster.ruleknowledge.application.preprocessing.InMemoryPreprocessingRetryLeaseRepository;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingRetryRequest;
 import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingRunRequest;
 import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingRunResult;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingArtifactImporter;
+import com.dndmaster.ruleknowledge.application.publication.RagExtractionPage;
+import com.dndmaster.ruleknowledge.application.publication.RagExtractionPublicationRequest;
+import com.dndmaster.ruleknowledge.application.publication.RagExtractionPublicationService;
+import com.dndmaster.ruleknowledge.application.publication.PublishedRagChunk;
 import com.dndmaster.ruleknowledge.domain.index.IndexKey;
 import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
 import com.dndmaster.ruleknowledge.domain.rulebook.ExtractionResult;
@@ -47,6 +55,9 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
     private final RulebookIndexingApplicationService indexingService;
     private final int embeddingDimension;
     private final PreprocessingProcessPort preprocessingProcessPort;
+    private final RagExtractionPublicationService ragExtractionPublicationService;
+    private final PreprocessingArtifactImporter preprocessingArtifactImporter;
+    private final PreprocessingRetryLeaseRepository retryLeaseRepository;
 
     public RulebookPipelineApplicationService(
             RulebookRegistrationApplicationService registrationService,
@@ -69,6 +80,40 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             RulebookIndexingApplicationService indexingService,
             int embeddingDimension,
             PreprocessingProcessPort preprocessingProcessPort) {
+        this(registrationService, registrationRepository, fileStorage, contentExtractor, sourcePreviewExtractor,
+                indexingService, embeddingDimension, preprocessingProcessPort, null,
+                new PreprocessingArtifactImporter(new com.fasterxml.jackson.databind.ObjectMapper()),
+                new InMemoryPreprocessingRetryLeaseRepository());
+    }
+
+    public RulebookPipelineApplicationService(
+            RulebookRegistrationApplicationService registrationService,
+            RulebookRegistrationRepository registrationRepository,
+            RulebookFileStorage fileStorage,
+            RulebookContentExtractor contentExtractor,
+            SourcePreviewExtractor sourcePreviewExtractor,
+            RulebookIndexingApplicationService indexingService,
+            int embeddingDimension,
+            PreprocessingProcessPort preprocessingProcessPort,
+            RagExtractionPublicationService ragExtractionPublicationService) {
+        this(registrationService, registrationRepository, fileStorage, contentExtractor, sourcePreviewExtractor,
+                indexingService, embeddingDimension, preprocessingProcessPort, ragExtractionPublicationService,
+                new PreprocessingArtifactImporter(new com.fasterxml.jackson.databind.ObjectMapper()),
+                new InMemoryPreprocessingRetryLeaseRepository());
+    }
+
+    public RulebookPipelineApplicationService(
+            RulebookRegistrationApplicationService registrationService,
+            RulebookRegistrationRepository registrationRepository,
+            RulebookFileStorage fileStorage,
+            RulebookContentExtractor contentExtractor,
+            SourcePreviewExtractor sourcePreviewExtractor,
+            RulebookIndexingApplicationService indexingService,
+            int embeddingDimension,
+            PreprocessingProcessPort preprocessingProcessPort,
+            RagExtractionPublicationService ragExtractionPublicationService,
+            PreprocessingArtifactImporter preprocessingArtifactImporter,
+            PreprocessingRetryLeaseRepository retryLeaseRepository) {
         this.registrationService = Objects.requireNonNull(registrationService, "registrationService must not be null");
         this.registrationRepository = Objects.requireNonNull(registrationRepository, "registrationRepository must not be null");
         this.fileStorage = Objects.requireNonNull(fileStorage, "fileStorage must not be null");
@@ -80,6 +125,9 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         }
         this.embeddingDimension = embeddingDimension;
         this.preprocessingProcessPort = preprocessingProcessPort;
+        this.ragExtractionPublicationService = ragExtractionPublicationService;
+        this.preprocessingArtifactImporter = Objects.requireNonNull(preprocessingArtifactImporter, "artifact importer must not be null");
+        this.retryLeaseRepository = Objects.requireNonNull(retryLeaseRepository, "retry lease repository must not be null");
     }
 
     @Override
@@ -143,6 +191,77 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         StoredRulebookRegistration queued = withStatus(registration, ProcessingStatus.QUEUED, null, null, null, null, null);
         registrationRepository.save(queued);
         return new RulebookProcessingResult(rulebookId, ProcessingStatus.QUEUED, List.of());
+    }
+
+    public RulebookProcessingResult retryPages(RulebookId rulebookId, String requestId, List<Integer> pages) {
+        Objects.requireNonNull(rulebookId, "rulebook id must not be null");
+        if (requestId == null || requestId.isBlank()) throw new IllegalArgumentException("retry request id must not be blank");
+        if (pages == null || pages.isEmpty() || pages.stream().anyMatch(page -> page == null || page < 1)) {
+            throw new IllegalArgumentException("retry pages must contain positive page numbers");
+        }
+        StoredRulebookRegistration registration = registrationRepository.findById(rulebookId)
+                .orElseThrow(() -> new IllegalArgumentException("knowledge document not found"));
+        if (registration.processingStatus() == ProcessingStatus.INDEXED
+                && retryLeaseRepository.completedResult(rulebookId, requestId).isPresent()) {
+            return new RulebookProcessingResult(rulebookId, ProcessingStatus.INDEXED, List.of());
+        }
+        if (registration.processingStatus() != ProcessingStatus.NEEDS_REVIEW
+                || registration.candidateExtractionVersion() == null) {
+            throw new IllegalStateException("only review candidate can retry pages");
+        }
+        List<Integer> selected = pages.stream().distinct().sorted().toList();
+        List<Integer> retryable = registration.preprocessingPages().stream()
+                .filter(page -> "NEEDS_REVIEW".equals(page.status()) && page.attempts() < 3)
+                .map(PreprocessingPageState::pageNumber).toList();
+        if (!retryable.containsAll(selected)) throw new IllegalStateException("selected pages are not retryable");
+        if (preprocessingProcessPort == null) throw new IllegalStateException("preprocessing retry is not configured");
+        var claim = retryLeaseRepository.claim(rulebookId, requestId, registration.candidateExtractionVersion(), selected, Duration.ofMinutes(10));
+        if (claim.completed()) return new RulebookProcessingResult(rulebookId, ProcessingStatus.INDEXED, List.of());
+        if (!claim.acquired()) throw new IllegalStateException("retry is already leased");
+        long expectedVersion = registration.version();
+        StoredRulebookRegistration processing = withRetryStatus(registration, ProcessingStatus.PROCESSING, null);
+        registrationRepository.save(processing);
+        try {
+            Path workingRoot = preprocessingWorkingRoot(rulebookId);
+            try {
+                Files.createDirectories(workingRoot);
+                Files.write(workingRoot.resolve("source.pdf"), fileStorage.read(new StoredRulebookFile(registration.storageKey())));
+            } catch (java.io.IOException exception) {
+                throw new PreprocessingProcessException("PREPROCESSING_ARTIFACT_UNAVAILABLE", exception);
+            }
+            PreprocessingRunResult result = preprocessingProcessPort.retryPages(new PreprocessingRetryRequest(
+                    requestId, registration.candidateExtractionVersion(), preprocessingRoot(rulebookId), selected));
+            validateRetryResult(registration, requestId, selected, result);
+            StoredRulebookRegistration latest = registrationRepository.findById(rulebookId).orElseThrow();
+            if (latest.version() != processing.version() || latest.version() < expectedVersion) {
+                retryLeaseRepository.release(rulebookId, requestId, claim.leaseToken());
+                return new RulebookProcessingResult(rulebookId, latest.processingStatus(), List.of("STALE_RETRY_RESPONSE"));
+            }
+            if ("NEEDS_REVIEW".equals(result.status())) {
+                StoredRulebookRegistration review = withPreprocessing(latest, ProcessingStatus.NEEDS_REVIEW,
+                        "PREPROCESSING_NEEDS_REVIEW", result);
+                registrationRepository.save(review);
+                retryLeaseRepository.release(rulebookId, requestId, claim.leaseToken());
+                return new RulebookProcessingResult(rulebookId, ProcessingStatus.NEEDS_REVIEW, diagnosticWarnings(result.pages()));
+            }
+            if (!"READY".equals(result.status())) throw new PreprocessingProcessException("INVALID_PREPROCESSING_STATUS");
+            publishPreprocessed(latest, result);
+            StoredRulebookRegistration indexed = withPreprocessing(latest, ProcessingStatus.INDEXED, null, result);
+            registrationRepository.save(indexed);
+            if (!retryLeaseRepository.complete(rulebookId, requestId, claim.leaseToken(), registration.candidateExtractionVersion(), result.versionId())) {
+                retryLeaseRepository.release(rulebookId, requestId, claim.leaseToken());
+                return new RulebookProcessingResult(rulebookId, ProcessingStatus.INDEXED, List.of("STALE_RETRY_RESPONSE"));
+            }
+            return new RulebookProcessingResult(rulebookId, ProcessingStatus.INDEXED, List.of());
+        } catch (RuntimeException exception) {
+            retryLeaseRepository.release(rulebookId, requestId, claim.leaseToken());
+            StoredRulebookRegistration current = registrationRepository.findById(rulebookId).orElse(registration);
+            if (current.version() == processing.version()) {
+                registrationRepository.save(withRetryStatus(current, ProcessingStatus.NEEDS_REVIEW, "PREPROCESSING_RETRY_FAILED"));
+            }
+            if (exception instanceof IllegalStateException illegal && "retry is already leased".equals(illegal.getMessage())) throw illegal;
+            throw exception;
+        }
     }
 
     public void delete(RulebookId rulebookId, com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId owner) {
@@ -218,7 +337,8 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
     private RulebookProcessingResult processWithPreprocessing(StoredRulebookRegistration registration) {
         try {
             byte[] storedContent = fileStorage.read(new StoredRulebookFile(registration.storageKey()));
-            Path runRoot = Files.createTempDirectory("dnd-rag-preprocessing-");
+            Path runRoot = preprocessingWorkingRoot(registration.rulebookId());
+            Files.createDirectories(runRoot);
             Path source = runRoot.resolve("source.pdf");
             Path output = runRoot.resolve("artifacts");
             Files.createDirectories(output);
@@ -234,10 +354,13 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                         registration.rulebookId(), ProcessingStatus.NEEDS_REVIEW, diagnosticWarnings(result.pages()));
             }
             if ("READY".equals(result.status())) {
+                publishPreprocessed(registration, result);
+                ProcessingStatus nextStatus = ragExtractionPublicationService == null
+                        ? ProcessingStatus.VALIDATED : ProcessingStatus.INDEXED;
                 StoredRulebookRegistration validated = withPreprocessing(
-                        registration, ProcessingStatus.VALIDATED, null, result);
+                        registration, nextStatus, null, result);
                 registrationRepository.save(validated);
-                return new RulebookProcessingResult(registration.rulebookId(), ProcessingStatus.VALIDATED, List.of());
+                return new RulebookProcessingResult(registration.rulebookId(), nextStatus, List.of());
             }
             throw new PreprocessingProcessException("INVALID_PREPROCESSING_STATUS");
         } catch (PreprocessingProcessException exception) {
@@ -300,6 +423,74 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 .flatMap(page -> page.findings().stream())
                 .distinct()
                 .toList();
+    }
+
+    private void publishPreprocessed(StoredRulebookRegistration registration, PreprocessingRunResult result) {
+        if (ragExtractionPublicationService == null) return;
+        List<PublishedRagChunk> chunks = preprocessingArtifactImporter.readChunks(result);
+        List<RagExtractionPage> pages = result.pages().stream()
+                .map(page -> new RagExtractionPage(page.pageNumber(), page.status(), page.attempts(), page.findings()))
+                .toList();
+        RagExtractionPublicationRequest request = new RagExtractionPublicationRequest(
+                registration.rulebookId(), registration.ownerPlayerId(), result.requestId(), result.versionId(),
+                registration.contentHash(), result.policyVersion(), result.artifacts().manifestSha256(), pages, chunks);
+        ragExtractionPublicationService.publish(request);
+    }
+
+    private static Path preprocessingRoot(RulebookId rulebookId) {
+        return preprocessingWorkingRoot(rulebookId).resolve("artifacts")
+                .toAbsolutePath().normalize();
+    }
+
+    private static Path preprocessingWorkingRoot(RulebookId rulebookId) {
+        return Path.of(System.getProperty("java.io.tmpdir"), "dnd-rag-preprocessing", rulebookId.value().toString())
+                .toAbsolutePath().normalize();
+    }
+
+    private static void validateRetryResult(
+            StoredRulebookRegistration registration, String requestId, List<Integer> selected, PreprocessingRunResult result) {
+        if (!requestId.equals(result.requestId())) throw new PreprocessingProcessException("CORRELATION_ID_MISMATCH");
+        if (!registration.contentHash().equals(result.sourceSha256())) throw new PreprocessingProcessException("SOURCE_HASH_MISMATCH");
+        if (!"rag-preprocessing-v1".equals(result.policyVersion())) throw new PreprocessingProcessException("POLICY_VERSION_MISMATCH");
+        if (result.pages().isEmpty()) throw new PreprocessingProcessException("PAGE_MANIFEST_MISMATCH");
+        if (registration.candidateExtractionVersion().equals(result.versionId())) {
+            throw new PreprocessingProcessException("RETRY_VERSION_NOT_ADVANCED");
+        }
+        if (result.pages().size() != registration.preprocessingPages().size()) {
+            throw new PreprocessingProcessException("PAGE_MANIFEST_MISMATCH");
+        }
+        for (int index = 0; index < result.pages().size(); index++) {
+            PreprocessingPageState before = registration.preprocessingPages().get(index);
+            PreprocessingPageState after = result.pages().get(index);
+            if (before.pageNumber() != after.pageNumber()) {
+                throw new PreprocessingProcessException("PAGE_MANIFEST_MISMATCH");
+            }
+            if (selected.contains(before.pageNumber())) {
+                if (after.attempts() <= before.attempts() || after.attempts() > 3) {
+                    throw new PreprocessingProcessException("RETRY_ATTEMPT_MISMATCH");
+                }
+            } else if (!before.equals(after)) {
+                throw new PreprocessingProcessException("UNSELECTED_PAGE_CHANGED");
+            }
+        }
+        if (!"READY".equals(result.status()) && !"NEEDS_REVIEW".equals(result.status())) {
+            throw new PreprocessingProcessException("INVALID_PREPROCESSING_STATUS");
+        }
+        if ("READY".equals(result.status()) && result.pages().stream().anyMatch(page -> !"VALIDATED".equals(page.status()))) {
+            throw new PreprocessingProcessException("UNVALIDATED_PAGE");
+        }
+    }
+
+    private static StoredRulebookRegistration withRetryStatus(
+            StoredRulebookRegistration registration, ProcessingStatus status, String failureCode) {
+        return new StoredRulebookRegistration(
+                registration.rulebookId(), registration.ownerPlayerId(), registration.operationKey(), registration.contentHash(),
+                registration.format(), registration.fileSize(), registration.storageKey(), status, registration.extractionStatus(),
+                registration.extractedContent(), registration.missingLocations(), failureCode, registration.version() + 1,
+                registration.createdAt(), Instant.now(), registration.documentType(), registration.originalFilename(),
+                registration.previewContent(), registration.previewWarnings(), registration.previewSpans(), registration.previewAssets(),
+                registration.preprocessingOperationId(), registration.candidateExtractionVersion(), registration.preprocessingPolicyVersion(),
+                registration.preprocessingManifestSha256(), registration.preprocessingPages());
     }
 
     private void attemptIndexing(Rulebook rulebook, StoredRulebookRegistration registration) {

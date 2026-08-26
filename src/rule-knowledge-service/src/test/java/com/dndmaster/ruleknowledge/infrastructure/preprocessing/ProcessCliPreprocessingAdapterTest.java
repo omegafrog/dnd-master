@@ -8,6 +8,7 @@ import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingProces
 import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingRunResult;
 import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingRunRequest;
 import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingStatusRequest;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingRetryRequest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -89,6 +90,23 @@ class ProcessCliPreprocessingAdapterTest {
                 new PreprocessingRunRequest("adapter-unknown-artifact", work.resolve("source.pdf"), "a".repeat(64), "p1", work.resolve("out"), "candidate-1")));
 
         assertEquals("ARTIFACT_MANIFEST_MISMATCH", exception.code());
+    }
+
+    @Test
+    void acceptsSuccessfulRetryPromotionWithAFreshVersionId() throws Exception {
+        Path work = Files.createTempDirectory("rag-017-adapter-");
+        String hash = "a".repeat(64);
+        Map<String, Object> fixture = fixture(work, hash, "candidate-1-retry", "retry-request", "retry_pages");
+        fixture.put("retry_version_id", "candidate-1");
+        Path script = writeScript(work.resolve("fake-python-retry"), new ObjectMapper().writeValueAsString(fixture));
+        ProcessCliPreprocessingAdapter adapter = new ProcessCliPreprocessingAdapter(
+                script.toString(), work, Duration.ofMinutes(2), new ObjectMapper());
+
+        PreprocessingRunResult result = adapter.retryPages(new PreprocessingRetryRequest(
+                "retry-request", "candidate-1", work, List.of(2)));
+
+        assertEquals("candidate-1-retry", result.versionId());
+        assertEquals("READY", result.status());
     }
 
     private static String sha256(Path path) throws Exception {

@@ -1,0 +1,44 @@
+# RAG-017 Runtime Checkpoint
+
+- stage: completed
+- plan: RAG-017 / issue #193 / parent #189
+- branch: codex/rag-preprocessing-product-integration
+- baseline: 341cd6fe
+- status: completed
+- changed_files:
+  - docs/plans/plans.md
+  - docs/plans/rag-017-review-retry-development-rag-reset.md
+  - docs/plans/.runtime/RAG-017/checkpoint.md
+  - src/rule-knowledge-service/src/main/java/com/dndmaster/ruleknowledge/application/reset/DevelopmentRagResetService.java
+  - src/rule-knowledge-service/src/main/java/com/dndmaster/ruleknowledge/api/RagDevelopmentResetController.java
+  - src/rule-knowledge-service/src/main/java/com/dndmaster/ruleknowledge/api/RuleKnowledgeApiConfiguration.java
+  - src/rule-knowledge-service/src/main/java/com/dndmaster/ruleknowledge/application/preprocessing/PreprocessingArtifactImporter.java
+  - src/rule-knowledge-service/src/main/java/com/dndmaster/ruleknowledge/application/preprocessing/PreprocessingArtifactManifest.java
+  - src/rule-knowledge-service/src/main/java/com/dndmaster/ruleknowledge/application/preprocessing/PreprocessingRetryLeaseRepository.java
+  - src/rule-knowledge-service/src/main/java/com/dndmaster/ruleknowledge/application/preprocessing/InMemoryPreprocessingRetryLeaseRepository.java
+  - src/rule-knowledge-service/src/main/java/com/dndmaster/ruleknowledge/application/pipeline/RulebookPipelineApplicationService.java
+  - src/rule-knowledge-service/src/main/java/com/dndmaster/ruleknowledge/infrastructure/persistence/PostgresPreprocessingRetryLeaseRepository.java
+  - src/rule-knowledge-service/src/main/java/com/dndmaster/ruleknowledge/infrastructure/preprocessing/ProcessCliPreprocessingAdapter.java
+  - src/rule-knowledge-service/src/main/resources/db/migration/V17_6__preprocessing_retry_lease.sql
+  - src/rule-knowledge-service/src/test/java/com/dndmaster/ruleknowledge/application/reset/DevelopmentRagResetServiceTest.java
+  - src/rule-knowledge-service/src/test/java/com/dndmaster/ruleknowledge/application/pipeline/Rag017RetryFlowTest.java
+  - src/rule-knowledge-service/src/test/java/com/dndmaster/ruleknowledge/application/preprocessing/PreprocessingArtifactImporterTest.java
+  - src/rule-knowledge-service/src/test/java/com/dndmaster/ruleknowledge/application/preprocessing/PreprocessingRetryLeaseRepositoryTest.java
+  - src/rule-knowledge-service/src/test/java/com/dndmaster/ruleknowledge/api/RuleKnowledgeControllerPreviewTest.java
+  - src/rule-knowledge-service/src/test/java/com/dndmaster/ruleknowledge/infrastructure/preprocessing/ProcessCliPreprocessingAdapterTest.java
+- tests:
+  - resolved: initial constructor/artifact-root compile error at RulebookPipelineApplicationService.java:226-228; retry source/artifact preparation is now wrapped and constructor wiring compiles
+  - executed: final focused RAG-017 tests including lease release, BUILD SUCCESSFUL
+  - executed: final full rule-knowledge-service test suite, BUILD SUCCESSFUL
+  - covered: retry idempotency/lease/stale-token safety, selected-page flow, artifact provenance import, promotion-version adapter, status retryability, reset confirmation/profile/table plan and execution boundary, prior-public-version failure immutability
+  - executed: focused Python preprocessing tests; 17 passed and 4 pre-existing RAG-014 process-port integration expectations failed in tests/integration/test_process_port.py (no Python files changed by RAG-017)
+  - executed: RAG-013 retry and layout/version unit tests passed within that run
+  - executed: Python focused unit tests, 7 passed; compileall passed
+  - executed: broader Python preprocessing set, 17 passed and 4 pre-existing RAG-014 process-port integration expectations failed (exact failures recorded in this checkpoint)
+  - external_baseline_failures: tests/integration/test_process_port.py — READY expectation received NEEDS_REVIEW (line 22), current.json absent after needs-review/rejected runs (lines 74 and 197), and tampered cached request_id was returned (line 140); no Python files are changed by RAG-017
+  - executed: graphify update . completed with known zero-node JSON and missing tree_sitter_sql warnings
+  - executed: git diff --check passed
+  - executed: final graphify update . completed with known zero-node JSON and missing tree_sitter_sql warnings
+  - executed: final git diff --check passed
+  - review: independent main-session Standards review and Spec review completed; no unresolved RAG-017 findings; no UI/entity E2E claimed
+- next_action: none; RAG-017 committed and final worktree/plan/status verification passed
