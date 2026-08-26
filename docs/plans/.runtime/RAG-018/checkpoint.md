@@ -3,14 +3,14 @@
 - Plan: RAG-018 / parent #189
 - Status: `in-progress`
 - orchestration_state: `handoff-required`
-- attempt: 3
+- attempt: 4
 - handoff_reason: `same-plan-review-follow-up`
 - Worktree: `/tmp/dnd-rag-product-plan`
 - Dependency: RAG-016 is `completed`
 
 ## Current stage
 
-The two recorded RAG-018 review findings are implemented and verified. Keep the official plan status `in-progress`; stop after the follow-up commit so the main wrapper can run independent review. Do not start RAG-019.
+The prior RAG-018 review findings and the attempt-4 ordering P1 are implemented and verified. Keep the official plan status `in-progress`; stop after this follow-up commit so the main wrapper can run independent review. Do not start RAG-019.
 
 ## Handoff evidence
 
@@ -19,9 +19,10 @@ The two recorded RAG-018 review findings are implemented and verified. Keep the 
 - Current Git state recorded: only pre-existing untracked `src/preprocessing_agent.egg-info/`; it is out of scope and must be preserved.
 - Graph query located the story-plan generation application service, generation port, stage source validator, gateway, projection, and related tests.
 - Fresh-context handoff read the implementation skill, AGENTS.md, plans index, RAG-018 plan, product/architecture specs, and this checkpoint before implementation.
-- Failing-first evidence: the duplicate-key test failed before the production change because the gateway sent the request and surfaced a downstream `IllegalStateException`; it passed after deterministic duplicate rejection was added.
+- Failing-first evidence: `reserves_later_caller_key_before_assigning_generated_key_to_blank_citation` failed before the production change with `IllegalArgumentException` from `withCitationKeys()` when a blank citation consumed `citation-1` before the later caller key was seen.
+- Green evidence: the same regression now assigns `citation-2`, preserves the caller's `citation-1`, and assigns `citation-3`; the existing duplicate-key, gateway serialization, and canonical provenance tests remain green.
 
-## Attempt 3 changed files
+## Attempt 4 changed files
 
 - `src/adventure-service/src/main/java/com/dndmaster/adventure/application/storyplan/AdventureStoryPlanGenerationPort.java`
 - `src/adventure-service/src/test/java/com/dndmaster/adventure/infrastructure/integration/CrossContextHttpAdventureStoryPlanGenerationGatewayTest.java`
@@ -34,18 +35,18 @@ The two recorded RAG-018 review findings are implemented and verified. Keep the 
 
 ## Test and review evidence
 
-- Failing-first test: `rejects_duplicate_caller_citation_keys_before_sending_or_resolving` failed before production changes; the stable-key gateway test also ran through the pre-existing resolver but did not cover caller-key serialization/provenance until this follow-up.
-- Focused pass: `./gradlew :adventure-service:test --tests com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAdventureStoryPlanGenerationGatewayTest` — `BUILD SUCCESSFUL` (18 tests).
+- Failing-first test: `reserves_later_caller_key_before_assigning_generated_key_to_blank_citation` failed before production changes with the expected generated-key collision.
+- Focused pass: `./gradlew :adventure-service:test --tests com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAdventureStoryPlanGenerationGatewayTest` — `BUILD SUCCESSFUL` (19 tests).
 - Focused pass: `./gradlew :ai-game-master-service:test --tests com.dndmaster.aigamemaster.api.AdventureStoryPlanControllerMarkdownTest` — `BUILD SUCCESSFUL`.
-- Full pass: `./gradlew :adventure-service:test :ai-game-master-service:test` — `BUILD SUCCESSFUL` after the final production change, with non-empty `INTERNAL_SERVICE_TOKEN`, `RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS`, and `CODEX_EXECUTABLE` set. The run emitted pre-existing H2 scheduler shutdown warnings but exited 0.
+- Full pass: `./gradlew :adventure-service:test :ai-game-master-service:test` — `BUILD SUCCESSFUL` after the final production change, with non-empty `INTERNAL_SERVICE_TOKEN`, `RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS`, and `CODEX_EXECUTABLE` set. The run exited 0.
 - `git diff --check` — passed.
-- `graphify update .` — passed; graph rebuilt with expected missing SQL parser/empty-node warnings.
+- `graphify update .` — passed; graph rebuilt with expected missing SQL parser/empty-node warnings and skipped oversized HTML visualization.
 - Independent review is intentionally deferred to the main wrapper after this commit; no subagent was spawned.
 
 ## Commit evidence
 
-- Follow-up commit: created after the implementation, test, diff-check, and graphify evidence recorded above; the final Git commit is reported in the handoff.
-- Previous implementation `HEAD`: `0c473901`.
+- Follow-up commit: created after the attempt-4 implementation, test, diff-check, graphify, and checkpoint evidence; the final Git commit is reported in the handoff.
+- Previous implementation commits: `0c473901`, `b955c6ec`.
 - Current Git status after the follow-up commit: only pre-existing untracked `src/preprocessing_agent.egg-info/`; preserved and out of scope.
 
 ## Blocker
@@ -54,7 +55,7 @@ The two recorded RAG-018 review findings are implemented and verified. Keep the 
 
 ## Next actions
 
-- exact next_action: Main wrapper runs independent review after the follow-up commit; resolve only any newly confirmed in-scope finding, then perform official plan-status reconciliation separately. Keep `src/preprocessing_agent.egg-info/` unstaged.
+- exact next_action: Main wrapper runs independent review after the attempt-4 follow-up commit; resolve only any newly confirmed in-scope finding, then perform official plan-status reconciliation separately. Keep `src/preprocessing_agent.egg-info/` unstaged.
 
 ## Scope guard
 

@@ -258,6 +258,22 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
     }
 
     @Test
+    void reserves_later_caller_key_before_assigning_generated_key_to_blank_citation() {
+        var request = new AdventureStoryPlanGenerationPort.Request(
+                "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT), List.of(), List.of(), List.of(),
+                List.of(
+                        new AdventureStoryPlanGenerationPort.SourceCitation("STORYBOOK", UUID.randomUUID(), 1, "page:1", "first", .9),
+                        new AdventureStoryPlanGenerationPort.SourceCitation("STORYBOOK", UUID.randomUUID(), 1, "page:2", "second", .9)
+                                .withCitationKey("citation-1"),
+                        new AdventureStoryPlanGenerationPort.SourceCitation("RULEBOOK", UUID.randomUUID(), 1, "page:3", "third", .9)));
+
+        var keyed = request.withCitationKeys();
+
+        assertEquals(List.of("citation-2", "citation-1", "citation-3"),
+                keyed.citations().stream().map(AdventureStoryPlanGenerationPort.SourceCitation::citationKey).toList());
+    }
+
+    @Test
     void rejects_duplicate_caller_citation_keys_before_sending_or_resolving() {
         server = new WireMockServer(0);
         server.start();
