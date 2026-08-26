@@ -8,31 +8,39 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from collections import defaultdict
-from typing import Any, Iterable
+from typing import Iterable, Mapping, Protocol
 
 from preprocessing_agent.domain.layout import BoundingBox
 from .detector import HeadingDetector
 
 
-def _get(value: Any, name: str, default: Any = None) -> Any:
+class StructuredBlock(Protocol):
+    block_id: str
+    bbox: BoundingBox | tuple[float, float, float, float]
+
+
+StructuredValue = StructuredBlock | Mapping[str, object]
+
+
+def _get(value: StructuredValue, name: str, default: object = None) -> object:
     return getattr(value, name, default) if not isinstance(value, dict) else value.get(name, default)
 
 
-def _bbox(value: Any) -> BoundingBox:
+def _bbox(value: StructuredValue) -> BoundingBox:
     raw = _get(value, "bbox")
     if raw is None:
         raise ValueError("structured layout requires bbox")
     return raw if isinstance(raw, BoundingBox) else BoundingBox(*(float(item) for item in raw))
 
 
-def _id(value: Any) -> str:
+def _id(value: StructuredValue) -> str:
     result = _get(value, "block_id")
     if not result:
         raise ValueError("structured layout requires block_id")
     return str(result)
 
 
-def _text(value: Any) -> str:
+def _text(value: StructuredValue) -> str:
     return str(_get(value, "source_text", _get(value, "text", "")))
 
 
@@ -53,7 +61,7 @@ class HeadingAssociator:
     def __init__(self, detector: HeadingDetector | None = None) -> None:
         self.detector = detector or HeadingDetector()
 
-    def associate(self, blocks: Iterable[Any], reading_plan: Any | None = None) -> tuple[HeadingAssociation, ...]:
+    def associate(self, blocks: Iterable[StructuredValue], reading_plan: object | None = None) -> tuple[HeadingAssociation, ...]:
         values = tuple(blocks)
         result: list[HeadingAssociation] = []
         for index, heading in enumerate(values):
@@ -79,7 +87,7 @@ class HeadingAssociator:
         return tuple(result)
 
 
-def _same_column(heading: BoundingBox, candidate: BoundingBox, plan: Any | None) -> bool:
+def _same_column(heading: BoundingBox, candidate: BoundingBox, plan: object | None) -> bool:
     if plan is not None:
         center = (candidate.x0 + candidate.x1) / 2
         for profile in getattr(plan, "profiles", ()):
@@ -94,7 +102,7 @@ def _same_column(heading: BoundingBox, candidate: BoundingBox, plan: Any | None)
     return overlap / max(min(heading.x1 - heading.x0, candidate.x1 - candidate.x0), 1.0) >= 0.5
 
 
-def _spans(heading: BoundingBox, candidate: BoundingBox, values: tuple[Any, ...]) -> bool:
+def _spans(heading: BoundingBox, candidate: BoundingBox, values: tuple[StructuredValue, ...]) -> bool:
     left = min(_bbox(value).x0 for value in values)
     right = max(_bbox(value).x1 for value in values)
     width = max(right - left, 1.0)
@@ -104,7 +112,7 @@ def _spans(heading: BoundingBox, candidate: BoundingBox, values: tuple[Any, ...]
             candidate.y0 >= heading.y1)
 
 
-def _as_parsed_block(value: Any):
+def _as_parsed_block(value: StructuredValue):
     from preprocessing_agent.domain import ParsedBlock, SourceSpan
     if hasattr(value, "source_span"):
         return value
@@ -148,8 +156,8 @@ class TableStructure:
 class TableStructureDetector:
     """Builds explicit row/header/cell structures without prose flattening."""
 
-    def detect(self, blocks: Iterable[Any]) -> tuple[TableStructure, ...]:
-        groups: dict[str, list[Any]] = defaultdict(list)
+    def detect(self, blocks: Iterable[StructuredValue]) -> tuple[TableStructure, ...]:
+        groups: dict[str, list[StructuredValue]] = defaultdict(list)
         for value in blocks:
             table_id = _get(value, "table_id")
             kind = str(_get(value, "kind", ""))
@@ -157,7 +165,7 @@ class TableStructureDetector:
                 groups[str(table_id or "table-1")].append(value)
         return tuple(self._build(table_id, values) for table_id, values in sorted(groups.items()))
 
-    def _build(self, table_id: str, values: list[Any]) -> TableStructure:
+    def _build(self, table_id: str, values: list[StructuredValue]) -> TableStructure:
         values.sort(key=lambda value: (_row(value), _bbox(value).y0, _bbox(value).x0, _id(value)))
         min_x = min(_bbox(value).x0 for value in values); min_y = min(_bbox(value).y0 for value in values)
         max_x = max(_bbox(value).x1 for value in values); max_y = max(_bbox(value).y1 for value in values)
@@ -193,17 +201,17 @@ class TableStructureDetector:
         return TableStructure(table_id, bbox, headers, data_rows, cells, merged, uncertain, tuple(sorted(findings)), confidence)
 
 
-def _row(value: Any) -> int:
+def _row(value: StructuredValue) -> int:
     explicit = _get(value, "row")
     return int(explicit) if explicit is not None else 0
 
 
-def _column(value: Any) -> int:
+def _column(value: StructuredValue) -> int:
     explicit = _get(value, "column")
     return int(explicit) if explicit is not None else 0
 
 
-def _infer_columns(values: list[Any]) -> int:
+def _infer_columns(values: list[StructuredValue]) -> int:
     first_y = min(_bbox(value).y0 for value in values)
     return len([value for value in values if abs(_bbox(value).y0 - first_y) < 1e-6])
 

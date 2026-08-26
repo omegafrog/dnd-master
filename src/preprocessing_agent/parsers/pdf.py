@@ -176,4 +176,33 @@ def _default_extractor(source: Path) -> Iterable[Mapping[str, Any]]:
                     continue
                 first = spans[0] if spans else {}
                 blocks.append({"text": text, "bbox": block.get("bbox"), "font_size": first.get("size"), "font": first.get("font")})
+            # Preserve native table structure when the installed PyMuPDF
+            # exposes find_tables(); unsupported versions simply yield no
+            # table cells and retain the normal text extraction path.
+            try:
+                import contextlib
+                import sys
+                with contextlib.redirect_stdout(sys.stderr):
+                    finder = page.find_tables()
+                found_tables = getattr(finder, "tables", finder or ())
+            except (AttributeError, RuntimeError, TypeError):
+                found_tables = ()
+            for table_index, table in enumerate(found_tables):
+                table_id = f"p{page_number}-table-{table_index}"
+                rows = getattr(table, "rows", ()) or ()
+                try:
+                    extracted_rows = table.extract()
+                except (AttributeError, RuntimeError, TypeError):
+                    extracted_rows = ()
+                for row_index, row in enumerate(rows):
+                    cells = getattr(row, "cells", row if isinstance(row, (list, tuple)) else ()) or ()
+                    extracted = extracted_rows[row_index] if row_index < len(extracted_rows) else ()
+                    for column_index, cell_bbox in enumerate(cells):
+                        if cell_bbox is None or len(cell_bbox) != 4:
+                            continue
+                        text = str(extracted[column_index]).strip() if column_index < len(extracted) else ""
+                        if text:
+                            blocks.append({"block_id": f"{table_id}-r{row_index}-c{column_index}", "text": text,
+                                           "bbox": tuple(cell_bbox), "kind": "table_cell", "table_id": table_id,
+                                           "row": row_index, "column": column_index, "is_header": row_index == 0})
             yield {"page_number": page_number, "blocks": blocks}

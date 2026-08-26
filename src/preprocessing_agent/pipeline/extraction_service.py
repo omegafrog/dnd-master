@@ -107,6 +107,35 @@ class PyMuPdfNativePdfAdapter:
                     if not text:
                         continue
                     blocks.append({"block_id": f"p{number}-b{index}", "text": text, "bbox": raw[:4]})
+                # PyMuPDF's table finder is the native structured extraction
+                # seam. Keep cells as geometry-bearing blocks so downstream
+                # structure detection receives real row/column provenance.
+                try:
+                    with contextlib.redirect_stdout(sys.stderr):
+                        finder = page.find_tables()
+                    found_tables = getattr(finder, "tables", finder or ())
+                except (AttributeError, RuntimeError, TypeError):
+                    found_tables = ()
+                for table_index, table in enumerate(found_tables):
+                    rows = getattr(table, "rows", ()) or ()
+                    table_id = f"p{number}-table-{table_index}"
+                    for row_index, row in enumerate(rows):
+                        cells = getattr(row, "cells", row if isinstance(row, (list, tuple)) else ()) or ()
+                        extracted = ()
+                        try:
+                            extracted = tuple(table.extract()[row_index])
+                        except (AttributeError, IndexError, TypeError):
+                            pass
+                        for column_index, cell_bbox in enumerate(cells):
+                            if cell_bbox is None or len(cell_bbox) != 4:
+                                continue
+                            text = str(extracted[column_index]).strip() if column_index < len(extracted) else ""
+                            if not text:
+                                continue
+                            blocks.append({"block_id": f"{table_id}-r{row_index}-c{column_index}", "text": text,
+                                           "bbox": tuple(cell_bbox), "kind": "table_cell", "table_id": table_id,
+                                           "row": row_index, "column": column_index,
+                                           "is_header": row_index == 0})
                 pages.append({"page_number": number, "geometry": {"width": rect.width, "height": rect.height}, "blocks": blocks})
         return pages
 

@@ -3,6 +3,30 @@ from pathlib import Path
 from preprocessing_agent.parsers.pdf import PdfDocumentParser
 
 
+def test_pymupdf_native_table_cells_are_projected_when_supported(tmp_path):
+    fitz = __import__("pytest").importorskip("fitz")
+    document = fitz.open()
+    page = document.new_page(width=240, height=160)
+    for x in (20, 120, 220):
+        page.draw_line((x, 30), (x, 100), color=(0, 0, 0))
+    for y in (30, 60, 100):
+        page.draw_line((20, y), (220, y), color=(0, 0, 0))
+    page.insert_text((35, 50), "Name")
+    page.insert_text((135, 50), "Value")
+    page.insert_text((35, 85), "Dex")
+    page.insert_text((135, 85), "12")
+    source = tmp_path / "table.pdf"
+    document.save(source)
+    document.close()
+    if not hasattr(page, "find_tables"):
+        __import__("pytest").skip("PyMuPDF table finder is unavailable")
+    parsed = PdfDocumentParser().parse(source)
+    tables = parsed.pages[0].tables
+    assert tables, "native table finder must expose a structured table"
+    assert tables[0].table_id
+    assert {cell.text for cell in tables[0].cells} >= {"Name", "Value", "Dex", "12"}
+
+
 def test_pdf_parser_preserves_order_layout_and_source_spans():
     parser = PdfDocumentParser(lambda _: [{"page_number": 1, "blocks": [
         {"text": "Part I", "bbox": [1, 2, 3, 4], "font_size": 18, "font": "Bold"},
