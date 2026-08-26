@@ -292,6 +292,9 @@ class ExtractionApplicationService:
                 index.pop(idempotency_key, None)
         try:
             raw_pages = self.native_pdf.extract(source) if source.suffix.lower() == ".pdf" else self._text_pages(source)
+            recovered = request.get("recovered_pages", {})
+            if isinstance(recovered, Mapping):
+                raw_pages = [recovered.get(str(p.get("page_number")), p) if isinstance(p, Mapping) else p for p in raw_pages]
             if not isinstance(raw_pages, (list, tuple)):
                 raw_pages = [{"page_number": 1, "malformed": True}]
         except Exception as exc:
@@ -546,6 +549,11 @@ class ExtractionApplicationService:
                     raise VersionNotFoundError("VERSION_NOT_FOUND")
                 try:
                     response = json.loads(path.read_text())
+                    snapshot_path = root / "versions" / version_id / "retry-state.json"
+                    if snapshot_path.is_file() and not snapshot_path.is_symlink():
+                        snapshot = json.loads(snapshot_path.read_text())
+                        if isinstance(snapshot, dict) and isinstance(snapshot.get("response"), dict):
+                            response = snapshot["response"]
                 except json.JSONDecodeError as exc:
                     raise ValueError("VERSION_ARTIFACT_CORRUPT") from exc
                 if not isinstance(response, dict) or not all(key in response for key in ("schema_version", "operation", "request_id", "version_id", "status", "pages", "page_summary", "artifacts", "manifest")) or not isinstance(response["pages"], list) or not isinstance(response["artifacts"], dict) or not isinstance(response["page_summary"], dict) or not isinstance(response["manifest"], dict):
@@ -647,6 +655,7 @@ class ExtractionApplicationService:
                 # checkpointing but before publication; continue below.
             resume_promotion = isinstance(retry_index.get(idem), dict) and retry_index[idem].get("state") == "promotion_pending" and all(p.get("status") == "VALIDATED" for p in current["pages"])
             updated = []
+            recovered_pages: dict[str, Mapping[str, Any]] = {}
             source_path = Path(str(current.get("manifest", {}).get("source", {}).get("path", "")))
             for page in (() if resume_promotion else current["pages"]):
                 item = dict(page)
@@ -678,6 +687,8 @@ class ExtractionApplicationService:
                             render = self._render_evidence(source_path, item["page_number"], page_geometry)
                             validation = self.layout_validator.validate(raw, render)
                             valid = validation.valid
+                            if valid:
+                                recovered_pages[str(item["page_number"])] = raw
                         if valid:
                             item["status"] = "VALIDATED"; item["findings"] = []
                             history[-1] = {**history[-1], "status": "VALIDATED", "findings": []}
@@ -723,12 +734,20 @@ class ExtractionApplicationService:
                 snapshot.write_text(json.dumps({"response": response, "version": version_data,
                                                 "idempotency": idem}, ensure_ascii=False,
                                        sort_keys=True, indent=2) + "\n")
+                with snapshot.open("rb") as stream:
+                    os.fsync(stream.fileno())
                 os.replace(snapshot, version_dir / "retry-state.json")
             diag_dir = root / "diagnostics" / version_id; diag_dir.mkdir(parents=True, exist_ok=True)
             for item in updated:
                 if item["page_number"] in wanted:
-                    (diag_dir / f"page-{item['page_number']}-attempt-{item['attempts']}.json.tmp").write_text(json.dumps(item.get("diagnostics", {}), sort_keys=True) + "\n")
-                    os.replace(diag_dir / f"page-{item['page_number']}-attempt-{item['attempts']}.json.tmp", diag_dir / f"page-{item['page_number']}-attempt-{item['attempts']}.json")
+                    stem = diag_dir / f"page-{item['page_number']}-attempt-{item['attempts']}"
+                    (stem.with_suffix(".json.tmp")).write_text(json.dumps(item.get("diagnostics", {}), sort_keys=True) + "\n")
+                    os.replace(stem.with_suffix(".json.tmp"), stem.with_suffix(".json"))
+                    regions = item.get("diagnostics", {}).get("finding_regions", [])
+                    rects = "".join(f'<rect x="{r[0]}" y="{r[1]}" width="{max(0,r[2]-r[0])}" height="{max(0,r[3]-r[1])}" fill="none" stroke="red"/>' for r in regions if isinstance(r, (list, tuple)) and len(r) == 4)
+                    svg = f'<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1400">{rects}<text x="8" y="20">page {item["page_number"]} attempt {item["attempts"]}</text></svg>\n'
+                    (stem.with_suffix(".svg.tmp")).write_text(svg)
+                    os.replace(stem.with_suffix(".svg.tmp"), stem.with_suffix(".svg"))
             retry_index[idem] = {"version_id": version_id, "pages": wanted, "state": "promotion_pending"}
             retry_tmp = index_path.with_suffix(".tmp"); retry_tmp.write_text(json.dumps(retry_index, sort_keys=True) + "\n"); os.replace(retry_tmp, index_path)
             # Once every page is validated, materialize a fresh published
@@ -741,7 +760,8 @@ class ExtractionApplicationService:
                 promoted_request = {"request_id": f"{request_id}-publish", "source_path": manifest_source.get("path"),
                                     "source_sha256": manifest_source.get("sha256"),
                                     "policy_version": current.get("manifest", {}).get("policy", {}).get("version", "retry"),
-                                    "output_dir": str(root), "version_id": promoted_id}
+                                    "output_dir": str(root), "version_id": promoted_id,
+                                    "recovered_pages": recovered_pages}
                 try:
                     promoted = self._preprocess_locked(promoted_request, root)
                     retry_index[idem] = {"version_id": version_id, "pages": wanted, "state": "completed", "result_version_id": promoted["version_id"]}
