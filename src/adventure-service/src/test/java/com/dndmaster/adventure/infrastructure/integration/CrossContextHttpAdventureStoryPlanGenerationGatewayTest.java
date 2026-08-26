@@ -17,6 +17,8 @@ import com.dndmaster.adventure.domain.adventure.AdventureLength;
 import com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import com.dndmaster.adventure.domain.adventure.AdventureStageType;
+import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
+import com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
@@ -197,6 +199,43 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
     }
 
     @Test
+    void preserves_caller_key_across_gateway_boundary_and_resolves_canonical_provenance() {
+        server = new WireMockServer(0);
+        server.start();
+        UUID documentId = UUID.randomUUID();
+        var provenance = new PublishedEvidenceProvenance(
+                new KnowledgeDocumentId(documentId), 7, 4, List.of("Chapter 1"), List.of(1.0, 2.0, 3.0, 4.0),
+                "cell-A", "page:4:block:2");
+        var citation = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "STORYBOOK", documentId, 7, "page:4:block:2", "server-owned quote", .93, provenance)
+                .withCitationKey("stable-story");
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/adventure-story-plan"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody("""
+                        {"stages":[
+                          {"position":1,"title":"Start","goal":"Begin","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Start","evidence":[{"citationKey":"stable-story","locator":"tampered","quote":"tampered","confidence":0.01}],"enemies":[],"rewards":[],"branchIds":[],"branchTargets":{}},
+                          {"position":2,"title":"Middle","goal":"Advance","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Middle","evidence":[{"citationKey":"stable-story"}],"enemies":[],"rewards":[],"branchIds":[],"branchTargets":{}},
+                          {"position":3,"title":"Finish","goal":"End","conflict":"Choice","transitionCondition":"Finish","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Finish","evidence":[{"citationKey":"stable-story"}],"enemies":[],"rewards":[],"branchIds":[],"branchTargets":{}}
+                        ]}
+                        """)));
+        var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "test-internal-token");
+
+        var candidate = gateway.generate(new AdventureStoryPlanGenerationPort.Request(
+                "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT), List.of(), List.of(), List.of(), List.of(citation)));
+
+        var evidence = candidate.getFirst().evidence().getFirst();
+        assertEquals(citation.documentType(), evidence.documentType());
+        assertEquals(citation.documentId(), evidence.documentId());
+        assertEquals(citation.extractionVersion(), evidence.extractionVersion());
+        assertEquals(citation.locator(), evidence.locator());
+        assertEquals(citation.quote(), evidence.quote());
+        assertEquals(citation.confidence(), evidence.confidence());
+        assertEquals(citation.provenance(), evidence.provenance());
+        server.verify(postRequestedFor(urlEqualTo("/internal/v1/gm/adventure-story-plan"))
+                .withRequestBody(matchingJsonPath("$.citations[0].citationKey", equalTo("stable-story"))));
+    }
+
+    @Test
     void preserves_caller_citation_keys_and_assigns_deterministic_unused_keys() {
         UUID firstDocumentId = UUID.randomUUID();
         UUID secondDocumentId = UUID.randomUUID();
@@ -216,6 +255,28 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
 
         assertEquals(List.of("stable-story", "citation-1", "citation-2", "citation-3"),
                 keyed.citations().stream().map(AdventureStoryPlanGenerationPort.SourceCitation::citationKey).toList());
+    }
+
+    @Test
+    void rejects_duplicate_caller_citation_keys_before_sending_or_resolving() {
+        server = new WireMockServer(0);
+        server.start();
+        var duplicateKey = "stable-story";
+        var request = new AdventureStoryPlanGenerationPort.Request(
+                "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT), List.of(), List.of(), List.of(),
+                List.of(
+                        new AdventureStoryPlanGenerationPort.SourceCitation("STORYBOOK", UUID.randomUUID(), 1, "page:1", "first", .9)
+                                .withCitationKey(duplicateKey),
+                        new AdventureStoryPlanGenerationPort.SourceCitation("STORYBOOK", UUID.randomUUID(), 1, "page:2", "second", .9)
+                                .withCitationKey(duplicateKey)));
+
+        var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "test-internal-token");
+
+        var failure = assertThrows(IllegalArgumentException.class, () -> gateway.generate(request));
+
+        assertEquals("duplicate citation key: " + duplicateKey, failure.getMessage());
+        server.verify(exactly(0), postRequestedFor(urlEqualTo("/internal/v1/gm/adventure-story-plan")));
     }
 
     @Test

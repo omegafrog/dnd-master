@@ -39,14 +39,14 @@ public interface AdventureStoryPlanGenerationPort {
             previousCandidate = previousCandidate == null ? "" : previousCandidate;
         }
         public Request withCitationKeys() {
-            java.util.Set<String> usedKeys = citations.stream()
-                    .map(SourceCitation::citationKey)
-                    .filter(key -> key != null && !key.isBlank())
-                    .collect(java.util.stream.Collectors.toCollection(java.util.HashSet::new));
+            java.util.Set<String> usedKeys = new java.util.HashSet<>();
             int nextGeneratedKey = 1;
             List<SourceCitation> keyed = new java.util.ArrayList<>();
             for (SourceCitation citation : citations) {
                 if (citation.citationKey() != null && !citation.citationKey().isBlank()) {
+                    if (!usedKeys.add(citation.citationKey())) {
+                        throw new IllegalArgumentException("duplicate citation key: " + citation.citationKey());
+                    }
                     keyed.add(citation);
                     continue;
                 }
