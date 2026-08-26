@@ -1,0 +1,5 @@
+tiny_tokens: 100
+oversized_tokens: 500
+near_duplicate_jaccard: 0.8
+source_traceability_min: 0.999
+source_mutation_max: 0.0

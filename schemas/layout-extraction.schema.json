@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "version": "1",
+  "additionalProperties": false,
+  "required": ["regions", "profiles", "ordered_block_ids", "ambiguous"],
+  "properties": {
+    "regions": {"type": "array", "items": {"$ref": "#/$defs/region"}},
+    "profiles": {"type": "array", "items": {"$ref": "#/$defs/profile"}},
+    "ordered_block_ids": {"type": "array", "items": {"type": "string"}},
+    "spanning_block_ids": {"type": "array", "items": {"type": "string"}},
+    "furniture_block_ids": {"type": "array", "items": {"type": "string"}},
+    "ambiguous": {"type": "boolean"},
+    "findings": {"type": "array", "items": {"type": "string"}}
+  },
+  "$defs": {
+    "bbox": {
+      "type": "object", "additionalProperties": false,
+      "required": ["x0", "y0", "x1", "y1"],
+      "properties": {"x0": {"type": "number"}, "y0": {"type": "number"}, "x1": {"type": "number"}, "y1": {"type": "number"}}
+    },
+    "region": {
+      "type": "object", "additionalProperties": false,
+      "required": ["region_id", "bbox", "block_ids"],
+      "properties": {"region_id": {"type": "string", "minLength": 1}, "bbox": {"$ref": "#/$defs/bbox"}, "block_ids": {"type": "array", "items": {"type": "string"}}}
+    },
+    "hypothesis": {
+      "type": "object", "additionalProperties": false,
+      "required": ["column_count", "columns", "score", "strategy"],
+      "properties": {"column_count": {"type": "integer", "minimum": 1}, "columns": {"type": "array", "items": {"$ref": "#/$defs/bbox"}}, "score": {"type": "number", "minimum": 0, "maximum": 1}, "strategy": {"type": "string"}}
+    },
+    "profile": {
+      "type": "object", "additionalProperties": false,
+      "required": ["region_id", "candidates", "selected", "confidence", "ambiguous", "findings"],
+      "properties": {"region_id": {"type": "string"}, "candidates": {"type": "array", "items": {"$ref": "#/$defs/hypothesis"}}, "selected": {"anyOf": [{"$ref": "#/$defs/hypothesis"}, {"type": "null"}]}, "confidence": {"type": "number", "minimum": 0, "maximum": 1}, "ambiguous": {"type": "boolean"}, "findings": {"type": "array", "items": {"type": "string"}}}
+    }
+  }
+}

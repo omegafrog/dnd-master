@@ -1,0 +1,17 @@
+name: dnd-rulebook
+pipeline_version: 0.1.0
+chunking:
+  target_tokens: 350
+  max_tokens: 500
+  min_tokens: 100
+  overlap_tokens: 30
+  strategies:
+    spell: atomic
+    monster_stat_block: atomic
+    class_feature: atomic
+    race_trait: atomic
+    condition: atomic
+    magic_item: atomic
+    table: table
+    rule: rule
+    narrative: narrative

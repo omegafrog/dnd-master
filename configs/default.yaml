@@ -1,0 +1,7 @@
+name: preprocessing-agent
+pipeline_version: 0.1.0
+chunking:
+  target_tokens: 350
+  max_tokens: 500
+  min_tokens: 100
+  overlap_tokens: 30

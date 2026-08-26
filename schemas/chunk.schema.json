@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "preprocessing-agent/chunk",
+  "type": "object", "additionalProperties": false,
+  "required": ["chunk_id", "canonical_key", "content_type", "source_text", "embedding_text", "token_count", "source_spans", "section_path", "parent_key"],
+  "properties": {
+    "chunk_id": {"type": "string", "minLength": 1}, "canonical_key": {"type": "string", "minLength": 1},
+    "content_type": {"type": "string", "enum": ["narrative", "rule", "table", "class_feature", "race_trait", "spell", "monster_stat_block", "magic_item", "condition", "equipment", "background", "unknown"]},
+    "source_text": {"type": "string"}, "embedding_text": {"type": "string"}, "token_count": {"type": "integer", "minimum": 0},
+    "source_spans": {"type": "array", "items": {"$ref": "#/$defs/span"}}, "section_path": {"type": "array", "items": {"type": "string"}}, "parent_key": {"type": ["string", "null"]}
+  },
+  "$defs": {"span": {"type": "object", "additionalProperties": false, "required": ["page_number", "block_index", "char_start", "char_end", "token_start", "token_end"], "properties": {"page_number": {"type": "integer", "minimum": 1}, "block_index": {"type": ["integer", "null"]}, "char_start": {"type": ["integer", "null"]}, "char_end": {"type": ["integer", "null"]}, "token_start": {"type": ["integer", "null"]}, "token_end": {"type": ["integer", "null"]}}}}
+}

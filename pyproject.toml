@@ -1,0 +1,28 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "preprocessing-agent"
+version = "0.1.0"
+description = "Configuration and package skeleton for the RAG preprocessing agent."
+requires-python = ">=3.11"
+dependencies = [
+    "PyYAML>=6.0,<7",
+    "PyMuPDF>=1.24,<2",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0,<9",
+    "jsonschema>=4.0,<5",
+]
+ocr = ["Pillow>=10.0,<13"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["tests"]
+pythonpath = ["src"]

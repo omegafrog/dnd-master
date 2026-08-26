@@ -1,0 +1,11 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "required": ["valid", "issue", "action"],
+  "properties": {
+    "valid": {"type": "boolean"},
+    "issue": {"type": ["string", "null"]},
+    "action": {"type": ["string", "null"]}
+  },
+  "additionalProperties": false
+}

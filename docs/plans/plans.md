@@ -1,15 +1,10 @@
-# Implementation Plans
+# Layout-Aware PDF Preprocessing Plan Index
 
-Tracker: GitHub Issues — `omegafrog/dnd-master`
-Product Spec: [product-spec.md](../specs/product-spec.md)
-Architecture Spec: [architecture-spec.md](../specs/architecture-spec.md)
-
-Status vocabulary: `planned`, `ready-for-agent`, `in-progress`, `completed`, `blocked`.
-
-## 039 — 전술 장면 지연 생성과 모험 실행 준비
-
-1. [039-1 계획 READY와 모험 시작 게이트 분리](039-1-plan-ready-and-start-gate.md) — [issue draft](../issues/039-1-plan-ready-and-start-gate.md) — `completed`
-2. [039-2 현재 맵 단계 진입 시 전술 장면 준비](039-2-stage-entry-tactical-preparation.md) — [issue draft](../issues/039-2-stage-entry-tactical-preparation.md) — `completed`
-3. [039-3 전술 장면 준비 작업 영속화와 브라우저 검증](039-3-durable-preparation-and-browser-verification.md) — [issue draft](../issues/039-3-durable-preparation-and-browser-verification.md) — `completed`
-
-Dependency chain: `039-1 → 039-2 → 039-3`.
+| Plan | Issue | Status | Dependencies | Scope |
+|---|---|---|---|---|
+| [RAG-008 Extraction Version Process Port](rag-008-extraction-version-process-port.md) | [#181](https://github.com/omegafrog/dnd-master/issues/181) | `completed` | none | JSON process port, ExtractionVersion lifecycle, single-column walking skeleton |
+| [RAG-009 Regional Column Reading Order](rag-009-regional-column-reading-order.md) | [#182](https://github.com/omegafrog/dnd-master/issues/182) | `completed` | RAG-008 | layout regions, column hypotheses/profile, spanning-block reading order |
+| [RAG-010 Heading and Table Structure](rag-010-heading-table-structure.md) | [#183](https://github.com/omegafrog/dnd-master/issues/183) | `completed` | RAG-009 | heading association, table headers/rows/cells, uncertainty |
+| [RAG-011 Native OCR Hybrid Extraction](rag-011-native-ocr-hybrid-extraction.md) | [#184](https://github.com/omegafrog/dnd-master/issues/184) | `completed` | RAG-009 | native/OCR/hybrid ports, provenance and capability gate |
+| [RAG-012 Layout Validation Publication Gate](rag-012-layout-validation-publication-gate.md) | [#185](https://github.com/omegafrog/dnd-master/issues/185) | `completed` | RAG-010, RAG-011 | render validation, multidimensional confidence, page/version gate |
+| [RAG-013 Page Retry Diagnostics Recovery](rag-013-page-retry-diagnostics-recovery.md) | [#186](https://github.com/omegafrog/dnd-master/issues/186) | `completed` | RAG-012 | page checkpoints, bounded retry, status/retry process operations, diagnostics |

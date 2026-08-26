@@ -1,0 +1,16 @@
+{"case_id":"spell.fireball","question":"spell.fireball","gold_context_keys":["spell.fireball"],"required_evidence":[{"group_id":"identity","keys":["spell.fireball"]}]}
+{"case_id":"spell.magic-missile","question":"spell.magic-missile","gold_context_keys":["spell.magic-missile"]}
+{"case_id":"monster.goblin","question":"monster.goblin","gold_context_keys":["monster.goblin"]}
+{"case_id":"monster.ogre","question":"monster.ogre","gold_context_keys":["monster.ogre"]}
+{"case_id":"class.fighter-action-surge","question":"class.fighter.action-surge","gold_context_keys":["class.fighter.action-surge"]}
+{"case_id":"class.wizard.arcane-recovery","question":"class.wizard.arcane-recovery","gold_context_keys":["class.wizard.arcane-recovery"]}
+{"case_id":"race.elf.darkvision","question":"race.elf.darkvision","gold_context_keys":["race.elf.darkvision"]}
+{"case_id":"race.dwarf.dwarven-resilience","question":"race.dwarf.dwarven-resilience","gold_context_keys":["race.dwarf.dwarven-resilience"]}
+{"case_id":"condition.blinded","question":"condition.blinded","gold_context_keys":["condition.blinded"]}
+{"case_id":"condition.poisoned","question":"condition.poisoned","gold_context_keys":["condition.poisoned"]}
+{"case_id":"item.potion-healing","question":"item.potion-healing","gold_context_keys":["item.potion-healing"]}
+{"case_id":"item.immovable-rod","question":"item.immovable-rod","gold_context_keys":["item.immovable-rod"]}
+{"case_id":"table.ability-modifiers","question":"table.ability-modifiers","gold_context_keys":["table.ability-modifiers"]}
+{"case_id":"table.xp-levels","question":"table.xp-levels","gold_context_keys":["table.xp-levels"]}
+{"case_id":"spell.healing-word","question":"spell.healing-word","gold_context_keys":["spell.healing-word"]}
+{"case_id":"monster.ancient-dragon","question":"monster.ancient-dragon","gold_context_keys":["monster.ancient-dragon"]}

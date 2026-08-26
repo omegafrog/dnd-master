@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "RAG Gold Case",
+  "type": "object",
+  "required": ["case_id", "question", "answerable", "gold_chunk_ids", "evidence_groups"],
+  "additionalProperties": false,
+  "properties": {
+    "case_id": {"type": "string", "minLength": 1},
+    "question": {"type": "string", "minLength": 1},
+    "answerable": {"type": "boolean"},
+    "gold_chunk_ids": {"type": "array", "items": {"type": "string", "minLength": 1}, "uniqueItems": true},
+    "evidence_groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["group_id", "chunk_ids"],
+        "additionalProperties": false,
+        "properties": {
+          "group_id": {"type": "string", "minLength": 1},
+          "chunk_ids": {"type": "array", "items": {"type": "string", "minLength": 1}, "minItems": 1, "uniqueItems": true}
+        }
+      }
+    }
+  },
+  "allOf": [
+    {"if": {"properties": {"answerable": {"const": true}}}, "then": {"properties": {"gold_chunk_ids": {"minItems": 1}}}},
+    {"if": {"properties": {"answerable": {"const": false}}}, "then": {"properties": {"gold_chunk_ids": {"maxItems": 0}, "evidence_groups": {"maxItems": 0}}}}
+  ]
+}

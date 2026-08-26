@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "preprocessing-agent/validation",
+  "type": "object", "additionalProperties": false,
+  "required": ["valid", "issues", "checked_chunk_ids"],
+  "properties": {
+    "valid": {"type": "boolean"}, "checked_chunk_ids": {"type": "array", "items": {"type": "string"}},
+    "issues": {"type": "array", "items": {"$ref": "#/$defs/issue"}}
+  },
+  "$defs": {
+    "span": {"type": "object", "additionalProperties": false, "required": ["page_number", "block_index", "char_start", "char_end", "token_start", "token_end"], "properties": {"page_number": {"type": "integer", "minimum": 1}, "block_index": {"type": ["integer", "null"]}, "char_start": {"type": ["integer", "null"]}, "char_end": {"type": ["integer", "null"]}, "token_start": {"type": ["integer", "null"]}, "token_end": {"type": ["integer", "null"]}}},
+    "issue": {"type": "object", "additionalProperties": false, "required": ["issue_type", "message", "severity", "path", "source_span"], "properties": {"issue_type": {"type": "string", "minLength": 1}, "message": {"type": "string", "minLength": 1}, "severity": {"type": "string", "enum": ["error", "warning", "info"]}, "path": {"type": ["string", "null"]}, "source_span": {"anyOf": [{"$ref": "#/$defs/span"}, {"type": "null"}]}}}
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "preprocessing-agent/document-tree",
+  "type": "object", "additionalProperties": false,
+  "required": ["document_id", "root"],
+  "properties": {"document_id": {"type": "string", "minLength": 1}, "root": {"$ref": "#/$defs/node"}},
+  "$defs": {
+    "type": {"type": "string", "enum": ["narrative", "rule", "table", "class_feature", "race_trait", "spell", "monster_stat_block", "magic_item", "condition", "equipment", "background", "unknown"]},
+    "span": {"type": "object", "additionalProperties": false, "required": ["page_number", "block_index", "char_start", "char_end", "token_start", "token_end"], "properties": {"page_number": {"type": "integer", "minimum": 1}, "block_index": {"type": ["integer", "null"]}, "char_start": {"type": ["integer", "null"]}, "char_end": {"type": ["integer", "null"]}, "token_start": {"type": ["integer", "null"]}, "token_end": {"type": ["integer", "null"]}}},
+    "node": {"type": "object", "additionalProperties": false, "required": ["node_id", "title", "level", "content_type", "source_spans", "block_ids", "children"], "properties": {"node_id": {"type": "string", "minLength": 1}, "title": {"type": "string", "minLength": 1}, "level": {"type": "integer", "minimum": 0}, "content_type": {"$ref": "#/$defs/type"}, "source_spans": {"type": "array", "items": {"$ref": "#/$defs/span"}}, "block_ids": {"type": "array", "items": {"type": "string"}}, "children": {"type": "array", "items": {"$ref": "#/$defs/node"}}}}
+  }
+}

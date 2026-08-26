@@ -10,6 +10,7 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest",
     "test:e2e": "playwright test",
+    "test:e2e:ci": "playwright test e2e/accessibility.spec.ts e2e/package-blueprint-review.spec.ts e2e/player-journey.spec.ts --grep-invert 'document-derived scenario'",
     "test:e2e:backend": "playwright test e2e/backend-runtime-binding.spec.ts",
     "test:e2e:character": "playwright test e2e/backend-character-creation.spec.ts",
     "test:e2e:character:fresh": "playwright test e2e/backend-character-bootstrap.spec.ts",
