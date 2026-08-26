@@ -646,6 +646,8 @@ class ExtractionApplicationService:
             for page in current["pages"]:
                 item = dict(page)
                 if item["page_number"] in wanted:
+                    if item.get("status") == "VALIDATED":
+                        raise ValueError("VALIDATED_PAGE_IMMUTABLE")
                     attempt = self.retry_policy.request(item)
                     history = list(item.get("attempt_history", [])); history.append(attempt.as_dict())
                     item["attempts"] = attempt.attempt_number; item["attempt_history"] = history
@@ -659,7 +661,18 @@ class ExtractionApplicationService:
                         raw = next((p for p in raw_pages if isinstance(p, Mapping) and p.get("page_number") == item["page_number"]), None)
                         geometry = raw.get("geometry", {}) if isinstance(raw, Mapping) else {}
                         boxes = raw.get("blocks", ()) if isinstance(raw, Mapping) else ()
-                        valid = isinstance(raw, Mapping) and float(geometry.get("width", 0)) > 0 and float(geometry.get("height", 0)) > 0 and all(isinstance(b, Mapping) and len(b.get("bbox", ())) == 4 for b in boxes)
+                        valid = isinstance(raw, Mapping) and float(geometry.get("width", 0)) > 0 and float(geometry.get("height", 0)) > 0 and all(isinstance(b, Mapping) and len(b.get("bbox", ())) == 4 and 0 <= float(b["bbox"][0]) <= float(b["bbox"][2]) <= float(geometry["width"]) and 0 <= float(b["bbox"][1]) <= float(b["bbox"][3]) <= float(geometry["height"]) for b in boxes)
+                        if valid:
+                            page_geometry = PageGeometry(float(geometry["width"]), float(geometry["height"]))
+                            layout_plan = ReadingOrderPlanner().plan(boxes, page_geometry)
+                            if layout_plan.ambiguous:
+                                valid = False
+                            raw = {**raw, "layout": to_dict(layout_plan)}
+                            raw["heading_associations"] = to_dict(HeadingAssociator().associate(boxes, layout_plan))
+                            raw["tables"] = to_dict(TableStructureDetector().detect(boxes))
+                            render = self._render_evidence(source_path, item["page_number"], page_geometry)
+                            validation = self.layout_validator.validate(raw, render)
+                            valid = validation.valid
                         if valid:
                             item["status"] = "VALIDATED"; item["findings"] = []
                             history[-1] = {**history[-1], "status": "VALIDATED", "findings": []}
@@ -667,6 +680,7 @@ class ExtractionApplicationService:
                             item["findings"] = ["RETRY_EXTRACTION_FAILED"]
                     except Exception as exc:
                         item["findings"] = [str(exc) or "RETRY_EXTRACTION_FAILED"]
+                    item["diagnostics"]["finding_regions"] = item.get("finding_regions", item["diagnostics"].get("regions", []))
                     item["diagnostics"]["overlay"] = f"diagnostics/{version_id}/page-{item['page_number']}-attempt-{attempt.attempt_number}.json"
                 updated.append(item)
             response = {**current, "operation": "retry_pages", "request_id": request_id, "pages": updated}
