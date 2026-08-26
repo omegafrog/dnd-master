@@ -119,6 +119,19 @@ def test_three_column_candidate_is_supported():
     assert any(candidate.column_count == 3 for candidate in profile.candidates)
 
 
+def test_well_supported_three_columns_beat_a_two_column_merge():
+    blocks = [
+        block(f"{column}-{row}", f"{column}-{row}", (column * 40, row * 25, column * 40 + 25, row * 25 + 15))
+        for column in range(3) for row in range(4)
+    ]
+
+    profile = ReadingOrderPlanner().plan(blocks).profiles[0]
+
+    assert profile.ambiguous is False
+    assert profile.selected is not None
+    assert profile.selected.column_count == 3
+
+
 def test_real_page_geometry_margins_preserve_one_two_one_regions():
     geometry = PageGeometry(612, 792)
     blocks = [

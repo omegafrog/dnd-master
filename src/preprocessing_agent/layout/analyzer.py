@@ -166,6 +166,7 @@ class LayoutAnalyzer:
             second is not None
             and best.score - second.score < ambiguity_margin
             and not (best.column_count > 1 and second.column_count == 1 and best.score >= .85)
+            and not (best.column_count > second.column_count and best.score >= .95 and len(entries) >= 12)
         )
         ambiguous = undersampled_high_order_split or weakly_supported_split or close_competing_split
         return ColumnProfile(region.region_id, tuple(candidates), None if ambiguous else best, best.score if not ambiguous else best.score - (ambiguity_margin / 2), ambiguous, ("AMBIGUOUS_COLUMN_HYPOTHESIS",) if ambiguous else ())
