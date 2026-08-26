@@ -77,6 +77,8 @@ class PdfDocumentParser:
                     bbox=_bbox(raw_block.get("bbox")),
                     font_size=_number(raw_block.get("font_size", raw_block.get("size"))),
                     font_weight=_font_weight(raw_block),
+                    extraction_method=str(raw_block.get("extraction_method", "native")),
+                    text_confidence=float(raw_block.get("text_confidence", raw_block.get("confidence", 1.0))),
                 )
                 blocks.append(block)
                 page_parts.append(text)
@@ -87,7 +89,7 @@ class PdfDocumentParser:
             page_structure = tuple({**raw_block, "source_text": blocks_by_id[str(raw_block["block_id"])].source_text} for raw_block in raw_blocks if str(raw_block["block_id"]) in blocks_by_id)
             headings = HeadingAssociator().associate(page_structure, plan) if plan is not None else ()
             tables = TableStructureDetector().detect(page_structure) if plan is not None else ()
-            pages.append(ParsedPage(page_number, tuple(blocks), page_text, headings, tables))
+            pages.append(ParsedPage(page_number, tuple(blocks), page_text, headings, tables, str(raw_page.get("page_classification", "text-native"))))
             document_parts.append(page_text)
         source_text = normalize_text("\n".join(document_parts))
         document_id = hashlib.sha256(source_text.encode("utf-8")).hexdigest()[:16]

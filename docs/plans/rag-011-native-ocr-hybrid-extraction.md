@@ -1,6 +1,6 @@
 # RAG-011 Native OCR Hybrid Extraction
 
-- 상태: `planned`
+- 상태: `completed`
 - 의존성: RAG-009
 - Product Spec: UC-01, UC-05; BR-10 ~ BR-12
 - Architecture Spec: Sections 2.6, 4.1, 5.11, 5.12
@@ -59,3 +59,6 @@ process preprocess request
 - capability matrix
 - native/image/mixed fixture 결과
 - adapter/CLI e2e 테스트 결과
+
+구현 커밋: `a4006089` (native/render/OCR port와 capability gate)
+검증: `.venv-docling/bin/python -m pytest -q` — 182 passed

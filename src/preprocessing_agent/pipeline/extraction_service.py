@@ -25,6 +25,8 @@ from preprocessing_agent.layout import ReadingOrderPlanner
 from preprocessing_agent.parsers.pdf import PdfDocumentParser
 from preprocessing_agent.pipeline.pipeline import PreprocessingPipeline
 from preprocessing_agent.structure import HeadingAssociator, TableStructureDetector
+from preprocessing_agent.ports.extraction import ExtractionCapabilityError, PageRenderPort, OcrPort, normalize_ocr_blocks
+from preprocessing_agent.adapters.ocr import PyMuPdfPageRenderAdapter, TesseractOcrAdapter
 
 
 class ExtractionStatus(str, Enum):
@@ -204,8 +206,10 @@ def _enforce_root(path: Path, env_name: str) -> None:
 
 
 class ExtractionApplicationService:
-    def __init__(self, native_pdf: NativePdfPort | None = None) -> None:
+    def __init__(self, native_pdf: NativePdfPort | None = None, render: PageRenderPort | None = None, ocr: OcrPort | None = None) -> None:
         self.native_pdf = native_pdf or PyMuPdfNativePdfAdapter()
+        self.render = render or PyMuPdfPageRenderAdapter()
+        self.ocr = ocr or TesseractOcrAdapter()
         self._versions: dict[str, Mapping[str, Any]] = {}
 
     def preprocess(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -292,13 +296,16 @@ class ExtractionApplicationService:
                 if number in seen_page_numbers:
                     raise ValueError("DUPLICATE_PAGE_NUMBER")
                 seen_page_numbers.add(number)
+                raw = self._augment_with_ocr(source, raw, number)
+                if raw.get("capability_error"):
+                    raise ValueError(str(raw["capability_error"]))
                 geometry = PageGeometry(float(geometry_raw["width"]), float(geometry_raw["height"]))
                 if not math.isfinite(geometry.width) or not math.isfinite(geometry.height):
                     raise ValueError("INVALID_GEOMETRY")
                 blocks = []
                 for block in raw.get("blocks", ()):
                     extraction_method = str(block.get("extraction_method", "native"))
-                    if extraction_method != "native":
+                    if extraction_method not in {"native", "ocr", "hybrid"} or (extraction_method != "native" and not raw.get("ocr_enabled")):
                         raise ValueError("NON_NATIVE_EXTRACTION_UNSUPPORTED")
                     bbox = BoundingBox(*(float(item) for item in block["bbox"]))
                     if not all(math.isfinite(value) for value in (bbox.x0, bbox.y0, bbox.x1, bbox.y1)):
@@ -306,7 +313,7 @@ class ExtractionApplicationService:
                     if not geometry.contains(bbox):
                         raise ValueError("INVALID_GEOMETRY")
                     LayoutBlock(str(block.get("block_id", "")), str(block.get("kind", "text")), bbox, str(block.get("text", "")), extraction_method, float(block.get("confidence", 1.0)), document_id, number, geometry)
-                    blocks.append({**block, "bbox": [bbox.x0, bbox.y0, bbox.x1, bbox.y1], "source_document_id": document_id, "page_number": number, "page_geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}})
+                    blocks.append({**block, "extraction_method": extraction_method, "text_confidence": float(block.get("text_confidence", block.get("confidence", 1.0))), "bbox": [bbox.x0, bbox.y0, bbox.x1, bbox.y1], "source_document_id": document_id, "page_number": number, "page_geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}})
                 raw = {**raw, "blocks": blocks}
                 declared_multi = raw.get("column_count", 1) != 1 or raw.get("layout") in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, [])
                 if declared_multi and not blocks:
@@ -328,7 +335,7 @@ class ExtractionApplicationService:
                 raw["tables"] = table_evidence
                 version.record_page(PageExtraction.validated(number))
                 parser_pages.append(raw)
-                evidence = {"page_number": number, "geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}, "blocks": blocks, "layout": layout_evidence, "heading_associations": heading_evidence, "tables": table_evidence}
+                evidence = {"page_number": number, "page_classification": raw.get("page_classification", "text-native"), "geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}, "blocks": blocks, "layout": layout_evidence, "heading_associations": heading_evidence, "tables": table_evidence}
                 page_artifacts.append({**evidence, "status": PageStatus.VALIDATED.value, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
             except (KeyError, TypeError, ValueError) as exc:
                 safe_number = number if "number" in locals() and 1 <= number <= version.page_count else position
@@ -411,6 +418,38 @@ class ExtractionApplicationService:
         except Exception as exc:
             if temp_dir.exists(): shutil.rmtree(temp_dir)
             raise
+
+    def _augment_with_ocr(self, source: Path, raw: Mapping[str, Any], number: int) -> Mapping[str, Any]:
+        """Classify a page and OCR only declared image regions or image-only pages."""
+        # Regional/multi-column analysis belongs to RAG-009; do not reinterpret
+        # an explicitly declared layout as an OCR target here.
+        if raw.get("column_count", 1) != 1 or raw.get("layout") in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, []):
+            return {**raw, "page_classification": "ambiguous"}
+        native_blocks = [dict(item) for item in raw.get("blocks", ()) if str(item.get("text", "")).strip()]
+        image_regions = raw.get("image_regions", ())
+        classification = "text-native" if native_blocks and not image_regions else ("mixed" if native_blocks else "image-only")
+        updated = {**raw, "page_classification": classification}
+        if classification == "text-native":
+            return updated
+        if self.ocr is None or not self._available(self.render) or not self._available(self.ocr):
+            return {**updated, "capability_error": "OCR_UNAVAILABLE"}
+        try:
+            rendered = self.render.render(source, number)
+            regions = list(image_regions) if image_regions else [None]
+            ocr_blocks: list[Mapping[str, Any]] = []
+            for region in regions:
+                local_width = float(region[2] - region[0]) if region is not None else rendered.width
+                local_height = float(region[3] - region[1]) if region is not None else rendered.height
+                offset = None if getattr(self.ocr, "returns_page_coordinates", False) else region
+                ocr_blocks.extend(normalize_ocr_blocks(self.ocr.recognize(rendered, region), page_number=number, width=rendered.width if offset is None else local_width, height=rendered.height if offset is None else local_height, offset=offset))
+            return {**updated, "blocks": [*native_blocks, *ocr_blocks], "extraction_method": "hybrid" if native_blocks else "ocr", "ocr_enabled": True}
+        except ExtractionCapabilityError as exc:
+            return {**updated, "capability_error": exc.code}
+
+    @staticmethod
+    def _available(adapter: Any) -> bool:
+        check = getattr(adapter, "available", None)
+        return bool(check()) if callable(check) else True
 
     def get_status(self, version_id: str, artifact_root: str | Path, *, _lock: bool = True) -> Mapping[str, Any]:
         if not re.fullmatch(r"[A-Za-z0-9._-]+", version_id) or version_id in {".", ".."}:

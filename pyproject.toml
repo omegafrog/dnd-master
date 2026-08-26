@@ -17,6 +17,7 @@ test = [
     "pytest>=8.0,<9",
     "jsonschema>=4.0,<5",
 ]
+ocr = ["Pillow>=10.0,<13"]
 
 [tool.setuptools.packages.find]
 where = ["src"]

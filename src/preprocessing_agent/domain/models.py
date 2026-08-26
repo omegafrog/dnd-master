@@ -79,6 +79,8 @@ class ParsedBlock:
     bbox: tuple[float, float, float, float] | None = None
     font_size: float | None = None
     font_weight: str | None = None
+    extraction_method: str = "native"
+    text_confidence: float = 1.0
 
     def __post_init__(self) -> None:
         if not self.block_id:
@@ -87,6 +89,10 @@ class ParsedBlock:
             raise ValueError("source_text is required")
         if self.bbox is not None and len(self.bbox) != 4:
             raise ValueError("bbox must contain four coordinates")
+        if self.extraction_method not in {"native", "ocr", "hybrid"}:
+            raise ValueError("unsupported extraction method")
+        if not 0 <= self.text_confidence <= 1:
+            raise ValueError("text confidence must be between 0 and 1")
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,10 +102,13 @@ class ParsedPage:
     source_text: str
     heading_associations: tuple[Any, ...] = ()
     tables: tuple[Any, ...] = ()
+    page_classification: str = "text-native"
 
     def __post_init__(self) -> None:
         if self.page_number < 1:
             raise ValueError("page_number must be positive")
+        if self.page_classification not in {"text-native", "image-only", "mixed", "ambiguous"}:
+            raise ValueError("unsupported page classification")
 
 
 @dataclass(frozen=True, slots=True)
