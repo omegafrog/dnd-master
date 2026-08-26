@@ -13,6 +13,8 @@
 
 - 모험 계획 요청의 citation 목록에 요청 범위의 안정적인 citation key를 부여한다.
 - 실행 projection 모델의 evidence 계약을 `citationKey` 중심으로 변경한다.
+- 빈 `citationKey`는 검증 오류로 거부한다.
+- 호출자가 제공한 안정적인 citation key가 있으면 positional key로 덮어쓰지 않는다.
 - 서버가 citation key를 원본 `SourceCitation`으로 역조회하고 locator, quote, extractionVersion, provenance를 서버 값으로 채운다.
 - 존재하지 않는 citation key는 명확한 검증 오류로 차단한다.
 - 기존 exact citation 검증과 provenance 보존을 회귀 테스트로 유지한다.
@@ -27,6 +29,7 @@
 
 - 모델이 page/chunk/quote를 변조해도 해당 문자열이 최종 source reference로 저장되지 않는다.
 - 유효한 citation key는 서버 원본 citation으로 정확히 복원된다.
+- 빈 citationKey는 거부되고, 기존 호출자 제공 안정 key는 positional key로 바뀌지 않는다.
 - 미등록 citation key는 계획 생성을 성공 처리하지 않는다.
 - 기존의 문서 ID·버전·locator·quote·confidence 검증과 provenance가 유지된다.
 
