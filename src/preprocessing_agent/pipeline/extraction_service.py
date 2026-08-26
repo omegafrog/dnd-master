@@ -290,15 +290,18 @@ class ExtractionApplicationService:
                 except (OSError, ValueError, TypeError, json.JSONDecodeError):
                     pass
                 index.pop(idempotency_key, None)
+        recovered = request.get("recovered_pages", {})
         try:
             raw_pages = self.native_pdf.extract(source) if source.suffix.lower() == ".pdf" else self._text_pages(source)
-            recovered = request.get("recovered_pages", {})
             if isinstance(recovered, Mapping):
                 raw_pages = [recovered.get(str(p.get("page_number")), p) if isinstance(p, Mapping) else p for p in raw_pages]
             if not isinstance(raw_pages, (list, tuple)):
                 raw_pages = [{"page_number": 1, "malformed": True}]
         except Exception as exc:
-            raise ValueError("NATIVE_EXTRACTION_FAILED") from exc
+            if isinstance(recovered, Mapping) and recovered:
+                raw_pages = list(recovered.values())
+            else:
+                raise ValueError("NATIVE_EXTRACTION_FAILED") from exc
         document_id = source_hash[:16]
         version_id = str(request.get("version_id") or f"ev-{uuid.uuid4().hex[:12]}")
         if not re.fullmatch(r"[A-Za-z0-9._-]+", version_id) or version_id in {".", ".."}:
@@ -653,9 +656,17 @@ class ExtractionApplicationService:
                     return self.get_status(str(saved["result_version_id"]), root, _lock=False)
                 # A prior process may have been interrupted after page
                 # checkpointing but before publication; continue below.
+            persisted_recovered = {}
+            snapshot_path = root / "versions" / version_id / "retry-state.json"
+            if snapshot_path.is_file():
+                try:
+                    data = json.loads(snapshot_path.read_text())
+                    persisted_recovered = dict(data.get("recovered_pages", {}))
+                except (OSError, json.JSONDecodeError, TypeError):
+                    pass
             resume_promotion = isinstance(retry_index.get(idem), dict) and retry_index[idem].get("state") == "promotion_pending" and all(p.get("status") == "VALIDATED" for p in current["pages"])
             updated = []
-            recovered_pages: dict[str, Mapping[str, Any]] = {}
+            recovered_pages: dict[str, Mapping[str, Any]] = dict(persisted_recovered)
             source_path = Path(str(current.get("manifest", {}).get("source", {}).get("path", "")))
             for page in (() if resume_promotion else current["pages"]):
                 item = dict(page)
@@ -732,7 +743,7 @@ class ExtractionApplicationService:
                 # interrupted response/version replacement.
                 snapshot = version_dir / "retry-state.json.tmp"
                 snapshot.write_text(json.dumps({"response": response, "version": version_data,
-                                                "idempotency": idem}, ensure_ascii=False,
+                                                "idempotency": idem, "recovered_pages": recovered_pages}, ensure_ascii=False,
                                        sort_keys=True, indent=2) + "\n")
                 with snapshot.open("rb") as stream:
                     os.fsync(stream.fileno())
