@@ -52,6 +52,13 @@ def test_irregular_table_marks_uncertain_cell_and_finding():
     assert "IRREGULAR_TABLE" in table.findings
 
 
+def test_duplicate_native_table_projection_is_deduplicated_before_structuring():
+    cell = block("cell-1", "Name", (0, 0, 20, 10), kind="table_cell", table_id="t", row=0, column=0)
+    duplicate = {**cell}
+    table = TableStructureDetector().detect([cell, duplicate])[0]
+    assert [item.cell_id for item in table.cells] == ["cell-1"]
+
+
 def test_heading_and_table_contracts_round_trip_through_json_schema():
     jsonschema = __import__("jsonschema")
     from pathlib import Path

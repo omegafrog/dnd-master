@@ -38,10 +38,10 @@ class PdfDocumentParser:
             page_number = int(raw_page.get("page_number", page_position))
             # Keep source identity stable across geometric projection. The
             # ordinal is provenance, not a reading-order signal.
-            source_blocks = tuple(
+            source_blocks = _deduplicate_blocks(tuple(
                 ({**raw_block, "block_id": str(raw_block.get("block_id", f"p{page_number}-b{index}"))})
                 for index, raw_block in enumerate(raw_page.get("blocks", ()))
-            )
+            ))
             missing_geometry = any(raw_block.get("bbox") is None for raw_block in source_blocks)
             plan = None if missing_geometry else ReadingOrderPlanner().plan(source_blocks)
             if missing_geometry:
@@ -104,6 +104,19 @@ def _bbox(value: Any) -> tuple[float, float, float, float] | None:
     if len(result) != 4:
         raise ParserError("PDF block bbox must contain four coordinates")
     return result  # type: ignore[return-value]
+
+
+def _deduplicate_blocks(blocks: tuple[Mapping[str, Any], ...]) -> tuple[Mapping[str, Any], ...]:
+    selected: dict[str, Mapping[str, Any]] = {}
+    for block in blocks:
+        block_id = str(block.get("block_id", ""))
+        previous = selected.get(block_id)
+        if previous is None or (
+            str(previous.get("kind", "")).casefold() not in {"table", "table_cell", "cell"}
+            and str(block.get("kind", "")).casefold() in {"table", "table_cell", "cell"}
+        ):
+            selected[block_id] = block
+    return tuple(selected.values())
 
 
 def _number(value: Any) -> float | None:

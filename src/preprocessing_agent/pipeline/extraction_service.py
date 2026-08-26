@@ -144,6 +144,7 @@ class PyMuPdfNativePdfAdapter:
                                            "is_header": row_index == 0})
                 if table_regions:
                     blocks = [block for block in blocks if block.get("kind") == "table_cell" or not _inside_table_region(block.get("bbox"), table_regions)]
+                blocks = list(_deduplicate_blocks(blocks))
                 pages.append({"page_number": number, "geometry": {"width": rect.width, "height": rect.height}, "blocks": blocks})
         return pages
 
@@ -154,6 +155,19 @@ def _inside_table_region(bbox: object, regions: list[tuple[float, float, float, 
     center_x = (float(bbox[0]) + float(bbox[2])) / 2
     center_y = (float(bbox[1]) + float(bbox[3])) / 2
     return any(x0 <= center_x <= x1 and y0 <= center_y <= y1 for x0, y0, x1, y1 in regions)
+
+
+def _deduplicate_blocks(blocks: list[Mapping[str, Any]]) -> tuple[Mapping[str, Any], ...]:
+    selected: dict[str, Mapping[str, Any]] = {}
+    for block in blocks:
+        block_id = str(block.get("block_id", ""))
+        previous = selected.get(block_id)
+        if previous is None or (
+            str(previous.get("kind", "")).casefold() not in {"table", "table_cell", "cell"}
+            and str(block.get("kind", "")).casefold() in {"table", "table_cell", "cell"}
+        ):
+            selected[block_id] = block
+    return tuple(selected.values())
 
 
 def _sha256(path: Path) -> str:

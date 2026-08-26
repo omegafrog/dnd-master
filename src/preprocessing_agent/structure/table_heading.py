@@ -158,7 +158,20 @@ class TableStructureDetector:
 
     def detect(self, blocks: Iterable[StructuredValue]) -> tuple[TableStructure, ...]:
         groups: dict[str, list[StructuredValue]] = defaultdict(list)
+        seen: dict[str, StructuredValue] = {}
         for value in blocks:
+            block_id = _id(value)
+            previous = seen.get(block_id)
+            if previous is not None:
+                # Native table projections can overlap a text block returned
+                # by get_text(). Keep exactly one deterministic source block,
+                # preferring the explicitly structured table-cell record.
+                previous_kind = str(_get(previous, "kind", "")).casefold()
+                current_kind = str(_get(value, "kind", "")).casefold()
+                if previous_kind in {"table", "table_cell", "cell"} or current_kind not in {"table", "table_cell", "cell"}:
+                    continue
+            seen[block_id] = value
+        for value in seen.values():
             table_id = _get(value, "table_id")
             kind = str(_get(value, "kind", ""))
             if table_id or kind.casefold() in {"table", "table_cell", "cell"}:
