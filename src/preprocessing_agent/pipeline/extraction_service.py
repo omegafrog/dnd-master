@@ -662,6 +662,10 @@ class ExtractionApplicationService:
                 try:
                     data = json.loads(snapshot_path.read_text())
                     persisted_recovered = dict(data.get("recovered_pages", {}))
+                    if idem not in retry_index and data.get("idempotency") == idem:
+                        # The snapshot is authoritative if the process died
+                        # before retry-index replacement.
+                        retry_index[idem] = {"version_id": version_id, "pages": wanted, "state": "promotion_pending"}
                 except (OSError, json.JSONDecodeError, TypeError):
                     pass
             resume_promotion = isinstance(retry_index.get(idem), dict) and retry_index[idem].get("state") == "promotion_pending" and all(p.get("status") == "VALIDATED" for p in current["pages"])
@@ -719,10 +723,19 @@ class ExtractionApplicationService:
             response_path = version_dir / "response.json"
             if response_path.is_symlink() or not response_path.exists():
                 raise ValueError("VERSION_ARTIFACT_CORRUPT")
+            # Publish the complete retry snapshot before exposing either
+            # mutable read-model file; recovery can therefore finish from a
+            # single authoritative record after any interruption.
+            version_path = version_dir / "version.json"
+            snapshot = version_dir / "retry-state.json.tmp"
+            snapshot.write_text(json.dumps({"response": response, "version": json.loads(version_path.read_text()) if version_path.exists() else {},
+                                            "idempotency": idem, "recovered_pages": recovered_pages}, ensure_ascii=False,
+                                 sort_keys=True, indent=2) + "\n")
+            with snapshot.open("rb") as stream: os.fsync(stream.fileno())
+            os.replace(snapshot, version_dir / "retry-state.json")
             staged = response_path.with_suffix(".json.tmp")
             staged.write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             os.replace(staged, response_path)
-            version_path = version_dir / "version.json"
             if version_path.exists():
                 version_data = json.loads(version_path.read_text())
                 version_data["pages"] = [{k: v for k, v in item.items() if k in {"page_number", "status", "findings", "attempts", "attempt_history", "diagnostics"}} for item in updated]
