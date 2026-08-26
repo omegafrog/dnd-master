@@ -1,10 +1,14 @@
-# Layout-Aware PDF Preprocessing Plan Index
+# Validated Preprocessing Product RAG Plan Index
 
-| Plan | Issue | Status | Dependencies | Scope |
-|---|---|---|---|---|
-| [RAG-008 Extraction Version Process Port](rag-008-extraction-version-process-port.md) | [#181](https://github.com/omegafrog/dnd-master/issues/181) | `completed` | none | JSON process port, ExtractionVersion lifecycle, single-column walking skeleton |
-| [RAG-009 Regional Column Reading Order](rag-009-regional-column-reading-order.md) | [#182](https://github.com/omegafrog/dnd-master/issues/182) | `completed` | RAG-008 | layout regions, column hypotheses/profile, spanning-block reading order |
-| [RAG-010 Heading and Table Structure](rag-010-heading-table-structure.md) | [#183](https://github.com/omegafrog/dnd-master/issues/183) | `completed` | RAG-009 | heading association, table headers/rows/cells, uncertainty |
-| [RAG-011 Native OCR Hybrid Extraction](rag-011-native-ocr-hybrid-extraction.md) | [#184](https://github.com/omegafrog/dnd-master/issues/184) | `completed` | RAG-009 | native/OCR/hybrid ports, provenance and capability gate |
-| [RAG-012 Layout Validation Publication Gate](rag-012-layout-validation-publication-gate.md) | [#185](https://github.com/omegafrog/dnd-master/issues/185) | `completed` | RAG-010, RAG-011 | render validation, multidimensional confidence, page/version gate |
-| [RAG-013 Page Retry Diagnostics Recovery](rag-013-page-retry-diagnostics-recovery.md) | [#186](https://github.com/omegafrog/dnd-master/issues/186) | `completed` | RAG-012 | page checkpoints, bounded retry, status/retry process operations, diagnostics |
+Parent issue: [#189](https://github.com/omegafrog/dnd-master/issues/189)
+
+| Plan | Issue | Status | Depends on | Vertical outcome |
+| --- | --- | --- | --- | --- |
+| [RAG-014](rag-014-preprocessing-process-lifecycle.md) | [#190](https://github.com/omegafrog/dnd-master/issues/190) | ready-for-agent | — | Python PDF 전처리 프로세스를 문서 후보/페이지 수명주기에 연결한다. |
+| [RAG-015](rag-015-published-preprocessing-vector-publication.md) | [#191](https://github.com/omegafrog/dnd-master/issues/191) | planned | RAG-014 | 검증된 산출물만 provenance와 함께 pgvector에 공개한다. |
+| [RAG-016](rag-016-published-evidence-scenario-story-plan.md) | [#192](https://github.com/omegafrog/dnd-master/issues/192) | planned | RAG-015 | 공개 RAG 근거를 시나리오와 모험 계획 인용으로 전파한다. |
+| [RAG-017](rag-017-review-retry-development-rag-reset.md) | [#193](https://github.com/omegafrog/dnd-master/issues/193) | planned | RAG-014, RAG-015 | 검토 페이지 재시도와 개발 전용 RAG DB reset을 제공한다. |
+
+## Dependency decision
+
+Dependency graph evaluated on 2026-08-26. RAG-014 is the only dependency-free executable slice and is therefore `ready-for-agent`. RAG-015, RAG-016, and RAG-017 remain `planned` until their listed prerequisites are completed.
