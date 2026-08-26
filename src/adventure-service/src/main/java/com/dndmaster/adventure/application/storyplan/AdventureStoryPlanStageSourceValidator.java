@@ -79,10 +79,15 @@ public final class AdventureStoryPlanStageSourceValidator {
                 violations.add("story stage enemy is not supported by source evidence: " + enemy);
             }
         }
-        if (!supportsCondition(source, stage.transitionCondition())
-                || !supportsCondition(source, stage.clearCondition())
-                || (!stage.failureCondition().isBlank() && !supportsCondition(source, stage.failureCondition()))) {
+        if (!supportsCondition(source, stage.transitionCondition())) {
             violations.add("story stage transition is not supported by source evidence");
+            violations.add("stage " + stage.position() + " transitionCondition is not supported by source evidence");
+        }
+        if (!supportsCondition(source, stage.clearCondition())) {
+            violations.add("stage " + stage.position() + " clearCondition is not supported by source evidence");
+        }
+        if (!stage.failureCondition().isBlank() && !supportsCondition(source, stage.failureCondition())) {
+            violations.add("stage " + stage.position() + " failureCondition is not supported by source evidence");
         }
         for (String ending : stage.endingIds()) {
             if (!SourceClaimSupport.structuralTarget(ending) && !SourceClaimSupport.supports(source, ending)) {

@@ -147,6 +147,81 @@ class AdventureStoryPlanControllerMarkdownTest {
     }
 
     @Test
+    void repair_contract_requires_full_candidate_and_lists_authoritative_registries() throws Exception {
+        var controller = new AdventureStoryPlanController(
+                null, new ObjectMapper(), null, "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
+                new ApiRequestGuard("test-internal-token"));
+        var violation = new AdventureStoryPlanController.ProjectionViolation(
+                "INVALID_TRANSITION_CONDITION", 1, "stages[0].transitionCondition", "bad", "citation-1",
+                AdventureStoryPlanController.ProjectionViolation.Repairability.REPAIRABLE,
+                "transitionCondition is not usable");
+        var request = new AdventureStoryPlanController.RepairRequest("op", 1, 1,
+                new AdventureStoryPlanController.Configuration(1, "SHORT"),
+                new ObjectMapper().readTree("{\"stages\":[{\"position\":1}]}"), List.of(violation),
+                List.of("storybook.pdf"), List.of("source"), List.of(), List.of());
+        var promptMethod = AdventureStoryPlanController.class.getDeclaredMethod(
+                "repairPrompt", AdventureStoryPlanController.RepairRequest.class,
+                AdventureStoryPlanController.Configuration.class);
+        promptMethod.setAccessible(true);
+
+        String prompt = (String) promptMethod.invoke(controller, request, request.configuration());
+
+        assertTrue(prompt.contains("COMPLETE projection JSON object"));
+        assertTrue(prompt.contains("stages[0].transitionCondition"));
+        assertTrue(prompt.contains("previousFullCandidate"));
+        assertTrue(prompt.contains("authoritativeCitations"));
+    }
+
+    @Test
+    void rejected_projection_error_preserves_structured_diagnostics_without_using_candidate_as_message() {
+        var controller = new AdventureStoryPlanController(
+                null, new ObjectMapper(), null, "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
+                new ApiRequestGuard("test-internal-token"));
+        var candidate = new ObjectMapper().createObjectNode().put("secret", "candidate-content");
+        var failure = new AdventureStoryPlanController.CandidateResponseValidationException(
+                List.of(new AdventureStoryPlanController.ProjectionViolation(
+                        "INVALID_TRANSITION_CONDITION", 1, "stages[0].transitionCondition", "bad", "",
+                        AdventureStoryPlanController.ProjectionViolation.Repairability.REPAIRABLE,
+                        "transitionCondition is not usable")), null, candidate);
+
+        var response = controller.candidateValidation(failure);
+
+        assertEquals("candidate-content", response.getBody().rejectedCandidate().path("secret").asText());
+        assertEquals("stages[0].transitionCondition", response.getBody().structuredViolations().getFirst().fieldPath());
+        assertTrue(!response.getBody().violations().getFirst().contains("candidate-content"));
+    }
+
+    @Test
+    void structured_diagnostic_messages_are_bounded_and_single_line() {
+        var controller = new AdventureStoryPlanController(
+                null, new ObjectMapper(), null, "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
+                new ApiRequestGuard("test-internal-token"));
+        var raw = "unsafe source quote\n" + "x".repeat(400);
+        var response = controller.candidateValidation(
+                new AdventureStoryPlanController.CandidateResponseValidationException(
+                        List.of(raw), null));
+
+        String diagnostic = response.getBody().violations().getFirst();
+        assertTrue(!diagnostic.contains("\n"));
+        assertTrue(diagnostic.length() <= 259);
+        assertTrue(diagnostic.endsWith("..."));
+    }
+
+    @Test
+    void controller_diagnostics_preserve_stage_and_field_specificity() {
+        var controller = new AdventureStoryPlanController(
+                null, new ObjectMapper(), null, "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
+                new ApiRequestGuard("test-internal-token"));
+        var response = controller.candidateValidation(
+                new AdventureStoryPlanController.CandidateResponseValidationException(
+                        List.of("Stage 2 clearCondition is not usable"), null));
+
+        var violation = response.getBody().structuredViolations().getFirst();
+        assertEquals(2, violation.stagePosition());
+        assertEquals("stages[1].clearCondition", violation.fieldPath());
+    }
+
+    @Test
     void json_outline_rejects_omitted_required_core_fields_at_the_provider_boundary() throws Exception {
         var controller = new AdventureStoryPlanController(
                 null, new ObjectMapper(), null,

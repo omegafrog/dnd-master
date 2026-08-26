@@ -10,6 +10,8 @@ import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanApplicati
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanCandidateValidationException;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionViolation;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionViolation.Repairability;
 import com.dndmaster.adventure.domain.adventure.*;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
@@ -179,6 +181,113 @@ class AdventureStoryPlanApplicationServiceTest {
     }
 
     @Test
+    void supplies_the_failed_projection_itself_to_bounded_repair_and_persists_only_after_full_revalidation() {
+        var session = draftSession();
+        var sessions = mock(AdventureSessionRepository.class);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        var generator = mock(AdventureStoryPlanGenerationPort.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        when(plans.findBySessionId(session.id())).thenReturn(Optional.empty());
+        String rejected = "{\"stages\":[{\"position\":1,\"transitionCondition\":\"bad\"}]}";
+        String repaired = "{\"stages\":[{\"position\":1,\"transitionCondition\":\"good\"}]}";
+        var violation = new AdventureStoryPlanProjectionViolation("INVALID_TRANSITION_CONDITION", 1,
+                "stages[0].transitionCondition", "bad", "", Repairability.REPAIRABLE,
+                "transitionCondition is not usable");
+        when(generator.generate(any())).thenThrow(new AdventureStoryPlanCandidateValidationException(
+                List.of(violation), rejected, true));
+        when(generator.repair(any())).thenReturn(new AdventureStoryPlanGenerationPort.ProjectionCandidate(
+                repaired, shortStages()));
+
+        var result = new AdventureStoryPlanApplicationService(plans, sessions, null, generator)
+                .generate(session.id(), session.ownerPlayerId(), new AdventurePlanConfiguration(2, AdventureLength.SHORT));
+
+        assertEquals(AdventureStoryPlanStatus.READY, result.status());
+        var repair = org.mockito.ArgumentCaptor.forClass(AdventureStoryPlanGenerationPort.RepairRequest.class);
+        verify(generator).repair(repair.capture());
+        assertEquals(rejected, repair.getValue().previousCandidate());
+        assertEquals(List.of(violation), repair.getValue().violations());
+        verify(plans).save(result);
+    }
+
+    @Test
+    void enforces_two_repairs_one_regeneration_and_never_exceeds_five_candidate_attempts() {
+        var session = draftSession();
+        var sessions = mock(AdventureSessionRepository.class);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        var generator = mock(AdventureStoryPlanGenerationPort.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        when(plans.findBySessionId(session.id())).thenReturn(Optional.empty());
+        String rejected = "{\"stages\":[{\"position\":1,\"transitionCondition\":\"bad\"}]}";
+        var first = violation("V1", "stages[0].transitionCondition");
+        var second = violation("V2", "stages[0].clearCondition");
+        var third = violation("V3", "stages[0].failureCondition");
+        var generations = new java.util.concurrent.atomic.AtomicInteger();
+        var repairs = new java.util.concurrent.atomic.AtomicInteger();
+        when(generator.generate(any())).thenAnswer(invocation -> {
+            if (generations.incrementAndGet() == 1) throw new AdventureStoryPlanCandidateValidationException(List.of(first), rejected, true);
+            throw new AdventureStoryPlanCandidateValidationException(List.of(third), rejected, true);
+        });
+        when(generator.repair(any())).thenAnswer(invocation -> {
+            int attempt = repairs.incrementAndGet();
+            throw new AdventureStoryPlanCandidateValidationException(List.of(attempt == 1 ? second : third), rejected, true);
+        });
+
+        var result = new AdventureStoryPlanApplicationService(plans, sessions, null, generator)
+                .generate(session.id(), session.ownerPlayerId(), new AdventurePlanConfiguration(2, AdventureLength.SHORT));
+
+        assertEquals(AdventureStoryPlanStatus.BLOCKED, result.status());
+        assertEquals(2, repairs.get());
+        assertEquals(2, generations.get());
+        org.mockito.Mockito.verify(generator, org.mockito.Mockito.atMost(5)).generate(any());
+        verify(plans).save(result);
+    }
+
+    @Test
+    void stops_identical_candidate_and_identical_violation_without_a_futile_second_repair() {
+        var session = draftSession();
+        var sessions = mock(AdventureSessionRepository.class);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        var generator = mock(AdventureStoryPlanGenerationPort.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        when(plans.findBySessionId(session.id())).thenReturn(Optional.empty());
+        String rejected = "{\"stages\":[{\"position\":1,\"transitionCondition\":\"bad\"}]}";
+        var violation = violation("INVALID_TRANSITION_CONDITION", "stages[0].transitionCondition");
+        when(generator.generate(any())).thenThrow(new AdventureStoryPlanCandidateValidationException(List.of(violation), rejected, true));
+        when(generator.repair(any())).thenThrow(new AdventureStoryPlanCandidateValidationException(List.of(violation), rejected, true));
+
+        var result = new AdventureStoryPlanApplicationService(plans, sessions, null, generator)
+                .generate(session.id(), session.ownerPlayerId(), new AdventurePlanConfiguration(2, AdventureLength.SHORT));
+
+        assertEquals(AdventureStoryPlanStatus.BLOCKED, result.status());
+        verify(generator, times(1)).repair(any());
+        verify(plans).save(result);
+    }
+
+    @Test
+    void source_insufficient_and_system_contract_failures_stop_without_model_retry() {
+        for (Repairability classification : List.of(Repairability.SOURCE_EVIDENCE_INSUFFICIENT,
+                Repairability.SYSTEM_CONTRACT_ERROR)) {
+            var session = draftSession();
+            var sessions = mock(AdventureSessionRepository.class);
+            var plans = mock(AdventureStoryPlanRepository.class);
+            var generator = mock(AdventureStoryPlanGenerationPort.class);
+            when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+            when(plans.findBySessionId(session.id())).thenReturn(Optional.empty());
+            String rejected = "{\"stages\":[{\"position\":1}]}";
+            var violation = new AdventureStoryPlanProjectionViolation("STOP", 1, "stages[0].evidence",
+                    "citation-999", "citation-999", classification, "honest stop");
+            when(generator.generate(any())).thenThrow(new AdventureStoryPlanCandidateValidationException(List.of(violation), rejected, true));
+
+            var result = new AdventureStoryPlanApplicationService(plans, sessions, null, generator)
+                    .generate(session.id(), session.ownerPlayerId(), new AdventurePlanConfiguration(2, AdventureLength.SHORT));
+
+            assertEquals(AdventureStoryPlanStatus.BLOCKED, result.status());
+            verify(generator, never()).repair(any());
+            verify(generator, times(1)).generate(any());
+        }
+    }
+
+    @Test
     void compatibility_generator_honors_long_configuration() {
         var session = AdventureSession.create(SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 1, 1,
                 new AdventureSessionRuntimeConfiguration(new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), java.util.List.of(), "ollama", java.util.List.of("search"), "opening"));
@@ -193,5 +302,24 @@ class AdventureStoryPlanApplicationServiceTest {
 
         assertEquals(7, plan.stageCount());
         assertEquals(4, plan.stages().stream().flatMap(stage -> stage.endingIds().stream()).distinct().count());
+    }
+
+    private static AdventureSession draftSession() {
+        var session = AdventureSession.create(SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 1, 1,
+                new AdventureSessionRuntimeConfiguration(new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), List.of(), "ollama", List.of("search"), "opening"));
+        session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT, false, false, false, false, false, false));
+        return session;
+    }
+
+    private static List<AdventureStoryPlanStage> shortStages() {
+        return List.of(
+                new AdventureStoryPlanStage(1, "One", "Goal", "Conflict", "Next", List.of(), List.of("ending-1")),
+                new AdventureStoryPlanStage(2, "Two", "Goal", "Conflict", "Next", List.of(), List.of("ending-2")),
+                new AdventureStoryPlanStage(3, "Three", "Goal", "Conflict", "Next", List.of(), List.of("ending-1")));
+    }
+
+    private static AdventureStoryPlanProjectionViolation violation(String code, String path) {
+        return new AdventureStoryPlanProjectionViolation(code, 1, path, "bad", "", Repairability.REPAIRABLE,
+                code + " is not usable");
     }
 }

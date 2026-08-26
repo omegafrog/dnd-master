@@ -1,19 +1,86 @@
 package com.dndmaster.adventure.application.storyplan;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Objects;
 
 /** Typed adapter result for an invalid AI outline candidate, distinct from provider failure. */
 public final class AdventureStoryPlanCandidateValidationException extends RuntimeException {
     private final List<String> violations;
+    private final List<AdventureStoryPlanProjectionViolation> structuredViolations;
+    private final String rejectedCandidate;
 
     public AdventureStoryPlanCandidateValidationException(List<String> violations) {
-        super(String.join("; ", Objects.requireNonNull(violations, "candidate violations must not be null")));
-        if (violations.isEmpty()) throw new IllegalArgumentException("candidate violations must not be empty");
-        this.violations = List.copyOf(violations);
+        this(violations, null);
+    }
+
+    public AdventureStoryPlanCandidateValidationException(List<String> violations, String rejectedCandidate) {
+        this(legacyViolations(violations), rejectedCandidate, true);
+    }
+
+    public AdventureStoryPlanCandidateValidationException(
+            List<AdventureStoryPlanProjectionViolation> structuredViolations, String rejectedCandidate,
+            boolean structured) {
+        super(message(structuredViolations));
+        if (structuredViolations == null || structuredViolations.isEmpty()) {
+            throw new IllegalArgumentException("candidate violations must not be empty");
+        }
+        this.structuredViolations = List.copyOf(structuredViolations);
+        this.violations = this.structuredViolations.stream()
+                .map(AdventureStoryPlanProjectionViolation::sanitizedMessage).toList();
+        this.rejectedCandidate = rejectedCandidate == null ? "" : rejectedCandidate;
     }
 
     public List<String> violations() {
         return violations;
+    }
+
+    public List<AdventureStoryPlanProjectionViolation> structuredViolations() {
+        return structuredViolations;
+    }
+
+    public String rejectedCandidate() {
+        return rejectedCandidate;
+    }
+
+    public boolean hasRejectedCandidate() {
+        return !rejectedCandidate.isBlank();
+    }
+
+    private static String message(List<AdventureStoryPlanProjectionViolation> values) {
+        return values == null ? "candidate validation failed" : values.stream()
+                .map(AdventureStoryPlanProjectionViolation::sanitizedMessage)
+                .reduce((left, right) -> left + "; " + right).orElse("candidate validation failed");
+    }
+
+    private static List<AdventureStoryPlanProjectionViolation> legacyViolations(List<String> values) {
+        Objects.requireNonNull(values, "candidate violations must not be null");
+        if (values.isEmpty()) throw new IllegalArgumentException("candidate violations must not be empty");
+        return values.stream().map(AdventureStoryPlanCandidateValidationException::legacyViolation).toList();
+    }
+
+    public static AdventureStoryPlanProjectionViolation legacyViolation(String raw) {
+        String message = raw == null || raw.isBlank() ? "candidate validation failed" : raw;
+        String normalized = message.toLowerCase(Locale.ROOT);
+        java.util.regex.Matcher stageMatcher = java.util.regex.Pattern.compile("(?i)stage\\s+(\\d+)").matcher(message);
+        Integer stagePosition = stageMatcher.find() ? Integer.valueOf(stageMatcher.group(1)) : null;
+        AdventureStoryPlanProjectionViolation.Repairability repairability = normalized.contains("citation")
+                || normalized.contains("source") || normalized.contains("map")
+                ? AdventureStoryPlanProjectionViolation.Repairability.SOURCE_EVIDENCE_INSUFFICIENT
+                : normalized.contains("not supported")
+                        ? AdventureStoryPlanProjectionViolation.Repairability.SOURCE_EVIDENCE_INSUFFICIENT
+                : AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE;
+        String field = normalized.contains("transitioncondition") ? "stages[*].transitionCondition"
+                : normalized.contains("clearcondition") ? "stages[*].clearCondition"
+                : normalized.contains("failurecondition") ? "stages[*].failureCondition"
+                : normalized.contains("ending") ? "stages[*].endingIds" : "stages";
+        if (stagePosition != null) field = field.replace("[*]", "[" + (stagePosition - 1) + "]");
+        String code = normalized.contains("citation") ? "CITATION_CONTRACT_VIOLATION"
+                : normalized.contains("map") ? "MAP_CONTRACT_VIOLATION"
+                : normalized.contains("missing") || normalized.contains("required") ? "REQUIRED_FIELD_MISSING"
+                : "CANDIDATE_VALIDATION_FAILED";
+        String citationContext = normalized.contains("citation") && message.contains(":")
+                ? message.substring(message.lastIndexOf(':') + 1).trim() : "";
+        return new AdventureStoryPlanProjectionViolation(code, stagePosition, field, "", citationContext, repairability, message);
     }
 }

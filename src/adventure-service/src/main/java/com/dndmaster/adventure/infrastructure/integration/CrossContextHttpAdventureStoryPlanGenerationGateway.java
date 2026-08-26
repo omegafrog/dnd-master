@@ -2,6 +2,8 @@ package com.dndmaster.adventure.infrastructure.integration;
 
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanCandidateValidationException;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionRepairPolicy;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionViolation;
 import com.dndmaster.adventure.application.storyplan.TacticalScenePlanCandidate;
 import com.dndmaster.adventure.application.storyplan.TacticalSceneRequest;
 import com.dndmaster.adventure.application.storyplan.TacticalScenePlanValidator;
@@ -13,6 +15,7 @@ import com.dndmaster.adventure.domain.adventure.PlacementGroundingType;
 import com.dndmaster.adventure.domain.adventure.TacticalScenePlan;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpTimeoutException;
@@ -40,6 +43,10 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         this.internalToken = internalToken;
     }
     @Override public List<AdventureStoryPlanStage> generate(Request request) {
+        return generateCandidate(request).stages();
+    }
+
+    private AdventureStoryPlanGenerationPort.ProjectionCandidate generateCandidate(Request request) {
         try {
             Request keyedRequest = request.withCitationKeys();
             var body = mapper.writeValueAsString(keyedRequest);
@@ -47,14 +54,14 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                     .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 422) {
-                List<String> violations = remoteCandidateViolations(response.body(), "AI returned an invalid story plan candidate");
-                LOGGER.warn("remote_story_plan_candidate_rejected violations={}", violations);
-                throw new AdventureStoryPlanCandidateValidationException(violations);
+                List<AdventureStoryPlanProjectionViolation> violations = remoteCandidateViolations(response.body(), "AI returned an invalid story plan candidate");
+                LOGGER.warn("remote_story_plan_candidate_rejected codes={} classifications={}",
+                        violations.stream().map(AdventureStoryPlanProjectionViolation::code).toList(),
+                        violations.stream().map(AdventureStoryPlanProjectionViolation::repairability).toList());
+                throw new AdventureStoryPlanCandidateValidationException(violations, remoteRejectedCandidate(response.body()), true);
             }
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                String detail = response.body() == null ? "" : response.body().replaceAll("\\s+", " ");
-                if (detail.length() > 1200) detail = detail.substring(0, 1200);
-                throw new IllegalStateException("story plan AI failed: " + response.statusCode() + " body=" + detail);
+                throw new IllegalStateException("story plan AI failed: " + response.statusCode());
             }
             return parseOutlineCandidate(response.body(), keyedRequest);
         } catch (HttpTimeoutException e) { throw new IllegalStateException("story plan AI timed out after " + timeout, e); }
@@ -62,9 +69,49 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("story plan AI interrupted", e); }
     }
 
-    private List<AdventureStoryPlanStage> parseOutlineCandidate(String responseBody, Request request) {
+    @Override public AdventureStoryPlanGenerationPort.ProjectionCandidate repair(RepairRequest request) {
         try {
-            var parsed = mapper.readValue(responseBody, Response.class);
+            Request keyedRequest = new Request(request.operationId(), request.packageRevision(), request.partySize(),
+                    request.configuration(), request.sourceDocuments(), request.resolutionEvidence(), request.maps(),
+                    request.citations(), request.violations().stream()
+                            .map(AdventureStoryPlanProjectionViolation::sanitizedMessage).toList(), request.previousCandidate())
+                    .withCitationKeys();
+            JsonNode previousCandidate = mapper.readTree(request.previousCandidate());
+            RepairWireRequest wireRequest = new RepairWireRequest(keyedRequest.operationId(), keyedRequest.packageRevision(),
+                    keyedRequest.partySize(), keyedRequest.configuration(), previousCandidate,
+                    request.violations(), keyedRequest.sourceDocuments(), keyedRequest.resolutionEvidence(),
+                    keyedRequest.maps(), keyedRequest.citations());
+            var response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/adventure-story-plan/repair"))
+                    .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
+                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(wireRequest))).build(),
+                    HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 422) {
+                throw new AdventureStoryPlanCandidateValidationException(
+                        remoteCandidateViolations(response.body(), "AI returned an invalid repaired story plan candidate"),
+                        remoteRejectedCandidate(response.body()), true);
+            }
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("story plan AI repair failed: " + response.statusCode());
+            }
+            var candidate = parseOutlineCandidate(response.body(), keyedRequest);
+            AdventureStoryPlanProjectionRepairPolicy.assertOnlyListedFieldsChanged(
+                    previousCandidate, mapper.readTree(candidate.serializedCandidate()), request.violations());
+            return candidate;
+        } catch (AdventureStoryPlanCandidateValidationException e) {
+            throw e;
+        } catch (HttpTimeoutException e) { throw new IllegalStateException("story plan AI repair timed out after " + timeout, e); }
+        catch (IOException e) { throw new IllegalStateException("story plan AI repair request encoding failed", e); }
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("story plan AI repair interrupted", e); }
+        catch (AdventureStoryPlanProjectionRepairPolicy.UnlistedFieldMutation e) {
+            throw new AdventureStoryPlanCandidateValidationException(List.of(e.violation()), request.previousCandidate(), true);
+        }
+    }
+
+    private AdventureStoryPlanGenerationPort.ProjectionCandidate parseOutlineCandidate(String responseBody, Request request) {
+        String candidateJson = candidateJson(responseBody);
+        try {
+            JsonNode root = mapper.readTree(candidateJson);
+            var parsed = mapper.treeToValue(root, Response.class);
             if (parsed.stages() == null) throw new IllegalStateException("AI returned no story stages");
             List<Stage> stages = parsed.stages();
             List<List<AdventureStoryPlanGenerationPort.SourceCitation>> resolvedEvidence = stages.stream()
@@ -90,12 +137,14 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             List<AdventureStoryPlanStage> domainStages = java.util.stream.IntStream.range(0, stages.size())
                     .mapToObj(index -> toDomain(stages.get(index), resolvedEvidence.get(index), maps)).toList();
             AdventureStoryPlanGraphValidator.validate(domainStages, configuration);
-            return domainStages;
+            return new AdventureStoryPlanGenerationPort.ProjectionCandidate(candidateJson, domainStages);
         } catch (AdventureStoryPlanCandidateValidationException invalidCandidate) {
             throw invalidCandidate;
         } catch (RuntimeException | IOException invalidCandidate) {
             throw new AdventureStoryPlanCandidateValidationException(List.of(
-                    validationMessage(invalidCandidate, "AI returned an invalid story plan candidate")));
+                    AdventureStoryPlanCandidateValidationException.legacyViolation(
+                            validationMessage(invalidCandidate, "AI returned an invalid story plan candidate"))),
+                    candidateJson, true);
         }
     }
 
@@ -120,7 +169,7 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(request))).build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 422) {
                 throw new AdventureStoryPlanCandidateValidationException(List.of(
-                        remoteCandidateViolations(response.body(), "AI returned an invalid tactical scene candidate").getFirst()));
+                        remoteCandidateViolations(response.body(), "AI returned an invalid tactical scene candidate").getFirst().sanitizedMessage()));
             }
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IllegalStateException("tactical scene AI failed: " + response.statusCode());
@@ -162,23 +211,45 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         return root.getMessage() == null || root.getMessage().isBlank() ? fallback : root.getMessage();
     }
 
-    private List<String> remoteCandidateViolations(String body, String fallback) {
+    private List<AdventureStoryPlanProjectionViolation> remoteCandidateViolations(String body, String fallback) {
         try {
             var error = mapper.readTree(body == null ? "" : body);
             var violations = error.path("violations");
             if (violations.isArray()) {
-                List<String> parsed = new java.util.ArrayList<>();
+                List<AdventureStoryPlanProjectionViolation> parsed = new java.util.ArrayList<>();
                 violations.forEach(item -> {
-                    if (item.isTextual() && !item.asText().isBlank()) parsed.add(item.asText().trim());
+                    if (item.isObject()) {
+                        try { parsed.add(mapper.treeToValue(item, AdventureStoryPlanProjectionViolation.class)); }
+                        catch (RuntimeException | IOException ignored) { }
+                    } else if (item.isTextual() && !item.asText().isBlank()) {
+                        parsed.add(AdventureStoryPlanCandidateValidationException.legacyViolation(item.asText()));
+                    }
                 });
                 if (!parsed.isEmpty()) return List.copyOf(parsed);
             }
             String detail = error.path("detail").asText("").trim();
-            if (!detail.isBlank()) return List.of(detail);
+            if (!detail.isBlank()) return List.of(AdventureStoryPlanCandidateValidationException.legacyViolation(detail));
             String message = error.path("message").asText("").trim();
-            return List.of(message.isBlank() ? fallback : message);
+            return List.of(AdventureStoryPlanCandidateValidationException.legacyViolation(message.isBlank() ? fallback : message));
         } catch (RuntimeException | IOException ignored) {
-            return List.of(fallback);
+            return List.of(AdventureStoryPlanCandidateValidationException.legacyViolation(fallback));
+        }
+    }
+
+    private String remoteRejectedCandidate(String body) {
+        try {
+            JsonNode candidate = mapper.readTree(body == null ? "" : body).get("rejectedCandidate");
+            return candidate == null || candidate.isNull() ? "" : candidate.isTextual() ? candidate.asText() : candidate.toString();
+        } catch (RuntimeException | IOException ignored) {
+            return "";
+        }
+    }
+
+    private String candidateJson(String responseBody) {
+        try {
+            return mapper.readTree(responseBody == null ? "" : responseBody).toString();
+        } catch (IOException failure) {
+            throw new IllegalArgumentException("AI returned a non-JSON story plan candidate");
         }
     }
 
@@ -274,6 +345,19 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
     }
     private record Spawn(int x, int y, String confidence, String rationale) {}
     @JsonIgnoreProperties(ignoreUnknown = true) record Response(List<Stage> stages) {}
+    private record RepairWireRequest(String operationId, long packageRevision, int partySize,
+            AdventurePlanConfiguration configuration, JsonNode previousCandidate,
+            List<AdventureStoryPlanProjectionViolation> violations, List<String> sourceDocuments,
+            List<String> resolutionEvidence, List<AdventureStoryPlanGenerationPort.MapContext> maps,
+            List<AdventureStoryPlanGenerationPort.SourceCitation> citations) {
+        public RepairWireRequest {
+            violations = List.copyOf(violations);
+            sourceDocuments = List.copyOf(sourceDocuments);
+            resolutionEvidence = List.copyOf(resolutionEvidence);
+            maps = List.copyOf(maps);
+            citations = List.copyOf(citations);
+        }
+    }
     @JsonIgnoreProperties(ignoreUnknown = true) record TacticalResponse(int stagePosition, TacticalScenePlan scene, List<SourceCitation> citations) {
         TacticalResponse { citations = List.copyOf(Objects.requireNonNull(citations, "tactical citations must be explicit")); }
     }

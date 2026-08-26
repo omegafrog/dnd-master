@@ -10,6 +10,11 @@ import java.util.List;
 public interface AdventureStoryPlanGenerationPort {
     List<AdventureStoryPlanStage> generate(Request request);
 
+    /** Bounded repair returns a complete candidate, never a field patch. */
+    default ProjectionCandidate repair(RepairRequest request) {
+        return new ProjectionCandidate(request.previousCandidate(), generate(request.toGenerationRequest()));
+    }
+
     default TacticalScenePlanCandidate generateTacticalScene(TacticalSceneRequest request) {
         return TacticalScenePlanCandidate.absent(request.stage().position());
     }
@@ -69,6 +74,36 @@ public interface AdventureStoryPlanGenerationPort {
         public Request withPreviousCandidate(String candidate) {
             return new Request(operationId, packageRevision, partySize, configuration, sourceDocuments,
                     resolutionEvidence, maps, citations, violations, candidate);
+        }
+    }
+
+    record RepairRequest(String operationId, long packageRevision, int partySize,
+                         AdventurePlanConfiguration configuration, String previousCandidate,
+                         List<AdventureStoryPlanProjectionViolation> violations,
+                         List<String> sourceDocuments, List<String> resolutionEvidence,
+                         List<MapContext> maps, List<SourceCitation> citations) {
+        public RepairRequest {
+            if (operationId == null || operationId.isBlank()) throw new IllegalArgumentException("repair operation id must not be blank");
+            if (configuration == null) throw new IllegalArgumentException("repair configuration must not be null");
+            if (previousCandidate == null || previousCandidate.isBlank()) throw new IllegalArgumentException("previous full candidate must not be blank");
+            violations = violations == null ? List.of() : List.copyOf(violations);
+            sourceDocuments = sourceDocuments == null ? List.of() : List.copyOf(sourceDocuments);
+            resolutionEvidence = resolutionEvidence == null ? List.of() : List.copyOf(resolutionEvidence);
+            maps = maps == null ? List.of() : List.copyOf(maps);
+            citations = citations == null ? List.of() : List.copyOf(citations);
+        }
+
+        public Request toGenerationRequest() {
+            return new Request(operationId, packageRevision, partySize, configuration, sourceDocuments,
+                    resolutionEvidence, maps, citations,
+                    violations.stream().map(AdventureStoryPlanProjectionViolation::sanitizedMessage).toList(), previousCandidate);
+        }
+    }
+
+    record ProjectionCandidate(String serializedCandidate, List<AdventureStoryPlanStage> stages) {
+        public ProjectionCandidate {
+            if (serializedCandidate == null || serializedCandidate.isBlank()) throw new IllegalArgumentException("full candidate must not be blank");
+            stages = stages == null ? List.of() : List.copyOf(stages);
         }
     }
 

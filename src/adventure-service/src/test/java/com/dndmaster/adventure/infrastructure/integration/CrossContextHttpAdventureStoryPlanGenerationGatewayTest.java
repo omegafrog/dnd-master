@@ -12,6 +12,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanCandidateValidationException;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionViolation;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionViolation.Repairability;
 import com.dndmaster.adventure.application.storyplan.TacticalSceneRequest;
 import com.dndmaster.adventure.domain.adventure.AdventureLength;
 import com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration;
@@ -90,6 +92,60 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
                 () -> gateway.generate(request));
 
         assertEquals(List.of("AI returned an invalid stage count for adventure length"), failure.violations());
+    }
+
+    @Test
+    void preserves_rejected_full_projection_and_structured_field_violation_at_adapter_boundary() {
+        server = new WireMockServer(0);
+        server.start();
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/adventure-story-plan"))
+                .willReturn(aResponse().withStatus(422).withHeader("Content-Type", "application/json").withBody("""
+                        {"violations":[{"code":"INVALID_TRANSITION_CONDITION","stagePosition":2,
+                        "fieldPath":"stages[1].transitionCondition","rejectedValue":"","citationContext":"citation-1",
+                        "repairability":"REPAIRABLE","sanitizedMessage":"stage 2 transitionCondition is not usable"}],
+                        "rejectedCandidate":{"stages":[{"position":1,"title":"Start"},{"position":2,"title":"Middle"}]}}
+                        """)));
+        var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "test-internal-token");
+
+        var failure = assertThrows(AdventureStoryPlanCandidateValidationException.class,
+                () -> gateway.generate(new AdventureStoryPlanGenerationPort.Request(
+                        "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT),
+                        List.of(), List.of(), List.of(), List.of())));
+
+        assertEquals(Repairability.REPAIRABLE, failure.structuredViolations().getFirst().repairability());
+        assertEquals("stages[1].transitionCondition", failure.structuredViolations().getFirst().fieldPath());
+        assertEquals("{\"stages\":[{\"position\":1,\"title\":\"Start\"},{\"position\":2,\"title\":\"Middle\"}]}",
+                failure.rejectedCandidate());
+    }
+
+    @Test
+    void repair_posts_the_failed_full_candidate_and_authoritative_registries_and_returns_a_full_candidate() {
+        server = new WireMockServer(0);
+        server.start();
+        UUID documentId = UUID.randomUUID();
+        String previous = projectionCandidate("Open");
+        String repaired = projectionCandidate("Closed");
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/adventure-story-plan/repair"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody(repaired)));
+        var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "test-internal-token");
+        var citation = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "STORYBOOK", documentId, 1, "page:1", "authoritative", .9).withCitationKey("citation-1");
+        var violation = new AdventureStoryPlanProjectionViolation("INVALID_TRANSITION_CONDITION", 1,
+                "stages[0].transitionCondition", "Open", "citation-1", Repairability.REPAIRABLE,
+                "transitionCondition is not usable");
+
+        var candidate = gateway.repair(new AdventureStoryPlanGenerationPort.RepairRequest(
+                "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT), previous,
+                List.of(violation), List.of("storybook.pdf"), List.of("source excerpt"), List.of(), List.of(citation)));
+
+        assertEquals(repaired, candidate.serializedCandidate());
+        assertEquals("Closed", candidate.stages().getFirst().transitionCondition());
+        server.verify(postRequestedFor(urlEqualTo("/internal/v1/gm/adventure-story-plan/repair"))
+                .withRequestBody(matchingJsonPath("$.previousCandidate.stages[0].transitionCondition", equalTo("Open")))
+                .withRequestBody(matchingJsonPath("$.violations[0].fieldPath", equalTo("stages[0].transitionCondition")))
+                .withRequestBody(matchingJsonPath("$.citations[0].citationKey", equalTo("citation-1"))));
     }
 
     @Test
@@ -451,5 +507,15 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
         var map = new AdventureStoryPlanGenerationPort.MapContext(stage.mapDefinitionId(), "brewery", "page:1", "page:1", .9, "SAFE", List.of());
         var citation = new AdventureStoryPlanGenerationPort.SourceCitation("STORYBOOK", documentId, 1, "page:1", "cellar entrance", .8);
         return new TacticalSceneRequest(stage, map, List.of(citation), List.of());
+    }
+
+    private static String projectionCandidate(String transition) {
+        return """
+                {"stages":[
+                  {"position":1,"title":"Start","goal":"Begin","conflict":"Choice","transitionCondition":"%s","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Start","enemies":[],"rewards":[],"branchIds":[],"branchTargets":{},"evidence":[{"citationKey":"citation-1"}]},
+                  {"position":2,"title":"Middle","goal":"Advance","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Middle","enemies":[],"rewards":[],"branchIds":[],"branchTargets":{},"evidence":[{"citationKey":"citation-1"}]},
+                  {"position":3,"title":"Finish","goal":"End","conflict":"Choice","transitionCondition":"Finish","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Finish","enemies":[],"rewards":[],"branchIds":[],"branchTargets":{},"evidence":[{"citationKey":"citation-1"}]}
+                ]}
+                """.formatted(transition).replaceAll("\\s+", "");
     }
 }

@@ -24,6 +24,7 @@ class AdventureStoryPlanStageSourceValidatorTest {
         assertTrue(violations.contains("story stage boss is not supported by source evidence"));
         assertTrue(violations.contains("story stage reward is not supported by source evidence: royal crown"));
         assertTrue(violations.contains("story stage transition is not supported by source evidence"));
+        assertTrue(violations.contains("stage 1 transitionCondition is not supported by source evidence"));
         assertTrue(violations.contains("story stage ending is not supported by source evidence: coronation-ending"));
     }
 

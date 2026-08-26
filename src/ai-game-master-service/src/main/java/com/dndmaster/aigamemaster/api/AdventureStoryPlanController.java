@@ -173,7 +173,34 @@ public final class AdventureStoryPlanController {
     @ExceptionHandler(CandidateResponseValidationException.class)
     ResponseEntity<CandidateValidationError> candidateValidation(CandidateResponseValidationException failure) {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
-                .body(new CandidateValidationError(failure.violations()));
+                .body(new CandidateValidationError(failure.violations(), failure.structuredViolations(), failure.rejectedCandidate()));
+    }
+
+    @PostMapping("/internal/v1/gm/adventure-story-plan/repair")
+    Response repair(@RequestHeader(value = "X-Internal-Token", required = false) String internalToken,
+            @RequestBody RepairRequest request) {
+        requestGuard.internal(internalToken);
+        if (request.previousCandidate() == null || request.previousCandidate().isNull()
+                || !request.previousCandidate().isObject()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "previous full projection candidate is required");
+        }
+        if (request.violations().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "structured projection violations are required");
+        }
+        AgentEndpoint endpoint = endpointRegistry.active();
+        Configuration configuration = request.configuration() == null ? Configuration.defaults() : request.configuration();
+        try {
+            String repaired = complete(endpoint, request.operationId() + "-projection-repair",
+                    repairPrompt(request, configuration), configuration);
+            return new Response(parseJson(repaired, configuration));
+        } catch (CandidateResponseValidationException invalidCandidate) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, invalidCandidate.getMessage(), invalidCandidate);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("story plan projection repair interrupted", e);
+        } catch (Exception e) {
+            throw new IllegalStateException("story plan projection repair failed: " + rootMessage(e), e);
+        }
     }
 
     private String complete(AgentEndpoint endpoint, String operationId, String prompt, Configuration configuration) throws IOException, InterruptedException {
@@ -199,6 +226,7 @@ public final class AdventureStoryPlanController {
     }
 
     private static String phase(String operationId) {
+        if (operationId.endsWith("-projection-repair")) return "story-plan-projection-repair";
         if (operationId.endsWith("-verification")) return "story-plan-verification";
         if (operationId.endsWith("-execution-projection")) return "story-plan-execution-projection";
         return "story-plan-generation";
@@ -226,6 +254,25 @@ public final class AdventureStoryPlanController {
                 GENERATED MARKDOWN:
                 %s
                 """.formatted(configuration.endingCount(), configuration.endingCount(), configuration, request.sourceDocuments(), request.resolutionEvidence(), request.maps(), request.citations(), request.violations(), generatedMarkdown);
+    }
+
+    private String repairPrompt(RepairRequest request, Configuration configuration) {
+        return """
+                You are repairing one rejected execution projection. Return the COMPLETE projection JSON object, never a patch.
+                Preserve every field exactly unless its JSON path is listed in STRUCTURED VIOLATIONS. Do not add, remove, rename, or
+                mutate any unlisted field. Use only the authoritative citation, map, and source registries supplied below; never invent,
+                fuzzy-match, or copy a quote, locator, document ID, map ID, or source that is not registered. The server will rerun the
+                complete schema, citation/map/source, and business-rule validation chain after this response.
+                The response root MUST be an object with a stages array and must contain the full candidate, not a JSON patch.
+                configuration=%s
+                structuredViolations=%s
+                authoritativeSourceDocuments=%s
+                authoritativeResolutionEvidence=%s
+                authoritativeMaps=%s
+                authoritativeCitations=%s
+                previousFullCandidate=%s
+                """.formatted(configuration, request.violations(), request.sourceDocuments(), request.resolutionEvidence(),
+                request.maps(), request.citations(), request.previousCandidate());
     }
 
     private String verificationDecisionPrompt(Request request, Configuration configuration, String generatedMarkdown) {
@@ -317,10 +364,13 @@ public final class AdventureStoryPlanController {
     }
 
     private static List<String> safeViolations(List<String> violations) {
-        return violations.stream().map(item -> {
-            String normalized = item.replaceAll("\\s+", " ").trim();
-            return normalized.length() > 500 ? normalized.substring(0, 500) + "..." : normalized;
-        }).toList();
+        return violations.stream().map(AdventureStoryPlanController::sanitizeDiagnostic).toList();
+    }
+
+    private static String sanitizeDiagnostic(String value) {
+        if (value == null) return "candidate validation failed";
+        String normalized = value.replaceAll("[\\r\\n\\t]+", " ").replaceAll(" +", " ").trim();
+        return normalized.length() <= 256 ? normalized : normalized.substring(0, 256) + "...";
     }
 
     /** Produces one typed, source-grounded tactical scene candidate for a mapped story-plan stage. */
@@ -401,7 +451,10 @@ public final class AdventureStoryPlanController {
         } catch (CandidateResponseValidationException invalidCandidate) {
             throw invalidCandidate;
         } catch (Exception e) {
-            throw new CandidateResponseValidationException(rootMessage(e), e);
+            JsonNode rejected = null;
+            try { rejected = mapper.readTree(extractObject(text)); }
+            catch (Exception ignored) { }
+            throw new CandidateResponseValidationException(List.of(rootMessage(e)), e, rejected);
         }
     }
     private static String extractObject(String text) { int a = text.indexOf('{'), b = text.lastIndexOf('}'); if (a < 0 || b < a) throw new IllegalArgumentException("JSON object missing"); return text.substring(a,b+1); }
@@ -442,15 +495,49 @@ public final class AdventureStoryPlanController {
     }
     static final class CandidateResponseValidationException extends RuntimeException {
         private final List<String> violations;
+        private final List<ProjectionViolation> structuredViolations;
+        private final JsonNode rejectedCandidate;
         CandidateResponseValidationException(String message, Throwable cause) {
             this(List.of(message), cause);
         }
-        CandidateResponseValidationException(List<String> violations, Throwable cause) {
-            super(String.join("; ", violations), cause);
+        CandidateResponseValidationException(List<?> violations, Throwable cause) {
+            this(violations, cause, null);
+        }
+        CandidateResponseValidationException(List<?> violations, Throwable cause, JsonNode rejectedCandidate) {
+            super(violations == null ? "candidate validation failed" : violations.stream()
+                    .map(item -> item instanceof ProjectionViolation violation ? violation.sanitizedMessage()
+                            : sanitizeDiagnostic(String.valueOf(item)))
+                    .reduce((left, right) -> sanitizeDiagnostic(left + "; " + right))
+                    .orElse("candidate validation failed"), cause);
             if (violations == null || violations.isEmpty()) throw new IllegalArgumentException("candidate violations must not be empty");
-            this.violations = List.copyOf(violations);
+            this.structuredViolations = violations.stream().map(CandidateResponseValidationException::toProjectionViolation).toList();
+            this.violations = this.structuredViolations.stream().map(ProjectionViolation::sanitizedMessage).toList();
+            this.rejectedCandidate = rejectedCandidate;
         }
         List<String> violations() { return violations; }
+        List<ProjectionViolation> structuredViolations() { return structuredViolations; }
+        JsonNode rejectedCandidate() { return rejectedCandidate; }
+
+        private static ProjectionViolation toProjectionViolation(Object value) {
+            if (value instanceof ProjectionViolation violation) return violation;
+            String message = String.valueOf(value);
+            String normalized = message.toLowerCase(java.util.Locale.ROOT);
+            java.util.regex.Matcher stageMatcher = java.util.regex.Pattern.compile("(?i)stage\\s+(\\d+)").matcher(message);
+            Integer stagePosition = stageMatcher.find() ? Integer.valueOf(stageMatcher.group(1)) : null;
+            String field = normalized.contains("transitioncondition") ? "stages[*].transitionCondition"
+                    : normalized.contains("clearcondition") ? "stages[*].clearCondition"
+                    : normalized.contains("failurecondition") ? "stages[*].failureCondition"
+                    : normalized.contains("citation") ? "stages[*].evidence[*].citationKey" : "stages";
+            if (stagePosition != null && field.startsWith("stages[*].")) {
+                field = field.replace("stages[*]", "stages[" + (stagePosition - 1) + "]");
+            }
+            String code = normalized.contains("citation") ? "CITATION_CONTRACT_VIOLATION" : "PROJECTION_FIELD_INVALID";
+            ProjectionViolation.Repairability repairability = normalized.contains("citation")
+                    ? ProjectionViolation.Repairability.SOURCE_EVIDENCE_INSUFFICIENT
+                    : field.equals("stages") ? ProjectionViolation.Repairability.REGENERATE_REQUIRED
+                    : ProjectionViolation.Repairability.REPAIRABLE;
+            return new ProjectionViolation(code, stagePosition, field, "", "", repairability, message);
+        }
     }
     public record Request(String operationId, long packageRevision, int partySize, Configuration configuration, List<String> sourceDocuments,
             List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations, List<String> violations,
@@ -482,8 +569,15 @@ public final class AdventureStoryPlanController {
     public record VerificationResponse(String status, List<String> violations) {
         public VerificationResponse { violations = List.copyOf(violations); }
     }
-    public record CandidateValidationError(List<String> violations) {
-        public CandidateValidationError { violations = List.copyOf(violations); }
+    public record CandidateValidationError(List<String> violations, List<ProjectionViolation> structuredViolations,
+            JsonNode rejectedCandidate) {
+        public CandidateValidationError(List<String> violations) {
+            this(violations, violations.stream().map(CandidateResponseValidationException::toProjectionViolation).toList(), null);
+        }
+        public CandidateValidationError {
+            violations = List.copyOf(violations);
+            structuredViolations = List.copyOf(structuredViolations);
+        }
     }
     public record MapContext(String mapDefinitionId, String assetId, String assetLocator, String sourceLocator,
             double confidence, String safetyStatus, List<SourceCitation> relatedEvidence, String context) {
@@ -505,6 +599,26 @@ public final class AdventureStoryPlanController {
         }
     }
     public record CitationProjection(String citationKey) {}
+    public record ProjectionViolation(String code, Integer stagePosition, String fieldPath, String rejectedValue,
+            String citationContext, Repairability repairability, String sanitizedMessage) {
+        public enum Repairability { REPAIRABLE, REGENERATE_REQUIRED, SOURCE_EVIDENCE_INSUFFICIENT, SYSTEM_CONTRACT_ERROR }
+        public ProjectionViolation {
+            rejectedValue = sanitizeDiagnostic(rejectedValue == null ? "" : rejectedValue);
+            citationContext = sanitizeDiagnostic(citationContext == null ? "" : citationContext);
+            sanitizedMessage = sanitizeDiagnostic(sanitizedMessage == null ? "projection validation failed" : sanitizedMessage);
+        }
+    }
+    public record RepairRequest(String operationId, long packageRevision, int partySize, Configuration configuration,
+            JsonNode previousCandidate, List<ProjectionViolation> violations, List<String> sourceDocuments,
+            List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations) {
+        public RepairRequest {
+            violations = violations == null ? List.of() : List.copyOf(violations);
+            sourceDocuments = sourceDocuments == null ? List.of() : List.copyOf(sourceDocuments);
+            resolutionEvidence = resolutionEvidence == null ? List.of() : List.copyOf(resolutionEvidence);
+            maps = maps == null ? List.of() : List.copyOf(maps);
+            citations = citations == null ? List.of() : List.copyOf(citations);
+        }
+    }
     public record Configuration(int endingCount, String adventureLength) {
         public Configuration {
             if (endingCount < 1 || endingCount > 4) throw new IllegalArgumentException("ending count must be between 1 and 4");
