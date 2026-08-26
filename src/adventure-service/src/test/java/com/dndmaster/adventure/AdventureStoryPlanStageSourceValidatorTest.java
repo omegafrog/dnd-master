@@ -73,6 +73,18 @@ class AdventureStoryPlanStageSourceValidatorTest {
         assertTrue(violations.contains("story plan must cite at least one RULEBOOK source"));
     }
 
+    @Test
+    void rejectsCitationThatDoesNotCarryPublishedProvenance() {
+        var ungrounded = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "STORYBOOK", UUID.randomUUID(), 1, "page:1", "The cellar contains a rat swarm.", 1.0, null);
+
+        var violations = new AdventureStoryPlanStageSourceValidator()
+                .validateCitationCoverage(List.of(stage(ungrounded, "", List.of(), "move onward", "ending-1")),
+                        List.of(ungrounded));
+
+        assertTrue(violations.contains("story plan contains evidence without published provenance"));
+    }
+
     private static AdventureStoryPlanGenerationPort.SourceCitation citation(String quote) {
         return new AdventureStoryPlanGenerationPort.SourceCitation(
                 "STORYBOOK", UUID.randomUUID(), 1, "page:1", quote, 1.0);

@@ -266,7 +266,8 @@ public final class AdventureStoryPlanController {
                     stage.playerSpawnX(), stage.playerSpawnY(), stage.playerSpawnConfidence(), stage.playerSpawnRationale());
         }
     }
-    public record EvidenceView(String documentType, UUID documentId, long extractionVersion, String locator, String quote, double confidence) {}
+    public record EvidenceView(String documentType, UUID documentId, long extractionVersion, String locator, String quote,
+            double confidence, com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance provenance) {}
 
     public record GmPlanView(UUID planId, long packageRevision, long partyRevision, long version, String status, int currentStage,
             int endingCount, String adventureLength, List<GmStageView> stages, String failureReason, String auditId,
@@ -293,7 +294,7 @@ public final class AdventureStoryPlanController {
             static GmStageView from(com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage stage) {
             return new GmStageView(stage.position(), stage.title(), stage.stageType().name(), stage.location(), stage.goal(), stage.conflict(), stage.clearCondition(), stage.failureCondition(),
                     stage.enemies(), stage.boss(), stage.transitionCondition(), stage.rewards(), stage.branchIds(), stage.endingIds(), stage.mapDefinitionId(), stage.mapAssetId(), stage.mapAssetLocator(), stage.mapSafetyStatus(), stage.mapConfidence(), stage.branchTargets(),
-                    stage.groundingStatus().name(), stage.aiSuggestions(), stage.npcOrClues(), stage.evidence().stream().map(item -> new EvidenceView(item.documentType(), item.documentId(), item.extractionVersion(), item.locator(), item.quote(), item.confidence())).toList(),
+                    stage.groundingStatus().name(), stage.aiSuggestions(), stage.npcOrClues(), stage.evidence().stream().map(item -> new EvidenceView(item.documentType(), item.documentId(), item.extractionVersion(), item.locator(), item.quote(), item.confidence(), item.provenance())).toList(),
                     GmTacticalSceneView.from(stage.tacticalScenePlan()));
         }
     }

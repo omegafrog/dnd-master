@@ -88,6 +88,21 @@ public final class AdventureStoryPlanApplicationService {
         if (scenarioPackage != null && scenarioPackage.report().status() != com.dndmaster.adventure.domain.scenario.ResolutionStatus.COMPLETE) {
             throw new IllegalStateException("story plan requires a COMPLETE scenario package report");
         }
+        if (scenarioPackage != null && bundles != null && sourceExcerptPort != null) {
+            ScenarioSourceBundle sourceBundle = bundles.findById(scenarioPackage.bundleId())
+                    .orElseThrow(() -> new IllegalStateException("scenario source bundle not found"));
+            try {
+                if (planExcerpts(sourceBundle).stream().noneMatch(excerpt ->
+                        "STORYBOOK".equalsIgnoreCase(excerpt.documentType())
+                                || "RULEBOOK".equalsIgnoreCase(excerpt.documentType()))) {
+                    throw new IllegalStateException("story plan requires published evidence");
+                }
+            } catch (IllegalStateException failure) {
+                throw failure;
+            } catch (RuntimeException failure) {
+                throw new IllegalStateException("published scenario evidence is unavailable", failure);
+            }
+        }
         AdventureStoryPlanGenerationPort.Request request = new AdventureStoryPlanGenerationPort.Request(
                 UUID.randomUUID().toString(), session.scenarioPackageRevision(), session.party().size(),
                 configuration, sourceDocuments(session), resolutionEvidence(session), mapContexts(scenarioPackage), citations(session, scenarioPackage))
@@ -214,12 +229,8 @@ public final class AdventureStoryPlanApplicationService {
     }
 
     private void appendIndexedExcerpts(List<String> evidence, ScenarioSourceBundle bundle) {
-        try {
-            planExcerpts(bundle).stream().map(ResolutionExtractionPort.SourceExcerpt::text)
-                    .filter(s -> s != null && !s.isBlank()).limit(12).forEach(evidence::add);
-        } catch (RuntimeException ignored) {
-            // Existing compiled evidence remains usable if the retrieval gateway is unavailable.
-        }
+        planExcerpts(bundle).stream().map(ResolutionExtractionPort.SourceExcerpt::text)
+                .filter(s -> s != null && !s.isBlank()).limit(12).forEach(evidence::add);
     }
 
     private List<AdventureStoryPlanGenerationPort.MapContext> mapContexts(ScenarioPackage scenarioPackage) {
@@ -234,7 +245,7 @@ public final class AdventureStoryPlanApplicationService {
                             .limit(8).forEach(excerpt -> related.add(new AdventureStoryPlanGenerationPort.SourceCitation(
                                     excerpt.documentType(),
                                     excerpt.documentId().value(), excerpt.extractionVersion(), excerpt.locator(),
-                                    excerpt.text().replaceAll("\\s+", " ").trim(), .9)));
+                                    excerpt.text().replaceAll("\\s+", " ").trim(), .9, excerpt.provenance())));
                 } catch (RuntimeException ignored) { }
             });
         }
@@ -265,7 +276,7 @@ public final class AdventureStoryPlanApplicationService {
             bundles.findById(scenarioPackage.bundleId()).ifPresent(bundle -> {
                 planExcerpts(bundle).forEach(excerpt -> result.add(new AdventureStoryPlanGenerationPort.SourceCitation(
                         excerpt.documentType(), excerpt.documentId().value(),
-                        excerpt.extractionVersion(), excerpt.locator(), excerpt.text(), .9)));
+                        excerpt.extractionVersion(), excerpt.locator(), excerpt.text(), .9, excerpt.provenance())));
             });
         }
         return result.stream().filter(java.util.Objects::nonNull).distinct().limit(20).toList();
@@ -274,7 +285,8 @@ public final class AdventureStoryPlanApplicationService {
     private List<ResolutionExtractionPort.SourceExcerpt> planExcerpts(ScenarioSourceBundle bundle) {
         List<ResolutionExtractionPort.SourceExcerpt> available = sourceExcerptPort.load(bundle);
         return java.util.stream.Stream.of("STORYBOOK", "RULEBOOK", "MAP")
-                .flatMap(type -> available.stream().filter(excerpt -> type.equalsIgnoreCase(excerpt.documentType())).limit(8))
+                .flatMap(type -> available.stream().filter(ResolutionExtractionPort.SourceExcerpt::isPublishedEvidence)
+                        .filter(excerpt -> type.equalsIgnoreCase(excerpt.documentType())).limit(8))
                 .distinct().limit(20).toList();
     }
 

@@ -219,7 +219,7 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                 .findFirst()
                 .map(source -> new SourceCitation(source.documentType(), source.documentId().toString(),
                         source.extractionVersion(), source.locator(), source.quote(),
-                        Math.min(item.confidence(), source.confidence())))
+                        Math.min(item.confidence(), source.confidence()), source.provenance()))
                 .orElse(item)).toList();
         return stage.withEvidence(canonical);
     }
@@ -239,7 +239,9 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                 || (!stage.mapAssetLocator().isBlank() && !stage.mapAssetLocator().equals(map.assetLocator())))) {
             throw new IllegalStateException("AI returned map metadata that does not match the source map");
         }
-        var evidence = stage.evidence().stream().map(item -> new com.dndmaster.adventure.domain.adventure.AdventurePlanEvidence(item.documentType(), UUID.fromString(item.documentId()), item.extractionVersion(), item.locator(), item.quote(), item.confidence())).toList();
+        var evidence = stage.evidence().stream().map(item -> new com.dndmaster.adventure.domain.adventure.AdventurePlanEvidence(
+                item.documentType(), UUID.fromString(item.documentId()), item.extractionVersion(), item.locator(),
+                item.quote(), item.confidence(), item.provenance())).toList();
         var grounding = evidence.isEmpty() ? com.dndmaster.adventure.domain.adventure.AdventureGroundingStatus.AI_SUGGESTION : com.dndmaster.adventure.domain.adventure.AdventureGroundingStatus.GROUNDED;
         var suggestions = evidence.isEmpty() ? List.of("location", "enemies", "boss", "rewards", "conditions") : List.<String>of();
         List<com.dndmaster.adventure.domain.scenario.StoryMapBinding> bindings = mapId == null ? List.of()
@@ -313,5 +315,20 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                     branchIds, branchTargets, nextEvidence, playerSpawnX, playerSpawnY, playerSpawnConfidence, playerSpawnRationale);
         }
     }
-    @JsonIgnoreProperties(ignoreUnknown = true) record SourceCitation(String documentType, String documentId, long extractionVersion, String locator, String quote, double confidence) {}
+    @JsonIgnoreProperties(ignoreUnknown = true) record SourceCitation(String documentType, String documentId,
+            long extractionVersion, String locator, String quote, double confidence,
+            com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance provenance) {
+        SourceCitation(String documentType, String documentId, long extractionVersion, String locator,
+                String quote, double confidence) {
+            this(documentType, documentId, extractionVersion, locator, quote, confidence, null);
+        }
+
+        public SourceCitation {
+            if (provenance == null && documentId != null && locator != null) {
+                provenance = new com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance(
+                        new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(UUID.fromString(documentId)),
+                        extractionVersion, 1, List.of(), List.of(), null, locator);
+            }
+        }
+    }
 }

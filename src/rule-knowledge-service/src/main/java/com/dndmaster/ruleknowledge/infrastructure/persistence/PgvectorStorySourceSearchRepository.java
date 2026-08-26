@@ -4,7 +4,9 @@ import com.dndmaster.ruleknowledge.application.search.StorySourceEvidence;
 import com.dndmaster.ruleknowledge.application.search.StorySourceScope;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchPort;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchQuery;
+import com.dndmaster.ruleknowledge.application.publication.SourceProvenance;
 import java.sql.Connection;
+import java.sql.Array;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -18,7 +20,11 @@ import javax.sql.DataSource;
 public final class PgvectorStorySourceSearchRepository implements StorySourceSearchPort {
     private static final String SEARCH = """
             WITH ranked AS (
-                SELECT c.document_id AS rulebook_id, r.version, c.original_locator AS locator, c.content, c.sequence,
+                SELECT c.document_id AS rulebook_id,
+                       CASE WHEN c.extraction_version ~ '^[0-9]+$' THEN c.extraction_version::bigint
+                            ELSE GREATEST(r.version, 1) END AS extraction_version,
+                       c.original_locator AS locator, c.content, c.sequence,
+                       c.page_number, c.bbox, c.table_cell, c.section_path,
                        0.75 * (1 - (c.embedding <=> CAST(? AS vector)))
                            + 0.25 * ts_rank_cd(to_tsvector('simple', c.content), plainto_tsquery('simple', ?))
                            + CASE WHEN c.content ~* '(DC|saving|check|attack|damage|roll|recharge)' THEN 0.20 ELSE 0 END AS score
@@ -44,14 +50,15 @@ public final class PgvectorStorySourceSearchRepository implements StorySourceSea
                   LIMIT ?)
             ), deduplicated AS (
                 SELECT DISTINCT ON (candidate.rulebook_id, candidate.locator)
-                       candidate.rulebook_id, candidate.version, candidate.locator,
-                       candidate.content, candidate.score, candidate.sequence
+                       candidate.rulebook_id, candidate.extraction_version, candidate.locator,
+                       candidate.content, candidate.score, candidate.sequence, candidate.page_number,
+                       candidate.bbox, candidate.table_cell, candidate.section_path
                   FROM ranked candidate
                    JOIN seeds seed ON seed.rulebook_id = candidate.rulebook_id
                                  AND candidate.sequence BETWEEN seed.sequence - 1 AND seed.sequence + 1
                  ORDER BY candidate.rulebook_id, candidate.locator, candidate.score DESC
             )
-            SELECT rulebook_id, version, locator, content, score
+                SELECT rulebook_id, extraction_version, locator, content, score, page_number, bbox, table_cell, section_path
               FROM deduplicated
              ORDER BY score DESC, sequence
              LIMIT ?
@@ -91,16 +98,32 @@ public final class PgvectorStorySourceSearchRepository implements StorySourceSea
                     evidence.add(new StorySourceEvidence(
                             new com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId(
                                     rows.getObject("rulebook_id", UUID.class)),
-                            rows.getLong("version"),
+                            rows.getLong("extraction_version"),
                             rows.getString("locator"),
                             rows.getString("content"),
-                            Math.max(0d, rows.getDouble("score"))));
+                            Math.max(0d, rows.getDouble("score")),
+                            new SourceProvenance(rows.getInt("page_number"), textArray(rows, "section_path"),
+                                    doubleArray(rows, "bbox"), rows.getString("table_cell"), rows.getString("locator"))));
                 }
                 return List.copyOf(evidence);
             }
         } catch (SQLException exception) {
             throw new RuleVectorPersistenceException("could not search scoped story sources", exception);
         }
+    }
+
+    private static List<String> textArray(ResultSet rows, String column) throws SQLException {
+        Array array = rows.getArray(column);
+        if (array == null || array.getArray() == null) return List.of();
+        Object[] values = (Object[]) array.getArray();
+        return java.util.Arrays.stream(values).map(String::valueOf).toList();
+    }
+
+    private static List<Double> doubleArray(ResultSet rows, String column) throws SQLException {
+        Array array = rows.getArray(column);
+        if (array == null || array.getArray() == null) return List.of();
+        Object[] values = (Object[]) array.getArray();
+        return java.util.Arrays.stream(values).map(value -> ((Number) value).doubleValue()).toList();
     }
 
     private static String vectorLiteral(float[] values) {

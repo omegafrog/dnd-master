@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.infrastructure.integration;
 
 import com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort;
+import com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
@@ -15,18 +16,11 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.UUID;
 
 public final class CrossContextHttpScenarioSourceExcerptGateway implements ScenarioSourceExcerptPort {
     private static final int MAX_EXCERPTS_FOR_RESOLUTION_EXTRACTION = 12;
     private static final int MAX_EXCERPTS_FOR_BLUEPRINT_EXTRACTION = 12;
-    private static final int MAX_EXCERPT_CHARACTERS = 900;
-    private static final Pattern RESOLUTION_ANCHOR = Pattern.compile(
-            "(?is)\\b(?:dc\\s*\\d+\\s+[a-z]+(?:\\s*\\([^)]*\\))?\\s+"
-                    + "(?:sa\\s*ving\\s+throw(?:s)?|check(?:s)?)|"
-                    + "(?:saving\\s+throw(?:s)?|attack(?:s)?|damage(?:s)?|recharge|roll(?:s)?))\\b");
 
     private final HttpClient client;
     private final URI baseUri;
@@ -44,22 +38,16 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
     @Override
     public List<ResolutionExtractionPort.SourceExcerpt> load(ScenarioSourceBundle bundle) {
         try {
-            // The story-source endpoint authorizes STORYBOOK documents only. A scenario
-            // bundle also contains shared catalog rulebooks, which are handled separately
-            // below via source previews; sending them in the mixed request causes a 403.
             List<DocumentRequest> documents = new java.util.ArrayList<>(bundle.currentRevision().documents().stream()
                     .filter(document -> "STORYBOOK".equalsIgnoreCase(document.documentType()))
                     .map(document -> new DocumentRequest(document.knowledgeDocumentId().value(), document.extractionVersion()))
                     .toList());
-            List<OwnedRulebookDocument> rulebooks = new ArrayList<>(loadOwnedRulebooks(bundle.ownerPlayerId().value()));
-            rulebooks.addAll(loadCatalogRulebooks());
-            List<ResolutionExtractionPort.SourceExcerpt> rulebookExcerpts = rulebooks.stream()
-                    .filter(document -> "RULEBOOK".equalsIgnoreCase(document.documentType())
-                            && "INDEXED".equalsIgnoreCase(document.status()))
-                    .flatMap(document -> loadRulebookExcerpts(document).stream())
-                    .collect(java.util.stream.Collectors.collectingAndThen(
-                            java.util.stream.Collectors.toMap(document -> document.documentId(), document -> document, (left, right) -> left),
-                            values -> new ArrayList<>(values.values())));
+            List<UUID> rulebookIds = bundle.currentRevision().documents().stream()
+                    .filter(document -> "RULEBOOK".equalsIgnoreCase(document.documentType()))
+                    .map(document -> document.knowledgeDocumentId().value())
+                    .toList();
+            List<ResolutionExtractionPort.SourceExcerpt> rulebookExcerpts = loadRulebookEvidence(
+                    bundle.ownerPlayerId().value(), rulebookIds);
             String body = objectMapper.writeValueAsString(new ExcerptRequest(
                     bundle.ownerPlayerId().value(),
                     documents));
@@ -77,8 +65,14 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
                     .filter(Objects::nonNull)
                     .limit(MAX_EXCERPTS_FOR_BLUEPRINT_EXTRACTION)
                     .map(excerpt -> new ResolutionExtractionPort.SourceExcerpt(
-                            "STORYBOOK", new KnowledgeDocumentId(excerpt.knowledgeDocumentId()), excerpt.extractionVersion(),
-                            excerpt.locator(), abbreviate(excerpt.excerpt()))).toList();
+                            "STORYBOOK", toProvenance(excerpt.knowledgeDocumentId(), excerpt.extractionVersion(),
+                                    excerpt.locator(), excerpt.provenance()), excerpt.excerpt())).toList();
+            if (!documents.isEmpty() && scenarioExcerpts.isEmpty()) {
+                throw new ResolutionExtractionException("published storybook evidence is unavailable");
+            }
+            if (!rulebookIds.isEmpty() && rulebookExcerpts.isEmpty()) {
+                throw new ResolutionExtractionException("published rulebook evidence is unavailable");
+            }
             List<ResolutionExtractionPort.SourceExcerpt> mapAssets = bundle.currentRevision().documents().stream()
                     .filter(document -> document.role() == com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.MAP)
                     .flatMap(document -> loadMapAssets(document).stream())
@@ -93,62 +87,48 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
         }
     }
 
-    private List<OwnedRulebookDocument> loadOwnedRulebooks(java.util.UUID ownerId)
-            throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder(
-                        baseUri.resolve("internal/v1/rulebooks?ownerId=" + ownerId))
-                .timeout(timeout)
-                .GET()
-                .build();
-        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() < 200 || response.statusCode() >= 300) {
-            throw new ResolutionExtractionException(
-                    "owned rulebook lookup failed with status " + response.statusCode());
-        }
-        OwnedRulebooksResponse result = objectMapper.readValue(response.body(), OwnedRulebooksResponse.class);
-        return result.rulebooks() == null ? List.of() : result.rulebooks();
-    }
-
-    private List<OwnedRulebookDocument> loadCatalogRulebooks() throws IOException, InterruptedException {
-        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("api/v1/rulebook-catalog"))
-                .timeout(timeout).GET().build();
-        HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() < 200 || response.statusCode() >= 300) return List.of();
-        List<CatalogRulebookDocument> result = objectMapper.readValue(response.body(),
-                objectMapper.getTypeFactory().constructCollectionType(List.class, CatalogRulebookDocument.class));
-        if (result == null) return List.of();
-        return result.stream()
-                .filter(item -> "READY".equalsIgnoreCase(item.status()) && item.rulebookId() != null)
-                .map(item -> new OwnedRulebookDocument(java.util.UUID.fromString(item.rulebookId()), "RULEBOOK", "INDEXED", item.extractionVersion()))
-                .toList();
-    }
-
-    private List<ResolutionExtractionPort.SourceExcerpt> loadRulebookExcerpts(OwnedRulebookDocument document) {
+    private List<ResolutionExtractionPort.SourceExcerpt> loadRulebookEvidence(UUID ownerId, List<UUID> rulebookIds) {
+        if (rulebookIds.isEmpty()) return List.of();
         try {
-            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve(
-                            "api/v1/rulebooks/" + document.knowledgeDocumentId() + "/source-preview"))
-                    .timeout(timeout).GET().build();
+            String body = objectMapper.writeValueAsString(new RuleEvidenceRequest(
+                    ownerId, rulebookIds, "Extract source-grounded rule procedures.", "MIXED",
+                    MAX_EXCERPTS_FOR_RESOLUTION_EXTRACTION));
+            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/rule-evidence/search"))
+                    .timeout(timeout).header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + ownerId)
+                    .POST(HttpRequest.BodyPublishers.ofString(body)).build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new ResolutionExtractionException(
-                        "rulebook source preview lookup failed with status " + response.statusCode());
+                        "published rulebook evidence lookup failed with status " + response.statusCode());
             }
-            SourcePreviewResponse preview = objectMapper.readValue(response.body(), SourcePreviewResponse.class);
-            String content = preview.content() == null ? "" : preview.content();
-            List<ResolutionExtractionPort.SourceExcerpt> excerpts = new java.util.ArrayList<>();
-            for (int start = 0; start < content.length(); start += MAX_EXCERPT_CHARACTERS) {
-                int end = Math.min(content.length(), start + MAX_EXCERPT_CHARACTERS);
-                excerpts.add(new ResolutionExtractionPort.SourceExcerpt(
-                        "RULEBOOK", new KnowledgeDocumentId(document.knowledgeDocumentId()), document.extractionVersion(),
-                        "document:offset:" + start + "-" + end, content.substring(start, end)));
-            }
-            return excerpts;
+            RuleEvidenceResponse result = objectMapper.readValue(response.body(), RuleEvidenceResponse.class);
+            return result.evidence() == null ? List.of() : result.evidence().stream()
+                    .filter(Objects::nonNull)
+                    .map(evidence -> new ResolutionExtractionPort.SourceExcerpt(
+                            "RULEBOOK", toProvenance(evidence.rulebookId(), evidence.extractionVersion(),
+                                    evidence.locator(), evidence.provenance()), evidence.excerpt()))
+                    .toList();
         } catch (IOException exception) {
-            throw new ResolutionExtractionException("rulebook source preview lookup failed", exception);
+            throw new ResolutionExtractionException("published rulebook evidence lookup failed", exception);
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            throw new ResolutionExtractionException("rulebook source preview lookup interrupted", exception);
+            throw new ResolutionExtractionException("published rulebook evidence lookup interrupted", exception);
         }
+    }
+
+    private static PublishedEvidenceProvenance toProvenance(
+            UUID documentId, long extractionVersion, String locator, ProvenanceResponse provenance) {
+        if (provenance == null) {
+            throw new ResolutionExtractionException("published evidence is missing provenance");
+        }
+        if (!documentId.equals(provenance.documentId()) || extractionVersion != provenance.extractionVersion()
+                || !locator.equals(provenance.locator())) {
+            throw new ResolutionExtractionException("published evidence provenance does not match its result");
+        }
+        return new PublishedEvidenceProvenance(
+                new KnowledgeDocumentId(documentId), extractionVersion, provenance.pageNumber(),
+                provenance.sectionPath(), provenance.bbox(), provenance.tableCell(), provenance.locator());
     }
 
     private List<ResolutionExtractionPort.SourceExcerpt> loadMapAssets(
@@ -176,50 +156,6 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
         }
     }
 
-    static String abbreviate(String excerpt) {
-        if (excerpt == null || excerpt.length() <= MAX_EXCERPT_CHARACTERS) return excerpt;
-        String resolutionWindow = resolutionWindow(excerpt);
-        if (resolutionWindow != null) return resolutionWindow;
-        int anchor = firstRuleAnchor(excerpt);
-        int start = Math.max(0, Math.min(anchor - MAX_EXCERPT_CHARACTERS / 2,
-                excerpt.length() - MAX_EXCERPT_CHARACTERS));
-        return "…" + excerpt.substring(start, start + MAX_EXCERPT_CHARACTERS) + "…";
-    }
-
-    private static String resolutionWindow(String excerpt) {
-        Matcher matcher = RESOLUTION_ANCHOR.matcher(excerpt);
-        List<AnchorWindow> windows = new ArrayList<>();
-        while (matcher.find()) {
-            windows.add(new AnchorWindow(
-                    matcher.start(), matcher.end(), matcher.group().toLowerCase(java.util.Locale.ROOT).matches(".*\\bdc\\s*\\d+.*"),
-                    matcher.group().toLowerCase(java.util.Locale.ROOT).contains("saving")));
-        }
-        windows.sort(Comparator.comparing(AnchorWindow::explicitDc).reversed()
-                .thenComparing(Comparator.comparing(AnchorWindow::savingThrow).reversed())
-                .thenComparingInt(AnchorWindow::start));
-        StringBuilder result = new StringBuilder();
-        for (AnchorWindow window : windows.stream().limit(2).toList()) {
-            int start = Math.max(0, window.start() - 140);
-            int end = Math.min(excerpt.length(), window.end() + 260);
-            if (result.length() > 0) result.append("\n…\n");
-            result.append(excerpt, start, end);
-        }
-        return result.length() == 0 ? null
-                : result.substring(0, Math.min(result.length(), MAX_EXCERPT_CHARACTERS));
-    }
-
-    private record AnchorWindow(int start, int end, boolean explicitDc, boolean savingThrow) {}
-
-    private static int firstRuleAnchor(String excerpt) {
-        String lower = excerpt.toLowerCase(java.util.Locale.ROOT);
-        int anchor = Integer.MAX_VALUE;
-        for (String marker : List.of("check", "saving throw", "dc", "roll", "perception")) {
-            int index = lower.indexOf(marker);
-            if (index >= 0) anchor = Math.min(anchor, index);
-        }
-        return anchor == Integer.MAX_VALUE ? 0 : anchor;
-    }
-
     record ExcerptRequest(java.util.UUID ownerId, List<DocumentRequest> documents,
                           List<String> activeLocators, String situation, Integer limit) {
         ExcerptRequest(java.util.UUID ownerId, List<DocumentRequest> documents) {
@@ -231,14 +167,19 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
     @JsonIgnoreProperties(ignoreUnknown = true)
     record StorySourceSearchResponse(List<Excerpt> evidence) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record Excerpt(java.util.UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt) {}
+    record Excerpt(java.util.UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt,
+            ProvenanceResponse provenance) {}
+    record RuleEvidenceRequest(UUID ownerId, List<UUID> rulebookIds, String situation, String queryIntent, int limit) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record OwnedRulebooksResponse(List<OwnedRulebookDocument> rulebooks) {}
+    record RuleEvidenceResponse(List<RuleEvidenceItem> evidence) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record CatalogRulebookDocument(String rulebookId, String status, long extractionVersion) {}
+    record RuleEvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt,
+            double score, ProvenanceResponse provenance) {
+        long extractionVersion() { return provenance == null ? 0 : provenance.extractionVersion(); }
+    }
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record OwnedRulebookDocument(
-            java.util.UUID knowledgeDocumentId, String documentType, String status, long extractionVersion) {}
+    record ProvenanceResponse(UUID documentId, long extractionVersion, int pageNumber, List<String> sectionPath,
+            List<Double> bbox, String tableCell, String locator) {}
     @JsonIgnoreProperties(ignoreUnknown = true)
     record SourcePreviewResponse(String content, List<PreviewAsset> assets) {}
     @JsonIgnoreProperties(ignoreUnknown = true)

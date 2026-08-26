@@ -30,6 +30,9 @@ public final class AdventureStoryPlanStageSourceValidator {
                 .collect(java.util.stream.Collectors.toSet());
 
         List<String> violations = new ArrayList<>();
+        if (authoritative.stream().anyMatch(source -> !hasPublishedProvenance(source))) {
+            violations.add("story plan contains evidence without published provenance");
+        }
         for (String requiredType : List.of("STORYBOOK", "RULEBOOK")) {
             if (availableTypes.contains(requiredType) && !usedTypes.contains(requiredType)) {
                 violations.add("story plan must cite at least one " + requiredType + " source");
@@ -113,7 +116,8 @@ public final class AdventureStoryPlanStageSourceValidator {
     private static boolean matches(
             AdventurePlanEvidence evidence,
             AdventureStoryPlanGenerationPort.SourceCitation source) {
-        return evidence.documentType().equals(source.documentType())
+        return source.provenance() != null
+                && evidence.documentType().equals(source.documentType())
                 && evidence.documentId().equals(source.documentId())
                 && evidence.extractionVersion() == source.extractionVersion()
                 && evidence.locator().equals(source.locator())
@@ -123,6 +127,13 @@ public final class AdventureStoryPlanStageSourceValidator {
 
     private static String normalizeDocumentType(String documentType) {
         return documentType == null ? "" : documentType.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static boolean hasPublishedProvenance(AdventureStoryPlanGenerationPort.SourceCitation source) {
+        return source.provenance() != null
+                && source.documentId().equals(source.provenance().documentId().value())
+                && source.extractionVersion() == source.provenance().extractionVersion()
+                && source.locator().equals(source.provenance().locator());
     }
 
 }

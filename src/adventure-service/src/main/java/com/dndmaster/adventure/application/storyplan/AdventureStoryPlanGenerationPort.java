@@ -61,5 +61,14 @@ public interface AdventureStoryPlanGenerationPort {
             context = context == null ? "" : context.trim();
         }
     }
-    record SourceCitation(String documentType, UUID documentId, long extractionVersion, String locator, String quote, double confidence) {}
+    record SourceCitation(String documentType, UUID documentId, long extractionVersion, String locator, String quote,
+            double confidence, com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance provenance) {
+        public SourceCitation(String documentType, UUID documentId, long extractionVersion, String locator,
+                String quote, double confidence) {
+            this(documentType, documentId, extractionVersion, locator, quote, confidence,
+                    new com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance(
+                            new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(documentId),
+                            extractionVersion, 1, List.of(), List.of(), null, locator));
+        }
+    }
 }

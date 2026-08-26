@@ -82,8 +82,13 @@ class RulebookPgvectorIntegrationTest {
         RagExtractionPublicationRequest first = publicationRequest(documentId, owner, "version-1", 1);
         publicationRepository.beginCandidate(first);
         publicationRepository.publish(first, List.of(publicationChunk(first, 1)));
-        assertEquals("page=1", evidenceRepository.search(
-                owner, List.of(documentId), new float[] {1, 0, 0}, QueryIntent.RULE, 10).getFirst().locator());
+        var publishedEvidence = evidenceRepository.search(
+                owner, List.of(documentId), new float[] {1, 0, 0}, QueryIntent.RULE, 10).getFirst();
+        assertEquals("page=1", publishedEvidence.locator());
+        assertEquals(1, publishedEvidence.extractionVersion());
+        assertEquals(1, publishedEvidence.provenance().pageNumber());
+        assertEquals(List.of("Chapter", "version-1"), publishedEvidence.provenance().sectionPath());
+        assertEquals("r1:c1", publishedEvidence.provenance().tableCell());
 
         RagExtractionPublicationRequest second = publicationRequest(documentId, owner, "version-2", 2);
         publicationRepository.beginCandidate(second);

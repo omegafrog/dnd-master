@@ -249,15 +249,7 @@ public final class ScenarioPackageCompilationService {
                     break;
                 }
             }
-            if (evidence == null) {
-                var document = bundle.currentRevision().documents().stream()
-                        .filter(candidate -> sourceType.equalsIgnoreCase(candidate.documentType())
-                                || (sourceType.equals("HANDOUT") && candidate.role() == ScenarioBundleDocumentRole.HANDOUT))
-                        .findFirst().orElse(null);
-                if (document != null) evidence = new ResolutionExtractionPort.SourceExcerpt(
-                        document.documentType(), document.knowledgeDocumentId(), document.extractionVersion(), "document", "");
-                evidenceSourceType = sourceType;
-            }
+            if (evidence == null) evidenceSourceType = sourceType;
             if (evidence != null) candidates.add(new CharacterCreationBlueprintCompiler.FieldCandidate(
                     key, inputOptions(key, options), extracted, evidenceSourceType,
                     new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(
@@ -356,7 +348,8 @@ public final class ScenarioPackageCompilationService {
                 } else if (verifyEvidence && excerpts.stream().noneMatch(excerpt ->
                         ref.knowledgeDocumentId().equals(excerpt.documentId())
                                 && ref.extractionVersion() == excerpt.extractionVersion()
-                                && ref.locator().equals(excerpt.locator()))) {
+                                && ref.locator().equals(excerpt.locator())
+                                && excerpt.isPublishedEvidence())) {
                     invalid.add("source excerpt is unavailable");
                 } else if (candidate.visibility() == ResolutionVisibility.PLAYER_SAFE
                         && sourceDocument.role() != com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.HANDOUT
@@ -372,6 +365,7 @@ public final class ScenarioPackageCompilationService {
                             ref != null && ref.knowledgeDocumentId().equals(excerpt.documentId())
                                     && ref.extractionVersion() == excerpt.extractionVersion()
                                     && ref.locator().equals(excerpt.locator())
+                                    && excerpt.isPublishedEvidence()
                                     && excerpt.text() != null
                                     && containsEvidenceQuote(excerpt.text(), candidate.sourceQuote())));
             if (!quoteVerified) invalid.add("source quote cannot be verified against referenced excerpt");

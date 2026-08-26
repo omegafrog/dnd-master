@@ -24,6 +24,7 @@ import com.dndmaster.ruleknowledge.application.search.StorySourceSearchQuery;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextDocumentScope;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextEvidence;
+import com.dndmaster.ruleknowledge.application.publication.SourceProvenance;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchQuery;
 import com.dndmaster.ruleknowledge.domain.rulebook.*;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -408,7 +409,8 @@ public class RuleKnowledgeController {
                         r.excerpt(),
                         r.score(),
                         r.chapter(),
-                        r.section()))
+                        r.section(),
+                        provenanceView(r.rulebookId().value(), r.extractionVersion(), r.provenance())))
                 .toList();
         return new EvidenceSearchResponse(request.ownerId(), evidence);
     }
@@ -440,7 +442,8 @@ public class RuleKnowledgeController {
                 evidence.stream()
                         .map(result -> new StorySourceEvidenceItem(
                                 result.documentId().value(), result.extractionVersion(), result.sourceSpanLocator(),
-                                result.excerpt(), result.score()))
+                                result.excerpt(), result.score(), provenanceView(result.documentId().value(),
+                                        result.extractionVersion(), result.provenance())))
                 .toList());
     }
 
@@ -631,7 +634,8 @@ public class RuleKnowledgeController {
     public record GameSystemDefinitionRequest(long version, String definitionJson) {}
     public record RuleSetSaveRequest(List<UUID> knowledgeDocumentIds) {}
     public record EvidenceSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, QueryIntent queryIntent, Integer limit) {}
-    public record EvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score, String chapter, String section) {}
+    public record EvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score,
+            String chapter, String section, ProvenanceView provenance) {}
     public record EvidenceSearchResponse(UUID ownerId, List<EvidenceItem> evidence) {}
     public record StorySourceSearchRequest(
             UUID ownerId,
@@ -642,7 +646,8 @@ public class RuleKnowledgeController {
     public record StorySourceScopeRequest(UUID documentId, long extractionVersion) {}
     public record StorySourceSearchResponse(UUID ownerId, List<StorySourceEvidenceItem> evidence) {}
     public record StorySourceEvidenceItem(
-            UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt, double score) {}
+            UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt, double score,
+            ProvenanceView provenance) {}
     public record CharacterContextSearchRequest(
             UUID ownerId, List<CharacterContextScopeRequest> documents, String situation,
             Map<DocumentType, Double> thresholds, Integer tokenBudget) {}
@@ -667,6 +672,14 @@ public class RuleKnowledgeController {
             String sourceMethod,
             Double confidence) {}
     public record PreviewAssetView(String kind, String locator, String contentType, Integer pageNumber) {}
+
+    public record ProvenanceView(UUID documentId, long extractionVersion, int pageNumber, List<String> sectionPath,
+            List<Double> bbox, String tableCell, String locator) {}
+
+    private static ProvenanceView provenanceView(UUID documentId, long extractionVersion, SourceProvenance provenance) {
+        return new ProvenanceView(documentId, extractionVersion, provenance.pageNumber(), provenance.sectionPath(),
+                provenance.bbox(), provenance.tableCell(), provenance.originalLocator());
+    }
 
     private static List<String> warningsFor(StoredRulebookRegistration registration) {
         List<String> warnings = new java.util.ArrayList<>();
