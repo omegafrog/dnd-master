@@ -28,6 +28,7 @@ from preprocessing_agent.structure import HeadingAssociator, TableStructureDetec
 from preprocessing_agent.ports.extraction import ExtractionCapabilityError, PageRenderPort, OcrPort, normalize_ocr_blocks
 from preprocessing_agent.adapters.ocr import PyMuPdfPageRenderAdapter, TesseractOcrAdapter
 from preprocessing_agent.validation import LayoutValidationService
+from preprocessing_agent.pipeline.retry import PageRetryPolicy
 
 
 class _RenderEvidenceSecondaryValidator:
@@ -236,6 +237,7 @@ class ExtractionApplicationService:
             secondary=_RenderEvidenceSecondaryValidator()
         )
         self._versions: dict[str, Mapping[str, Any]] = {}
+        self.retry_policy = PageRetryPolicy()
 
     def preprocess(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
         output = _canonical_path(str(request.get("output_dir", "")))
@@ -411,7 +413,7 @@ class ExtractionApplicationService:
                 (temp_dir / "manifest.json").write_text(json.dumps(manifest, sort_keys=True) + "\n")
             version_artifact = {"version_id": version.version_id, "document_id": document_id, "policy_version": policy, "page_count": version.page_count, "status": version.status.value, "source_sha256": source_hash, "pages": page_artifacts}
             (temp_dir / "version.json").write_text(json.dumps(version_artifact, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
-            response = {"schema_version": "1", "operation": "preprocess", "request_id": request_id, "version_id": version.version_id, "status": version.status.value, "pages": [{"page_number": item["page_number"], "status": item["status"], "attempts": 1, "findings": item.get("findings", [])} for item in page_artifacts], "page_summary": {"count": len(page_artifacts), "processed": len(page_artifacts), "validated": sum(item["status"] == "VALIDATED" for item in page_artifacts), "needs_review": sum(item["status"] == "NEEDS_REVIEW" for item in page_artifacts), "ready": sum(item["status"] == "VALIDATED" for item in page_artifacts)}, "artifacts": self._artifact_refs(temp_dir, ready), "manifest": manifest}
+            response = {"schema_version": "1", "operation": "preprocess", "request_id": request_id, "version_id": version.version_id, "status": version.status.value, "pages": [{"page_number": item["page_number"], "status": item["status"], "attempts": 1, "findings": item.get("findings", []), "attempt_history": [{"attempt": 1, "status": item["status"], "findings": item.get("findings", [])}]} for item in page_artifacts], "page_summary": {"count": len(page_artifacts), "processed": len(page_artifacts), "validated": sum(item["status"] == "VALIDATED" for item in page_artifacts), "needs_review": sum(item["status"] == "NEEDS_REVIEW" for item in page_artifacts), "ready": sum(item["status"] == "VALIDATED" for item in page_artifacts)}, "artifacts": self._artifact_refs(temp_dir, ready), "manifest": manifest}
             (temp_dir / "response.json").write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
             version_dir = versions / version_id
             if version_dir.exists():
@@ -548,7 +550,7 @@ class ExtractionApplicationService:
                     raise ValueError("VERSION_ARTIFACT_CORRUPT") from exc
                 if not isinstance(response, dict) or not all(key in response for key in ("schema_version", "operation", "request_id", "version_id", "status", "pages", "page_summary", "artifacts", "manifest")) or not isinstance(response["pages"], list) or not isinstance(response["artifacts"], dict) or not isinstance(response["page_summary"], dict) or not isinstance(response["manifest"], dict):
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
-                if response["schema_version"] != "1" or response["operation"] not in {"preprocess", "status"} or not isinstance(response["request_id"], str) or not response["request_id"] or response["version_id"] != version_id or response["status"] not in {"QUEUED", "PROCESSING", "VALIDATING", "READY", "NEEDS_REVIEW"}:
+                if response["schema_version"] != "1" or response["operation"] not in {"preprocess", "status", "retry_pages"} or not isinstance(response["request_id"], str) or not response["request_id"] or response["version_id"] != version_id or response["status"] not in {"QUEUED", "PROCESSING", "VALIDATING", "READY", "NEEDS_REVIEW"}:
                     raise ValueError("VERSION_ARTIFACT_CORRUPT")
                 summary = response.get("page_summary", {})
                 if not isinstance(summary, dict) or any(type(summary.get(key)) is not int for key in ("count", "processed", "validated", "needs_review", "ready")) or summary.get("count") != len(response["pages"]) or summary.get("processed") != len(response["pages"]):
@@ -611,6 +613,49 @@ class ExtractionApplicationService:
             if status_lock is not None:
                 fcntl.flock(status_lock.fileno(), fcntl.LOCK_UN)
                 status_lock.close()
+
+    def retry_pages(self, version_id: str, artifact_root: str | Path, pages: list[int], *, request_id: str = "retry") -> Mapping[str, Any]:
+        """Record a bounded targeted retry request without touching other pages."""
+        root = _canonical_path(str(artifact_root)); _enforce_root(root, "PREPROCESS_ARTIFACT_ROOT")
+        lock_path = root / ".preprocess.lock"
+        with lock_path.open("a+") as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            current = self.get_status(version_id, root, _lock=False)
+            if current["status"] == "READY":
+                raise ValueError("PUBLISHED_VERSION_IMMUTABLE")
+            wanted = sorted(set(int(p) for p in pages))
+            by_number = {int(p["page_number"]): p for p in current["pages"]}
+            if not wanted or any(p not in by_number for p in wanted):
+                raise ValueError("INVALID_PAGE_SELECTION")
+            updated = []
+            for page in current["pages"]:
+                item = dict(page)
+                if item["page_number"] in wanted:
+                    attempt = self.retry_policy.request(item)
+                    history = list(item.get("attempt_history", [])); history.append(attempt.as_dict())
+                    item["attempts"] = attempt.attempt_number
+                    item["attempt_history"] = history
+                    item["diagnostics"] = {"strategy": attempt.strategy, "regions": [list(r) for r in attempt.regions], "findings": list(attempt.findings)}
+                updated.append(item)
+            response = {**current, "operation": "retry_pages", "request_id": request_id, "pages": updated}
+            version_dir = root / "versions" / version_id
+            response_path = version_dir / "response.json"
+            if response_path.is_symlink() or not response_path.exists():
+                raise ValueError("VERSION_ARTIFACT_CORRUPT")
+            response_path.write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+            version_path = version_dir / "version.json"
+            if version_path.exists():
+                version_data = json.loads(version_path.read_text())
+                version_data["pages"] = [{k: v for k, v in item.items() if k in {"page_number", "status", "findings", "attempts", "attempt_history", "diagnostics"}} for item in updated]
+                version_path.write_text(json.dumps(version_data, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+                # The version artifact is content-addressed; refresh its ref
+                # after the atomic page read-model update.
+                refs = dict(response.get("artifacts", {}))
+                if isinstance(refs.get("version"), dict):
+                    refs["version"] = {"path": str(version_path), "sha256": _sha256(version_path)}
+                response["artifacts"] = refs
+                response_path.write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+            return response
 
     @staticmethod
     def _artifact_refs(directory: Path, ready: bool) -> dict[str, Any]:

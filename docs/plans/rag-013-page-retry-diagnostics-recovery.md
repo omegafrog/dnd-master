@@ -1,6 +1,6 @@
 # RAG-013 Page Retry Diagnostics Recovery
 
-- 상태: `planned`
+- 상태: `completed`
 - 의존성: RAG-012
 - Product Spec: UC-06; BR-17, BR-18, BR-21
 - Architecture Spec: Sections 5.5, 5.10, 6, 7, 9
