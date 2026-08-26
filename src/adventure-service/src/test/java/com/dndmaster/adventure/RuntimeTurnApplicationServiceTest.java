@@ -64,7 +64,7 @@ import org.junit.jupiter.api.Test;
 
 class RuntimeTurnApplicationServiceTest {
     @Test
-    void meta_question_returns_read_only_result_without_advancing_or_persisting() {
+    void meta_question_returns_read_only_result_and_persists_non_advancing_audit_turn() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
         Adventure adventure = adventure(owner);
         ScenarioPackage scenarioPackage = scenarioPackage(new KnowledgeDocumentId(UUID.randomUUID()), new KnowledgeDocumentId(UUID.randomUUID()));
@@ -82,7 +82,9 @@ class RuntimeTurnApplicationServiceTest {
                 adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "What rules are active?", 0, false));
 
         assertEquals(0, result.version());
-        assertEquals(0, turns.saved.size());
+        assertEquals(1, turns.saved.size());
+        assertEquals(false, turns.saved.get(0).advancesState());
+        assertEquals(com.dndmaster.adventure.application.runtime.RuntimeTurnOrigin.PLAYER, turns.saved.get(0).origin());
         assertEquals(adventure.currentContext(), result.context());
     }
 
@@ -310,6 +312,26 @@ class RuntimeTurnApplicationServiceTest {
         assertEquals(1, planning.calls);
         assertEquals(1, safety.calls);
         assertEquals(2, turns.saved.size());
+    }
+
+    @Test
+    void rejects_same_command_id_when_replay_changes_trigger_evidence_provenance() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId storyId = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(storyId, rulebookId);
+        InMemoryAdventureRepository adventures = new InMemoryAdventureRepository(adventure);
+        InMemoryBindingRepository bindings = new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId()));
+        InMemoryPackageRepository packages = new InMemoryPackageRepository(scenarioPackage);
+        InMemoryRuntimeTurnRepository turns = new InMemoryRuntimeTurnRepository();
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(adventures, bindings, packages, turns,
+                new RecordingEvidenceSearchPort(storyId, rulebookId), new RecordingPlanningPort(null), new AllowingSafetyPort(true), scope(adventure, storyId, rulebookId));
+        UUID commandId = UUID.randomUUID();
+        UUID turnId = UUID.randomUUID();
+        service.submitTurn(new SubmitRuntimeTurnCommand(adventure.id(), owner, turnId, commandId, "Open the door", 0, true));
+        assertThrows(IllegalStateException.class, () -> service.submitTurn(
+                new SubmitRuntimeTurnCommand(adventure.id(), owner, turnId, commandId, "Open the door", 0, false)));
     }
 
     @Test

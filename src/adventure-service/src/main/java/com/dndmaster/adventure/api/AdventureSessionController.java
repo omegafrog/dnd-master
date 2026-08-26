@@ -5,6 +5,7 @@ import com.dndmaster.adventure.application.runtime.GmProviderBindingService;
 import com.dndmaster.adventure.application.runtime.GmProviderSelection;
 import com.dndmaster.adventure.application.runtime.ProviderBinding;
 import com.dndmaster.adventure.application.runtime.TacticalMapActivationApplicationService;
+import com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimeApplicationService;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanApplicationService;
 import com.dndmaster.adventure.domain.adventure.*;
 import java.util.List;
@@ -19,8 +20,10 @@ public final class AdventureSessionController {
     private final GmProviderBindingService providerBindings;
     private final AdventureStoryPlanApplicationService storyPlans;
     private final TacticalMapActivationApplicationService mapActivation;
+    private final TacticalTriggerRuntimeApplicationService triggerRuntime;
     public AdventureSessionController(AdventureSessionApplicationService service, AuthenticatedPlayerResolver playerResolver, GmProviderBindingService providerBindings,
-            AdventureStoryPlanApplicationService storyPlans, TacticalMapActivationApplicationService mapActivation) { this.service = service; this.playerResolver = playerResolver; this.providerBindings = providerBindings; this.storyPlans = storyPlans; this.mapActivation = mapActivation; }
+            AdventureStoryPlanApplicationService storyPlans, TacticalMapActivationApplicationService mapActivation,
+            TacticalTriggerRuntimeApplicationService triggerRuntime) { this.service = service; this.playerResolver = playerResolver; this.providerBindings = providerBindings; this.storyPlans = storyPlans; this.mapActivation = mapActivation; this.triggerRuntime = triggerRuntime; }
     @PostMapping SessionView create(@RequestBody CreateSessionRequest request) { return SessionView.from(service.create(owner(), request.scenarioPackageId(), request.blueprintId(), request.blueprintRevision(), request.runtimeConfiguration(), request.partySize())); }
     @GetMapping List<SessionView> list(@RequestParam UUID scenarioPackageId) { return service.listByScenarioPackageId(scenarioPackageId, owner()).stream().map(SessionView::from).toList(); }
     @GetMapping("/{sessionId}") SessionView read(@PathVariable UUID sessionId) { return SessionView.from(service.read(new SessionId(sessionId), owner())); }
@@ -63,9 +66,11 @@ public final class AdventureSessionController {
     private void activateCurrentStageMap(AdventureSession session) {
         var plan = storyPlans.read(session.id(), owner());
         var stage = plan.stages().stream().filter(item -> item.position() == plan.currentStage() + 1).findFirst().orElse(null);
-        if (stage == null || stage.mapDefinitionId() == null || session.startedAdventureId() == null) return;
-        mapActivation.activateDefinition(session.scenarioPackageId(), session.startedAdventureId().value(), owner().value(),
-                session.runtimeConfiguration().ruleSetId().value(), stage.mapDefinitionId(), stage.playerSpawnX(), stage.playerSpawnY());
+        if (stage == null || stage.mapDefinitionId() == null || !stage.tacticalScenePlan().readyForActivation()
+                || session.startedAdventureId() == null) return;
+        var activation = mapActivation.activateDefinition(session.scenarioPackageId(), session.startedAdventureId().value(), owner().value(),
+                session.runtimeConfiguration().ruleSetId().value(), stage.mapDefinitionId(), stage.tacticalScenePlan(), stage.playerSpawnX(), stage.playerSpawnY());
+        activation.combatMapId().ifPresent(id -> triggerRuntime.bindActiveMap(session.startedAdventureId().value(), stage.position(), owner().value(), id));
     }
     private static GmProviderSelection defaultProvider() { return new GmProviderSelection("codex-cli", "gpt-5.6-luna", "medium"); }
     public record CreateSessionRequest(UUID scenarioPackageId, UUID blueprintId, long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration, Integer partySize) {}

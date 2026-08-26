@@ -13,6 +13,7 @@ test('real backend UI preserves provider switch across reconnect', async ({ page
   await page.getByLabel('이메일').fill(email!)
   await page.getByLabel('비밀번호').fill(password!)
   await page.getByRole('button', { name: '로그인', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '모험 준비가 완료되었습니다' })).toBeVisible({ timeout: 30_000 })
 
   await page.goto(`/#/sessions/${sessionId}`)
   const session = page.getByRole('main')

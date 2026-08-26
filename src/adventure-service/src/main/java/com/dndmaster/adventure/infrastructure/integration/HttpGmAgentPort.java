@@ -27,10 +27,6 @@ public final class HttpGmAgentPort implements GmAgentPort {
     private final ObjectMapper mapper;
     private final String internalToken;
 
-    public HttpGmAgentPort(HttpClient client, URI baseUri, Duration timeout, ObjectMapper mapper) {
-        this(client, baseUri, timeout, mapper, "local-dev-internal-token");
-    }
-
     public HttpGmAgentPort(HttpClient client, URI baseUri, Duration timeout, ObjectMapper mapper, String internalToken) {
         this.client = Objects.requireNonNull(client);
         this.baseUri = Objects.requireNonNull(baseUri);

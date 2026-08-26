@@ -14,6 +14,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.BiConsumer;
 import com.dndmaster.adventure.domain.adventure.ControlMode;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.adventure.SessionId;
@@ -37,6 +38,7 @@ public final class AdventureStoryPlanApplicationService {
     private final ScenarioBundleRepository bundles;
     private final ScenarioSourceExcerptPort sourceExcerptPort;
     private final AdventureStoryPlanGenerationPort generator;
+    private final AdventureStoryPlanStageSourceValidator stageSourceValidator = new AdventureStoryPlanStageSourceValidator();
 
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions) {
         this(plans, sessions, null, request -> defaultStages(request.configuration()));
@@ -60,33 +62,94 @@ public final class AdventureStoryPlanApplicationService {
     public List<AdventureStoryPlan> readHistory(SessionId sessionId, OwnerPlayerId owner) {
         requireSession(sessionId, owner); return plans.readHistory(sessionId);
     }
+    public List<AdventureStoryPlanHistoryEntry> readHistoryEntries(SessionId sessionId, OwnerPlayerId owner) {
+        requireSession(sessionId, owner); return plans.readHistoryEntries(sessionId);
+    }
 
     public AdventureStoryPlan generate(SessionId sessionId, OwnerPlayerId owner) {
         return generate(sessionId, owner, AdventurePlanConfiguration.defaults());
     }
 
     public AdventureStoryPlan generate(SessionId sessionId, OwnerPlayerId owner, AdventurePlanConfiguration configuration) {
+        return generate(sessionId, owner, configuration, (progress, stage) -> { });
+    }
+
+    public AdventureStoryPlan generate(SessionId sessionId, OwnerPlayerId owner, AdventurePlanConfiguration configuration,
+            BiConsumer<Integer, String> progress) {
         AdventureSession session = requireSession(sessionId, owner);
+        progress.accept(15, "파티와 모험 자료 확인");
+        if (session.startedAdventureId() != null) {
+            throw new IllegalStateException("story plan generation is not allowed after adventure start; use future-stage revision");
+        }
         validateParty(session);
         AdventureStoryPlan previous = plans.findBySessionId(sessionId).orElse(null);
         long version = previous == null ? 1 : previous.version() + 1;
         ScenarioPackage scenarioPackage = packages == null ? null : packages.findById(session.scenarioPackageId()).orElse(null);
+        if (scenarioPackage != null && scenarioPackage.report().status() != com.dndmaster.adventure.domain.scenario.ResolutionStatus.COMPLETE) {
+            throw new IllegalStateException("story plan requires a COMPLETE scenario package report");
+        }
         AdventureStoryPlanGenerationPort.Request request = new AdventureStoryPlanGenerationPort.Request(
                 UUID.randomUUID().toString(), session.scenarioPackageRevision(), session.party().size(),
-                configuration, sourceDocuments(session), resolutionEvidence(session), mapContexts(scenarioPackage), citations(session, scenarioPackage));
-        List<AdventureStoryPlanStage> stages;
-        try {
-            stages = generator.generate(request);
-        } catch (RuntimeException providerFailure) {
-            LOGGER.error("story plan generation failed; no fallback will be persisted", providerFailure);
-            throw providerFailure;
+                configuration, sourceDocuments(session), resolutionEvidence(session), mapContexts(scenarioPackage), citations(session, scenarioPackage))
+                .withPreviousCandidate(previous == null ? "" : previous.stages().toString());
+        LOGGER.info("story_plan_generation_input packageId={} citations={} resolutionEvidence={} maps={} sourceDocuments={}",
+                session.scenarioPackageId(), request.citations().size(), request.resolutionEvidence().size(),
+                request.maps().size(), request.sourceDocuments().size());
+        LOGGER.info("story_plan_generation_citation_keys={}", request.citations().stream()
+                .map(item -> item.documentType() + ":" + item.documentId() + ":" + item.extractionVersion() + ":" + item.locator())
+                .toList());
+        progress.accept(25, "모험 개요 생성 중");
+        List<AdventureStoryPlanStage> stages = List.of();
+        List<String> outlineViolations = List.of();
+        for (int attempt = 1; attempt <= 5; attempt++) {
+            progress.accept(Math.min(85, 25 + ((attempt - 1) * 15)),
+                    attempt == 1 ? "모험 개요 생성 중" : "모험 개요 재생성 중 (재시도 " + attempt + "/5)");
+            try {
+                List<AdventureStoryPlanStage> candidateStages = generator.generate(request);
+                if (candidateStages == null) {
+                    throw new AdventureStoryPlanCandidateValidationException(
+                            List.of("AI returned no story stages"));
+                }
+                stages = candidateStages;
+            } catch (AdventureStoryPlanCandidateValidationException invalidCandidate) {
+                outlineViolations = invalidCandidate.violations();
+            } catch (RuntimeException providerFailure) {
+                LOGGER.error("story plan generation failed; no fallback will be persisted", providerFailure);
+                throw providerFailure;
+            }
+            if (outlineViolations.isEmpty()) {
+                try {
+                    validateMaps(stages, request.maps());
+                    outlineViolations = validateStageSources(stages, request.citations(), scenarioPackage);
+                    outlineViolations = appendViolations(outlineViolations,
+                            stageSourceValidator.validateCitationCoverage(stages, request.citations()));
+                    if (outlineViolations.isEmpty()) {
+                        AdventureStoryPlanGraphValidator.validate(stages, configuration);
+                    }
+                } catch (RuntimeException invalidCandidate) {
+                    outlineViolations = List.of(candidateValidationMessage(invalidCandidate));
+                }
+            }
+            if (outlineViolations.isEmpty()) break;
+            LOGGER.warn("story_plan_candidate_rejected attempt={} violations={}", attempt, outlineViolations);
+            progress.accept(Math.min(90, 30 + (attempt * 12)),
+                    "계획 검증 실패, 재시도 준비 중 (" + attempt + "/5)");
+            if (attempt == 5) {
+                AdventureStoryPlan blocked = AdventureStoryPlan.blocked(
+                        previous == null ? UUID.randomUUID() : previous.planId(), session.id(),
+                        session.scenarioPackageRevision(), session.version(), version, configuration, stages,
+                        String.join("; ", outlineViolations));
+                plans.save(blocked);
+                return blocked;
+            }
+            request = request.withViolations(outlineViolations);
+            outlineViolations = List.of();
         }
-        validateMaps(stages, request.maps());
-        AdventureStoryPlanGraphValidator.validate(stages, configuration);
         AdventureStoryPlan plan = AdventureStoryPlan.ready(
                 previous == null ? java.util.UUID.randomUUID() : previous.planId(), session.id(),
                 session.scenarioPackageRevision(), session.version(), version, configuration, stages);
         plans.save(plan);
+        progress.accept(100, "플레이 준비 완료");
         return plan;
     }
 
@@ -152,7 +215,7 @@ public final class AdventureStoryPlanApplicationService {
 
     private void appendIndexedExcerpts(List<String> evidence, ScenarioSourceBundle bundle) {
         try {
-            sourceExcerptPort.load(bundle).stream().map(ResolutionExtractionPort.SourceExcerpt::text)
+            planExcerpts(bundle).stream().map(ResolutionExtractionPort.SourceExcerpt::text)
                     .filter(s -> s != null && !s.isBlank()).limit(12).forEach(evidence::add);
         } catch (RuntimeException ignored) {
             // Existing compiled evidence remains usable if the retrieval gateway is unavailable.
@@ -161,19 +224,34 @@ public final class AdventureStoryPlanApplicationService {
 
     private List<AdventureStoryPlanGenerationPort.MapContext> mapContexts(ScenarioPackage scenarioPackage) {
         if (scenarioPackage == null) return List.of();
-        List<String> related = new ArrayList<>();
+        List<AdventureStoryPlanGenerationPort.SourceCitation> related = new ArrayList<>();
         if (bundles != null && sourceExcerptPort != null) {
             bundles.findById(scenarioPackage.bundleId()).ifPresent(bundle -> {
                 try {
                     sourceExcerptPort.load(bundle).stream()
-                            .map(ResolutionExtractionPort.SourceExcerpt::text)
-                            .filter(text -> text != null && text.matches("(?is).*\\b(cellar|corridor|tower|dungeon|brewery|trap|staircase)\\b.*"))
-                            .limit(8).forEach(text -> related.add(text.replaceAll("\\s+", " ").trim()));
+                            .filter(excerpt -> excerpt.text() != null && excerpt.text().matches(
+                                    "(?is).*\\b(cellar|corridor|tower|dungeon|brewery|trap|staircase)\\b.*"))
+                            .limit(8).forEach(excerpt -> related.add(new AdventureStoryPlanGenerationPort.SourceCitation(
+                                    excerpt.documentType(),
+                                    excerpt.documentId().value(), excerpt.extractionVersion(), excerpt.locator(),
+                                    excerpt.text().replaceAll("\\s+", " ").trim(), .9)));
                 } catch (RuntimeException ignored) { }
             });
         }
-        return scenarioPackage.mapDefinitions().stream().filter(com.dndmaster.adventure.domain.scenario.MapDefinition::autoActivatable).map(map -> new AdventureStoryPlanGenerationPort.MapContext(
-                map.id(), map.assetId(), map.assetLocator(), map.source().locator(), map.confidence(), map.safetyStatus().name(), List.copyOf(related))).toList();
+        return scenarioPackage.mapDefinitions().stream().filter(com.dndmaster.adventure.domain.scenario.MapDefinition::autoActivatable).map(map -> {
+            String bindings = scenarioPackage.storyMapBindings().stream()
+                    .filter(binding -> binding.mapDefinitionId().equals(map.id()))
+                    .map(binding -> "stage=" + binding.stage() + ", location=" + binding.location()
+                            + ", entryCondition=" + binding.entryCondition())
+                    .collect(java.util.stream.Collectors.joining("; "));
+            var grid = map.grid();
+            String context = "grid origin=(" + grid.originX() + "," + grid.originY() + "), cellSize=" + grid.cellSize()
+                    + ", rotation=" + grid.rotation() + ", distance=" + grid.distance()
+                    + ", walls=" + map.walls() + ", doors=" + map.doors() + ", obstacles=" + map.obstacles()
+                    + ", bindings=[" + bindings + "]";
+            return new AdventureStoryPlanGenerationPort.MapContext(map.id(), map.assetId(), map.assetLocator(),
+                    map.source().locator(), map.confidence(), map.safetyStatus().name(), List.copyOf(related), context);
+        }).toList();
     }
 
     private List<AdventureStoryPlanGenerationPort.SourceCitation> citations(AdventureSession session, ScenarioPackage scenarioPackage) {
@@ -185,14 +263,19 @@ public final class AdventureStoryPlanApplicationService {
                 .filter(java.util.Objects::nonNull).toList());
         if (bundles != null && sourceExcerptPort != null) {
             bundles.findById(scenarioPackage.bundleId()).ifPresent(bundle -> {
-                java.util.Map<UUID, String> bundleTypes = bundle.currentRevision().documents().stream().collect(java.util.stream.Collectors.toMap(
-                        document -> document.knowledgeDocumentId().value(), document -> document.documentType(), (left, right) -> left));
-                sourceExcerptPort.load(bundle).stream().limit(12).forEach(excerpt -> result.add(new AdventureStoryPlanGenerationPort.SourceCitation(
-                        bundleTypes.getOrDefault(excerpt.documentId().value(), "STORYBOOK"), excerpt.documentId().value(),
+                planExcerpts(bundle).forEach(excerpt -> result.add(new AdventureStoryPlanGenerationPort.SourceCitation(
+                        excerpt.documentType(), excerpt.documentId().value(),
                         excerpt.extractionVersion(), excerpt.locator(), excerpt.text(), .9)));
             });
         }
         return result.stream().filter(java.util.Objects::nonNull).distinct().limit(20).toList();
+    }
+
+    private List<ResolutionExtractionPort.SourceExcerpt> planExcerpts(ScenarioSourceBundle bundle) {
+        List<ResolutionExtractionPort.SourceExcerpt> available = sourceExcerptPort.load(bundle);
+        return java.util.stream.Stream.of("STORYBOOK", "RULEBOOK", "MAP")
+                .flatMap(type -> available.stream().filter(excerpt -> type.equalsIgnoreCase(excerpt.documentType())).limit(8))
+                .distinct().limit(20).toList();
     }
 
     private static AdventureStoryPlanGenerationPort.SourceCitation citation(ScenarioResolutionUnit unit, ScenarioSourceReference reference, String documentType) {
@@ -208,7 +291,43 @@ public final class AdventureStoryPlanApplicationService {
         });
     }
 
+    private static String candidateValidationMessage(RuntimeException failure) {
+        String message = failure.getMessage();
+        return message == null || message.isBlank()
+                ? "story plan candidate validation failed: " + failure.getClass().getSimpleName()
+                : message;
+    }
+
+    private List<String> validateStageSources(
+            List<AdventureStoryPlanStage> stages,
+            List<AdventureStoryPlanGenerationPort.SourceCitation> citations,
+            ScenarioPackage scenarioPackage) {
+        List<String> violations = new ArrayList<>();
+        Set<UUID> mapDocumentIds = scenarioPackage == null ? Set.of() : scenarioPackage.documents().stream()
+                .filter(document -> document.role() == com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.MAP)
+                .map(document -> document.knowledgeDocumentId().value())
+                .collect(java.util.stream.Collectors.toSet());
+        for (AdventureStoryPlanStage stage : stages) {
+            // The execution projection may intentionally omit evidence and mark
+            // connective details as AI suggestions. Only explicit evidence is
+            // authoritative enough for source-claim validation here; map
+            // identity is still checked separately by validateMaps().
+            if (stage.mapDefinitionId() == null || stage.evidence().isEmpty()) continue;
+            violations.addAll(stageSourceValidator.validate(stage, citations, mapDocumentIds));
+        }
+        return List.copyOf(violations);
+    }
+
+    private static List<String> appendViolations(List<String> first, List<String> second) {
+        if (first.isEmpty()) return second;
+        if (second.isEmpty()) return first;
+        List<String> combined = new ArrayList<>(first);
+        combined.addAll(second);
+        return List.copyOf(combined);
+    }
+
     private static AdventureStoryPlanStage stage(int position, String title, String goal, String conflict, String transition, String ending) {
         return new AdventureStoryPlanStage(position, title, goal, conflict, transition, List.of(), List.of(ending));
     }
+
 }

@@ -206,6 +206,40 @@ class AdventureSessionTest {
     }
 
     @Test
+    void starts_with_ready_story_plan_when_tactical_scene_is_absent() {
+        var owner = new OwnerPlayerId(UUID.randomUUID());
+        var packageId = ScenarioBundleId.generate();
+        var blueprint = new com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint(
+                1, com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.PUBLISHED, List.of(), List.of());
+        var scenarioPackage = ScenarioPackage.publish(packageId, 1, "fingerprint", List.of(), List.of(),
+                new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()), new CharacterLimit(1, null, ""), blueprint);
+        var session = AdventureSession.create(SessionId.generate(), owner, scenarioPackage.packageId(), 1,
+                scenarioPackage.packageId(), 1, 1,
+                new AdventureSessionRuntimeConfiguration(new ScenarioId(scenarioPackage.packageId()),
+                        new RuleSetId(packageId.value()), List.of(), "ollama", List.of(), "opening"));
+        session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT,
+                true, true, true, true, true, true));
+        var packages = mock(ScenarioPackageRepository.class);
+        when(packages.findById(scenarioPackage.packageId())).thenReturn(java.util.Optional.of(scenarioPackage));
+        var sessions = mock(AdventureSessionRepository.class);
+        when(sessions.findById(session.id())).thenReturn(java.util.Optional.of(session));
+        var plans = mock(com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository.class);
+        when(plans.findBySessionId(session.id())).thenReturn(java.util.Optional.of(
+                com.dndmaster.adventure.domain.adventure.AdventureStoryPlan.ready(session.id(), session.version(), 1,
+                        List.of(new com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage(
+                                1, "Opening", "Start", "Threat", "Resolve", List.of(), List.of())))));
+        var coordinator = mock(AdventureSessionStartCoordinator.class);
+        var service = new AdventureSessionApplicationService(sessions, packages, mock(AdventureRepository.class),
+                mock(RuntimeBindingApplicationService.class), coordinator,
+                mock(com.dndmaster.adventure.application.session.CharacterSheetOwnershipPort.class), plans,
+                mock(SessionKnowledgeSetRepository.class));
+
+        service.start(session.id(), owner, session.version(), UUID.randomUUID(), AdventureId.generate());
+
+        verify(coordinator).prepare(any(), any(), any(), any());
+    }
+
+    @Test
     void records_starting_before_external_runtime_creation_and_completes_once() {
         AdventureSession session = configuredSession();
         session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT, true, true, true, true, true, true));
@@ -219,6 +253,25 @@ class AdventureSessionTest {
         session.completeStart();
         assertEquals(AdventureSession.Status.STARTED, session.status());
         assertEquals(session, session.start(adventureId, requestId));
+    }
+
+    @Test
+    void failed_start_recovery_retains_retry_identity_for_same_adventure() {
+        AdventureSession session = configuredSession();
+        session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT, true, true, true, true, true, true));
+        session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.AGENT, true, true, true, true, true, true));
+        AdventureId adventureId = AdventureId.generate();
+        UUID requestId = UUID.randomUUID();
+
+        long planPartyRevision = session.version();
+        session.beginStart(adventureId, requestId);
+        session.recoverFailedStart();
+
+        assertEquals(AdventureSession.Status.DRAFT, session.status());
+        assertEquals(adventureId, session.startedAdventureId());
+        assertEquals(requestId, session.startRequestId());
+        assertEquals(planPartyRevision + 2, session.version());
+        assertTrue(session.version() - 2 == planPartyRevision);
     }
 
     private static AdventureSession configuredSession() {

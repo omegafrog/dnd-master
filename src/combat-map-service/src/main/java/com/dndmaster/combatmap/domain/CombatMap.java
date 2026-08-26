@@ -5,6 +5,7 @@ public final class CombatMap {
     private final PlayerId ownerPlayerId;
     private final List<CombatToken> tokens; private final Set<GridPosition> obstacles; private final List<MapLayer> layers; private Set<Door> doors = Set.of();
     private long version; private UUID operationKey; private String operationFingerprint; private VisibilitySnapshot visibilitySnapshot;
+    private TacticalRuntimeState runtimeState = TacticalRuntimeState.initial();
     public CombatMap(MapId id, AdventureId adventureId, RuleSetId ruleSetId, GridSpec grid, List<CombatToken> tokens, Collection<GridPosition> obstacles, List<MapLayer> layers) {
         this(id, adventureId, ruleSetId, grid, null, tokens, obstacles, layers, 0, null, null);
     }
@@ -47,6 +48,8 @@ public final class CombatMap {
     public GridSpec grid(){return grid;} public PlayerId ownerPlayerId(){return ownerPlayerId;} public List<CombatToken> tokens(){return tokens;} public Set<GridPosition> obstacles(){return obstacles;} public List<MapLayer> layers(){return layers;}
     public long version(){return version;} public UUID operationKey(){return operationKey;} public String operationFingerprint(){return operationFingerprint;}
     public VisibilitySnapshot visibilitySnapshot(){return visibilitySnapshot;}
+    public TacticalRuntimeState runtimeState(){return runtimeState;}
+    public void replaceRuntimeState(TacticalRuntimeState state){runtimeState=Objects.requireNonNull(state);}
     public void replaceVisibility(VisibilitySnapshot snapshot){visibilitySnapshot=Objects.requireNonNull(snapshot);}
     public Set<Door> doors(){return doors;}
     public void replaceDoors(Collection<Door> nextDoors){
@@ -59,5 +62,85 @@ public final class CombatMap {
         Set<GridPosition> blocked=new HashSet<>(obstacles); doors.stream().filter(d->!d.open()).map(Door::position).forEach(blocked::add);
         VisibilitySnapshot prior=visibilitySnapshot;
         visibilitySnapshot=new VisibilityPolicy().calculate(grid,origins,prior==null?Set.of():prior.explored(),blocked,doors,tokens,prior==null?Set.of():prior.lastSeen(),ruleTurn);
+    }
+    public CombatMap apply(com.dndmaster.combatmap.application.view.TacticalTriggerEffect effect) {
+        if (!effect.planned()) throw new IllegalArgumentException("only planned tactical triggers may change the map");
+        List<String> tokenTargetIds = effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.FOG_REVEAL
+                ? effect.targetIds().stream().filter(value -> value == null || !value.matches("\\d+,\\d+")).toList()
+                : effect.targetIds();
+        Set<UUID> targets = tokenTargetIds.stream()
+                .map(CombatMap::canonicalTokenId)
+                .collect(java.util.stream.Collectors.toSet());
+        if (!targets.isEmpty() && tokens.stream().map(t -> t.id().value()).collect(java.util.stream.Collectors.toSet()).containsAll(targets) == false)
+            throw new IllegalArgumentException("tactical trigger targets are not present on the map");
+        TokenDiscovery targetDiscovery = effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.REWARD
+                || effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.BOSS
+                ? TokenDiscovery.REVEALED : TokenDiscovery.DISCOVERED;
+        List<CombatToken> nextTokens = tokens.stream().map(token -> targets.contains(token.id().value())
+                ? new CombatToken(token.id(), token.type(), token.position(), token.controller(), token.ownerPlayerId().orElse(null),
+                        token.discovery() == TokenDiscovery.REVEALED ? TokenDiscovery.REVEALED : targetDiscovery) : token).toList();
+        List<MapLayer> nextLayers = new ArrayList<>(layers);
+        if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.FOG_REVEAL) {
+            nextLayers.replaceAll(layer -> layer.type().equals("INITIAL_FOG") ? revealFog(layer, effect.targetIds(), tokens) : layer);
+            nextLayers.removeIf(layer -> layer.type().equals("INITIAL_FOG") && (layer.value().isBlank() || layer.value().equals("cleared")));
+        }
+        if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.REWARD) nextLayers.add(new MapLayer("RESOLVED_REWARD", effect.triggerId(), LayerVisibility.PLAYER_VISIBLE));
+        if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.ALARM) nextLayers.add(new MapLayer("ALARM", effect.triggerId(), LayerVisibility.PLAYER_VISIBLE));
+        if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.COMBAT_ENTRY) nextLayers.add(new MapLayer("COMBAT_ENTRY", effect.triggerId(), LayerVisibility.PLAYER_VISIBLE));
+        if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.REINFORCEMENT) nextLayers.add(new MapLayer("REINFORCEMENT", effect.triggerId(), LayerVisibility.PLAYER_VISIBLE));
+        if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.BOSS) nextLayers.add(new MapLayer("BOSS_TRANSITION", effect.triggerId(), LayerVisibility.PLAYER_VISIBLE));
+        if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.SURRENDER) nextLayers.add(new MapLayer("SURRENDER", effect.triggerId(), LayerVisibility.PLAYER_VISIBLE));
+        if (!effect.transitionId().isBlank()) nextLayers.add(new MapLayer("TACTICAL_TRANSITION", effect.transitionId(), LayerVisibility.PLAYER_VISIBLE));
+        if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.SUCCESS || effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.FAILURE || effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.EXIT)
+            nextLayers.add(new MapLayer("TACTICAL_OUTCOME", effect.kind().name(), LayerVisibility.PLAYER_VISIBLE));
+        CombatMap next = new CombatMap(id, adventureId, ruleSetId, grid, ownerPlayerId, nextTokens, obstacles, nextLayers, version + 1, null, null);
+        TacticalRuntimeState state = runtimeState;
+        state = switch (effect.kind()) {
+            case COMBAT_ENTRY -> new TacticalRuntimeState(true, state.alarmRaised(), state.reinforcementsActivated(), state.bossActivated(), state.rewardDiscovered(), state.outcome(), state.transitionId());
+            case ALARM -> new TacticalRuntimeState(state.combatEntered(), true, state.reinforcementsActivated(), state.bossActivated(), state.rewardDiscovered(), state.outcome(), state.transitionId());
+            case REINFORCEMENT -> new TacticalRuntimeState(state.combatEntered(), state.alarmRaised(), true, state.bossActivated(), state.rewardDiscovered(), state.outcome(), state.transitionId());
+            case BOSS -> new TacticalRuntimeState(state.combatEntered(), state.alarmRaised(), state.reinforcementsActivated(), true, state.rewardDiscovered(), state.outcome(), state.transitionId());
+            case REWARD -> new TacticalRuntimeState(state.combatEntered(), state.alarmRaised(), state.reinforcementsActivated(), state.bossActivated(), true, state.outcome(), state.transitionId());
+            case SUCCESS, FAILURE, EXIT, SURRENDER -> new TacticalRuntimeState(state.combatEntered(), state.alarmRaised(), state.reinforcementsActivated(), state.bossActivated(), state.rewardDiscovered(), effect.kind().name(), effect.transitionId().isBlank() ? state.transitionId() : effect.transitionId());
+            default -> state;
+        };
+        if (!effect.transitionId().isBlank() && !state.transitionId().equals(effect.transitionId())) state = new TacticalRuntimeState(state.combatEntered(), state.alarmRaised(), state.reinforcementsActivated(), state.bossActivated(), state.rewardDiscovered(), state.outcome(), effect.transitionId());
+        next.replaceRuntimeState(state);
+        next.replaceDoors(doors); next.refreshVisibility(visibilitySnapshot == null ? 0 : visibilitySnapshot.ruleTurn());
+        return next;
+    }
+
+    /**
+     * Tactical plans use authored string ids (for example, enemy-1).  The map
+     * persistence model uses UUID token ids, so both boundaries must use the
+     * same deterministic canonicalization rather than parsing authored ids as
+     * UUIDs.
+     */
+    public static UUID canonicalTokenId(String authoredId) {
+        Objects.requireNonNull(authoredId, "tactical target id must not be null");
+        try {
+            return UUID.fromString(authoredId);
+        } catch (IllegalArgumentException ignored) {
+            return UUID.nameUUIDFromBytes(authoredId.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+    }
+
+    private static MapLayer revealFog(MapLayer layer, List<String> requested, List<CombatToken> tokens) {
+        Set<String> cells = requested.stream().flatMap(value -> fogCell(value).stream()).collect(java.util.stream.Collectors.toSet());
+        if (requested.isEmpty()) return layer;
+        for (String target : requested) {
+            UUID id;
+            try { id = canonicalTokenId(target); } catch (RuntimeException ignored) { continue; }
+            tokens.stream().filter(token -> token.id().value().equals(id)).findFirst()
+                    .ifPresent(token -> cells.add(token.position().x() + "," + token.position().y()));
+        }
+        String remaining = Arrays.stream(layer.value().split(";"))
+                .map(String::trim).filter(cell -> !cells.contains(cell)).collect(java.util.stream.Collectors.joining(";"));
+        return remaining.isBlank() ? new MapLayer("INITIAL_FOG", "cleared", LayerVisibility.AI_ONLY) : new MapLayer("INITIAL_FOG", remaining, LayerVisibility.AI_ONLY);
+    }
+
+    private static Optional<String> fogCell(String value) {
+        if (value != null && value.matches("\\d+,\\d+")) return Optional.of(value.trim());
+        return Optional.empty();
     }
 }

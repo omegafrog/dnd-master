@@ -9,6 +9,7 @@ import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
 import com.dndmaster.adventure.application.runtime.RuntimePlan;
 import com.dndmaster.adventure.application.runtime.RuntimeTurn;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnRepository;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnOrigin;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
@@ -70,7 +71,7 @@ class RuntimeTurnPostgresIntegrationTest {
     }
 
     @Test
-    void savesAndReloadsRuntimeTurnThroughPostgres() {
+    void savesAndReloadsRuntimeTurnThroughPostgres() throws Exception {
         AdventureId adventureId = AdventureId.generate();
         SessionId sessionId = SessionId.generate();
         PostgresAdventureRepository adventureRepository = new PostgresAdventureRepository(dataSource);
@@ -124,7 +125,17 @@ class RuntimeTurnPostgresIntegrationTest {
 
         RuntimeTurn restored = repository.findByTurnId(turn.turnId()).orElseThrow();
         assertEquals(turn, restored);
+        assertEquals(RuntimeTurnOrigin.GM, restored.origin());
+        assertEquals(false, restored.advancesState());
         assertEquals(List.of(turn), repository.findAllByAdventureId(adventureId));
+
+        ObjectMapper mapper = new ObjectMapper();
+        var legacyJson = mapper.valueToTree(turn);
+        ((com.fasterxml.jackson.databind.node.ObjectNode) legacyJson).remove(List.of("origin", "playerOrigin", "advancesState"));
+        RuntimeTurn legacyRestored = mapper.treeToValue(legacyJson, RuntimeTurn.class);
+        assertEquals(RuntimeTurnOrigin.GM, legacyRestored.origin());
+        assertEquals(false, legacyRestored.playerOrigin());
+        assertEquals(false, legacyRestored.advancesState());
     }
 
     private record DriverManagerDataSource(String url, String username, String password) implements DataSource {

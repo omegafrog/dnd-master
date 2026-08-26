@@ -34,11 +34,13 @@ function sleep(ms: number) {
 const selectableStatuses = new Set<KnowledgeDocumentView['status']>([
   'EXTRACTED',
   'INDEXED',
+  'READY',
   'PARTIAL_AWAITING_CONFIRMATION',
   'PARTIAL_CONFIRMED',
 ])
 
-const indexingFinishedStatuses = new Set<KnowledgeDocumentView['status']>(['INDEXED', 'PARTIAL_CONFIRMED'])
+const indexingFinishedStatuses = new Set<KnowledgeDocumentView['status']>(['INDEXED', 'READY', 'PARTIAL_CONFIRMED'])
+const isIndexingFinished = (document: KnowledgeDocumentView) => indexingFinishedStatuses.has(document.status) || document.progress?.stage === 'READY'
 
 const compilationPollIntervalMs = 500
 
@@ -90,7 +92,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
   const [compiling, setCompiling] = useState(false)
   const [saving, setSaving] = useState(false)
   const canCompile = Boolean(api.startScenarioCompilation && api.getScenarioCompilation && api.getScenarioPackage)
-  const allDocumentsIndexed = documents.length > 0 && documents.every(document => indexingFinishedStatuses.has(document.status))
+  const allDocumentsIndexed = documents.length > 0 && documents.every(isIndexingFinished)
   const blueprintPublished = playPreparation?.characterCreationBlueprint.status === 'PUBLISHED'
 
   useEffect(() => {

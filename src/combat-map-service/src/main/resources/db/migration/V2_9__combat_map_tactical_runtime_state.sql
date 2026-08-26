@@ -1,0 +1,14 @@
+ALTER TABLE combat_map ADD COLUMN IF NOT EXISTS runtime_combat_entered BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE combat_map ADD COLUMN IF NOT EXISTS runtime_alarm_raised BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE combat_map ADD COLUMN IF NOT EXISTS runtime_reinforcements_activated BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE combat_map ADD COLUMN IF NOT EXISTS runtime_boss_activated BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE combat_map ADD COLUMN IF NOT EXISTS runtime_reward_discovered BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE combat_map ADD COLUMN IF NOT EXISTS runtime_outcome TEXT NOT NULL DEFAULT '';
+ALTER TABLE combat_map ADD COLUMN IF NOT EXISTS runtime_transition_id TEXT NOT NULL DEFAULT '';
+ALTER TABLE combat_map_command_history ADD COLUMN IF NOT EXISTS runtime_combat_entered BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE combat_map_command_history ADD COLUMN IF NOT EXISTS runtime_alarm_raised BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE combat_map_command_history ADD COLUMN IF NOT EXISTS runtime_reinforcements_activated BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE combat_map_command_history ADD COLUMN IF NOT EXISTS runtime_boss_activated BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE combat_map_command_history ADD COLUMN IF NOT EXISTS runtime_reward_discovered BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE combat_map_command_history ADD COLUMN IF NOT EXISTS runtime_outcome TEXT NOT NULL DEFAULT '';
+ALTER TABLE combat_map_command_history ADD COLUMN IF NOT EXISTS runtime_transition_id TEXT NOT NULL DEFAULT '';

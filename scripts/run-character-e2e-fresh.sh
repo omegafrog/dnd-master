@@ -15,16 +15,14 @@ trap cleanup EXIT INT TERM
 export BACKEND_E2E_URL="${BACKEND_E2E_URL:-http://127.0.0.1:8080}"
 export BACKEND_E2E_EMAIL="${BACKEND_E2E_EMAIL:-demo-player@example.com}"
 export BACKEND_E2E_PASSWORD="${BACKEND_E2E_PASSWORD:-secret-password}"
-export BACKEND_E2E_RULEBOOK_FILE="${BACKEND_E2E_RULEBOOK_FILE:-/mnt/c/Users/jiwoo/Downloads/dnd5th.pdf}"
 if [[ -z "${BACKEND_E2E_STORYBOOKS_JSON:-}" ]]; then
-  export BACKEND_E2E_STORYBOOKS_JSON='[{"path":"/mnt/c/Users/jiwoo/Downloads/892902-A_Most_Potent_Brew.pdf","role":"MAIN_SCENARIO"},{"path":"/mnt/c/Users/jiwoo/Downloads/892902-A_Potent_Brew_Map.pdf","role":"MAP"},{"path":"/mnt/c/Users/jiwoo/Downloads/892902-A_Most_Potent_Brew_Player_Handout.pdf","role":"HANDOUT"}]'
+  export BACKEND_E2E_STORYBOOKS_JSON='[{"path":"/home/jiwoo/workspace/dnd-master/docs/assets/892902-A_Most_Potent_Brew.pdf","role":"MAIN_SCENARIO"},{"path":"/home/jiwoo/workspace/dnd-master/docs/assets/892902-A_Potent_Brew_Map.pdf","role":"MAP"},{"path":"/home/jiwoo/workspace/dnd-master/docs/assets/892902-A_Most_Potent_Brew_Player_Handout.pdf","role":"HANDOUT"}]'
 fi
 
 required_files=(
-  "$BACKEND_E2E_RULEBOOK_FILE"
-  "/mnt/c/Users/jiwoo/Downloads/892902-A_Most_Potent_Brew.pdf"
-  "/mnt/c/Users/jiwoo/Downloads/892902-A_Potent_Brew_Map.pdf"
-  "/mnt/c/Users/jiwoo/Downloads/892902-A_Most_Potent_Brew_Player_Handout.pdf"
+  "/home/jiwoo/workspace/dnd-master/docs/assets/892902-A_Most_Potent_Brew.pdf"
+  "/home/jiwoo/workspace/dnd-master/docs/assets/892902-A_Potent_Brew_Map.pdf"
+  "/home/jiwoo/workspace/dnd-master/docs/assets/892902-A_Most_Potent_Brew_Player_Handout.pdf"
 )
 
 for file in "${required_files[@]}"; do

@@ -60,13 +60,9 @@ export type CreateAdventureSessionRequest = {
 }
 
 export type AdventureStoryPlanView = {
-  planId: string
-  packageRevision: number
-  partyRevision: number
-  version: number
-  status: 'GENERATING' | 'READY' | 'FAILED'
+  status: 'GENERATING' | 'READY' | 'BLOCKED' | 'FAILED'
   currentStage: number
-  stageCount: number
+  planRevision: number
   endingCount: number
   adventureLength: 'SHORT' | 'STANDARD' | 'LONG'
   stages: Array<{
@@ -75,20 +71,35 @@ export type AdventureStoryPlanView = {
     stageType: string
     location: string
     goal: string
-    rewards: string[]
-    mapDefinitionId: string | null
-    mapAssetId: string
-    mapAssetLocator: string
-    groundingStatus: 'GROUNDED' | 'AI_SUGGESTION'
-    aiSuggestions: string[]
-    mapSafetyStatus: string
-    mapConfidence: number | null
-    evidenceCount: number
+    mapDefinitionId?: string | null
   }>
   failureReason: string | null
 }
 
+export type AdventureStoryPlanGenerationJobView = {
+  jobId: string
+  sessionId: string
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETE' | 'FAILED'
+  progress: number
+  stage: string
+  message: string | null
+  updatedAt: string
+}
+
 export type StageMapActivation = { stagePosition: number; mapDefinitionId: string; assetId: string; assetLocator: string; combatMapId: string }
+export type TacticalScenePreparationView = {
+  jobId: string
+  sessionId: string
+  stagePosition: number
+  stageName: string
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETE' | 'FAILED_RETRYABLE'
+  progress: number
+  attempts: number
+  mapRequired: boolean
+  message: string
+  failureReason: string | null
+  updatedAt: string
+}
 
 export type GmProviderView = {
   sessionId: string
@@ -153,7 +164,11 @@ export class AdventureSessionApi {
   recoverStart(sessionId: string, version: number) { return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/start/recover`, { method: 'POST', headers: { 'If-Match-Version': String(version) } }) }
   delete(sessionId: string, version: number) { return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}`, { method: 'DELETE', headers: { 'If-Match-Version': String(version) } }) }
   readStoryPlan(sessionId: string) { return this.request<AdventureStoryPlanView>(`/api/v1/adventure-sessions/${sessionId}/story-plan`) }
-  generateStoryPlan(sessionId: string, configuration: { endingCount: number; adventureLength: AdventureStoryPlanView['adventureLength'] }) { return this.request<AdventureStoryPlanView>(`/api/v1/adventure-sessions/${sessionId}/story-plan`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(configuration) }) }
-  retryStoryPlan(sessionId: string, configuration: { endingCount: number; adventureLength: AdventureStoryPlanView['adventureLength'] }) { return this.request<AdventureStoryPlanView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/retry`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(configuration) }) }
+  startStoryPlanGeneration(sessionId: string, configuration: { endingCount: number; adventureLength: AdventureStoryPlanView['adventureLength'] }) { return this.request<AdventureStoryPlanGenerationJobView>(`/api/v1/adventure-sessions/${sessionId}/story-plan`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(configuration) }) }
+  retryStoryPlan(sessionId: string, configuration: { endingCount: number; adventureLength: AdventureStoryPlanView['adventureLength'] }) { return this.request<AdventureStoryPlanGenerationJobView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/retry`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(configuration) }) }
+  readStoryPlanGeneration(jobId: string, sessionId: string) { return this.request<AdventureStoryPlanGenerationJobView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/generation/${jobId}`) }
   activateStageMap(sessionId: string, position: number) { return this.request<StageMapActivation>(`/api/v1/adventure-sessions/${sessionId}/story-plan/stages/${position}/activate-map`, { method: 'POST' }) }
+  prepareTacticalScene(sessionId: string, position: number) { return this.request<TacticalScenePreparationView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/stages/${position}/tactical-scene/prepare`, { method: 'POST' }) }
+  readTacticalScenePreparation(sessionId: string, position: number) { return this.request<TacticalScenePreparationView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/stages/${position}/tactical-scene/prepare`) }
+  retryTacticalScene(sessionId: string, position: number) { return this.request<TacticalScenePreparationView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/stages/${position}/tactical-scene/retry`, { method: 'POST' }) }
 }

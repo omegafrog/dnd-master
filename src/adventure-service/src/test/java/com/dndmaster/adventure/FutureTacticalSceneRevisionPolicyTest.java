@@ -1,0 +1,233 @@
+package com.dndmaster.adventure;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+
+import com.dndmaster.adventure.domain.adventure.*;
+import com.dndmaster.adventure.domain.runtime.GmInput;
+import com.dndmaster.adventure.domain.runtime.GmTurn;
+import com.dndmaster.adventure.application.runtime.TacticalTriggerEvaluator;
+import java.util.List;
+import org.junit.jupiter.api.Test;
+import static org.mockito.Mockito.*;
+import com.dndmaster.adventure.application.storyplan.FutureTacticalSceneRevisionService;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository;
+import com.dndmaster.adventure.application.session.AdventureSessionRepository;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
+import com.dndmaster.adventure.application.storyplan.TacticalScenePlanCandidate;
+import com.dndmaster.adventure.application.storyplan.TacticalSceneRequest;
+import com.dndmaster.adventure.application.storyplan.TacticalScenePlanValidator;
+
+class FutureTacticalSceneRevisionPolicyTest {
+    private static final java.util.UUID EVIDENCE_DOCUMENT_ID = java.util.UUID.randomUUID();
+    private static final String EVIDENCE_LOCATOR = "page:1";
+    private static final String EVIDENCE_KEY = "STORYBOOK:" + EVIDENCE_DOCUMENT_ID + ":1:" + EVIDENCE_LOCATOR;
+
+    @Test
+    void preservesRevealedStagesAndCreatesSuccessorRevisionForFutureStages() {
+        var plan = AdventureStoryPlan.ready(new SessionId(java.util.UUID.randomUUID()), 0, 1, List.of(stage(1, "published"), stage(2, "future"))).advanceTo(0);
+
+        var next = plan.reviseFutureStages(List.of(stage(1, "published"), stage(2, "revised future")));
+
+        assertEquals(3, next.version());
+        assertEquals("published", next.stages().getFirst().title());
+        assertEquals("revised future", next.stages().get(1).title());
+    }
+
+    @Test
+    void rejectsRevisionOfPublishedStage() {
+        var plan = AdventureStoryPlan.ready(new SessionId(java.util.UUID.randomUUID()), 0, 1, List.of(stage(1, "published"), stage(2, "future"))).advanceTo(0);
+
+        assertThrows(IllegalStateException.class, () -> plan.reviseFutureStages(List.of(stage(1, "changed"), stage(2, "future"))));
+    }
+
+    @Test
+    void postStartCommandRevisesOnlyAnUnrevealedFutureStage() {
+        var sessionId = new SessionId(java.util.UUID.randomUUID());
+        var owner = new OwnerPlayerId(java.util.UUID.randomUUID());
+        var session = mock(AdventureSession.class);
+        when(session.ownerPlayerId()).thenReturn(owner);
+        when(session.status()).thenReturn(AdventureSession.Status.STARTED);
+        var adventureId = java.util.UUID.randomUUID();
+        when(session.startedAdventureId()).thenReturn(new AdventureId(adventureId));
+        var tactical = validScene();
+        var plan = AdventureStoryPlan.ready(sessionId, 0, 1, List.of(stage(1, "current"), tacticalStage(2, "future", tactical))).advanceTo(0);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        when(plans.findBySessionId(sessionId)).thenReturn(java.util.Optional.of(plan));
+        var sessions = mock(AdventureSessionRepository.class);
+        when(sessions.findById(sessionId)).thenReturn(java.util.Optional.of(session));
+        AdventureStoryPlanGenerationPort generator = new AdventureStoryPlanGenerationPort() {
+            public List<AdventureStoryPlanStage> generate(Request request) { return List.of(); }
+            public TacticalScenePlanCandidate generateTacticalScene(TacticalSceneRequest request) {
+                return TacticalScenePlanCandidate.ready(2, tactical, List.of(new AdventureStoryPlanGenerationPort.SourceCitation(
+                        "STORYBOOK", EVIDENCE_DOCUMENT_ID, 1, EVIDENCE_LOCATOR,
+                        "Hero enters. Entry alarm reinforcement boss reward success failure exit surrender. Clear.", 1.0)));
+            }
+        };
+        var gmTurnId = java.util.UUID.randomUUID();
+        var gmCommandId = java.util.UUID.randomUUID();
+        var gmTurns = mock(com.dndmaster.adventure.application.runtime.GmTurnRepository.class);
+        when(gmTurns.findByTurnIdAndAdventureId(gmTurnId, adventureId)).thenReturn(java.util.Optional.of(
+                GmTurn.start(gmTurnId, gmCommandId, 0, new GmInput.TextInput("revise")).process().commit("ok")));
+        var service = new FutureTacticalSceneRevisionService(plans, sessions, new TacticalScenePlanValidator(), generator, gmTurns);
+
+        service.revise(sessionId, owner, 2, gmTurnId, gmCommandId);
+
+        verify(plans).save(argThat(value -> value.version() == 3
+                && value.stages().get(0).title().equals("current")
+                && value.stages().get(1).title().equals("future")
+                && value.stages().get(1).tacticalScenePlan().status() == TacticalScenePlanStatus.READY), startsWith("GM_TURN:"));
+        assertThrows(IllegalArgumentException.class, () -> service.revise(sessionId, owner, 1, gmTurnId));
+    }
+
+    @Test
+    void persistsTheCausingGmTurnAsRevisionAuditProvenance() {
+        var sessionId = new SessionId(java.util.UUID.randomUUID());
+        var owner = new OwnerPlayerId(java.util.UUID.randomUUID());
+        var session = mock(AdventureSession.class);
+        when(session.ownerPlayerId()).thenReturn(owner);
+        when(session.status()).thenReturn(AdventureSession.Status.STARTED);
+        var adventureId = java.util.UUID.randomUUID();
+        when(session.startedAdventureId()).thenReturn(new AdventureId(adventureId));
+        var plan = AdventureStoryPlan.ready(sessionId, 0, 1,
+                List.of(stage(1, "current"), tacticalStage(2, "future", validScene()))).advanceTo(0);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        when(plans.findBySessionId(sessionId)).thenReturn(java.util.Optional.of(plan));
+        var sessions = mock(AdventureSessionRepository.class);
+        when(sessions.findById(sessionId)).thenReturn(java.util.Optional.of(session));
+        var generator = mock(AdventureStoryPlanGenerationPort.class);
+        when(generator.generateTacticalScene(any())).thenReturn(TacticalScenePlanCandidate.ready(2, validScene(),
+                List.of(new AdventureStoryPlanGenerationPort.SourceCitation(
+                        "STORYBOOK", EVIDENCE_DOCUMENT_ID, 1, EVIDENCE_LOCATOR,
+                        "Hero enters. Entry alarm reinforcement boss reward success failure exit surrender. Clear.", 1.0))));
+        var gmTurns = mock(com.dndmaster.adventure.application.runtime.GmTurnRepository.class);
+        var causingGmTurnId = java.util.UUID.randomUUID();
+        var causingGmCommandId = java.util.UUID.randomUUID();
+        when(gmTurns.findByTurnIdAndAdventureId(causingGmTurnId, adventureId)).thenReturn(java.util.Optional.of(
+                GmTurn.start(causingGmTurnId, causingGmCommandId, 0, new GmInput.TextInput("revise")).process().commit("ok")));
+        var service = new FutureTacticalSceneRevisionService(plans, sessions, new TacticalScenePlanValidator(), generator, gmTurns);
+
+        service.revise(sessionId, owner, 2, causingGmTurnId, causingGmCommandId);
+
+        verify(plans).save(any(AdventureStoryPlan.class), startsWith("GM_TURN:" + causingGmTurnId + ":COMMAND:"));
+    }
+
+    @Test
+    void rejectsAnArbitraryOrUncommittedCausingTurnBeforeGeneration() {
+        var sessionId = new SessionId(java.util.UUID.randomUUID());
+        var owner = new OwnerPlayerId(java.util.UUID.randomUUID());
+        var adventureId = java.util.UUID.randomUUID();
+        var session = mock(AdventureSession.class);
+        when(session.ownerPlayerId()).thenReturn(owner);
+        when(session.status()).thenReturn(AdventureSession.Status.STARTED);
+        when(session.startedAdventureId()).thenReturn(new AdventureId(adventureId));
+        var plans = mock(AdventureStoryPlanRepository.class);
+        var sessions = mock(AdventureSessionRepository.class);
+        when(sessions.findById(sessionId)).thenReturn(java.util.Optional.of(session));
+        var generator = mock(AdventureStoryPlanGenerationPort.class);
+        var gmTurns = mock(com.dndmaster.adventure.application.runtime.GmTurnRepository.class);
+        var service = new FutureTacticalSceneRevisionService(plans, sessions, new TacticalScenePlanValidator(), generator, gmTurns);
+
+        assertThrows(IllegalArgumentException.class,
+                () -> service.revise(sessionId, owner, 2, java.util.UUID.randomUUID()));
+        verifyNoInteractions(generator);
+        verify(plans, never()).save(any());
+    }
+
+    @Test
+    void rejectsUntrustedInvalidFutureSceneBeforePersistence() {
+        var sessionId = new SessionId(java.util.UUID.randomUUID());
+        var owner = new OwnerPlayerId(java.util.UUID.randomUUID());
+        var session = mock(AdventureSession.class); when(session.ownerPlayerId()).thenReturn(owner); when(session.status()).thenReturn(AdventureSession.Status.STARTED);
+        var adventureId = java.util.UUID.randomUUID();
+        when(session.startedAdventureId()).thenReturn(new AdventureId(adventureId));
+        var plan = AdventureStoryPlan.ready(sessionId, 0, 1, List.of(stage(1, "current"), tacticalStage(2, "future", validScene()))).advanceTo(0);
+        var plans = mock(AdventureStoryPlanRepository.class); when(plans.findBySessionId(sessionId)).thenReturn(java.util.Optional.of(plan));
+        var sessions = mock(AdventureSessionRepository.class); when(sessions.findById(sessionId)).thenReturn(java.util.Optional.of(session));
+        var service = new FutureTacticalSceneRevisionService(plans, sessions);
+
+        assertThrows(IllegalStateException.class, () -> service.revise(sessionId, owner, 2));
+        verify(plans, never()).save(any());
+    }
+
+    @Test
+    void usesGroundedGeneratorRetriesAndBlocksAfterThreeInvalidCandidates() {
+        var sessionId = new SessionId(java.util.UUID.randomUUID());
+        var owner = new OwnerPlayerId(java.util.UUID.randomUUID());
+        var session = mock(AdventureSession.class); when(session.ownerPlayerId()).thenReturn(owner); when(session.status()).thenReturn(AdventureSession.Status.STARTED);
+        var adventureId = java.util.UUID.randomUUID();
+        when(session.startedAdventureId()).thenReturn(new AdventureId(adventureId));
+        var plan = AdventureStoryPlan.ready(sessionId, 0, 1, List.of(stage(1, "current"), tacticalStage(2, "future", validScene()))).advanceTo(0);
+        var plans = mock(AdventureStoryPlanRepository.class); when(plans.findBySessionId(sessionId)).thenReturn(java.util.Optional.of(plan));
+        var sessions = mock(AdventureSessionRepository.class); when(sessions.findById(sessionId)).thenReturn(java.util.Optional.of(session));
+        int[] calls = {0};
+        List<TacticalSceneRequest> requests = new java.util.ArrayList<>();
+        AdventureStoryPlanGenerationPort generator = new AdventureStoryPlanGenerationPort() {
+            public List<AdventureStoryPlanStage> generate(Request request) { return List.of(); }
+            public TacticalScenePlanCandidate generateTacticalScene(TacticalSceneRequest request) {
+                calls[0]++;
+                requests.add(request);
+                return TacticalScenePlanCandidate.absent(2);
+            }
+        };
+        var gmTurnId = java.util.UUID.randomUUID();
+        var gmCommandId = java.util.UUID.randomUUID();
+        var gmTurns = mock(com.dndmaster.adventure.application.runtime.GmTurnRepository.class);
+        when(gmTurns.findByTurnIdAndAdventureId(gmTurnId, adventureId)).thenReturn(java.util.Optional.of(
+                GmTurn.start(gmTurnId, gmCommandId, 0, new GmInput.TextInput("revise")).process().commit("ok")));
+        var service = new FutureTacticalSceneRevisionService(plans, sessions, new TacticalScenePlanValidator(), generator, gmTurns);
+
+        IllegalArgumentException failure = assertThrows(IllegalArgumentException.class,
+                () -> service.revise(sessionId, owner, 2, gmTurnId, gmCommandId));
+
+        assertEquals(3, calls[0]);
+        assertEquals(List.of(), requests.get(0).violations());
+        assertEquals(List.of("tactical scene is absent"), requests.get(1).violations());
+        assertEquals(true, failure.getMessage().contains("blocked after 3 attempts"));
+        verify(plans, never()).save(any());
+    }
+
+    @Test
+    void evaluatesOnlyAnAuthoredTrigger() {
+        var grounding = PlacementGrounding.aiInference("bounded");
+        var scene = new TacticalScenePlan(1, TacticalScenePlanStatus.READY,
+                new TacticalSceneBoundary(new NormalizedCoordinate(0, 0), new NormalizedCoordinate(1, 1), List.of()),
+                List.of(new TacticalPlacement("hero", TacticalPlacementKind.PLAYER, new NormalizedCoordinate(.1, .1), grounding)),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), new FogPlan(List.of(), grounding),
+                List.of(new TacticalTrigger("alarm", TacticalTriggerType.ALARM, List.of("hero"), "", grounding)), List.of(), List.of());
+        var evaluator = new TacticalTriggerEvaluator();
+
+        assertEquals("ALARM", evaluator.evaluate(scene, "alarm").type());
+        assertThrows(IllegalArgumentException.class, () -> evaluator.evaluate(scene, "invented"));
+    }
+
+    private static AdventureStoryPlanStage stage(int position, String title) {
+        return new AdventureStoryPlanStage(position, title, "goal", "conflict", "transition", List.of(), List.of("end"));
+    }
+
+    private static AdventureStoryPlanStage tacticalStage(int position, String title, TacticalScenePlan scene) {
+        return new AdventureStoryPlanStage(position, title, "goal", "conflict", "transition", List.of(), List.of("end"), List.of(),
+                AdventureStageType.ENCOUNTER, "cellar", java.util.UUID.randomUUID(), "map", "map.png", List.of("rat"), "", "clear", "fail",
+                List.of("reward"), List.of("end"), List.of(new AdventurePlanEvidence(
+                        "STORYBOOK", EVIDENCE_DOCUMENT_ID, 1, EVIDENCE_LOCATOR,
+                        "Hero enters. Entry alarm reinforcement boss reward success failure exit surrender. Clear.", 1.0)),
+                AdventureGroundingStatus.GROUNDED, List.of(), "SAFE", .9).withTacticalScenePlan(scene);
+    }
+
+    private static TacticalScenePlan validScene() {
+        var placement = PlacementGrounding.aiInference("bounded placement");
+        var source = PlacementGrounding.sourceCitation(EVIDENCE_KEY);
+        return new TacticalScenePlan(1, TacticalScenePlanStatus.READY,
+                new TacticalSceneBoundary(new NormalizedCoordinate(0, 0), new NormalizedCoordinate(1, 1), List.of()),
+                List.of(new TacticalPlacement("hero", TacticalPlacementKind.PLAYER, new NormalizedCoordinate(.1, .1), placement)),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), new FogPlan(List.of(), placement),
+                requiredTriggers(source), List.of(new TacticalOutcome("win", "clear", source)), List.of());
+    }
+
+    private static List<TacticalTrigger> requiredTriggers(PlacementGrounding grounding) {
+        return java.util.Arrays.stream(TacticalTriggerType.values())
+                .map(type -> new TacticalTrigger(type.name().toLowerCase(), type,
+                        type == TacticalTriggerType.COMBAT_ENTRY ? List.of("hero") : List.of(), "", grounding))
+                .toList();
+    }
+}

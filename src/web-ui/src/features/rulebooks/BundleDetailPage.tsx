@@ -23,6 +23,7 @@ const roles: Array<[ScenarioBundleRole, string]> = [
 const documentStatusLabel: Record<KnowledgeDocumentView['status'], string> = {
   UPLOADED: '준비 대기 중', NEEDS_INPUT: '추가 확인 필요', QUEUED: '준비 대기 중', PROCESSING: '자료 준비 중',
   FAILED: '자료 준비 실패', EXTRACTED: '자료 확인 필요', INDEXED: '사용 준비 완료',
+  READY: '사용 준비 완료',
   PARTIAL_AWAITING_CONFIRMATION: '확인 필요', PARTIAL_CONFIRMED: '사용 준비 완료', REJECTED: '자료 사용 불가',
 }
 const sessionStatusLabel = { DRAFT: '준비 중', STARTING: '시작하는 중', STARTED: '진행 중', COMPLETED: '완료', DELETED: '삭제됨' } as const
@@ -64,6 +65,7 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
       const currentPackage = loadedPackages.find(item => item.bundleRevision === loadedBundle.currentRevision)
       setSessions(currentPackage ? await sessionApi.listByScenarioPackage(currentPackage.packageId) : [])
       setSelectedIds(new Set(loadedBundle.documents.map(document => document.knowledgeDocumentId)))
+      setSelectedCatalogRulebookIds(new Set(loadedBundle.documents.filter(document => document.role === 'RULEBOOK').map(document => document.knowledgeDocumentId)))
       setRolesByDocument(Object.fromEntries(loadedBundle.documents.map(document => [document.knowledgeDocumentId, document.role])))
     }).catch(error => {
       if (active) setMessage(error instanceof Error ? error.message : '모험 자료 정보를 불러오지 못했습니다.')

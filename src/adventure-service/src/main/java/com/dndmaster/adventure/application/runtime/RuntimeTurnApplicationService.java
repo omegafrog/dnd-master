@@ -117,9 +117,17 @@ public class RuntimeTurnApplicationService {
         adventure.reopen(command.ownerPlayerId());
         RuntimeTurn existing = runtimeTurnRepository.findByCommandId(command.commandId()).orElse(null);
         if (existing != null) {
+            RuntimeTurnOrigin requestedOrigin = origin(command);
             if (!existing.turnId().equals(command.turnId())
                     || !existing.adventureId().equals(command.adventureId())
-                    || !existing.action().equals(command.action())) {
+                    || !existing.action().equals(command.action())
+                    || existing.advancesState() != command.advancesState()
+                    || existing.origin() != requestedOrigin
+                    || existing.gmOnly() != command.gmOnly()
+                    || existing.agentOrigin() != command.agentOrigin()
+                    || !java.util.Objects.equals(existing.turnCharacterSheetId(), command.turnCharacterSheetId())
+                    || !java.util.Objects.equals(existing.turnIndex(), command.turnIndex() < 0 ? null : command.turnIndex())
+                    || !java.util.Objects.equals(existing.expectedVersion() == null ? -1L : existing.expectedVersion(), command.expectedVersion() < 0 ? -1L : command.expectedVersion())) {
                 throw new IllegalStateException("runtime command id reused with different payload");
             }
             RuntimeTurn committed = resumeCommittedTurn(command, adventure, existing);
@@ -143,8 +151,11 @@ public class RuntimeTurnApplicationService {
                     "system", "read-only", "meta question");
             RuntimeTurn metaTurn = new RuntimeTurn(command.turnId(), command.commandId(), adventure.id(), adventure.sessionId().value(),
                     binding.scenarioPackageId(), binding.bindingVersion(), command.action(), new EvidencePack(List.of(), List.of(), List.of()),
-                    metaPlan, binding.activeSourceContext(), adventure.currentContext(), adventure.conversation(), adventure.version(), List.of(), List.of())
+                    metaPlan, binding.activeSourceContext(), adventure.currentContext(), adventure.conversation(), adventure.version(), List.of(), List.of(), false,
+                    origin(command) == RuntimeTurnOrigin.PLAYER, origin(command), false,
+                    command.turnCharacterSheetId(), command.turnIndex() < 0 ? null : command.turnIndex(), command.expectedVersion(), command.gmOnly(), command.agentOrigin())
                     .markCommitted();
+            runtimeTurnRepository.save(metaTurn);
             return new RuntimeTurnResult(metaTurn, adventure.currentContext(), adventure.conversation(), adventure.version());
         }
 
@@ -191,6 +202,10 @@ public class RuntimeTurnApplicationService {
                         .map(evidence -> evidence.evidenceType() + ":" + evidence.locator())
                         .toList(),
                 plan.warnings());
+        turn = new RuntimeTurn(turn.turnId(), turn.commandId(), turn.adventureId(), turn.sessionId(), turn.scenarioPackageId(),
+                turn.bindingVersion(), turn.action(), turn.evidencePack(), turn.plan(), turn.activeSourceContext(), turn.context(),
+                turn.conversation(), turn.version(), turn.citations(), turn.warnings(), false, origin(command) == RuntimeTurnOrigin.PLAYER,
+                origin(command), command.advancesState(), command.turnCharacterSheetId(), command.turnIndex() < 0 ? null : command.turnIndex(), command.expectedVersion(), command.gmOnly(), command.agentOrigin());
         runtimeTurnRepository.save(turn);
 
         Adventure progressed = Adventure.rehydrate(
@@ -215,6 +230,12 @@ public class RuntimeTurnApplicationService {
             }
         }
         return new RuntimeTurnResult(committed, progressed.currentContext(), progressed.conversation(), progressed.version());
+    }
+
+    private static RuntimeTurnOrigin origin(SubmitRuntimeTurnCommand command) {
+        if (command.agentOrigin()) return RuntimeTurnOrigin.AGENT;
+        if (command.gmOnly()) return RuntimeTurnOrigin.GM;
+        return RuntimeTurnOrigin.PLAYER;
     }
 
     private String providerSelection(UUID sessionId, String field) {

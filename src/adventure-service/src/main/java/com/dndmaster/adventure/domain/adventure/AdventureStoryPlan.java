@@ -56,6 +56,12 @@ public final class AdventureStoryPlan {
                 AdventurePlanConfiguration.defaults(), List.of(), 0, reason, Instant.now());
     }
 
+    public static AdventureStoryPlan blocked(UUID planId, SessionId sessionId, long packageRevision, long partyRevision, long version,
+            AdventurePlanConfiguration configuration, List<AdventureStoryPlanStage> stages, String reason) {
+        return new AdventureStoryPlan(planId, sessionId, packageRevision, partyRevision, version, AdventureStoryPlanStatus.BLOCKED,
+                configuration, stages, 0, reason, Instant.now());
+    }
+
     public static AdventureStoryPlan rehydrate(UUID planId, SessionId sessionId, long packageRevision, long partyRevision,
             long version, AdventureStoryPlanStatus status, List<AdventureStoryPlanStage> stages, int currentStage,
             String failureReason, Instant updatedAt) {
@@ -87,5 +93,38 @@ public final class AdventureStoryPlan {
         if (nextStage < currentStage || nextStage >= stages.size()) throw new IllegalArgumentException("invalid story plan transition");
         return new AdventureStoryPlan(planId, sessionId, packageRevision, partyRevision, version + 1, status,
                 configuration, stages, nextStage, failureReason, Instant.now());
+    }
+
+    /** Revisions may replace only stages that have not yet been published to play. */
+    public AdventureStoryPlan reviseFutureStages(List<AdventureStoryPlanStage> candidate) {
+        Objects.requireNonNull(candidate, "candidate stages must not be null");
+        if (candidate.size() != stages.size()) throw new IllegalArgumentException("future revision must retain the stage graph");
+        for (int index = 0; index <= currentStage; index++) {
+            if (!stages.get(index).equals(candidate.get(index))) throw new IllegalStateException("published story stages are immutable");
+        }
+        return new AdventureStoryPlan(planId, sessionId, packageRevision, partyRevision, version + 1, status,
+                configuration, candidate, currentStage, failureReason, Instant.now());
+    }
+
+    public AdventureStoryPlan reviseFutureStage(int position, AdventureStoryPlanStage replacement) {
+        Objects.requireNonNull(replacement, "replacement stage must not be null");
+        if (position < 1 || position > stages.size()) throw new IllegalArgumentException("story plan stage not found");
+        if (position != replacement.position()) throw new IllegalArgumentException("replacement stage position mismatch");
+        if (position <= currentStage + 1) throw new IllegalStateException("current and revealed story stages are immutable");
+        List<AdventureStoryPlanStage> candidate = new java.util.ArrayList<>(stages);
+        candidate.set(position - 1, replacement);
+        return reviseFutureStages(candidate);
+    }
+
+    /** Publishes the scene for the stage being entered without changing the future stage graph. */
+    public AdventureStoryPlan prepareCurrentStage(AdventureStoryPlanStage replacement) {
+        Objects.requireNonNull(replacement, "replacement stage must not be null");
+        if (replacement.position() != currentStage + 1) {
+            throw new IllegalStateException("only the current stage may be prepared");
+        }
+        List<AdventureStoryPlanStage> candidate = new java.util.ArrayList<>(stages);
+        candidate.set(currentStage, replacement);
+        return new AdventureStoryPlan(planId, sessionId, packageRevision, partyRevision, version + 1, status,
+                configuration, candidate, currentStage, failureReason, Instant.now());
     }
 }

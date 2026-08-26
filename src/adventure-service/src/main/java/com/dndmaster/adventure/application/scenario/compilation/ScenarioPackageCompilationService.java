@@ -157,10 +157,14 @@ public final class ScenarioPackageCompilationService {
             warnings.add("no resolution candidates were produced");
             warnings.addAll(overrideResult.warnings());
         }
-        ResolutionStatus reportStatus = units.stream().anyMatch(unit -> unit.status() == ResolutionStatus.INVALID)
+        boolean hasUnsafeInvalid = units.stream().filter(unit -> unit.status() == ResolutionStatus.INVALID)
+                .anyMatch(unit -> !unit.validationMessages().equals(List.of("dice expression is invalid")));
+        boolean hasRecoverableDiceFailure = units.stream().anyMatch(unit -> unit.status() == ResolutionStatus.INVALID
+                && unit.validationMessages().equals(List.of("dice expression is invalid")));
+        ResolutionStatus reportStatus = hasUnsafeInvalid || (!units.isEmpty() && units.stream().allMatch(unit -> unit.status() == ResolutionStatus.INVALID))
                 ? ResolutionStatus.INVALID
                 : units.stream().anyMatch(unit -> unit.status() == ResolutionStatus.PARTIAL)
-                        || units.isEmpty() ? ResolutionStatus.PARTIAL : ResolutionStatus.COMPLETE;
+                        || hasRecoverableDiceFailure ? ResolutionStatus.PARTIAL : ResolutionStatus.COMPLETE;
         if (!overrideResult.overrides().isEmpty()) {
             overrideRepository.saveAll(overrideResult.overrides());
         }
@@ -177,7 +181,9 @@ public final class ScenarioPackageCompilationService {
                 characterLimit(bundle, availableExcerpts),
                 characterBlueprint,
                 mapCompilation.maps(), mapCompilation.bindings());
-        repository.save(scenarioPackage);
+        if (reportStatus == ResolutionStatus.COMPLETE) {
+            repository.save(scenarioPackage);
+        }
         return scenarioPackage;
     }
 
@@ -249,7 +255,7 @@ public final class ScenarioPackageCompilationService {
                                 || (sourceType.equals("HANDOUT") && candidate.role() == ScenarioBundleDocumentRole.HANDOUT))
                         .findFirst().orElse(null);
                 if (document != null) evidence = new ResolutionExtractionPort.SourceExcerpt(
-                        document.knowledgeDocumentId(), document.extractionVersion(), "document", "");
+                        document.documentType(), document.knowledgeDocumentId(), document.extractionVersion(), "document", "");
                 evidenceSourceType = sourceType;
             }
             if (evidence != null) candidates.add(new CharacterCreationBlueprintCompiler.FieldCandidate(

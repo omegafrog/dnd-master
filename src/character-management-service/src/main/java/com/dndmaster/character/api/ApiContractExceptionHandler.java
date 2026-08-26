@@ -4,7 +4,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-@RestControllerAdvice
+@RestControllerAdvice(name = "characterApiContractExceptionHandler")
 public final class ApiContractExceptionHandler {
     @ExceptionHandler(ApiRequestGuard.ApiContractException.class)
     ResponseEntity<ErrorResponse> handle(ApiRequestGuard.ApiContractException exception) {

@@ -42,7 +42,7 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
                                     excerpt.documentId().value(), excerpt.extractionVersion(), excerpt.locator(), excerpt.text()))
                             .toList(),
                     request.schemaVersion(),
-                    request.promptVersion()));
+                    request.promptVersion(), request.failedCandidate(), request.attempt(), request.diagnostics()));
             HttpRequest httpRequest = HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/resolution-candidates"))
                     .timeout(timeout)
                     .header("Content-Type", "application/json")
@@ -99,7 +99,8 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
     record SourceReferenceResponse(java.util.UUID documentId, long extractionVersion, String locator) {}
 
     record ResolutionExtractionWireRequest(
-            String operationId, List<ResolutionExcerpt> excerpts, String schemaVersion, String promptVersion) {}
+            String operationId, List<ResolutionExcerpt> excerpts, String schemaVersion, String promptVersion,
+            ResolutionCandidate failedCandidate, int attempt, List<String> diagnostics) {}
 
     record ResolutionExcerpt(java.util.UUID documentId, long extractionVersion, String locator, String text) {}
 }

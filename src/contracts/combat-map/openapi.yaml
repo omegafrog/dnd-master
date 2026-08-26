@@ -1,10 +1,68 @@
 openapi: 3.1.0
 info: { title: Combat Map API, version: 1.0.0 }
 paths:
+  /internal/v1/combat-maps/prepare:
+    post:
+      operationId: prepareCombatMap
+      parameters:
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator]
+              properties:
+                adventureId: { type: string, format: uuid }
+                ownerId: { type: string, format: uuid }
+                ruleSetId: { type: string, format: uuid }
+                mapDefinitionId: { type: string, format: uuid }
+                assetId: { type: string }
+                assetLocator: { type: string }
+                playerSpawnX: { type: integer, minimum: 0 }
+                playerSpawnY: { type: integer, minimum: 0 }
+      responses:
+        '200': { description: prepared tactical map }
+        '401': { description: internal service authorization required }
+  /internal/v1/combat-maps/prepare-upload:
+    post:
+      operationId: prepareUploadedCombatMap
+      parameters:
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
+        - name: adventureId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: ownerId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: ruleSetId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+      requestBody:
+        required: true
+        content:
+          multipart/form-data: {}
+      responses:
+        '200': { description: prepared uploaded tactical map }
+        '401': { description: internal service authorization required }
   /internal/v1/adventures/{adventureId}/combat-map/player-view:
     get:
       operationId: playerAdventureView
       parameters:
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
         - name: ownerId
           in: query
           required: true
@@ -15,18 +73,77 @@ paths:
           content:
             application/json:
               schema: { $ref: './schemas/player-map-view.json' }
+        '401': { description: internal service authorization required }
   /internal/v1/combat-maps/{mapId}/player-view:
     get:
       operationId: playerView
+      parameters:
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
+        - name: ownerId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
       responses:
         '200':
           description: filtered versioned view
           content:
             application/json:
               schema: { $ref: './schemas/player-map-view.json' }
+        '401': { description: internal service authorization required }
+  /internal/v1/combat-maps/{mapId}/gm-view:
+    get:
+      operationId: gmView
+      parameters:
+        - name: ownerId
+          in: query
+          required: true
+          schema: { type: string, format: uuid }
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: owner-authorized GM view }
+        '401': { description: internal service authorization required }
+  /internal/v1/combat-maps/{mapId}/tactical-triggers:
+    post:
+      operationId: applyTacticalTrigger
+      parameters:
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [ownerId, commandId, expectedVersion, triggerId, kind, targetIds, qualifyingAction]
+              properties:
+                ownerId: { type: string, format: uuid }
+                commandId: { type: string, format: uuid }
+                expectedVersion: { type: integer, minimum: 0 }
+                triggerId: { type: string }
+                kind: { type: string }
+                targetIds: { type: array, items: { type: string } }
+                transitionId: { type: string }
+                qualifyingAction: { type: string, minLength: 1, pattern: '\S', description: authored player action required to qualify the trigger }
+      responses:
+        '200': { description: planned trigger applied }
+        '401': { description: internal service authorization required }
+        '400': { description: missing, null, or blank qualifyingAction, or invalid tactical trigger kind }
   /internal/v1/combat-maps/{mapId}/moves:
     post:
       operationId: movePlayer
+      parameters:
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
       requestBody:
         required: true
         content:
@@ -55,6 +172,11 @@ paths:
   /internal/v1/combat-maps/{mapId}/ai-state:
     post:
       operationId: controlAiState
+      parameters:
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
       requestBody:
         required: true
         content:
@@ -83,6 +205,11 @@ paths:
   /internal/v1/combat-maps/{mapId}/doors:
     post:
       operationId: changeDoor
+      parameters:
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
       requestBody:
         required: true
         content:
@@ -102,6 +229,11 @@ paths:
   /internal/v1/combat-maps/{mapId}/game-time:
     post:
       operationId: gameTime
+      parameters:
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
       requestBody:
         required: true
         content:
@@ -120,6 +252,11 @@ paths:
   /internal/v1/combat-maps/{mapId}/reveals:
     post:
       operationId: reveal
+      parameters:
+        - name: X-Internal-Token
+          in: header
+          required: true
+          schema: { type: string }
       requestBody:
         required: true
         content:

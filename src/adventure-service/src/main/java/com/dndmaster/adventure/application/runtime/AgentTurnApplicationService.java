@@ -59,7 +59,7 @@ public final class AgentTurnApplicationService {
         PreparedAgentTurn prepared = prepareAgentTurn(adventure, ownerPlayerId, cursor);
         RuntimeTurnResult result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
                 adventure.id(), ownerPlayerId, prepared.candidate().turnId(), prepared.candidate().commandId(), prepared.candidate().action(),
-                expectedVersion, prepared.candidate().characterSheetId(), cursor.index()));
+                expectedVersion, prepared.candidate().characterSheetId(), cursor.index(), true, false, true));
         return new AgentTurnResult(result, cursor.advanceAfterAgentTurn(prepared.candidate().characterSheetId()));
     }
 

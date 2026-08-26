@@ -1,6 +1,47 @@
 openapi: 3.1.0
 info: { title: Adventure API, version: 1.0.0 }
 paths:
+  /api/v1/adventure-sessions/{sessionId}/story-plan:
+    get: { operationId: readStoryPlan, responses: { '200': { description: player-safe story plan } } }
+    post: { operationId: generateStoryPlan, responses: { '200': { description: generated story plan } } }
+  /api/v1/adventure-sessions/{sessionId}/story-plan/history:
+    get:
+      operationId: readGmStoryPlanHistory
+      summary: Read append-only GM story-plan revisions for the owned session
+      description: Requires the internal GM token and the authenticated owner; returns revision history including GM-only audit data and never exposes another owner's session.
+      parameters:
+        - { name: sessionId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: X-Internal-Token, in: header, required: true, schema: { type: string, minLength: 1 } }
+      responses:
+        '200':
+          description: Owner/session-scoped append-only GM story-plan revision history
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { type: object, required: [planId, version, status, stages, auditId, recordedAt, cause], properties: { planId: { type: string, format: uuid }, version: { type: integer, format: int64 }, status: { type: string }, stages: { type: array, items: { type: object } }, auditId: { type: string }, recordedAt: { type: string, format: date-time }, cause: { type: string }, predecessorHistoryId: { type: string, format: uuid, nullable: true } } }
+        '401': { description: Missing or invalid X-Internal-Token }
+        '403': { description: Authenticated owner does not own the requested session }
+  /api/v1/adventure-sessions/{sessionId}/story-plan/gm:
+    get: { operationId: readGmStoryPlan, responses: { '200': { description: GM tactical story plan } } }
+  /api/v1/adventure-sessions/{sessionId}/story-plan/retry:
+    post: { operationId: retryStoryPlan, responses: { '200': { description: regenerated story plan } } }
+  /api/v1/adventure-sessions/{sessionId}/story-plan/stages/{position}/activate-map:
+    post: { operationId: activateTacticalMap, responses: { '200': { description: active tactical map } } }
+  /api/v1/adventure-sessions/{sessionId}/story-plan/stages/{position}/triggers/{triggerId}/apply:
+    post:
+      operationId: applyTacticalTrigger
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [combatMapId, commandId, expectedVersion, qualifyingAction], properties: { combatMapId: { type: string, format: uuid }, commandId: { type: string, format: uuid }, expectedVersion: { type: integer, format: int64, minimum: 0 }, qualifyingAction: { type: string, minLength: 1, pattern: '\S' } } } } } }
+      responses: { '200': { description: applied planned trigger }, '400': { description: missing, blank, or invalid qualifyingAction/trigger request }, '409': { description: stage or map is not active } }
+  /api/v1/adventure-sessions/{sessionId}/story-plan/stages/{position}/tactical-scene/revise:
+    post:
+      operationId: reviseFutureTacticalScene
+      parameters:
+        - { name: sessionId, in: path, required: true, schema: { type: string, format: uuid } }
+        - { name: position, in: path, required: true, schema: { type: integer } }
+        - { name: X-Internal-Token, in: header, required: true, schema: { type: string, minLength: 1 } }
+      requestBody: { required: true, content: { application/json: { schema: { type: object, required: [causingGmTurnId, causingGmCommandId], properties: { causingGmTurnId: { type: string, format: uuid, description: GM turn that authored this future-stage revision }, causingGmCommandId: { type: string, format: uuid, description: command identity persisted on the causing GM turn } } } } } }
+      responses: { '200': { description: validated future revision }, '400': { description: untrusted or invalid tactical scene rejected }, '401': { description: Missing or invalid X-Internal-Token }, '403': { description: Authenticated owner does not own the requested session } }
   /api/v1/adventures/{adventureId}/events:
     get:
       operationId: streamAdventureEvents
