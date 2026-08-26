@@ -6,6 +6,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
 import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
+import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
@@ -146,9 +147,9 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
         server.stubFor(post(urlEqualTo("/internal/v1/gm/adventure-story-plan"))
                 .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody("""
                         {"stages":[
-                          {"position":1,"title":"Start","goal":"Begin","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Start","evidence":[{"documentType":"STORYBOOK","documentId":"%s","extractionVersion":1,"locator":"page:1","quote":"authoritative   quote","confidence":0.8}],"enemies":[],"rewards":[],"branchIds":[],"branchTargets":{}},
-                          {"position":2,"title":"Middle","goal":"Advance","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Middle","evidence":[{"documentType":"STORYBOOK","documentId":"%s","extractionVersion":1,"locator":"page:1","quote":"authoritative   quote","confidence":0.8}],"enemies":[],"rewards":[],"branchIds":[],"branchTargets":{}},
-                          {"position":3,"title":"Finish","goal":"End","conflict":"Choice","transitionCondition":"Finish","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Finish","evidence":[{"documentType":"STORYBOOK","documentId":"%s","extractionVersion":1,"locator":"page:1","quote":"authoritative   quote","confidence":0.8}],"enemies":[],"rewards":[],"branchIds":[],"branchTargets":{}}
+                          {"position":1,"title":"Start","goal":"Begin","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Start","evidence":[{"citationKey":"citation-1"}],"enemies":[],"rewards":[],"branchIds":[],"branchTargets":{}},
+                          {"position":2,"title":"Middle","goal":"Advance","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Middle","evidence":[{"citationKey":"citation-1"}],"enemies":[],"rewards":[],"branchIds":[],"branchTargets":{}},
+                          {"position":3,"title":"Finish","goal":"End","conflict":"Choice","transitionCondition":"Finish","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Finish","evidence":[{"citationKey":"citation-1"}],"enemies":[],"rewards":[],"branchIds":[],"branchTargets":{}}
                         ]}
                         """.formatted(documentId, documentId, documentId))));
         var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
@@ -161,6 +162,64 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
         var candidate = gateway.generate(request);
 
         assertEquals("authoritative quote", candidate.getFirst().evidence().getFirst().quote());
+    }
+
+    @Test
+    void resolves_request_local_citation_key_to_server_owned_citation_and_ignores_provider_fields() {
+        server = new WireMockServer(0);
+        server.start();
+        UUID documentId = UUID.randomUUID();
+        var citation = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "STORYBOOK", documentId, 7, "page:4:block:2", "server-owned quote", .93);
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/adventure-story-plan"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody("""
+                        {"stages":[
+                          {"position":1,"title":"Start","goal":"Begin","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Start","evidence":[{"citationKey":"citation-1","documentType":"RULEBOOK","documentId":"00000000-0000-0000-0000-000000000001","extractionVersion":999,"locator":"tampered","quote":"tampered","confidence":0.01}],"enemies":[],"rewards":[],"branchIds":[],"branchTargets":{}},
+                          {"position":2,"title":"Middle","goal":"Advance","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Middle","evidence":[{"citationKey":"citation-1","documentType":"RULEBOOK","documentId":"00000000-0000-0000-0000-000000000001","extractionVersion":999,"locator":"tampered","quote":"tampered","confidence":0.01}],"enemies":[],"rewards":[],"branchIds":[],"branchTargets":{}},
+                          {"position":3,"title":"Finish","goal":"End","conflict":"Choice","transitionCondition":"Finish","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Finish","evidence":[{"citationKey":"citation-1","documentType":"RULEBOOK","documentId":"00000000-0000-0000-0000-000000000001","extractionVersion":999,"locator":"tampered","quote":"tampered","confidence":0.01}],"enemies":[],"rewards":[],"branchIds":[],"branchTargets":{}}
+                        ]}
+                        """)));
+        var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "test-internal-token");
+
+        var candidate = gateway.generate(new AdventureStoryPlanGenerationPort.Request(
+                "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT), List.of(), List.of(), List.of(), List.of(citation)));
+
+        var evidence = candidate.getFirst().evidence().getFirst();
+        assertEquals(citation.documentType(), evidence.documentType());
+        assertEquals(citation.documentId(), evidence.documentId());
+        assertEquals(citation.extractionVersion(), evidence.extractionVersion());
+        assertEquals(citation.locator(), evidence.locator());
+        assertEquals(citation.quote(), evidence.quote());
+        assertEquals(citation.confidence(), evidence.confidence());
+        assertEquals(citation.provenance(), evidence.provenance());
+        server.verify(postRequestedFor(urlEqualTo("/internal/v1/gm/adventure-story-plan"))
+                .withRequestBody(matchingJsonPath("$.citations[0].citationKey", equalTo("citation-1"))));
+    }
+
+    @Test
+    void rejects_unknown_request_local_citation_key_clearly() {
+        server = new WireMockServer(0);
+        server.start();
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/adventure-story-plan"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody("""
+                        {"stages":[
+                          {"position":1,"title":"Start","goal":"Begin","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Start","evidence":[{"citationKey":"citation-999"}],"enemies":[],"rewards":[],"branchIds":[],"branchTargets":{}},
+                          {"position":2,"title":"Middle","goal":"Advance","conflict":"Choice","transitionCondition":"Continue","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Middle","evidence":[{"citationKey":"citation-1"}],"enemies":[],"rewards":[],"branchIds":[],"branchTargets":{}},
+                          {"position":3,"title":"Finish","goal":"End","conflict":"Choice","transitionCondition":"Finish","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Finish","evidence":[{"citationKey":"citation-1"}],"enemies":[],"rewards":[],"branchIds":[],"branchTargets":{}}
+                        ]}
+                        """)));
+        var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "test-internal-token");
+        var citation = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "STORYBOOK", UUID.randomUUID(), 1, "page:1", "quote", .8);
+
+        var failure = assertThrows(AdventureStoryPlanCandidateValidationException.class,
+                () -> gateway.generate(new AdventureStoryPlanGenerationPort.Request(
+                        "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT),
+                        List.of(), List.of(), List.of(), List.of(citation))));
+
+        assertEquals(List.of("AI returned an unknown citation key: citation-999"), failure.violations());
     }
 
     @Test

@@ -208,7 +208,46 @@ class AdventureStoryPlanControllerMarkdownTest {
         String prompt = (String) method.invoke(controller, request, request.configuration(), "계획");
         assertTrue(prompt.contains("JSON shape constraint"));
         assertTrue(prompt.contains("non-empty array of strings"));
+        assertTrue(prompt.contains("citationKey"));
         assertTrue(prompt.contains("previousViolations"));
+    }
+
+    @Test
+    void execution_projection_parses_citation_keys_without_copying_source_locators() throws Exception {
+        var controller = new AdventureStoryPlanController(
+                null, new ObjectMapper(), null,
+                "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
+                new ApiRequestGuard("test-internal-token"));
+        var parse = AdventureStoryPlanController.class.getDeclaredMethod(
+                "parseJson", String.class, AdventureStoryPlanController.Configuration.class);
+        parse.setAccessible(true);
+        String response = """
+                {"stages":[
+                  {"position":1,"title":"Start","goal":"Begin","conflict":"Choice","transitionCondition":"Continue","endingIds":["ending-1"],"evidence":[{"citationKey":"citation-1","documentType":"RULEBOOK","locator":"tampered","quote":"tampered"}]},
+                  {"position":2,"title":"Middle","goal":"Advance","conflict":"Choice","transitionCondition":"Continue","endingIds":["ending-1"],"evidence":[{"citationKey":"citation-1"}]},
+                  {"position":3,"title":"Finish","goal":"End","conflict":"Choice","transitionCondition":"Finish","endingIds":["ending-1"],"evidence":[{"citationKey":"citation-1"}]}
+                ]}
+                """;
+
+        var stages = (List<AdventureStoryPlanController.Stage>) parse.invoke(controller, response,
+                new AdventureStoryPlanController.Configuration(1, "SHORT"));
+
+        assertEquals("citation-1", stages.getFirst().evidence().getFirst().citationKey());
+    }
+
+    @Test
+    void request_citation_key_is_preserved_for_the_model_registry_prompt() throws Exception {
+        var mapper = new ObjectMapper();
+        var request = mapper.readValue("""
+                {"operationId":"op","packageRevision":1,"partySize":1,
+                 "configuration":{"endingCount":1,"adventureLength":"SHORT"},
+                 "sourceDocuments":[],"resolutionEvidence":[],"maps":[],
+                 "citations":[{"documentType":"STORYBOOK","documentId":"doc","extractionVersion":2,
+                 "locator":"page=1","quote":"source","confidence":0.9,"citationKey":"citation-1"}],
+                 "violations":[],"previousCandidate":""}
+                """, AdventureStoryPlanController.Request.class);
+
+        assertEquals("citation-1", request.citations().getFirst().citationKey());
     }
 
     @Test

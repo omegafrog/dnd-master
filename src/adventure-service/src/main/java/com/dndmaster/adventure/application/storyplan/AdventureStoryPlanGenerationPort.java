@@ -1,5 +1,6 @@
 package com.dndmaster.adventure.application.storyplan;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration;
 import java.util.UUID;
@@ -33,8 +34,16 @@ public interface AdventureStoryPlanGenerationPort {
                     resolutionEvidence, List.of(), List.of(), List.of(), "");
         }
         public Request {
+            citations = citations == null ? List.of() : List.copyOf(citations);
             violations = violations == null ? List.of() : List.copyOf(violations);
             previousCandidate = previousCandidate == null ? "" : previousCandidate;
+        }
+        public Request withCitationKeys() {
+            List<SourceCitation> keyed = java.util.stream.IntStream.range(0, citations.size())
+                    .mapToObj(index -> citations.get(index).withCitationKey("citation-" + (index + 1)))
+                    .toList();
+            return new Request(operationId, packageRevision, partySize, configuration, sourceDocuments,
+                    resolutionEvidence, maps, keyed, violations, previousCandidate);
         }
         public Request withViolations(List<String> nextViolations) {
             return new Request(operationId, packageRevision, partySize, configuration, sourceDocuments,
@@ -62,13 +71,25 @@ public interface AdventureStoryPlanGenerationPort {
         }
     }
     record SourceCitation(String documentType, UUID documentId, long extractionVersion, String locator, String quote,
-            double confidence, com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance provenance) {
+            double confidence, com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance provenance,
+            @JsonInclude(JsonInclude.Include.NON_EMPTY) String citationKey) {
         public SourceCitation(String documentType, UUID documentId, long extractionVersion, String locator,
                 String quote, double confidence) {
             this(documentType, documentId, extractionVersion, locator, quote, confidence,
                     new com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance(
                             new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(documentId),
-                            extractionVersion, 1, List.of(), List.of(), null, locator));
+                            extractionVersion, 1, List.of(), List.of(), null, locator), "");
+        }
+        public SourceCitation(String documentType, UUID documentId, long extractionVersion, String locator,
+                String quote, double confidence,
+                com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance provenance) {
+            this(documentType, documentId, extractionVersion, locator, quote, confidence, provenance, "");
+        }
+        public SourceCitation withCitationKey(String key) {
+            return new SourceCitation(documentType, documentId, extractionVersion, locator, quote, confidence, provenance, key);
+        }
+        public SourceCitation {
+            citationKey = citationKey == null ? "" : citationKey;
         }
     }
 }

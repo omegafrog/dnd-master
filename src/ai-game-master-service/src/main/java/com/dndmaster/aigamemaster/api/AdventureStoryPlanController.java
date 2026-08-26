@@ -4,6 +4,8 @@ import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.CodexCliStoryPlanAdapter;
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint;
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointRegistry;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -208,10 +210,10 @@ public final class AdventureStoryPlanController {
                 Return ONLY JSON with a stages array. Do not rewrite the narrative or invent facts.
                 Each stage MUST include these required fields: position (integer), title, goal, conflict, transitionCondition, endingIds (a non-empty array of strings), and evidence (a non-empty array when supplied citations are available).
                 The root object MUST contain stages (an array). Optional fields may be omitted, and additional properties are allowed and ignored.
-                JSON shape constraint: {"type":"object","required":["stages"],"properties":{"stages":{"type":"array","items":{"type":"object","required":["position","title","goal","conflict","transitionCondition","endingIds","evidence"],"properties":{"position":{"type":"integer"},"title":{"type":"string"},"goal":{"type":"string"},"conflict":{"type":"string"},"transitionCondition":{"type":"string"},"endingIds":{"type":"array","items":{"type":"string"},"minItems":1},"evidence":{"type":"array","items":{"type":"object","required":["documentType","documentId","extractionVersion","locator","quote","confidence"]},"minItems":1}},"additionalProperties":true}}},"additionalProperties":true}
+                JSON shape constraint: {"type":"object","required":["stages"],"properties":{"stages":{"type":"array","items":{"type":"object","required":["position","title","goal","conflict","transitionCondition","endingIds","evidence"],"properties":{"position":{"type":"integer"},"title":{"type":"string"},"goal":{"type":"string"},"conflict":{"type":"string"},"transitionCondition":{"type":"string"},"endingIds":{"type":"array","items":{"type":"string"},"minItems":1},"evidence":{"type":"array","items":{"type":"object","required":["citationKey"]},"minItems":1}},"additionalProperties":true}}},"additionalProperties":true}
                 The plan configuration requires exactly %s distinct ending IDs. Preserve the explicit ending-1 through ending-%s IDs from the plan; do not omit, merge, rename, or invent ending IDs.
                 Include stageType, location, and mapUsage (REQUIRED, OPTIONAL, or NONE) when present. Include mapDefinitionId, mapAssetId, and mapAssetLocator only when mapUsage is REQUIRED; copy all three from the same AVAILABLE MAPS entry. OPTIONAL and NONE may omit them.
-                Optional fields may be omitted or empty: npcOrClues, enemies, boss, clearCondition, failureCondition, rewards, branchIds, branchTargets, and player spawn fields. When citations are supplied, evidence is REQUIRED for every stage: copy at least one exact citation object and quote from the supplied citations. When both STORYBOOK and RULEBOOK citations are supplied, the complete plan MUST include at least one exact citation of each type across its stages. A trigger is represented only by a short reference or lookup key; never copy the full trigger or rule text.
+                Optional fields may be omitted or empty: npcOrClues, enemies, boss, clearCondition, failureCondition, rewards, branchIds, branchTargets, and player spawn fields. When citations are supplied, evidence is REQUIRED for every stage: copy at least one exact citationKey from the supplied citation registry. Do not copy document IDs, extraction versions, locators, quotes, or confidence into evidence. When both STORYBOOK and RULEBOOK citations are supplied, the complete plan MUST include at least one exact citationKey for each type across its stages. A trigger is represented only by a short reference or lookup key; never copy the full trigger or rule text.
                 Arrays may be empty arrays and branchTargets may be an empty object. Never invent a map, trigger, citation, enemy, reward, or ending. Use the ending IDs stated in the plan, or a stable structural ending ID when necessary.
                 If the plan is invalid, return the best faithful projection so the application can report the violation.
                 configuration=%s
@@ -420,7 +422,7 @@ public final class AdventureStoryPlanController {
     private static Map<String, String> optionalMaps(JsonNode n) {
         return n == null || n.isNull() ? Map.of() : maps(n, "branchTargets");
     }
-    private static List<SourceCitation> optionalCitations(JsonNode n) {
+    private static List<CitationProjection> optionalCitations(JsonNode n) {
         return n == null || n.isNull() ? List.of() : citations(n, "evidence");
     }
     private static String text(JsonNode node, String key, String fallback) { String value = node.path(key).asText("").trim(); return value.isBlank() ? fallback : value; }
@@ -430,15 +432,12 @@ public final class AdventureStoryPlanController {
         node.fields().forEachRemaining(entry -> result.put(entry.getKey(), entry.getValue().asText()));
         return Map.copyOf(result);
     }
-    private static List<SourceCitation> citations(JsonNode node, String field) {
+    private static List<CitationProjection> citations(JsonNode node, String field) {
         if (node == null || !node.isArray()) throw new IllegalArgumentException(field + " must be explicit");
-        List<SourceCitation> result = new ArrayList<>();
+        List<CitationProjection> result = new ArrayList<>();
         node.forEach(item -> {
-            String documentType = text(item, "documentType", ""); String documentId = text(item, "documentId", "");
-            String locator = text(item, "locator", ""); String quote = text(item, "quote", "");
-            if (!documentType.isBlank() && !documentId.isBlank() && !locator.isBlank() && !quote.isBlank()) {
-                result.add(new SourceCitation(documentType, documentId, item.path("extractionVersion").asLong(1), locator, quote, item.path("confidence").asDouble(.5)));
-            }
+            String citationKey = text(item, "citationKey", "");
+            if (!citationKey.isBlank()) result.add(new CitationProjection(citationKey));
         });
         return List.copyOf(result);
     }
@@ -498,7 +497,15 @@ public final class AdventureStoryPlanController {
             context = context == null ? "" : context;
         }
     }
-    public record SourceCitation(String documentType, String documentId, long extractionVersion, String locator, String quote, double confidence) {}
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record SourceCitation(String documentType, String documentId, long extractionVersion, String locator, String quote,
+            double confidence, @JsonInclude(JsonInclude.Include.NON_EMPTY) String citationKey) {
+        public SourceCitation(String documentType, String documentId, long extractionVersion, String locator,
+                String quote, double confidence) {
+            this(documentType, documentId, extractionVersion, locator, quote, confidence, "");
+        }
+    }
+    public record CitationProjection(String citationKey) {}
     public record Configuration(int endingCount, String adventureLength) {
         public Configuration {
             if (endingCount < 1 || endingCount > 4) throw new IllegalArgumentException("ending count must be between 1 and 4");
@@ -511,5 +518,5 @@ public final class AdventureStoryPlanController {
     public record Response(List<Stage> stages) {}
     public record Stage(int position, String title, String stageType, String location, String goal, String conflict, String transitionCondition,
             List<String> npcOrClues, List<String> endingIds, String mapDefinitionId, String mapAssetId, String mapAssetLocator, List<String> enemies, String boss,
-            String clearCondition, String failureCondition, List<String> rewards, List<String> branchIds, Map<String, String> branchTargets, List<SourceCitation> evidence) {}
+            String clearCondition, String failureCondition, List<String> rewards, List<String> branchIds, Map<String, String> branchTargets, List<CitationProjection> evidence) {}
 }
