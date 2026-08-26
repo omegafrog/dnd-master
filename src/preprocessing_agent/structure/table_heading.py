@@ -67,6 +67,8 @@ class HeadingAssociator:
                 candidate_box = _bbox(candidate)
                 if candidate_box.y0 < heading_box.y1:
                     continue
+                if self.detector.detect(_as_parsed_block(candidate)).is_heading:
+                    break
                 if _spans(heading_box, candidate_box, values):
                     members.append(_id(candidate))
                     evidence.add("spanning_content")
@@ -177,7 +179,8 @@ class TableStructureDetector:
             cells = tuple(sorted(rows[row_index], key=lambda cell: (cell.column_index, cell.bbox.x0, cell.cell_id)))
             header = any(bool(_get(value, "is_header", False)) for value in values if _row(value) == row_index) or row_index == min(rows)
             covered = sum(cell.column_span for cell in cells)
-            if covered != columns:
+            positions = [position for cell in cells for position in range(cell.column_index, cell.column_index + cell.column_span)]
+            if covered != columns or len(positions) != len(set(positions)) or set(positions) != set(range(columns)):
                 findings.add("IRREGULAR_TABLE")
                 cells = tuple(_mark_uncertain(cell) if not cell.uncertain else cell for cell in cells)
             row_values.append(TableRow(row_index, cells, header))

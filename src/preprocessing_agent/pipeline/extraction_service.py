@@ -216,6 +216,8 @@ class ExtractionApplicationService:
         seen_page_numbers: set[int] = set()
         for position, raw in enumerate(raw_pages, 1):
             number: int | None = None
+            heading_evidence: list[Any] = []
+            table_evidence: list[Any] = []
             try:
                 if not isinstance(raw, Mapping):
                     raise ValueError("MALFORMED_EXTRACTION_PAYLOAD")
@@ -275,7 +277,7 @@ class ExtractionApplicationService:
                 findings = [item.strip() for item in finding.split(":") if item.strip()]
                 version.record_page(PageExtraction(safe_number, PageStatus.NEEDS_REVIEW, findings))
                 page_artifacts[:] = [item for item in page_artifacts if item.get("page_number") != safe_number]
-                evidence = {"page_number": safe_number, "status": PageStatus.NEEDS_REVIEW.value, "findings": version.pages[safe_number].findings}
+                evidence = {"page_number": safe_number, "status": PageStatus.NEEDS_REVIEW.value, "findings": version.pages[safe_number].findings, "heading_associations": heading_evidence, "tables": table_evidence}
                 page_artifacts.append({**evidence, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
         present_pages = {item["page_number"] for item in page_artifacts}
         for missing in range(1, version.page_count + 1):

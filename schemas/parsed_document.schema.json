@@ -33,7 +33,7 @@
     "page": {
       "type": "object", "additionalProperties": false,
       "required": ["page_number", "blocks", "source_text"],
-      "properties": {"page_number": {"type": "integer", "minimum": 1}, "blocks": {"type": "array", "items": {"$ref": "#/$defs/block"}}, "source_text": {"type": "string"}}
+      "properties": {"page_number": {"type": "integer", "minimum": 1}, "blocks": {"type": "array", "items": {"$ref": "#/$defs/block"}}, "source_text": {"type": "string"}, "heading_associations": {"type": "array"}, "tables": {"type": "array"}}
     }
   }
 }

@@ -94,6 +94,8 @@ class ParsedPage:
     page_number: int
     blocks: tuple[ParsedBlock, ...]
     source_text: str
+    heading_associations: tuple[Any, ...] = ()
+    tables: tuple[Any, ...] = ()
 
     def __post_init__(self) -> None:
         if self.page_number < 1:
