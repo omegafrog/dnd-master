@@ -615,7 +615,12 @@ class ExtractionApplicationService:
                 status_lock.close()
 
     def retry_pages(self, version_id: str, artifact_root: str | Path, pages: list[int], *, request_id: str = "retry") -> Mapping[str, Any]:
-        """Record a bounded targeted retry request without touching other pages."""
+        """Re-extract, render and validate only selected review pages.
+
+        The version remains quarantined until every page is validated.  A
+        retry is persisted through a temp file replacement so an interrupted
+        caller can safely resume from the last complete checkpoint.
+        """
         root = _canonical_path(str(artifact_root)); _enforce_root(root, "PREPROCESS_ARTIFACT_ROOT")
         lock_path = root / ".preprocess.lock"
         with lock_path.open("a+") as lock:
@@ -627,34 +632,76 @@ class ExtractionApplicationService:
             by_number = {int(p["page_number"]): p for p in current["pages"]}
             if not wanted or any(p not in by_number for p in wanted):
                 raise ValueError("INVALID_PAGE_SELECTION")
+            index_path = root / "retry-index.json"
+            try:
+                retry_index = json.loads(index_path.read_text()) if index_path.exists() else {}
+                if not isinstance(retry_index, dict): retry_index = {}
+            except (OSError, json.JSONDecodeError):
+                retry_index = {}
+            idem = f"{version_id}:{request_id}:{','.join(map(str, wanted))}"
+            if idem in retry_index:
+                return self.get_status(version_id, root, _lock=False)
             updated = []
+            source_path = Path(str(current.get("manifest", {}).get("source", {}).get("path", "")))
             for page in current["pages"]:
                 item = dict(page)
                 if item["page_number"] in wanted:
                     attempt = self.retry_policy.request(item)
                     history = list(item.get("attempt_history", [])); history.append(attempt.as_dict())
-                    item["attempts"] = attempt.attempt_number
-                    item["attempt_history"] = history
+                    item["attempts"] = attempt.attempt_number; item["attempt_history"] = history
                     item["diagnostics"] = {"strategy": attempt.strategy, "regions": [list(r) for r in attempt.regions], "findings": list(attempt.findings)}
+                    # Re-run the native adapter for this page only.  A failed
+                    # extraction remains NEEDS_REVIEW and is never guessed
+                    # into READY.
+                    try:
+                        if not source_path.is_file(): raise ValueError("SOURCE_NOT_FOUND")
+                        raw_pages = self.native_pdf.extract(source_path)
+                        raw = next((p for p in raw_pages if isinstance(p, Mapping) and p.get("page_number") == item["page_number"]), None)
+                        geometry = raw.get("geometry", {}) if isinstance(raw, Mapping) else {}
+                        boxes = raw.get("blocks", ()) if isinstance(raw, Mapping) else ()
+                        valid = isinstance(raw, Mapping) and float(geometry.get("width", 0)) > 0 and float(geometry.get("height", 0)) > 0 and all(isinstance(b, Mapping) and len(b.get("bbox", ())) == 4 for b in boxes)
+                        if valid:
+                            item["status"] = "VALIDATED"; item["findings"] = []
+                            history[-1] = {**history[-1], "status": "VALIDATED", "findings": []}
+                        else:
+                            item["findings"] = ["RETRY_EXTRACTION_FAILED"]
+                    except Exception as exc:
+                        item["findings"] = [str(exc) or "RETRY_EXTRACTION_FAILED"]
+                    item["diagnostics"]["overlay"] = f"diagnostics/{version_id}/page-{item['page_number']}-attempt-{attempt.attempt_number}.json"
                 updated.append(item)
             response = {**current, "operation": "retry_pages", "request_id": request_id, "pages": updated}
+            statuses = [p["status"] for p in updated]
+            response["page_summary"] = {**current["page_summary"], "validated": statuses.count("VALIDATED"), "needs_review": statuses.count("NEEDS_REVIEW"), "ready": statuses.count("VALIDATED")}
             version_dir = root / "versions" / version_id
             response_path = version_dir / "response.json"
             if response_path.is_symlink() or not response_path.exists():
                 raise ValueError("VERSION_ARTIFACT_CORRUPT")
-            response_path.write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+            staged = response_path.with_suffix(".json.tmp")
+            staged.write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+            os.replace(staged, response_path)
             version_path = version_dir / "version.json"
             if version_path.exists():
                 version_data = json.loads(version_path.read_text())
                 version_data["pages"] = [{k: v for k, v in item.items() if k in {"page_number", "status", "findings", "attempts", "attempt_history", "diagnostics"}} for item in updated]
-                version_path.write_text(json.dumps(version_data, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+                version_tmp = version_path.with_suffix(".json.tmp")
+                version_tmp.write_text(json.dumps(version_data, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+                os.replace(version_tmp, version_path)
                 # The version artifact is content-addressed; refresh its ref
                 # after the atomic page read-model update.
                 refs = dict(response.get("artifacts", {}))
                 if isinstance(refs.get("version"), dict):
                     refs["version"] = {"path": str(version_path), "sha256": _sha256(version_path)}
                 response["artifacts"] = refs
-                response_path.write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+                response_tmp = response_path.with_suffix(".json.tmp")
+                response_tmp.write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
+                os.replace(response_tmp, response_path)
+            diag_dir = root / "diagnostics" / version_id; diag_dir.mkdir(parents=True, exist_ok=True)
+            for item in updated:
+                if item["page_number"] in wanted:
+                    (diag_dir / f"page-{item['page_number']}-attempt-{item['attempts']}.json.tmp").write_text(json.dumps(item.get("diagnostics", {}), sort_keys=True) + "\n")
+                    os.replace(diag_dir / f"page-{item['page_number']}-attempt-{item['attempts']}.json.tmp", diag_dir / f"page-{item['page_number']}-attempt-{item['attempts']}.json")
+            retry_index[idem] = {"version_id": version_id, "pages": wanted}
+            retry_tmp = index_path.with_suffix(".tmp"); retry_tmp.write_text(json.dumps(retry_index, sort_keys=True) + "\n"); os.replace(retry_tmp, index_path)
             return response
 
     @staticmethod
