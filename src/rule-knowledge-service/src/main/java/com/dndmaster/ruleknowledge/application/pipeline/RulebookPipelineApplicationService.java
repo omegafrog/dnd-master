@@ -239,14 +239,16 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             }
             if ("NEEDS_REVIEW".equals(result.status())) {
                 StoredRulebookRegistration review = withPreprocessing(latest, ProcessingStatus.NEEDS_REVIEW,
-                        "PREPROCESSING_NEEDS_REVIEW", result);
+                        "PREPROCESSING_NEEDS_REVIEW", result,
+                        sourcePreviewExtractor.preview(registration.format(), fileStorage.read(new StoredRulebookFile(registration.storageKey()))));
                 registrationRepository.save(review);
                 retryLeaseRepository.release(rulebookId, requestId, claim.leaseToken());
                 return new RulebookProcessingResult(rulebookId, ProcessingStatus.NEEDS_REVIEW, diagnosticWarnings(result.pages()));
             }
             if (!"READY".equals(result.status())) throw new PreprocessingProcessException("INVALID_PREPROCESSING_STATUS");
             publishPreprocessed(latest, result);
-            StoredRulebookRegistration indexed = withPreprocessing(latest, ProcessingStatus.INDEXED, null, result);
+            StoredRulebookRegistration indexed = withPreprocessing(latest, ProcessingStatus.INDEXED, null, result,
+                    sourcePreviewExtractor.preview(registration.format(), fileStorage.read(new StoredRulebookFile(registration.storageKey()))));
             registrationRepository.save(indexed);
             if (!retryLeaseRepository.complete(rulebookId, requestId, claim.leaseToken(), registration.candidateExtractionVersion(), result.versionId())) {
                 retryLeaseRepository.release(rulebookId, requestId, claim.leaseToken());
@@ -337,6 +339,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
     private RulebookProcessingResult processWithPreprocessing(StoredRulebookRegistration registration) {
         try {
             byte[] storedContent = fileStorage.read(new StoredRulebookFile(registration.storageKey()));
+            SourcePreviewResult previewResult = sourcePreviewExtractor.preview(registration.format(), storedContent);
             Path runRoot = preprocessingWorkingRoot(registration.rulebookId());
             Files.createDirectories(runRoot);
             Path source = runRoot.resolve("source.pdf");
@@ -348,7 +351,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             validatePreprocessingResult(registration, result);
             if ("NEEDS_REVIEW".equals(result.status())) {
                 StoredRulebookRegistration review = withPreprocessing(
-                        registration, ProcessingStatus.NEEDS_REVIEW, "PREPROCESSING_NEEDS_REVIEW", result);
+                        registration, ProcessingStatus.NEEDS_REVIEW, "PREPROCESSING_NEEDS_REVIEW", result, previewResult);
                 registrationRepository.save(review);
                 return new RulebookProcessingResult(
                         registration.rulebookId(), ProcessingStatus.NEEDS_REVIEW, diagnosticWarnings(result.pages()));
@@ -358,7 +361,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 ProcessingStatus nextStatus = ragExtractionPublicationService == null
                         ? ProcessingStatus.VALIDATED : ProcessingStatus.INDEXED;
                 StoredRulebookRegistration validated = withPreprocessing(
-                        registration, nextStatus, null, result);
+                        registration, nextStatus, null, result, previewResult);
                 registrationRepository.save(validated);
                 return new RulebookProcessingResult(registration.rulebookId(), nextStatus, List.of());
             }
@@ -597,7 +600,8 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             StoredRulebookRegistration registration,
             ProcessingStatus status,
             String failureCode,
-            PreprocessingRunResult result) {
+            PreprocessingRunResult result,
+            SourcePreviewResult previewResult) {
         return new StoredRulebookRegistration(
                 registration.rulebookId(),
                 registration.ownerPlayerId(),
@@ -616,10 +620,10 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 Instant.now(),
                 registration.documentType(),
                 registration.originalFilename(),
-                registration.previewContent(),
-                registration.previewWarnings(),
-                registration.previewSpans(),
-                registration.previewAssets(),
+                previewResult != null ? previewResult.content() : registration.previewContent(),
+                previewResult != null ? previewResult.warnings() : registration.previewWarnings(),
+                previewResult != null ? previewResult.spans() : registration.previewSpans(),
+                previewResult != null ? previewResult.assets() : registration.previewAssets(),
                 result.requestId(),
                 result.versionId(),
                 result.policyVersion(),

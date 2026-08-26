@@ -237,6 +237,8 @@ class RulebookPipelineApplicationServiceTest {
         assertEquals(ProcessingStatus.VALIDATED, results.get(0).status());
         assertEquals(ProcessingStatus.VALIDATED, stored.processingStatus());
         assertEquals("candidate-1", stored.candidateExtractionVersion());
+        assertEquals("preview-pdf bytes", stored.previewContent());
+        assertEquals(1, stored.previewAssets().size());
         assertEquals(0, harness.extractor.calls);
         assertEquals(0, harness.embeddingPort.calls);
     }
