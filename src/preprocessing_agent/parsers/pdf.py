@@ -83,7 +83,8 @@ class PdfDocumentParser:
                 char_cursor += len(text) + 1
             page_text = normalize_text("\n".join(page_parts))
             from preprocessing_agent.structure import HeadingAssociator, TableStructureDetector
-            page_structure = tuple({**raw_block, "source_text": block.source_text} for raw_block, block in zip(raw_blocks, blocks))
+            blocks_by_id = {block.block_id: block for block in blocks}
+            page_structure = tuple({**raw_block, "source_text": blocks_by_id[str(raw_block["block_id"])].source_text} for raw_block in raw_blocks if str(raw_block["block_id"]) in blocks_by_id)
             headings = HeadingAssociator().associate(page_structure, plan) if plan is not None else ()
             tables = TableStructureDetector().detect(page_structure) if plan is not None else ()
             pages.append(ParsedPage(page_number, tuple(blocks), page_text, headings, tables))
