@@ -203,7 +203,7 @@ def _default_extractor(source: Path) -> Iterable[Mapping[str, Any]]:
             except (AttributeError, RuntimeError, TypeError):
                 found_tables = ()
             table_regions = []
-            for table_index, table in enumerate(found_tables):
+            for table_index, table in enumerate(table for table in found_tables if _is_reliable_native_table(table)):
                 table_id = f"p{page_number}-table-{table_index}"
                 table_bbox = getattr(table, "bbox", None)
                 if table_bbox is not None and len(table_bbox) == 4:
@@ -234,3 +234,18 @@ def _inside_table_region(bbox: object, regions: list[tuple[float, float, float, 
     center_x = (float(bbox[0]) + float(bbox[2])) / 2
     center_y = (float(bbox[1]) + float(bbox[3])) / 2
     return any(x0 <= center_x <= x1 and y0 <= center_y <= y1 for x0, y0, x1, y1 in regions)
+
+
+def _is_reliable_native_table(table: Any) -> bool:
+    """Accept only repeated, rectangular native grids for cell projection."""
+    rows = tuple(getattr(table, "rows", ()) or ())
+    if len(rows) < 2:
+        return False
+    row_cells = tuple(tuple(getattr(row, "cells", row if isinstance(row, (list, tuple)) else ()) or ()) for row in rows)
+    widths = {len(cells) for cells in row_cells}
+    if len(widths) != 1 or not widths or next(iter(widths)) < 2:
+        return False
+    if any(cell is None or len(cell) != 4 for cells in row_cells for cell in cells):
+        return False
+    row_centers = {round((float(cells[0][1]) + float(cells[0][3])) / 2, 3) for cells in row_cells}
+    return len(row_centers) >= 2

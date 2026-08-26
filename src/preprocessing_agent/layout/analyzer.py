@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from statistics import median
 from typing import Any
 
 from preprocessing_agent.domain.layout import (
@@ -70,13 +71,13 @@ class LayoutAnalyzer:
         entries = [(_box(block), block) for block in members]
         if not entries:
             raise ValueError("region has no blocks")
-        candidates: list[ColumnHypothesis] = []
+        scored_candidates: list[tuple[ColumnHypothesis, int]] = []
         overall_left = min(box.x0 for box, _ in entries)
         overall_right = max(box.x1 for box, _ in entries)
         overall_top = min(box.y0 for box, _ in entries)
         overall_bottom = max(box.y1 for box, _ in entries)
         whole = BoundingBox(overall_left, overall_top, overall_right, overall_bottom)
-        candidates.append(ColumnHypothesis(1, (whole,), .55, "single-column"))
+        scored_candidates.append((ColumnHypothesis(1, (whole,), .55, "single-column"), 0))
         starts = sorted({box.x0 for box, _ in entries})
         gaps = [(b - a, a, b) for a, b in zip(starts, starts[1:]) if b > a]
         # Evaluate every meaningful gap, not just the largest page-wide gap.
@@ -93,10 +94,20 @@ class LayoutAnalyzer:
                 # An isolated header/sidebar must not turn a single-column
                 # body into a page-wide two-column hypothesis.
                 continue
-            separation = gap / max(overall_right - overall_left, 1.0)
-            balance = min(len(left_items), len(right_items)) / max(len(entries), 1)
-            score = min(1.0, .45 + separation + balance * .35)
-            candidates.append(ColumnHypothesis(2, (BoundingBox(overall_left, overall_top, max(box.x1 for box in left_items), overall_bottom), BoundingBox(min(box.x0 for box in right_items), overall_top, overall_right, overall_bottom)), score, "gutter"))
+            repeated_rows = _repeated_row_support(left_items, right_items)
+            item_balance = min(len(left_items), len(right_items)) / max(max(len(left_items), len(right_items)), 1)
+            left_width = max(box.x1 for box in left_items) - min(box.x0 for box in left_items)
+            right_width = max(box.x1 for box in right_items) - min(box.x0 for box in right_items)
+            width_balance = min(left_width, right_width) / max(max(left_width, right_width), 1.0)
+            # A narrow trailing group is usually an indented line, footer, or
+            # sidebar rather than a second column. Keep only geometrically
+            # balanced candidates; repeated vertical support then ranks the
+            # remaining hypotheses deterministically.
+            if width_balance < .45 or item_balance < .45:
+                continue
+            separation = max(0.0, min(box.x0 for box in right_items) - max(box.x1 for box in left_items))
+            score = _partition_score(item_balance, width_balance, repeated_rows, separation, overall_right - overall_left)
+            scored_candidates.append((ColumnHypothesis(2, (BoundingBox(overall_left, overall_top, max(box.x1 for box in left_items), overall_bottom), BoundingBox(min(box.x0 for box in right_items), overall_top, overall_right, overall_bottom)), score, "gutter"), repeated_rows))
         # N-column candidates are formed from the strongest x gutters. This is
         # intentionally geometry-only; semantic table interpretation belongs
         # to the following plan.
@@ -122,14 +133,86 @@ class LayoutAnalyzer:
             balance = min(len(group) for group in groups) / max(len(entries), 1)
             separation = sum(item[0] for item in chosen) / max(overall_right - overall_left, 1.0)
             score = min(1.0, .45 + separation + balance * .35)
-            candidates.append(ColumnHypothesis(count, tuple(BoundingBox(min(box.x0 for box in group), overall_top, max(box.x1 for box in group), overall_bottom) for group in groups), score, "gutter-cluster"))
-        candidates.sort(key=lambda item: (-item.score, item.column_count))
+            support = min(_repeated_row_support(groups[index], groups[index + 1]) for index in range(count - 1))
+            scored_candidates.append((ColumnHypothesis(count, tuple(BoundingBox(min(box.x0 for box in group), overall_top, max(box.x1 for box in group), overall_bottom) for group in groups), score, "gutter-cluster"), support))
+        scored_candidates.sort(key=lambda item: (-item[0].score, item[0].column_count, item[0].strategy))
+        # Text extractors often emit several x-starts inside the same physical
+        # column.  Those starts produce duplicate partitions, which must not be
+        # treated as competing layout hypotheses.  Keep the strongest evidence
+        # for each distinct partition while retaining genuinely different
+        # partitions for the ambiguity gate (and its regression fixture).
+        distinct_candidates: list[tuple[ColumnHypothesis, int]] = []
+        seen_partitions: list[tuple[int, tuple[tuple[float, float], ...]]] = []
+        for candidate, support in scored_candidates:
+            partition = (candidate.column_count, tuple((round(column.x0, 1), round(column.x1, 1)) for column in candidate.columns))
+            if any(_same_partition(partition, previous) for previous in seen_partitions):
+                continue
+            seen_partitions.append(partition)
+            distinct_candidates.append((candidate, support))
+        scored_candidates = distinct_candidates
+        candidates = [item[0] for item in scored_candidates]
         best = candidates[0]
         second = candidates[1] if len(candidates) > 1 else None
-        ambiguous = second is not None and best.score - second.score < ambiguity_margin
+        best_support = scored_candidates[0][1]
+        weakly_supported_split = best.column_count > 1 and best_support < 2 and len(entries) >= 3
+        # A strongly supported 3-column form is a valid layout, but a very
+        # small sample cannot establish three independent regions reliably.
+        # Keep the existing diagnostic behavior for sparse synthetic/table-like
+        # pages while allowing real character-sheet pages with enough evidence.
+        undersampled_high_order_split = best.column_count > 2 and len(entries) < 9
+        # A clear multi-column candidate should not become ambiguous merely
+        # because the fallback single-column candidate is retained for evidence.
+        close_competing_split = (
+            second is not None
+            and best.score - second.score < ambiguity_margin
+            and not (best.column_count > 1 and second.column_count == 1 and best.score >= .85)
+        )
+        ambiguous = undersampled_high_order_split or weakly_supported_split or close_competing_split
         return ColumnProfile(region.region_id, tuple(candidates), None if ambiguous else best, best.score if not ambiguous else best.score - (ambiguity_margin / 2), ambiguous, ("AMBIGUOUS_COLUMN_HYPOTHESIS",) if ambiguous else ())
 
     def page_plan(self, blocks: Sequence[Any], page_geometry: Any | None = None) -> ReadingOrderPlan:
         regions = self.analyze(blocks, page_geometry)
         profiles = tuple(self.profile(region, blocks) for region in regions)
         return ReadingOrderPlan((), regions, profiles, ambiguous=any(profile.ambiguous for profile in profiles), findings=tuple(finding for profile in profiles for finding in profile.findings))
+
+
+def _repeated_row_support(left: Sequence[BoundingBox], right: Sequence[BoundingBox]) -> int:
+    overlaps = [
+        (max(left_box.y0, right_box.y0) + min(left_box.y1, right_box.y1)) / 2
+        for left_box in left
+        for right_box in right
+        if min(left_box.y1, right_box.y1) > max(left_box.y0, right_box.y0)
+    ]
+    if not overlaps:
+        return 0
+    heights = [box.y1 - box.y0 for box in (*left, *right)]
+    tolerance = max(2.0, median(heights) * .10)
+    rows = 0
+    previous = None
+    for center in sorted(overlaps):
+        if previous is None or center - previous > tolerance:
+            rows += 1
+        previous = center
+    return rows
+
+
+def _same_partition(
+    left: tuple[int, tuple[tuple[float, float], ...]],
+    right: tuple[int, tuple[tuple[float, float], ...]],
+    *,
+    coordinate_tolerance: float = 75.0,
+) -> bool:
+    """Collapse extractor jitter without merging materially different gutters."""
+    if left[0] != right[0] or len(left[1]) != len(right[1]):
+        return False
+    return all(
+        abs(left_column[0] - right_column[0]) <= coordinate_tolerance
+        and abs(left_column[1] - right_column[1]) <= coordinate_tolerance
+        for left_column, right_column in zip(left[1], right[1])
+    )
+
+
+def _partition_score(item_balance: float, width_balance: float, repeated_rows: int, separation: float, content_width: float) -> float:
+    repetition = min(repeated_rows, 4) / 4
+    gutter = min(separation / max(content_width, 1.0), .12) / .12
+    return min(1.0, .25 + item_balance * .20 + width_balance * .25 + repetition * .40 + gutter * .05)

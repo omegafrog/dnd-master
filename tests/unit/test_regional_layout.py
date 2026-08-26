@@ -64,6 +64,25 @@ def test_ambiguous_candidate_is_retained_without_selection():
     assert "AMBIGUOUS_COLUMN_HYPOTHESIS" in profile.findings
 
 
+def test_repeated_balanced_columns_beat_a_weak_footer_split():
+    blocks = [
+        block("toc", "2 목차", (524.464, 733.715, 577.391, 765.042)),
+        block("notice", "D&D 기초 규칙", (176.133, 756.751, 426.868, 781.169)),
+        block("left-1", "능력 판정", (63, 662.220, 289.001, 690.780)),
+        block("left-2", "각 능력치의 사용법", (63, 674.220, 289.000, 702.780)),
+        block("left-3", "내성 굴림", (63, 686.220, 288.999, 714.780)),
+        block("right-1", "캐릭터 시트", (313.499, 677.058, 539.497, 705.618)),
+        block("right-2", "다음엔 어떤 일이 기다릴까?", (313.499, 697.998, 539.502, 726.558)),
+    ]
+
+    profile = LayoutAnalyzer().page_plan(blocks).profiles[0]
+
+    assert profile.ambiguous is False
+    assert profile.selected is not None
+    assert profile.selected.column_count == 2
+    assert [(round(column.x0), round(column.x1)) for column in profile.selected.columns] == [(63, 289), (313, 577)]
+
+
 def test_projection_covers_each_confirmed_block_exactly_once():
     blocks = [block("a", "A", (0, 0, 40, 20)), block("b", "B", (60, 0, 100, 20)), block("c", "C", (0, 30, 100, 45))]
     plan = ReadingOrderPlanner().plan(blocks)
