@@ -2,7 +2,7 @@
 
 - Issue: —
 - Parent: #189
-- Status: planned
+- Status: ready-for-agent
 - Dependencies: RAG-018
 
 ## 구현 목적
