@@ -178,7 +178,7 @@ public final class AdventureStoryPlanController {
 
     @PostMapping("/stages/{position}/triggers/{triggerId}/apply")
     TriggerApplicationView applyTrigger(@PathVariable UUID sessionId, @PathVariable int position,
-            @PathVariable String triggerId, @RequestBody TriggerApplicationRequest request) {
+            @PathVariable String triggerId, @RequestBody(required = false) TriggerApplicationRequest request) {
         var session = sessions.read(new SessionId(sessionId), owner());
         var plan = service.read(new SessionId(sessionId), owner());
         if (request == null || request.qualifyingAction() == null || request.qualifyingAction().isBlank()) {

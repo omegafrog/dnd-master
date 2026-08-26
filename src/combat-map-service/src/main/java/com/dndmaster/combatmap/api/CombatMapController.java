@@ -49,7 +49,7 @@ public class CombatMapController {
     @PostMapping("/internal/v1/combat-maps/{mapId}/tactical-triggers")
     public CombatMapAiStateResponse applyTacticalTrigger(@PathVariable UUID mapId,
             @RequestHeader(value = "X-Internal-Token", required = false) String token,
-            @RequestBody TacticalTriggerRequest request) {
+            @RequestBody(required = false) TacticalTriggerRequest request) {
         requestGuard.internal(token);
         if (request == null) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "trigger request is required");
@@ -68,8 +68,9 @@ public class CombatMapController {
 
     @PostMapping("/internal/v1/combat-maps/prepare")
     public PrepareResponse prepare(@RequestHeader(value = "X-Internal-Token", required = false) String token,
-                            @RequestBody PrepareRequest request) {
+                            @RequestBody(required = false) PrepareRequest request) {
         requestGuard.internal(token);
+        requireRequest(request, "prepare request is required");
         CombatMap map = request.tacticalScene() == null
                 ? mapViewService.prepareGenerated(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
                         new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(), request.playerSpawnX(), request.playerSpawnY())
@@ -105,8 +106,9 @@ public class CombatMapController {
     @PostMapping("/internal/v1/combat-maps/{mapId}/moves")
     public CombatMapMoveResponse movePlayer(
             @PathVariable UUID mapId, @RequestHeader(value = "X-Internal-Token", required = false) String token,
-            @RequestBody MoveRequest request) {
+            @RequestBody(required = false) MoveRequest request) {
         requestGuard.internal(token);
+        requireRequest(request, "move request is required");
         MovementPath path = new MovementPath(
                 request.positions().stream().map(p -> new GridPosition(p.x(), p.y())).toList(),
                 request.distance());
@@ -125,8 +127,9 @@ public class CombatMapController {
     @PostMapping("/internal/v1/combat-maps/{mapId}/ai-state")
     public CombatMapAiStateResponse controlAiState(
             @PathVariable UUID mapId, @RequestHeader(value = "X-Internal-Token", required = false) String token,
-            @RequestBody AiStateRequest request) {
+            @RequestBody(required = false) AiStateRequest request) {
         requestGuard.internal(token);
+        requireRequest(request, "AI state request is required");
         GridPosition position = new GridPosition(request.x(), request.y());
         List<MapLayer> aiLayers = request.layers() == null ? List.of() :
                 request.layers().stream()
@@ -140,22 +143,25 @@ public class CombatMapController {
     }
 
     @PostMapping("/internal/v1/combat-maps/{mapId}/doors")
-    public CombatMapAiStateResponse changeDoor(@PathVariable UUID mapId, @RequestHeader(value = "X-Internal-Token", required = false) String token, @RequestBody DoorRequest request) {
+    public CombatMapAiStateResponse changeDoor(@PathVariable UUID mapId, @RequestHeader(value = "X-Internal-Token", required = false) String token, @RequestBody(required = false) DoorRequest request) {
         requestGuard.internal(token);
+        requireRequest(request, "door request is required");
         CombatMap map=mapViewService.changeDoor(new MapId(mapId),new MapOwnerId(request.ownerId()),request.expectedVersion(),request.commandId(),new GridPosition(request.x(),request.y()),request.open());
         return new CombatMapAiStateResponse(map.id().value());
     }
 
     @PostMapping("/internal/v1/combat-maps/{mapId}/reveals")
-    public CombatMapAiStateResponse reveal(@PathVariable UUID mapId, @RequestHeader(value = "X-Internal-Token", required = false) String token, @RequestBody RevealRequest request) {
+    public CombatMapAiStateResponse reveal(@PathVariable UUID mapId, @RequestHeader(value = "X-Internal-Token", required = false) String token, @RequestBody(required = false) RevealRequest request) {
         requestGuard.internal(token);
+        requireRequest(request, "reveal request is required");
         CombatMap map=mapViewService.revealToken(new MapId(mapId),new MapOwnerId(request.ownerId()),request.expectedVersion(),request.commandId(),new TokenId(request.tokenId()));
         return new CombatMapAiStateResponse(map.id().value());
     }
 
     @PostMapping("/internal/v1/combat-maps/{mapId}/game-time")
-    public CombatMapAiStateResponse gameTime(@PathVariable UUID mapId, @RequestHeader(value = "X-Internal-Token", required = false) String token, @RequestBody GameTimeRequest request) {
+    public CombatMapAiStateResponse gameTime(@PathVariable UUID mapId, @RequestHeader(value = "X-Internal-Token", required = false) String token, @RequestBody(required = false) GameTimeRequest request) {
         requestGuard.internal(token);
+        requireRequest(request, "game-time request is required");
         CombatMap map=mapViewService.onGameTimeAdvanced(new MapId(mapId),new MapOwnerId(request.ownerId()),request.expectedVersion(),new GameTimeAdvanced(request.adventureId(),request.ruleTurn(),request.causeId()));
         return new CombatMapAiStateResponse(map.id().value());
     }
@@ -176,6 +182,12 @@ public class CombatMapController {
     public record DoorRequest(UUID ownerId,int x,int y,boolean open,UUID commandId,long expectedVersion) {}
     public record RevealRequest(UUID ownerId,UUID tokenId,UUID commandId,long expectedVersion) {}
     public record GameTimeRequest(UUID ownerId,UUID adventureId,long ruleTurn,UUID causeId,long expectedVersion) {}
+
+    private static void requireRequest(Object request, String message) {
+        if (request == null) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, message);
+        }
+    }
     public record TacticalTriggerRequest(UUID ownerId, UUID commandId, long expectedVersion,
                                          String triggerId, String kind, List<String> targetIds, String transitionId, String qualifyingAction) {
         public TacticalTriggerRequest(UUID ownerId, UUID commandId, long expectedVersion, String triggerId, String kind, List<String> targetIds) {
