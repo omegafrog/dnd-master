@@ -350,7 +350,9 @@ class ExtractionApplicationService:
                     LayoutBlock(str(block.get("block_id", "")), str(block.get("kind", "text")), bbox, str(block.get("text", "")), extraction_method, float(block.get("confidence", 1.0)), document_id, number, geometry)
                     blocks.append({**block, "extraction_method": extraction_method, "text_confidence": float(block.get("text_confidence", block.get("confidence", 1.0))), "bbox": [bbox.x0, bbox.y0, bbox.x1, bbox.y1], "source_document_id": document_id, "page_number": number, "page_geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}})
                 raw = {**raw, "blocks": blocks}
-                declared_multi = raw.get("column_count", 1) != 1 or raw.get("layout") in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, [])
+                layout_value = raw.get("layout")
+                layout_name = layout_value if isinstance(layout_value, str) else str(layout_value.get("name", layout_value.get("strategy", ""))) if isinstance(layout_value, Mapping) else ""
+                declared_multi = raw.get("column_count", 1) != 1 or layout_name in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, [])
                 if declared_multi and not blocks:
                     raise ValueError("MULTI_COLUMN_UNSUPPORTED: MULTI_COLUMN_GEOMETRY_REQUIRED")
                 layout_plan = ReadingOrderPlanner().plan(blocks, geometry)
@@ -465,7 +467,9 @@ class ExtractionApplicationService:
         """Classify a page and OCR only declared image regions or image-only pages."""
         # Regional/multi-column analysis belongs to RAG-009; do not reinterpret
         # an explicitly declared layout as an OCR target here.
-        if raw.get("column_count", 1) != 1 or raw.get("layout") in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, []):
+        layout_value = raw.get("layout")
+        layout_name = layout_value if isinstance(layout_value, str) else str(layout_value.get("name", layout_value.get("strategy", ""))) if isinstance(layout_value, Mapping) else ""
+        if raw.get("column_count", 1) != 1 or layout_name in {"multi-column", "multi_column", "columns"} or raw.get("columns") not in (None, 1, []):
             return {**raw, "page_classification": "ambiguous"}
         native_blocks = [dict(item) for item in raw.get("blocks", ()) if str(item.get("text", "")).strip()]
         image_regions = raw.get("image_regions", ())
@@ -793,7 +797,10 @@ class ExtractionApplicationService:
                                     "recovered_pages": recovered_pages}
                 try:
                     promoted = self._preprocess_locked(promoted_request, root)
-                    retry_index[idem] = {"version_id": version_id, "pages": wanted, "state": "completed", "result_version_id": promoted["version_id"]}
+                    if promoted.get("status") == "READY":
+                        retry_index[idem] = {"version_id": version_id, "pages": wanted, "state": "completed", "result_version_id": promoted["version_id"]}
+                    else:
+                        retry_index[idem] = {"version_id": version_id, "pages": wanted, "state": "promotion_pending"}
                     retry_tmp = index_path.with_suffix(".tmp"); retry_tmp.write_text(json.dumps(retry_index, sort_keys=True) + "\n"); os.replace(retry_tmp, index_path)
                     return {**promoted, "operation": "retry_pages", "request_id": request_id,
                             "retry_version_id": version_id}
