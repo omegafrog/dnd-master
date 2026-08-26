@@ -236,6 +236,29 @@ class AdventureStoryPlanControllerMarkdownTest {
     }
 
     @Test
+    void execution_projection_rejects_blank_citation_keys_instead_of_dropping_them() throws Exception {
+        var controller = new AdventureStoryPlanController(
+                null, new ObjectMapper(), null,
+                "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
+                new ApiRequestGuard("test-internal-token"));
+        var parse = AdventureStoryPlanController.class.getDeclaredMethod(
+                "parseJson", String.class, AdventureStoryPlanController.Configuration.class);
+        parse.setAccessible(true);
+        String response = """
+                {"stages":[
+                  {"position":1,"title":"Start","goal":"Begin","conflict":"Choice","transitionCondition":"Continue","endingIds":["ending-1"],"evidence":[{"citationKey":"   "}]},
+                  {"position":2,"title":"Middle","goal":"Advance","conflict":"Choice","transitionCondition":"Continue","endingIds":["ending-1"],"evidence":[]},
+                  {"position":3,"title":"Finish","goal":"End","conflict":"Choice","transitionCondition":"Finish","endingIds":["ending-1"],"evidence":[]}
+                ]}
+                """;
+
+        InvocationTargetException failure = assertThrows(InvocationTargetException.class,
+                () -> parse.invoke(controller, response, new AdventureStoryPlanController.Configuration(1, "SHORT")));
+
+        assertEquals("citationKey missing", deepestMessage(failure));
+    }
+
+    @Test
     void request_citation_key_is_preserved_for_the_model_registry_prompt() throws Exception {
         var mapper = new ObjectMapper();
         var request = mapper.readValue("""

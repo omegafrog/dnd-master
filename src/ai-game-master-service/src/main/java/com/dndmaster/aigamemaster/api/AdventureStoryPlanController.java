@@ -436,8 +436,7 @@ public final class AdventureStoryPlanController {
         if (node == null || !node.isArray()) throw new IllegalArgumentException(field + " must be explicit");
         List<CitationProjection> result = new ArrayList<>();
         node.forEach(item -> {
-            String citationKey = text(item, "citationKey", "");
-            if (!citationKey.isBlank()) result.add(new CitationProjection(citationKey));
+            result.add(new CitationProjection(required(item, "citationKey")));
         });
         return List.copyOf(result);
     }

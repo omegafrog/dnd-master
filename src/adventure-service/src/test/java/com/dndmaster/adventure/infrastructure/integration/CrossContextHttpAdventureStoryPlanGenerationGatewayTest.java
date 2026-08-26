@@ -17,7 +17,6 @@ import com.dndmaster.adventure.domain.adventure.AdventureLength;
 import com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import com.dndmaster.adventure.domain.adventure.AdventureStageType;
-import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
@@ -195,6 +194,28 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
         assertEquals(citation.provenance(), evidence.provenance());
         server.verify(postRequestedFor(urlEqualTo("/internal/v1/gm/adventure-story-plan"))
                 .withRequestBody(matchingJsonPath("$.citations[0].citationKey", equalTo("citation-1"))));
+    }
+
+    @Test
+    void preserves_caller_citation_keys_and_assigns_deterministic_unused_keys() {
+        UUID firstDocumentId = UUID.randomUUID();
+        UUID secondDocumentId = UUID.randomUUID();
+        UUID thirdDocumentId = UUID.randomUUID();
+        UUID fourthDocumentId = UUID.randomUUID();
+        var request = new AdventureStoryPlanGenerationPort.Request(
+                "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT), List.of(), List.of(), List.of(),
+                List.of(
+                        new AdventureStoryPlanGenerationPort.SourceCitation("STORYBOOK", firstDocumentId, 1, "page:1", "first", .9)
+                                .withCitationKey("stable-story"),
+                        new AdventureStoryPlanGenerationPort.SourceCitation("STORYBOOK", secondDocumentId, 1, "page:2", "second", .9),
+                        new AdventureStoryPlanGenerationPort.SourceCitation("RULEBOOK", thirdDocumentId, 1, "page:3", "third", .9)
+                                .withCitationKey("citation-2"),
+                        new AdventureStoryPlanGenerationPort.SourceCitation("RULEBOOK", fourthDocumentId, 1, "page:4", "fourth", .9)));
+
+        var keyed = request.withCitationKeys();
+
+        assertEquals(List.of("stable-story", "citation-1", "citation-2", "citation-3"),
+                keyed.citations().stream().map(AdventureStoryPlanGenerationPort.SourceCitation::citationKey).toList());
     }
 
     @Test

@@ -39,9 +39,23 @@ public interface AdventureStoryPlanGenerationPort {
             previousCandidate = previousCandidate == null ? "" : previousCandidate;
         }
         public Request withCitationKeys() {
-            List<SourceCitation> keyed = java.util.stream.IntStream.range(0, citations.size())
-                    .mapToObj(index -> citations.get(index).withCitationKey("citation-" + (index + 1)))
-                    .toList();
+            java.util.Set<String> usedKeys = citations.stream()
+                    .map(SourceCitation::citationKey)
+                    .filter(key -> key != null && !key.isBlank())
+                    .collect(java.util.stream.Collectors.toCollection(java.util.HashSet::new));
+            int nextGeneratedKey = 1;
+            List<SourceCitation> keyed = new java.util.ArrayList<>();
+            for (SourceCitation citation : citations) {
+                if (citation.citationKey() != null && !citation.citationKey().isBlank()) {
+                    keyed.add(citation);
+                    continue;
+                }
+                String key;
+                do {
+                    key = "citation-" + nextGeneratedKey++;
+                } while (!usedKeys.add(key));
+                keyed.add(citation.withCitationKey(key));
+            }
             return new Request(operationId, packageRevision, partySize, configuration, sourceDocuments,
                     resolutionEvidence, maps, keyed, violations, previousCandidate);
         }
