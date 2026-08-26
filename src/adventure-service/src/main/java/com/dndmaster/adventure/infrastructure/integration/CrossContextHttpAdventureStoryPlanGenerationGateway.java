@@ -42,8 +42,8 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         if (internalToken == null || internalToken.isBlank()) throw new IllegalArgumentException("adventure story plan AI internal token must not be blank");
         this.internalToken = internalToken;
     }
-    @Override public List<AdventureStoryPlanStage> generate(Request request) {
-        return generateCandidate(request).stages();
+    @Override public AdventureStoryPlanGenerationPort.ProjectionCandidate generate(Request request) {
+        return generateCandidate(request);
     }
 
     private AdventureStoryPlanGenerationPort.ProjectionCandidate generateCandidate(Request request) {

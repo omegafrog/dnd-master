@@ -60,15 +60,21 @@ public final class AdventureStoryPlanCandidateValidationException extends Runtim
     }
 
     public static AdventureStoryPlanProjectionViolation legacyViolation(String raw) {
-        String message = raw == null || raw.isBlank() ? "candidate validation failed" : raw;
+        String message = raw == null || raw.isBlank() ? "candidate validation failed" : raw.trim();
         String normalized = message.toLowerCase(Locale.ROOT);
         java.util.regex.Matcher stageMatcher = java.util.regex.Pattern.compile("(?i)stage\\s+(\\d+)").matcher(message);
         Integer stagePosition = stageMatcher.find() ? Integer.valueOf(stageMatcher.group(1)) : null;
-        AdventureStoryPlanProjectionViolation.Repairability repairability = normalized.contains("citation")
+        AdventureStoryPlanProjectionViolation.Repairability repairability = normalized.contains("serialized projection")
+                || normalized.contains("full projection candidate")
+                ? AdventureStoryPlanProjectionViolation.Repairability.SYSTEM_CONTRACT_ERROR
+                : normalized.contains("citation")
                 || normalized.contains("source") || normalized.contains("map")
                 ? AdventureStoryPlanProjectionViolation.Repairability.SOURCE_EVIDENCE_INSUFFICIENT
                 : normalized.contains("not supported")
                         ? AdventureStoryPlanProjectionViolation.Repairability.SOURCE_EVIDENCE_INSUFFICIENT
+                : normalized.contains("invalid json") || normalized.contains("malformed") || normalized.contains("missing")
+                        || normalized.contains("required") || normalized.contains("stage count")
+                        ? AdventureStoryPlanProjectionViolation.Repairability.REGENERATE_REQUIRED
                 : AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE;
         String field = normalized.contains("transitioncondition") ? "stages[*].transitionCondition"
                 : normalized.contains("clearcondition") ? "stages[*].clearCondition"
@@ -79,8 +85,9 @@ public final class AdventureStoryPlanCandidateValidationException extends Runtim
                 : normalized.contains("map") ? "MAP_CONTRACT_VIOLATION"
                 : normalized.contains("missing") || normalized.contains("required") ? "REQUIRED_FIELD_MISSING"
                 : "CANDIDATE_VALIDATION_FAILED";
-        String citationContext = normalized.contains("citation") && message.contains(":")
-                ? message.substring(message.lastIndexOf(':') + 1).trim() : "";
-        return new AdventureStoryPlanProjectionViolation(code, stagePosition, field, "", citationContext, repairability, message);
+        String detail = message.contains(":") ? message.substring(message.lastIndexOf(':') + 1).trim() : "";
+        String safeMessage = message.contains(":") ? message.substring(0, message.indexOf(':')).trim() : message;
+        String citationContext = normalized.contains("citation") ? detail : "";
+        return new AdventureStoryPlanProjectionViolation(code, stagePosition, field, detail, citationContext, repairability, safeMessage);
     }
 }

@@ -8,11 +8,11 @@ import java.util.List;
 
 /** AI boundary for source-grounded adventure outline generation. */
 public interface AdventureStoryPlanGenerationPort {
-    List<AdventureStoryPlanStage> generate(Request request);
+    ProjectionCandidate generate(Request request);
 
     /** Bounded repair returns a complete candidate, never a field patch. */
     default ProjectionCandidate repair(RepairRequest request) {
-        return new ProjectionCandidate(request.previousCandidate(), generate(request.toGenerationRequest()));
+        return generate(request.toGenerationRequest());
     }
 
     default TacticalScenePlanCandidate generateTacticalScene(TacticalSceneRequest request) {
@@ -104,6 +104,11 @@ public interface AdventureStoryPlanGenerationPort {
         public ProjectionCandidate {
             if (serializedCandidate == null || serializedCandidate.isBlank()) throw new IllegalArgumentException("full candidate must not be blank");
             stages = stages == null ? List.of() : List.copyOf(stages);
+            AdventureStoryPlanProjectionCandidateConsistency.assertEquivalent(serializedCandidate, stages);
+        }
+
+        public static ProjectionCandidate fromStages(List<AdventureStoryPlanStage> stages) {
+            return new ProjectionCandidate(AdventureStoryPlanProjectionCandidateConsistency.serialize(stages), stages);
         }
     }
 

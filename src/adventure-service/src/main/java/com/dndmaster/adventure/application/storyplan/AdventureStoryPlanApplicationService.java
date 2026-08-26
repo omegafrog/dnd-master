@@ -44,7 +44,8 @@ public final class AdventureStoryPlanApplicationService {
     private final ObjectMapper projectionMapper = new ObjectMapper();
 
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions) {
-        this(plans, sessions, null, request -> defaultStages(request.configuration()));
+        this(plans, sessions, null, request -> AdventureStoryPlanGenerationPort.ProjectionCandidate
+                .fromStages(defaultStages(request.configuration())));
     }
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
             ScenarioPackageRepository packages, AdventureStoryPlanGenerationPort generator) {
@@ -109,7 +110,7 @@ public final class AdventureStoryPlanApplicationService {
         AdventureStoryPlanGenerationPort.Request request = new AdventureStoryPlanGenerationPort.Request(
                 UUID.randomUUID().toString(), session.scenarioPackageRevision(), session.party().size(),
                 configuration, sourceDocuments(session), resolutionEvidence(session), mapContexts(scenarioPackage), citations(session, scenarioPackage))
-                .withPreviousCandidate(previous == null ? "" : previous.stages().toString());
+                .withPreviousCandidate("");
         LOGGER.info("story_plan_generation_input packageId={} citations={} resolutionEvidence={} maps={} sourceDocuments={}",
                 session.scenarioPackageId(), request.citations().size(), request.resolutionEvidence().size(),
                 request.maps().size(), request.sourceDocuments().size());
@@ -152,10 +153,11 @@ public final class AdventureStoryPlanApplicationService {
                     stages = repaired.stages();
                     repairNext = false;
                 } else {
-                    List<AdventureStoryPlanStage> candidateStages = generator.generate(request);
-                    if (candidateStages == null) throw new AdventureStoryPlanCandidateValidationException(
-                            List.of("AI returned no story stages"));
-                    stages = candidateStages;
+                    AdventureStoryPlanGenerationPort.ProjectionCandidate generated = generator.generate(request);
+                    if (generated == null) throw new AdventureStoryPlanCandidateValidationException(
+                            List.of("AI returned no full story plan candidate"));
+                    candidateForValidation = generated.serializedCandidate();
+                    stages = generated.stages();
                 }
                 List<AdventureStoryPlanProjectionViolation> deterministicViolations = validateCandidate(
                         stages, request, scenarioPackage, configuration);
@@ -175,7 +177,8 @@ public final class AdventureStoryPlanApplicationService {
                         "CANDIDATE_SERIALIZATION_ERROR", null, "stages", "", "", Repairability.SYSTEM_CONTRACT_ERROR,
                         "story plan candidate could not be safely inspected"));
             } catch (RuntimeException providerFailure) {
-                LOGGER.error("story plan generation failed; no fallback will be persisted", providerFailure);
+                LOGGER.error("story plan generation failed; no fallback will be persisted providerFailureType={}",
+                        providerFailure.getClass().getSimpleName());
                 throw providerFailure;
             }
             LOGGER.warn("story_plan_candidate_rejected attempt={} codes={} classifications={}", totalAttempts,
@@ -183,9 +186,8 @@ public final class AdventureStoryPlanApplicationService {
                     outlineViolations.stream().map(AdventureStoryPlanProjectionViolation::repairability).toList());
             progress.accept(Math.min(90, 30 + (totalAttempts * 12)),
                     "계획 검증 실패, 재시도 준비 중 (" + totalAttempts + "/5)");
-            String failureFingerprint = rejectedCandidate.isBlank() ? ""
-                    : AdventureStoryPlanProjectionRepairPolicy.fingerprint(rejectedCandidate, outlineViolations);
-            if (!failureFingerprint.isBlank() && failureFingerprint.equals(lastFailureFingerprint)) {
+            String failureFingerprint = AdventureStoryPlanProjectionRepairPolicy.fingerprint(rejectedCandidate, outlineViolations);
+            if (failureFingerprint.equals(lastFailureFingerprint)) {
                 stopReason = "NO_PROGRESS";
                 break;
             }
@@ -387,11 +389,20 @@ public final class AdventureStoryPlanApplicationService {
                 reference.extractionVersion(), reference.locator(), unit.sourceQuote(), unit.status().name().equals("COMPLETE") ? 1.0 : .5);
     }
 
-    private static void validateMaps(List<AdventureStoryPlanStage> stages, List<AdventureStoryPlanGenerationPort.MapContext> maps) {
+    private static List<AdventureStoryPlanProjectionViolation> validateMaps(
+            List<AdventureStoryPlanStage> stages, List<AdventureStoryPlanGenerationPort.MapContext> maps) {
         Set<UUID> known = maps.stream().map(AdventureStoryPlanGenerationPort.MapContext::mapDefinitionId).collect(java.util.stream.Collectors.toSet());
-        stages.stream().map(AdventureStoryPlanStage::mapDefinitionId).filter(java.util.Objects::nonNull).forEach(id -> {
-            if (!known.contains(id)) throw new IllegalStateException("story plan references an unknown map definition");
-        });
+        List<AdventureStoryPlanProjectionViolation> violations = new ArrayList<>();
+        for (AdventureStoryPlanStage stage : stages) {
+            UUID id = stage.mapDefinitionId();
+            if (id != null && !known.contains(id)) {
+                violations.add(new AdventureStoryPlanProjectionViolation(
+                        "UNKNOWN_MAP_DEFINITION", stage.position(), "stages[" + (stage.position() - 1) + "].mapDefinitionId",
+                        id.toString(), "authoritative map registry", Repairability.SOURCE_EVIDENCE_INSUFFICIENT,
+                        "stage " + stage.position() + " map definition is not registered"));
+            }
+        }
+        return List.copyOf(violations);
     }
 
     private static String candidateValidationMessage(RuntimeException failure) {
@@ -401,24 +412,19 @@ public final class AdventureStoryPlanApplicationService {
                 : message;
     }
 
-    private List<String> validateStageSources(
+    private List<AdventureStoryPlanProjectionViolation> validateStageSources(
             List<AdventureStoryPlanStage> stages,
             List<AdventureStoryPlanGenerationPort.SourceCitation> citations,
             ScenarioPackage scenarioPackage) {
-        List<String> violations = new ArrayList<>();
+        List<AdventureStoryPlanProjectionViolation> violations = new ArrayList<>();
         Set<UUID> mapDocumentIds = scenarioPackage == null ? Set.of() : scenarioPackage.documents().stream()
                 .filter(document -> document.role() == com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.MAP)
                 .map(document -> document.knowledgeDocumentId().value())
                 .collect(java.util.stream.Collectors.toSet());
         for (AdventureStoryPlanStage stage : stages) {
-            // The execution projection may intentionally omit evidence and mark
-            // connective details as AI suggestions. Only explicit evidence is
-            // authoritative enough for source-claim validation here; map
-            // identity is still checked separately by validateMaps().
-            if (stage.mapDefinitionId() == null || stage.evidence().isEmpty()) continue;
-            violations.addAll(stageSourceValidator.validate(stage, citations, mapDocumentIds).stream()
-                    .filter(item -> !item.equals("story stage transition is not supported by source evidence"))
-                    .toList());
+            if (!citations.isEmpty() && !stage.evidence().isEmpty()) {
+                violations.addAll(stageSourceValidator.validateStructured(stage, citations, mapDocumentIds));
+            }
         }
         return List.copyOf(violations);
     }
@@ -428,16 +434,25 @@ public final class AdventureStoryPlanApplicationService {
             AdventureStoryPlanGenerationPort.Request request,
             ScenarioPackage scenarioPackage,
             AdventurePlanConfiguration configuration) {
-        List<String> violations = new ArrayList<>();
-        try {
-            validateMaps(stages, request.maps());
-            violations.addAll(validateStageSources(stages, request.citations(), scenarioPackage));
-            violations.addAll(stageSourceValidator.validateCitationCoverage(stages, request.citations()));
-            if (violations.isEmpty()) AdventureStoryPlanGraphValidator.validate(stages, configuration);
-        } catch (RuntimeException invalidCandidate) {
-            violations.add(candidateValidationMessage(invalidCandidate));
+        List<AdventureStoryPlanProjectionViolation> violations = new ArrayList<>();
+        violations.addAll(validateMaps(stages, request.maps()));
+        violations.addAll(validateStageSources(stages, request.citations(), scenarioPackage));
+        for (String coverage : stageSourceValidator.validateCitationCoverage(stages, request.citations())) {
+            String requiredType = coverage.contains("RULEBOOK") ? "RULEBOOK"
+                    : coverage.contains("STORYBOOK") ? "STORYBOOK" : "";
+            violations.add(new AdventureStoryPlanProjectionViolation(
+                    "CITATION_COVERAGE_MISSING", null, "stages[*].evidence[*].citationKey", "",
+                    requiredType, Repairability.SOURCE_EVIDENCE_INSUFFICIENT,
+                    "required citation coverage is missing"));
         }
-        return violations.stream().map(AdventureStoryPlanApplicationService::structuredViolation).toList();
+        try {
+            AdventureStoryPlanGraphValidator.validate(stages, configuration);
+        } catch (RuntimeException invalidGraph) {
+            violations.add(new AdventureStoryPlanProjectionViolation(
+                    "GRAPH_VALIDATION_FAILED", null, "stages", "", "", Repairability.REGENERATE_REQUIRED,
+                    sanitizeValidationMessage(invalidGraph.getMessage(), "story plan graph validation failed")));
+        }
+        return List.copyOf(violations);
     }
 
     private static AdventureStoryPlanProjectionViolation structuredViolation(String raw) {
@@ -464,6 +479,13 @@ public final class AdventureStoryPlanApplicationService {
         return new AdventureStoryPlanProjectionViolation(
                 fieldName.isBlank() ? "CANDIDATE_VALIDATION_FAILED" : "UNSUPPORTED_" + fieldName.toUpperCase(java.util.Locale.ROOT),
                 stagePosition, fieldPath, "", "", repairability, safeMessage);
+    }
+
+    private static String sanitizeValidationMessage(String raw, String fallback) {
+        String message = raw == null || raw.isBlank() ? fallback : raw.trim();
+        int detailSeparator = message.indexOf(':');
+        if (detailSeparator >= 0) message = message.substring(0, detailSeparator).trim();
+        return message.isBlank() ? fallback : message;
     }
 
     private static Integer stagePosition(String message) {

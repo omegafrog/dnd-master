@@ -152,8 +152,8 @@ public final class AdventureStoryPlanController {
             }
             VerificationResponse verification = parseVerificationResponse(complete(endpoint, request.operationId() + "-verification",
                     verificationDecisionPrompt(request, configuration, generatedMarkdown), configuration));
-            LOGGER.warn("ai_agent_verification_result operationId={} status={} violations={}", request.operationId(),
-                    verification.status(), safeViolations(verification.violations()));
+            LOGGER.warn("ai_agent_verification_result operationId={} status={} violationsCount={}", request.operationId(),
+                    verification.status(), verification.violations().size());
             if (verification.status().equals("FAIL")) {
                 throw new CandidateResponseValidationException(verification.violations(), null);
             }
@@ -161,7 +161,7 @@ public final class AdventureStoryPlanController {
                     projectionPrompt(request, configuration, generatedMarkdown), configuration);
             return new Response(parseJson(projectedJson, configuration));
         } catch (CandidateResponseValidationException invalidCandidate) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, invalidCandidate.getMessage(), invalidCandidate);
+            throw invalidCandidate;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("story plan generation interrupted via " + endpoint.provider(), e);
@@ -194,7 +194,7 @@ public final class AdventureStoryPlanController {
                     repairPrompt(request, configuration), configuration);
             return new Response(parseJson(repaired, configuration));
         } catch (CandidateResponseValidationException invalidCandidate) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, invalidCandidate.getMessage(), invalidCandidate);
+            throw invalidCandidate;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("story plan projection repair interrupted", e);
@@ -334,7 +334,7 @@ public final class AdventureStoryPlanController {
             String response = complete(endpoint, request.operationId(), prompt, configuration);
             return parseVerificationResponse(response);
         } catch (CandidateResponseValidationException invalidCandidate) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, invalidCandidate.getMessage(), invalidCandidate);
+            throw invalidCandidate;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("adventure story plan verification interrupted", e);
@@ -361,10 +361,6 @@ public final class AdventureStoryPlanController {
         } catch (RuntimeException | IOException invalid) {
             throw new CandidateResponseValidationException("invalid verification response: " + rootMessage(invalid), invalid);
         }
-    }
-
-    private static List<String> safeViolations(List<String> violations) {
-        return violations.stream().map(AdventureStoryPlanController::sanitizeDiagnostic).toList();
     }
 
     private static String sanitizeDiagnostic(String value) {
@@ -407,7 +403,7 @@ public final class AdventureStoryPlanController {
                 return adapter.completeWithModel(operationId, prompt, this::parseTacticalCandidate, endpoint.model());
             }
         } catch (CandidateResponseValidationException invalidCandidate) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, invalidCandidate.getMessage(), invalidCandidate);
+            throw invalidCandidate;
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI tactical scene response malformed", e);
         }
@@ -520,7 +516,7 @@ public final class AdventureStoryPlanController {
 
         private static ProjectionViolation toProjectionViolation(Object value) {
             if (value instanceof ProjectionViolation violation) return violation;
-            String message = String.valueOf(value);
+            String message = String.valueOf(value).trim();
             String normalized = message.toLowerCase(java.util.Locale.ROOT);
             java.util.regex.Matcher stageMatcher = java.util.regex.Pattern.compile("(?i)stage\\s+(\\d+)").matcher(message);
             Integer stagePosition = stageMatcher.find() ? Integer.valueOf(stageMatcher.group(1)) : null;
@@ -536,7 +532,10 @@ public final class AdventureStoryPlanController {
                     ? ProjectionViolation.Repairability.SOURCE_EVIDENCE_INSUFFICIENT
                     : field.equals("stages") ? ProjectionViolation.Repairability.REGENERATE_REQUIRED
                     : ProjectionViolation.Repairability.REPAIRABLE;
-            return new ProjectionViolation(code, stagePosition, field, "", "", repairability, message);
+            String detail = message.contains(":") ? message.substring(message.lastIndexOf(':') + 1).trim() : "";
+            String safeMessage = message.contains(":") ? message.substring(0, message.indexOf(':')).trim() : message;
+            String citationContext = normalized.contains("citation") ? detail : "";
+            return new ProjectionViolation(code, stagePosition, field, detail, citationContext, repairability, safeMessage);
         }
     }
     public record Request(String operationId, long packageRevision, int partySize, Configuration configuration, List<String> sourceDocuments,

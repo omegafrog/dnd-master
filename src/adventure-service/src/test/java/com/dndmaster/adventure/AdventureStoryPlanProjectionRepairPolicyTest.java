@@ -15,6 +15,20 @@ class AdventureStoryPlanProjectionRepairPolicyTest {
     private final ObjectMapper mapper = new ObjectMapper();
 
     @Test
+    void rejects_a_serialized_candidate_that_does_not_match_its_domain_stages() {
+        String serialized = """
+                {"stages":[
+                  {"position":1,"title":"Serialized title","goal":"Goal","conflict":"Conflict","transitionCondition":"Next","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Location","mapDefinitionId":"","mapAssetId":"","mapAssetLocator":"","enemies":[],"boss":"","clearCondition":"Next","failureCondition":"","rewards":[],"branchIds":["ending-1"],"branchTargets":{},"evidence":[]},
+                  {"position":2,"title":"Two","goal":"Goal","conflict":"Conflict","transitionCondition":"Next","npcOrClues":[],"endingIds":["ending-2"],"stageType":"EVENT","location":"Two","mapDefinitionId":"","mapAssetId":"","mapAssetLocator":"","enemies":[],"boss":"","clearCondition":"Next","failureCondition":"","rewards":[],"branchIds":["ending-2"],"branchTargets":{},"evidence":[]},
+                  {"position":3,"title":"Three","goal":"Goal","conflict":"Conflict","transitionCondition":"Next","npcOrClues":[],"endingIds":["ending-1"],"stageType":"EVENT","location":"Three","mapDefinitionId":"","mapAssetId":"","mapAssetLocator":"","enemies":[],"boss":"","clearCondition":"Next","failureCondition":"","rewards":[],"branchIds":["ending-1"],"branchTargets":{},"evidence":[]}
+                ]}
+                """;
+
+        assertThrows(IllegalArgumentException.class,
+                () -> new AdventureStoryPlanGenerationPort.ProjectionCandidate(serialized, shortStages()));
+    }
+
+    @Test
     void carries_field_specific_violation_without_turning_sensitive_evidence_into_the_message() {
         var violation = new AdventureStoryPlanProjectionViolation(
                 "REQUIRED_FIELD_MISSING", 2, "stages[2].transitionCondition", "",
@@ -104,5 +118,12 @@ class AdventureStoryPlanProjectionRepairPolicyTest {
         assertEquals(java.util.Set.of(Repairability.REPAIRABLE, Repairability.REGENERATE_REQUIRED,
                         Repairability.SOURCE_EVIDENCE_INSUFFICIENT, Repairability.SYSTEM_CONTRACT_ERROR),
                 java.util.Set.of(Repairability.values()));
+    }
+
+    private static List<com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage> shortStages() {
+        return List.of(
+                new com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage(1, "One", "Goal", "Conflict", "Next", List.of(), List.of("ending-1")),
+                new com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage(2, "Two", "Goal", "Conflict", "Next", List.of(), List.of("ending-2")),
+                new com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage(3, "Three", "Goal", "Conflict", "Next", List.of(), List.of("ending-1")));
     }
 }

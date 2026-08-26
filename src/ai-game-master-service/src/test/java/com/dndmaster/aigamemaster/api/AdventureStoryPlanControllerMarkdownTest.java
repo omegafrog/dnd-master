@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static com.github.tomakehurst.wiremock.client.WireMock.*;
+import static com.github.tomakehurst.wiremock.stubbing.Scenario.STARTED;
 
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint;
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointRegistry;
@@ -20,6 +22,7 @@ import java.net.URI;
 import java.util.UUID;
 import java.util.List;
 import java.util.Optional;
+import java.util.Map;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatModel;
@@ -28,6 +31,11 @@ import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import com.github.tomakehurst.wiremock.WireMockServer;
+import com.github.tomakehurst.wiremock.core.WireMockConfiguration;
 
 class AdventureStoryPlanControllerMarkdownTest {
     @Test
@@ -188,6 +196,8 @@ class AdventureStoryPlanControllerMarkdownTest {
 
         assertEquals("candidate-content", response.getBody().rejectedCandidate().path("secret").asText());
         assertEquals("stages[0].transitionCondition", response.getBody().structuredViolations().getFirst().fieldPath());
+        assertEquals("bad", response.getBody().structuredViolations().getFirst().rejectedValue());
+        assertEquals("", response.getBody().structuredViolations().getFirst().citationContext());
         assertTrue(!response.getBody().violations().getFirst().contains("candidate-content"));
     }
 
@@ -365,11 +375,60 @@ class AdventureStoryPlanControllerMarkdownTest {
                 "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
                 new ApiRequestGuard("test-internal-token"));
 
-        ResponseStatusException failure = assertThrows(ResponseStatusException.class,
+        AdventureStoryPlanController.CandidateResponseValidationException failure = assertThrows(
+                AdventureStoryPlanController.CandidateResponseValidationException.class,
                 () -> controller.generateTacticalScene(
                         "test-internal-token", new ObjectMapper().createObjectNode()));
 
-        assertEquals(422, failure.getStatusCode().value());
+        assertEquals("tactical candidate is not valid JSON", failure.violations().getFirst());
+    }
+
+    @Test
+    void mockmvc_exposes_controller_candidate_validation_to_the_typed_422_handler() throws Exception {
+        var server = new WireMockServer(WireMockConfiguration.options().dynamicPort());
+        server.start();
+        try {
+            server.stubFor(post(urlEqualTo("/api/generate"))
+                    .inScenario("story-plan")
+                    .whenScenarioStateIs(STARTED)
+                    .willReturn(okJson(new ObjectMapper().writeValueAsString(Map.of("response", "x".repeat(600)))))
+                    .willSetStateTo("verification"));
+            server.stubFor(post(urlEqualTo("/api/generate"))
+                    .inScenario("story-plan")
+                    .whenScenarioStateIs("verification")
+                    .willReturn(okJson(new ObjectMapper().writeValueAsString(Map.of("response", "{\"status\":\"PASS\",\"violations\":[]}"))))
+                    .willSetStateTo("projection"));
+            server.stubFor(post(urlEqualTo("/api/generate"))
+                    .inScenario("story-plan")
+                    .whenScenarioStateIs("projection")
+                    .willReturn(okJson(new ObjectMapper().writeValueAsString(Map.of("response", "{\"stages\":[]}")))));
+
+            var endpoint = new AgentEndpoint(UUID.randomUUID(), "wiremock", AgentEndpoint.Provider.OLLAMA,
+                    URI.create(server.baseUrl()), "test-model", null, true, Instant.now());
+            var store = mock(AgentEndpointStore.class);
+            when(store.active()).thenReturn(Optional.of(endpoint));
+            var controller = new AdventureStoryPlanController(null, new ObjectMapper(), new AgentEndpointRegistry(store),
+                    server.baseUrl(), "unused", "codex", ".", Duration.ofMinutes(5),
+                    new ApiRequestGuard("test-internal-token"));
+            MockMvc mvc = MockMvcBuilders.standaloneSetup(controller).build();
+
+            mvc.perform(org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post(
+                            "/internal/v1/gm/adventure-story-plan")
+                    .header("X-Internal-Token", "test-internal-token")
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .content("""
+                            {"operationId":"op","packageRevision":1,"partySize":1,
+                             "configuration":{"endingCount":1,"adventureLength":"SHORT"},
+                             "sourceDocuments":[],"resolutionEvidence":[],"maps":[],"citations":[],
+                             "violations":[],"previousCandidate":""}
+                            """))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.status().isUnprocessableEntity())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.violations[0]").value("invalid stage count"))
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.rejectedCandidate.stages").isArray())
+                    .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.structuredViolations[0].repairability").value("REGENERATE_REQUIRED"));
+        } finally {
+            server.stop();
+        }
     }
 
     private static String deepestMessage(Throwable failure) {

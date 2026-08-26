@@ -51,10 +51,23 @@ public final class AdventureStoryPlanStageSourceValidator {
             AdventureStoryPlanStage stage,
             List<AdventureStoryPlanGenerationPort.SourceCitation> authoritative,
             Set<UUID> nonNarrativeDocumentIds) {
-        List<String> violations = new ArrayList<>();
+        return validateStructured(stage, authoritative, nonNarrativeDocumentIds).stream()
+                .map(AdventureStoryPlanProjectionViolation::sanitizedMessage).toList();
+    }
+
+    public List<AdventureStoryPlanProjectionViolation> validateStructured(
+            AdventureStoryPlanStage stage,
+            List<AdventureStoryPlanGenerationPort.SourceCitation> authoritative,
+            Set<UUID> nonNarrativeDocumentIds) {
+        List<AdventureStoryPlanProjectionViolation> structured = new ArrayList<>();
+        int stageIndex = Math.max(0, stage.position() - 1);
         for (AdventurePlanEvidence evidence : stage.evidence()) {
             if (authoritative.stream().noneMatch(source -> matches(evidence, source))) {
-                violations.add("story stage contains unknown source evidence");
+                structured.add(new AdventureStoryPlanProjectionViolation(
+                        "UNKNOWN_SOURCE_EVIDENCE", stage.position(), "stages[" + stageIndex + "].evidence[*]",
+                        evidence.locator(), evidence.documentType() + ":" + evidence.documentId() + ":" + evidence.extractionVersion() + ":" + evidence.locator(),
+                        AdventureStoryPlanProjectionViolation.Repairability.SOURCE_EVIDENCE_INSUFFICIENT,
+                        "stage " + stage.position() + " evidence is not registered"));
             }
         }
         String source = authoritative.stream()
@@ -62,49 +75,59 @@ public final class AdventureStoryPlanStageSourceValidator {
                 .map(AdventureStoryPlanGenerationPort.SourceCitation::quote)
                 .reduce("", (left, right) -> left + " " + right);
         if (!stage.boss().isBlank() && !SourceClaimSupport.supports(source, stage.boss())) {
-            violations.add("story stage boss is not supported by source evidence");
+            structured.add(unsupported(stage, "boss", stage.boss(), "stage " + stage.position() + " boss is not supported by source evidence"));
         }
         for (String reward : stage.rewards()) {
             if (!SourceClaimSupport.supports(source, reward)) {
-                violations.add("story stage reward is not supported by source evidence: " + reward);
+                structured.add(unsupported(stage, "rewards[*]", reward, "stage " + stage.position() + " reward is not supported by source evidence"));
             }
         }
         for (String npcOrClue : stage.npcOrClues()) {
             if (!SourceClaimSupport.supports(source, npcOrClue)) {
-                violations.add("story stage NPC or clue is not supported by source evidence: " + npcOrClue);
+                structured.add(unsupported(stage, "npcOrClues[*]", npcOrClue, "stage " + stage.position() + " NPC or clue is not supported by source evidence"));
             }
         }
         for (String enemy : stage.enemies()) {
             if (!SourceClaimSupport.supports(source, enemy)) {
-                violations.add("story stage enemy is not supported by source evidence: " + enemy);
+                structured.add(unsupported(stage, "enemies[*]", enemy, "stage " + stage.position() + " enemy is not supported by source evidence"));
             }
         }
         if (!supportsCondition(source, stage.transitionCondition())) {
-            violations.add("story stage transition is not supported by source evidence");
-            violations.add("stage " + stage.position() + " transitionCondition is not supported by source evidence");
+            structured.add(unsupported(stage, "transitionCondition", stage.transitionCondition(),
+                    "stage " + stage.position() + " transitionCondition is not supported by source evidence"));
         }
         if (!supportsCondition(source, stage.clearCondition())) {
-            violations.add("stage " + stage.position() + " clearCondition is not supported by source evidence");
+            structured.add(unsupported(stage, "clearCondition", stage.clearCondition(),
+                    "stage " + stage.position() + " clearCondition is not supported by source evidence"));
         }
         if (!stage.failureCondition().isBlank() && !supportsCondition(source, stage.failureCondition())) {
-            violations.add("stage " + stage.position() + " failureCondition is not supported by source evidence");
+            structured.add(unsupported(stage, "failureCondition", stage.failureCondition(),
+                    "stage " + stage.position() + " failureCondition is not supported by source evidence"));
         }
         for (String ending : stage.endingIds()) {
             if (!SourceClaimSupport.structuralTarget(ending) && !SourceClaimSupport.supports(source, ending)) {
-                violations.add("story stage ending is not supported by source evidence: " + ending);
+                structured.add(unsupported(stage, "endingIds[*]", ending, "stage " + stage.position() + " ending is not supported by source evidence"));
             }
         }
         for (String branch : stage.branchIds()) {
             if (!SourceClaimSupport.structuralTarget(branch) && !SourceClaimSupport.supports(source, branch)) {
-                violations.add("story stage transition is not supported by source evidence: " + branch);
+                structured.add(unsupported(stage, "branchIds[*]", branch, "stage " + stage.position() + " branch is not supported by source evidence"));
             }
         }
         for (String target : stage.branchTargets().values()) {
             if (!SourceClaimSupport.structuralTarget(target) && !SourceClaimSupport.supports(source, target)) {
-                violations.add("story stage transition is not supported by source evidence: " + target);
+                structured.add(unsupported(stage, "branchTargets[*]", target, "stage " + stage.position() + " branch target is not supported by source evidence"));
             }
         }
-        return List.copyOf(violations);
+        return List.copyOf(structured);
+    }
+
+    private static AdventureStoryPlanProjectionViolation unsupported(
+            AdventureStoryPlanStage stage, String field, String rejectedValue, String message) {
+        return new AdventureStoryPlanProjectionViolation(
+                "SOURCE_CLAIM_UNSUPPORTED", stage.position(), "stages[" + Math.max(0, stage.position() - 1) + "]." + field,
+                rejectedValue, "authoritative source evidence", AdventureStoryPlanProjectionViolation.Repairability.SOURCE_EVIDENCE_INSUFFICIENT,
+                message);
     }
 
     private static boolean supportsCondition(String source, String condition) {

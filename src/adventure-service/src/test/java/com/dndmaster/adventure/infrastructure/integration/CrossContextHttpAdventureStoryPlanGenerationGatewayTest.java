@@ -168,7 +168,7 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
                 List.of(), List.of(), List.of(), List.of()));
 
         assertEquals(List.of(AdventureStageType.TOWN, AdventureStageType.DUNGEON, AdventureStageType.EVENT),
-                candidate.stream().map(AdventureStoryPlanStage::stageType).toList());
+                candidate.stages().stream().map(AdventureStoryPlanStage::stageType).toList());
     }
 
     @Test
@@ -218,7 +218,7 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
 
         var candidate = gateway.generate(request);
 
-        assertEquals("authoritative quote", candidate.getFirst().evidence().getFirst().quote());
+        assertEquals("authoritative quote", candidate.stages().getFirst().evidence().getFirst().quote());
     }
 
     @Test
@@ -242,7 +242,7 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
         var candidate = gateway.generate(new AdventureStoryPlanGenerationPort.Request(
                 "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT), List.of(), List.of(), List.of(), List.of(citation)));
 
-        var evidence = candidate.getFirst().evidence().getFirst();
+        var evidence = candidate.stages().getFirst().evidence().getFirst();
         assertEquals(citation.documentType(), evidence.documentType());
         assertEquals(citation.documentId(), evidence.documentId());
         assertEquals(citation.extractionVersion(), evidence.extractionVersion());
@@ -279,7 +279,7 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
         var candidate = gateway.generate(new AdventureStoryPlanGenerationPort.Request(
                 "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT), List.of(), List.of(), List.of(), List.of(citation)));
 
-        var evidence = candidate.getFirst().evidence().getFirst();
+        var evidence = candidate.stages().getFirst().evidence().getFirst();
         assertEquals(citation.documentType(), evidence.documentType());
         assertEquals(citation.documentId(), evidence.documentId());
         assertEquals(citation.extractionVersion(), evidence.extractionVersion());
@@ -373,7 +373,8 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
                         "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT),
                         List.of(), List.of(), List.of(), List.of(citation))));
 
-        assertEquals(List.of("AI returned an unknown citation key: citation-999"), failure.violations());
+        assertEquals(List.of("AI returned an unknown citation key"), failure.violations());
+        assertEquals("citation-999", failure.structuredViolations().getFirst().rejectedValue());
     }
 
     @Test
