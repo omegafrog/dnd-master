@@ -553,10 +553,12 @@ class ExtractionApplicationService:
                 try:
                     response = json.loads(path.read_text())
                     snapshot_path = root / "versions" / version_id / "retry-state.json"
+                    snapshot_version = None
                     if snapshot_path.is_file() and not snapshot_path.is_symlink():
                         snapshot = json.loads(snapshot_path.read_text())
                         if isinstance(snapshot, dict) and isinstance(snapshot.get("response"), dict):
                             response = snapshot["response"]
+                            snapshot_version = snapshot.get("version")
                 except json.JSONDecodeError as exc:
                     raise ValueError("VERSION_ARTIFACT_CORRUPT") from exc
                 if not isinstance(response, dict) or not all(key in response for key in ("schema_version", "operation", "request_id", "version_id", "status", "pages", "page_summary", "artifacts", "manifest")) or not isinstance(response["pages"], list) or not isinstance(response["artifacts"], dict) or not isinstance(response["page_summary"], dict) or not isinstance(response["manifest"], dict):
@@ -607,7 +609,7 @@ class ExtractionApplicationService:
                 version_ref = response["artifacts"].get("version", {})
                 if manifest_ref and version_ref:
                     manifest_data = json.loads(Path(manifest_ref["path"]).read_text())
-                    version_data = json.loads(Path(version_ref["path"]).read_text())
+                    version_data = snapshot_version if isinstance(snapshot_version, dict) else json.loads(Path(version_ref["path"]).read_text())
                     if manifest_data.get("source_sha256") != version_data.get("source_sha256") or version_data.get("version_id") != version_id or version_data.get("status") != response.get("status"):
                         raise ValueError("VERSION_ARTIFACT_CORRUPT")
                     if response.get("manifest") != manifest_data:
@@ -676,6 +678,9 @@ class ExtractionApplicationService:
                 item = dict(page)
                 if item["page_number"] in wanted:
                     if item.get("status") == "VALIDATED":
+                        if str(item["page_number"]) in persisted_recovered:
+                            updated.append(item)
+                            continue
                         raise ValueError("VALIDATED_PAGE_IMMUTABLE")
                     attempt = self.retry_policy.request(item)
                     history = list(item.get("attempt_history", [])); history.append(attempt.as_dict())
