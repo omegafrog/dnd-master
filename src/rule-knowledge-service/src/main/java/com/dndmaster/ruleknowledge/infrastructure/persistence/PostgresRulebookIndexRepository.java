@@ -1,6 +1,10 @@
 package com.dndmaster.ruleknowledge.infrastructure.persistence;
 
 import com.dndmaster.ruleknowledge.application.indexing.RulebookIndexRepository;
+import com.dndmaster.ruleknowledge.application.publication.EmbeddedPublishedRagChunk;
+import com.dndmaster.ruleknowledge.application.publication.ExtractionPublicationStatus;
+import com.dndmaster.ruleknowledge.application.publication.RagExtractionPublicationRepository;
+import com.dndmaster.ruleknowledge.application.publication.RagExtractionPublicationRequest;
 import com.dndmaster.ruleknowledge.domain.index.*;
 import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
 
@@ -17,7 +21,7 @@ import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
 import java.util.function.Supplier;
 import javax.sql.DataSource;
 
-public final class PostgresRulebookIndexRepository implements RulebookIndexRepository {
+public final class PostgresRulebookIndexRepository implements RulebookIndexRepository, RagExtractionPublicationRepository {
     private static final String INSERT_INDEX = """
             INSERT INTO rulebook_vector_index
                 (index_id, rulebook_id, owner_player_id, embedding_model, dimension, index_version, status, version, attempts, failure_reason)
@@ -112,9 +116,26 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
             """;
 
     private final DataSource dataSource;
+    private final PostgresRagExtractionPublicationRepository publicationRepository;
 
     public PostgresRulebookIndexRepository(DataSource dataSource) {
         this.dataSource = Objects.requireNonNull(dataSource, "dataSource must not be null");
+        this.publicationRepository = new PostgresRagExtractionPublicationRepository(dataSource);
+    }
+
+    @Override
+    public void beginCandidate(RagExtractionPublicationRequest request) {
+        publicationRepository.beginCandidate(request);
+    }
+
+    @Override
+    public void publish(RagExtractionPublicationRequest request, List<EmbeddedPublishedRagChunk> chunks) {
+        publicationRepository.publish(request, chunks);
+    }
+
+    @Override
+    public void fail(RagExtractionPublicationRequest request, ExtractionPublicationStatus status, String reason) {
+        publicationRepository.fail(request, status, reason);
     }
 
     @Override
@@ -405,11 +426,12 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
 
     private static void insertChunks(
             Connection connection, RulebookIndex index, List<EmbeddedRulebookChunk> chunks) throws SQLException {
+        validateChunkProvenance(index, chunks);
         try (PreparedStatement ps = connection.prepareStatement(INSERT_CHUNK)) {
             for (EmbeddedRulebookChunk embedded : chunks) {
                 ps.setObject(1, embedded.chunk().chunkId().value());
                 ps.setObject(2, index.id().value());
-                ps.setObject(3, embedded.chunk().rulebookId().value());
+                ps.setObject(3, index.key().rulebookId().value());
                 ps.setObject(4, index.ownerPlayerId().value());
                 ps.setInt(5, embedded.chunk().sequence());
                 ps.setString(6, embedded.locator());
@@ -420,6 +442,17 @@ public final class PostgresRulebookIndexRepository implements RulebookIndexRepos
                 ps.addBatch();
             }
             ps.executeBatch();
+        }
+    }
+
+    private static void validateChunkProvenance(RulebookIndex index, List<EmbeddedRulebookChunk> chunks) {
+        for (EmbeddedRulebookChunk embedded : chunks) {
+            if (!index.key().rulebookId().equals(embedded.chunk().rulebookId())) {
+                throw new IllegalArgumentException("chunk document identity must match index document");
+            }
+            if (embedded.locator() == null || embedded.locator().isBlank()) {
+                throw new IllegalArgumentException("chunk locator provenance must not be blank");
+            }
         }
     }
 

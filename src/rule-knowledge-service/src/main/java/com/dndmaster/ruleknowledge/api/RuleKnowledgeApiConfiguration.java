@@ -9,6 +9,8 @@ import com.dndmaster.ruleknowledge.application.search.StorySourceSearchPort;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchPort;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingProcessPort;
+import com.dndmaster.ruleknowledge.application.publication.RagExtractionPublicationRepository;
+import com.dndmaster.ruleknowledge.application.publication.RagExtractionPublicationService;
 import com.dndmaster.ruleknowledge.infrastructure.extraction.*;
 import com.dndmaster.ruleknowledge.infrastructure.ocr.TesseractOcrAdapter;
 import com.dndmaster.ruleknowledge.infrastructure.preprocessing.ProcessCliPreprocessingAdapter;
@@ -27,6 +29,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Configuration;
 
 import javax.sql.DataSource;
@@ -102,6 +105,21 @@ public class RuleKnowledgeApiConfiguration {
     @Bean
     RulebookIndexRepository indexRepository(DataSource dataSource) {
         return new PostgresRulebookIndexRepository(dataSource);
+    }
+
+    @Bean
+    @Primary
+    RagExtractionPublicationRepository ragExtractionPublicationRepository(DataSource dataSource) {
+        return new PostgresRulebookIndexRepository(dataSource);
+    }
+
+    @Bean
+    RagExtractionPublicationService ragExtractionPublicationService(
+            RagExtractionPublicationRepository repository,
+            EmbeddingPort embeddingPort,
+            @Value("${rule-knowledge.embedding-model:qwen3-embedding:0.6b}") String embeddingModel,
+            @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension) {
+        return new RagExtractionPublicationService(repository, embeddingPort, embeddingModel, embeddingDimension);
     }
 
     @Bean

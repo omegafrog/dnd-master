@@ -17,13 +17,21 @@ import javax.sql.DataSource;
 
 public final class PgvectorRuleEvidenceSearchRepository implements RuleEvidenceSearchPort {
     private static final String SEARCH = """
-            SELECT c.rulebook_id, c.chunk_id, c.locator, c.content,
+            SELECT c.document_id AS rulebook_id, c.chunk_id, c.original_locator AS locator, c.content,
                    c.embedding <=> CAST(? AS vector) AS distance,
-                   c.chapter, c.section
-              FROM rulebook_vector_chunk c
-              JOIN rulebook_vector_index i ON i.index_id = c.index_id AND i.status = 'READY'
+                   array_to_string(c.section_path, ' / ') AS section,
+                   CASE WHEN cardinality(c.section_path) > 0 THEN c.section_path[1] ELSE NULL END AS chapter
+              FROM published_rag_chunk c
+              JOIN rulebook_registration r
+                ON r.rulebook_id = c.document_id
+               AND r.owner_player_id = c.owner_player_id
+               AND r.published_extraction_version = c.extraction_version
+              JOIN rag_extraction_version v
+                ON v.document_id = c.document_id
+               AND v.extraction_version = c.extraction_version
+               AND v.status = 'INDEXED'
              WHERE c.owner_player_id = ?
-               AND c.rulebook_id = ANY (?)
+               AND c.document_id = ANY (?)
              ORDER BY c.embedding <=> CAST(? AS vector), c.sequence
              LIMIT ?
             """;
