@@ -71,5 +71,6 @@ All commands were run inside WSL Ubuntu-24.04 with non-empty `INTERNAL_SERVICE_T
 ## Commit and remaining action
 
 - implementation commit: `c4436518` (`Implement bounded adventure projection repair`)
+- checkpoint commit: `3b0e9a8d` (`Record RAG-019 recovery checkpoint`)
 - No branch, PR, issue, push, reset, or destructive cleanup was performed.
-- Exact next action: stage only the coherent RAG-019 implementation/tests/checkpoint (never `src/preprocessing_agent.egg-info/`), commit it, and leave official RAG-019 `in-progress` for the main independent Standards/Spec review.
+- Exact next action: main independent Standards/Spec review of the committed RAG-019 slice; keep official RAG-019 `in-progress` until that review.
