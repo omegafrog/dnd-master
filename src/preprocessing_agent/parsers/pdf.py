@@ -187,8 +187,12 @@ def _default_extractor(source: Path) -> Iterable[Mapping[str, Any]]:
                 found_tables = getattr(finder, "tables", finder or ())
             except (AttributeError, RuntimeError, TypeError):
                 found_tables = ()
+            table_regions = []
             for table_index, table in enumerate(found_tables):
                 table_id = f"p{page_number}-table-{table_index}"
+                table_bbox = getattr(table, "bbox", None)
+                if table_bbox is not None and len(table_bbox) == 4:
+                    table_regions.append(tuple(float(value) for value in table_bbox))
                 rows = getattr(table, "rows", ()) or ()
                 try:
                     extracted_rows = table.extract()
@@ -201,8 +205,17 @@ def _default_extractor(source: Path) -> Iterable[Mapping[str, Any]]:
                         if cell_bbox is None or len(cell_bbox) != 4:
                             continue
                         text = str(extracted[column_index]).strip() if column_index < len(extracted) else ""
-                        if text:
-                            blocks.append({"block_id": f"{table_id}-r{row_index}-c{column_index}", "text": text,
+                        blocks.append({"block_id": f"{table_id}-r{row_index}-c{column_index}", "text": text or " ",
                                            "bbox": tuple(cell_bbox), "kind": "table_cell", "table_id": table_id,
                                            "row": row_index, "column": column_index, "is_header": row_index == 0})
+            if table_regions:
+                blocks = [block for block in blocks if block.get("kind") == "table_cell" or not _inside_table_region(block.get("bbox"), table_regions)]
             yield {"page_number": page_number, "blocks": blocks}
+
+
+def _inside_table_region(bbox: object, regions: list[tuple[float, float, float, float]]) -> bool:
+    if not isinstance(bbox, (tuple, list)) or len(bbox) != 4:
+        return False
+    center_x = (float(bbox[0]) + float(bbox[2])) / 2
+    center_y = (float(bbox[1]) + float(bbox[3])) / 2
+    return any(x0 <= center_x <= x1 and y0 <= center_y <= y1 for x0, y0, x1, y1 in regions)

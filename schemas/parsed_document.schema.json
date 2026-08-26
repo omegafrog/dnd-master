@@ -40,7 +40,7 @@
       "required": ["heading_block_id", "level", "associated_block_ids", "evidence", "confidence", "ambiguous", "findings"],
       "properties": {"heading_block_id": {"type": "string", "minLength": 1}, "level": {"type": "integer", "minimum": 1}, "associated_block_ids": {"type": "array", "items": {"type": "string"}}, "evidence": {"type": "array", "items": {"type": "string"}}, "confidence": {"type": "number", "minimum": 0, "maximum": 1}, "ambiguous": {"type": "boolean"}, "findings": {"type": "array", "items": {"type": "string"}}}
     },
-    "bbox": {"type": "object", "additionalProperties": false, "required": ["x0", "y0", "x1", "y1"], "properties": {"x0": {"type": "number"}, "y0": {"type": "number"}, "x1": {"type": "number"}, "y1": {"type": "number"}}},
+    "bbox": {"type": "object", "additionalProperties": false, "required": ["x0", "y0", "x1", "y1"], "properties": {"x0": {"type": "number", "minimum": 0}, "y0": {"type": "number", "minimum": 0}, "x1": {"type": "number", "minimum": 0}, "y1": {"type": "number", "minimum": 0}}},
     "cell": {
       "type": "object", "additionalProperties": false,
       "required": ["cell_id", "row_index", "column_index", "text", "bbox", "row_span", "column_span", "merged", "uncertain", "source_block_ids"],

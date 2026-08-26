@@ -16,7 +16,7 @@
     "confidence": {"type": "number", "minimum": 0, "maximum": 1}
   },
   "$defs": {
-    "bbox": {"type": "object", "additionalProperties": false, "required": ["x0", "y0", "x1", "y1"], "properties": {"x0": {"type": "number"}, "y0": {"type": "number"}, "x1": {"type": "number"}, "y1": {"type": "number"}}},
+    "bbox": {"type": "object", "additionalProperties": false, "required": ["x0", "y0", "x1", "y1"], "properties": {"x0": {"type": "number", "minimum": 0}, "y0": {"type": "number", "minimum": 0}, "x1": {"type": "number", "minimum": 0}, "y1": {"type": "number", "minimum": 0}}},
     "cell": {"type": "object", "additionalProperties": false, "required": ["cell_id", "row_index", "column_index", "text", "bbox", "row_span", "column_span", "merged", "uncertain", "source_block_ids"], "properties": {"cell_id": {"type": "string"}, "row_index": {"type": "integer"}, "column_index": {"type": "integer"}, "text": {"type": "string"}, "bbox": {"$ref": "#/$defs/bbox"}, "row_span": {"type": "integer"}, "column_span": {"type": "integer"}, "merged": {"type": "boolean"}, "uncertain": {"type": "boolean"}, "source_block_ids": {"type": "array", "items": {"type": "string"}}}},
     "row": {"type": "object", "additionalProperties": false, "required": ["row_index", "cells", "header"], "properties": {"row_index": {"type": "integer"}, "cells": {"type": "array", "items": {"$ref": "#/$defs/cell"}}, "header": {"type": "boolean"}}}
   }
