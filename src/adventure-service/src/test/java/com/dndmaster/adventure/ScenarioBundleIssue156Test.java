@@ -14,6 +14,7 @@ import com.dndmaster.adventure.domain.scenario.RulebookEdition;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDeletionConflictException;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleValidationException;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 import java.util.HashMap;
 import java.util.List;
@@ -60,6 +61,35 @@ class ScenarioBundleIssue156Test {
         assertThrows(ScenarioBundleDeletionConflictException.class, () -> service.deleteBundle(bundle.id(), owner));
     }
 
+    @Test
+    void savesReadyDocumentsWhenAnotherOwnedDocumentNeedsReview() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        KnowledgeDocumentId rulebook = id();
+        KnowledgeDocumentId needsReview = id();
+        InMemoryRepository repository = new InMemoryRepository();
+        ScenarioBundleApplicationService service = new ScenarioBundleApplicationService(repository, lookup(
+                record(rulebook, KnowledgeDocumentStatus.INDEXED, "rules.pdf", "RULEBOOK"),
+                record(needsReview, KnowledgeDocumentStatus.NEEDS_REVIEW, "review.pdf", "STORYBOOK")));
+
+        ScenarioSourceBundle bundle = service.createBundle(owner, "Rules", RulebookEdition.DND_5E_2014,
+                List.of(new BundleDocumentDraft(rulebook, ScenarioBundleDocumentRole.RULEBOOK)));
+
+        assertEquals(List.of(rulebook), bundle.currentRevision().documents().stream()
+                .map(document -> document.knowledgeDocumentId()).toList());
+    }
+
+    @Test
+    void refusesNeedsReviewDocumentsAsBundleInputs() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        KnowledgeDocumentId needsReview = id();
+        ScenarioBundleApplicationService service = new ScenarioBundleApplicationService(new InMemoryRepository(), lookup(
+                record(needsReview, KnowledgeDocumentStatus.NEEDS_REVIEW, "review.pdf", "RULEBOOK")));
+
+        assertThrows(ScenarioBundleValidationException.class, () -> service.createBundle(owner, "Rules",
+                RulebookEdition.DND_5E_2014,
+                List.of(new BundleDocumentDraft(needsReview, ScenarioBundleDocumentRole.RULEBOOK))));
+    }
+
     private static KnowledgeDocumentId id() { return new KnowledgeDocumentId(UUID.randomUUID()); }
 
     private static KnowledgeDocumentLookupPort lookup(KnowledgeDocumentLookupPort.KnowledgeDocumentRecord... values) {
@@ -69,7 +99,12 @@ class ScenarioBundleIssue156Test {
     }
 
     private static KnowledgeDocumentLookupPort.KnowledgeDocumentRecord record(KnowledgeDocumentId id, String name, String type) {
-        return new KnowledgeDocumentLookupPort.KnowledgeDocumentRecord(id, KnowledgeDocumentStatus.INDEXED, name, type, 1);
+        return record(id, KnowledgeDocumentStatus.INDEXED, name, type);
+    }
+
+    private static KnowledgeDocumentLookupPort.KnowledgeDocumentRecord record(
+            KnowledgeDocumentId id, KnowledgeDocumentStatus status, String name, String type) {
+        return new KnowledgeDocumentLookupPort.KnowledgeDocumentRecord(id, status, name, type, 1);
     }
 
     private static final class InMemoryRepository implements ScenarioBundleRepository {

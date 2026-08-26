@@ -22,6 +22,7 @@ const roles: Array<[ScenarioBundleRole, string]> = [
 
 const documentStatusLabel: Record<KnowledgeDocumentView['status'], string> = {
   UPLOADED: '준비 대기 중', NEEDS_INPUT: '추가 확인 필요', QUEUED: '준비 대기 중', PROCESSING: '자료 준비 중',
+  NEEDS_REVIEW: '검토 필요',
   FAILED: '자료 준비 실패', EXTRACTED: '자료 확인 필요', INDEXED: '사용 준비 완료',
   READY: '사용 준비 완료',
   PARTIAL_AWAITING_CONFIRMATION: '확인 필요', PARTIAL_CONFIRMED: '사용 준비 완료', REJECTED: '자료 사용 불가',
