@@ -645,9 +645,10 @@ class ExtractionApplicationService:
                     return self.get_status(str(saved["result_version_id"]), root, _lock=False)
                 # A prior process may have been interrupted after page
                 # checkpointing but before publication; continue below.
+            resume_promotion = isinstance(retry_index.get(idem), dict) and retry_index[idem].get("state") == "promotion_pending" and all(p.get("status") == "VALIDATED" for p in current["pages"])
             updated = []
             source_path = Path(str(current.get("manifest", {}).get("source", {}).get("path", "")))
-            for page in current["pages"]:
+            for page in (() if resume_promotion else current["pages"]):
                 item = dict(page)
                 if item["page_number"] in wanted:
                     if item.get("status") == "VALIDATED":
@@ -687,6 +688,8 @@ class ExtractionApplicationService:
                     item["diagnostics"]["finding_regions"] = item.get("finding_regions", item["diagnostics"].get("regions", []))
                     item["diagnostics"]["overlay"] = f"diagnostics/{version_id}/page-{item['page_number']}-attempt-{attempt.attempt_number}.json"
                 updated.append(item)
+            if resume_promotion:
+                updated = [dict(p) for p in current["pages"]]
             response = {**current, "operation": "retry_pages", "request_id": request_id, "pages": updated}
             statuses = [p["status"] for p in updated]
             response["page_summary"] = {**current["page_summary"], "validated": statuses.count("VALIDATED"), "needs_review": statuses.count("NEEDS_REVIEW"), "ready": statuses.count("VALIDATED")}
@@ -713,6 +716,14 @@ class ExtractionApplicationService:
                 response_tmp = response_path.with_suffix(".json.tmp")
                 response_tmp.write_text(json.dumps(response, ensure_ascii=False, sort_keys=True, indent=2) + "\n")
                 os.replace(response_tmp, response_path)
+                # Keep one recoverable retry snapshot beside the pair.  The
+                # snapshot is written last and can be used to reconcile an
+                # interrupted response/version replacement.
+                snapshot = version_dir / "retry-state.json.tmp"
+                snapshot.write_text(json.dumps({"response": response, "version": version_data,
+                                                "idempotency": idem}, ensure_ascii=False,
+                                       sort_keys=True, indent=2) + "\n")
+                os.replace(snapshot, version_dir / "retry-state.json")
             diag_dir = root / "diagnostics" / version_id; diag_dir.mkdir(parents=True, exist_ok=True)
             for item in updated:
                 if item["page_number"] in wanted:
