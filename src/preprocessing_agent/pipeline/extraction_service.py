@@ -640,7 +640,11 @@ class ExtractionApplicationService:
                 retry_index = {}
             idem = f"{version_id}:{request_id}:{','.join(map(str, wanted))}"
             if idem in retry_index:
-                return self.get_status(version_id, root, _lock=False)
+                saved = retry_index[idem]
+                if isinstance(saved, dict) and saved.get("result_version_id"):
+                    return self.get_status(str(saved["result_version_id"]), root, _lock=False)
+                # A prior process may have been interrupted after page
+                # checkpointing but before publication; continue below.
             updated = []
             source_path = Path(str(current.get("manifest", {}).get("source", {}).get("path", "")))
             for page in current["pages"]:
@@ -714,7 +718,7 @@ class ExtractionApplicationService:
                 if item["page_number"] in wanted:
                     (diag_dir / f"page-{item['page_number']}-attempt-{item['attempts']}.json.tmp").write_text(json.dumps(item.get("diagnostics", {}), sort_keys=True) + "\n")
                     os.replace(diag_dir / f"page-{item['page_number']}-attempt-{item['attempts']}.json.tmp", diag_dir / f"page-{item['page_number']}-attempt-{item['attempts']}.json")
-            retry_index[idem] = {"version_id": version_id, "pages": wanted}
+            retry_index[idem] = {"version_id": version_id, "pages": wanted, "state": "promotion_pending"}
             retry_tmp = index_path.with_suffix(".tmp"); retry_tmp.write_text(json.dumps(retry_index, sort_keys=True) + "\n"); os.replace(retry_tmp, index_path)
             # Once every page is validated, materialize a fresh published
             # version through the normal full pipeline.  The quarantined
@@ -729,6 +733,8 @@ class ExtractionApplicationService:
                                     "output_dir": str(root), "version_id": promoted_id}
                 try:
                     promoted = self._preprocess_locked(promoted_request, root)
+                    retry_index[idem] = {"version_id": version_id, "pages": wanted, "state": "completed", "result_version_id": promoted["version_id"]}
+                    retry_tmp = index_path.with_suffix(".tmp"); retry_tmp.write_text(json.dumps(retry_index, sort_keys=True) + "\n"); os.replace(retry_tmp, index_path)
                     return {**promoted, "operation": "retry_pages", "request_id": request_id,
                             "retry_version_id": version_id}
                 except Exception:
