@@ -21,7 +21,9 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                    storage_key, processing_status, extraction_status, extracted_content,
                    missing_locations, failure_code, version, created_at, updated_at,
                    document_type, original_filename, preview_content, preview_warnings,
-                   preview_spans, preview_assets
+                   preview_spans, preview_assets, preprocessing_operation_id,
+                   candidate_extraction_version, preprocessing_policy_version,
+                   preprocessing_manifest_sha256, preprocessing_pages
               FROM rulebook_registration WHERE rulebook_id = ?
             """;
 
@@ -41,7 +43,9 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                    storage_key, processing_status, extraction_status, extracted_content,
                    missing_locations, failure_code, version, created_at, updated_at,
                    document_type, original_filename, preview_content, preview_warnings,
-                   preview_spans, preview_assets
+                   preview_spans, preview_assets, preprocessing_operation_id,
+                   candidate_extraction_version, preprocessing_policy_version,
+                   preprocessing_manifest_sha256, preprocessing_pages
               FROM rulebook_registration WHERE operation_key = ?
             """;
     private static final String FIND_BY_OWNER_AND_CONTENT_HASH = """
@@ -49,7 +53,9 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                    storage_key, processing_status, extraction_status, extracted_content,
                    missing_locations, failure_code, version, created_at, updated_at,
                    document_type, original_filename, preview_content, preview_warnings,
-                   preview_spans, preview_assets
+                   preview_spans, preview_assets, preprocessing_operation_id,
+                   candidate_extraction_version, preprocessing_policy_version,
+                   preprocessing_manifest_sha256, preprocessing_pages
               FROM rulebook_registration
              WHERE owner_player_id = ? AND content_hash = ?
             """;
@@ -58,7 +64,9 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                    storage_key, processing_status, extraction_status, extracted_content,
                    missing_locations, failure_code, version, created_at, updated_at,
                    document_type, original_filename, preview_content, preview_warnings,
-                   preview_spans, preview_assets
+                   preview_spans, preview_assets, preprocessing_operation_id,
+                   candidate_extraction_version, preprocessing_policy_version,
+                   preprocessing_manifest_sha256, preprocessing_pages
               FROM rulebook_registration WHERE owner_player_id = ?
               ORDER BY created_at DESC
             """;
@@ -67,7 +75,9 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                    storage_key, processing_status, extraction_status, extracted_content,
                    missing_locations, failure_code, version, created_at, updated_at,
                    document_type, original_filename, preview_content, preview_warnings,
-                   preview_spans, preview_assets
+                   preview_spans, preview_assets, preprocessing_operation_id,
+                   candidate_extraction_version, preprocessing_policy_version,
+                   preprocessing_manifest_sha256, preprocessing_pages
               FROM rulebook_registration WHERE processing_status IN (
             """;
     private static final String CLAIM_PENDING = """
@@ -95,7 +105,10 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                       registration.version, registration.created_at, registration.updated_at,
                       registration.document_type, registration.original_filename,
                       registration.preview_content, registration.preview_warnings,
-                      registration.preview_spans, registration.preview_assets
+                      registration.preview_spans, registration.preview_assets,
+                      registration.preprocessing_operation_id, registration.candidate_extraction_version,
+                      registration.preprocessing_policy_version, registration.preprocessing_manifest_sha256,
+                      registration.preprocessing_pages
             """;
     private static final String UPSERT = """
             INSERT INTO rulebook_registration
@@ -103,8 +116,10 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                  storage_key, processing_status, extraction_status, extracted_content,
                  missing_locations, failure_code, version, created_at, updated_at,
                  document_type, original_filename, preview_content, preview_warnings,
-                 preview_spans, preview_assets)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 preview_spans, preview_assets, preprocessing_operation_id,
+                 candidate_extraction_version, preprocessing_policy_version,
+                 preprocessing_manifest_sha256, preprocessing_pages)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (operation_key) DO UPDATE SET
                 owner_player_id = EXCLUDED.owner_player_id,
                 content_hash = EXCLUDED.content_hash,
@@ -123,7 +138,12 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                 preview_content = EXCLUDED.preview_content,
                 preview_warnings = EXCLUDED.preview_warnings,
                 preview_spans = EXCLUDED.preview_spans,
-                preview_assets = EXCLUDED.preview_assets
+                preview_assets = EXCLUDED.preview_assets,
+                preprocessing_operation_id = EXCLUDED.preprocessing_operation_id,
+                candidate_extraction_version = EXCLUDED.candidate_extraction_version,
+                preprocessing_policy_version = EXCLUDED.preprocessing_policy_version,
+                preprocessing_manifest_sha256 = EXCLUDED.preprocessing_manifest_sha256,
+                preprocessing_pages = EXCLUDED.preprocessing_pages
             """;
 
     private final DataSource dataSource;
@@ -266,6 +286,11 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
             setStringArray(ps, 19, registration.previewWarnings());
             setJson(ps, 20, registration.previewSpans());
             setJson(ps, 21, registration.previewAssets());
+            setNullableString(ps, 22, registration.preprocessingOperationId());
+            setNullableString(ps, 23, registration.candidateExtractionVersion());
+            setNullableString(ps, 24, registration.preprocessingPolicyVersion());
+            setNullableString(ps, 25, registration.preprocessingManifestSha256());
+            setJson(ps, 26, registration.preprocessingPages());
             ps.executeUpdate();
         } catch (SQLException e) {
             throw new RuntimeException("failed to save rulebook registration", e);
@@ -313,7 +338,12 @@ public final class PostgresRulebookRegistrationRepository implements RulebookReg
                 rs.getString("preview_content"),
                 getStringArray(rs, "preview_warnings"),
                 getJsonList(rs, "preview_spans", new TypeReference<List<PreviewSpan>>() {}, objectMapper),
-                getJsonList(rs, "preview_assets", new TypeReference<List<PreviewAsset>>() {}, objectMapper));
+                getJsonList(rs, "preview_assets", new TypeReference<List<PreviewAsset>>() {}, objectMapper),
+                rs.getString("preprocessing_operation_id"),
+                rs.getString("candidate_extraction_version"),
+                rs.getString("preprocessing_policy_version"),
+                rs.getString("preprocessing_manifest_sha256"),
+                getJsonList(rs, "preprocessing_pages", new TypeReference<List<com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingPageState>>() {}, objectMapper));
     }
 
     private static <E extends Enum<E>> E getNullableEnum(ResultSet rs, String column, Class<E> type) throws SQLException {

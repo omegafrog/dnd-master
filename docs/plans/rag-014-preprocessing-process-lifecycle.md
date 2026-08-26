@@ -2,7 +2,7 @@
 
 - Issue: #190
 - Parent: #189
-- Status: ready-for-agent
+- Status: completed
 - Dependencies: none
 
 ## 구현 목적

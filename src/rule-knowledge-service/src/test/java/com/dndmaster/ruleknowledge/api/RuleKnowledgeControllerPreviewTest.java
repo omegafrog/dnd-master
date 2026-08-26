@@ -1,9 +1,11 @@
 package com.dndmaster.ruleknowledge.api;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.Mockito.mock;
 
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingPageState;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
@@ -60,6 +62,31 @@ class RuleKnowledgeControllerPreviewTest {
         assertEquals(List.of("page 9", "stored warning"), response.getBody().warnings());
         assertEquals(1, response.getBody().spans().size());
         assertEquals(1, response.getBody().assets().size());
+    }
+
+    @Test
+    void statusExposesSafePreprocessingDiagnosticsWithoutPathsOrTokens() {
+        RulebookId rulebookId = RulebookId.generate();
+        StoredRulebookRegistration registration = new StoredRulebookRegistration(
+                rulebookId, new OwnerPlayerId(UUID.randomUUID()), "op-review", "hash-review", RulebookFormat.PDF,
+                42, "storage-review", ProcessingStatus.NEEDS_REVIEW, null, null, List.of(), "PREPROCESSING_NEEDS_REVIEW",
+                2L, Instant.parse("2026-07-23T00:00:00Z"), Instant.parse("2026-07-23T00:01:00Z"),
+                DocumentType.STORYBOOK, "story.pdf", "", List.of(), List.of(), List.of(),
+                "op-review", "candidate-2", "p1", "a".repeat(64),
+                List.of(new PreprocessingPageState(2, "NEEDS_REVIEW", 1,
+                        List.of("/srv/internal/token=secret", "failed at /var/lib/rules/page-2.pdf"))));
+        RuleKnowledgeController controller = new RuleKnowledgeController(
+                mock(com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService.class),
+                new InMemoryRegistrationRepository(registration), mock(RuleEvidenceSearchApplicationService.class), new com.fasterxml.jackson.databind.ObjectMapper());
+
+        RuleKnowledgeController.RulebookStatusResponse response = controller.rulebookStatus(rulebookId.value());
+
+        assertEquals("NEEDS_REVIEW", response.status());
+        assertEquals("DIAGNOSTIC_REDACTED", response.preprocessingPages().get(0).findings().get(0));
+        assertEquals("DIAGNOSTIC_REDACTED", response.preprocessingPages().get(0).findings().get(1));
+        assertFalse(response.preprocessingPages().get(0).findings().get(0).contains("/srv"));
+        assertFalse(response.preprocessingPages().get(0).findings().get(0).contains("secret"));
+        assertFalse(response.preprocessingPages().get(0).findings().get(1).contains("/var"));
     }
 
     private static final class InMemoryRegistrationRepository implements RulebookRegistrationRepository {

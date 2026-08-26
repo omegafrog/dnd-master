@@ -16,6 +16,13 @@ import com.dndmaster.ruleknowledge.application.registration.RulebookRegistration
 import com.dndmaster.ruleknowledge.application.registration.SourcePreviewExtractor;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookFile;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingArtifactManifest;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingPageState;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingProcessPort;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingRetryRequest;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingRunRequest;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingRunResult;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingStatusRequest;
 import com.dndmaster.ruleknowledge.domain.index.ChunkId;
 import com.dndmaster.ruleknowledge.domain.index.EmbeddedRulebookChunk;
 import com.dndmaster.ruleknowledge.domain.index.IndexKey;
@@ -193,6 +200,63 @@ class RulebookPipelineApplicationServiceTest {
         assertEquals(ProcessingStatus.PROCESSING, harness.repository.findByOperationKey("op-fresh").orElseThrow().processingStatus());
     }
 
+    @Test
+    void configuredPdfPipelineUsesPreprocessingAndPersistsReviewDiagnosticsWithoutIndexing() {
+        RecordingPreprocessingPort preprocessing = new RecordingPreprocessingPort("NEEDS_REVIEW");
+        TestHarness harness = new TestHarness(preprocessing);
+        UploadRulebookCommand command = new UploadRulebookCommand(
+                "pdf-review", OWNER, DocumentType.STORYBOOK, RulebookFormat.PDF,
+                "pdf bytes".getBytes(StandardCharsets.UTF_8), "story.pdf");
+
+        harness.service.process(command);
+        List<RulebookProcessingResult> results = harness.service.processPending();
+
+        StoredRulebookRegistration stored = harness.repository.findByOperationKey("pdf-review").orElseThrow();
+        assertEquals(1, preprocessing.preprocessCalls);
+        assertEquals(ProcessingStatus.NEEDS_REVIEW, results.get(0).status());
+        assertEquals(ProcessingStatus.NEEDS_REVIEW, stored.processingStatus());
+        assertEquals("candidate-1", stored.candidateExtractionVersion());
+        assertEquals("pdf-review", stored.preprocessingOperationId());
+        assertEquals(List.of("LAYOUT_VALIDATION_FAILED"), stored.preprocessingPages().get(0).findings());
+        assertEquals(0, harness.extractor.calls);
+        assertEquals(0, harness.embeddingPort.calls);
+    }
+
+    @Test
+    void configuredPdfPipelineStopsAtValidatedCandidateAndDoesNotPublishVectors() {
+        RecordingPreprocessingPort preprocessing = new RecordingPreprocessingPort("READY");
+        TestHarness harness = new TestHarness(preprocessing);
+        UploadRulebookCommand command = new UploadRulebookCommand(
+                "pdf-ready", OWNER, DocumentType.RULEBOOK, RulebookFormat.PDF,
+                "pdf bytes".getBytes(StandardCharsets.UTF_8), "rules.pdf");
+
+        harness.service.process(command);
+        List<RulebookProcessingResult> results = harness.service.processPending();
+
+        StoredRulebookRegistration stored = harness.repository.findByOperationKey("pdf-ready").orElseThrow();
+        assertEquals(ProcessingStatus.VALIDATED, results.get(0).status());
+        assertEquals(ProcessingStatus.VALIDATED, stored.processingStatus());
+        assertEquals("candidate-1", stored.candidateExtractionVersion());
+        assertEquals(0, harness.extractor.calls);
+        assertEquals(0, harness.embeddingPort.calls);
+    }
+
+    @Test
+    void configuredPipelineExplicitlyRejectsNonPdfRagInput() {
+        RecordingPreprocessingPort preprocessing = new RecordingPreprocessingPort("READY");
+        TestHarness harness = new TestHarness(preprocessing);
+
+        harness.service.process(new UploadRulebookCommand(
+                "txt-unsupported", OWNER, DocumentType.RULEBOOK, RulebookFormat.TXT,
+                "text".getBytes(StandardCharsets.UTF_8), "rules.txt"));
+        RulebookProcessingResult result = harness.service.processPending().get(0);
+
+        assertEquals(ProcessingStatus.REJECTED, result.status());
+        assertEquals("UNSUPPORTED_FORMAT", result.warnings().get(0));
+        assertEquals(0, preprocessing.preprocessCalls);
+        assertEquals(0, harness.embeddingPort.calls);
+    }
+
     private static UploadRulebookCommand command(String operationKey, String content) {
         return new UploadRulebookCommand(
                 operationKey,
@@ -237,6 +301,10 @@ class RulebookPipelineApplicationServiceTest {
         private final RulebookPipelineApplicationService service;
 
         private TestHarness() {
+            this(null);
+        }
+
+        private TestHarness(PreprocessingProcessPort preprocessingProcessPort) {
             RulebookRegistrationApplicationService registrationService =
                     new RulebookRegistrationApplicationService(storage, extractor);
             RulebookIndexingApplicationService indexingService = new RulebookIndexingApplicationService(
@@ -251,7 +319,38 @@ class RulebookPipelineApplicationServiceTest {
                     extractor,
                     previewExtractor,
                     indexingService,
-                    3);
+                    3,
+                    preprocessingProcessPort);
+        }
+    }
+
+    private static final class RecordingPreprocessingPort implements PreprocessingProcessPort {
+        private final String status;
+        private int preprocessCalls;
+
+        private RecordingPreprocessingPort(String status) {
+            this.status = status;
+        }
+
+        @Override
+        public PreprocessingRunResult preprocess(PreprocessingRunRequest request) {
+            preprocessCalls++;
+            return new PreprocessingRunResult(
+                    request.requestId(), "candidate-1", status, request.sourceSha256(), request.policyVersion(),
+                    List.of(new PreprocessingPageState(
+                            1, status.equals("READY") ? "VALIDATED" : "NEEDS_REVIEW", 1,
+                            status.equals("READY") ? List.of() : List.of("LAYOUT_VALIDATION_FAILED"))),
+                    new PreprocessingArtifactManifest("manifest-hash", Map.of("manifest", "manifest-hash")));
+        }
+
+        @Override
+        public PreprocessingRunResult status(PreprocessingStatusRequest request) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public PreprocessingRunResult retryPages(PreprocessingRetryRequest request) {
+            throw new UnsupportedOperationException();
         }
     }
 

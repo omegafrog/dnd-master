@@ -8,8 +8,10 @@ import com.dndmaster.ruleknowledge.application.search.StorySourceSearchApplicati
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchPort;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchPort;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchApplicationService;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingProcessPort;
 import com.dndmaster.ruleknowledge.infrastructure.extraction.*;
 import com.dndmaster.ruleknowledge.infrastructure.ocr.TesseractOcrAdapter;
+import com.dndmaster.ruleknowledge.infrastructure.preprocessing.ProcessCliPreprocessingAdapter;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookIndexRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresGameSystemDefinitionRepository;
@@ -64,12 +66,22 @@ public class RuleKnowledgeApiConfiguration {
             @Value("${rule-knowledge.docling.python-executable:python3}") String doclingPython,
             @Value("${rule-knowledge.docling.working-directory:..}") String doclingWorkingDirectory,
             @Value("${rule-knowledge.docling.timeout:10m}") Duration doclingTimeout) {
-        var legacyPdf = new PdfRulebookContentExtractor(ocrPort);
         return new CompositeRulebookContentExtractor(Map.of(
-                RulebookFormat.PDF, new DoclingPdfRulebookContentExtractor(doclingPython, Path.of(doclingWorkingDirectory), doclingTimeout, objectMapper, legacyPdf),
+                RulebookFormat.PDF, content -> {
+                    throw new IllegalStateException("PDF preprocessing process is required");
+                },
                 RulebookFormat.DOCX, new DocxRulebookContentExtractor(),
                 RulebookFormat.TXT, new TxtRulebookContentExtractor(),
                 RulebookFormat.IMAGE, new ImageRulebookContentExtractor(ocrPort)));
+    }
+
+    @Bean
+    PreprocessingProcessPort preprocessingProcessPort(
+            ObjectMapper objectMapper,
+            @Value("${rule-knowledge.preprocessing.python-executable:python3}") String pythonExecutable,
+            @Value("${rule-knowledge.preprocessing.working-directory:..}") String workingDirectory,
+            @Value("${rule-knowledge.preprocessing.timeout:10m}") Duration timeout) {
+        return new ProcessCliPreprocessingAdapter(pythonExecutable, Path.of(workingDirectory), timeout, objectMapper);
     }
 
     @Bean
@@ -141,6 +153,7 @@ public class RuleKnowledgeApiConfiguration {
             RulebookContentExtractor contentExtractor,
             SourcePreviewExtractor sourcePreviewExtractor,
             RulebookIndexingApplicationService indexingService,
+            PreprocessingProcessPort preprocessingProcessPort,
             @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension) {
         return new RulebookPipelineApplicationService(
                 registrationService,
@@ -149,7 +162,8 @@ public class RuleKnowledgeApiConfiguration {
                 contentExtractor,
                 sourcePreviewExtractor,
                 indexingService,
-                embeddingDimension);
+                embeddingDimension,
+                preprocessingProcessPort);
     }
 
     @Bean

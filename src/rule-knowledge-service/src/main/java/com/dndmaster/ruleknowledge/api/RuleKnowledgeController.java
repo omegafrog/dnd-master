@@ -8,6 +8,7 @@ import com.dndmaster.ruleknowledge.application.indexing.RulebookIndexRepository;
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingPageState;
 import com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository;
 import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRepository;
 import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRevision;
@@ -186,8 +187,8 @@ public class RuleKnowledgeController {
                         r.originalFilename(),
                         r.failureCode(),
                         r.version(),
-                        warningsFor(r), progressFor(r)))
-                .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null, null, 0L, List.of(), null));
+                        warningsFor(r), progressFor(r), r.candidateExtractionVersion(), r.preprocessingPages()))
+                .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null, null, 0L, List.of(), null, null, List.of()));
     }
 
     private DocumentProgressView progressFor(StoredRulebookRegistration registration) {
@@ -195,10 +196,16 @@ public class RuleKnowledgeController {
                 || registration.processingStatus() == ProcessingStatus.PARTIAL_CONFIRMED) {
             return new DocumentProgressView("READY", 100, null, null, null);
         }
+        if (registration.processingStatus() == ProcessingStatus.NEEDS_REVIEW) {
+            return new DocumentProgressView("NEEDS_REVIEW", 0, null, null, registration.failureCode());
+        }
         if (registration.processingStatus() == ProcessingStatus.FAILED
                 || registration.processingStatus() == ProcessingStatus.NEEDS_INPUT
                 || registration.processingStatus() == ProcessingStatus.REJECTED) {
             return new DocumentProgressView("FAILED", 0, null, null, registration.failureCode());
+        }
+        if (registration.processingStatus() == ProcessingStatus.VALIDATED) {
+            return new DocumentProgressView("VALIDATED", 75, null, null, null);
         }
         if (indexRepository != null) {
             var indexProgress = indexRepository.progressFor(registration.rulebookId(), "v1-" + registration.contentHash());
@@ -605,7 +612,8 @@ public class RuleKnowledgeController {
     public record RulebookStatusResponse(
             UUID rulebookId, UUID knowledgeDocumentId, String status, DocumentType documentType,
             String originalFilename, String failureReason, long extractionVersion, List<String> warnings,
-            DocumentProgressView progress) {}
+            DocumentProgressView progress, String candidateExtractionVersion,
+            List<PreprocessingPageState> preprocessingPages) {}
     public record DocumentProgressView(
             String stage, int percent, Integer completedUnits, Integer totalUnits, String error) {}
     public record SourcePreviewResponse(

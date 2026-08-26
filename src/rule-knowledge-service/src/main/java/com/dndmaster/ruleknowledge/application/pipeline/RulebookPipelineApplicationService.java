@@ -10,6 +10,11 @@ import com.dndmaster.ruleknowledge.application.registration.RulebookRegistration
 import com.dndmaster.ruleknowledge.application.registration.SourcePreviewExtractor;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookFile;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingPageState;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingProcessException;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingProcessPort;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingRunRequest;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingRunResult;
 import com.dndmaster.ruleknowledge.domain.index.IndexKey;
 import com.dndmaster.ruleknowledge.domain.rulebook.DocumentType;
 import com.dndmaster.ruleknowledge.domain.rulebook.ExtractionResult;
@@ -22,6 +27,8 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
 import java.time.Duration;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.HexFormat;
 import java.util.List;
@@ -39,6 +46,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
     private final SourcePreviewExtractor sourcePreviewExtractor;
     private final RulebookIndexingApplicationService indexingService;
     private final int embeddingDimension;
+    private final PreprocessingProcessPort preprocessingProcessPort;
 
     public RulebookPipelineApplicationService(
             RulebookRegistrationApplicationService registrationService,
@@ -48,6 +56,19 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             SourcePreviewExtractor sourcePreviewExtractor,
             RulebookIndexingApplicationService indexingService,
             int embeddingDimension) {
+        this(registrationService, registrationRepository, fileStorage, contentExtractor, sourcePreviewExtractor,
+                indexingService, embeddingDimension, null);
+    }
+
+    public RulebookPipelineApplicationService(
+            RulebookRegistrationApplicationService registrationService,
+            RulebookRegistrationRepository registrationRepository,
+            RulebookFileStorage fileStorage,
+            RulebookContentExtractor contentExtractor,
+            SourcePreviewExtractor sourcePreviewExtractor,
+            RulebookIndexingApplicationService indexingService,
+            int embeddingDimension,
+            PreprocessingProcessPort preprocessingProcessPort) {
         this.registrationService = Objects.requireNonNull(registrationService, "registrationService must not be null");
         this.registrationRepository = Objects.requireNonNull(registrationRepository, "registrationRepository must not be null");
         this.fileStorage = Objects.requireNonNull(fileStorage, "fileStorage must not be null");
@@ -58,6 +79,7 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
             throw new IllegalArgumentException("embeddingDimension must be positive");
         }
         this.embeddingDimension = embeddingDimension;
+        this.preprocessingProcessPort = preprocessingProcessPort;
     }
 
     @Override
@@ -137,6 +159,15 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         if (registration.processingStatus() != ProcessingStatus.PROCESSING) {
             throw new IllegalStateException("only claimed document can be processed");
         }
+        if (registration.format() == com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat.PDF) {
+            if (preprocessingProcessPort == null) {
+                return failPreprocessing(registration, "PREPROCESSING_PORT_REQUIRED");
+            }
+            return processWithPreprocessing(registration);
+        }
+        if (preprocessingProcessPort != null) {
+            return rejectUnsupportedFormat(registration);
+        }
         ExtractionResult extractionResult = null;
         SourcePreviewResult previewResult = null;
         try {
@@ -182,6 +213,93 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
         } catch (RuntimeException exception) {
             return fail(registration, extractionResult, previewResult, describeFailure(exception));
         }
+    }
+
+    private RulebookProcessingResult processWithPreprocessing(StoredRulebookRegistration registration) {
+        try {
+            byte[] storedContent = fileStorage.read(new StoredRulebookFile(registration.storageKey()));
+            Path runRoot = Files.createTempDirectory("dnd-rag-preprocessing-");
+            Path source = runRoot.resolve("source.pdf");
+            Path output = runRoot.resolve("artifacts");
+            Files.createDirectories(output);
+            Files.write(source, storedContent);
+            PreprocessingRunResult result = preprocessingProcessPort.preprocess(new PreprocessingRunRequest(
+                    registration.operationKey(), source, registration.contentHash(), "rag-preprocessing-v1", output, null));
+            validatePreprocessingResult(registration, result);
+            if ("NEEDS_REVIEW".equals(result.status())) {
+                StoredRulebookRegistration review = withPreprocessing(
+                        registration, ProcessingStatus.NEEDS_REVIEW, "PREPROCESSING_NEEDS_REVIEW", result);
+                registrationRepository.save(review);
+                return new RulebookProcessingResult(
+                        registration.rulebookId(), ProcessingStatus.NEEDS_REVIEW, diagnosticWarnings(result.pages()));
+            }
+            if ("READY".equals(result.status())) {
+                StoredRulebookRegistration validated = withPreprocessing(
+                        registration, ProcessingStatus.VALIDATED, null, result);
+                registrationRepository.save(validated);
+                return new RulebookProcessingResult(registration.rulebookId(), ProcessingStatus.VALIDATED, List.of());
+            }
+            throw new PreprocessingProcessException("INVALID_PREPROCESSING_STATUS");
+        } catch (PreprocessingProcessException exception) {
+            return failPreprocessing(registration, exception.code());
+        } catch (RuntimeException exception) {
+            return failPreprocessing(registration, "PREPROCESSING_FAILED");
+        } catch (Exception exception) {
+            return failPreprocessing(registration, "PREPROCESSING_FAILED");
+        }
+    }
+
+    private RulebookProcessingResult rejectUnsupportedFormat(StoredRulebookRegistration registration) {
+        StoredRulebookRegistration rejected = withStatus(
+                registration, ProcessingStatus.REJECTED, null, null, "UNSUPPORTED_FORMAT", null, List.of());
+        registrationRepository.save(rejected);
+        return new RulebookProcessingResult(registration.rulebookId(), ProcessingStatus.REJECTED, List.of("UNSUPPORTED_FORMAT"));
+    }
+
+    private RulebookProcessingResult failPreprocessing(StoredRulebookRegistration registration, String code) {
+        StoredRulebookRegistration failed = withStatus(
+                registration, ProcessingStatus.FAILED, null, null, code, null, List.of());
+        registrationRepository.save(failed);
+        return new RulebookProcessingResult(registration.rulebookId(), ProcessingStatus.FAILED, List.of(code));
+    }
+
+    private static void validatePreprocessingResult(StoredRulebookRegistration registration, PreprocessingRunResult result) {
+        if (!registration.operationKey().equals(result.requestId())) {
+            throw new PreprocessingProcessException("CORRELATION_ID_MISMATCH");
+        }
+        if (!registration.contentHash().equals(result.sourceSha256())) {
+            throw new PreprocessingProcessException("SOURCE_HASH_MISMATCH");
+        }
+        if (!"rag-preprocessing-v1".equals(result.policyVersion())) {
+            throw new PreprocessingProcessException("POLICY_VERSION_MISMATCH");
+        }
+        if (result.pages().isEmpty()) {
+            throw new PreprocessingProcessException("PAGE_MANIFEST_MISMATCH");
+        }
+        for (int index = 0; index < result.pages().size(); index++) {
+            if (result.pages().get(index).pageNumber() != index + 1) {
+                throw new PreprocessingProcessException("PAGE_MANIFEST_MISMATCH");
+            }
+        }
+        if ("READY".equals(result.status())
+                && result.pages().stream().anyMatch(page -> !"VALIDATED".equals(page.status()))) {
+            throw new PreprocessingProcessException("UNVALIDATED_PAGE");
+        }
+        if ("NEEDS_REVIEW".equals(result.status())
+                && result.pages().stream().noneMatch(page -> "NEEDS_REVIEW".equals(page.status()))) {
+            throw new PreprocessingProcessException("PAGE_MANIFEST_MISMATCH");
+        }
+        if (!"READY".equals(result.status()) && !"NEEDS_REVIEW".equals(result.status())) {
+            throw new PreprocessingProcessException("INVALID_PREPROCESSING_STATUS");
+        }
+    }
+
+    private static List<String> diagnosticWarnings(List<PreprocessingPageState> pages) {
+        return pages.stream()
+                .filter(page -> "NEEDS_REVIEW".equals(page.status()))
+                .flatMap(page -> page.findings().stream())
+                .distinct()
+                .toList();
     }
 
     private void attemptIndexing(Rulebook rulebook, StoredRulebookRegistration registration) {
@@ -276,6 +394,45 @@ public final class RulebookPipelineApplicationService implements RulebookUploadP
                 previewResult != null && previewResult.content() != null ? previewResult.content() : registration.previewContent(),
                 previewResult != null ? previewResult.warnings() : registration.previewWarnings(),
                 previewResult != null ? previewResult.spans() : registration.previewSpans(),
-                previewResult != null ? previewResult.assets() : registration.previewAssets());
+                previewResult != null ? previewResult.assets() : registration.previewAssets(),
+                registration.preprocessingOperationId(),
+                registration.candidateExtractionVersion(),
+                registration.preprocessingPolicyVersion(),
+                registration.preprocessingManifestSha256(),
+                registration.preprocessingPages());
+    }
+
+    private static StoredRulebookRegistration withPreprocessing(
+            StoredRulebookRegistration registration,
+            ProcessingStatus status,
+            String failureCode,
+            PreprocessingRunResult result) {
+        return new StoredRulebookRegistration(
+                registration.rulebookId(),
+                registration.ownerPlayerId(),
+                registration.operationKey(),
+                registration.contentHash(),
+                registration.format(),
+                registration.fileSize(),
+                registration.storageKey(),
+                status,
+                registration.extractionStatus(),
+                registration.extractedContent(),
+                registration.missingLocations(),
+                failureCode,
+                registration.version() + 1,
+                registration.createdAt(),
+                Instant.now(),
+                registration.documentType(),
+                registration.originalFilename(),
+                registration.previewContent(),
+                registration.previewWarnings(),
+                registration.previewSpans(),
+                registration.previewAssets(),
+                result.requestId(),
+                result.versionId(),
+                result.policyVersion(),
+                result.artifacts().manifestSha256(),
+                result.pages());
     }
 }
