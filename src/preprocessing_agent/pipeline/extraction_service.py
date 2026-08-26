@@ -716,6 +716,25 @@ class ExtractionApplicationService:
                     os.replace(diag_dir / f"page-{item['page_number']}-attempt-{item['attempts']}.json.tmp", diag_dir / f"page-{item['page_number']}-attempt-{item['attempts']}.json")
             retry_index[idem] = {"version_id": version_id, "pages": wanted}
             retry_tmp = index_path.with_suffix(".tmp"); retry_tmp.write_text(json.dumps(retry_index, sort_keys=True) + "\n"); os.replace(retry_tmp, index_path)
+            # Once every page is validated, materialize a fresh published
+            # version through the normal full pipeline.  The quarantined
+            # source version is never mutated into READY and remains an audit
+            # checkpoint; generation/current publication is publish-last.
+            if all(item.get("status") == "VALIDATED" for item in updated):
+                manifest_source = current.get("manifest", {}).get("source", {})
+                promoted_id = f"{version_id}-retry-{hashlib.sha256(idem.encode()).hexdigest()[:8]}"
+                promoted_request = {"request_id": f"{request_id}-publish", "source_path": manifest_source.get("path"),
+                                    "source_sha256": manifest_source.get("sha256"),
+                                    "policy_version": current.get("manifest", {}).get("policy", {}).get("version", "retry"),
+                                    "output_dir": str(root), "version_id": promoted_id}
+                try:
+                    promoted = self._preprocess_locked(promoted_request, root)
+                    return {**promoted, "operation": "retry_pages", "request_id": request_id,
+                            "retry_version_id": version_id}
+                except Exception:
+                    # Keep the page checkpoint available for a later resume;
+                    # publication failure must not expose a partial READY root.
+                    pass
             return response
 
     @staticmethod
