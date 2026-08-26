@@ -65,7 +65,7 @@ class HeadingDetector:
         if feature.punctuation_free:
             score += 0.10
         if feature.font_size is not None and feature.font_size >= 13:
-            score += 0.70
+            score += 0.80
         is_heading = score >= self.confidence_threshold
         level = _level(feature) if is_heading else None
         return HeadingDecision(is_heading, level, min(score, 1.0), feature, "deterministic heading features" if is_heading else "below heading threshold")
