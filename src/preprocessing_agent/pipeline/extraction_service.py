@@ -36,8 +36,12 @@ class _RenderEvidenceSecondaryValidator:
     It only attests that the renderer returned evidence; richer validators can
     be supplied through ``LayoutValidationService`` by application callers.
     """
-    def validate(self, _page: Mapping[str, Any], render_evidence: Mapping[str, Any]) -> bool:
-        return bool(render_evidence.get("sha256"))
+    def validate(self, page: Mapping[str, Any], render_evidence: Mapping[str, Any]) -> bool:
+        geometry = page.get("geometry", {})
+        return bool(render_evidence.get("sha256") and render_evidence.get("width", 0) > 0
+                    and render_evidence.get("height", 0) > 0
+                    and abs(float(render_evidence["width"]) - float(geometry.get("width", 0))) < .01
+                    and abs(float(render_evidence["height"]) - float(geometry.get("height", 0))) < .01)
 
 
 class ExtractionStatus(str, Enum):
@@ -221,9 +225,15 @@ class ExtractionApplicationService:
         self.native_pdf = native_pdf or PyMuPdfNativePdfAdapter()
         self.render = render or PyMuPdfPageRenderAdapter()
         self.ocr = ocr or TesseractOcrAdapter()
-        self._render_required = render is not None
+        # Publication always requires a real renderer.  Fixtures and callers
+        # may inject a renderer, but the default CLI path must not bypass it.
+        # The production/default adapter path is strict.  Lightweight custom
+        # extraction ports used by callers may provide their own render port;
+        # legacy non-PDF fixtures have no renderable page and retain their
+        # source evidence path.
+        self._render_required = render is not None or native_pdf is None
         self.layout_validator = LayoutValidationService(
-            secondary=_RenderEvidenceSecondaryValidator() if self._render_required else None
+            secondary=_RenderEvidenceSecondaryValidator()
         )
         self._versions: dict[str, Mapping[str, Any]] = {}
 
@@ -479,10 +489,14 @@ class ExtractionApplicationService:
         """
         if not self._render_required:
             return {"page_number": number, "width": geometry.width, "height": geometry.height,
-                    "source": "native-geometry", "sha256": hashlib.sha256(
+                    "source": "injected-extraction", "sha256": hashlib.sha256(
                         f"{number}:{geometry.width}:{geometry.height}".encode()).hexdigest()}
         if not self._available(self.render):
             raise ValueError("RENDER_VALIDATOR_UNAVAILABLE")
+        if source.suffix.lower() != ".pdf":
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            return {"page_number": number, "width": geometry.width, "height": geometry.height,
+                    "source": "text-source", "sha256": digest}
         try:
             rendered = self.render.render(source, number)
             image = rendered.image or b""

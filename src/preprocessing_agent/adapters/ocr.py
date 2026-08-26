@@ -4,6 +4,8 @@ from __future__ import annotations
 import io
 import shutil
 import subprocess
+import contextlib
+import sys
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -13,14 +15,16 @@ from preprocessing_agent.ports.extraction import ExtractionCapabilityError, Rend
 class PyMuPdfPageRenderAdapter:
     def available(self) -> bool:
         try:
-            import fitz  # type: ignore
+            with contextlib.redirect_stdout(sys.stderr):
+                import fitz  # type: ignore
             return True
         except ImportError:
             return False
 
     def render(self, source: Path, page_number: int, region: Sequence[float] | None = None) -> RenderedPage:
         try:
-            import fitz  # type: ignore
+            with contextlib.redirect_stdout(sys.stderr):
+                import fitz  # type: ignore
             with fitz.open(source) as document:
                 if page_number < 1 or page_number > len(document):
                     raise ExtractionCapabilityError("RENDER_PAGE_NOT_FOUND")

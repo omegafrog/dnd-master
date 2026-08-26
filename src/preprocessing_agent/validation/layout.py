@@ -7,9 +7,7 @@ canonical geometry and structure evidence.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Mapping, Protocol, Sequence
-
-from preprocessing_agent.domain.layout import BoundingBox, PageGeometry
+from typing import Any, Mapping, Protocol
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,12 +105,27 @@ class LayoutValidationService:
             boxes.append((str(block.get("block_id", "")), box))
             if width <= 0 or height <= 0 or not (0 <= box[0] <= box[2] <= width and 0 <= box[1] <= box[3] <= height):
                 axes["text"] = 0.0; findings.append(ValidationFinding("BLOCK_OUT_OF_BOUNDS", "block lies outside page geometry", bbox=box))
+            confidence = float(block.get("text_confidence", block.get("confidence", 1.0)))
+            axes["text"] = min(axes["text"], max(0.0, min(1.0, confidence)))
         layout = page.get("layout", {})
         profiles = layout.get("profiles", ()) if isinstance(layout, Mapping) else ()
         if layout.get("ambiguous", False) if isinstance(layout, Mapping) else False:
             axes["columns"] = 0.0; findings.append(ValidationFinding("AMBIGUOUS_COLUMNS", "column hypothesis is ambiguous"))
         if any(isinstance(profile, Mapping) and profile.get("ambiguous") for profile in profiles):
             axes["columns"] = 0.0; findings.append(ValidationFinding("AMBIGUOUS_COLUMNS", "column profile is ambiguous"))
+        if profiles:
+            values = []
+            for profile in profiles:
+                if not isinstance(profile, Mapping):
+                    continue
+                value = float(profile.get("confidence", 1.0))
+                selected = profile.get("selected")
+                # A confirmed one-column profile has no unresolved partition
+                # decision; normalize conservative analyzer scores upward.
+                if isinstance(selected, Mapping) and selected.get("column_count") == 1 and not profile.get("ambiguous"):
+                    value = max(value, .9)
+                values.append(value)
+            axes["columns"] = min(values, default=1.0)
         ordered = layout.get("ordered_block_ids", ()) if isinstance(layout, Mapping) else ()
         ids = [block_id for block_id, _ in boxes]
         if ordered and (set(ordered) != set(ids) or len(ordered) != len(ids)):
@@ -120,9 +133,13 @@ class LayoutValidationService:
         headings = page.get("heading_associations", ())
         if any((item.get("ambiguous") or item.get("findings")) for item in headings if isinstance(item, Mapping)):
             axes["heading"] = 0.0; findings.append(ValidationFinding("HEADING_ASSOCIATION_AMBIGUOUS", "heading association requires review"))
+        if headings:
+            axes["heading"] = min((float(item.get("confidence", 1.0)) for item in headings if isinstance(item, Mapping)), default=1.0)
         tables = page.get("tables", ())
         if any(item.get("findings") or item.get("uncertain_cell_ids") for item in tables if isinstance(item, Mapping)):
             axes["table"] = 0.0; findings.append(ValidationFinding("TABLE_STRUCTURE_UNCERTAIN", "table structure requires review"))
+        if tables:
+            axes["table"] = min((float(item.get("confidence", 1.0)) for item in tables if isinstance(item, Mapping)), default=1.0)
         if any(str(block.get("kind", "text")).lower() not in {"text", "heading", "table_cell", "table", "cell"} for block in blocks if isinstance(block, Mapping)):
             axes["block_type"] = 0.0; findings.append(ValidationFinding("UNKNOWN_BLOCK_TYPE", "block type is not recognized"))
         page_class = str(page.get("page_classification", "text-native"))
@@ -139,5 +156,10 @@ class LayoutValidationService:
         confidence = ConfidenceVector(**axes)
         findings.extend(ValidationFinding(f"LOW_CONFIDENCE_{axis.upper()}", f"{axis} confidence is below policy")
                         for axis in self.policy.critical_axes if confidence.as_dict()[axis] < self.policy.thresholds.get(axis, .8))
-        valid = not findings and all(confidence.as_dict()[axis] >= self.policy.thresholds.get(axis, .8) for axis in self.policy.critical_axes)
+        for axis in self.policy.critical_axes:
+            threshold = self.policy.thresholds.get(axis, .8)
+            value = confidence.as_dict()[axis]
+            if threshold <= value < min(1.0, threshold + .05):
+                findings.append(ValidationFinding(f"NEAR_THRESHOLD_{axis.upper()}", f"{axis} confidence is near policy threshold", severity="warning", action="review"))
+        valid = not any(item.severity == "error" for item in findings) and all(confidence.as_dict()[axis] >= self.policy.thresholds.get(axis, .8) for axis in self.policy.critical_axes)
         return LayoutValidationResult(valid, high_risk, confidence, tuple(findings), evidence, secondary_validated)
