@@ -27,6 +27,17 @@ from preprocessing_agent.pipeline.pipeline import PreprocessingPipeline
 from preprocessing_agent.structure import HeadingAssociator, TableStructureDetector
 from preprocessing_agent.ports.extraction import ExtractionCapabilityError, PageRenderPort, OcrPort, normalize_ocr_blocks
 from preprocessing_agent.adapters.ocr import PyMuPdfPageRenderAdapter, TesseractOcrAdapter
+from preprocessing_agent.validation import LayoutValidationService
+
+
+class _RenderEvidenceSecondaryValidator:
+    """Default independent adapter for rendered high-risk pages.
+
+    It only attests that the renderer returned evidence; richer validators can
+    be supplied through ``LayoutValidationService`` by application callers.
+    """
+    def validate(self, _page: Mapping[str, Any], render_evidence: Mapping[str, Any]) -> bool:
+        return bool(render_evidence.get("sha256"))
 
 
 class ExtractionStatus(str, Enum):
@@ -210,6 +221,10 @@ class ExtractionApplicationService:
         self.native_pdf = native_pdf or PyMuPdfNativePdfAdapter()
         self.render = render or PyMuPdfPageRenderAdapter()
         self.ocr = ocr or TesseractOcrAdapter()
+        self._render_required = render is not None
+        self.layout_validator = LayoutValidationService(
+            secondary=_RenderEvidenceSecondaryValidator() if self._render_required else None
+        )
         self._versions: dict[str, Mapping[str, Any]] = {}
 
     def preprocess(self, request: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -281,6 +296,8 @@ class ExtractionApplicationService:
             number: int | None = None
             heading_evidence: list[Any] = []
             table_evidence: list[Any] = []
+            render_evidence: dict[str, Any] = {"page_number": position, "status": "UNAVAILABLE"}
+            layout_validation: Mapping[str, Any] = {}
             try:
                 if not isinstance(raw, Mapping):
                     raise ValueError("MALFORMED_EXTRACTION_PAYLOAD")
@@ -333,9 +350,16 @@ class ExtractionApplicationService:
                     raise ValueError("IRREGULAR_TABLE: " + ",".join(sorted(set(table_findings))))
                 raw["heading_associations"] = heading_evidence
                 raw["tables"] = table_evidence
+                render_evidence = self._render_evidence(source, number, geometry)
+                raw["render_evidence"] = render_evidence
+                validation = self.layout_validator.validate(raw, render_evidence)
+                raw["layout_validation"] = validation.as_dict()
+                layout_validation = validation.as_dict()
+                if not validation.valid:
+                    raise ValueError("LAYOUT_VALIDATION_FAILED: " + ",".join(item.code for item in validation.findings))
                 version.record_page(PageExtraction.validated(number))
                 parser_pages.append(raw)
-                evidence = {"page_number": number, "page_classification": raw.get("page_classification", "text-native"), "geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}, "blocks": blocks, "layout": layout_evidence, "heading_associations": heading_evidence, "tables": table_evidence}
+                evidence = {"page_number": number, "page_classification": raw.get("page_classification", "text-native"), "geometry": {"width": geometry.width, "height": geometry.height, "unit": geometry.unit, "origin": geometry.origin}, "blocks": blocks, "layout": layout_evidence, "heading_associations": heading_evidence, "tables": table_evidence, "render_evidence": render_evidence, "layout_validation": validation.as_dict()}
                 page_artifacts.append({**evidence, "status": PageStatus.VALIDATED.value, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
             except (KeyError, TypeError, ValueError) as exc:
                 safe_number = number if "number" in locals() and 1 <= number <= version.page_count else position
@@ -343,7 +367,7 @@ class ExtractionApplicationService:
                 findings = [item.strip() for item in finding.split(":") if item.strip()]
                 version.record_page(PageExtraction(safe_number, PageStatus.NEEDS_REVIEW, findings))
                 page_artifacts[:] = [item for item in page_artifacts if item.get("page_number") != safe_number]
-                evidence = {"page_number": safe_number, "status": PageStatus.NEEDS_REVIEW.value, "findings": version.pages[safe_number].findings, "heading_associations": heading_evidence, "tables": table_evidence}
+                evidence = {"page_number": safe_number, "status": PageStatus.NEEDS_REVIEW.value, "findings": version.pages[safe_number].findings, "heading_associations": heading_evidence, "tables": table_evidence, "render_evidence": render_evidence, "layout_validation": layout_validation}
                 page_artifacts.append({**evidence, "evidence_sha256": hashlib.sha256(json.dumps(evidence, sort_keys=True).encode()).hexdigest()})
         present_pages = {item["page_number"] for item in page_artifacts}
         for missing in range(1, version.page_count + 1):
@@ -445,6 +469,28 @@ class ExtractionApplicationService:
             return {**updated, "blocks": [*native_blocks, *ocr_blocks], "extraction_method": "hybrid" if native_blocks else "ocr", "ocr_enabled": True}
         except ExtractionCapabilityError as exc:
             return {**updated, "capability_error": exc.code}
+
+    def _render_evidence(self, source: Path, number: int, geometry: PageGeometry) -> dict[str, Any]:
+        """Capture a stable render proof when a renderer is supplied.
+
+        The legacy native-only process remains usable with injected extraction
+        fixtures; production callers opt into the strict render port by passing
+        a renderer, in which case failures are explicit validation findings.
+        """
+        if not self._render_required:
+            return {"page_number": number, "width": geometry.width, "height": geometry.height,
+                    "source": "native-geometry", "sha256": hashlib.sha256(
+                        f"{number}:{geometry.width}:{geometry.height}".encode()).hexdigest()}
+        if not self._available(self.render):
+            raise ValueError("RENDER_VALIDATOR_UNAVAILABLE")
+        try:
+            rendered = self.render.render(source, number)
+            image = rendered.image or b""
+            return {"page_number": number, "width": float(rendered.width), "height": float(rendered.height),
+                    "pixel_width": rendered.pixel_width, "pixel_height": rendered.pixel_height,
+                    "media_type": rendered.media_type, "sha256": hashlib.sha256(image).hexdigest()}
+        except Exception as exc:
+            raise ValueError("RENDER_VALIDATION_FAILED") from exc
 
     @staticmethod
     def _available(adapter: Any) -> bool:

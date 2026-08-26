@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "preprocessing-agent/layout-validation",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["valid", "high_risk", "confidence", "findings", "render_evidence", "secondary_validated"],
+  "properties": {
+    "valid": {"type": "boolean"},
+    "high_risk": {"type": "boolean"},
+    "secondary_validated": {"type": "boolean"},
+    "confidence": {"type": "object", "additionalProperties": false,
+      "required": ["text", "block_type", "columns", "order", "heading", "table"],
+      "properties": {
+        "text": {"type": "number", "minimum": 0, "maximum": 1},
+        "block_type": {"type": "number", "minimum": 0, "maximum": 1},
+        "columns": {"type": "number", "minimum": 0, "maximum": 1},
+        "order": {"type": "number", "minimum": 0, "maximum": 1},
+        "heading": {"type": "number", "minimum": 0, "maximum": 1},
+        "table": {"type": "number", "minimum": 0, "maximum": 1}
+      }},
+    "findings": {"type": "array", "items": {"type": "object", "required": ["code", "message"],
+      "properties": {"code": {"type": "string"}, "message": {"type": "string"}, "severity": {"type": "string"}, "action": {"type": "string"}, "bbox": {"type": ["array", "null"]}}, "additionalProperties": false}},
+    "render_evidence": {"type": "object"}
+  }
+}

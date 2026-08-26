@@ -1,6 +1,6 @@
 # RAG-012 Layout Validation Publication Gate
 
-- 상태: `planned`
+- 상태: `completed`
 - 의존성: RAG-010, RAG-011
 - Product Spec: UC-05, UC-07; BR-13 ~ BR-16, BR-19
 - Architecture Spec: Sections 3.6 ~ 3.8, 7, 11
