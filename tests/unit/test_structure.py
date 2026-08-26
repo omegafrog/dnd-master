@@ -47,3 +47,14 @@ def test_heading_detection_does_not_promote_numeric_table_values_or_page_numbers
     detector = HeadingDetector()
     assert detector.detect(parsed.pages[0].blocks[0]).is_heading is False
     assert detector.detect(parsed.pages[0].blocks[1]).is_heading is False
+
+
+def test_large_stat_block_title_remains_confident_with_separator_text():
+    parsed = PdfDocumentParser(lambda _: [{"blocks": [
+        {"text": "Giant Inferno Spider\nLarge Monstrosity, Unaligned\n-----", "bbox": [39, 40, 280, 122], "font_size": 14},
+    ]}]).parse(Path("fixture.pdf"))
+
+    decision = HeadingDetector().detect(parsed.pages[0].blocks[0])
+
+    assert decision.is_heading is True
+    assert decision.confidence >= 0.8
