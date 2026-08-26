@@ -46,7 +46,7 @@
       "required": ["cell_id", "row_index", "column_index", "text", "bbox", "row_span", "column_span", "merged", "uncertain", "source_block_ids"],
       "properties": {"cell_id": {"type": "string"}, "row_index": {"type": "integer", "minimum": 0}, "column_index": {"type": "integer", "minimum": 0}, "text": {"type": "string"}, "bbox": {"$ref": "#/$defs/bbox"}, "row_span": {"type": "integer", "minimum": 1}, "column_span": {"type": "integer", "minimum": 1}, "merged": {"type": "boolean"}, "uncertain": {"type": "boolean"}, "source_block_ids": {"type": "array", "items": {"type": "string"}}}
     },
-    "row": {"type": "object", "additionalProperties": false, "required": ["row_index", "cells", "header"], "properties": {"row_index": {"type": "integer"}, "cells": {"type": "array", "items": {"$ref": "#/$defs/cell"}}, "header": {"type": "boolean"}}},
+    "row": {"type": "object", "additionalProperties": false, "required": ["row_index", "cells", "header"], "properties": {"row_index": {"type": "integer", "minimum": 0}, "cells": {"type": "array", "items": {"$ref": "#/$defs/cell"}}, "header": {"type": "boolean"}}},
     "table": {
       "type": "object", "additionalProperties": false,
       "required": ["table_id", "bbox", "header_rows", "rows", "cells", "merged_cell_ids", "uncertain_cell_ids", "findings", "confidence"],

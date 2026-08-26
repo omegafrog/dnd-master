@@ -67,3 +67,15 @@ def test_heading_and_table_contracts_round_trip_through_json_schema():
     for name, value in (("heading-association.schema.json", association), ("heading-table.schema.json", table)):
         schema = __import__("json").loads((Path("schemas") / name).read_text())
         jsonschema.Draft202012Validator(schema).validate(to_dict(value))
+
+
+def test_table_schema_rejects_negative_row_index():
+    jsonschema = __import__("jsonschema")
+    from pathlib import Path
+    schema = __import__("json").loads((Path("schemas") / "heading-table.schema.json").read_text())
+    invalid = {"table_id": "t", "bbox": {"x0": 0, "y0": 0, "x1": 10, "y1": 10}, "header_rows": [], "rows": [{"row_index": -1, "cells": [], "header": False}], "cells": [], "merged_cell_ids": [], "uncertain_cell_ids": [], "findings": [], "confidence": 1}
+    try:
+        jsonschema.Draft202012Validator(schema).validate(invalid)
+    except jsonschema.ValidationError:
+        return
+    raise AssertionError("negative row index should be rejected")
