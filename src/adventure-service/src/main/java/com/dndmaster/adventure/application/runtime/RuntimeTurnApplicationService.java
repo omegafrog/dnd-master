@@ -40,6 +40,7 @@ public class RuntimeTurnApplicationService {
     private final RuntimeTurnCompactionCoordinator compactionCoordinator;
     private final GmContextResumePromptProvider resumePromptProvider;
     private final GmProviderBindingRepository providerBindingRepository;
+    private final TacticalScenePreparationApplicationService tacticalPreparation;
 
     public RuntimeTurnApplicationService(
             AdventureRepository adventureRepository,
@@ -94,6 +95,26 @@ public class RuntimeTurnApplicationService {
             AdventureStoryPlanRepository storyPlanRepository, StoryContinuityContextProvider continuityContextProvider,
             RuntimeTurnCompactionCoordinator compactionCoordinator, GmContextResumePromptProvider resumePromptProvider,
             GmProviderBindingRepository providerBindingRepository) {
+        this(adventureRepository, bindingRepository, scenarioPackageRepository, runtimeTurnRepository, evidenceSearchPort,
+                planningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
+                compactionCoordinator, resumePromptProvider, providerBindingRepository, null);
+    }
+
+    public RuntimeTurnApplicationService(
+            AdventureRepository adventureRepository,
+            RuntimeBindingRepository bindingRepository,
+            ScenarioPackageRepository scenarioPackageRepository,
+            RuntimeTurnRepository runtimeTurnRepository,
+            RuntimeEvidenceSearchPort evidenceSearchPort,
+            RuntimePlanningPort planningPort,
+            NarrationSafetyPort narrationSafetyPort,
+            SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
+            AdventureStoryPlanRepository storyPlanRepository,
+            StoryContinuityContextProvider continuityContextProvider,
+            RuntimeTurnCompactionCoordinator compactionCoordinator,
+            GmContextResumePromptProvider resumePromptProvider,
+            GmProviderBindingRepository providerBindingRepository,
+            TacticalScenePreparationApplicationService tacticalPreparation) {
         this.adventureRepository = Objects.requireNonNull(adventureRepository, "adventure repository must not be null");
         this.bindingRepository = Objects.requireNonNull(bindingRepository, "binding repository must not be null");
         this.scenarioPackageRepository = Objects.requireNonNull(scenarioPackageRepository, "scenario package repository must not be null");
@@ -109,6 +130,7 @@ public class RuntimeTurnApplicationService {
         this.compactionCoordinator = compactionCoordinator;
         this.resumePromptProvider = resumePromptProvider;
         this.providerBindingRepository = providerBindingRepository;
+        this.tacticalPreparation = tacticalPreparation;
     }
 
     @Transactional
@@ -176,7 +198,7 @@ public class RuntimeTurnApplicationService {
         if (!safety.approved()) {
             throw new IllegalStateException("narration safety rejected: " + safety.reason());
         }
-        advanceStoryPlanIfRequested(adventure.sessionId(), plan);
+        advanceStoryPlanIfRequested(command.ownerPlayerId(), adventure.sessionId(), plan);
 
         ActiveSourceContext activeSourceContext = plan.proposedActiveSourceContext() != null
                 ? plan.proposedActiveSourceContext()
@@ -343,7 +365,7 @@ public class RuntimeTurnApplicationService {
                 .map(AdventureStoryPlanRuntimeContext::format).orElse("");
     }
 
-    private void advanceStoryPlanIfRequested(com.dndmaster.adventure.domain.adventure.SessionId sessionId, RuntimePlan plan) {
+    private void advanceStoryPlanIfRequested(OwnerPlayerId owner, com.dndmaster.adventure.domain.adventure.SessionId sessionId, RuntimePlan plan) {
         if (!plan.advanceStoryPlan() || storyPlanRepository == null) return;
         storyPlanRepository.findBySessionId(sessionId).ifPresent(current -> {
             if (current.stages().isEmpty() || current.currentStage() >= current.stages().size() - 1) return;
@@ -361,7 +383,10 @@ public class RuntimeTurnApplicationService {
                             .map(candidate -> candidate.position() - 1).findFirst().orElse(target);
                 }
             }
-            if (target > current.currentStage() && target < current.stages().size()) storyPlanRepository.save(current.advanceTo(target));
+            if (target > current.currentStage() && target < current.stages().size()) {
+                storyPlanRepository.save(current.advanceTo(target));
+                if (tacticalPreparation != null) tacticalPreparation.prepare(sessionId, owner);
+            }
         });
     }
 

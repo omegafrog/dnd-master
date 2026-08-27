@@ -126,9 +126,9 @@ public final class AdventureStoryPlanController {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "only the current stage may be prepared");
             }
             var preparation = tacticalPreparation.prepare(new SessionId(sessionId), owner());
-            if (preparation.status() != TacticalScenePreparationApplicationService.Status.COMPLETE) {
+            if (preparation.state() != com.dndmaster.adventure.application.runtime.TacticalPreparationState.READY) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        preparation.message() + " 사유: " + preparation.failureReason());
+                        preparation.message());
             }
             plan = service.read(new SessionId(sessionId), owner());
             stage = plan.stages().stream().filter(item -> item.position() == position).findFirst().orElseThrow();
@@ -153,6 +153,16 @@ public final class AdventureStoryPlanController {
     TacticalPreparationView readTacticalScenePreparation(@PathVariable UUID sessionId, @PathVariable int position) {
         if (tacticalPreparation == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "tactical preparation is unavailable");
         return TacticalPreparationView.from(tacticalPreparation.read(new SessionId(sessionId), owner(), position));
+    }
+
+    @GetMapping("/stages/{position}/tactical-scene/prepare/diagnostics")
+    TacticalPreparationDiagnosticsView readTacticalSceneDiagnostics(@PathVariable UUID sessionId, @PathVariable int position,
+            @RequestHeader(value = "X-Internal-Token", required = false) String internalToken) {
+        requestGuard.internal(internalToken);
+        if (tacticalPreparation == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "tactical preparation is unavailable");
+        var diagnostics = tacticalPreparation.readDiagnostics(new SessionId(sessionId), owner(), position);
+        return new TacticalPreparationDiagnosticsView(diagnostics.jobStatus(), diagnostics.failureReason(),
+                diagnostics.sceneStatus(), diagnostics.mapActivationAllowed(), diagnostics.updatedAt());
     }
 
     @PostMapping("/stages/{position}/tactical-scene/retry")
@@ -210,9 +220,11 @@ public final class AdventureStoryPlanController {
             int progress, int attempts, boolean mapRequired, String message, String failureReason, java.time.Instant updatedAt) {
         static TacticalPreparationView from(TacticalScenePreparationApplicationService.PreparationView view) {
             return new TacticalPreparationView(view.jobId(), view.sessionId(), view.stagePosition(), view.stageName(),
-                    view.status().name(), view.progress(), view.attempts(), view.mapRequired(), view.message(), view.failureReason(), view.updatedAt());
+                    view.state().name(), view.progress(), view.attempts(), view.mapRequired(), view.message(), null, view.updatedAt());
         }
     }
+    public record TacticalPreparationDiagnosticsView(String jobStatus, String failureReason, String sceneStatus,
+            boolean mapActivationAllowed, java.time.Instant updatedAt) {}
     public record TriggerApplicationRequest(UUID combatMapId, UUID commandId, long expectedVersion, String qualifyingAction) {
         public TriggerApplicationRequest(UUID combatMapId, UUID commandId, long expectedVersion) {
             this(combatMapId, commandId, expectedVersion, null);

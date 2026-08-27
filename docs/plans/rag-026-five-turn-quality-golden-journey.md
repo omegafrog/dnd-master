@@ -1,6 +1,6 @@
 # RAG-026: 새 발행 기반 5턴 모험 품질 여정
 
-- 상태: `planned`
+- 상태: `ready-for-agent`
 - 의존성: RAG-020, RAG-021, RAG-022, RAG-023, RAG-024, RAG-025
 - Product Spec: UC-QUALITY-001, BR-QUALITY-001, AC-GM-001~004, AC-PROVIDER-001, AC-QUALITY-001~002
 - Architecture Spec: Sections 9.2~9.4, 11.2~11.7

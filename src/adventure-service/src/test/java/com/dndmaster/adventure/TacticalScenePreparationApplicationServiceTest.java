@@ -38,14 +38,16 @@ class TacticalScenePreparationApplicationServiceTest {
         AdventureStoryPlanStage future = stage(2);
         AdventureStoryPlan plan = AdventureStoryPlan.ready(UUID.randomUUID(), sessionId, 1, 1, 1, List.of(current, future));
         TacticalScenePlan ready = mock(TacticalScenePlan.class);
+        AdventureStoryPlan preparedPlan = plan.prepareCurrentStage(current.withTacticalScenePlan(ready));
         when(session.ownerPlayerId()).thenReturn(owner);
         when(session.status()).thenReturn(AdventureSession.Status.STARTED);
         when(session.party()).thenReturn(List.of());
         when(sessions.findById(sessionId)).thenReturn(Optional.of(session));
-        when(plans.findBySessionId(sessionId)).thenReturn(Optional.of(plan));
+        when(plans.findBySessionId(sessionId)).thenReturn(Optional.of(plan), Optional.of(preparedPlan));
         when(generator.generateTacticalScene(any())).thenReturn(new TacticalScenePlanCandidate(1, ready, List.of()));
         when(validator.validate(any(), any())).thenReturn(List.of());
         when(ready.readyForActivation()).thenReturn(true);
+        when(ready.status()).thenReturn(com.dndmaster.adventure.domain.adventure.TacticalScenePlanStatus.READY);
 
         var service = new TacticalScenePreparationApplicationService(plans, sessions, generator, validator);
         var first = service.prepare(sessionId, owner);
@@ -84,10 +86,53 @@ class TacticalScenePreparationApplicationServiceTest {
         verify(plans, never()).save(any());
     }
 
+    @Test
+    void retries_only_after_an_explicit_retry_and_keeps_the_same_job() {
+        SessionId sessionId = new SessionId(UUID.randomUUID());
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        AdventureSession session = mock(AdventureSession.class);
+        AdventureStoryPlanRepository plans = mock(AdventureStoryPlanRepository.class);
+        AdventureSessionRepository sessions = mock(AdventureSessionRepository.class);
+        AdventureStoryPlanGenerationPort generator = mock(AdventureStoryPlanGenerationPort.class);
+        TacticalScenePlanValidator validator = mock(TacticalScenePlanValidator.class);
+        AdventureStoryPlanStage current = stage(1);
+        AdventureStoryPlan plan = AdventureStoryPlan.ready(UUID.randomUUID(), sessionId, 1, 1, 1, List.of(current, stage(2)));
+        TacticalScenePlan ready = mock(TacticalScenePlan.class);
+        AdventureStoryPlan preparedPlan = plan.prepareCurrentStage(current.withTacticalScenePlan(ready));
+        when(session.ownerPlayerId()).thenReturn(owner);
+        when(session.status()).thenReturn(AdventureSession.Status.STARTED);
+        when(session.party()).thenReturn(List.of());
+        when(sessions.findById(sessionId)).thenReturn(Optional.of(session));
+        when(plans.findBySessionId(sessionId)).thenReturn(Optional.of(plan), Optional.of(plan), Optional.of(plan),
+                Optional.of(plan), Optional.of(plan), Optional.of(preparedPlan));
+        when(generator.generateTacticalScene(any())).thenReturn(TacticalScenePlanCandidate.absent(1),
+                TacticalScenePlanCandidate.absent(1), TacticalScenePlanCandidate.absent(1),
+                new TacticalScenePlanCandidate(1, ready, List.of()));
+        when(validator.validate(any(), any())).thenReturn(List.of("temporary failure"), List.of("temporary failure"),
+                List.of("temporary failure"), List.of());
+        when(ready.readyForActivation()).thenReturn(true);
+        when(ready.status()).thenReturn(com.dndmaster.adventure.domain.adventure.TacticalScenePlanStatus.READY);
+
+        var service = new TacticalScenePreparationApplicationService(plans, sessions, generator, validator);
+        var failed = service.prepare(sessionId, owner);
+        var retried = service.retry(sessionId, owner);
+
+        assertEquals(com.dndmaster.adventure.application.runtime.TacticalPreparationState.FAILED_RETRYABLE, failed.state());
+        assertEquals(com.dndmaster.adventure.application.runtime.TacticalPreparationState.READY, retried.state());
+        assertEquals(failed.jobId(), retried.jobId());
+        verify(generator, org.mockito.Mockito.times(4)).generateTacticalScene(any());
+        verify(plans).save(any());
+    }
+
     private static AdventureStoryPlanStage stage(int position) {
-        return new AdventureStoryPlanStage(position, "Stage " + position, "goal", "conflict", "exit", List.of(), List.of(),
+        var stage = new AdventureStoryPlanStage(position, "Stage " + position, "goal", "conflict", "exit", List.of(), List.of(),
                 List.of(), com.dndmaster.adventure.domain.adventure.AdventureStageType.DUNGEON, "location", UUID.randomUUID(),
                 "asset", "locator", List.of(), "", "clear", "fail", List.of(), List.of(), List.of(),
                 com.dndmaster.adventure.domain.adventure.AdventureGroundingStatus.GROUNDED, List.of(), "SAFE", 1.0);
+        return stage.withCombat(com.dndmaster.adventure.domain.adventure.CombatRequirement.REQUIRED,
+                new com.dndmaster.adventure.domain.adventure.CombatSkeleton("defeat the enemy", "enter", List.of(
+                        com.dndmaster.adventure.domain.adventure.CombatParticipant.enemy("enemy", "enemy", 1, 1, List.of())),
+                        "victory", "retreat", List.of()), List.of(),
+                com.dndmaster.adventure.domain.adventure.TacticalPreparationRequirement.REQUIRED);
     }
 }

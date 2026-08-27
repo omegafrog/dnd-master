@@ -1,6 +1,6 @@
 # RAG-025: 현재 단계 지연 전술 준비 상태
 
-- 상태: `planned`
+- 상태: `completed`
 - 의존성: RAG-023, RAG-024
 - Product Spec: UC-COMBAT-002, BR-COMBAT-005~007, AC-COMBAT-005~006
 - Architecture Spec: Sections 3.3~3.8, 4.2~4.9, 5.10, 6.1~6.7, 11.1, 11.4~11.5
