@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanCombatValidator;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionViolation;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import com.dndmaster.adventure.domain.adventure.AdventureStageType;
 import com.dndmaster.adventure.domain.adventure.AdventureGroundingStatus;
@@ -70,6 +71,31 @@ class AdventureStoryPlanCombatValidatorTest {
         var violations = new AdventureStoryPlanCombatValidator().validate(stage, List.of());
 
         assertEquals("COMBAT_REQUIREMENT_MISMATCH", violations.getFirst().code());
+        assertEquals(AdventureStoryPlanProjectionViolation.Repairability.REGENERATE_REQUIRED,
+                violations.getFirst().repairability());
+    }
+
+    @Test
+    void participant_grounding_mismatch_requires_full_regeneration() {
+        UUID storybook = UUID.randomUUID();
+        var citation = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "STORYBOOK", storybook, 1, "page:3", "The cellar contains two giant rats.", .9)
+                .withCitationKey("rat-fact");
+        var participant = new CombatParticipant("goblin", CombatParticipant.Role.ENEMY,
+                "goblin", 1, 1, List.of("rat-fact"));
+        var skeleton = new CombatSkeleton("Drive the enemy from the cellar", "When the party enters",
+                List.of(participant), "The enemy is defeated", "The party retreats", List.of());
+        var stage = stage().withCombat(CombatRequirement.REQUIRED, skeleton, List.of(),
+                TacticalPreparationRequirement.NOT_REQUIRED).withEvidence(List.of(
+                        new com.dndmaster.adventure.domain.adventure.AdventurePlanEvidence(
+                                "STORYBOOK", storybook, 1, "page:3", citation.quote(), .9,
+                                citation.provenance(), "rat-fact")));
+
+        var violations = new AdventureStoryPlanCombatValidator().validate(stage, List.of(citation));
+
+        assertTrue(violations.stream().anyMatch(v ->
+                v.code().equals("COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED")
+                        && v.repairability() == AdventureStoryPlanProjectionViolation.Repairability.REGENERATE_REQUIRED));
     }
 
     @Test

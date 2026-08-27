@@ -182,6 +182,19 @@ public final class AdventureStoryPlanCombatValidator {
             String field, String rejected, String message) {
         return new AdventureStoryPlanProjectionViolation(code, stage.position(),
                 "stages[" + Math.max(0, stage.position() - 1) + "]." + field, rejected, "authoritative field evidence",
-                AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE, message);
+                requiresRegeneration(code)
+                        ? AdventureStoryPlanProjectionViolation.Repairability.REGENERATE_REQUIRED
+                        : AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE, message);
+    }
+
+    private static boolean requiresRegeneration(String code) {
+        return code.equals("SOURCE_FACT_CLAIM_FIELD_INVALID")
+                || code.equals("SOURCE_FACT_CLAIM_UNBOUND")
+                || code.equals("SOURCE_FACT_CLAIM_UNKNOWN_CITATION")
+                || code.equals("SOURCE_FACT_CLAIM_UNSUPPORTED")
+                || code.equals("COMBAT_REQUIREMENT_MISMATCH")
+                || code.equals("COMBAT_PARTICIPANT_SOURCE_REQUIRED")
+                || code.equals("COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED")
+                || code.equals("COMBAT_PARTICIPANT_COUNT_UNSUPPORTED");
     }
 }
