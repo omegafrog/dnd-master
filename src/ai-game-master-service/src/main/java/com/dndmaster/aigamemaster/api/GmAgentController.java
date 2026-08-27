@@ -2,6 +2,11 @@ package com.dndmaster.aigamemaster.api;
 
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmProviderRequest;
+import com.dndmaster.aigamemaster.infrastructure.ai.EffectiveGmProviderSelection;
+import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionResult;
+import com.dndmaster.aigamemaster.infrastructure.ai.GmProviderSelectionUnresolvedException;
+import com.dndmaster.aigamemaster.infrastructure.ai.RequestedGmProviderSelection;
+import com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.UUID;
@@ -23,6 +28,31 @@ public final class GmAgentController {
         this.adapter = adapter;
         this.mapper = mapper;
         this.requestGuard = requestGuard;
+    }
+
+    @PostMapping("/internal/v2/gm/agent-turns")
+    V2Response planV2(@RequestHeader(value = "X-Internal-Token", required = false) String token,
+                      @RequestBody V2Request request) {
+        requestGuard.internal(token);
+        if (request == null || request.action() == null || request.action().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "action required");
+        }
+        if (request.requestedSelection() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "requestedSelection required");
+        }
+        try {
+            GmCompletionResult<Response> completion = adapter.completeWithSelection(
+                    request.operationKey(), prompt(request.toLegacyRequest()), this::parseCompleteResponse,
+                    request.requestedSelection());
+            return new V2Response(completion.response(), RequestedSelection.from(request.requestedSelection()),
+                    EffectiveSelection.from(completion.effectiveSelection()), 1);
+        } catch (GmProviderSelectionUnresolvedException unresolved) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, unresolved.code());
+        } catch (ProviderMalformedResponseException malformed) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "GM provider unavailable", malformed);
+        } catch (RuntimeException providerFailure) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "GM provider unavailable", providerFailure);
+        }
     }
 
     @PostMapping("/internal/v1/gm/agent-turns")
@@ -292,6 +322,36 @@ public final class GmAgentController {
                           List<?> storybook, List<?> rulebook, List<?> resolution, List<String> recentTurns,
                           List<String> characterSnapshots, String storyPlanContext, String provider, String model,
                           String reasoning) {}
+
+    public record V2Request(String operationKey, UUID adventureId, UUID ownerPlayerId, UUID sessionId, UUID turnId,
+                            UUID scenarioPackageId, long bindingVersion, String turnCapability, String action,
+                            String currentScene, String npcState, String pendingAction, String latestJudgment,
+                            List<?> storybook, List<?> rulebook, List<?> resolution, List<String> recentTurns,
+                            List<String> characterSnapshots, String storyPlanContext,
+                            RequestedGmProviderSelection requestedSelection) {
+        Request toLegacyRequest() {
+            return new Request(operationKey, adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId,
+                    bindingVersion, turnCapability, action, currentScene, npcState, pendingAction, latestJudgment,
+                    storybook, rulebook, resolution, recentTurns, characterSnapshots, storyPlanContext,
+                    requestedSelection.provider(), requestedSelection.model(), requestedSelection.reasoning());
+        }
+    }
+
+    public record V2Response(Response candidate, RequestedSelection requestedSelection,
+                             EffectiveSelection effectiveSelection, int attemptCount) {}
+
+    public record RequestedSelection(UUID endpointId, String provider, String model, String reasoning) {
+        static RequestedSelection from(RequestedGmProviderSelection value) {
+            return new RequestedSelection(value.endpointId(), value.provider(), value.model(), value.reasoning());
+        }
+    }
+
+    public record EffectiveSelection(UUID endpointId, java.time.Instant endpointVersion,
+                                     String provider, String model, String reasoning) {
+        static EffectiveSelection from(EffectiveGmProviderSelection value) {
+            return new EffectiveSelection(value.endpointId(), value.endpointVersion(), value.provider(), value.model(), value.reasoning());
+        }
+    }
     public record CompanionCandidateRequest(UUID sessionId, String provider, String model, String reasoning) {}
     public record CompanionCandidateResponse(String name, String race, String characterClass, String sheetSummary) {}
 

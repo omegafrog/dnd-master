@@ -4,6 +4,12 @@ package com.dndmaster.aigamemaster.infrastructure.ai;
 public interface GmCompletionAdapter {
     <T> T complete(String operationId, String prompt, StructuredResponseParser<T> parser);
 
+    default <T> GmCompletionResult<T> completeWithSelection(
+            String operationId, String prompt, StructuredResponseParser<T> parser,
+            RequestedGmProviderSelection requested) {
+        throw new UnsupportedOperationException("provider selection is not supported by this adapter");
+    }
+
     default <T> T complete(String operationId, String prompt, StructuredResponseParser<T> parser,
                             GmProviderRequest provider) {
         return complete(operationId, prompt, parser);

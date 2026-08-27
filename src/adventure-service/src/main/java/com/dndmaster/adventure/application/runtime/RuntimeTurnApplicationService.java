@@ -165,7 +165,8 @@ public class RuntimeTurnApplicationService {
                 adventure.currentContext(), binding.activeSourceContext(), command.action(), evidencePack,
                 adventure.conversation().stream().map(entry -> entry.speaker() + ": " + entry.content()).toList(),
                 adventure.party().stream().map(member -> member.characterSheetId().value() + " control=" + member.controlMode()).toList(),
-                storyPlanContext(adventure), providerSelection(adventure.sessionId().value(), "provider"),
+                storyPlanContext(adventure), providerEndpointId(adventure.sessionId().value()),
+                providerSelection(adventure.sessionId().value(), "provider"),
                 providerSelection(adventure.sessionId().value(), "model"),
                 providerSelection(adventure.sessionId().value(), "reasoning")));
         NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
@@ -248,6 +249,12 @@ public class RuntimeTurnApplicationService {
             case "reasoning" -> blankOrDefault(binding.selection().reasoning(), field);
             default -> "";
         };
+    }
+
+    private UUID providerEndpointId(UUID sessionId) {
+        if (providerBindingRepository == null) return null;
+        ProviderBinding binding = providerBindingRepository.current(sessionId).orElse(null);
+        return binding == null ? null : binding.selection().endpointId();
     }
 
     private static String blankOrDefault(String value, String field) {

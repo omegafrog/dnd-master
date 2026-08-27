@@ -7,9 +7,12 @@ import java.net.http.HttpClient;
 import java.util.Objects;
 import java.nio.file.Path;
 import java.time.Duration;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Routes each turn to the provider locked on its session binding. */
 public final class GmCompletionRouter implements GmCompletionAdapter {
+    private static final Logger LOGGER = LoggerFactory.getLogger(GmCompletionRouter.class);
     private final SpringAiChatAdapter ollama;
     private final GmProviderProperties defaults;
     private final AgentEndpointRegistry endpointRegistry;
@@ -17,6 +20,7 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
     private final Path codexWorkDirectory;
     private final Duration codexTimeout;
     private final CodexAppServerClient codexAppServer;
+    private final GmProviderSelectionResolver selectionResolver;
 
     public GmCompletionRouter(SpringAiChatAdapter ollama, GmProviderProperties defaults) {
         this(ollama, defaults, null);
@@ -33,6 +37,7 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
         this.codexWorkDirectory = codexWorkDirectory;
         this.codexTimeout = codexTimeout;
         this.codexAppServer = CodexAppServerClient.shared(codexExecutable, codexWorkDirectory, codexTimeout, new com.fasterxml.jackson.databind.ObjectMapper());
+        this.selectionResolver = endpointRegistry == null ? null : new GmProviderSelectionResolver(endpointRegistry);
     }
 
     @Override
@@ -61,4 +66,35 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
             default -> throw new IllegalArgumentException("unsupported GM provider: " + provider.provider());
         };
     }
+
+    @Override
+    public <T> GmCompletionResult<T> completeWithSelection(
+            String operationId, String prompt, StructuredResponseParser<T> parser,
+            RequestedGmProviderSelection requested) {
+        if (selectionResolver == null) throw new GmProviderSelectionUnresolvedException(requested);
+        GmProviderSelectionResolver.EndpointResolution resolution = selectionResolver.resolveEndpoint(requested);
+        EffectiveGmProviderSelection effective = resolution.effectiveSelection();
+        if (!requested.provider().equals(effective.provider()) || !requested.model().equals(effective.model())) {
+            LOGGER.warn("gm_provider_selection_mismatch requestedProvider={} requestedModel={} effectiveProvider={} effectiveModel={} endpointId={} endpointVersion={}",
+                    safe(requested.provider()), safe(requested.model()), safe(effective.provider()), safe(effective.model()),
+                    effective.endpointId(), effective.endpointVersion());
+        }
+        T response = completeResolved(operationId, prompt, parser, resolution.endpoint(), effective);
+        return new GmCompletionResult<>(response, effective);
+    }
+
+    private <T> T completeResolved(String operationId, String prompt, StructuredResponseParser<T> parser,
+                                   AgentEndpoint endpoint, EffectiveGmProviderSelection effective) {
+        return switch (effective.provider()) {
+            case "ollama" -> new RemoteOllamaGmProvider(HttpClient.newHttpClient(), endpoint.baseUrl(), effective.model(), defaults.timeout())
+                    .complete(operationId + ":ollama:" + effective.model(), prompt, parser);
+            case "openai" -> new OpenAiGmProvider(HttpClient.newHttpClient(), endpoint.baseUrl(),
+                    endpoint.secretEnvironmentVariable() == null ? defaults.apiKey() : System.getenv(endpoint.secretEnvironmentVariable()),
+                    effective.model(), effective.reasoning(), defaults.timeout()).complete(operationId + ":openai:" + effective.model(), prompt, parser);
+            case "codex-cli" -> parser.parse(codexAppServer.complete(operationId + ":codex-cli:" + effective.model(), prompt, effective.model()));
+            default -> throw new IllegalArgumentException("unsupported GM provider: " + effective.provider());
+        };
+    }
+
+    private static String safe(String value) { return value == null ? "" : value.replaceAll("[^A-Za-z0-9._:-]", "_"); }
 }

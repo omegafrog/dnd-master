@@ -1,6 +1,6 @@
 # RAG-020: 실제 GM 공급자 실행 정체성
 
-- 상태: `ready-for-agent`
+- 상태: `completed`
 - 의존성: 없음
 - Product Spec: UC-PROVIDER-001, BR-PROVIDER-001~002, AC-PROVIDER-001
 - Architecture Spec: Sections 3.5, 4.6~4.8, 5.5, 5.9, 11.3

@@ -43,15 +43,15 @@ public final class HttpGmAgentPort implements GmAgentPort {
     @Override
     public GmPlanResult plan(GmContextEnvelope context, com.dndmaster.adventure.application.runtime.TurnCapability capability) {
         try {
-            String body = mapper.writeValueAsString(Request.from(context, capability));
-            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/agent-turns"))
+            String body = mapper.writeValueAsString(V2Request.from(context, capability));
+            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v2/gm/agent-turns"))
                     .timeout(timeout).header("Content-Type", "application/json")
                     .header("X-Internal-Token", internalToken)
                     .header("Authorization", "Bearer " + context.ownerPlayerId().value())
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() / 100 != 2) throw new IllegalStateException("GM agent returned " + response.statusCode() + ": " + response.body());
-            return Response.toResult(mapper.readValue(response.body(), Response.class));
+            return V2Response.toResult(mapper.readValue(response.body(), V2Response.class));
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("GM agent interrupted", exception);
@@ -72,6 +72,50 @@ public final class HttpGmAgentPort implements GmAgentPort {
                     c.evidencePack().rulebook().stream().map(Evidence::from).toList(),
                     c.evidencePack().resolution().stream().map(Evidence::from).toList(), c.recentTurns(),
                     c.characterSnapshots(), c.storyPlanContext(), c.provider(), c.model(), c.reasoning());
+        }
+    }
+
+    record V2Request(String operationKey, UUID adventureId, UUID ownerPlayerId, UUID sessionId, UUID turnId,
+                     UUID scenarioPackageId, long bindingVersion, String turnCapability, String action,
+                     String currentScene, String npcState, String pendingAction, String latestJudgment,
+                     List<Evidence> storybook, List<Evidence> rulebook, List<Evidence> resolution,
+                     List<String> recentTurns, List<String> characterSnapshots, String storyPlanContext,
+                     RequestedSelection requestedSelection) {
+        static V2Request from(GmContextEnvelope c, com.dndmaster.adventure.application.runtime.TurnCapability capability) {
+            var context = c.currentContext();
+            return new V2Request(c.operationKey(), c.adventureId().value(), c.ownerPlayerId().value(), c.sessionId(), c.turnId(),
+                    c.scenarioPackageId(), c.bindingVersion(), capability == null ? null : capability.token(), c.action(),
+                    context.currentScene(), context.npcState(), context.pendingAction(), context.latestJudgment(),
+                    c.evidencePack().storybook().stream().map(Evidence::from).toList(),
+                    c.evidencePack().rulebook().stream().map(Evidence::from).toList(),
+                    c.evidencePack().resolution().stream().map(Evidence::from).toList(), c.recentTurns(),
+                    c.characterSnapshots(), c.storyPlanContext(),
+                    new RequestedSelection(c.requestedSelection().endpointId(), c.requestedSelection().provider(),
+                            c.requestedSelection().model(), c.requestedSelection().reasoning()));
+        }
+    }
+
+    record RequestedSelection(UUID endpointId, String provider, String model, String reasoning) {}
+    record EffectiveSelection(UUID endpointId, java.time.Instant endpointVersion, String provider, String model, String reasoning) {
+        com.dndmaster.adventure.domain.runtime.EffectiveGmProviderSelection toDomain() {
+            return new com.dndmaster.adventure.domain.runtime.EffectiveGmProviderSelection(
+                    endpointId, endpointVersion, provider, model, reasoning);
+        }
+    }
+
+    record V2Response(Response candidate, RequestedSelection requestedSelection,
+                      EffectiveSelection effectiveSelection, int attemptCount) {
+        static GmPlanResult toResult(V2Response response) {
+            GmPlanResult result = Response.toResult(response.candidate());
+            com.dndmaster.adventure.domain.runtime.RequestedGmProviderSelection requested =
+                    new com.dndmaster.adventure.domain.runtime.RequestedGmProviderSelection(
+                            response.requestedSelection().endpointId(), response.requestedSelection().provider(),
+                            response.requestedSelection().model(), response.requestedSelection().reasoning());
+            RuntimePlan plan = result.plan();
+            RuntimePlan audited = new RuntimePlan(plan.scene(), plan.npcState(), plan.judgment(), plan.narration(),
+                    plan.proposedActiveSourceContext(), plan.citedEvidence(), plan.warnings(), plan.provider(), plan.model(), plan.reasoning(),
+                    plan.advanceStoryPlan(), plan.selectedBranchId(), requested, response.effectiveSelection().toDomain());
+            return new GmPlanResult(audited, result.provider(), result.model(), result.reasoning(), result.stateDelta(), result.toolCalls());
         }
     }
 

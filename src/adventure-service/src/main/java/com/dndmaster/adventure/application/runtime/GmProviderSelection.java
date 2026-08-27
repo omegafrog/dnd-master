@@ -1,6 +1,10 @@
 package com.dndmaster.adventure.application.runtime;
 
-public record GmProviderSelection(String provider, String model, String reasoning) {
+public record GmProviderSelection(java.util.UUID endpointId, String provider, String model, String reasoning) {
+    public GmProviderSelection(String provider, String model, String reasoning) {
+        this(null, provider, model, reasoning);
+    }
+
     public GmProviderSelection {
         provider = required(provider, "provider");
         model = required(model, "model");

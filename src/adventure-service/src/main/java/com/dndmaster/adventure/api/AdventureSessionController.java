@@ -75,11 +75,15 @@ public final class AdventureSessionController {
     private static GmProviderSelection defaultProvider() { return new GmProviderSelection("codex-cli", "gpt-5.6-luna", "medium"); }
     public record CreateSessionRequest(UUID scenarioPackageId, UUID blueprintId, long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration, Integer partySize) {}
     public record StartRequest(UUID adventureId) {}
-    public record GmProviderRequest(String provider, String model, String reasoning) {
-        GmProviderSelection toSelection() { return new GmProviderSelection(provider, model, reasoning); }
+    public record GmProviderRequest(UUID endpointId, String provider, String model, String reasoning) {
+        public GmProviderRequest(String provider, String model, String reasoning) { this(null, provider, model, reasoning); }
+        GmProviderSelection toSelection() { return new GmProviderSelection(endpointId, provider, model, reasoning); }
     }
-    public record GmProviderView(UUID sessionId, String provider, String model, String reasoning, long version, boolean turnInProgress) {
-        static GmProviderView from(ProviderBinding binding) { return new GmProviderView(binding.sessionId(), binding.selection().provider(), binding.selection().model(), binding.selection().reasoning(), binding.stateVersion(), binding.turnInProgress()); }
+    public record GmProviderView(UUID sessionId, UUID endpointId, String provider, String model, String reasoning, long version, boolean turnInProgress) {
+        public GmProviderView(UUID sessionId, String provider, String model, String reasoning, long version, boolean turnInProgress) {
+            this(sessionId, null, provider, model, reasoning, version, turnInProgress);
+        }
+        static GmProviderView from(ProviderBinding binding) { return new GmProviderView(binding.sessionId(), binding.selection().endpointId(), binding.selection().provider(), binding.selection().model(), binding.selection().reasoning(), binding.stateVersion(), binding.turnInProgress()); }
     }
     public record CharacterPolicyView(boolean acceptingCharacterSheets, boolean nameMutable, boolean levelMutable,
             boolean raceMutable, boolean characterClassMutable, boolean backgroundMutable, boolean startingAbilitiesMutable,

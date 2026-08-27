@@ -1,6 +1,6 @@
 # RAG-021: 실패 폐쇄형 GM 후보 수명주기
 
-- 상태: `planned`
+- 상태: `ready-for-agent`
 - 의존성: RAG-020
 - Product Spec: UC-GM-001~002, BR-GM-001~002, BR-GM-004~005, AC-GM-002, AC-GM-004
 - Architecture Spec: Sections 3.3~3.8, 4.3~4.9, 6.5~6.7, 7.1~7.4

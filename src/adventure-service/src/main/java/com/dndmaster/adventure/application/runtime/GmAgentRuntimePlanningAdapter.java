@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Set;
 import java.nio.charset.StandardCharsets;
 import java.util.UUID;
+import com.dndmaster.adventure.domain.runtime.RequestedGmProviderSelection;
 
 public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort {
     private final GmAgentPort agentPort;
@@ -28,7 +29,8 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
     public RuntimePlan plan(RuntimePlanningRequest request) {
         GmContextEnvelope context = new GmContextEnvelope(request.adventureId(), request.ownerPlayerId(), request.sessionId(), request.turnId(), request.scenarioPackageId(),
                 request.bindingVersion(), request.currentContext(), request.activeSourceContext(), request.action(), request.evidencePack(),
-                request.recentTurns(), request.characterSnapshots(), request.storyPlanContext(), request.provider(), request.model(), request.reasoning());
+                request.recentTurns(), request.characterSnapshots(), request.storyPlanContext(), request.provider(), request.model(), request.reasoning(),
+                requestedSelection(request));
         java.util.Set<String> hiddenData = context.storyPlanContext().isBlank()
                 ? java.util.Set.of()
                 : java.util.Set.of(context.storyPlanContext());
@@ -83,7 +85,8 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
                         || outcome.status() == GmToolOutcome.Status.REQUIRES_CHOICE)) {
                     RuntimePlan safe = new RuntimePlan(result.plan().scene(), result.plan().npcState(), result.plan().judgment(),
                             "The requested action needs clarification before it can be completed.", result.plan().proposedActiveSourceContext(),
-                            result.plan().citedEvidence(), result.plan().warnings(), result.plan().provider(), result.plan().model(), result.plan().reasoning());
+                            result.plan().citedEvidence(), result.plan().warnings(), result.plan().provider(), result.plan().model(), result.plan().reasoning(),
+                            result.plan().advanceStoryPlan(), result.plan().selectedBranchId(), result.plan().requestedSelection(), result.plan().effectiveSelection());
                     result = new GmPlanResult(safe, result.provider(), result.model(), result.reasoning(), result.stateDelta(), result.toolCalls());
                 }
             } finally {
@@ -105,7 +108,16 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
                 plan.proposedActiveSourceContext(), List.of(grounding),
                 java.util.stream.Stream.concat(plan.warnings().stream(), java.util.stream.Stream.of(
                         "GM response omitted a citation; the highest-ranked storybook evidence was attached for grounding.")).toList(),
-                plan.provider(), plan.model(), plan.reasoning(), plan.advanceStoryPlan(), plan.selectedBranchId());
+                plan.provider(), plan.model(), plan.reasoning(), plan.advanceStoryPlan(), plan.selectedBranchId(),
+                plan.requestedSelection(), plan.effectiveSelection());
         return new GmPlanResult(grounded, result.provider(), result.model(), result.reasoning(), result.stateDelta(), result.toolCalls());
     }
+
+    private static RequestedGmProviderSelection requestedSelection(RuntimePlanningRequest request) {
+        if (request.provider().isBlank() || request.model().isBlank() || request.reasoning().isBlank()) {
+            return RequestedGmProviderSelection.legacyUnknown();
+        }
+        return new RequestedGmProviderSelection(request.providerEndpointId(), request.provider(), request.model(), request.reasoning());
+    }
+
 }

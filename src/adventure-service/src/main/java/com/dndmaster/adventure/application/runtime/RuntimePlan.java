@@ -1,6 +1,8 @@
 package com.dndmaster.adventure.application.runtime;
 
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
+import com.dndmaster.adventure.domain.runtime.EffectiveGmProviderSelection;
+import com.dndmaster.adventure.domain.runtime.RequestedGmProviderSelection;
 import java.util.List;
 import java.util.Objects;
 
@@ -17,7 +19,9 @@ public record RuntimePlan(
         String model,
         String reasoning,
         boolean advanceStoryPlan,
-        String selectedBranchId) {
+        String selectedBranchId,
+        RequestedGmProviderSelection requestedSelection,
+        EffectiveGmProviderSelection effectiveSelection) {
     public RuntimePlan {
         scene = required(scene, "scene");
         judgment = required(judgment, "judgment");
@@ -29,20 +33,31 @@ public record RuntimePlan(
         model = model == null || model.isBlank() ? "legacy" : model.trim();
         reasoning = reasoning == null ? "" : reasoning.trim();
         selectedBranchId = selectedBranchId == null ? "" : selectedBranchId.trim();
+        requestedSelection = requestedSelection == null ? RequestedGmProviderSelection.legacyUnknown() : requestedSelection;
+        effectiveSelection = effectiveSelection == null ? EffectiveGmProviderSelection.legacyUnknown() : effectiveSelection;
     }
 
     public RuntimePlan(String scene, String npcState, String judgment, String narration,
                        ActiveSourceContext proposedActiveSourceContext, List<RuntimeEvidence> citedEvidence,
                        List<String> warnings) {
         this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
-                "legacy", "legacy", "");
+                "legacy", "legacy", "", false, "", RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown());
     }
 
     public RuntimePlan(String scene, String npcState, String judgment, String narration,
                        ActiveSourceContext proposedActiveSourceContext, List<RuntimeEvidence> citedEvidence,
                        List<String> warnings, String provider, String model, String reasoning) {
         this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
-                provider, model, reasoning, false, "");
+                provider, model, reasoning, false, "", RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown());
+    }
+
+    public RuntimePlan(String scene, String npcState, String judgment, String narration,
+                       ActiveSourceContext proposedActiveSourceContext, List<RuntimeEvidence> citedEvidence,
+                       List<String> warnings, String provider, String model, String reasoning,
+                       boolean advanceStoryPlan, String selectedBranchId) {
+        this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
+                provider, model, reasoning, advanceStoryPlan, selectedBranchId,
+                RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown());
     }
 
     private static String required(String value, String name) {
