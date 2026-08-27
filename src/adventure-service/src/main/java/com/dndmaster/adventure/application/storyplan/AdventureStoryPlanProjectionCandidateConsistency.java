@@ -42,6 +42,7 @@ final class AdventureStoryPlanProjectionCandidateConsistency {
 
     static String serialize(List<AdventureStoryPlanStage> stages) {
         ObjectNode root = MAPPER.createObjectNode();
+        root.put("schemaVersion", AdventureStoryPlanStage.CURRENT_SCHEMA_VERSION);
         ArrayNode serializedStages = root.putArray("stages");
         stages.forEach(stage -> {
             ObjectNode serialized = canonicalDomain(stage);
@@ -75,6 +76,11 @@ final class AdventureStoryPlanProjectionCandidateConsistency {
         copyArray(source, result, "rewards");
         copyArray(source, result, "branchIds");
         copyObject(source, result, "branchTargets");
+        result.put("schemaVersion", source == null ? 1 : source.path("schemaVersion").asInt(1));
+        result.put("combatRequirement", text(source, "combatRequirement", "NONE"));
+        result.set("combatSkeleton", canonicalSkeleton(source == null ? null : source.get("combatSkeleton")));
+        copySourceFactClaims(source, result);
+        result.put("tacticalPreparationRequirement", text(source, "tacticalPreparationRequirement", "NOT_REQUIRED"));
         result.put("evidenceCount", source.path("evidence").isArray() ? source.path("evidence").size() : 0);
         return result;
     }
@@ -100,8 +106,62 @@ final class AdventureStoryPlanProjectionCandidateConsistency {
         putArray(result, "rewards", stage.rewards());
         putArray(result, "branchIds", stage.branchIds());
         putObject(result, "branchTargets", stage.branchTargets());
+        result.put("schemaVersion", stage.schemaVersion());
+        result.put("combatRequirement", stage.combatRequirement().name());
+        result.set("combatSkeleton", skeleton(stage.combatSkeleton()));
+        ArrayNode claims = result.putArray("sourceFactClaims");
+        stage.sourceFactClaims().forEach(claim -> {
+            ObjectNode value = claims.addObject();
+            value.put("fieldPath", claim.fieldPath());
+            value.put("normalizedClaim", claim.normalizedClaim());
+            putArray(value, "citationKeys", claim.citationKeys());
+        });
+        result.put("tacticalPreparationRequirement", stage.tacticalPreparationRequirement().name());
         result.put("evidenceCount", stage.evidence().size());
         return result;
+    }
+
+    private static ObjectNode canonicalSkeleton(JsonNode source) {
+        ObjectNode result = MAPPER.createObjectNode();
+        result.put("objective", text(source, "objective", ""));
+        result.put("startTrigger", text(source, "startTrigger", ""));
+        copyArray(source, result, "participants");
+        result.put("successOutcome", text(source, "successOutcome", ""));
+        result.put("failureOutcome", text(source, "failureOutcome", ""));
+        copyArray(source, result, "rewards");
+        return result;
+    }
+
+    private static ObjectNode skeleton(com.dndmaster.adventure.domain.adventure.CombatSkeleton value) {
+        ObjectNode result = MAPPER.createObjectNode();
+        result.put("objective", value.objective());
+        result.put("startTrigger", value.startTrigger());
+        ArrayNode participants = result.putArray("participants");
+        value.participants().forEach(participant -> {
+            ObjectNode item = participants.addObject();
+            item.put("participantId", participant.participantId());
+            item.put("role", participant.role().name());
+            item.put("name", participant.name());
+            item.put("minimumCount", participant.minimumCount());
+            item.put("maximumCount", participant.maximumCount());
+            putArray(item, "citationKeys", participant.citationKeys());
+        });
+        result.put("successOutcome", value.successOutcome());
+        result.put("failureOutcome", value.failureOutcome());
+        ArrayNode rewards = result.putArray("rewards");
+        value.rewards().forEach(claim -> {
+            ObjectNode item = rewards.addObject();
+            item.put("fieldPath", claim.fieldPath());
+            item.put("normalizedClaim", claim.normalizedClaim());
+            putArray(item, "citationKeys", claim.citationKeys());
+        });
+        return result;
+    }
+
+    private static void copySourceFactClaims(JsonNode source, ObjectNode target) {
+        JsonNode claims = source == null ? null : source.get("sourceFactClaims");
+        if (claims != null && claims.isArray()) target.set("sourceFactClaims", claims);
+        else target.putArray("sourceFactClaims");
     }
 
     private static String text(JsonNode node, String field, String fallback) {

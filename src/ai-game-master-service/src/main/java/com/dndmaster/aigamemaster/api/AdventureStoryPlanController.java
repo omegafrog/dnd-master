@@ -236,11 +236,12 @@ public final class AdventureStoryPlanController {
         return """
                 You are the execution projection agent. Read the verified Markdown plan and convert it into the smallest usable execution outline.
                 Return ONLY JSON with a stages array. Do not rewrite the narrative or invent facts.
-                Each stage MUST include these required fields: position (integer), title, goal, conflict, transitionCondition, endingIds (a non-empty array of strings), and evidence (a non-empty array when supplied citations are available).
+                Each stage MUST include these required fields: position (integer), title, goal, conflict, transitionCondition, endingIds (a non-empty array of strings), evidence (a non-empty array when supplied citations are available), schemaVersion (2), combatRequirement (NONE, POSSIBLE, or REQUIRED), combatSkeleton, sourceFactClaims, and tacticalPreparationRequirement (NOT_REQUIRED or REQUIRED).
                 The root object MUST contain stages (an array). Optional fields may be omitted, and additional properties are allowed and ignored.
-                JSON shape constraint: {"type":"object","required":["stages"],"properties":{"stages":{"type":"array","items":{"type":"object","required":["position","title","goal","conflict","transitionCondition","endingIds","evidence"],"properties":{"position":{"type":"integer"},"title":{"type":"string"},"goal":{"type":"string"},"conflict":{"type":"string"},"transitionCondition":{"type":"string"},"endingIds":{"type":"array","items":{"type":"string"},"minItems":1},"evidence":{"type":"array","items":{"type":"object","required":["citationKey"]},"minItems":1}},"additionalProperties":true}}},"additionalProperties":true}
+                JSON shape constraint: {"type":"object","required":["stages"],"properties":{"stages":{"type":"array","items":{"type":"object","required":["position","title","goal","conflict","transitionCondition","endingIds","evidence","schemaVersion","combatRequirement","combatSkeleton","sourceFactClaims","tacticalPreparationRequirement"],"properties":{"position":{"type":"integer"},"title":{"type":"string"},"goal":{"type":"string"},"conflict":{"type":"string"},"transitionCondition":{"type":"string"},"endingIds":{"type":"array","items":{"type":"string"},"minItems":1},"evidence":{"type":"array","items":{"type":"object","required":["citationKey"]},"minItems":1},"schemaVersion":{"type":"integer","const":2},"combatRequirement":{"type":"string","enum":["NONE","POSSIBLE","REQUIRED"]},"combatSkeleton":{"type":"object"},"sourceFactClaims":{"type":"array"},"tacticalPreparationRequirement":{"type":"string","enum":["NOT_REQUIRED","REQUIRED"]}},"additionalProperties":true}}},"additionalProperties":true}
                 The plan configuration requires exactly %s distinct ending IDs. Preserve the explicit ending-1 through ending-%s IDs from the plan; do not omit, merge, rename, or invent ending IDs.
                 Include stageType, location, and mapUsage (REQUIRED, OPTIONAL, or NONE) when present. Include mapDefinitionId, mapAssetId, and mapAssetLocator only when mapUsage is REQUIRED; copy all three from the same AVAILABLE MAPS entry. OPTIONAL and NONE may omit them.
+                Set combatRequirement to REQUIRED only when the stage has a concrete combat skeleton with at least one sourced participant; use POSSIBLE for a source-supported possibility that is not committed, and NONE for a non-combat stage. For every stage, emit combatSkeleton with objective, startTrigger, participants, successOutcome, failureOutcome, and rewards arrays (empty strings/arrays for NONE or POSSIBLE). Every participant must include participantId, role (ENEMY or BOSS), name, minimumCount, maximumCount, and citationKeys. Use sourceFactClaims with exact fieldPath values such as combatSkeleton.participants[0].name or combatSkeleton.rewards[0], and bind every claim to exact citation keys. Set tacticalPreparationRequirement to REQUIRED only when a REQUIRED combat stage is mapped to an available map; otherwise use NOT_REQUIRED.
                 Optional fields may be omitted or empty: npcOrClues, enemies, boss, clearCondition, failureCondition, rewards, branchIds, branchTargets, and player spawn fields. When citations are supplied, evidence is REQUIRED for every stage: copy at least one exact citationKey from the supplied citation registry. Do not copy document IDs, extraction versions, locators, quotes, or confidence into evidence. When both STORYBOOK and RULEBOOK citations are supplied, the complete plan MUST include at least one exact citationKey for each type across its stages. A trigger is represented only by a short reference or lookup key; never copy the full trigger or rule text.
                 Arrays may be empty arrays and branchTargets may be an empty object. Never invent a map, trigger, citation, enemy, reward, or ending. Use the ending IDs stated in the plan, or a stable structural ending ID when necessary.
                 If the plan is invalid, return the best faithful projection so the application can report the violation.
@@ -439,7 +440,9 @@ public final class AdventureStoryPlanController {
                 List<String> endings = strings(n.get("endingIds"), "endingIds");
                 if (endings.isEmpty()) throw new IllegalArgumentException("endingIds must be explicit");
                 result.add(new Stage(position.intValue(), required(n,"title"), text(n, "stageType", "EVENT"), text(n, "location", required(n, "title")), required(n,"goal"), required(n,"conflict"), required(n,"transitionCondition"), optionalStrings(n.get("npcOrClues")), endings,
-                        text(n, "mapDefinitionId", ""), text(n, "mapAssetId", ""), text(n, "mapAssetLocator", ""), optionalStrings(n.get("enemies")), text(n, "boss", ""), text(n, "clearCondition", required(n, "transitionCondition")), text(n, "failureCondition", ""), optionalStrings(n.get("rewards")), optionalStrings(n.get("branchIds")), optionalMaps(n.get("branchTargets")), optionalCitations(n.get("evidence"))));
+                        text(n, "mapDefinitionId", ""), text(n, "mapAssetId", ""), text(n, "mapAssetLocator", ""), optionalStrings(n.get("enemies")), text(n, "boss", ""), text(n, "clearCondition", required(n, "transitionCondition")), text(n, "failureCondition", ""), optionalStrings(n.get("rewards")), optionalStrings(n.get("branchIds")), optionalMaps(n.get("branchTargets")), optionalCitations(n.get("evidence")),
+                        text(n, "combatRequirement", "NONE"), parseCombatSkeleton(n.get("combatSkeleton")), parseSourceFactClaims(n.get("sourceFactClaims")),
+                        text(n, "tacticalPreparationRequirement", "NOT_REQUIRED"), n.path("schemaVersion").asInt(1)));
             }
             if (result.size() < configuration.minimumStages() || result.size() > configuration.maximumStages()) throw new IllegalArgumentException("invalid stage count");
             if (result.stream().flatMap(s -> s.endingIds().stream()).distinct().count() != configuration.endingCount()) throw new IllegalArgumentException("invalid ending count");
@@ -473,6 +476,32 @@ public final class AdventureStoryPlanController {
     }
     private static List<CitationProjection> optionalCitations(JsonNode n) {
         return n == null || n.isNull() ? List.of() : citations(n, "evidence");
+    }
+    private static CombatSkeletonProjection parseCombatSkeleton(JsonNode node) {
+        if (node == null || node.isNull()) return new CombatSkeletonProjection("", "", List.of(), "", "", List.of());
+        List<CombatParticipantProjection> participants = optionalObjects(node.get("participants"), item ->
+                new CombatParticipantProjection(text(item, "participantId", "participant-" + item.path("name").asText("unknown")),
+                        text(item, "role", "ENEMY"), required(item, "name"), item.path("minimumCount").asInt(1),
+                        item.path("maximumCount").asInt(item.path("minimumCount").asInt(1)), stringsOrEmpty(item.get("citationKeys"))));
+        List<SourceFactClaimProjection> rewards = optionalObjects(node.get("rewards"), AdventureStoryPlanController::sourceFactClaim);
+        return new CombatSkeletonProjection(text(node, "objective", ""), text(node, "startTrigger", ""), participants,
+                text(node, "successOutcome", ""), text(node, "failureOutcome", ""), rewards);
+    }
+    private static SourceFactClaimProjection sourceFactClaim(JsonNode node) {
+        return new SourceFactClaimProjection(required(node, "fieldPath"), required(node, "normalizedClaim"), stringsOrEmpty(node.get("citationKeys")));
+    }
+    private static List<SourceFactClaimProjection> parseSourceFactClaims(JsonNode node) {
+        return optionalObjects(node, AdventureStoryPlanController::sourceFactClaim);
+    }
+    private static List<String> stringsOrEmpty(JsonNode node) {
+        return node == null || node.isNull() ? List.of() : strings(node, "citationKeys");
+    }
+    private static <T> List<T> optionalObjects(JsonNode node, java.util.function.Function<JsonNode, T> mapper) {
+        if (node == null || node.isNull()) return List.of();
+        if (!node.isArray()) throw new IllegalArgumentException("optional collection must be an array");
+        List<T> result = new ArrayList<>();
+        node.forEach(item -> { if (!item.isObject()) throw new IllegalArgumentException("collection item must be an object"); result.add(mapper.apply(item)); });
+        return List.copyOf(result);
     }
     private static String text(JsonNode node, String key, String fallback) { String value = node.path(key).asText("").trim(); return value.isBlank() ? fallback : value; }
     private static Map<String, String> maps(JsonNode node, String field) {
@@ -630,5 +659,12 @@ public final class AdventureStoryPlanController {
     public record Response(List<Stage> stages) {}
     public record Stage(int position, String title, String stageType, String location, String goal, String conflict, String transitionCondition,
             List<String> npcOrClues, List<String> endingIds, String mapDefinitionId, String mapAssetId, String mapAssetLocator, List<String> enemies, String boss,
-            String clearCondition, String failureCondition, List<String> rewards, List<String> branchIds, Map<String, String> branchTargets, List<CitationProjection> evidence) {}
+            String clearCondition, String failureCondition, List<String> rewards, List<String> branchIds, Map<String, String> branchTargets, List<CitationProjection> evidence,
+            String combatRequirement, CombatSkeletonProjection combatSkeleton, List<SourceFactClaimProjection> sourceFactClaims,
+            String tacticalPreparationRequirement, int schemaVersion) {}
+    public record CombatSkeletonProjection(String objective, String startTrigger, List<CombatParticipantProjection> participants,
+            String successOutcome, String failureOutcome, List<SourceFactClaimProjection> rewards) {}
+    public record CombatParticipantProjection(String participantId, String role, String name, int minimumCount, int maximumCount,
+            List<String> citationKeys) {}
+    public record SourceFactClaimProjection(String fieldPath, String normalizedClaim, List<String> citationKeys) {}
 }

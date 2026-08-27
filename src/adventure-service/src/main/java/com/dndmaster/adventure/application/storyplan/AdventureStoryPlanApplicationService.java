@@ -38,6 +38,7 @@ public final class AdventureStoryPlanApplicationService {
     private final ScenarioSourceExcerptPort sourceExcerptPort;
     private final AdventureStoryPlanGenerationPort generator;
     private final AdventureStoryPlanStageSourceValidator stageSourceValidator = new AdventureStoryPlanStageSourceValidator();
+    private final AdventureStoryPlanCombatValidator combatValidator = new AdventureStoryPlanCombatValidator();
     private final ObjectMapper projectionMapper = new ObjectMapper();
 
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions) {
@@ -266,7 +267,9 @@ public final class AdventureStoryPlanApplicationService {
         return plans.findBySessionId(session.id())
                 .map(plan -> plan.status() == AdventureStoryPlanStatus.READY
                         && plan.packageRevision() == session.scenarioPackageRevision()
-                        && plan.partyRevision() == session.version())
+                        && plan.partyRevision() == session.version()
+                        && (session.startedAdventureId() != null
+                                || plan.stages().stream().allMatch(stage -> stage.schemaVersion() >= AdventureStoryPlanStage.CURRENT_SCHEMA_VERSION)))
                 .orElse(false);
     }
 
@@ -434,6 +437,16 @@ public final class AdventureStoryPlanApplicationService {
         List<AdventureStoryPlanProjectionViolation> violations = new ArrayList<>();
         violations.addAll(validateMaps(stages, request.maps()));
         violations.addAll(validateStageSources(stages, request.citations(), scenarioPackage));
+        for (AdventureStoryPlanStage stage : stages) {
+            violations.addAll(combatValidator.validate(stage, request.citations()));
+            if (stage.schemaVersion() < AdventureStoryPlanStage.CURRENT_SCHEMA_VERSION) {
+                violations.add(new AdventureStoryPlanProjectionViolation(
+                        "LEGACY_PROJECTION_REQUIRES_REGENERATION", stage.position(),
+                        "stages[" + (stage.position() - 1) + "].schemaVersion", "", "",
+                        Repairability.REGENERATE_REQUIRED,
+                        "new story plan READY writes require projection schema v2"));
+            }
+        }
         for (String coverage : stageSourceValidator.validateCitationCoverage(stages, request.citations())) {
             String requiredType = coverage.contains("RULEBOOK") ? "RULEBOOK"
                     : coverage.contains("STORYBOOK") ? "STORYBOOK" : "";

@@ -232,7 +232,7 @@ public final class AdventureStoryPlanController {
             int endingCount, String adventureLength,
             @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
             String failureReason) {
-        static PlayerPlanView from(AdventureStoryPlan plan) {
+        public static PlayerPlanView from(AdventureStoryPlan plan) {
             List<StageView> visible = plan.stages().stream()
                     .filter(stage -> stage.position() == plan.currentStage() + 1)
                     .map(StageView::from)

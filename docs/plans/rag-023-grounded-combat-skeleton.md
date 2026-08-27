@@ -1,6 +1,6 @@
 # RAG-023: 근거 기반 Combat Skeleton 모험 계획
 
-- 상태: `ready-for-agent`
+- 상태: `completed`
 - 의존성: RAG-018 (completed)
 - Product Spec: UC-COMBAT-001, BR-COMBAT-001~006, AC-COMBAT-001~005, AC-EVIDENCE-001
 - Architecture Spec: Sections 3.3~3.7, 4.6, 5.5, 5.8~5.9, 11.1, 11.3

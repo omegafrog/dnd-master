@@ -13,6 +13,11 @@ import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanGraphValidator
 import com.dndmaster.adventure.domain.adventure.PlacementGrounding;
 import com.dndmaster.adventure.domain.adventure.PlacementGroundingType;
 import com.dndmaster.adventure.domain.adventure.TacticalScenePlan;
+import com.dndmaster.adventure.domain.adventure.CombatParticipant;
+import com.dndmaster.adventure.domain.adventure.CombatRequirement;
+import com.dndmaster.adventure.domain.adventure.CombatSkeleton;
+import com.dndmaster.adventure.domain.adventure.SourceFactClaim;
+import com.dndmaster.adventure.domain.adventure.TacticalPreparationRequirement;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -297,19 +302,59 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         }
         var evidence = canonicalEvidence.stream().map(item -> new com.dndmaster.adventure.domain.adventure.AdventurePlanEvidence(
                 item.documentType(), item.documentId(), item.extractionVersion(), item.locator(),
-                item.quote(), item.confidence(), item.provenance())).toList();
+                item.quote(), item.confidence(), item.provenance(), item.citationKey())).toList();
         var grounding = evidence.isEmpty() ? com.dndmaster.adventure.domain.adventure.AdventureGroundingStatus.AI_SUGGESTION : com.dndmaster.adventure.domain.adventure.AdventureGroundingStatus.GROUNDED;
         var suggestions = evidence.isEmpty() ? List.of("location", "enemies", "boss", "rewards", "conditions") : List.<String>of();
         List<com.dndmaster.adventure.domain.scenario.StoryMapBinding> bindings = mapId == null ? List.of()
                 : List.of(new com.dndmaster.adventure.domain.scenario.StoryMapBinding(
                         Integer.toString(stage.position()), stage.location(), stage.transitionCondition(), mapId));
         var spawn = inferPlayerSpawn(stage, map);
-        return new AdventureStoryPlanStage(stage.position(), stage.title(), stage.goal(), stage.conflict(), stage.transitionCondition(), stage.npcOrClues(), stage.endingIds(), bindings,
+        AdventureStoryPlanStage domainStage = new AdventureStoryPlanStage(stage.position(), stage.title(), stage.goal(), stage.conflict(), stage.transitionCondition(), stage.npcOrClues(), stage.endingIds(), bindings,
                 parseStageType(stage.stageType()),
                 stage.location(), mapId, map == null ? stage.mapAssetId() : map.assetId(), map == null ? stage.mapAssetLocator() : map.assetLocator(),
                 stage.enemies(), stage.boss(), stage.clearCondition(), stage.failureCondition(), stage.rewards(), stage.branchIds(), evidence, grounding, suggestions,
                 map == null ? "UNAVAILABLE" : map.safetyStatus(), map == null ? null : map.confidence(), stage.branchTargets(),
                 spawn.x(), spawn.y(), spawn.confidence(), spawn.rationale());
+        return domainStage.withCombat(parseCombatRequirement(stage.combatRequirement(), stage),
+                parseCombatSkeleton(stage.combatSkeleton()), stage.sourceFactClaims().stream()
+                        .map(CrossContextHttpAdventureStoryPlanGenerationGateway::toDomain).toList(),
+                parseTacticalPreparationRequirement(stage.tacticalPreparationRequirement(), mapId))
+                .withSchemaVersion(stage.schemaVersion());
+    }
+    private static CombatRequirement parseCombatRequirement(String value, Stage stage) {
+        if (value == null || value.isBlank()) {
+            return hasCombatSkeleton(stage.combatSkeleton()) || !stage.enemies().isEmpty() || !stage.boss().isBlank()
+                    ? CombatRequirement.REQUIRED : CombatRequirement.NONE;
+        }
+        return CombatRequirement.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
+    }
+    private static boolean hasCombatSkeleton(CombatSkeletonProjection projection) {
+        return projection != null && ((!projection.objective().isBlank() && !projection.startTrigger().isBlank())
+                || !projection.participants().isEmpty() || !projection.rewards().isEmpty()
+                || !projection.successOutcome().isBlank() || !projection.failureOutcome().isBlank());
+    }
+    private static TacticalPreparationRequirement parseTacticalPreparationRequirement(String value, UUID mapId) {
+        if (value == null || value.isBlank()) return TacticalPreparationRequirement.NOT_REQUIRED;
+        return TacticalPreparationRequirement.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
+    }
+    private static CombatSkeleton parseCombatSkeleton(CombatSkeletonProjection projection) {
+        if (projection == null) return CombatSkeleton.empty();
+        return new CombatSkeleton(projection.objective(), projection.startTrigger(), projection.participants().stream()
+                .map(CrossContextHttpAdventureStoryPlanGenerationGateway::toDomain).toList(),
+                projection.successOutcome(), projection.failureOutcome(), projection.rewards().stream()
+                        .map(CrossContextHttpAdventureStoryPlanGenerationGateway::toDomain).toList());
+    }
+    private static CombatParticipant toDomain(CombatParticipantProjection projection) {
+        CombatParticipant.Role role = projection.role() == null || projection.role().isBlank()
+                ? CombatParticipant.Role.ENEMY
+                : CombatParticipant.Role.valueOf(projection.role().trim().toUpperCase(java.util.Locale.ROOT));
+        int minimum = projection.minimumCount() <= 0 ? 1 : projection.minimumCount();
+        int maximum = projection.maximumCount() <= 0 ? minimum : projection.maximumCount();
+        return new CombatParticipant(projection.participantId(), role, projection.name(), minimum, maximum,
+                projection.citationKeys());
+    }
+    private static SourceFactClaim toDomain(SourceFactClaimProjection projection) {
+        return new SourceFactClaim(projection.fieldPath(), projection.normalizedClaim(), projection.citationKeys());
     }
     static UUID parseMapDefinitionId(String value) {
         if (value == null || value.isBlank()) return null;
@@ -365,7 +410,9 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             List<String> npcOrClues, List<String> endingIds, String stageType, String location, String mapDefinitionId,
             String mapAssetId, String mapAssetLocator, List<String> enemies, String boss, String clearCondition, String failureCondition, List<String> rewards,
             List<String> branchIds, java.util.Map<String, String> branchTargets, List<CitationProjection> evidence,
-            Integer playerSpawnX, Integer playerSpawnY, String playerSpawnConfidence, String playerSpawnRationale) {
+            Integer playerSpawnX, Integer playerSpawnY, String playerSpawnConfidence, String playerSpawnRationale,
+            String combatRequirement, CombatSkeletonProjection combatSkeleton,
+            List<SourceFactClaimProjection> sourceFactClaims, String tacticalPreparationRequirement, Integer schemaVersion) {
         Stage {
             npcOrClues = List.copyOf(Objects.requireNonNull(npcOrClues, "npcOrClues must be explicit"));
             endingIds = List.copyOf(Objects.requireNonNull(endingIds, "endingIds must be explicit"));
@@ -374,9 +421,36 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             branchIds = List.copyOf(Objects.requireNonNull(branchIds, "branchIds must be explicit"));
             branchTargets = java.util.Map.copyOf(Objects.requireNonNull(branchTargets, "branchTargets must be explicit"));
             evidence = List.copyOf(Objects.requireNonNull(evidence, "evidence must be explicit"));
+            sourceFactClaims = sourceFactClaims == null ? List.of() : List.copyOf(sourceFactClaims);
             mapDefinitionId = mapDefinitionId == null ? "" : mapDefinitionId;
             mapAssetId = mapAssetId == null ? "" : mapAssetId;
             mapAssetLocator = mapAssetLocator == null ? "" : mapAssetLocator;
+            boss = boss == null ? "" : boss;
+            schemaVersion = schemaVersion == null || schemaVersion <= 0 ? 1 : schemaVersion;
+        }
+    }
+    @JsonIgnoreProperties(ignoreUnknown = true) record CombatSkeletonProjection(String objective, String startTrigger,
+            List<CombatParticipantProjection> participants, String successOutcome, String failureOutcome,
+            List<SourceFactClaimProjection> rewards) {
+        CombatSkeletonProjection {
+            objective = objective == null ? "" : objective;
+            startTrigger = startTrigger == null ? "" : startTrigger;
+            successOutcome = successOutcome == null ? "" : successOutcome;
+            failureOutcome = failureOutcome == null ? "" : failureOutcome;
+            participants = participants == null ? List.of() : List.copyOf(participants);
+            rewards = rewards == null ? List.of() : List.copyOf(rewards);
+        }
+    }
+    @JsonIgnoreProperties(ignoreUnknown = true) record CombatParticipantProjection(String participantId, String role,
+            String name, int minimumCount, int maximumCount, List<String> citationKeys) {
+        CombatParticipantProjection {
+            citationKeys = citationKeys == null ? List.of() : List.copyOf(citationKeys);
+        }
+    }
+    @JsonIgnoreProperties(ignoreUnknown = true) record SourceFactClaimProjection(String fieldPath, String normalizedClaim,
+            List<String> citationKeys) {
+        SourceFactClaimProjection {
+            citationKeys = citationKeys == null ? List.of() : List.copyOf(citationKeys);
         }
     }
     @JsonIgnoreProperties(ignoreUnknown = true) record CitationProjection(String citationKey) {}

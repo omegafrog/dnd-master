@@ -6,12 +6,17 @@ import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance;
 
 public record AdventurePlanEvidence(String documentType, UUID documentId, long extractionVersion,
-        String locator, String quote, double confidence, PublishedEvidenceProvenance provenance) {
+        String locator, String quote, double confidence, PublishedEvidenceProvenance provenance, String citationKey) {
     public AdventurePlanEvidence(String documentType, UUID documentId, long extractionVersion,
             String locator, String quote, double confidence) {
         this(documentType, documentId, extractionVersion, locator, quote, confidence,
                 new PublishedEvidenceProvenance(new KnowledgeDocumentId(documentId), extractionVersion,
-                        pageNumber(locator), java.util.List.of(), java.util.List.of(), null, locator));
+                        pageNumber(locator), java.util.List.of(), java.util.List.of(), null, locator), "");
+    }
+
+    public AdventurePlanEvidence(String documentType, UUID documentId, long extractionVersion,
+            String locator, String quote, double confidence, PublishedEvidenceProvenance provenance) {
+        this(documentType, documentId, extractionVersion, locator, quote, confidence, provenance, "");
     }
 
     public AdventurePlanEvidence {
@@ -22,6 +27,7 @@ public record AdventurePlanEvidence(String documentType, UUID documentId, long e
         if (extractionVersion <= 0) throw new IllegalArgumentException("extraction version must be positive");
         if (confidence < 0 || confidence > 1) throw new IllegalArgumentException("confidence must be between 0 and 1");
         provenance = Objects.requireNonNull(provenance, "evidence provenance must not be null");
+        citationKey = citationKey == null ? "" : citationKey.trim();
         if (!documentId.equals(provenance.documentId().value())
                 || extractionVersion != provenance.extractionVersion()
                 || !locator.equals(provenance.locator())) {

@@ -1,6 +1,6 @@
 # RAG-024: 모험 계획의 의존성 기반 회귀 보정
 
-- 상태: `planned`
+- 상태: `ready-for-agent`
 - 의존성: RAG-019 (completed), RAG-023
 - Product Spec: UC-REPAIR-001, BR-REPAIR-001~003, AC-REPAIR-001~002
 - Architecture Spec: Sections 3.5~3.8, 4.2~4.7, 6.1, 7.2, 11.1~11.2

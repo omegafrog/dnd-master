@@ -365,9 +365,15 @@ class AdventureStoryPlanApplicationServiceTest {
 
     private static List<AdventureStoryPlanStage> shortStages(String firstTransition) {
         return List.of(
-                new AdventureStoryPlanStage(1, "One", "Goal", "Conflict", firstTransition, List.of(), List.of("ending-1")),
-                new AdventureStoryPlanStage(2, "Two", "Goal", "Conflict", "Next", List.of(), List.of("ending-2")),
-                new AdventureStoryPlanStage(3, "Three", "Goal", "Conflict", "Next", List.of(), List.of("ending-1")));
+                v2Stage(new AdventureStoryPlanStage(1, "One", "Goal", "Conflict", firstTransition, List.of(), List.of("ending-1"))),
+                v2Stage(new AdventureStoryPlanStage(2, "Two", "Goal", "Conflict", "Next", List.of(), List.of("ending-2"))),
+                v2Stage(new AdventureStoryPlanStage(3, "Three", "Goal", "Conflict", "Next", List.of(), List.of("ending-1"))));
+    }
+
+    private static AdventureStoryPlanStage v2Stage(AdventureStoryPlanStage stage) {
+        return stage.withCombat(com.dndmaster.adventure.domain.adventure.CombatRequirement.NONE,
+                com.dndmaster.adventure.domain.adventure.CombatSkeleton.empty(), List.of(),
+                com.dndmaster.adventure.domain.adventure.TacticalPreparationRequirement.NOT_REQUIRED);
     }
 
     private static String shortCandidate(String transition) {
@@ -383,7 +389,8 @@ class AdventureStoryPlanApplicationServiceTest {
                 + transition + "\",\"npcOrClues\":[],\"endingIds\":[\"" + ending
                 + "\"],\"stageType\":\"EVENT\",\"location\":\"" + title
                 + "\",\"mapDefinitionId\":\"\",\"mapAssetId\":\"\",\"mapAssetLocator\":\"\",\"enemies\":[],\"boss\":\"\",\"clearCondition\":\""
-                + transition + "\",\"failureCondition\":\"\",\"rewards\":[],\"branchIds\":[\"" + ending + "\"],\"branchTargets\":{},\"evidence\":[]}";
+                + transition + "\",\"failureCondition\":\"\",\"rewards\":[],\"branchIds\":[\"" + ending + "\"],\"branchTargets\":{},\"evidence\":[],"
+                + "\"schemaVersion\":2,\"combatRequirement\":\"NONE\",\"combatSkeleton\":{\"objective\":\"\",\"startTrigger\":\"\",\"participants\":[],\"successOutcome\":\"\",\"failureOutcome\":\"\",\"rewards\":[]},\"sourceFactClaims\":[],\"tacticalPreparationRequirement\":\"NOT_REQUIRED\"}";
     }
 
     private static AdventureStoryPlanProjectionViolation violation(String code, String path) {
