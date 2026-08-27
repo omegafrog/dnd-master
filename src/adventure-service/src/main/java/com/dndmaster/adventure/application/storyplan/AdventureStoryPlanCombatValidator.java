@@ -32,6 +32,18 @@ public final class AdventureStoryPlanCombatValidator {
             violations.add(violation(stage, "TACTICAL_REQUIREMENT_NEEDS_MAP", "tacticalPreparationRequirement", "REQUIRED",
                     "required tactical preparation must be attached to a mapped stage"));
         }
+        if (stage.combatRequirement() == CombatRequirement.REQUIRED && stage.mapDefinitionId() != null
+                && stage.tacticalPreparationRequirement() != TacticalPreparationRequirement.REQUIRED) {
+            violations.add(violation(stage, "TACTICAL_PREPARATION_REQUIREMENT_MISMATCH",
+                    "tacticalPreparationRequirement", stage.tacticalPreparationRequirement().name(),
+                    "mapped required combat must retain required tactical preparation intent"));
+        }
+        if (stage.tacticalPreparationRequirement() == TacticalPreparationRequirement.REQUIRED
+                && stage.combatRequirement() != CombatRequirement.REQUIRED) {
+            violations.add(violation(stage, "TACTICAL_PREPARATION_REQUIREMENT_MISMATCH",
+                    "tacticalPreparationRequirement", stage.tacticalPreparationRequirement().name(),
+                    "tactical preparation requires a required combat stage"));
+        }
         validateClaims(stage, authoritative == null ? List.of() : authoritative, violations);
         return List.copyOf(violations);
     }

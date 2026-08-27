@@ -187,6 +187,9 @@ public final class AdventureStoryPlanController {
         if (request.violations().isEmpty()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "structured projection violations are required");
         }
+        if (request.repairScope() == null || request.repairScope().allowedPaths().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "deterministic repair scope is required");
+        }
         AgentEndpoint endpoint = endpointRegistry.active();
         Configuration configuration = request.configuration() == null ? Configuration.defaults() : request.configuration();
         try {
@@ -267,12 +270,13 @@ public final class AdventureStoryPlanController {
                 The response root MUST be an object with a stages array and must contain the full candidate, not a JSON patch.
                 configuration=%s
                 structuredViolations=%s
+                deterministicRepairScope=%s
                 authoritativeSourceDocuments=%s
                 authoritativeResolutionEvidence=%s
                 authoritativeMaps=%s
                 authoritativeCitations=%s
                 previousFullCandidate=%s
-                """.formatted(configuration, request.violations(), request.sourceDocuments(), request.resolutionEvidence(),
+                """.formatted(configuration, request.violations(), request.repairScope(), request.sourceDocuments(), request.resolutionEvidence(),
                 request.maps(), request.citations(), request.previousCandidate());
     }
 
@@ -638,13 +642,36 @@ public final class AdventureStoryPlanController {
     }
     public record RepairRequest(String operationId, long packageRevision, int partySize, Configuration configuration,
             JsonNode previousCandidate, List<ProjectionViolation> violations, List<String> sourceDocuments,
-            List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations) {
+            List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations,
+            RepairScope repairScope) {
+        public RepairRequest(String operationId, long packageRevision, int partySize, Configuration configuration,
+                JsonNode previousCandidate, List<ProjectionViolation> violations, List<String> sourceDocuments,
+                List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations) {
+            this(operationId, packageRevision, partySize, configuration, previousCandidate, violations, sourceDocuments,
+                    resolutionEvidence, maps, citations, RepairScope.from(violations));
+        }
         public RepairRequest {
             violations = violations == null ? List.of() : List.copyOf(violations);
             sourceDocuments = sourceDocuments == null ? List.of() : List.copyOf(sourceDocuments);
             resolutionEvidence = resolutionEvidence == null ? List.of() : List.copyOf(resolutionEvidence);
             maps = maps == null ? List.of() : List.copyOf(maps);
             citations = citations == null ? List.of() : List.copyOf(citations);
+            if (repairScope == null) {
+                throw new IllegalArgumentException("deterministic repair scope must be explicit");
+            }
+        }
+    }
+    public record RepairScope(List<String> blockerPaths, List<String> dependentPaths, List<String> allowedPaths,
+            boolean regenerationRequired) {
+        public RepairScope {
+            blockerPaths = blockerPaths == null ? List.of() : List.copyOf(blockerPaths);
+            dependentPaths = dependentPaths == null ? List.of() : List.copyOf(dependentPaths);
+            allowedPaths = allowedPaths == null ? List.of() : List.copyOf(allowedPaths);
+        }
+
+        static RepairScope from(List<ProjectionViolation> violations) {
+            List<String> blockers = violations == null ? List.of() : violations.stream().map(ProjectionViolation::fieldPath).toList();
+            return new RepairScope(blockers, List.of(), blockers, false);
         }
     }
     public record Configuration(int endingCount, String adventureLength) {

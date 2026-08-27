@@ -80,8 +80,19 @@ public interface AdventureStoryPlanGenerationPort {
     record RepairRequest(String operationId, long packageRevision, int partySize,
                          AdventurePlanConfiguration configuration, String previousCandidate,
                          List<AdventureStoryPlanProjectionViolation> violations,
+                         RepairScope repairScope,
                          List<String> sourceDocuments, List<String> resolutionEvidence,
                          List<MapContext> maps, List<SourceCitation> citations) {
+        public RepairRequest(String operationId, long packageRevision, int partySize,
+                AdventurePlanConfiguration configuration, String previousCandidate,
+                List<AdventureStoryPlanProjectionViolation> violations,
+                List<String> sourceDocuments, List<String> resolutionEvidence,
+                List<MapContext> maps, List<SourceCitation> citations) {
+            this(operationId, packageRevision, partySize, configuration, previousCandidate, violations,
+                    AdventureStoryPlanProjectionDependencyPolicy.scope(previousCandidate, violations),
+                    sourceDocuments, resolutionEvidence, maps, citations);
+        }
+
         public RepairRequest {
             if (operationId == null || operationId.isBlank()) throw new IllegalArgumentException("repair operation id must not be blank");
             if (configuration == null) throw new IllegalArgumentException("repair configuration must not be null");
@@ -91,6 +102,13 @@ public interface AdventureStoryPlanGenerationPort {
             resolutionEvidence = resolutionEvidence == null ? List.of() : List.copyOf(resolutionEvidence);
             maps = maps == null ? List.of() : List.copyOf(maps);
             citations = citations == null ? List.of() : List.copyOf(citations);
+            if (repairScope == null) {
+                throw new IllegalArgumentException("deterministic repair scope must be explicit");
+            }
+            RepairScope expectedScope = AdventureStoryPlanProjectionDependencyPolicy.scope(previousCandidate, violations);
+            if (!expectedScope.equals(repairScope)) {
+                throw new IllegalArgumentException("repair scope must equal the deterministic blocker dependency closure");
+            }
         }
 
         public Request toGenerationRequest() {

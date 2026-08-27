@@ -136,17 +136,22 @@ public final class AdventureStoryPlanApplicationService {
             try {
                 totalAttempts++;
                 if (repairNext) {
+                    RepairScope repairScope = AdventureStoryPlanProjectionDependencyPolicy.scope(
+                            rejectedCandidate, activeViolations);
+                    LOGGER.info("story_plan_projection_repair_scope operationId={} attempt={} blockers={} dependents={} repairable={}",
+                            request.operationId(), attempt,
+                            repairScope.blockerPaths(), repairScope.dependentPaths(), repairScope.isRepairable());
                     AdventureStoryPlanGenerationPort.ProjectionCandidate repaired = generator.repair(
                             new AdventureStoryPlanGenerationPort.RepairRequest(
                                     request.operationId(), request.packageRevision(), request.partySize(), configuration,
-                                    rejectedCandidate, activeViolations, request.sourceDocuments(), request.resolutionEvidence(),
+                                    rejectedCandidate, activeViolations, repairScope, request.sourceDocuments(), request.resolutionEvidence(),
                                     request.maps(), request.citations()));
                     if (repaired == null) throw new AdventureStoryPlanCandidateValidationException(
                             List.of("repair returned no full story plan candidate"), rejectedCandidate);
                     candidateForValidation = repaired.serializedCandidate();
                     if (!rejectedCandidate.isBlank()) {
                         AdventureStoryPlanProjectionRepairPolicy.assertOnlyListedFieldsChanged(
-                                projectionMapper.readTree(rejectedCandidate), projectionMapper.readTree(candidateForValidation), activeViolations);
+                                projectionMapper.readTree(rejectedCandidate), projectionMapper.readTree(candidateForValidation), repairScope);
                     }
                     stages = repaired.stages();
                     repairNext = false;

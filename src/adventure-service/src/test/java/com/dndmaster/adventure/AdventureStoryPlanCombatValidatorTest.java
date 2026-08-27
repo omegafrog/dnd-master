@@ -7,6 +7,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanCombatValidator;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
+import com.dndmaster.adventure.domain.adventure.AdventureStageType;
+import com.dndmaster.adventure.domain.adventure.AdventureGroundingStatus;
 import com.dndmaster.adventure.domain.adventure.CombatParticipant;
 import com.dndmaster.adventure.domain.adventure.CombatRequirement;
 import com.dndmaster.adventure.domain.adventure.CombatSkeleton;
@@ -68,6 +70,21 @@ class AdventureStoryPlanCombatValidatorTest {
         var violations = new AdventureStoryPlanCombatValidator().validate(stage, List.of());
 
         assertEquals("COMBAT_REQUIREMENT_MISMATCH", violations.getFirst().code());
+    }
+
+    @Test
+    void mapped_required_combat_must_retain_required_tactical_intent() {
+        var stage = new AdventureStoryPlanStage(1, "Cellar", "Explore", "Threat", "Continue", List.of(), List.of("ending-1"),
+                List.of(), AdventureStageType.DUNGEON, "Cellar", UUID.randomUUID(), "map", "map.png", List.of(), "",
+                "Continue", "Retreat", List.of(), List.of("ending-1"), List.of(), AdventureGroundingStatus.AI_SUGGESTION,
+                List.of(), "SAFE", .9).withCombat(CombatRequirement.REQUIRED,
+                        new CombatSkeleton("Defeat rats", "Enter", List.of(new CombatParticipant("rat", CombatParticipant.Role.ENEMY,
+                                "giant rat", 1, 1, List.of())), "Clear", "Retreat", List.of()), List.of(),
+                        TacticalPreparationRequirement.NOT_REQUIRED);
+
+        var violations = new AdventureStoryPlanCombatValidator().validate(stage, List.of());
+
+        assertTrue(violations.stream().anyMatch(v -> v.code().equals("TACTICAL_PREPARATION_REQUIREMENT_MISMATCH")));
     }
 
     private static AdventureStoryPlanStage stage() {

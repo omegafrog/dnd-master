@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.infrastructure.integration;
 
 import static com.github.tomakehurst.wiremock.client.WireMock.aResponse;
+import static com.github.tomakehurst.wiremock.client.WireMock.containing;
 import static com.github.tomakehurst.wiremock.client.WireMock.exactly;
 import static com.github.tomakehurst.wiremock.client.WireMock.equalTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.post;
@@ -117,6 +118,39 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
         assertEquals("stages[1].transitionCondition", failure.structuredViolations().getFirst().fieldPath());
         assertEquals("{\"stages\":[{\"position\":1,\"title\":\"Start\"},{\"position\":2,\"title\":\"Middle\"}]}",
                 failure.rejectedCandidate());
+    }
+
+    @Test
+    void sends_full_candidate_scope_and_all_authoritative_registries_to_repair_endpoint() throws Exception {
+        server = new WireMockServer(0);
+        server.start();
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/adventure-story-plan/repair"))
+                .willReturn(aResponse().withStatus(422).withHeader("Content-Type", "application/json").withBody("""
+                        {"violations":[{"code":"REJECTED","stagePosition":1,
+                        "fieldPath":"stages[0].combatSkeleton.participants[0].name","rejectedValue":"",
+                        "citationContext":"","repairability":"REPAIRABLE","sanitizedMessage":"rejected"}]}
+                        """)));
+        UUID documentId = UUID.randomUUID();
+        var citation = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "STORYBOOK", documentId, 2, "page:1", "giant rat", .9).withCitationKey("rat-fact");
+        var blocker = new AdventureStoryPlanProjectionViolation("REJECTED", 1,
+                "stages[0].combatSkeleton.participants[0].name", "", "", Repairability.REPAIRABLE, "rejected");
+        var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "test-internal-token");
+
+        assertThrows(AdventureStoryPlanCandidateValidationException.class, () -> gateway.repair(
+                new AdventureStoryPlanGenerationPort.RepairRequest("operation", 3, 1,
+                        new AdventurePlanConfiguration(1, AdventureLength.SHORT),
+                        "{\"stages\":[{\"position\":1}]}", List.of(blocker),
+                        List.of("storybook.pdf"), List.of("authoritative excerpt"), List.of(), List.of(citation))));
+
+        server.verify(postRequestedFor(urlEqualTo("/internal/v1/gm/adventure-story-plan/repair"))
+                .withRequestBody(matchingJsonPath("$.previousCandidate.stages[0].position", equalTo("1")))
+                .withRequestBody(matchingJsonPath("$.repairScope.allowedPaths",
+                        containing("stages[0].combatSkeleton.objective")))
+                .withRequestBody(matchingJsonPath("$.citations[0].citationKey", equalTo("rat-fact")))
+                .withRequestBody(matchingJsonPath("$.sourceDocuments[0]", equalTo("storybook.pdf")))
+                .withRequestBody(matchingJsonPath("$.resolutionEvidence[0]", equalTo("authoritative excerpt"))));
     }
 
     @Test

@@ -49,4 +49,26 @@ describe('AdventureStoryPlanPage configuration', () => {
 
     expect(api.retryStoryPlan).toHaveBeenCalledWith('s', { endingCount: 2, adventureLength: 'STANDARD' })
   })
+
+  it('keeps dependency-repair failures blocked without exposing a rejected candidate', async () => {
+    const api = {
+      read: vi.fn().mockResolvedValue({
+        sessionId: 's', version: 1, status: 'DRAFT', party: [],
+        runtimeConfiguration: { scenarioId: 'scenario', ruleSetId: 'rules', rulebookIds: ['book'], engineId: 'engine', toolIds: [], initialScene: 'opening' },
+      }),
+      readStoryPlan: vi.fn().mockResolvedValue({
+        status: 'BLOCKED' as const, currentStage: 0, planRevision: 2,
+        endingCount: 2, adventureLength: 'STANDARD' as const, stages: [],
+        failureReason: '참가자 근거 부족으로 의존 필드 검증이 차단되었습니다.',
+      }),
+      startStoryPlanGeneration: vi.fn(), readStoryPlanGeneration: vi.fn(),
+      retryStoryPlan: vi.fn(), start: vi.fn(), recoverStart: vi.fn(), saveAppliedRuleSet: vi.fn(),
+    }
+
+    render(<AdventureStoryPlanPage api={api} sessionId="s" />)
+
+    expect((await screen.findByRole('alert')).textContent).toContain('의존 필드 검증이 차단되었습니다.')
+    expect(screen.queryByText('rejected-candidate-secret')).toBeNull()
+    expect((screen.getByRole('button', { name: '모험 시작' }) as HTMLButtonElement).disabled).toBe(true)
+  })
 })

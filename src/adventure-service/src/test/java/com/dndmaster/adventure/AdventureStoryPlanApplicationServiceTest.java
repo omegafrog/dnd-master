@@ -293,6 +293,34 @@ class AdventureStoryPlanApplicationServiceTest {
     }
 
     @Test
+    void repair_request_carries_computed_dependency_scope_for_a_combat_blocker() {
+        var session = draftSession();
+        var sessions = mock(AdventureSessionRepository.class);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        var generator = mock(AdventureStoryPlanGenerationPort.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        when(plans.findBySessionId(session.id())).thenReturn(Optional.empty());
+        String candidate = shortCandidate("bad");
+        var blocker = new AdventureStoryPlanProjectionViolation("COMBAT_PARTICIPANT_SOURCE_REQUIRED", 1,
+                "stages[0].combatSkeleton.participants[0].name", "", "authoritative field evidence",
+                Repairability.REPAIRABLE, "participant evidence is required");
+        when(generator.generate(any())).thenThrow(new AdventureStoryPlanCandidateValidationException(
+                List.of(blocker), candidate, true));
+        when(generator.repair(any())).thenReturn(new AdventureStoryPlanGenerationPort.ProjectionCandidate(
+                candidate, shortStages("bad")));
+
+        var result = new AdventureStoryPlanApplicationService(plans, sessions, null, generator)
+                .generate(session.id(), session.ownerPlayerId(), new AdventurePlanConfiguration(2, AdventureLength.SHORT));
+
+        assertEquals(AdventureStoryPlanStatus.READY, result.status());
+        var request = org.mockito.ArgumentCaptor.forClass(AdventureStoryPlanGenerationPort.RepairRequest.class);
+        verify(generator).repair(request.capture());
+        assertTrue(request.getValue().repairScope().allows("stages[0].combatSkeleton.objective"));
+        assertTrue(request.getValue().repairScope().allows("stages[0].tacticalPreparationRequirement"));
+        assertTrue(request.getValue().repairScope().allows("stages[0].sourceFactClaims[*]"));
+    }
+
+    @Test
     void collects_map_source_citation_and_graph_violations_without_short_circuiting() throws Exception {
         var citation = new AdventureStoryPlanGenerationPort.SourceCitation(
                 "STORYBOOK", UUID.randomUUID(), 1, "page:1", "A rat swarm guards the cellar.", .9);

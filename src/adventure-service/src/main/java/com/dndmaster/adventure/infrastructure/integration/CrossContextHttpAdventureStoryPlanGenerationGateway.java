@@ -84,7 +84,7 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             JsonNode previousCandidate = mapper.readTree(request.previousCandidate());
             RepairWireRequest wireRequest = new RepairWireRequest(keyedRequest.operationId(), keyedRequest.packageRevision(),
                     keyedRequest.partySize(), keyedRequest.configuration(), previousCandidate,
-                    request.violations(), keyedRequest.sourceDocuments(), keyedRequest.resolutionEvidence(),
+                    request.violations(), keyedRequest.sourceDocuments(), request.repairScope(), keyedRequest.resolutionEvidence(),
                     keyedRequest.maps(), keyedRequest.citations());
             var response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/adventure-story-plan/repair"))
                     .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
@@ -100,7 +100,7 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             }
             var candidate = parseOutlineCandidate(response.body(), keyedRequest);
             AdventureStoryPlanProjectionRepairPolicy.assertOnlyListedFieldsChanged(
-                    previousCandidate, mapper.readTree(candidate.serializedCandidate()), request.violations());
+                    previousCandidate, mapper.readTree(candidate.serializedCandidate()), request.repairScope());
             return candidate;
         } catch (AdventureStoryPlanCandidateValidationException e) {
             throw e;
@@ -393,6 +393,7 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
     private record RepairWireRequest(String operationId, long packageRevision, int partySize,
             AdventurePlanConfiguration configuration, JsonNode previousCandidate,
             List<AdventureStoryPlanProjectionViolation> violations, List<String> sourceDocuments,
+            com.dndmaster.adventure.application.storyplan.RepairScope repairScope,
             List<String> resolutionEvidence, List<AdventureStoryPlanGenerationPort.MapContext> maps,
             List<AdventureStoryPlanGenerationPort.SourceCitation> citations) {
         public RepairWireRequest {

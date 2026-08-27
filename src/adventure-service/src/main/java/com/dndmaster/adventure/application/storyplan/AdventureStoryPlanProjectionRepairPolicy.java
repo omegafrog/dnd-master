@@ -8,7 +8,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.TreeSet;
-import java.util.regex.Pattern;
 
 /** Deterministic guard for bounded full-candidate repairs. */
 public final class AdventureStoryPlanProjectionRepairPolicy {
@@ -16,12 +15,15 @@ public final class AdventureStoryPlanProjectionRepairPolicy {
 
     public static void assertOnlyListedFieldsChanged(JsonNode previous, JsonNode repaired,
             List<AdventureStoryPlanProjectionViolation> violations) {
-        Set<String> allowed = violations.stream().map(AdventureStoryPlanProjectionViolation::fieldPath)
-                .map(AdventureStoryPlanProjectionRepairPolicy::normalizePath).collect(java.util.stream.Collectors.toSet());
+        assertOnlyListedFieldsChanged(previous, repaired,
+                AdventureStoryPlanProjectionDependencyPolicy.scope(previous == null ? "candidate" : previous.toString(), violations));
+    }
+
+    public static void assertOnlyListedFieldsChanged(JsonNode previous, JsonNode repaired, RepairScope scope) {
         List<String> changed = new ArrayList<>();
         collectChanges(previous, repaired, "", changed);
         for (String path : changed) {
-            if (allowed.stream().noneMatch(candidate -> matchesPath(candidate, normalizePath(path)))) {
+            if (!scope.allows(normalizePath(path))) {
                 throw new UnlistedFieldMutation(new AdventureStoryPlanProjectionViolation(
                         "UNLISTED_FIELD_MUTATION", stagePosition(path), path, "[redacted]", "",
                         AdventureStoryPlanProjectionViolation.Repairability.SYSTEM_CONTRACT_ERROR,
@@ -72,20 +74,6 @@ public final class AdventureStoryPlanProjectionRepairPolicy {
 
     private static String normalizePath(String path) {
         return path == null ? "" : path.replaceFirst("^\\$", "").replaceFirst("^\\.", "");
-    }
-
-    private static boolean matchesPath(String allowed, String actual) {
-        if (allowed.equals(actual)) return true;
-        StringBuilder pattern = new StringBuilder();
-        for (int index = 0; index < allowed.length();) {
-            if (allowed.startsWith("[*]", index)) {
-                pattern.append("\\[\\d+\\]");
-                index += 3;
-            } else {
-                pattern.append(Pattern.quote(String.valueOf(allowed.charAt(index++))));
-            }
-        }
-        return actual.matches(pattern.toString());
     }
 
     private static String childPath(String parent, String field) {
