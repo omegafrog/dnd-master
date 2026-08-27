@@ -61,6 +61,13 @@ public final class AdventureStoryPlanStageSourceValidator {
             Set<UUID> nonNarrativeDocumentIds) {
         List<AdventureStoryPlanProjectionViolation> structured = new ArrayList<>();
         int stageIndex = Math.max(0, stage.position() - 1);
+        if (!authoritative.isEmpty() && stage.evidence().isEmpty()) {
+            structured.add(new AdventureStoryPlanProjectionViolation(
+                    "MISSING_STAGE_EVIDENCE", stage.position(), "stages[" + stageIndex + "].evidence",
+                    "", "authoritative source evidence",
+                    AdventureStoryPlanProjectionViolation.Repairability.SOURCE_EVIDENCE_INSUFFICIENT,
+                    "stage " + stage.position() + " evidence is required when authoritative citations are supplied"));
+        }
         for (AdventurePlanEvidence evidence : stage.evidence()) {
             if (authoritative.stream().noneMatch(source -> matches(evidence, source))) {
                 structured.add(new AdventureStoryPlanProjectionViolation(

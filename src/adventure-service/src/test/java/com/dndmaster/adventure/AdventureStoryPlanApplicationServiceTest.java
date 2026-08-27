@@ -302,7 +302,11 @@ class AdventureStoryPlanApplicationServiceTest {
                 List.of(), List.of("ending-1"), List.of(), AdventureStageType.EVENT, "Cellar", null, "", "",
                 List.of(), "invented boss", "invented clear", "", List.of("invented reward"), List.of("ending-1"), List.of(evidence),
                 AdventureGroundingStatus.GROUNDED, List.of(), "UNAVAILABLE", null);
-        var mappedStage = new AdventureStoryPlanStage(2, "Map", "Goal", "Conflict", "Next",
+        var nonMappedStage = new AdventureStoryPlanStage(2, "No Map", "Goal", "Conflict", "Next",
+                List.of(), List.of("ending-1"), List.of(), AdventureStageType.EVENT, "No Map", null, "", "",
+                List.of(), "", "Next", "", List.of(), List.of("ending-1"), List.of(),
+                AdventureGroundingStatus.AI_SUGGESTION, List.of(), "UNAVAILABLE", null);
+        var mappedStage = new AdventureStoryPlanStage(3, "Map", "Goal", "Conflict", "Next",
                 List.of(), List.of("ending-1"), List.of(), AdventureStageType.EVENT, "Map", UUID.randomUUID(), "", "",
                 List.of(), "", "Next", "", List.of(), List.of("ending-1"), List.of(),
                 AdventureGroundingStatus.AI_SUGGESTION, List.of(), "UNAVAILABLE", null);
@@ -319,10 +323,14 @@ class AdventureStoryPlanApplicationServiceTest {
 
         @SuppressWarnings("unchecked")
         List<AdventureStoryPlanProjectionViolation> violations = (List<AdventureStoryPlanProjectionViolation>) validate.invoke(
-                service, List.of(stage, mappedStage), request, null, request.configuration());
+                service, List.of(stage, nonMappedStage, mappedStage), request, null, request.configuration());
 
         assertTrue(violations.stream().anyMatch(item -> item.code().equals("UNKNOWN_MAP_DEFINITION")));
         assertTrue(violations.stream().anyMatch(item -> item.code().equals("SOURCE_CLAIM_UNSUPPORTED")));
+        assertTrue(violations.stream().anyMatch(item -> item.code().equals("MISSING_STAGE_EVIDENCE")
+                && item.fieldPath().equals("stages[1].evidence")));
+        assertTrue(violations.stream().anyMatch(item -> item.code().equals("MISSING_STAGE_EVIDENCE")
+                && item.fieldPath().equals("stages[2].evidence")));
         assertTrue(violations.stream().anyMatch(item -> item.code().equals("CITATION_COVERAGE_MISSING")));
         assertTrue(violations.stream().anyMatch(item -> item.code().equals("GRAPH_VALIDATION_FAILED")));
     }

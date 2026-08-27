@@ -176,3 +176,28 @@ All commands were run inside WSL Ubuntu-24.04 with non-empty `INTERNAL_SERVICE_T
 - `/home/jiwoo/.local/bin/graphify update .` from the persistent worktree completed. It reported no code-graph topology changes and left graph outputs untouched. Existing warnings were four zero-node JSON files, 95 SQL files skipped because `tree_sitter_sql` is not installed, and the missing Gemini key tip.
 - Live E2E was not run. The required live variables were not available and the WSL shell's npm/npx resolution was not acceptable for live execution; no backend was started.
 - Official RAG-019 remains `in-progress` pending the main-session independent Standards/Spec review of the full diff from baseline `048cdf4e`.
+
+## Attempt 7 final citation-evidence fix before independent review
+
+- Resumed only from `/home/jiwoo/workspace/dnd-rag-product-plan`; no agent was spawned or called. Preserved untracked `src/preprocessing_agent.egg-info/` unchanged and unstaged.
+- Confirmed the inherited regression was red before the fix: the mixed multi-stage validation test failed because a stage with supplied citations but empty evidence was skipped.
+- Fixed stage-source validation so every stage is checked when authoritative citations are supplied. Empty evidence now produces `MISSING_STAGE_EVIDENCE` with the concrete stage evidence field path, `SOURCE_EVIDENCE_INSUFFICIENT`, and no invented citation context. The application no longer skips empty-evidence stages.
+- Retained and strengthened the regression to cover one valid evidence-backed stage, one non-map stage with missing evidence, and one map stage with missing evidence in the same candidate; both missing stages are asserted independently.
+- Removed RAG-019 unused imports (`HashSet`, `Iterator`, and the duplicate/unused application imports including the duplicate `UUID`).
+
+### Exact verification evidence
+
+- Focused adventure rerun: `cd /home/jiwoo/workspace/dnd-rag-product-plan/src && INTERNAL_SERVICE_TOKEN=rag019-test-token ./gradlew --no-daemon --rerun-tasks :adventure-service:test --tests com.dndmaster.adventure.AdventureStoryPlanProjectionRepairPolicyTest --tests com.dndmaster.adventure.AdventureStoryPlanApplicationServiceTest --tests com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAdventureStoryPlanGenerationGatewayTest --tests com.dndmaster.adventure.AdventureStoryPlanStageSourceValidatorTest` — `BUILD SUCCESSFUL`; 48 tests, 0 failures, 0 errors, 0 skipped.
+- Focused AI-controller rerun: `cd /home/jiwoo/workspace/dnd-rag-product-plan/src && INTERNAL_SERVICE_TOKEN=rag019-test-token ./gradlew --no-daemon --rerun-tasks :ai-game-master-service:test --tests com.dndmaster.aigamemaster.api.AdventureStoryPlanControllerMarkdownTest` — `BUILD SUCCESSFUL`; 19 tests, 0 failures, 0 errors, 0 skipped.
+- Full adventure-service rerun: `cd /home/jiwoo/workspace/dnd-rag-product-plan/src && INTERNAL_SERVICE_TOKEN=rag019-test-token ./gradlew --no-daemon --rerun-tasks :adventure-service:test` — `BUILD SUCCESSFUL`; 88 XML files aggregate to 382 tests, 0 failures, 0 errors, 0 skipped.
+- Full AI Game Master rerun: `cd /home/jiwoo/workspace/dnd-rag-product-plan/src && INTERNAL_SERVICE_TOKEN=rag019-test-token ./gradlew --no-daemon --rerun-tasks :ai-game-master-service:test` — `BUILD SUCCESSFUL`; 23 XML files aggregate to 81 tests, 0 failures, 0 errors, 0 skipped.
+- `git diff --check` — passed with no output.
+- `graphify update .` from the persistent worktree — completed; `graphify-out` reports 13,613 nodes, 22,699 edges, and 2,622 communities. HTML visualization was skipped because the graph exceeds the 5,000-node limit. Existing warnings: four zero-node JSON files, 95 SQL files skipped because `tree_sitter_sql` is not installed, and no Gemini key configured.
+
+### Live/UI prerequisite check
+
+- Live E2E was not run. `BACKEND_E2E_URL`, `BACKEND_E2E_EMAIL`, `BACKEND_E2E_PASSWORD`, and `BACKEND_E2E_STORYBOOKS_JSON` are absent. WSL resolves `npm` to `/mnt/d/npm` and `npx` to `/mnt/d/npx`, so the required WSL-owned toolchain is unavailable; no backend was started.
+
+### Next action
+
+- Code, tests, and this checkpoint are ready to commit. Keep official RAG-019 `in-progress` until independent Standards and Spec review of the full diff from baseline `048cdf4e` both pass.

@@ -1,13 +1,11 @@
 package com.dndmaster.adventure.application.storyplan;
 
 import com.dndmaster.adventure.application.session.AdventureSessionRepository;
-import com.dndmaster.adventure.domain.adventure.AdventurePartyMember;
 import com.dndmaster.adventure.domain.adventure.AdventureSession;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlan;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStatus;
 import com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration;
-import com.dndmaster.adventure.domain.adventure.AdventureLength;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanGraphValidator;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
@@ -23,7 +21,6 @@ import java.util.ArrayList;
 import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import java.util.UUID;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort;
 import com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort;
@@ -422,7 +419,7 @@ public final class AdventureStoryPlanApplicationService {
                 .map(document -> document.knowledgeDocumentId().value())
                 .collect(java.util.stream.Collectors.toSet());
         for (AdventureStoryPlanStage stage : stages) {
-            if (!citations.isEmpty() && !stage.evidence().isEmpty()) {
+            if (!citations.isEmpty()) {
                 violations.addAll(stageSourceValidator.validateStructured(stage, citations, mapDocumentIds));
             }
         }
