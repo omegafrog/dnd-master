@@ -114,6 +114,7 @@ public final class PostgresGmTurnRepository implements GmTurnRepository {
                 case "PROCESSING" -> turn.process();
                 case "COMMITTED" -> turn.process().commit(row.getString("provider_metadata"), requested, effective, attempts < 1 ? 1 : attempts);
                 case "FAILED" -> turn.process().fail(row.getString("failure"));
+                case "FAILED_RETRYABLE" -> turn.process().failRetryable(row.getString("failure"));
                 default -> throw new IllegalStateException("unsupported GM turn status");
             };
         } catch (Exception e) { throw new SQLException("could not read GM turn", e); }

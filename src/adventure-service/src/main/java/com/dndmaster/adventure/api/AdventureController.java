@@ -24,6 +24,8 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.util.List;
 import java.util.UUID;
@@ -50,6 +52,7 @@ public class AdventureController {
     private final com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort;
     private final ObjectMapper objectMapper;
     private final AdventureStoryPlanApplicationService storyPlanService;
+    private final PlatformTransactionManager transactionManager;
 
     public AdventureController(
             SavedAdventureApplicationService savedAdventureService,
@@ -66,7 +69,8 @@ public class AdventureController {
             ObjectProvider<CombatMapPort> combatMapPort,
             ObjectMapper objectMapper,
             ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapViewPort> combatMapViewPort,
-            AdventureStoryPlanApplicationService storyPlanService) {
+            AdventureStoryPlanApplicationService storyPlanService,
+            ObjectProvider<PlatformTransactionManager> transactionManager) {
         this.savedAdventureService = savedAdventureService;
         this.runtimeTurnService = runtimeTurnService;
         this.adventureRepository = adventureRepository;
@@ -84,6 +88,7 @@ public class AdventureController {
         });
         this.combatMapViewPort = combatMapViewPort.getIfAvailable(() -> (adventureId1, ownerId) -> java.util.Optional.empty());
         this.objectMapper = objectMapper;
+        this.transactionManager = transactionManager.getIfAvailable();
     }
 
     @PostMapping("/api/v1/adventures/scenarios")
@@ -149,46 +154,75 @@ public class AdventureController {
             @RequestHeader("If-Match-Version") long expectedVersion,
             @RequestBody GmTurnRequest request) {
         UUID owner = playerResolver.playerId();
+        var started = new java.util.concurrent.atomic.AtomicReference<GmTurn>();
+        var sessionId = new java.util.concurrent.atomic.AtomicReference<UUID>();
+        try {
+            ResponseEntity<RuntimeTurnResponse> response = transactionManager == null
+                    ? executeTypedTurnCommand(adventureId, commandId, expectedVersion, request, owner, started, sessionId)
+                    : new TransactionTemplate(transactionManager).execute(status ->
+                        executeTypedTurnCommand(adventureId, commandId, expectedVersion, request, owner, started, sessionId));
+            if (response == null) throw new IllegalStateException("typed GM turn transaction returned no response");
+            return response;
+        } catch (RuntimeException exception) {
+            if (started.get() == null || sessionId.get() == null) throw exception;
+            gmTurnFailureRecorder.record(started.get(), adventureId, sessionId.get(), exception.getMessage(), expectedVersion);
+            return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_GATEWAY).build();
+        }
+    }
+
+    private ResponseEntity<RuntimeTurnResponse> executeTypedTurnCommand(
+            UUID adventureId, UUID commandId, long expectedVersion, GmTurnRequest request, UUID owner,
+            java.util.concurrent.atomic.AtomicReference<GmTurn> started,
+            java.util.concurrent.atomic.AtomicReference<UUID> sessionId) {
         gmTurnRepository.lockAdventure(adventureId);
         var adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        sessionId.set(adventure.sessionId().value());
         adventure.reopen(new OwnerPlayerId(owner));
         var input = request.input().toDomain();
         var existing = gmTurnRepository.findByCommandId(commandId);
         if (existing.isPresent()) {
-            existing.get().assertSameCommand(input);
+            existing.get().assertSameCommand(expectedVersion, input);
+            if (existing.get().status() == com.dndmaster.adventure.domain.runtime.GmTurnStatus.FAILED_RETRYABLE
+                    || existing.get().status() == com.dndmaster.adventure.domain.runtime.GmTurnStatus.FAILED) {
+                return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_GATEWAY).build();
+            }
             var prior = runtimeTurnRepository.findByCommandId(commandId).orElseThrow(
                     () -> new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "turn is still processing"));
             return ResponseEntity.accepted().body(RuntimeTurnResponse.from(new RuntimeTurnResult(
                     prior, prior.context(), prior.conversation(), prior.version())));
         }
         GmTurn turn = GmTurn.start(request.turnId(), commandId, expectedVersion, input);
+        started.set(turn);
+        RuntimeTurnResult result = executeTypedTurn(turn, adventure, request, input, owner, adventureId, commandId, expectedVersion);
+        return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
+    }
+
+    private RuntimeTurnResult executeTypedTurn(
+            GmTurn turn, com.dndmaster.adventure.domain.adventure.Adventure adventure,
+            GmTurnRequest request, com.dndmaster.adventure.domain.runtime.GmInput input,
+            UUID owner, UUID adventureId, UUID commandId, long expectedVersion) {
         gmTurnRepository.save(turn, adventureId);
-        RuntimeTurnResult result;
-        try {
-            gmTurnRepository.save(turn.process(), adventureId);
-            if (input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput mapAction) {
-                applyMapAction(adventure, owner, commandId, mapAction);
-            }
-            result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
-                    new AdventureId(adventureId), new OwnerPlayerId(owner), request.turnId(), commandId,
-                    input.actionText(), expectedVersion,
-                    null, -1, !(input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput), true, false));
-        } catch (RuntimeException exception) {
-            gmTurnFailureRecorder.record(turn, adventureId, adventure.sessionId().value(), exception.getMessage(), expectedVersion);
-            return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_GATEWAY).build();
+        gmTurnRepository.save(turn.process(), adventureId);
+        if (input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput mapAction) {
+            applyMapAction(adventure, owner, commandId, mapAction);
         }
+        RuntimeTurnResult result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
+                new AdventureId(adventureId), new OwnerPlayerId(owner), request.turnId(), commandId,
+                input.actionText(), expectedVersion,
+                null, -1, !(input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput), true, false));
         var requestedSelection = result.turn().plan().requestedSelection();
         var effectiveSelection = result.turn().plan().effectiveSelection();
         String providerMetadata = "provider=" + effectiveSelection.provider()
                 + ";model=" + effectiveSelection.model()
                 + ";reasoning=" + effectiveSelection.reasoning()
                 + ";validation=accepted";
-        GmTurn committedTurn = turn.process().commit(providerMetadata, requestedSelection, effectiveSelection, 1);
+        GmTurn committedTurn = turn.process().commit(providerMetadata, requestedSelection, effectiveSelection,
+                turn.attemptCount());
         gmTurnRepository.save(committedTurn, adventureId);
         com.dndmaster.adventure.application.runtime.GmTurnCommitPolicy.requirePublishable(committedTurn, result.version());
         sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
                 result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
-        return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
+        return result;
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/rule-inquiries")

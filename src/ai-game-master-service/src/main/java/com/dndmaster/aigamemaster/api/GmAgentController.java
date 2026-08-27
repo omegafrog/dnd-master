@@ -4,6 +4,7 @@ import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmProviderRequest;
 import com.dndmaster.aigamemaster.infrastructure.ai.EffectiveGmProviderSelection;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionResult;
+import com.dndmaster.aigamemaster.infrastructure.ai.GmCandidateLifecycleResult;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmProviderSelectionUnresolvedException;
 import com.dndmaster.aigamemaster.infrastructure.ai.RequestedGmProviderSelection;
 import com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException;
@@ -41,11 +42,14 @@ public final class GmAgentController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "requestedSelection required");
         }
         try {
-            GmCompletionResult<Response> completion = adapter.completeWithSelection(
-                    request.operationKey(), prompt(request.toLegacyRequest()), this::parseCompleteResponse,
+            GmCandidateLifecycleResult<Response> lifecycle = adapter.completeWithOneRepair(
+                    request.operationKey(), prompt(request.toLegacyRequest()),
+                    initialCandidate -> repairPrompt(request, initialCandidate),
+                    json -> validateCandidate(request, parseStrictCompleteResponse(json)),
                     request.requestedSelection());
+            GmCompletionResult<Response> completion = lifecycle.completion();
             return new V2Response(completion.response(), RequestedSelection.from(request.requestedSelection()),
-                    EffectiveSelection.from(completion.effectiveSelection()), 1);
+                    EffectiveSelection.from(completion.effectiveSelection()), lifecycle.attemptCount(), List.of());
         } catch (GmProviderSelectionUnresolvedException unresolved) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, unresolved.code());
         } catch (ProviderMalformedResponseException malformed) {
@@ -139,26 +143,6 @@ public final class GmAgentController {
                 // Never trust a free-form branch object without deterministic validation.
                 normalized.put("advanceStoryPlan", false);
                 normalized.put("selectedBranchId", "");
-                if (!normalized.has("scene") || normalized.get("scene").isNull()
-                        || normalized.get("scene").asText().isBlank()) normalized.put("scene", "current");
-                if (!normalized.has("judgment") || normalized.get("judgment").isNull()
-                        || normalized.get("judgment").asText().isBlank()) {
-                    normalized.put("judgment", "The action is unresolved; the scene awaits the next meaningful choice.");
-                    ((com.fasterxml.jackson.databind.node.ArrayNode) normalized.get("warnings"))
-                            .add("Provider omitted a judgment; a neutral judgment was applied.");
-                }
-                if (!normalized.has("narration") || normalized.get("narration").isNull()
-                        || normalized.get("narration").asText().isBlank()) {
-                    normalized.put("narration", "The scene holds, awaiting your next decision.");
-                    ((com.fasterxml.jackson.databind.node.ArrayNode) normalized.get("warnings"))
-                            .add("Provider omitted narration; a neutral narration was applied.");
-                }
-                if (!normalized.has("provider") || normalized.get("provider").isNull()
-                        || normalized.get("provider").asText().isBlank()) normalized.put("provider", "codex-cli");
-                if (!normalized.has("model") || normalized.get("model").isNull()
-                        || normalized.get("model").asText().isBlank()) normalized.put("model", "gpt-5.6-luna");
-                if (!normalized.has("reasoning") || normalized.get("reasoning").isNull()
-                        || normalized.get("reasoning").asText().isBlank()) normalized.put("reasoning", "none");
                 Response response = mapper.treeToValue(normalized, Response.class);
                 if (response.proposedActiveSourceContext() instanceof String source
                         && source.isBlank()) {
@@ -176,10 +160,68 @@ public final class GmAgentController {
 
     private static void normalizeArrayField(com.fasterxml.jackson.databind.node.ObjectNode node, String field) {
         com.fasterxml.jackson.databind.JsonNode value = node.get(field);
-        if (value == null || value.isNull() || (value.isTextual() && value.asText().isBlank())
-                || (value.isObject() && value.size() == 0)) {
+        if (value != null && (value.isNull() || (value.isTextual() && value.asText().isBlank())
+                || (value.isObject() && value.size() == 0))) {
             node.putArray(field);
         }
+    }
+
+    private Response parseStrictCompleteResponse(String json) {
+        try {
+            com.fasterxml.jackson.databind.JsonNode node = mapper.readTree(json);
+            if (node == null || !node.isObject()) throw new IllegalArgumentException("candidate must be a JSON object");
+            return requireComplete(mapper.treeToValue(node, Response.class));
+        } catch (Exception exception) {
+            throw new ProviderMalformedResponseException("GM candidate malformed: " + safeMessage(exception));
+        }
+    }
+
+    private Response validateCandidate(V2Request request, Response response) {
+        if (!request.storybook().isEmpty() && response.citedEvidence().isEmpty()) {
+            throw new ProviderMalformedResponseException("GM candidate violation: storybook citation required");
+        }
+        List<?> allowed = java.util.stream.Stream.of(request.storybook(), request.rulebook(), request.resolution())
+                .flatMap(List::stream).toList();
+        if (response.citedEvidence().stream().anyMatch(citation -> !citationMatchesPack(citation, allowed))) {
+            throw new ProviderMalformedResponseException("GM candidate violation: citation is outside the Evidence Pack");
+        }
+        return response;
+    }
+
+    private boolean citationMatchesPack(Object citation, List<?> allowed) {
+        if (allowed.contains(citation)) return true;
+        if (citation instanceof java.util.Map<?, ?> candidate) {
+            return allowed.stream().anyMatch(item -> item instanceof java.util.Map<?, ?> evidence
+                    && sameValue(candidate, evidence, "type")
+                    && sameValue(candidate, evidence, "knowledgeDocumentId")
+                    && sameValue(candidate, evidence, "extractionVersion")
+                    && sameValue(candidate, evidence, "locator")
+                    && sameValue(candidate, evidence, "excerpt"));
+        }
+        try {
+            String serialized = mapper.writeValueAsString(citation);
+            return allowed.stream().anyMatch(item -> {
+                try {
+                    return serialized.equals(mapper.writeValueAsString(item));
+                } catch (Exception ignored) {
+                    return false;
+                }
+            });
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static boolean sameValue(java.util.Map<?, ?> left, java.util.Map<?, ?> right, String key) {
+        Object leftValue = left.get(key);
+        Object rightValue = right.get(key);
+        return leftValue != null && rightValue != null && String.valueOf(leftValue).equals(String.valueOf(rightValue));
+    }
+
+    private static String safeMessage(Exception exception) {
+        String message = exception.getMessage();
+        if (message == null || message.isBlank()) return "required candidate fields are missing";
+        return message.replaceAll("[\\r\\n]", " ").replaceAll("[0-9a-fA-F-]{24,}", "<redacted>");
     }
 
     private static boolean validCitation(com.fasterxml.jackson.databind.JsonNode item) {
@@ -200,6 +242,23 @@ public final class GmAgentController {
                 Do not make rule claims or invent facts. The player action is: %s
                 Current scene: %s
                 """.formatted(r.action(), r.currentScene());
+    }
+
+    private static String repairPrompt(V2Request request, String initialCandidate) {
+        GmCandidateViolation violation = GmCandidateViolation.malformed(
+                "initial candidate failed the required GM candidate envelope");
+        return """
+                Return exactly one repaired JSON object and no markdown.
+                Required keys: scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings, provider, model, reasoning, stateDelta, toolCalls, advanceStoryPlan, selectedBranchId.
+                Do not add semantic defaults, neutral narration, neutral judgment, or guessed citations.
+                Preserve the same requested provider selection and the same Evidence Pack below.
+                initialCandidate=%s
+                violations=[{"code":"%s","fieldPath":"%s","repairable":%s,"safeMessage":"%s"}]
+                storybook=%s rulebook=%s resolution=%s
+                playerAction=%s currentScene=%s
+                """.formatted(initialCandidate == null ? "" : initialCandidate, violation.code(), violation.fieldPath(),
+                violation.repairable(), violation.safeMessage(), request.storybook(), request.rulebook(), request.resolution(),
+                request.action(), request.currentScene());
     }
 
     @PostMapping("/internal/v1/gm/context-compactions")
@@ -338,7 +397,13 @@ public final class GmAgentController {
     }
 
     public record V2Response(Response candidate, RequestedSelection requestedSelection,
-                             EffectiveSelection effectiveSelection, int attemptCount) {}
+                             EffectiveSelection effectiveSelection, int attemptCount,
+                             List<GmCandidateViolation> violations) {
+        public V2Response(Response candidate, RequestedSelection requestedSelection,
+                          EffectiveSelection effectiveSelection, int attemptCount) {
+            this(candidate, requestedSelection, effectiveSelection, attemptCount, List.of());
+        }
+    }
 
     public record RequestedSelection(UUID endpointId, String provider, String model, String reasoning) {
         static RequestedSelection from(RequestedGmProviderSelection value) {
@@ -371,6 +436,7 @@ public final class GmAgentController {
         requireText(response.narration(), "narration");
         requireText(response.provider(), "provider");
         requireText(response.model(), "model");
+        requireText(response.reasoning(), "reasoning");
         if (!response.stateDelta().isEmpty()) throw new IllegalArgumentException("read-only GM state delta must be empty");
         if (response.toolCalls() != null && response.toolCalls().stream().anyMatch(call -> call == null
                 || (!"dice.roll".equals(call.toolName()) && !"character.update".equals(call.toolName())

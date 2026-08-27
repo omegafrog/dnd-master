@@ -83,6 +83,28 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
         return new GmCompletionResult<>(response, effective);
     }
 
+    @Override
+    public <T> GmCandidateLifecycleResult<T> completeWithOneRepair(
+            String operationId, String prompt, java.util.function.Function<String, String> repairPrompt,
+            StructuredResponseParser<T> parser, RequestedGmProviderSelection requested) {
+        if (selectionResolver == null) throw new GmProviderSelectionUnresolvedException(requested);
+        GmProviderSelectionResolver.EndpointResolution resolution = selectionResolver.resolveEndpoint(requested);
+        EffectiveGmProviderSelection effective = resolution.effectiveSelection();
+        java.util.concurrent.atomic.AtomicReference<String> raw = new java.util.concurrent.atomic.AtomicReference<>("");
+        StructuredResponseParser<T> capturingParser = json -> {
+            raw.set(json == null ? "" : json);
+            return parser.parse(json);
+        };
+        try {
+            T response = completeResolved(operationId, prompt, capturingParser, resolution.endpoint(), effective);
+            return new GmCandidateLifecycleResult<>(new GmCompletionResult<>(response, effective), 1);
+        } catch (ProviderMalformedResponseException malformed) {
+            T repaired = completeResolved(operationId + ":repair", repairPrompt.apply(raw.get()),
+                    capturingParser, resolution.endpoint(), effective);
+            return new GmCandidateLifecycleResult<>(new GmCompletionResult<>(repaired, effective), 2);
+        }
+    }
+
     private <T> T completeResolved(String operationId, String prompt, StructuredResponseParser<T> parser,
                                    AgentEndpoint endpoint, EffectiveGmProviderSelection effective) {
         return switch (effective.provider()) {
