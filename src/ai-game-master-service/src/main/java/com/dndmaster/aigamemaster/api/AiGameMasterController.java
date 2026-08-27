@@ -40,7 +40,7 @@ public class AiGameMasterController {
     @PostMapping("/internal/v1/gm/scenes")
     SceneResponse generateScene(@RequestBody SceneRequest request) {
         List<SourceEvidence> evidence = request.evidence().stream()
-                .map(e -> new SourceEvidence(e.rulebookId(), e.locator(), e.excerpt()))
+                .map(e -> new SourceEvidence(e.rulebookId(), e.locator(), e.excerpt(), e.citationKey()))
                 .toList();
         ScenarioRequest scenarioRequest = new ScenarioRequest(
                 request.scenarioId(), request.selectedScenario(),
@@ -63,7 +63,7 @@ public class AiGameMasterController {
     RuleAnswerResponse groundedAnswer(@RequestBody RuleAnswerHttpRequest request) {
         EvidenceStatus status = EvidenceStatus.valueOf(request.evidenceStatus());
         List<SourceEvidence> evidence = request.evidence().stream()
-                .map(e -> new SourceEvidence(e.rulebookId(), e.locator(), e.excerpt()))
+                .map(e -> new SourceEvidence(e.rulebookId(), e.locator(), e.excerpt(), e.citationKey()))
                 .toList();
         RuleAnswerRequest ruleRequest = new RuleAnswerRequest(
                 request.ruleSetId(), request.situation(), status, evidence);
@@ -71,7 +71,7 @@ public class AiGameMasterController {
         return new RuleAnswerResponse(
                 output.conclusion(), output.conclusionCitations(),
                 output.candidates(), output.evidenceStatus().name(),
-                output.uncertaintyDisclosed());
+                output.uncertaintyDisclosed(), output.citationBindings());
     }
 
     @PostMapping("/internal/v1/gm/intent-classifications")
@@ -104,7 +104,11 @@ public class AiGameMasterController {
             UUID scenarioId, String selectedScenario, String currentContext,
             UUID ruleSetId, List<EvidenceRef> evidence) {}
 
-    public record EvidenceRef(UUID rulebookId, String locator, String excerpt) {}
+    public record EvidenceRef(UUID rulebookId, String locator, String excerpt, String citationKey) {
+        public EvidenceRef(UUID rulebookId, String locator, String excerpt) {
+            this(rulebookId, locator, excerpt, null);
+        }
+    }
 
     public record SceneResponse(
             UUID scenarioId, UUID ruleSetId,
@@ -121,7 +125,13 @@ public class AiGameMasterController {
     public record RuleAnswerResponse(
             String conclusion, List<Citation> conclusionCitations,
             List<RuleCandidate> candidates, String evidenceStatus,
-            boolean uncertaintyDisclosed) {}
+            boolean uncertaintyDisclosed, List<GmCitationBinding> citationBindings) {
+        public RuleAnswerResponse(String conclusion, List<Citation> conclusionCitations,
+                                  List<RuleCandidate> candidates, String evidenceStatus,
+                                  boolean uncertaintyDisclosed) {
+            this(conclusion, conclusionCitations, candidates, evidenceStatus, uncertaintyDisclosed, List.of());
+        }
+    }
 
     public record IntentClassificationRequest(String question) {}
 

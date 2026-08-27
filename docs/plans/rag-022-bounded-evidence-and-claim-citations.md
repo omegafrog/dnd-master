@@ -1,6 +1,6 @@
 # RAG-022: 제한된 근거와 주장 단위 인용 검증
 
-- 상태: `planned`
+- 상태: `completed`
 - 의존성: RAG-021
 - Product Spec: UC-GM-001, BR-GM-003, BR-QUALITY-001, AC-GM-001~003
 - Architecture Spec: Sections 3.5~3.6, 4.3, 5.4~5.5, 9.2, 11.2~11.3
@@ -61,3 +61,11 @@ GM에게 검색 상위 결과를 무제한 전달하지 않고 현재 단계와 
 - 질문 유형별 evidence selection fixture
 - max-eight request/response capture
 - 인용 membership·관련성 평가 결과
+
+구현 및 검증:
+
+- `RuntimeEvidenceSelector`가 stage/action-intent/session scope를 보존하고 STORYBOOK 우선, RULE/MIXED 조건부 RULEBOOK, 전체 최대 8개를 적용한다.
+- `RuntimeEvidence`와 검색 gateway가 extraction version, locator, provenance identity, server-owned citation key를 round-trip한다.
+- `GmCitationBinding`, `GmFinalValidator`, `GmValidationReport`가 output claim 존재, pack membership, claim support를 구조화된 violation과 metric으로 검증한다.
+- WSL focused Java 회귀, AI/rule-knowledge 계약 회귀, gateway/entity 계약, UI `RuleEvidence` 2개와 typecheck, `graphify update .`, `git diff --check`가 통과했다.
+- 전체 모듈의 기존 환경 회귀는 별도 기록했다: adventure `/v3/api-docs` HTTP 500, AI `ApiRequestGuard` 계약 환경 누락 3건.

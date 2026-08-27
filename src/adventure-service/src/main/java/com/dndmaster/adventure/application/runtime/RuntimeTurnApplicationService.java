@@ -31,6 +31,7 @@ public class RuntimeTurnApplicationService {
     private final ScenarioPackageRepository scenarioPackageRepository;
     private final RuntimeTurnRepository runtimeTurnRepository;
     private final RuntimeEvidenceSearchPort evidenceSearchPort;
+    private final RuntimeEvidenceSelector evidenceSelector;
     private final RuntimePlanningPort planningPort;
     private final NarrationSafetyPort narrationSafetyPort;
     private final SessionKnowledgeSetRepository sessionKnowledgeSetRepository;
@@ -98,6 +99,7 @@ public class RuntimeTurnApplicationService {
         this.scenarioPackageRepository = Objects.requireNonNull(scenarioPackageRepository, "scenario package repository must not be null");
         this.runtimeTurnRepository = Objects.requireNonNull(runtimeTurnRepository, "runtime turn repository must not be null");
         this.evidenceSearchPort = Objects.requireNonNull(evidenceSearchPort, "evidence search port must not be null");
+        this.evidenceSelector = new RuntimeEvidenceSelector(this.evidenceSearchPort);
         this.planningPort = Objects.requireNonNull(planningPort, "planning port must not be null");
         this.narrationSafetyPort = Objects.requireNonNull(narrationSafetyPort, "narration safety port must not be null");
         this.sessionKnowledgeSetRepository = Objects.requireNonNull(
@@ -311,20 +313,15 @@ public class RuntimeTurnApplicationService {
                         com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection::extractionVersion, (a, b) -> a));
         extractionVersions = extractionVersions.entrySet().stream().filter(entry -> entry.getValue() > 1)
                 .collect(java.util.stream.Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
-        List<RuntimeEvidence> storybook = scopedSearch(new RuntimeEvidenceSearchRequest(
-                adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), storybookDocumentIds,
-                binding.activeSourceContext(), command.action(), RuntimeEvidenceType.STORYBOOK, 5, extractionVersions));
-        List<RuntimeEvidence> rulebook = rulebookDocumentIds.isEmpty() ? List.of() : scopedSearch(new RuntimeEvidenceSearchRequest(
-                adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), rulebookDocumentIds,
-                binding.activeSourceContext(), command.action(), RuntimeEvidenceType.RULEBOOK, 5, extractionVersions));
         List<RuntimeEvidence> resolution = scenarioPackage.runtimeCandidates().stream()
                 .flatMap(unit -> resolutionEvidence(unit).stream())
                 .filter(evidence -> knowledgeDocumentIds.contains(evidence.knowledgeDocumentId().value()))
                 .toList();
-        if (storybook.isEmpty()) {
-            throw new IllegalStateException("storybook evidence is required for a runtime GM turn");
-        }
-        return new EvidencePack(storybook, rulebook, resolution);
+        RuntimeEvidenceSearchRequest request = new RuntimeEvidenceSearchRequest(
+                adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), storybookDocumentIds,
+                binding.activeSourceContext(), command.action(), RuntimeEvidenceType.STORYBOOK, RuntimeEvidenceSelector.MAX_EVIDENCE,
+                extractionVersions, "scene:" + adventure.currentContext().currentScene(), actionIntent(command.action()));
+        return evidenceSelector.select(request, resolution, rulebookDocumentIds).pack();
     }
 
     private static List<UUID> documentIdsOfType(ScenarioPackage scenarioPackage, String type, List<UUID> selected) {
@@ -368,10 +365,17 @@ public class RuntimeTurnApplicationService {
         });
     }
 
-    private List<RuntimeEvidence> scopedSearch(RuntimeEvidenceSearchRequest request) {
-        return evidenceSearchPort.search(request).stream()
-                .filter(evidence -> request.knowledgeDocumentIds().contains(evidence.knowledgeDocumentId().value()))
-                .toList();
+    private static String actionIntent(String action) {
+        String normalized = action.toLowerCase(java.util.Locale.ROOT);
+        if (normalized.contains("rule") || normalized.contains("roll") || normalized.contains("damage")
+                || normalized.contains("판정") || normalized.contains("규칙") || normalized.contains("굴림")) {
+            return "RULE";
+        }
+        if (normalized.contains("look") || normalized.contains("inspect") || normalized.contains("search")
+                || normalized.contains("examine") || normalized.contains("살펴") || normalized.contains("조사")) {
+            return "EXPLORE";
+        }
+        return "MIXED";
     }
 
     private List<UUID> knowledgeDocumentIds(Adventure adventure, ScenarioPackage scenarioPackage) {

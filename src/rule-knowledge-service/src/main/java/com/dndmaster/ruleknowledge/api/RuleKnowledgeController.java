@@ -430,7 +430,8 @@ public class RuleKnowledgeController {
                         r.score(),
                         r.chapter(),
                         r.section(),
-                        provenanceView(r.rulebookId().value(), r.extractionVersion(), r.provenance())))
+                        provenanceView(r.rulebookId().value(), r.extractionVersion(), r.provenance()),
+                        runtimeCitationKey("RULEBOOK", r.rulebookId().value(), r.extractionVersion(), r.locator())))
                 .toList();
         return new EvidenceSearchResponse(request.ownerId(), evidence);
     }
@@ -463,7 +464,9 @@ public class RuleKnowledgeController {
                         .map(result -> new StorySourceEvidenceItem(
                                 result.documentId().value(), result.extractionVersion(), result.sourceSpanLocator(),
                                 result.excerpt(), result.score(), provenanceView(result.documentId().value(),
-                                        result.extractionVersion(), result.provenance())))
+                                        result.extractionVersion(), result.provenance()),
+                                runtimeCitationKey("STORYBOOK", result.documentId().value(),
+                                        result.extractionVersion(), result.sourceSpanLocator())))
                 .toList());
     }
 
@@ -655,21 +658,35 @@ public class RuleKnowledgeController {
     public record GameSystemDefinitionResponse(UUID rulebookId, long version, String definitionJson) {}
     public record GameSystemDefinitionRequest(long version, String definitionJson) {}
     public record RuleSetSaveRequest(List<UUID> knowledgeDocumentIds) {}
-    public record EvidenceSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, QueryIntent queryIntent, Integer limit) {}
+    public record EvidenceSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, QueryIntent queryIntent, Integer limit,
+                                        UUID sessionId, UUID scenarioPackageId, String stageKey, String actionIntent) {
+        public EvidenceSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, QueryIntent queryIntent, Integer limit) {
+            this(ownerId, rulebookIds, situation, queryIntent, limit, null, null, null, null);
+        }
+    }
     public record EvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score,
-            String chapter, String section, ProvenanceView provenance) {}
+            String chapter, String section, ProvenanceView provenance, String citationKey) {}
     public record EvidenceSearchResponse(UUID ownerId, List<EvidenceItem> evidence) {}
     public record StorySourceSearchRequest(
             UUID ownerId,
             List<StorySourceScopeRequest> documents,
             List<String> activeLocators,
             String situation,
-            Integer limit) {}
+            Integer limit,
+            UUID sessionId,
+            UUID scenarioPackageId,
+            String stageKey,
+            String actionIntent) {
+        public StorySourceSearchRequest(UUID ownerId, List<StorySourceScopeRequest> documents,
+                                        List<String> activeLocators, String situation, Integer limit) {
+            this(ownerId, documents, activeLocators, situation, limit, null, null, null, null);
+        }
+    }
     public record StorySourceScopeRequest(UUID documentId, long extractionVersion) {}
     public record StorySourceSearchResponse(UUID ownerId, List<StorySourceEvidenceItem> evidence) {}
     public record StorySourceEvidenceItem(
             UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt, double score,
-            ProvenanceView provenance) {}
+            ProvenanceView provenance, String citationKey) {}
     public record CharacterContextSearchRequest(
             UUID ownerId, List<CharacterContextScopeRequest> documents, String situation,
             Map<DocumentType, Double> thresholds, Integer tokenBudget) {}
@@ -701,6 +718,10 @@ public class RuleKnowledgeController {
     private static ProvenanceView provenanceView(UUID documentId, long extractionVersion, SourceProvenance provenance) {
         return new ProvenanceView(documentId, extractionVersion, provenance.pageNumber(), provenance.sectionPath(),
                 provenance.bbox(), provenance.tableCell(), provenance.originalLocator());
+    }
+
+    private static String runtimeCitationKey(String documentType, UUID documentId, long extractionVersion, String locator) {
+        return documentType + ":" + documentId + ":" + extractionVersion + ":" + locator;
     }
 
     private static List<String> warningsFor(StoredRulebookRegistration registration) {

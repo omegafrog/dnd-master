@@ -1,7 +1,12 @@
 package com.dndmaster.adventure.application.runtime;
 
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
+import java.util.ArrayList;
+import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -9,43 +14,137 @@ import java.util.Set;
 public final class GmFinalValidator {
     public GmPlanResult validate(
             GmPlanResult result, EvidencePack evidencePack, AdventureContext currentContext, Set<String> hiddenData) {
+        GmValidationReport report = validateReport(result, evidencePack, currentContext, hiddenData);
+        if (!report.passed()) {
+            String codes = report.violations().stream().map(GmValidationViolation::code).distinct().toList().toString();
+            throw new IllegalStateException("GM final validation failed: " + codes);
+        }
+        return result;
+    }
+
+    public GmValidationReport validateReport(
+            GmPlanResult result, EvidencePack evidencePack, AdventureContext currentContext, Set<String> hiddenData) {
         Objects.requireNonNull(result, "result must not be null");
         Objects.requireNonNull(evidencePack, "evidence pack must not be null");
         Objects.requireNonNull(currentContext, "current context must not be null");
         hiddenData = Set.copyOf(Objects.requireNonNull(hiddenData, "hidden data must not be null"));
-        if (!result.stateDelta().isEmpty()) throw new IllegalStateException("read-only GM result contains state delta");
 
-        List<RuntimeEvidence> allowed = List.of(
-                evidencePack.storybook(), evidencePack.rulebook(), evidencePack.resolution())
-                .stream().flatMap(List::stream).toList();
-        if (result.plan().citedEvidence().stream().anyMatch(citation -> !allowed.contains(citation))) {
-            throw new IllegalStateException("GM citation is outside selected evidence");
+        List<GmValidationViolation> violations = new ArrayList<>();
+        RuntimePlan plan = result.plan();
+        List<RuntimeEvidence> allowed = evidencePack.all();
+        EnumMap<RuntimeEvidenceType, Integer> evidenceByType = new EnumMap<>(RuntimeEvidenceType.class);
+        for (RuntimeEvidenceType type : RuntimeEvidenceType.values()) {
+            evidenceByType.put(type, (int) allowed.stream().filter(evidence -> evidence.evidenceType() == type).count());
         }
-        if (!evidencePack.storybook().isEmpty() && result.plan().citedEvidence().isEmpty()) {
-            throw new IllegalStateException("storybook evidence must be cited for every GM turn");
+
+        if (!result.stateDelta().isEmpty()) {
+            violations.add(violation("READ_ONLY_STATE_DELTA", "stateDelta", false,
+                    "read-only GM result contains state changes"));
         }
-        if (!Objects.equals(result.plan().scene(), currentContext.currentScene())
-                && result.plan().citedEvidence().stream().noneMatch(evidencePack.storybook()::contains)) {
-            throw new IllegalStateException("scene transition requires a storybook citation");
+        for (int index = 0; index < plan.citedEvidence().size(); index++) {
+            if (!allowed.contains(plan.citedEvidence().get(index))) {
+                violations.add(violation("CITATION_NOT_IN_EVIDENCE_PACK", "citedEvidence[" + index + "]", true,
+                        "citation is outside the selected evidence pack"));
+            }
         }
-        if (result.plan().proposedActiveSourceContext() != null && allowed.stream().noneMatch(evidence ->
-                evidence.knowledgeDocumentId().equals(result.plan().proposedActiveSourceContext().knowledgeDocumentId())
-                        && evidence.extractionVersion() == result.plan().proposedActiveSourceContext().extractionVersion()
-                        && evidence.locator().equals(result.plan().proposedActiveSourceContext().locator()))) {
-            throw new IllegalStateException("active source is outside selected evidence");
+        if (!evidencePack.storybook().isEmpty() && plan.citedEvidence().stream()
+                .noneMatch(evidence -> evidence.evidenceType() == RuntimeEvidenceType.STORYBOOK)) {
+            violations.add(violation("STORYBOOK_CITATION_REQUIRED", "citedEvidence", true,
+                    "storybook evidence must be cited for every GM turn"));
         }
-        String judgment = result.plan().judgment().toLowerCase(java.util.Locale.ROOT);
-        String narration = result.plan().narration().toLowerCase(java.util.Locale.ROOT);
-        boolean ruleClaim = (judgment + " " + narration).contains("rule") || (judgment + " " + narration).contains("must")
-                || (judgment + " " + narration).contains("roll") || (judgment + " " + narration).contains("damage")
-                || (judgment + " " + narration).contains("check");
-        if (ruleClaim && result.plan().citedEvidence().isEmpty()) {
-            throw new IllegalStateException("rule claim requires citation");
+        if (!Objects.equals(plan.scene(), currentContext.currentScene()) && plan.citedEvidence().stream()
+                .noneMatch(evidencePack.storybook()::contains)) {
+            violations.add(violation("SCENE_TRANSITION_UNSUPPORTED", "scene", true,
+                    "scene transition requires a storybook citation"));
         }
-        if (hiddenData.stream().filter(Objects::nonNull).anyMatch(secret ->
-                !secret.isBlank() && result.plan().narration().contains(secret))) {
-            throw new IllegalStateException("GM narration contains hidden data");
+        if (plan.proposedActiveSourceContext() != null && allowed.stream().noneMatch(evidence ->
+                evidence.knowledgeDocumentId().equals(plan.proposedActiveSourceContext().knowledgeDocumentId())
+                        && evidence.extractionVersion() == plan.proposedActiveSourceContext().extractionVersion()
+                        && evidence.locator().equals(plan.proposedActiveSourceContext().locator()))) {
+            violations.add(violation("ACTIVE_SOURCE_NOT_IN_EVIDENCE_PACK", "proposedActiveSourceContext", true,
+                    "active source is outside the selected evidence pack"));
         }
-        return result;
+        String combined = (plan.judgment() + " " + plan.narration()).toLowerCase(Locale.ROOT);
+        boolean ruleClaim = combined.contains("rule") || combined.contains("must") || combined.contains("roll")
+                || combined.contains("damage") || combined.contains("check") || combined.contains("판정")
+                || combined.contains("규칙") || combined.contains("굴림");
+        if (ruleClaim && plan.citedEvidence().isEmpty()) {
+            violations.add(violation("RULE_CLAIM_REQUIRES_CITATION", "citedEvidence", true,
+                    "rule claims require a citation"));
+        }
+        for (String secret : hiddenData) {
+            if (secret != null && !secret.isBlank() && plan.narration().contains(secret)) {
+                violations.add(violation("HIDDEN_DATA_IN_NARRATION", "narration", false,
+                        "GM narration contains hidden data"));
+            }
+        }
+
+        int claimSupportCount = validateBindings(plan, allowed, violations);
+        return new GmValidationReport(violations, allowed.size(), claimSupportCount, evidenceByType);
+    }
+
+    private static int validateBindings(RuntimePlan plan, List<RuntimeEvidence> allowed,
+                                        List<GmValidationViolation> violations) {
+        if (plan.citationBindings().isEmpty()) return 0;
+        Map<String, RuntimeEvidence> byKey = new HashMap<>();
+        for (RuntimeEvidence evidence : allowed) {
+            if (evidence.citationKey() != null) byKey.putIfAbsent(evidence.citationKey(), evidence);
+        }
+        int supported = 0;
+        for (int index = 0; index < plan.citationBindings().size(); index++) {
+            GmCitationBinding binding = plan.citationBindings().get(index);
+            String path = "citationBindings[" + index + "]";
+            RuntimeEvidence evidence = byKey.get(binding.citationKey());
+            if (evidence == null) {
+                violations.add(violation("CITATION_NOT_IN_EVIDENCE_PACK", path + ".citationKey", true,
+                        "citation key is not present in the selected evidence pack"));
+                continue;
+            }
+            String output = outputValue(plan, binding.outputField());
+            if (output == null || !containsClaim(output, binding.claimText())) {
+                violations.add(violation("CLAIM_NOT_IN_OUTPUT", path + ".claimText", true,
+                        "bound claim does not appear in the selected output field"));
+                continue;
+            }
+            if (!supports(binding.claimText(), evidence.excerpt())) {
+                violations.add(violation("UNSUPPORTED_CLAIM_CITATION", path, true,
+                        "citation evidence does not support the bound claim"));
+                continue;
+            }
+            supported++;
+        }
+        return supported;
+    }
+
+    private static String outputValue(RuntimePlan plan, String outputField) {
+        return switch (outputField) {
+            case "scene" -> plan.scene();
+            case "npcState" -> plan.npcState();
+            case "judgment" -> plan.judgment();
+            case "narration" -> plan.narration();
+            default -> null;
+        };
+    }
+
+    private static boolean containsClaim(String output, String claim) {
+        return output.contains(claim) || supports(claim, output);
+    }
+
+    private static boolean supports(String claim, String excerpt) {
+        Set<String> claimTokens = tokens(claim);
+        Set<String> excerptTokens = tokens(excerpt);
+        if (claimTokens.isEmpty()) return false;
+        long overlap = claimTokens.stream().filter(excerptTokens::contains).count();
+        return overlap >= Math.min(2, claimTokens.size()) || excerptTokens.containsAll(claimTokens);
+    }
+
+    private static Set<String> tokens(String value) {
+        if (value == null) return Set.of();
+        return java.util.Arrays.stream(value.toLowerCase(Locale.ROOT).split("[^\\p{L}\\p{N}]+"))
+                .map(String::trim).filter(token -> token.length() > 1).collect(java.util.stream.Collectors.toSet());
+    }
+
+    private static GmValidationViolation violation(String code, String path, boolean repairable, String message) {
+        return new GmValidationViolation(code, path, repairable, message);
     }
 }

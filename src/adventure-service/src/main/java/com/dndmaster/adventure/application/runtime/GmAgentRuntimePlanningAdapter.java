@@ -86,7 +86,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
                             "The requested action needs clarification before it can be completed.", result.plan().proposedActiveSourceContext(),
                             result.plan().citedEvidence(), result.plan().warnings(), result.plan().provider(), result.plan().model(), result.plan().reasoning(),
                             result.plan().advanceStoryPlan(), result.plan().selectedBranchId(), result.plan().requestedSelection(), result.plan().effectiveSelection(),
-                            result.plan().attemptCount());
+                            result.plan().attemptCount(), result.plan().citationBindings());
                     result = new GmPlanResult(safe, result.provider(), result.model(), result.reasoning(), result.stateDelta(), result.toolCalls());
                 }
             } finally {

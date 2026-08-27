@@ -22,7 +22,8 @@ public record RuntimePlan(
         String selectedBranchId,
         RequestedGmProviderSelection requestedSelection,
         EffectiveGmProviderSelection effectiveSelection,
-        int attemptCount) {
+        int attemptCount,
+        List<GmCitationBinding> citationBindings) {
     public RuntimePlan {
         scene = required(scene, "scene");
         judgment = required(judgment, "judgment");
@@ -37,6 +38,7 @@ public record RuntimePlan(
         requestedSelection = requestedSelection == null ? RequestedGmProviderSelection.legacyUnknown() : requestedSelection;
         effectiveSelection = effectiveSelection == null ? EffectiveGmProviderSelection.legacyUnknown() : effectiveSelection;
         if (attemptCount < 1 || attemptCount > 2) throw new IllegalArgumentException("GM candidate attempts must be one or two");
+        citationBindings = List.copyOf(Objects.requireNonNull(citationBindings, "citation bindings must not be null"));
     }
 
     public RuntimePlan(String scene, String npcState, String judgment, String narration,
@@ -60,6 +62,27 @@ public record RuntimePlan(
         this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
                 provider, model, reasoning, advanceStoryPlan, selectedBranchId,
                 RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown(), 1);
+    }
+
+    public RuntimePlan(String scene, String npcState, String judgment, String narration,
+                       ActiveSourceContext proposedActiveSourceContext, List<RuntimeEvidence> citedEvidence,
+                       List<String> warnings, String provider, String model, String reasoning,
+                       boolean advanceStoryPlan, String selectedBranchId, List<GmCitationBinding> citationBindings) {
+        this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
+                provider, model, reasoning, advanceStoryPlan, selectedBranchId,
+                RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown(), 1,
+                citationBindings);
+    }
+
+    public RuntimePlan(String scene, String npcState, String judgment, String narration,
+                       ActiveSourceContext proposedActiveSourceContext, List<RuntimeEvidence> citedEvidence,
+                       List<String> warnings, String provider, String model, String reasoning,
+                       boolean advanceStoryPlan, String selectedBranchId,
+                       RequestedGmProviderSelection requestedSelection,
+                       EffectiveGmProviderSelection effectiveSelection, int attemptCount) {
+        this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
+                provider, model, reasoning, advanceStoryPlan, selectedBranchId,
+                requestedSelection, effectiveSelection, attemptCount, List.of());
     }
 
     private static String required(String value, String name) {

@@ -8,6 +8,7 @@ import com.dndmaster.aigamemaster.infrastructure.ai.GmCandidateLifecycleResult;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmProviderSelectionUnresolvedException;
 import com.dndmaster.aigamemaster.infrastructure.ai.RequestedGmProviderSelection;
 import com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException;
+import com.dndmaster.aigamemaster.application.rule.GmCitationBinding;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.UUID;
@@ -86,7 +87,7 @@ public final class GmAgentController {
         return new Response(response.scene(), response.npcState(), response.judgment(), response.narration(),
                 response.proposedActiveSourceContext(), response.citedEvidence(), response.warnings(),
                 request.provider(), request.model(), request.reasoning(), response.stateDelta(), response.toolCalls(),
-                response.advanceStoryPlan(), response.selectedBranchId());
+                response.advanceStoryPlan(), response.selectedBranchId(), response.citationBindings());
     }
 
     private Response complete(Request request, String operation, String prompt) {
@@ -149,7 +150,7 @@ public final class GmAgentController {
                     response = new Response(response.scene(), response.npcState(), response.judgment(),
                             response.narration(), null, response.citedEvidence(), response.warnings(),
                             response.provider(), response.model(), response.reasoning(), response.stateDelta(),
-                            response.toolCalls(), response.advanceStoryPlan(), response.selectedBranchId());
+                            response.toolCalls(), response.advanceStoryPlan(), response.selectedBranchId(), response.citationBindings());
                 }
                 return requireComplete(response);
             } catch (Exception exception) {
@@ -452,11 +453,17 @@ public final class GmAgentController {
 
     public record Response(String scene, String npcState, String judgment, String narration, Object proposedActiveSourceContext,
                            List<?> citedEvidence, List<String> warnings, String provider, String model, String reasoning,
-                           List<String> stateDelta, List<ToolCall> toolCalls, boolean advanceStoryPlan, String selectedBranchId) {
+                           List<String> stateDelta, List<ToolCall> toolCalls, boolean advanceStoryPlan, String selectedBranchId,
+                           List<GmCitationBinding> citationBindings) {
+        public Response {
+            citationBindings = citationBindings == null ? List.of() : List.copyOf(citationBindings);
+        }
+
         public Response(String scene, String npcState, String judgment, String narration, Object proposedActiveSourceContext,
                         List<?> citedEvidence, List<String> warnings, String provider, String model, String reasoning,
                         List<String> stateDelta) {
-            this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings, provider, model, reasoning, stateDelta, List.of(), false, "");
+            this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings, provider, model, reasoning,
+                    stateDelta, List.of(), false, "", List.of());
         }
         public record ToolCall(String toolName, String argumentsJson, boolean required) {}
     }
