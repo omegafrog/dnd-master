@@ -107,6 +107,12 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
   }
 
   if (!session) return <section aria-labelledby="story-plan-title"><h1 id="story-plan-title">모험 계획 준비 중</h1><p role="status">{message || '파티와 모험 자료를 불러오고 있습니다.'}</p></section>
+  // A completed plan can be loaded independently of its generation job (for example
+  // after a refresh), so the plan status must also drive the visible completion state.
+  const preparationProgress = plan?.status === 'READY'
+    ? { status: 'COMPLETE' as const, progress: 100, stage: '플레이 준비 완료', message: null }
+    : generation
+  const generationStage = preparationProgress?.status === 'COMPLETE' ? '플레이 준비 완료' : preparationProgress?.stage
   if (!plan) return <section className="story-plan-page" aria-labelledby="story-plan-title">
     <div className="page-heading"><div><p className="eyebrow">ADVENTURE STORY PLAN</p><h1 id="story-plan-title">모험 계획 설정</h1><p>모험의 길이와 결말 수를 정하면 룰북·스토리북 근거를 바탕으로 플레이용 골격을 만듭니다.</p></div></div>
     <div className="story-plan-config" aria-label="모험 계획 설정">
@@ -120,7 +126,7 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
         <option value="LONG">길게 · 6~8회</option>
       </select>
       <p>확정 파티 {session.party.length}명 · 룰북과 스토리북 근거는 생성 결과에 함께 연결됩니다.</p>
-      {generation && <div className="preparation-progress" role="status" aria-live="polite"><div className="preparation-progress-heading"><span>{generation.stage}</span><strong>{generation.progress}%</strong></div><Progress value={generation.progress} aria-label="모험 계획 생성 진행률" />{generation.message && <p>{generation.message}</p>}</div>}
+      {preparationProgress && <div className="preparation-progress" role="status" aria-live="polite"><div className="preparation-progress-heading"><span>{generationStage}</span><strong>{preparationProgress.progress}%</strong></div><Progress value={preparationProgress.progress} aria-label="모험 계획 생성 진행률" />{preparationProgress.message && <p>{preparationProgress.message}</p>}</div>}
       <button type="button" onClick={() => void generate()} disabled={loadingPlan || generation?.status === 'QUEUED' || generation?.status === 'RUNNING'}>{loadingPlan || generation?.status === 'QUEUED' || generation?.status === 'RUNNING' ? '계획 생성 중…' : '모험 계획 생성'}</button>
     </div>
     {message && <p role="alert">{message}</p>}
@@ -129,7 +135,7 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
   const blocked = plan.status === 'BLOCKED'
   return <section className="story-plan-page" aria-labelledby="story-plan-title">
     <div className="page-heading"><div><p className="eyebrow">ADVENTURE STORY PLAN</p><h1 id="story-plan-title">모험 계획 준비</h1><p>전체 줄거리와 결말은 공개하지 않습니다. 플레이에 필요한 준비 상태만 표시합니다.</p></div><span className="status-chip">{plan.status}</span></div>
-    {generation && <div className="preparation-progress" role="status" aria-live="polite"><div className="preparation-progress-heading"><span>{generation.stage}</span><strong>{generation.progress}%</strong></div><Progress value={generation.progress} aria-label="모험 계획 생성 진행률" />{generation.message && <p>{generation.message}</p>}</div>}
+    {preparationProgress && <div className="preparation-progress" role="status" aria-live="polite"><div className="preparation-progress-heading"><span>{generationStage}</span><strong>{preparationProgress.progress}%</strong></div><Progress value={preparationProgress.progress} aria-label="모험 계획 생성 진행률" />{preparationProgress.message && <p>{preparationProgress.message}</p>}</div>}
     {tacticalPreparation && <div className="preparation-progress" role="status" aria-live="polite"><div className="preparation-progress-heading"><span>{tacticalPreparation.stageName}</span><strong>{tacticalPreparation.progress}%</strong></div><Progress value={tacticalPreparation.progress} aria-label="Shard CN 전술 장면 준비 진행률" />{tacticalPreparation.failureReason ? <p role="alert">{tacticalPreparation.message} {tacticalPreparation.failureReason}</p> : <p>{tacticalPreparation.message}</p>}{tacticalPreparation.status === 'FAILED_RETRYABLE' && api.retryTacticalScene && <button type="button" onClick={() => { const retry = api.retryTacticalScene; if (retry) void retry(sessionId, tacticalPreparation.stagePosition).then(setTacticalPreparation).catch(error => setMessage(error instanceof Error ? error.message : '전술 장면을 다시 준비하지 못했습니다.')) }}>전술 장면 다시 준비</button>}</div>}
     <ol aria-label="모험 계획 생성 단계" className="story-plan-stages"><li className={ready ? 'complete' : 'active'}>모험 자료 분석</li><li className={ready ? 'complete' : 'active'}>파티 구성 분석</li><li className={ready ? 'complete' : 'active'}>주요 모험 단계 구성</li><li className={ready ? 'complete' : 'active'}>분기와 결말 구성</li><li className={ready ? 'complete' : 'active'}>출처와 규칙 검증</li><li className={ready ? 'complete' : 'active'}>플레이 준비 완료</li></ol>
     <p>확정 파티 {session.party.length}명 · 계획 revision {plan.planRevision} · 결말 {plan.endingCount}개 · {plan.adventureLength}</p>

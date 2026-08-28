@@ -4,6 +4,23 @@ import { describe, expect, it, vi } from 'vitest'
 import { AdventureStoryPlanPage } from './AdventureStoryPlanPage'
 
 describe('AdventureStoryPlanPage configuration', () => {
+  it('shows completion progress when an existing story plan is already ready', async () => {
+    const api = {
+      read: vi.fn().mockResolvedValue({ sessionId: 's', version: 1, status: 'DRAFT', party: [], runtimeConfiguration: null }),
+      readStoryPlan: vi.fn().mockResolvedValue({ status: 'READY', currentStage: 0, planRevision: 1, endingCount: 2, adventureLength: 'STANDARD', stages: [], failureReason: null }),
+      startStoryPlanGeneration: vi.fn(), readStoryPlanGeneration: vi.fn(), retryStoryPlan: vi.fn(),
+      start: vi.fn(), recoverStart: vi.fn(), saveAppliedRuleSet: vi.fn(),
+    }
+
+    render(<AdventureStoryPlanPage api={api} sessionId="s" />)
+
+    await screen.findByText('100%', { exact: true })
+    const progress = document.querySelector<HTMLElement>('.preparation-progress[role="status"]')
+    if (!progress) throw new Error('completion progress is not rendered')
+    expect(progress.textContent).toContain('플레이 준비 완료')
+    expect(api.readStoryPlanGeneration).not.toHaveBeenCalled()
+  })
+
   it('asks for adventure settings before generating and forwards them', async () => {
     const api = {
       read: vi.fn().mockResolvedValue({ sessionId: 's', version: 1, party: [{ characterSheetId: 'c' }], runtimeConfiguration: null }),
