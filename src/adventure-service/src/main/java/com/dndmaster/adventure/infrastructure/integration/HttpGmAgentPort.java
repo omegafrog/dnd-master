@@ -67,11 +67,15 @@ public final class HttpGmAgentPort implements GmAgentPort {
         static Request from(GmContextEnvelope c, com.dndmaster.adventure.application.runtime.TurnCapability capability) {
             var context = c.currentContext();
             return new Request(c.operationKey(), c.adventureId().value(), c.ownerPlayerId().value(), c.sessionId(), c.turnId(), c.scenarioPackageId(), c.bindingVersion(), capability == null ? null : capability.token(),
-                    c.action(), context.currentScene(), context.npcState(), context.pendingAction(), context.latestJudgment(),
+                    c.action(), nonNullText(context.currentScene()), nonNullText(context.npcState()), nonNullText(context.pendingAction()), nonNullText(context.latestJudgment()),
                     c.evidencePack().storybook().stream().map(Evidence::from).toList(),
                     c.evidencePack().rulebook().stream().map(Evidence::from).toList(),
                     c.evidencePack().resolution().stream().map(Evidence::from).toList(), c.recentTurns(),
                     c.characterSnapshots(), c.storyPlanContext(), c.provider(), c.model(), c.reasoning());
+        }
+
+        private static String nonNullText(String value) {
+            return value == null ? "" : value;
         }
     }
 

@@ -9,7 +9,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.List;
-import java.util.Map;
+import java.util.LinkedHashMap;
 import java.util.UUID;
 
 /** Internal service adapter that applies an already evaluated trigger to Combat Map. */
@@ -29,9 +29,15 @@ public final class CrossContextHttpTacticalTriggerRuntimeGateway implements Tact
     public void apply(UUID combatMapId, UUID ownerPlayerId, long expectedVersion, UUID commandId,
             TacticalTriggerEvaluator.Evaluation evaluation) {
         try {
-            var body = Map.of("ownerId", ownerPlayerId, "commandId", commandId, "expectedVersion", expectedVersion,
-                    "triggerId", evaluation.triggerId(), "kind", evaluation.type(), "targetIds", evaluation.targetIds(),
-                    "transitionId", evaluation.transitionId(), "qualifyingAction", evaluation.qualifyingAction());
+            var body = new LinkedHashMap<String, Object>();
+            body.put("ownerId", ownerPlayerId);
+            body.put("commandId", commandId);
+            body.put("expectedVersion", expectedVersion);
+            if (evaluation.triggerId() != null) body.put("triggerId", evaluation.triggerId());
+            if (evaluation.type() != null) body.put("kind", evaluation.type());
+            if (evaluation.targetIds() != null) body.put("targetIds", evaluation.targetIds());
+            if (evaluation.transitionId() != null) body.put("transitionId", evaluation.transitionId());
+            if (evaluation.qualifyingAction() != null) body.put("qualifyingAction", evaluation.qualifyingAction());
             var request = HttpRequest.newBuilder(baseUrl.resolve("internal/v1/combat-maps/" + combatMapId + "/tactical-triggers"))
                     .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body))).build();
