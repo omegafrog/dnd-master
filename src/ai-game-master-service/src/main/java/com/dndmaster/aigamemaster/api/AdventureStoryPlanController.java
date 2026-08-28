@@ -30,11 +30,17 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.LinkedHashSet;
+import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /** Generates a source-aware outline. JSON is validated before crossing the service boundary. */
 @RestController("aiAdventureStoryPlanController")
 public final class AdventureStoryPlanController {
     private static final Logger LOGGER = LoggerFactory.getLogger(AdventureStoryPlanController.class);
+    private static final Pattern RESOLUTION_FIELD = Pattern.compile("(?im)^(\\s*-\\s*DC\\s+or\\s+dice:\\s*)(.*)$");
+    private static final Pattern DC_VALUE = Pattern.compile("(?i)\\bDC\\s*(\\d+)\\b");
     private final SpringAiChatAdapter adapter; private final ObjectMapper mapper; private final AgentEndpointRegistry endpointRegistry;
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final URI ollamaBaseUrl; private final String ollamaModel;
@@ -150,6 +156,10 @@ public final class AdventureStoryPlanController {
                 throw new CandidateResponseValidationException(
                         "generated plan is incomplete: return the full adventure plan with goals, stages, map scenes, and endings", null);
             }
+            // Providers occasionally copy a plausible DC from their prior context. Repair the
+            // narrow resolution field deterministically before the verifier sees it: a numeric
+            // value is retained only when that exact value occurs in supplied citations.
+            generatedMarkdown = normalizeResolutionValues(generatedMarkdown, request.citations());
             VerificationResponse verification = parseVerificationResponse(complete(endpoint, request.operationId() + "-verification",
                     verificationDecisionPrompt(request, configuration, generatedMarkdown), configuration));
             LOGGER.warn("ai_agent_verification_result operationId={} status={} violationsCount={}", request.operationId(),
@@ -233,6 +243,32 @@ public final class AdventureStoryPlanController {
         if (operationId.endsWith("-verification")) return "story-plan-verification";
         if (operationId.endsWith("-execution-projection")) return "story-plan-execution-projection";
         return "story-plan-generation";
+    }
+
+    static String normalizeResolutionValues(String markdown, List<SourceCitation> citations) {
+        if (markdown == null || markdown.isBlank()) return markdown;
+        Set<String> evidencedDcs = new LinkedHashSet<>();
+        for (SourceCitation citation : citations == null ? List.<SourceCitation>of() : citations) {
+            if (citation == null) continue;
+            Matcher matcher = DC_VALUE.matcher(citation.quote() == null ? "" : citation.quote());
+            while (matcher.find()) evidencedDcs.add(matcher.group(1));
+        }
+        Matcher fields = RESOLUTION_FIELD.matcher(markdown);
+        StringBuffer normalized = new StringBuffer();
+        while (fields.find()) {
+            String value = fields.group(2);
+            Matcher dc = DC_VALUE.matcher(value);
+            if (dc.find() && !evidencedDcs.contains(dc.group(1))) {
+                String replacement = evidencedDcs.size() == 1
+                        ? "DC " + evidencedDcs.iterator().next()
+                        : "GM adjudication";
+                fields.appendReplacement(normalized, Matcher.quoteReplacement(fields.group(1) + replacement));
+            } else {
+                fields.appendReplacement(normalized, Matcher.quoteReplacement(fields.group(0)));
+            }
+        }
+        fields.appendTail(normalized);
+        return normalized.toString();
     }
 
     private String projectionPrompt(Request request, Configuration configuration, String generatedMarkdown) {

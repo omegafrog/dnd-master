@@ -139,6 +139,19 @@ class AdventureStoryPlanControllerMarkdownTest {
     }
 
     @Test
+    void normalizes_ungrounded_resolution_dc_to_the_cited_value_before_validation() {
+        UUID documentId = UUID.randomUUID();
+        var citation = new AdventureStoryPlanController.SourceCitation(
+                "RULEBOOK", documentId.toString(), 1, "page:13", "The trap requires a DC 13 Dexterity saving throw.", .9);
+        String markdown = "- DC or dice: DC 12\n- Success: safe\n- Failure: fail forward";
+
+        String normalized = AdventureStoryPlanController.normalizeResolutionValues(markdown, List.of(citation));
+
+        assertTrue(normalized.contains("- DC or dice: DC 13"));
+        assertTrue(!normalized.contains("DC 12"));
+    }
+
+    @Test
     void returns_structured_candidate_violations_for_retry() {
         var controller = new AdventureStoryPlanController(
                 null, new ObjectMapper(), null,

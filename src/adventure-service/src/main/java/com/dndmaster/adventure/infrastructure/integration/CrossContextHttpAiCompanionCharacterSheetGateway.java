@@ -11,7 +11,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
-import java.util.Map;
+import java.util.LinkedHashMap;
 
 public final class CrossContextHttpAiCompanionCharacterSheetGateway implements AiCompanionSheetCreationPort {
     private final HttpClient client; private final URI baseUri; private final Duration timeout;
@@ -21,8 +21,14 @@ public final class CrossContextHttpAiCompanionCharacterSheetGateway implements A
     }
     @Override public CharacterSheetId create(SessionId sessionId, OwnerPlayerId owner, AiCompanionCandidate candidate) {
         try {
-            String json = mapper.writeValueAsString(Map.of("ownerPlayerId", owner.value(), "candidateId", candidate.candidateId(),
-                    "name", candidate.name(), "race", candidate.race(), "characterClass", candidate.characterClass(), "sheetSummary", candidate.sheetSummary()));
+            var body = new LinkedHashMap<String, Object>();
+            body.put("ownerPlayerId", owner.value());
+            body.put("candidateId", candidate.candidateId());
+            if (candidate.name() != null) body.put("name", candidate.name());
+            if (candidate.race() != null) body.put("race", candidate.race());
+            if (candidate.characterClass() != null) body.put("characterClass", candidate.characterClass());
+            if (candidate.sheetSummary() != null) body.put("sheetSummary", candidate.sheetSummary());
+            String json = mapper.writeValueAsString(body);
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/adventure-sessions/" + sessionId.value() + "/ai-companion-sheets"))
                     .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", token)
                     .POST(HttpRequest.BodyPublishers.ofString(json)).build();

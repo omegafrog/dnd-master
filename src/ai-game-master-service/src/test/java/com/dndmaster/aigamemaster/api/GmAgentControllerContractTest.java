@@ -82,6 +82,27 @@ class GmAgentControllerContractTest {
     }
 
     @Test
+    void discards_citations_with_missing_or_unknown_evidence_type() {
+        var controller = new GmAgentController(new com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt,
+                                             com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                return parser.parse("{\"scene\":\"opening\",\"npcState\":\"alert\",\"judgment\":\"wait\","
+                        + "\"narration\":\"The door waits.\",\"proposedActiveSourceContext\":null,"
+                        + "\"citedEvidence\":[{\"knowledgeDocumentId\":\"00000000-0000-0000-0000-000000000001\","
+                        + "\"extractionVersion\":1,\"locator\":\"page:1\",\"excerpt\":\"door\"}],"
+                        + "\"warnings\":[],\"provider\":\"codex-cli\",\"model\":\"gpt-5.6-luna\","
+                        + "\"reasoning\":\"none\",\"stateDelta\":[],\"toolCalls\":[]}");
+            }
+        }, new com.fasterxml.jackson.databind.ObjectMapper(), new ApiRequestGuard("token"));
+
+        var response = controller.plan("token", request());
+
+        assertEquals(List.of(), response.citedEvidence());
+        org.junit.jupiter.api.Assertions.assertTrue(response.warnings().stream()
+                .anyMatch(warning -> warning.contains("invalid")));
+    }
+
+    @Test
     void rejects_missing_or_mutating_structured_response_fields() {
         assertThrows(IllegalArgumentException.class, () -> GmAgentController.requireComplete(
                 new GmAgentController.Response("scene", "npc", "judgment", "narration", null,

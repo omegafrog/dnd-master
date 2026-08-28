@@ -227,12 +227,18 @@ public final class GmAgentController {
 
     private static boolean validCitation(com.fasterxml.jackson.databind.JsonNode item) {
         if (item == null || !item.isObject()
+                || !item.path("type").isTextual() || item.path("type").asText().isBlank()
+                || !supportedEvidenceType(item.path("type").asText())
                 || !item.hasNonNull("knowledgeDocumentId")
                 || !item.path("extractionVersion").canConvertToLong()
                 || !item.path("locator").isTextual() || item.path("locator").asText().isBlank()
                 || !item.path("excerpt").isTextual() || item.path("excerpt").asText().isBlank()) return false;
         try { java.util.UUID.fromString(item.path("knowledgeDocumentId").asText()); return true; }
         catch (IllegalArgumentException ignored) { return false; }
+    }
+
+    private static boolean supportedEvidenceType(String value) {
+        return "STORYBOOK".equals(value) || "RULEBOOK".equals(value) || "RESOLUTION".equals(value);
     }
 
     private static String repairPrompt(Request r) {

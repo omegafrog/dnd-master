@@ -57,7 +57,7 @@ public final class RuntimeEvidenceSelector {
         return searchPort.search(request).stream()
                 .filter(Objects::nonNull)
                 .filter(evidence -> evidence.evidenceType() == expected)
-                .filter(evidence -> original.knowledgeDocumentIds().contains(evidence.knowledgeDocumentId().value()))
+                .filter(evidence -> request.knowledgeDocumentIds().contains(evidence.knowledgeDocumentId().value()))
                 .limit(limit)
                 .toList();
     }
