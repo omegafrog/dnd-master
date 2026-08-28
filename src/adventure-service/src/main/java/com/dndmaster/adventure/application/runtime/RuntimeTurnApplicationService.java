@@ -10,11 +10,15 @@ import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.ConversationEntry;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
+import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import com.dndmaster.adventure.domain.knowledge.SessionKnowledgeSet;
 import com.dndmaster.adventure.domain.adventure.RuntimeBinding;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
+import com.dndmaster.adventure.domain.scenario.ResolutionKind;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -168,6 +172,7 @@ public class RuntimeTurnApplicationService {
                 storyPlanContext(adventure), providerSelection(adventure.sessionId().value(), "provider"),
                 providerSelection(adventure.sessionId().value(), "model"),
                 providerSelection(adventure.sessionId().value(), "reasoning")));
+        plan = preservePendingSkillAdjudication(plan, command.action(), scenarioPackage, evidencePack);
         NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
                 plan.narration(), evidencePack, adventure.currentContext(), command.action()));
         if (!safety.approved()) {
@@ -187,10 +192,10 @@ public class RuntimeTurnApplicationService {
 
         AdventureContext nextContext = new AdventureContext(plan.scene(), plan.npcState(), command.action(), plan.judgment());
         List<ConversationEntry> conversation = new ArrayList<>(adventure.conversation());
-        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.narration()));
         if (!command.gmOnly()) {
             conversation.add(new ConversationEntry(conversation.size(), "PLAYER", command.action()));
         }
+        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.narration()));
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.judgment()));
 
         long nextVersion = adventure.version() + 1 + (command.turnCharacterSheetId() == null ? 0 : 1);
@@ -298,6 +303,14 @@ public class RuntimeTurnApplicationService {
             SubmitRuntimeTurnCommand command, Adventure adventure, RuntimeBinding binding, ScenarioPackage scenarioPackage) {
         List<UUID> knowledgeDocumentIds = knowledgeDocumentIds(adventure, scenarioPackage);
         List<UUID> storybookDocumentIds = documentIdsOfType(scenarioPackage, "STORYBOOK", knowledgeDocumentIds);
+        // A fresh session may persist only the shared RULEBOOK scope. The
+        // published scenario package is still the authoritative scope for its
+        // STORYBOOK documents; without this fallback the first player turn is
+        // rejected before the planner can use the grounded story plan.
+        if (storybookDocumentIds.isEmpty()) {
+            storybookDocumentIds = documentIdsOfType(scenarioPackage, "STORYBOOK",
+                    scenarioPackage.documents().stream().map(document -> document.knowledgeDocumentId().value()).toList());
+        }
         List<UUID> rulebookDocumentIds = documentIdsOfType(scenarioPackage, "RULEBOOK", knowledgeDocumentIds);
         Map<UUID, Long> extractionVersions = scenarioPackage.documents().stream()
                 .collect(java.util.stream.Collectors.toMap(document -> document.knowledgeDocumentId().value(),
@@ -315,28 +328,82 @@ public class RuntimeTurnApplicationService {
                 .filter(evidence -> knowledgeDocumentIds.contains(evidence.knowledgeDocumentId().value()))
                 .toList();
         if (storybook.isEmpty()) {
+            storybook = currentStoryPlanEvidence(adventure, storybookDocumentIds, scenarioPackage);
+        }
+        if (storybook.isEmpty()) {
             throw new IllegalStateException("storybook evidence is required for a runtime GM turn");
         }
         return new EvidencePack(storybook, rulebook, resolution);
     }
 
+    /**
+     * Retrieval may miss an already-grounded current beat (for example while the
+     * search index is warming after adventure start). The published plan is an
+     * authoritative, scoped fallback; it must never widen the session/package scope.
+     */
+    private List<RuntimeEvidence> currentStoryPlanEvidence(
+            Adventure adventure, List<UUID> storybookDocumentIds, ScenarioPackage scenarioPackage) {
+        if (storyPlanRepository == null || storybookDocumentIds.isEmpty()) return List.of();
+        return storyPlanRepository.findBySessionId(adventure.sessionId())
+                .filter(plan -> !plan.stages().isEmpty())
+                .map(plan -> {
+                    List<AdventureStoryPlanStage> orderedStages = new ArrayList<>(plan.stages().size());
+                    orderedStages.add(plan.stages().get(plan.currentStage()));
+                    for (int index = 0; index < plan.stages().size(); index++) {
+                        if (index != plan.currentStage()) orderedStages.add(plan.stages().get(index));
+                    }
+                    return orderedStages;
+                })
+                .stream()
+                .flatMap(List::stream)
+                .flatMap(stage -> stage.evidence().stream())
+                .filter(item -> "STORYBOOK".equalsIgnoreCase(item.documentType()))
+                .filter(item -> storybookDocumentIds.contains(item.documentId()))
+                .filter(item -> scenarioPackage.documents().stream().anyMatch(document ->
+                        document.knowledgeDocumentId().value().equals(item.documentId())
+                                && isStorybookDocument(document)))
+                .map(item -> new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
+                        new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(item.documentId()),
+                        item.extractionVersion(), item.locator(), item.quote()))
+                .distinct()
+                .toList();
+    }
+
     private static List<UUID> documentIdsOfType(ScenarioPackage scenarioPackage, String type, List<UUID> selected) {
         return scenarioPackage.documents().stream()
-                .filter(document -> type.equalsIgnoreCase(document.documentType()))
+                .filter(document -> "STORYBOOK".equalsIgnoreCase(type)
+                        ? isStorybookDocument(document)
+                        : type.equalsIgnoreCase(document.documentType()))
                 .map(document -> document.knowledgeDocumentId().value())
                 .filter(selected::contains)
                 .distinct()
                 .toList();
     }
 
+    /** MAIN_SCENARIO is the authored-story role used by fresh package uploads. */
+    private static boolean isStorybookDocument(ScenarioBundleDocumentSelection document) {
+        return "STORYBOOK".equalsIgnoreCase(document.documentType())
+                || document.role() == ScenarioBundleDocumentRole.MAIN_SCENARIO;
+    }
+
     private String storyPlanContext(Adventure adventure) {
         String checkpoint = resumePromptProvider == null ? "" : resumePromptProvider.prompt(adventure.sessionId().value());
-        if (continuityContextProvider != null) {
-            return checkpoint + continuityContextProvider.load(adventure.sessionId().value()).map(StoryContinuityContext::promptText).orElse("");
-        }
-        if (storyPlanRepository == null) return checkpoint;
-        return checkpoint + storyPlanRepository.findBySessionId(adventure.sessionId())
+        String authoredPlan = storyPlanRepository == null ? "" : storyPlanRepository.findBySessionId(adventure.sessionId())
                 .map(AdventureStoryPlanRuntimeContext::format).orElse("");
+        if (continuityContextProvider != null) {
+            String continuity = continuityContextProvider.load(adventure.sessionId().value())
+                    .map(StoryContinuityContext::promptText).orElse("");
+            // The continuity projection carries facts and clocks, while the authored
+            // plan carries the transition contract (available branches/targets). Both
+            // are required for the GM response to be normalized and persisted.
+            return joinContext(checkpoint, authoredPlan, continuity);
+        }
+        return joinContext(checkpoint, authoredPlan);
+    }
+
+    private static String joinContext(String... parts) {
+        return java.util.Arrays.stream(parts).filter(part -> part != null && !part.isBlank())
+                .reduce((left, right) -> left + "\n" + right).orElse("");
     }
 
     private void advanceStoryPlanIfRequested(com.dndmaster.adventure.domain.adventure.SessionId sessionId, RuntimePlan plan) {
@@ -345,7 +412,10 @@ public class RuntimeTurnApplicationService {
             if (current.stages().isEmpty() || current.currentStage() >= current.stages().size() - 1) return;
             var stage = current.stages().get(current.currentStage());
             if (!plan.selectedBranchId().isBlank() && !stage.branchIds().contains(plan.selectedBranchId())) {
-                throw new IllegalStateException("GM selected an unknown story branch");
+                // Branch selection is optional provider metadata. A provider can
+                // return a well-formed turn while hallucinating an id; that must
+                // not discard the already valid narration and turn commit.
+                return;
             }
             int target = current.currentStage() + 1;
             if (!plan.selectedBranchId().isBlank()) {
@@ -357,7 +427,9 @@ public class RuntimeTurnApplicationService {
                             .map(candidate -> candidate.position() - 1).findFirst().orElse(target);
                 }
             }
-            if (target > current.currentStage() && target < current.stages().size()) storyPlanRepository.save(current.advanceTo(target));
+            if (target > current.currentStage() && target < current.stages().size()) {
+                storyPlanRepository.save(current.advanceTo(target), "GM_TURN:STORY_PLAN_ADVANCE");
+            }
         });
     }
 
@@ -390,5 +462,50 @@ public class RuntimeTurnApplicationService {
                     unit.sourceQuote()));
         }
         return evidence;
+    }
+
+    /** A partial authored check is never resolved by guessing a difficulty. */
+    private static RuntimePlan preservePendingSkillAdjudication(
+            RuntimePlan plan, String action, ScenarioPackage scenarioPackage, EvidencePack evidencePack) {
+        String searchable = (action + " " + plan.judgment() + " " + plan.narration()).toLowerCase(java.util.Locale.ROOT);
+        ScenarioResolutionUnit pending = scenarioPackage.runtimeCandidates().stream()
+                .filter(unit -> unit.status() == com.dndmaster.adventure.domain.scenario.ResolutionStatus.PARTIAL)
+                .filter(unit -> unit.kind() == ResolutionKind.SKILL_ABILITY_CHECK)
+                .filter(unit -> evidencePack.resolution().stream().anyMatch(evidence ->
+                        unit.sourceRefs().stream().anyMatch(ref -> ref.knowledgeDocumentId().equals(evidence.knowledgeDocumentId())
+                                && ref.extractionVersion() == evidence.extractionVersion()
+                                && ref.locator().equals(evidence.locator()))))
+                .filter(unit -> unit.abilityOrSkill() != null
+                        && matchesSkillOrIntent(unit.abilityOrSkill(), searchable, action))
+                .findFirst().orElse(null);
+        if (pending == null || "PENDING_RULE_INPUT".equals(plan.resolutionStatus())) return plan;
+        String judgment = "판정 보류: " + pending.abilityOrSkill() + " 판정의 DC가 근거에 없어 GM adjudication이 필요합니다.";
+        List<String> warnings = new ArrayList<>(plan.warnings());
+        warnings.add("PENDING_RULE_INPUT: DC is missing for " + pending.abilityOrSkill());
+        return new RuntimePlan(plan.scene(), plan.npcState(), judgment, plan.narration(), plan.proposedActiveSourceContext(),
+                plan.citedEvidence(), warnings, plan.provider(), plan.model(), plan.reasoning(), plan.advanceStoryPlan(),
+                plan.selectedBranchId(), "PENDING_RULE_INPUT");
+    }
+
+    private static boolean matchesSkillOrIntent(String abilityOrSkill, String searchable, String action) {
+        String normalizedSkill = abilityOrSkill.toLowerCase(java.util.Locale.ROOT);
+        if (searchable.contains(normalizedSkill)) return true;
+
+        // Player actions are often localized and omit the authored English skill name.
+        // Keep this fallback deliberately narrow: only a pending Perception check gets
+        // these unambiguous observation intents, so unrelated actions cannot trigger it.
+        if (!normalizedSkill.equals("perception")) return false;
+        return matchesKoreanPerceptionIntent(action);
+    }
+
+    private static boolean matchesKoreanPerceptionIntent(String action) {
+        String normalizedAction = (action == null ? "" : action).replaceAll("\\s+", "");
+        return normalizedAction.contains("살펴")
+                || normalizedAction.contains("주변을살핀")
+                || normalizedAction.contains("주변을살펴")
+                || normalizedAction.contains("주위를살핀") || normalizedAction.contains("주위를살펴")
+                || normalizedAction.contains("둘러")
+                || normalizedAction.contains("관찰")
+                || normalizedAction.contains("주의깊게본");
     }
 }

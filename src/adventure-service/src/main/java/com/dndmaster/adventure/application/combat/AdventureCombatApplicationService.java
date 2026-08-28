@@ -27,7 +27,10 @@ public final class AdventureCombatApplicationService {
             repository.save(operation);
         }
         operation.requireSame(command.fingerprint());
-        if (operation.judgment().isPresent()) return result(command, operation);
+        if (operation.judgment().isPresent()) {
+            applyOutcomeIfNeeded(command, operation);
+            return result(command, operation);
+        }
 
         if (!operation.isCharacterVerified()) {
             characterPort.requireUsableCharacter(command);
@@ -49,14 +52,30 @@ public final class AdventureCombatApplicationService {
             repository.save(operation);
         }
         if (operation.judgment().isEmpty()) {
-            operation.adjudicated(aiPort.adjudicate(command, operation.diceTotal().orElseThrow()));
+            operation.adjudicated(aiPort.adjudicateOutcome(command, operation.diceTotal().orElseThrow()));
             repository.save(operation);
         }
+        applyOutcomeIfNeeded(command, operation);
         return result(command, operation);
     }
 
+    private void applyOutcomeIfNeeded(CombatActionCommand command, CombatOperation operation) {
+        if (isRuleInputPending(operation.judgment().orElseThrow())) return;
+        if (operation.isOutcomeApplied()) return;
+        characterPort.applyOutcome(command, new CombatOutcome(operation.judgment().orElseThrow(), operation.mutation()));
+        operation.outcomeApplied();
+        repository.save(operation);
+    }
+
     private static CombatResult result(CombatActionCommand command, CombatOperation operation) {
+        String judgment = operation.judgment().orElseThrow();
+        boolean pending = isRuleInputPending(judgment);
         return new CombatResult(command.operationId(), command.role(), operation.diceTotal().orElseThrow(),
-                operation.judgment().orElseThrow());
+                judgment, pending ? "PENDING_RULE_INPUT" : operation.isCombatEnded() ? "COMBAT_ENDED" : "RESOLVED",
+                pending ? false : operation.isOutcomeApplied());
+    }
+
+    private static boolean isRuleInputPending(String judgment) {
+        return judgment.startsWith("판정 보류:");
     }
 }

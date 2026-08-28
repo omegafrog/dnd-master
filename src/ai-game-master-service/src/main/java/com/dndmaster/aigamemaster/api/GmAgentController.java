@@ -57,13 +57,13 @@ public final class GmAgentController {
 
     private Response complete(Request request, String operation, String prompt) {
         if (request.provider() == null || request.provider().isBlank()) {
-            return adapter.complete(operation, prompt, this::parseCompleteResponse);
+            return adapter.complete(operation, prompt, json -> parseCompleteResponse(json, request.storyPlanContext()));
         }
-        return adapter.complete(operation, prompt, this::parseCompleteResponse,
+        return adapter.complete(operation, prompt, json -> parseCompleteResponse(json, request.storyPlanContext()),
                 new GmProviderRequest(request.provider(), request.model(), request.reasoning()));
     }
 
-    private Response parseCompleteResponse(String json) {
+    private Response parseCompleteResponse(String json, String storyPlanContext) {
             try {
                 // Luna occasionally emits an empty object for the read-only state
                 // delta and a structured object for npcState/advanceStoryPlan.
@@ -98,17 +98,7 @@ public final class GmAgentController {
                         || active.path("excerpt").asText().isBlank())) {
                     normalized.putNull("proposedActiveSourceContext");
                 }
-                com.fasterxml.jackson.databind.JsonNode advancePlan = normalized.get("advanceStoryPlan");
-            if (advancePlan == null || advancePlan.isNull()) normalized.put("advanceStoryPlan", false);
-            // Branch transitions are committed only by the deterministic runtime after it
-            // validates a known branch id. The free-form GM adapter must never request an
-            // unverified transition (the plan context can be abbreviated in the prompt).
-                if (advancePlan != null && advancePlan.isObject()) {
-                    normalized.put("advanceStoryPlan", true);
-                }
-                // Never trust a free-form branch object without deterministic validation.
-                normalized.put("advanceStoryPlan", false);
-                normalized.put("selectedBranchId", "");
+                normalizeStoryPlanTransition(normalized, storyPlanContext);
                 if (!normalized.has("scene") || normalized.get("scene").isNull()
                         || normalized.get("scene").asText().isBlank()) normalized.put("scene", "current");
                 if (!normalized.has("judgment") || normalized.get("judgment").isNull()
@@ -142,6 +132,38 @@ public final class GmAgentController {
                 throw new com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException(
                         "GM structured response invalid: " + exception.getMessage());
             }
+    }
+
+    private void normalizeStoryPlanTransition(com.fasterxml.jackson.databind.node.ObjectNode normalized,
+                                              String storyPlanContext) {
+        com.fasterxml.jackson.databind.JsonNode advancePlan = normalized.get("advanceStoryPlan");
+        com.fasterxml.jackson.databind.JsonNode selectedBranch = normalized.get("selectedBranchId");
+        boolean explicitAdvance = advancePlan != null && advancePlan.isBoolean() && advancePlan.booleanValue();
+        String selectedBranchId = selectedBranch != null && selectedBranch.isTextual()
+                ? selectedBranch.textValue().trim() : "";
+        boolean linearAdvance = selectedBranchId.isBlank() && hasAvailableBranchesField(storyPlanContext)
+                && storyPlanBranches(storyPlanContext).isEmpty();
+        boolean knownBranch = !selectedBranchId.isBlank()
+                && storyPlanBranches(storyPlanContext).contains(selectedBranchId);
+        normalized.put("advanceStoryPlan", explicitAdvance && (knownBranch || linearAdvance));
+        normalized.put("selectedBranchId", explicitAdvance && knownBranch ? selectedBranchId : "");
+    }
+
+    private static boolean hasAvailableBranchesField(String storyPlanContext) {
+        return storyPlanContext != null && storyPlanContext.contains("availableBranches=");
+    }
+
+    private static java.util.Set<String> storyPlanBranches(String storyPlanContext) {
+        if (storyPlanContext == null) return java.util.Set.of();
+        String marker = "availableBranches=";
+        int start = storyPlanContext.indexOf(marker);
+        if (start < 0) return java.util.Set.of();
+        start += marker.length();
+        int end = storyPlanContext.indexOf(';', start);
+        String branches = (end < 0 ? storyPlanContext.substring(start) : storyPlanContext.substring(start, end)).trim();
+        if (branches.isBlank()) return java.util.Set.of();
+        return java.util.Arrays.stream(branches.split(","))
+                .map(String::trim).filter(value -> !value.isBlank()).collect(java.util.stream.Collectors.toUnmodifiableSet());
     }
 
     private static void normalizeArrayField(com.fasterxml.jackson.databind.node.ObjectNode node, String field) {
@@ -283,8 +305,11 @@ public final class GmAgentController {
                 after the player has acted on it. Keep the player's action and the GM's response in conversational
                 spoken Korean, not as a request to "설명해줘" or a report.
                 For story-plan advancement, advanceStoryPlan MUST be false unless the player explicitly completed a
-                transition condition. If it is true, selectedBranchId MUST be copied exactly from a branch ID present
-                in the supplied storyPlan; never invent branch IDs. If no valid branch ID is visible, keep it false.
+                transition condition. For a linear authored stage where availableBranches is empty, you MAY set
+                advanceStoryPlan=true with selectedBranchId="" when the player explicitly completed its clearCondition.
+                When availableBranches is non-empty and advanceStoryPlan is true, selectedBranchId MUST be copied
+                exactly from a branch ID present in the supplied storyPlan; never invent branch IDs. If no valid branch
+                ID is visible for a branching stage, keep advanceStoryPlan=false.
                 adventureId=%s packageId=%s bindingVersion=%s action=%s
                 currentScene=%s npcState=%s pendingAction=%s latestJudgment=%s
                 storybook=%s rulebook=%s resolution=%s recentTurns=%s characters=%s storyPlan=%s

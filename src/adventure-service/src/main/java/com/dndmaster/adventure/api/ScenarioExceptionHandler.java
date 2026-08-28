@@ -1,5 +1,6 @@
 package com.dndmaster.adventure.api;
 
+import com.dndmaster.adventure.application.combat.RuntimeCombatRejectionException;
 import com.dndmaster.adventure.domain.scenario.ScenarioAccessDeniedException;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleAccessDeniedException;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleNotFoundException;
@@ -17,6 +18,13 @@ import java.util.Map;
 
 @RestControllerAdvice
 public final class ScenarioExceptionHandler {
+    @ExceptionHandler(RuntimeCombatRejectionException.class)
+    public ResponseEntity<Map<String, String>> combatRejection(RuntimeCombatRejectionException exception) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                "error", RuntimeCombatRejectionException.ERROR_CODE,
+                "message", exception.getMessage()));
+    }
+
     @ExceptionHandler(ApiRequestGuard.ApiContractException.class)
     public ResponseEntity<Map<String, String>> apiContract(ApiRequestGuard.ApiContractException exception) {
         return ResponseEntity.status(exception.status()).body(Map.of("error", exception.code()));

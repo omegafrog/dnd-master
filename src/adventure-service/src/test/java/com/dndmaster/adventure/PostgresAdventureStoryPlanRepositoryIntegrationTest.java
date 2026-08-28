@@ -77,6 +77,24 @@ class PostgresAdventureStoryPlanRepositoryIntegrationTest {
     }
 
     @Test
+    void persists_linear_story_plan_advance_at_the_next_stage_index() {
+        AdventureStoryPlan first = AdventureStoryPlan.ready(UUID.randomUUID(), sessionId, 1, 0, 1,
+                List.of(stage(1), stage(2)));
+        repository.save(first);
+
+        repository.save(first.advanceTo(1), "GM_TURN:STORY_PLAN_ADVANCE");
+
+        AdventureStoryPlan loaded = repository.findBySessionId(sessionId).orElseThrow();
+        assertEquals(1, loaded.currentStage());
+        assertEquals(2, repository.readHistory(sessionId).size());
+    }
+
+    private static com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage stage(int position) {
+        return new com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage(
+                position, "Stage " + position, "goal", "conflict", "transition", List.of(), List.of());
+    }
+
+    @Test
     void linksPredecessorByLowerPlanVersionEvenWhenRecordedTimesAreSkewed() throws SQLException {
         AdventureStoryPlan first = AdventureStoryPlan.blocked(UUID.randomUUID(), sessionId, 1, 0, 1,
                 new AdventurePlanConfiguration(2, AdventureLength.STANDARD), List.of(), "first");

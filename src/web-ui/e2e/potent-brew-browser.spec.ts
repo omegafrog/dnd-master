@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test'
 import { existsSync } from 'node:fs'
-import { readFile, writeFile } from 'node:fs/promises'
-import { basename } from 'node:path'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 
 const backend = process.env.BACKEND_E2E_URL
 const email = process.env.BACKEND_E2E_EMAIL
@@ -11,6 +11,12 @@ const liveAdventureId = process.env.BACKEND_E2E_ADVENTURE_ID
 const liveSessionId = process.env.BACKEND_E2E_SESSION_ID
 const livePlayerId = process.env.BACKEND_E2E_PLAYER_ID
 const assetRoot = '/home/jiwoo/workspace/dnd-master/docs/assets/'
+const evidenceDir = process.env.POTENT_BREW_E2E_EVIDENCE_DIR?.trim() || '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey'
+
+async function captureEvidence(page: import('@playwright/test').Page, filename: string) {
+  await mkdir(evidenceDir, { recursive: true })
+  await page.screenshot({ path: join(evidenceDir, filename), fullPage: true })
+}
 
 type StorybookInput = { path: string; role: 'MAIN_SCENARIO' | 'MAP' | 'HANDOUT' }
 
@@ -38,6 +44,52 @@ const hasEnvironment = Boolean(backend && email && password && internalToken && 
 const journeyStatePath = '/tmp/dnd-master-potent-brew-browser-state.json'
 
 type BrowserJourneyState = { sessionId: string; authSession: string }
+
+type TranscriptRecord = { speaker: 'PLAYER' | 'GM'; text: string }
+
+async function readTranscriptRecords(transcript: import('@playwright/test').Locator): Promise<TranscriptRecord[]> {
+  return transcript.locator('li').evaluateAll(items => items.map(item => {
+    const speaker = item.classList.contains('player') ? 'PLAYER' : 'GM'
+    const speakerElement = item.querySelector('.adventure-chat-speaker')
+    const content = item.cloneNode(true) as HTMLElement
+    content.querySelector('.adventure-chat-speaker')?.remove()
+    return { speaker, text: (speakerElement ? content.textContent : item.textContent ?? '').trim() }
+  }))
+}
+
+async function waitForReadyToPlay(page: import('@playwright/test').Page) {
+  await expect(page.getByRole('status')).toHaveText('직접 플레이 입력 대기 중', { timeout: 120_000 })
+  await expect(page.getByLabel('무엇을 하시겠어요?')).toBeEnabled({ timeout: 120_000 })
+}
+
+async function waitForSubmittedTurn(
+  transcript: import('@playwright/test').Locator,
+  action: string,
+  baselineCount: number,
+): Promise<TranscriptRecord[]> {
+  let committedTurn: TranscriptRecord[] = []
+  await expect.poll(async () => {
+    const records = await readTranscriptRecords(transcript)
+    const playerIndex = records.findIndex((record, index) => index >= baselineCount && record.speaker === 'PLAYER' && record.text === action)
+    if (playerIndex < 0) return false
+    const turn = records.slice(playerIndex, playerIndex + 3)
+    if (turn.length !== 3 || turn[0].speaker !== 'PLAYER' || turn[1].speaker !== 'GM' || turn[2].speaker !== 'GM') return false
+    if (turn.some(record => !record.text.trim())) return false
+    committedTurn = turn
+    return true
+  }, { timeout: 120_000, intervals: [500] }).toBeTruthy()
+  return committedTurn
+}
+
+async function expectSingleSubmittedAction(
+  transcript: import('@playwright/test').Locator,
+  action: string,
+) {
+  await expect.poll(async () => {
+    const records = await readTranscriptRecords(transcript)
+    return records.filter(record => record.speaker === 'PLAYER' && record.text === action).length
+  }, { timeout: 120_000, intervals: [500] }).toBe(1)
+}
 
 async function readJourneyState() {
   if (!existsSync(journeyStatePath)) throw new Error(`browser journey state is missing: ${journeyStatePath}`)
@@ -120,7 +172,7 @@ test('prepares the story package, characters, and party', async ({ page }) => {
   expect(sessionId).toBeTruthy()
   await page.goto(`/#/sessions/${sessionId}/party`)
   await expect(page.getByRole('heading', { name: '모험을 함께할 파티' })).toBeVisible({ timeout: 60_000 })
-  await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/09-party-ready-for-plan.png', fullPage: true })
+  await captureEvidence(page, '09-party-ready-for-plan.png')
   await page.getByRole('button', { name: '새 캐릭터 만들기', exact: true }).click()
   await page.getByLabel('캐릭터 이름').fill('Aria')
   await page.getByLabel('직업', { exact: true }).selectOption({ label: '파이터' })
@@ -151,10 +203,10 @@ test('generates the story plan until play preparation is complete', async ({ pag
   await expect(page.getByRole('heading', { name: '모험을 함께할 파티' })).toBeVisible({ timeout: 60_000 })
   await page.getByRole('button', { name: '모험 계획 만들기', exact: true }).click()
   await expect(page.getByRole('heading', { name: '모험 계획 설정' })).toBeVisible({ timeout: 60_000 })
-  await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/10-adventure-plan-settings.png', fullPage: true })
+  await captureEvidence(page, '10-adventure-plan-settings.png')
   await page.getByRole('button', { name: '모험 계획 생성', exact: true }).click()
   await expect(page.locator('.preparation-progress[role="status"]').getByText('플레이 준비 완료', { exact: true })).toBeVisible({ timeout: 600_000 })
-  await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/11-adventure-plan-generated.png', fullPage: true })
+  await captureEvidence(page, '11-adventure-plan-generated.png')
 })
 
 test('starts the prepared adventure and reconnects to the map', async ({ page }) => {
@@ -166,11 +218,33 @@ test('starts the prepared adventure and reconnects to the map', async ({ page })
   await expect(page.getByRole('heading', { name: '모험 계획 준비' })).toBeVisible({ timeout: 60_000 })
   await page.getByRole('button', { name: '모험 시작', exact: true }).click()
   await expect(page).toHaveURL(/#\/adventures\//, { timeout: 120_000 })
+  const adventureId = page.url().match(/#\/adventures\/([^/?#]+)/)?.[1]
+  expect(adventureId).toBeTruthy()
+  let combatMapGetCount = 0
+  page.on('request', request => {
+    if (request.method() === 'GET' && request.url().endsWith(`/api/v1/adventures/${adventureId}/combat-map`)) combatMapGetCount += 1
+  })
   await expect(page.getByRole('region', { name: '현재 전장' })).toBeVisible({ timeout: 120_000 })
-  await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/12-adventure-started-map-entry.png', fullPage: true })
+  const initialCombatMapGetCount = combatMapGetCount
+  const transcript = page.getByRole('list', { name: '대화 기록' })
+  await waitForReadyToPlay(page)
+  const action = '주변을 살펴보고 위협이 있는지 확인한다'
+  const baselineTranscriptCount = await transcript.locator('li').count()
+  await page.getByLabel('무엇을 하시겠어요?').fill(action)
+  await page.getByRole('button', { name: '행동 보내기', exact: true }).click()
+  const postActionTranscript = await waitForSubmittedTurn(transcript, action, baselineTranscriptCount)
+  await expectSingleSubmittedAction(transcript, action)
+  await expect.poll(() => combatMapGetCount, { timeout: 120_000 }).toBeGreaterThan(initialCombatMapGetCount)
+  expect(postActionTranscript.map(record => record.speaker)).toEqual(['PLAYER', 'GM', 'GM'])
+  expect(postActionTranscript.every(record => record.text.trim())).toBeTruthy()
+  await captureEvidence(page, '12-adventure-started-map-entry.png')
   await page.reload()
   await expect(page.getByRole('region', { name: '현재 전장' })).toBeVisible({ timeout: 120_000 })
-  await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/13-adventure-reconnected.png', fullPage: true })
+  await waitForReadyToPlay(page)
+  const reloadedTranscript = await waitForSubmittedTurn(transcript, action, 0)
+  await expectSingleSubmittedAction(transcript, action)
+  expect(reloadedTranscript).toEqual(postActionTranscript)
+  await captureEvidence(page, '13-adventure-reconnected.png')
 })
 })
 
@@ -185,8 +259,8 @@ test('live Potent Brew browser journey exposes only safe map data and completes 
   await page.getByRole('button', { name: '로그인', exact: true }).click()
   await expect(page.getByRole('heading', { name: '모험 준비가 완료되었습니다' })).toBeVisible({ timeout: 30_000 })
   await page.goto(`/#/adventures/${liveAdventureId}`)
+  await expect(page.getByRole('heading', { name: '모험 진행 중' })).toBeVisible()
   await expect(page.getByRole('region', { name: '현재 전장' })).toBeVisible()
-  await expect(page.getByText(/모험 ID:/)).toBeVisible()
   await expect(page.locator('body')).not.toContainText('HIDDEN')
   await expect(page.locator('body')).not.toContainText('groundingStatus')
   await expect(page.locator('body')).not.toContainText('playerSpawnX')

@@ -12,6 +12,17 @@ import com.dndmaster.adventure.domain.adventure.AdventureSession;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlan;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
+import com.dndmaster.adventure.domain.adventure.FogPlan;
+import com.dndmaster.adventure.domain.adventure.NormalizedCoordinate;
+import com.dndmaster.adventure.domain.adventure.PlacementGrounding;
+import com.dndmaster.adventure.domain.adventure.TacticalPlacement;
+import com.dndmaster.adventure.domain.adventure.TacticalPlacementKind;
+import com.dndmaster.adventure.domain.adventure.TacticalSceneBoundary;
+import com.dndmaster.adventure.domain.adventure.TacticalScenePlan;
+import com.dndmaster.adventure.domain.adventure.TacticalScenePlanStatus;
+import com.dndmaster.adventure.domain.adventure.TacticalTrigger;
+import com.dndmaster.adventure.domain.adventure.TacticalTriggerType;
+import com.dndmaster.adventure.domain.adventure.TacticalOutcome;
 import com.dndmaster.adventure.domain.adventure.SessionId;
 import java.time.Instant;
 import java.util.List;
@@ -53,6 +64,13 @@ public final class TacticalScenePreparationApplicationService {
         AdventureStoryPlanStage stage = plan.stages().stream().filter(item -> item.position() == position).findFirst().orElseThrow(() -> new IllegalArgumentException("current story plan stage not found"));
         var job = jobs.createOrGet(sessionId.value(), owner.value(), position, stage.title(), stage.mapDefinitionId() != null);
         if (retry && job.status() == TacticalScenePreparationJobRepository.Status.FAILED_RETRYABLE) { jobs.resetForRetry(job.jobId()); job = jobs.find(sessionId.value(), position).orElseThrow(); }
+        // A previous live request may have exhausted AI attempts before the bounded fallback existed.
+        // Re-queue such a safe job on an ordinary prepare call so stale failures can self-heal.
+        if (!retry && job.status() == TacticalScenePreparationJobRepository.Status.FAILED_RETRYABLE
+                && fallbackEligible(stage, session)) {
+            jobs.resetForRetry(job.jobId());
+            job = jobs.find(sessionId.value(), position).orElseThrow();
+        }
         if (!retry && stage.tacticalScenePlan().readyForActivation() && job.status() == TacticalScenePreparationJobRepository.Status.QUEUED) {
             jobs.update(job.jobId(), TacticalScenePreparationJobRepository.Status.COMPLETE, 100, job.attempts(), "전술 장면 준비 완료", null);
         }
@@ -83,7 +101,50 @@ public final class TacticalScenePreparationApplicationService {
                 if (violations.isEmpty()) violations = List.of("tactical scene is absent");
             } catch (RuntimeException failure) { violations = List.of(message(failure)); }
         }
+        TacticalScenePlan fallback = deterministicFallback(stage, session);
+        if (fallback != null) {
+            plans.save(plan.prepareCurrentStage(stage.withTacticalScenePlan(fallback)));
+            jobs.update(job.jobId(), TacticalScenePreparationJobRepository.Status.COMPLETE, 100, MAX_ATTEMPTS,
+                    "AI 전술 장면 준비 실패로 안전한 최소 전술 장면을 사용했습니다", String.join("; ", violations));
+            return;
+        }
         jobs.update(job.jobId(), TacticalScenePreparationJobRepository.Status.FAILED_RETRYABLE, 100, MAX_ATTEMPTS, "전술 장면 준비에 실패했습니다. 다시 시도해 주세요.", String.join("; ", violations));
+    }
+
+    /** A bounded escape hatch for a safe map: only party identity is known, so nothing else is invented. */
+    private static TacticalScenePlan deterministicFallback(AdventureStoryPlanStage stage, AdventureSession session) {
+        if (!fallbackEligible(stage, session)) return null;
+        TacticalSceneBoundary boundary = new TacticalSceneBoundary(new NormalizedCoordinate(0, 0),
+                new NormalizedCoordinate(1, 1), List.of());
+        PlacementGrounding grounding = PlacementGrounding.aiInference(
+                "bounded fallback: party identity and map-safe stage boundary only; no tactical entities inferred");
+        List<TacticalPlacement> players = new java.util.ArrayList<>();
+        for (int index = 0; index < session.party().size(); index++) {
+            double x = .1 + (index % 8) * .1;
+            double y = .1 + (index / 8) * .1;
+            players.add(new TacticalPlacement("player-" + session.party().get(index).characterSheetId().value(),
+                    TacticalPlacementKind.PLAYER, new NormalizedCoordinate(x, y), grounding));
+        }
+        List<TacticalPlacement> enemies = new java.util.ArrayList<>();
+        for (int index = 0; index < stage.enemies().size(); index++) {
+            enemies.add(new TacticalPlacement("enemy-" + index + "-" + stage.enemies().get(index), TacticalPlacementKind.ENEMY,
+                    new NormalizedCoordinate(.8 - (index % 6) * .1, .8 - (index / 6) * .1), grounding));
+        }
+        // Keep the fallback executable: a ready scene with no authored trigger
+        // makes the first interaction fail in the client with no selectable action.
+        List<String> entryTargets = new java.util.ArrayList<>();
+        entryTargets.add(players.get(0).id()); entryTargets.addAll(enemies.stream().map(TacticalPlacement::id).toList());
+        TacticalTrigger entry = new TacticalTrigger("fallback-entry", TacticalTriggerType.COMBAT_ENTRY,
+                entryTargets, "", grounding, "enter the area");
+        TacticalOutcome outcome = new TacticalOutcome("fallback-entry-outcome", "the party enters the area", grounding);
+        return new TacticalScenePlan(TacticalScenePlan.CURRENT_SCHEMA_VERSION, TacticalScenePlanStatus.READY,
+                boundary, players, List.of(), List.of(), enemies, List.of(), List.of(), List.of(),
+                new FogPlan(List.of(), grounding), List.of(entry), List.of(outcome), List.of());
+    }
+
+    private static boolean fallbackEligible(AdventureStoryPlanStage stage, AdventureSession session) {
+        return stage.mapDefinitionId() != null && "SAFE".equalsIgnoreCase(stage.mapSafetyStatus())
+                && stage.mapConfidence() != null && stage.mapConfidence() >= .8 && !session.party().isEmpty();
     }
     private AdventureSession authorize(SessionId sessionId, OwnerPlayerId owner) { AdventureSession session = sessions.findById(sessionId).orElseThrow(() -> new IllegalArgumentException("adventure session not found")); if (!session.ownerPlayerId().equals(owner)) throw new SecurityException("adventure session access denied"); return session; }
     private static PreparationView view(TacticalScenePreparationJobRepository.Job job) { return new PreparationView(job.jobId(), job.sessionId(), job.stagePosition(), job.stageName(), Status.valueOf(job.status().name()), job.progress(), job.attempts(), job.mapRequired(), job.message(), job.failureReason(), job.updatedAt()); }

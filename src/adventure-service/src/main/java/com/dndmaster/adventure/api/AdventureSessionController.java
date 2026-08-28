@@ -60,7 +60,7 @@ public final class AdventureSessionController {
         return member == null && session.status() == AdventureSession.Status.DRAFT ? CharacterPolicyView.draft(session.characterEdition()) : member == null ? CharacterPolicyView.terminated(session.characterEdition()) : new CharacterPolicyView(
                 mutable, mutable || member.nameMutableAfterStart(), mutable || member.levelMutableAfterStart(),
                 mutable || member.raceMutableAfterStart(), mutable || member.characterClassMutableAfterStart(),
-                mutable || member.backgroundMutableAfterStart(), mutable || member.startingAbilitiesMutableAfterStart(), session.characterEdition());
+                mutable || member.backgroundMutableAfterStart(), mutable || member.startingAbilitiesMutableAfterStart(), session.characterEdition(), session.status() == AdventureSession.Status.STARTED);
     }
     private OwnerPlayerId owner() { return new OwnerPlayerId(playerResolver.playerId()); }
     private void activateCurrentStageMap(AdventureSession session) {
@@ -83,9 +83,9 @@ public final class AdventureSessionController {
     }
     public record CharacterPolicyView(boolean acceptingCharacterSheets, boolean nameMutable, boolean levelMutable,
             boolean raceMutable, boolean characterClassMutable, boolean backgroundMutable, boolean startingAbilitiesMutable,
-            String characterEdition) {
-            static CharacterPolicyView draft(String characterEdition) { return new CharacterPolicyView(true, true, true, true, true, true, true, characterEdition); }
-        static CharacterPolicyView terminated(String characterEdition) { return new CharacterPolicyView(false, false, false, false, false, false, false, characterEdition); }
+            String characterEdition, boolean runtimeMutationsAllowed) {
+            static CharacterPolicyView draft(String characterEdition) { return new CharacterPolicyView(true, true, true, true, true, true, true, characterEdition, true); }
+        static CharacterPolicyView terminated(String characterEdition) { return new CharacterPolicyView(false, false, false, false, false, false, false, characterEdition, false); }
     }
     public record PartyMemberRequest(UUID characterSheetId, ControlMode controlMode, boolean nameMutableAfterStart, boolean raceMutableAfterStart, boolean characterClassMutableAfterStart, boolean backgroundMutableAfterStart, boolean startingAbilitiesMutableAfterStart, boolean levelMutableAfterStart) {
         AdventurePartyMember toDomain() { return toDomain(characterSheetId); }

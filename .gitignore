@@ -48,3 +48,8 @@ output/
 
 # Local uploaded knowledge-document originals
 /data/rulebooks/
+
+# Accidental repository-root Python virtual environment
+/lib/
+/lib64
+/pyvenv.cfg

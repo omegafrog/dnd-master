@@ -289,6 +289,17 @@ public final class AdventureStoryPlanApplicationService {
         stages.stream().map(AdventureStoryPlanStage::mapDefinitionId).filter(java.util.Objects::nonNull).forEach(id -> {
             if (!known.contains(id)) throw new IllegalStateException("story plan references an unknown map definition");
         });
+        if (!maps.isEmpty() && stages.stream().anyMatch(stage -> (stage.stageType() == com.dndmaster.adventure.domain.adventure.AdventureStageType.DUNGEON
+                || stage.stageType() == com.dndmaster.adventure.domain.adventure.AdventureStageType.ENCOUNTER)
+                && stage.mapDefinitionId() == null)) {
+            throw new IllegalStateException("combat stage must select a safe map definition");
+        }
+        if (!maps.isEmpty() && stages.stream().noneMatch(stage ->
+                (stage.stageType() == com.dndmaster.adventure.domain.adventure.AdventureStageType.DUNGEON
+                        || stage.stageType() == com.dndmaster.adventure.domain.adventure.AdventureStageType.ENCOUNTER)
+                        && stage.mapDefinitionId() != null)) {
+            throw new IllegalStateException("a story with safe maps must include one mapped tactical stage");
+        }
     }
 
     private static String candidateValidationMessage(RuntimeException failure) {

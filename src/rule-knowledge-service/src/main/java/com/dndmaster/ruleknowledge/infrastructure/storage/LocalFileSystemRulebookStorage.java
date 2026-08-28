@@ -40,7 +40,11 @@ public final class LocalFileSystemRulebookStorage implements RulebookFileStorage
     @Override
     public byte[] read(StoredRulebookFile storedFile) {
         Objects.requireNonNull(storedFile, "storedFile must not be null");
-        Path file = root.resolve(storedFile.key()).resolve("source.bin");
+        // Registrations created by the current writer use a directory key. Keep
+        // accepting the older file-key form so catalog rows survive deployments
+        // that changed the storage layout.
+        Path keyPath = root.resolve(storedFile.key());
+        Path file = Files.isRegularFile(keyPath) ? keyPath : keyPath.resolve("source.bin");
         if (!Files.exists(file)) {
             throw new RuntimeException("stored file not found: " + storedFile.key());
         }
