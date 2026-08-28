@@ -8,11 +8,18 @@ import com.dndmaster.ruleknowledge.application.search.StorySourceSearchApplicati
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchPort;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchPort;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchApplicationService;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingProcessPort;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingRetryLeaseRepository;
+import com.dndmaster.ruleknowledge.application.publication.RagExtractionPublicationRepository;
+import com.dndmaster.ruleknowledge.application.publication.RagExtractionPublicationService;
+import com.dndmaster.ruleknowledge.application.reset.DevelopmentRagResetService;
 import com.dndmaster.ruleknowledge.infrastructure.extraction.*;
 import com.dndmaster.ruleknowledge.infrastructure.ocr.TesseractOcrAdapter;
+import com.dndmaster.ruleknowledge.infrastructure.preprocessing.ProcessCliPreprocessingAdapter;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookIndexRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresGameSystemDefinitionRepository;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresPreprocessingRetryLeaseRepository;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.JdbcCatalogRulebookRepository;
 import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRepository;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchPort;
@@ -25,12 +32,14 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Configuration;
 
 import javax.sql.DataSource;
 import java.nio.file.Path;
 import java.util.Map;
 import java.time.Duration;
+import java.util.Set;
 
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookFormat;
 
@@ -64,12 +73,22 @@ public class RuleKnowledgeApiConfiguration {
             @Value("${rule-knowledge.docling.python-executable:python3}") String doclingPython,
             @Value("${rule-knowledge.docling.working-directory:..}") String doclingWorkingDirectory,
             @Value("${rule-knowledge.docling.timeout:10m}") Duration doclingTimeout) {
-        var legacyPdf = new PdfRulebookContentExtractor(ocrPort);
         return new CompositeRulebookContentExtractor(Map.of(
-                RulebookFormat.PDF, new DoclingPdfRulebookContentExtractor(doclingPython, Path.of(doclingWorkingDirectory), doclingTimeout, objectMapper, legacyPdf),
+                RulebookFormat.PDF, content -> {
+                    throw new IllegalStateException("PDF preprocessing process is required");
+                },
                 RulebookFormat.DOCX, new DocxRulebookContentExtractor(),
                 RulebookFormat.TXT, new TxtRulebookContentExtractor(),
                 RulebookFormat.IMAGE, new ImageRulebookContentExtractor(ocrPort)));
+    }
+
+    @Bean
+    PreprocessingProcessPort preprocessingProcessPort(
+            ObjectMapper objectMapper,
+            @Value("${rule-knowledge.preprocessing.python-executable:python3}") String pythonExecutable,
+            @Value("${rule-knowledge.preprocessing.working-directory:..}") String workingDirectory,
+            @Value("${rule-knowledge.preprocessing.timeout:10m}") Duration timeout) {
+        return new ProcessCliPreprocessingAdapter(pythonExecutable, Path.of(workingDirectory), timeout, objectMapper);
     }
 
     @Bean
@@ -90,6 +109,26 @@ public class RuleKnowledgeApiConfiguration {
     @Bean
     RulebookIndexRepository indexRepository(DataSource dataSource) {
         return new PostgresRulebookIndexRepository(dataSource);
+    }
+
+    @Bean
+    @Primary
+    RagExtractionPublicationRepository ragExtractionPublicationRepository(DataSource dataSource) {
+        return new PostgresRulebookIndexRepository(dataSource);
+    }
+
+    @Bean
+    RagExtractionPublicationService ragExtractionPublicationService(
+            RagExtractionPublicationRepository repository,
+            EmbeddingPort embeddingPort,
+            @Value("${rule-knowledge.embedding-model:qwen3-embedding:0.6b}") String embeddingModel,
+            @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension) {
+        return new RagExtractionPublicationService(repository, embeddingPort, embeddingModel, embeddingDimension);
+    }
+
+    @Bean
+    PreprocessingRetryLeaseRepository preprocessingRetryLeaseRepository(DataSource dataSource) {
+        return new PostgresPreprocessingRetryLeaseRepository(dataSource);
     }
 
     @Bean
@@ -141,6 +180,10 @@ public class RuleKnowledgeApiConfiguration {
             RulebookContentExtractor contentExtractor,
             SourcePreviewExtractor sourcePreviewExtractor,
             RulebookIndexingApplicationService indexingService,
+            PreprocessingProcessPort preprocessingProcessPort,
+            RagExtractionPublicationService ragExtractionPublicationService,
+            PreprocessingRetryLeaseRepository preprocessingRetryLeaseRepository,
+            ObjectMapper objectMapper,
             @Value("${rule-knowledge.embedding-dimension:1024}") int embeddingDimension) {
         return new RulebookPipelineApplicationService(
                 registrationService,
@@ -149,7 +192,24 @@ public class RuleKnowledgeApiConfiguration {
                 contentExtractor,
                 sourcePreviewExtractor,
                 indexingService,
-                embeddingDimension);
+                embeddingDimension,
+                preprocessingProcessPort,
+                ragExtractionPublicationService,
+                new com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingArtifactImporter(objectMapper),
+                preprocessingRetryLeaseRepository);
+    }
+
+    @Bean
+    DevelopmentRagResetService developmentRagResetService(
+            DataSource dataSource, org.springframework.core.env.Environment environment) {
+        return new DevelopmentRagResetService(dataSource, Set.of(environment.getActiveProfiles()));
+    }
+
+    @Bean
+    RagDevelopmentResetController ragDevelopmentResetController(
+            DevelopmentRagResetService resetService,
+            @Value("${rule-knowledge.internal-token:}") String internalToken) {
+        return new RagDevelopmentResetController(resetService, internalToken);
     }
 
     @Bean

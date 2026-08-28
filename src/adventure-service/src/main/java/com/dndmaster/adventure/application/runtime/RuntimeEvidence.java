@@ -9,7 +9,13 @@ public record RuntimeEvidence(
         KnowledgeDocumentId knowledgeDocumentId,
         long extractionVersion,
         String locator,
-        String excerpt) {
+        String excerpt,
+        String citationKey) {
+    public RuntimeEvidence(RuntimeEvidenceType evidenceType, KnowledgeDocumentId knowledgeDocumentId,
+            long extractionVersion, String locator, String excerpt) {
+        this(evidenceType, knowledgeDocumentId, extractionVersion, locator, excerpt, null);
+    }
+
     public RuntimeEvidence {
         evidenceType = Objects.requireNonNull(evidenceType, "evidence type must not be null");
         knowledgeDocumentId = Objects.requireNonNull(knowledgeDocumentId, "knowledge document id must not be null");
@@ -18,6 +24,7 @@ public record RuntimeEvidence(
         }
         locator = required(locator, "locator");
         excerpt = required(excerpt, "excerpt");
+        citationKey = citationKey == null || citationKey.isBlank() ? null : citationKey.trim();
     }
 
     private static String required(String value, String name) {

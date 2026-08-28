@@ -860,11 +860,12 @@ public class AdventureApiConfiguration {
             StoryContinuityContextProvider continuityContextProvider,
             RuntimeTurnCompactionCoordinator compactionCoordinator,
             GmContextResumePromptProvider resumePromptProvider,
-            GmProviderBindingRepository providerBindingRepository) {
+            GmProviderBindingRepository providerBindingRepository,
+            TacticalScenePreparationApplicationService tacticalPreparation) {
         return new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
-                compactionCoordinator, resumePromptProvider, providerBindingRepository);
+                compactionCoordinator, resumePromptProvider, providerBindingRepository, tacticalPreparation);
     }
 
     @Bean
@@ -1102,9 +1103,10 @@ public class AdventureApiConfiguration {
             org.springframework.beans.factory.ObjectProvider<CombatMapPort> combatMapPort,
             ObjectMapper objectMapper,
             org.springframework.beans.factory.ObjectProvider<CombatMapViewPort> combatMapViewPort,
-            AdventureStoryPlanApplicationService storyPlanService) {
+            AdventureStoryPlanApplicationService storyPlanService,
+            org.springframework.beans.factory.ObjectProvider<org.springframework.transaction.PlatformTransactionManager> transactionManager) {
         return new AdventureController(
-                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, scenarioService, playerResolver, combatMapPort, objectMapper, combatMapViewPort, storyPlanService);
+                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, scenarioService, playerResolver, combatMapPort, objectMapper, combatMapViewPort, storyPlanService, transactionManager);
     }
 
     @Bean

@@ -1,5 +1,6 @@
 package com.dndmaster.adventure.application.storyplan;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration;
 import java.util.UUID;
@@ -7,7 +8,12 @@ import java.util.List;
 
 /** AI boundary for source-grounded adventure outline generation. */
 public interface AdventureStoryPlanGenerationPort {
-    List<AdventureStoryPlanStage> generate(Request request);
+    ProjectionCandidate generate(Request request);
+
+    /** Bounded repair returns a complete candidate, never a field patch. */
+    default ProjectionCandidate repair(RepairRequest request) {
+        return generate(request.toGenerationRequest());
+    }
 
     default TacticalScenePlanCandidate generateTacticalScene(TacticalSceneRequest request) {
         return TacticalScenePlanCandidate.absent(request.stage().position());
@@ -33,8 +39,33 @@ public interface AdventureStoryPlanGenerationPort {
                     resolutionEvidence, List.of(), List.of(), List.of(), "");
         }
         public Request {
+            citations = citations == null ? List.of() : List.copyOf(citations);
             violations = violations == null ? List.of() : List.copyOf(violations);
             previousCandidate = previousCandidate == null ? "" : previousCandidate;
+        }
+        public Request withCitationKeys() {
+            java.util.Set<String> usedKeys = new java.util.HashSet<>();
+            for (SourceCitation citation : citations) {
+                if (citation.citationKey() != null && !citation.citationKey().isBlank()
+                        && !usedKeys.add(citation.citationKey())) {
+                    throw new IllegalArgumentException("duplicate citation key: " + citation.citationKey());
+                }
+            }
+            int nextGeneratedKey = 1;
+            List<SourceCitation> keyed = new java.util.ArrayList<>();
+            for (SourceCitation citation : citations) {
+                if (citation.citationKey() != null && !citation.citationKey().isBlank()) {
+                    keyed.add(citation);
+                    continue;
+                }
+                String key;
+                do {
+                    key = "citation-" + nextGeneratedKey++;
+                } while (!usedKeys.add(key));
+                keyed.add(citation.withCitationKey(key));
+            }
+            return new Request(operationId, packageRevision, partySize, configuration, sourceDocuments,
+                    resolutionEvidence, maps, keyed, violations, previousCandidate);
         }
         public Request withViolations(List<String> nextViolations) {
             return new Request(operationId, packageRevision, partySize, configuration, sourceDocuments,
@@ -43,6 +74,59 @@ public interface AdventureStoryPlanGenerationPort {
         public Request withPreviousCandidate(String candidate) {
             return new Request(operationId, packageRevision, partySize, configuration, sourceDocuments,
                     resolutionEvidence, maps, citations, violations, candidate);
+        }
+    }
+
+    record RepairRequest(String operationId, long packageRevision, int partySize,
+                         AdventurePlanConfiguration configuration, String previousCandidate,
+                         List<AdventureStoryPlanProjectionViolation> violations,
+                         RepairScope repairScope,
+                         List<String> sourceDocuments, List<String> resolutionEvidence,
+                         List<MapContext> maps, List<SourceCitation> citations) {
+        public RepairRequest(String operationId, long packageRevision, int partySize,
+                AdventurePlanConfiguration configuration, String previousCandidate,
+                List<AdventureStoryPlanProjectionViolation> violations,
+                List<String> sourceDocuments, List<String> resolutionEvidence,
+                List<MapContext> maps, List<SourceCitation> citations) {
+            this(operationId, packageRevision, partySize, configuration, previousCandidate, violations,
+                    AdventureStoryPlanProjectionDependencyPolicy.scope(previousCandidate, violations),
+                    sourceDocuments, resolutionEvidence, maps, citations);
+        }
+
+        public RepairRequest {
+            if (operationId == null || operationId.isBlank()) throw new IllegalArgumentException("repair operation id must not be blank");
+            if (configuration == null) throw new IllegalArgumentException("repair configuration must not be null");
+            if (previousCandidate == null || previousCandidate.isBlank()) throw new IllegalArgumentException("previous full candidate must not be blank");
+            violations = violations == null ? List.of() : List.copyOf(violations);
+            sourceDocuments = sourceDocuments == null ? List.of() : List.copyOf(sourceDocuments);
+            resolutionEvidence = resolutionEvidence == null ? List.of() : List.copyOf(resolutionEvidence);
+            maps = maps == null ? List.of() : List.copyOf(maps);
+            citations = citations == null ? List.of() : List.copyOf(citations);
+            if (repairScope == null) {
+                throw new IllegalArgumentException("deterministic repair scope must be explicit");
+            }
+            RepairScope expectedScope = AdventureStoryPlanProjectionDependencyPolicy.scope(previousCandidate, violations);
+            if (!expectedScope.equals(repairScope)) {
+                throw new IllegalArgumentException("repair scope must equal the deterministic blocker dependency closure");
+            }
+        }
+
+        public Request toGenerationRequest() {
+            return new Request(operationId, packageRevision, partySize, configuration, sourceDocuments,
+                    resolutionEvidence, maps, citations,
+                    violations.stream().map(AdventureStoryPlanProjectionViolation::sanitizedMessage).toList(), previousCandidate);
+        }
+    }
+
+    record ProjectionCandidate(String serializedCandidate, List<AdventureStoryPlanStage> stages) {
+        public ProjectionCandidate {
+            if (serializedCandidate == null || serializedCandidate.isBlank()) throw new IllegalArgumentException("full candidate must not be blank");
+            stages = stages == null ? List.of() : List.copyOf(stages);
+            AdventureStoryPlanProjectionCandidateConsistency.assertEquivalent(serializedCandidate, stages);
+        }
+
+        public static ProjectionCandidate fromStages(List<AdventureStoryPlanStage> stages) {
+            return new ProjectionCandidate(AdventureStoryPlanProjectionCandidateConsistency.serialize(stages), stages);
         }
     }
 
@@ -61,5 +145,26 @@ public interface AdventureStoryPlanGenerationPort {
             context = context == null ? "" : context.trim();
         }
     }
-    record SourceCitation(String documentType, UUID documentId, long extractionVersion, String locator, String quote, double confidence) {}
+    record SourceCitation(String documentType, UUID documentId, long extractionVersion, String locator, String quote,
+            double confidence, com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance provenance,
+            @JsonInclude(JsonInclude.Include.NON_EMPTY) String citationKey) {
+        public SourceCitation(String documentType, UUID documentId, long extractionVersion, String locator,
+                String quote, double confidence) {
+            this(documentType, documentId, extractionVersion, locator, quote, confidence,
+                    new com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance(
+                            new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(documentId),
+                            extractionVersion, 1, List.of(), List.of(), null, locator), "");
+        }
+        public SourceCitation(String documentType, UUID documentId, long extractionVersion, String locator,
+                String quote, double confidence,
+                com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance provenance) {
+            this(documentType, documentId, extractionVersion, locator, quote, confidence, provenance, "");
+        }
+        public SourceCitation withCitationKey(String key) {
+            return new SourceCitation(documentType, documentId, extractionVersion, locator, quote, confidence, provenance, key);
+        }
+        public SourceCitation {
+            citationKey = citationKey == null ? "" : citationKey;
+        }
+    }
 }

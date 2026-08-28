@@ -22,6 +22,7 @@ public record RuntimePlanningRequest(
         java.util.List<String> recentTurns,
         java.util.List<String> characterSnapshots,
         String storyPlanContext,
+        UUID providerEndpointId,
         String provider,
         String model,
         String reasoning) {
@@ -46,7 +47,7 @@ public record RuntimePlanningRequest(
                                   long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
                                   String action, EvidencePack evidencePack) {
         this(adventureId, ownerPlayerId, UUID.randomUUID(), UUID.randomUUID(), scenarioPackageId, bindingVersion, currentContext, activeSourceContext, action,
-                evidencePack, java.util.List.of(), java.util.List.of(), "", "", "", "");
+                evidencePack, java.util.List.of(), java.util.List.of(), "", null, "", "", "");
     }
 
     public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId,
@@ -55,7 +56,7 @@ public record RuntimePlanningRequest(
                                   java.util.List<String> characterSnapshots, String storyPlanContext) {
         this(adventureId, ownerPlayerId, UUID.randomUUID(), UUID.randomUUID(), scenarioPackageId, bindingVersion,
                 currentContext, activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, storyPlanContext,
-                "", "", "");
+                null, "", "", "");
     }
 
     public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
@@ -65,7 +66,7 @@ public record RuntimePlanningRequest(
                                   String storyPlanContext) {
         this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext,
                 activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, storyPlanContext,
-                "", "", "");
+                null, "", "", "");
     }
 
     private static String required(String value, String name) {

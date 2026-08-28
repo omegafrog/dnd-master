@@ -31,6 +31,7 @@ public class RuntimeTurnApplicationService {
     private final ScenarioPackageRepository scenarioPackageRepository;
     private final RuntimeTurnRepository runtimeTurnRepository;
     private final RuntimeEvidenceSearchPort evidenceSearchPort;
+    private final RuntimeEvidenceSelector evidenceSelector;
     private final RuntimePlanningPort planningPort;
     private final NarrationSafetyPort narrationSafetyPort;
     private final SessionKnowledgeSetRepository sessionKnowledgeSetRepository;
@@ -39,6 +40,7 @@ public class RuntimeTurnApplicationService {
     private final RuntimeTurnCompactionCoordinator compactionCoordinator;
     private final GmContextResumePromptProvider resumePromptProvider;
     private final GmProviderBindingRepository providerBindingRepository;
+    private final TacticalScenePreparationApplicationService tacticalPreparation;
 
     public RuntimeTurnApplicationService(
             AdventureRepository adventureRepository,
@@ -93,11 +95,32 @@ public class RuntimeTurnApplicationService {
             AdventureStoryPlanRepository storyPlanRepository, StoryContinuityContextProvider continuityContextProvider,
             RuntimeTurnCompactionCoordinator compactionCoordinator, GmContextResumePromptProvider resumePromptProvider,
             GmProviderBindingRepository providerBindingRepository) {
+        this(adventureRepository, bindingRepository, scenarioPackageRepository, runtimeTurnRepository, evidenceSearchPort,
+                planningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
+                compactionCoordinator, resumePromptProvider, providerBindingRepository, null);
+    }
+
+    public RuntimeTurnApplicationService(
+            AdventureRepository adventureRepository,
+            RuntimeBindingRepository bindingRepository,
+            ScenarioPackageRepository scenarioPackageRepository,
+            RuntimeTurnRepository runtimeTurnRepository,
+            RuntimeEvidenceSearchPort evidenceSearchPort,
+            RuntimePlanningPort planningPort,
+            NarrationSafetyPort narrationSafetyPort,
+            SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
+            AdventureStoryPlanRepository storyPlanRepository,
+            StoryContinuityContextProvider continuityContextProvider,
+            RuntimeTurnCompactionCoordinator compactionCoordinator,
+            GmContextResumePromptProvider resumePromptProvider,
+            GmProviderBindingRepository providerBindingRepository,
+            TacticalScenePreparationApplicationService tacticalPreparation) {
         this.adventureRepository = Objects.requireNonNull(adventureRepository, "adventure repository must not be null");
         this.bindingRepository = Objects.requireNonNull(bindingRepository, "binding repository must not be null");
         this.scenarioPackageRepository = Objects.requireNonNull(scenarioPackageRepository, "scenario package repository must not be null");
         this.runtimeTurnRepository = Objects.requireNonNull(runtimeTurnRepository, "runtime turn repository must not be null");
         this.evidenceSearchPort = Objects.requireNonNull(evidenceSearchPort, "evidence search port must not be null");
+        this.evidenceSelector = new RuntimeEvidenceSelector(this.evidenceSearchPort);
         this.planningPort = Objects.requireNonNull(planningPort, "planning port must not be null");
         this.narrationSafetyPort = Objects.requireNonNull(narrationSafetyPort, "narration safety port must not be null");
         this.sessionKnowledgeSetRepository = Objects.requireNonNull(
@@ -107,6 +130,7 @@ public class RuntimeTurnApplicationService {
         this.compactionCoordinator = compactionCoordinator;
         this.resumePromptProvider = resumePromptProvider;
         this.providerBindingRepository = providerBindingRepository;
+        this.tacticalPreparation = tacticalPreparation;
     }
 
     @Transactional
@@ -165,7 +189,8 @@ public class RuntimeTurnApplicationService {
                 adventure.currentContext(), binding.activeSourceContext(), command.action(), evidencePack,
                 adventure.conversation().stream().map(entry -> entry.speaker() + ": " + entry.content()).toList(),
                 adventure.party().stream().map(member -> member.characterSheetId().value() + " control=" + member.controlMode()).toList(),
-                storyPlanContext(adventure), providerSelection(adventure.sessionId().value(), "provider"),
+                storyPlanContext(adventure), providerEndpointId(adventure.sessionId().value()),
+                providerSelection(adventure.sessionId().value(), "provider"),
                 providerSelection(adventure.sessionId().value(), "model"),
                 providerSelection(adventure.sessionId().value(), "reasoning")));
         NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
@@ -173,7 +198,7 @@ public class RuntimeTurnApplicationService {
         if (!safety.approved()) {
             throw new IllegalStateException("narration safety rejected: " + safety.reason());
         }
-        advanceStoryPlanIfRequested(adventure.sessionId(), plan);
+        advanceStoryPlanIfRequested(command.ownerPlayerId(), adventure.sessionId(), plan);
 
         ActiveSourceContext activeSourceContext = plan.proposedActiveSourceContext() != null
                 ? plan.proposedActiveSourceContext()
@@ -250,6 +275,12 @@ public class RuntimeTurnApplicationService {
         };
     }
 
+    private UUID providerEndpointId(UUID sessionId) {
+        if (providerBindingRepository == null) return null;
+        ProviderBinding binding = providerBindingRepository.current(sessionId).orElse(null);
+        return binding == null ? null : binding.selection().endpointId();
+    }
+
     private static String blankOrDefault(String value, String field) {
         return value == null || value.isBlank() ? defaultProviderSelection(field) : value;
     }
@@ -304,20 +335,15 @@ public class RuntimeTurnApplicationService {
                         com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection::extractionVersion, (a, b) -> a));
         extractionVersions = extractionVersions.entrySet().stream().filter(entry -> entry.getValue() > 1)
                 .collect(java.util.stream.Collectors.toUnmodifiableMap(Map.Entry::getKey, Map.Entry::getValue));
-        List<RuntimeEvidence> storybook = scopedSearch(new RuntimeEvidenceSearchRequest(
-                adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), storybookDocumentIds,
-                binding.activeSourceContext(), command.action(), RuntimeEvidenceType.STORYBOOK, 5, extractionVersions));
-        List<RuntimeEvidence> rulebook = rulebookDocumentIds.isEmpty() ? List.of() : scopedSearch(new RuntimeEvidenceSearchRequest(
-                adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), rulebookDocumentIds,
-                binding.activeSourceContext(), command.action(), RuntimeEvidenceType.RULEBOOK, 5, extractionVersions));
         List<RuntimeEvidence> resolution = scenarioPackage.runtimeCandidates().stream()
                 .flatMap(unit -> resolutionEvidence(unit).stream())
                 .filter(evidence -> knowledgeDocumentIds.contains(evidence.knowledgeDocumentId().value()))
                 .toList();
-        if (storybook.isEmpty()) {
-            throw new IllegalStateException("storybook evidence is required for a runtime GM turn");
-        }
-        return new EvidencePack(storybook, rulebook, resolution);
+        RuntimeEvidenceSearchRequest request = new RuntimeEvidenceSearchRequest(
+                adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), storybookDocumentIds,
+                binding.activeSourceContext(), command.action(), RuntimeEvidenceType.STORYBOOK, RuntimeEvidenceSelector.MAX_EVIDENCE,
+                extractionVersions, "scene:" + adventure.currentContext().currentScene(), actionIntent(command.action()));
+        return evidenceSelector.select(request, resolution, rulebookDocumentIds).pack();
     }
 
     private static List<UUID> documentIdsOfType(ScenarioPackage scenarioPackage, String type, List<UUID> selected) {
@@ -339,7 +365,7 @@ public class RuntimeTurnApplicationService {
                 .map(AdventureStoryPlanRuntimeContext::format).orElse("");
     }
 
-    private void advanceStoryPlanIfRequested(com.dndmaster.adventure.domain.adventure.SessionId sessionId, RuntimePlan plan) {
+    private void advanceStoryPlanIfRequested(OwnerPlayerId owner, com.dndmaster.adventure.domain.adventure.SessionId sessionId, RuntimePlan plan) {
         if (!plan.advanceStoryPlan() || storyPlanRepository == null) return;
         storyPlanRepository.findBySessionId(sessionId).ifPresent(current -> {
             if (current.stages().isEmpty() || current.currentStage() >= current.stages().size() - 1) return;
@@ -357,14 +383,24 @@ public class RuntimeTurnApplicationService {
                             .map(candidate -> candidate.position() - 1).findFirst().orElse(target);
                 }
             }
-            if (target > current.currentStage() && target < current.stages().size()) storyPlanRepository.save(current.advanceTo(target));
+            if (target > current.currentStage() && target < current.stages().size()) {
+                storyPlanRepository.save(current.advanceTo(target));
+                if (tacticalPreparation != null) tacticalPreparation.prepare(sessionId, owner);
+            }
         });
     }
 
-    private List<RuntimeEvidence> scopedSearch(RuntimeEvidenceSearchRequest request) {
-        return evidenceSearchPort.search(request).stream()
-                .filter(evidence -> request.knowledgeDocumentIds().contains(evidence.knowledgeDocumentId().value()))
-                .toList();
+    private static String actionIntent(String action) {
+        String normalized = action.toLowerCase(java.util.Locale.ROOT);
+        if (normalized.contains("rule") || normalized.contains("roll") || normalized.contains("damage")
+                || normalized.contains("판정") || normalized.contains("규칙") || normalized.contains("굴림")) {
+            return "RULE";
+        }
+        if (normalized.contains("look") || normalized.contains("inspect") || normalized.contains("search")
+                || normalized.contains("examine") || normalized.contains("살펴") || normalized.contains("조사")) {
+            return "EXPLORE";
+        }
+        return "MIXED";
     }
 
     private List<UUID> knowledgeDocumentIds(Adventure adventure, ScenarioPackage scenarioPackage) {

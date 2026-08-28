@@ -51,7 +51,12 @@ class RuleSetSaveIntegrationTest {
                     preview_content TEXT NOT NULL DEFAULT '',
                     preview_warnings VARCHAR ARRAY,
                     preview_spans TEXT NOT NULL DEFAULT '[]',
-                    preview_assets TEXT NOT NULL DEFAULT '[]'
+                    preview_assets TEXT NOT NULL DEFAULT '[]',
+                    preprocessing_operation_id TEXT,
+                    candidate_extraction_version TEXT,
+                    preprocessing_policy_version TEXT,
+                    preprocessing_manifest_sha256 TEXT,
+                    preprocessing_pages TEXT NOT NULL DEFAULT '[]'
                 )
                 """);
         jdbcTemplate.update("DELETE FROM rulebook_registration");

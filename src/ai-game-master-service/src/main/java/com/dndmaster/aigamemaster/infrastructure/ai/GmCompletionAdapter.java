@@ -4,6 +4,29 @@ package com.dndmaster.aigamemaster.infrastructure.ai;
 public interface GmCompletionAdapter {
     <T> T complete(String operationId, String prompt, StructuredResponseParser<T> parser);
 
+    default <T> GmCompletionResult<T> completeWithSelection(
+            String operationId, String prompt, StructuredResponseParser<T> parser,
+            RequestedGmProviderSelection requested) {
+        throw new UnsupportedOperationException("provider selection is not supported by this adapter");
+    }
+
+    /** Runs one initial completion and, only for a malformed candidate, one repair. */
+    default <T> GmCandidateLifecycleResult<T> completeWithOneRepair(
+            String operationId, String prompt, java.util.function.Function<String, String> repairPrompt,
+            StructuredResponseParser<T> parser, RequestedGmProviderSelection requested) {
+        java.util.concurrent.atomic.AtomicReference<String> raw = new java.util.concurrent.atomic.AtomicReference<>("");
+        StructuredResponseParser<T> capturingParser = json -> {
+            raw.set(json == null ? "" : json);
+            return parser.parse(json);
+        };
+        try {
+            return new GmCandidateLifecycleResult<>(completeWithSelection(operationId, prompt, capturingParser, requested), 1);
+        } catch (ProviderMalformedResponseException malformed) {
+            return new GmCandidateLifecycleResult<>(completeWithSelection(operationId + ":repair",
+                    repairPrompt.apply(raw.get()), capturingParser, requested), 2);
+        }
+    }
+
     default <T> T complete(String operationId, String prompt, StructuredResponseParser<T> parser,
                             GmProviderRequest provider) {
         return complete(operationId, prompt, parser);

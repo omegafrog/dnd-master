@@ -23,9 +23,9 @@ class GmTurnFailureRecorderTest {
 
         new GmTurnFailureRecorder(turns, events).record(turn, UUID.randomUUID(), UUID.randomUUID(), "provider failed", 4);
 
-        assertEquals("FAILED", turns.saved.status().name());
+        assertEquals("FAILED_RETRYABLE", turns.saved.status().name());
         assertEquals("GM_TURN_FAILED", events.saved.type());
-        assertEquals("provider failed", events.saved.payload());
+        assertEquals("GM_PROVIDER_UNAVAILABLE", events.saved.payload());
         assertEquals(5, events.saved.version());
     }
 

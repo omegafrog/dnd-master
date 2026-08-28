@@ -53,17 +53,18 @@ public final class CodexAppServerClient implements AutoCloseable {
             throw new IllegalArgumentException("operation id and prompt required");
         }
         long startedAt = System.nanoTime();
+        long deadlineNanos = System.nanoTime() + timeout.toNanos();
         LOGGER.info("ai_agent_call_started provider=codex operationId={} model={} promptLength={}", operationId,
                 requestedModel == null || requestedModel.isBlank() ? "default" : requestedModel, prompt.length());
         try {
-            ensureStarted();
+            ensureStarted(deadlineNanos);
             ObjectNode threadParams = mapper.createObjectNode();
             threadParams.put("cwd", workDirectory.toString());
             threadParams.put("approvalPolicy", "never");
             threadParams.put("sandbox", "read-only");
             threadParams.put("ephemeral", true);
             putModel(threadParams, requestedModel);
-            JsonNode thread = request("thread/start", threadParams).path("thread");
+            JsonNode thread = request("thread/start", threadParams, deadlineNanos).path("thread");
             String threadId = thread.path("id").asText("");
             if (threadId.isBlank()) throw new IllegalStateException("Codex app-server did not return a thread id");
 
@@ -76,15 +77,14 @@ public final class CodexAppServerClient implements AutoCloseable {
             putModel(turnParams, requestedModel);
             turnParams.put("approvalPolicy", "never");
             turnParams.putObject("sandboxPolicy").put("type", "readOnly");
-            request("turn/start", turnParams);
+            request("turn/start", turnParams, deadlineNanos);
 
             StringBuilder response = new StringBuilder();
-            long turnDeadline = System.nanoTime() + timeout.toNanos();
             String lastMethod = "turn/start";
             while (true) {
                 JsonNode message;
                 try {
-                    message = readMessageUntil(turnDeadline);
+                    message = readMessageUntil(deadlineNanos);
                 } catch (ProviderTimeoutException exception) {
                     LOGGER.error("ai_agent_call_timeout provider=codex operationId={} phase=turn-events lastMethod={} timeoutMs={}",
                             operationId, lastMethod, timeout.toMillis());
@@ -99,7 +99,13 @@ public final class CodexAppServerClient implements AutoCloseable {
                 }
                 if ("item/agentMessage/delta".equals(method)) response.append(params.path("delta").asText(""));
                 if ("item/completed".equals(method)) appendCompletedAgentMessage(response, params.path("item"));
-                if ("turn/completed".equals(method)) break;
+                if ("turn/completed".equals(method)) {
+                    JsonNode turnError = params.path("turn").path("error");
+                    if (!turnError.isMissingNode() && !turnError.isNull()) {
+                        throw new IllegalStateException("Codex turn failed: " + compact(turnError));
+                    }
+                    break;
+                }
                 if ("turn/failed".equals(method) || "turn/aborted".equals(method)) {
                     throw new IllegalStateException("Codex turn terminated: " + compact(params));
                 }
@@ -118,7 +124,12 @@ public final class CodexAppServerClient implements AutoCloseable {
             closeProcess();
             LOGGER.error("ai_agent_call_failed provider=codex operationId={} durationMs={} errorType={} message={}", operationId,
                     elapsedMillis(startedAt), exception.getClass().getSimpleName(), safeMessage(exception));
-            throw new IllegalStateException("Codex app-server invocation failed", exception);
+            throw new ProviderTimeoutException(exception);
+        } catch (ProviderTimeoutException exception) {
+            closeProcess();
+            LOGGER.error("ai_agent_call_timeout provider=codex operationId={} phase=app-server-request timeoutMs={}",
+                    operationId, timeout.toMillis());
+            throw exception;
         } catch (RuntimeException exception) {
             LOGGER.error("ai_agent_call_failed provider=codex operationId={} durationMs={} errorType={} message={}", operationId,
                     elapsedMillis(startedAt), exception.getClass().getSimpleName(), safeMessage(exception));
@@ -145,14 +156,18 @@ public final class CodexAppServerClient implements AutoCloseable {
 
     public synchronized boolean isAuthenticated() {
         try {
-            ensureStarted();
-            JsonNode account = request("account/read", mapper.createObjectNode()).path("account");
+            long deadlineNanos = System.nanoTime() + timeout.toNanos();
+            ensureStarted(deadlineNanos);
+            JsonNode account = request("account/read", mapper.createObjectNode(), deadlineNanos).path("account");
             return !account.isMissingNode()
                     && !account.isNull()
                     && !account.path("type").asText("").isBlank();
         } catch (IOException exception) {
             closeProcess();
             throw new IllegalStateException("Codex app-server account check failed", exception);
+        } catch (ProviderTimeoutException exception) {
+            closeProcess();
+            throw exception;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new ProviderTimeoutException(exception);
@@ -161,21 +176,25 @@ public final class CodexAppServerClient implements AutoCloseable {
 
     public synchronized String startBrowserLogin() {
         try {
-            ensureStarted();
+            long deadlineNanos = System.nanoTime() + timeout.toNanos();
+            ensureStarted(deadlineNanos);
             ObjectNode params = mapper.createObjectNode().put("type", "chatgpt");
-            String authUrl = request("account/login/start", params).path("authUrl").asText("");
+            String authUrl = request("account/login/start", params, deadlineNanos).path("authUrl").asText("");
             if (authUrl.isBlank()) throw new IllegalStateException("Codex app-server did not return an OAuth URL");
             return authUrl;
         } catch (IOException exception) {
             closeProcess();
             throw new IllegalStateException("Codex OAuth could not be started", exception);
+        } catch (ProviderTimeoutException exception) {
+            closeProcess();
+            throw exception;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new ProviderTimeoutException(exception);
         }
     }
 
-    private void ensureStarted() throws IOException, InterruptedException {
+    private void ensureStarted(long deadlineNanos) throws IOException, InterruptedException {
         if (process != null && process.isAlive()) return;
         closeProcess();
         process = new ProcessBuilder(List.of(executable, "app-server", "--stdio"))
@@ -189,11 +208,11 @@ public final class CodexAppServerClient implements AutoCloseable {
         ObjectNode initialize = mapper.createObjectNode();
         initialize.putObject("clientInfo").put("name", "dnd-master").put("title", "D&D Master").put("version", "0.1.0");
         initialize.set("capabilities", capabilities);
-        request("initialize", initialize);
+        request("initialize", initialize, deadlineNanos);
         send(mapper.createObjectNode().put("method", "initialized"));
     }
 
-    private JsonNode request(String method, JsonNode params) throws IOException, InterruptedException {
+    private JsonNode request(String method, JsonNode params, long deadlineNanos) throws IOException, InterruptedException {
         long id = ++requestId;
         ObjectNode request = mapper.createObjectNode();
         request.put("id", id);
@@ -201,7 +220,7 @@ public final class CodexAppServerClient implements AutoCloseable {
         request.set("params", params);
         send(request);
         while (true) {
-            JsonNode message = readMessage();
+            JsonNode message = readMessageUntil(deadlineNanos);
             if (message.path("id").asLong(Long.MIN_VALUE) == id) {
                 if (message.has("error")) throw rpcError(message);
                 return message.path("result");
@@ -268,14 +287,18 @@ public final class CodexAppServerClient implements AutoCloseable {
     }
 
     private void closeProcess() {
+        BufferedWriter currentInput = input;
+        BufferedReader currentOutput = output;
+        input = null;
+        output = null;
+        try { if (currentInput != null) currentInput.close(); } catch (IOException ignored) { }
+        try { if (currentOutput != null) currentOutput.close(); } catch (IOException ignored) { }
         if (process != null) {
             process.destroy();
             try { process.waitFor(2, TimeUnit.SECONDS); } catch (InterruptedException exception) { Thread.currentThread().interrupt(); }
             if (process.isAlive()) process.destroyForcibly();
         }
         process = null;
-        input = null;
-        output = null;
     }
 
     @Override public synchronized void close() { closeProcess(); }

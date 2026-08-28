@@ -2,6 +2,8 @@ package com.dndmaster.adventure.infrastructure.integration;
 
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanCandidateValidationException;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionRepairPolicy;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionViolation;
 import com.dndmaster.adventure.application.storyplan.TacticalScenePlanCandidate;
 import com.dndmaster.adventure.application.storyplan.TacticalSceneRequest;
 import com.dndmaster.adventure.application.storyplan.TacticalScenePlanValidator;
@@ -11,8 +13,14 @@ import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanGraphValidator
 import com.dndmaster.adventure.domain.adventure.PlacementGrounding;
 import com.dndmaster.adventure.domain.adventure.PlacementGroundingType;
 import com.dndmaster.adventure.domain.adventure.TacticalScenePlan;
+import com.dndmaster.adventure.domain.adventure.CombatParticipant;
+import com.dndmaster.adventure.domain.adventure.CombatRequirement;
+import com.dndmaster.adventure.domain.adventure.CombatSkeleton;
+import com.dndmaster.adventure.domain.adventure.SourceFactClaim;
+import com.dndmaster.adventure.domain.adventure.TacticalPreparationRequirement;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpTimeoutException;
@@ -23,7 +31,6 @@ import java.time.Duration;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
-import java.util.Set;
 import java.util.stream.Collectors;
 import java.util.Map;
 import java.util.regex.Matcher;
@@ -40,33 +47,80 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         if (internalToken == null || internalToken.isBlank()) throw new IllegalArgumentException("adventure story plan AI internal token must not be blank");
         this.internalToken = internalToken;
     }
-    @Override public List<AdventureStoryPlanStage> generate(Request request) {
+    @Override public AdventureStoryPlanGenerationPort.ProjectionCandidate generate(Request request) {
+        return generateCandidate(request);
+    }
+
+    private AdventureStoryPlanGenerationPort.ProjectionCandidate generateCandidate(Request request) {
         try {
-            var body = mapper.writeValueAsString(request);
+            Request keyedRequest = request.withCitationKeys();
+            var body = mapper.writeValueAsString(keyedRequest);
             var response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/adventure-story-plan"))
                     .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 422) {
-                List<String> violations = remoteCandidateViolations(response.body(), "AI returned an invalid story plan candidate");
-                LOGGER.warn("remote_story_plan_candidate_rejected violations={}", violations);
-                throw new AdventureStoryPlanCandidateValidationException(violations);
+                List<AdventureStoryPlanProjectionViolation> violations = remoteCandidateViolations(response.body(), "AI returned an invalid story plan candidate");
+                LOGGER.warn("remote_story_plan_candidate_rejected codes={} classifications={}",
+                        violations.stream().map(AdventureStoryPlanProjectionViolation::code).toList(),
+                        violations.stream().map(AdventureStoryPlanProjectionViolation::repairability).toList());
+                throw new AdventureStoryPlanCandidateValidationException(violations, remoteRejectedCandidate(response.body()), true);
             }
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
-                String detail = response.body() == null ? "" : response.body().replaceAll("\\s+", " ");
-                if (detail.length() > 1200) detail = detail.substring(0, 1200);
-                throw new IllegalStateException("story plan AI failed: " + response.statusCode() + " body=" + detail);
+                throw new IllegalStateException("story plan AI failed: " + response.statusCode());
             }
-            return parseOutlineCandidate(response.body(), request);
+            return parseOutlineCandidate(response.body(), keyedRequest);
         } catch (HttpTimeoutException e) { throw new IllegalStateException("story plan AI timed out after " + timeout, e); }
         catch (IOException e) { throw new IllegalStateException("story plan AI request encoding failed", e); }
         catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("story plan AI interrupted", e); }
     }
 
-    private List<AdventureStoryPlanStage> parseOutlineCandidate(String responseBody, Request request) {
+    @Override public AdventureStoryPlanGenerationPort.ProjectionCandidate repair(RepairRequest request) {
         try {
-            var parsed = mapper.readValue(responseBody, Response.class);
+            Request keyedRequest = new Request(request.operationId(), request.packageRevision(), request.partySize(),
+                    request.configuration(), request.sourceDocuments(), request.resolutionEvidence(), request.maps(),
+                    request.citations(), request.violations().stream()
+                            .map(AdventureStoryPlanProjectionViolation::sanitizedMessage).toList(), request.previousCandidate())
+                    .withCitationKeys();
+            JsonNode previousCandidate = mapper.readTree(request.previousCandidate());
+            RepairWireRequest wireRequest = new RepairWireRequest(keyedRequest.operationId(), keyedRequest.packageRevision(),
+                    keyedRequest.partySize(), keyedRequest.configuration(), previousCandidate,
+                    request.violations(), keyedRequest.sourceDocuments(), request.repairScope(), keyedRequest.resolutionEvidence(),
+                    keyedRequest.maps(), keyedRequest.citations());
+            var response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/adventure-story-plan/repair"))
+                    .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
+                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(wireRequest))).build(),
+                    HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 422) {
+                throw new AdventureStoryPlanCandidateValidationException(
+                        remoteCandidateViolations(response.body(), "AI returned an invalid repaired story plan candidate"),
+                        remoteRejectedCandidate(response.body()), true);
+            }
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("story plan AI repair failed: " + response.statusCode());
+            }
+            var candidate = parseOutlineCandidate(response.body(), keyedRequest);
+            AdventureStoryPlanProjectionRepairPolicy.assertOnlyListedFieldsChanged(
+                    previousCandidate, mapper.readTree(candidate.serializedCandidate()), request.repairScope());
+            return candidate;
+        } catch (AdventureStoryPlanCandidateValidationException e) {
+            throw e;
+        } catch (HttpTimeoutException e) { throw new IllegalStateException("story plan AI repair timed out after " + timeout, e); }
+        catch (IOException e) { throw new IllegalStateException("story plan AI repair request encoding failed", e); }
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("story plan AI repair interrupted", e); }
+        catch (AdventureStoryPlanProjectionRepairPolicy.UnlistedFieldMutation e) {
+            throw new AdventureStoryPlanCandidateValidationException(List.of(e.violation()), request.previousCandidate(), true);
+        }
+    }
+
+    private AdventureStoryPlanGenerationPort.ProjectionCandidate parseOutlineCandidate(String responseBody, Request request) {
+        String candidateJson = candidateJson(responseBody);
+        try {
+            JsonNode root = mapper.readTree(candidateJson);
+            var parsed = mapper.treeToValue(root, Response.class);
             if (parsed.stages() == null) throw new IllegalStateException("AI returned no story stages");
-            List<Stage> stages = parsed.stages().stream().map(stage -> canonicalizeEvidence(stage, request.citations())).toList();
+            List<Stage> stages = parsed.stages();
+            List<List<AdventureStoryPlanGenerationPort.SourceCitation>> resolvedEvidence = stages.stream()
+                    .map(stage -> resolveCitationKeys(stage.evidence(), request.citations())).toList();
             validateEndingIdProjection(stages);
             if (!request.citations().isEmpty() && stages.stream().anyMatch(stage -> stage.evidence().isEmpty())) {
                 throw new IllegalStateException("every story stage must include at least one supplied source citation");
@@ -78,20 +132,6 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             }
             long endingCount = stages.stream().flatMap(stage -> stage.endingIds().stream()).distinct().count();
             if (endingCount != configuration.endingCount()) throw new IllegalStateException("AI returned an invalid ending count");
-            Set<String> knownCitations = request.citations().stream()
-                    .map(TacticalScenePlanValidator::key).collect(Collectors.toSet());
-            if (knownCitations.isEmpty() && stages.stream().flatMap(stage -> stage.evidence().stream()).findAny().isPresent()) {
-                throw new IllegalStateException("AI returned source evidence without a supplied citation");
-            }
-            // Markdown plans are intentionally loose agent working documents. Missing
-            // per-stage evidence is allowed; the retrieved excerpts remain in the prompt.
-            if (stages.stream().flatMap(stage -> stage.evidence().stream()).anyMatch(item -> !matchesCitation(item, request.citations()))) {
-                SourceCitation unknown = stages.stream().flatMap(stage -> stage.evidence().stream())
-                        .filter(item -> !matchesCitation(item, request.citations())).findFirst().orElseThrow();
-                throw new IllegalStateException("AI returned an unknown source citation: "
-                        + unknown.documentType() + ":" + unknown.documentId() + ":" + unknown.extractionVersion()
-                        + ":" + unknown.locator());
-            }
             Map<UUID, AdventureStoryPlanGenerationPort.MapContext> maps = request.maps().stream().collect(
                     Collectors.toMap(AdventureStoryPlanGenerationPort.MapContext::mapDefinitionId, item -> item));
             if (!maps.isEmpty() && stages.stream().anyMatch(stage ->
@@ -99,14 +139,17 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                             && stage.mapDefinitionId().isBlank())) {
                 throw new IllegalStateException("map-backed bundle requires every dungeon stage to reference a map definition");
             }
-            List<AdventureStoryPlanStage> domainStages = stages.stream().map(stage -> toDomain(stage, maps)).toList();
+            List<AdventureStoryPlanStage> domainStages = java.util.stream.IntStream.range(0, stages.size())
+                    .mapToObj(index -> toDomain(stages.get(index), resolvedEvidence.get(index), maps)).toList();
             AdventureStoryPlanGraphValidator.validate(domainStages, configuration);
-            return domainStages;
+            return new AdventureStoryPlanGenerationPort.ProjectionCandidate(candidateJson, domainStages);
         } catch (AdventureStoryPlanCandidateValidationException invalidCandidate) {
             throw invalidCandidate;
         } catch (RuntimeException | IOException invalidCandidate) {
             throw new AdventureStoryPlanCandidateValidationException(List.of(
-                    validationMessage(invalidCandidate, "AI returned an invalid story plan candidate")));
+                    AdventureStoryPlanCandidateValidationException.legacyViolation(
+                            validationMessage(invalidCandidate, "AI returned an invalid story plan candidate"))),
+                    candidateJson, true);
         }
     }
 
@@ -131,7 +174,7 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(request))).build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 422) {
                 throw new AdventureStoryPlanCandidateValidationException(List.of(
-                        remoteCandidateViolations(response.body(), "AI returned an invalid tactical scene candidate").getFirst()));
+                        remoteCandidateViolations(response.body(), "AI returned an invalid tactical scene candidate").getFirst().sanitizedMessage()));
             }
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IllegalStateException("tactical scene AI failed: " + response.statusCode());
@@ -173,23 +216,45 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         return root.getMessage() == null || root.getMessage().isBlank() ? fallback : root.getMessage();
     }
 
-    private List<String> remoteCandidateViolations(String body, String fallback) {
+    private List<AdventureStoryPlanProjectionViolation> remoteCandidateViolations(String body, String fallback) {
         try {
             var error = mapper.readTree(body == null ? "" : body);
             var violations = error.path("violations");
             if (violations.isArray()) {
-                List<String> parsed = new java.util.ArrayList<>();
+                List<AdventureStoryPlanProjectionViolation> parsed = new java.util.ArrayList<>();
                 violations.forEach(item -> {
-                    if (item.isTextual() && !item.asText().isBlank()) parsed.add(item.asText().trim());
+                    if (item.isObject()) {
+                        try { parsed.add(mapper.treeToValue(item, AdventureStoryPlanProjectionViolation.class)); }
+                        catch (RuntimeException | IOException ignored) { }
+                    } else if (item.isTextual() && !item.asText().isBlank()) {
+                        parsed.add(AdventureStoryPlanCandidateValidationException.legacyViolation(item.asText()));
+                    }
                 });
                 if (!parsed.isEmpty()) return List.copyOf(parsed);
             }
             String detail = error.path("detail").asText("").trim();
-            if (!detail.isBlank()) return List.of(detail);
+            if (!detail.isBlank()) return List.of(AdventureStoryPlanCandidateValidationException.legacyViolation(detail));
             String message = error.path("message").asText("").trim();
-            return List.of(message.isBlank() ? fallback : message);
+            return List.of(AdventureStoryPlanCandidateValidationException.legacyViolation(message.isBlank() ? fallback : message));
         } catch (RuntimeException | IOException ignored) {
-            return List.of(fallback);
+            return List.of(AdventureStoryPlanCandidateValidationException.legacyViolation(fallback));
+        }
+    }
+
+    private String remoteRejectedCandidate(String body) {
+        try {
+            JsonNode candidate = mapper.readTree(body == null ? "" : body).get("rejectedCandidate");
+            return candidate == null || candidate.isNull() ? "" : candidate.isTextual() ? candidate.asText() : candidate.toString();
+        } catch (RuntimeException | IOException ignored) {
+            return "";
+        }
+    }
+
+    private String candidateJson(String responseBody) {
+        try {
+            return mapper.readTree(responseBody == null ? "" : responseBody).toString();
+        } catch (IOException failure) {
+            throw new IllegalArgumentException("AI returned a non-JSON story plan candidate");
         }
     }
 
@@ -211,26 +276,22 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                 && source.quote().equals(item.quote())
                 && item.confidence() >= 0 && item.confidence() <= source.confidence());
     }
-
-    private static Stage canonicalizeEvidence(Stage stage, List<AdventureStoryPlanGenerationPort.SourceCitation> citations) {
-        if (stage.evidence().isEmpty() || citations.isEmpty()) return stage;
-        List<SourceCitation> canonical = stage.evidence().stream().map(item -> citations.stream()
-                .filter(source -> sameCitationIdentity(item, source))
-                .findFirst()
-                .map(source -> new SourceCitation(source.documentType(), source.documentId().toString(),
-                        source.extractionVersion(), source.locator(), source.quote(),
-                        Math.min(item.confidence(), source.confidence())))
-                .orElse(item)).toList();
-        return stage.withEvidence(canonical);
+    private static List<AdventureStoryPlanGenerationPort.SourceCitation> resolveCitationKeys(
+            List<CitationProjection> projections,
+            List<AdventureStoryPlanGenerationPort.SourceCitation> citations) {
+        return projections.stream().map(projection -> {
+            if (projection == null || projection.citationKey() == null || projection.citationKey().isBlank()) {
+                throw new IllegalStateException("AI returned an empty citation key");
+            }
+            return citations.stream().filter(source -> projection.citationKey().equals(source.citationKey())).findFirst()
+                    .orElseThrow(() -> new IllegalStateException(
+                            "AI returned an unknown citation key: " + projection.citationKey()));
+        }).toList();
     }
 
-    private static boolean sameCitationIdentity(SourceCitation item, AdventureStoryPlanGenerationPort.SourceCitation source) {
-        return source.documentType().equals(item.documentType())
-                && source.documentId().toString().equals(item.documentId())
-                && source.extractionVersion() == item.extractionVersion()
-                && source.locator().equals(item.locator());
-    }
-    private static AdventureStoryPlanStage toDomain(Stage stage, Map<UUID, AdventureStoryPlanGenerationPort.MapContext> maps) {
+    private static AdventureStoryPlanStage toDomain(Stage stage,
+            List<AdventureStoryPlanGenerationPort.SourceCitation> canonicalEvidence,
+            Map<UUID, AdventureStoryPlanGenerationPort.MapContext> maps) {
         UUID mapId = parseMapDefinitionId(stage.mapDefinitionId());
         if (mapId == null && (!stage.mapAssetId().isBlank() || !stage.mapAssetLocator().isBlank())) throw new IllegalStateException("map asset requires a map definition");
         AdventureStoryPlanGenerationPort.MapContext map = mapId == null ? null : maps.get(mapId);
@@ -239,19 +300,61 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                 || (!stage.mapAssetLocator().isBlank() && !stage.mapAssetLocator().equals(map.assetLocator())))) {
             throw new IllegalStateException("AI returned map metadata that does not match the source map");
         }
-        var evidence = stage.evidence().stream().map(item -> new com.dndmaster.adventure.domain.adventure.AdventurePlanEvidence(item.documentType(), UUID.fromString(item.documentId()), item.extractionVersion(), item.locator(), item.quote(), item.confidence())).toList();
+        var evidence = canonicalEvidence.stream().map(item -> new com.dndmaster.adventure.domain.adventure.AdventurePlanEvidence(
+                item.documentType(), item.documentId(), item.extractionVersion(), item.locator(),
+                item.quote(), item.confidence(), item.provenance(), item.citationKey())).toList();
         var grounding = evidence.isEmpty() ? com.dndmaster.adventure.domain.adventure.AdventureGroundingStatus.AI_SUGGESTION : com.dndmaster.adventure.domain.adventure.AdventureGroundingStatus.GROUNDED;
         var suggestions = evidence.isEmpty() ? List.of("location", "enemies", "boss", "rewards", "conditions") : List.<String>of();
         List<com.dndmaster.adventure.domain.scenario.StoryMapBinding> bindings = mapId == null ? List.of()
                 : List.of(new com.dndmaster.adventure.domain.scenario.StoryMapBinding(
                         Integer.toString(stage.position()), stage.location(), stage.transitionCondition(), mapId));
         var spawn = inferPlayerSpawn(stage, map);
-        return new AdventureStoryPlanStage(stage.position(), stage.title(), stage.goal(), stage.conflict(), stage.transitionCondition(), stage.npcOrClues(), stage.endingIds(), bindings,
+        AdventureStoryPlanStage domainStage = new AdventureStoryPlanStage(stage.position(), stage.title(), stage.goal(), stage.conflict(), stage.transitionCondition(), stage.npcOrClues(), stage.endingIds(), bindings,
                 parseStageType(stage.stageType()),
                 stage.location(), mapId, map == null ? stage.mapAssetId() : map.assetId(), map == null ? stage.mapAssetLocator() : map.assetLocator(),
                 stage.enemies(), stage.boss(), stage.clearCondition(), stage.failureCondition(), stage.rewards(), stage.branchIds(), evidence, grounding, suggestions,
                 map == null ? "UNAVAILABLE" : map.safetyStatus(), map == null ? null : map.confidence(), stage.branchTargets(),
                 spawn.x(), spawn.y(), spawn.confidence(), spawn.rationale());
+        return domainStage.withCombat(parseCombatRequirement(stage.combatRequirement(), stage),
+                parseCombatSkeleton(stage.combatSkeleton()), stage.sourceFactClaims().stream()
+                        .map(CrossContextHttpAdventureStoryPlanGenerationGateway::toDomain).toList(),
+                parseTacticalPreparationRequirement(stage.tacticalPreparationRequirement(), mapId))
+                .withSchemaVersion(stage.schemaVersion());
+    }
+    private static CombatRequirement parseCombatRequirement(String value, Stage stage) {
+        if (value == null || value.isBlank()) {
+            return hasCombatSkeleton(stage.combatSkeleton()) || !stage.enemies().isEmpty() || !stage.boss().isBlank()
+                    ? CombatRequirement.REQUIRED : CombatRequirement.NONE;
+        }
+        return CombatRequirement.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
+    }
+    private static boolean hasCombatSkeleton(CombatSkeletonProjection projection) {
+        return projection != null && ((!projection.objective().isBlank() && !projection.startTrigger().isBlank())
+                || !projection.participants().isEmpty() || !projection.rewards().isEmpty()
+                || !projection.successOutcome().isBlank() || !projection.failureOutcome().isBlank());
+    }
+    private static TacticalPreparationRequirement parseTacticalPreparationRequirement(String value, UUID mapId) {
+        if (value == null || value.isBlank()) return TacticalPreparationRequirement.NOT_REQUIRED;
+        return TacticalPreparationRequirement.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
+    }
+    private static CombatSkeleton parseCombatSkeleton(CombatSkeletonProjection projection) {
+        if (projection == null) return CombatSkeleton.empty();
+        return new CombatSkeleton(projection.objective(), projection.startTrigger(), projection.participants().stream()
+                .map(CrossContextHttpAdventureStoryPlanGenerationGateway::toDomain).toList(),
+                projection.successOutcome(), projection.failureOutcome(), projection.rewards().stream()
+                        .map(CrossContextHttpAdventureStoryPlanGenerationGateway::toDomain).toList());
+    }
+    private static CombatParticipant toDomain(CombatParticipantProjection projection) {
+        CombatParticipant.Role role = projection.role() == null || projection.role().isBlank()
+                ? CombatParticipant.Role.ENEMY
+                : CombatParticipant.Role.valueOf(projection.role().trim().toUpperCase(java.util.Locale.ROOT));
+        int minimum = projection.minimumCount() <= 0 ? 1 : projection.minimumCount();
+        int maximum = projection.maximumCount() <= 0 ? minimum : projection.maximumCount();
+        return new CombatParticipant(projection.participantId(), role, projection.name(), minimum, maximum,
+                projection.citationKeys());
+    }
+    private static SourceFactClaim toDomain(SourceFactClaimProjection projection) {
+        return new SourceFactClaim(projection.fieldPath(), projection.normalizedClaim(), projection.citationKeys());
     }
     static UUID parseMapDefinitionId(String value) {
         if (value == null || value.isBlank()) return null;
@@ -287,14 +390,30 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
     }
     private record Spawn(int x, int y, String confidence, String rationale) {}
     @JsonIgnoreProperties(ignoreUnknown = true) record Response(List<Stage> stages) {}
+    private record RepairWireRequest(String operationId, long packageRevision, int partySize,
+            AdventurePlanConfiguration configuration, JsonNode previousCandidate,
+            List<AdventureStoryPlanProjectionViolation> violations, List<String> sourceDocuments,
+            com.dndmaster.adventure.application.storyplan.RepairScope repairScope,
+            List<String> resolutionEvidence, List<AdventureStoryPlanGenerationPort.MapContext> maps,
+            List<AdventureStoryPlanGenerationPort.SourceCitation> citations) {
+        public RepairWireRequest {
+            violations = List.copyOf(violations);
+            sourceDocuments = List.copyOf(sourceDocuments);
+            resolutionEvidence = List.copyOf(resolutionEvidence);
+            maps = List.copyOf(maps);
+            citations = List.copyOf(citations);
+        }
+    }
     @JsonIgnoreProperties(ignoreUnknown = true) record TacticalResponse(int stagePosition, TacticalScenePlan scene, List<SourceCitation> citations) {
         TacticalResponse { citations = List.copyOf(Objects.requireNonNull(citations, "tactical citations must be explicit")); }
     }
     @JsonIgnoreProperties(ignoreUnknown = true) record Stage(int position, String title, String goal, String conflict, String transitionCondition,
             List<String> npcOrClues, List<String> endingIds, String stageType, String location, String mapDefinitionId,
             String mapAssetId, String mapAssetLocator, List<String> enemies, String boss, String clearCondition, String failureCondition, List<String> rewards,
-            List<String> branchIds, java.util.Map<String, String> branchTargets, List<SourceCitation> evidence,
-            Integer playerSpawnX, Integer playerSpawnY, String playerSpawnConfidence, String playerSpawnRationale) {
+            List<String> branchIds, java.util.Map<String, String> branchTargets, List<CitationProjection> evidence,
+            Integer playerSpawnX, Integer playerSpawnY, String playerSpawnConfidence, String playerSpawnRationale,
+            String combatRequirement, CombatSkeletonProjection combatSkeleton,
+            List<SourceFactClaimProjection> sourceFactClaims, String tacticalPreparationRequirement, Integer schemaVersion) {
         Stage {
             npcOrClues = List.copyOf(Objects.requireNonNull(npcOrClues, "npcOrClues must be explicit"));
             endingIds = List.copyOf(Objects.requireNonNull(endingIds, "endingIds must be explicit"));
@@ -303,15 +422,53 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             branchIds = List.copyOf(Objects.requireNonNull(branchIds, "branchIds must be explicit"));
             branchTargets = java.util.Map.copyOf(Objects.requireNonNull(branchTargets, "branchTargets must be explicit"));
             evidence = List.copyOf(Objects.requireNonNull(evidence, "evidence must be explicit"));
+            sourceFactClaims = sourceFactClaims == null ? List.of() : List.copyOf(sourceFactClaims);
             mapDefinitionId = mapDefinitionId == null ? "" : mapDefinitionId;
             mapAssetId = mapAssetId == null ? "" : mapAssetId;
             mapAssetLocator = mapAssetLocator == null ? "" : mapAssetLocator;
-        }
-        Stage withEvidence(List<SourceCitation> nextEvidence) {
-            return new Stage(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, stageType, location,
-                    mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition, rewards,
-                    branchIds, branchTargets, nextEvidence, playerSpawnX, playerSpawnY, playerSpawnConfidence, playerSpawnRationale);
+            boss = boss == null ? "" : boss;
+            schemaVersion = schemaVersion == null || schemaVersion <= 0 ? 1 : schemaVersion;
         }
     }
-    @JsonIgnoreProperties(ignoreUnknown = true) record SourceCitation(String documentType, String documentId, long extractionVersion, String locator, String quote, double confidence) {}
+    @JsonIgnoreProperties(ignoreUnknown = true) record CombatSkeletonProjection(String objective, String startTrigger,
+            List<CombatParticipantProjection> participants, String successOutcome, String failureOutcome,
+            List<SourceFactClaimProjection> rewards) {
+        CombatSkeletonProjection {
+            objective = objective == null ? "" : objective;
+            startTrigger = startTrigger == null ? "" : startTrigger;
+            successOutcome = successOutcome == null ? "" : successOutcome;
+            failureOutcome = failureOutcome == null ? "" : failureOutcome;
+            participants = participants == null ? List.of() : List.copyOf(participants);
+            rewards = rewards == null ? List.of() : List.copyOf(rewards);
+        }
+    }
+    @JsonIgnoreProperties(ignoreUnknown = true) record CombatParticipantProjection(String participantId, String role,
+            String name, int minimumCount, int maximumCount, List<String> citationKeys) {
+        CombatParticipantProjection {
+            citationKeys = citationKeys == null ? List.of() : List.copyOf(citationKeys);
+        }
+    }
+    @JsonIgnoreProperties(ignoreUnknown = true) record SourceFactClaimProjection(String fieldPath, String normalizedClaim,
+            List<String> citationKeys) {
+        SourceFactClaimProjection {
+            citationKeys = citationKeys == null ? List.of() : List.copyOf(citationKeys);
+        }
+    }
+    @JsonIgnoreProperties(ignoreUnknown = true) record CitationProjection(String citationKey) {}
+    @JsonIgnoreProperties(ignoreUnknown = true) record SourceCitation(String documentType, String documentId,
+            long extractionVersion, String locator, String quote, double confidence,
+            com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance provenance) {
+        SourceCitation(String documentType, String documentId, long extractionVersion, String locator,
+                String quote, double confidence) {
+            this(documentType, documentId, extractionVersion, locator, quote, confidence, null);
+        }
+
+        public SourceCitation {
+            if (provenance == null && documentId != null && locator != null) {
+                provenance = new com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance(
+                        new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(UUID.fromString(documentId)),
+                        extractionVersion, 1, List.of(), List.of(), null, locator);
+            }
+        }
+    }
 }

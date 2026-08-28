@@ -4,6 +4,8 @@ import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.CodexCliStoryPlanAdapter;
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint;
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointRegistry;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -160,8 +162,8 @@ public final class AdventureStoryPlanController {
             generatedMarkdown = normalizeResolutionValues(generatedMarkdown, request.citations());
             VerificationResponse verification = parseVerificationResponse(complete(endpoint, request.operationId() + "-verification",
                     verificationDecisionPrompt(request, configuration, generatedMarkdown), configuration));
-            LOGGER.warn("ai_agent_verification_result operationId={} status={} violations={}", request.operationId(),
-                    verification.status(), safeViolations(verification.violations()));
+            LOGGER.warn("ai_agent_verification_result operationId={} status={} violationsCount={}", request.operationId(),
+                    verification.status(), verification.violations().size());
             if (verification.status().equals("FAIL")) {
                 throw new CandidateResponseValidationException(verification.violations(), null);
             }
@@ -169,7 +171,7 @@ public final class AdventureStoryPlanController {
                     projectionPrompt(request, configuration, generatedMarkdown), configuration);
             return new Response(parseJson(projectedJson, configuration));
         } catch (CandidateResponseValidationException invalidCandidate) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, invalidCandidate.getMessage(), invalidCandidate);
+            throw invalidCandidate;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("story plan generation interrupted via " + endpoint.provider(), e);
@@ -181,7 +183,37 @@ public final class AdventureStoryPlanController {
     @ExceptionHandler(CandidateResponseValidationException.class)
     ResponseEntity<CandidateValidationError> candidateValidation(CandidateResponseValidationException failure) {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY)
-                .body(new CandidateValidationError(failure.violations()));
+                .body(new CandidateValidationError(failure.violations(), failure.structuredViolations(), failure.rejectedCandidate()));
+    }
+
+    @PostMapping("/internal/v1/gm/adventure-story-plan/repair")
+    Response repair(@RequestHeader(value = "X-Internal-Token", required = false) String internalToken,
+            @RequestBody RepairRequest request) {
+        requestGuard.internal(internalToken);
+        if (request.previousCandidate() == null || request.previousCandidate().isNull()
+                || !request.previousCandidate().isObject()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "previous full projection candidate is required");
+        }
+        if (request.violations().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "structured projection violations are required");
+        }
+        if (request.repairScope() == null || request.repairScope().allowedPaths().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "deterministic repair scope is required");
+        }
+        AgentEndpoint endpoint = endpointRegistry.active();
+        Configuration configuration = request.configuration() == null ? Configuration.defaults() : request.configuration();
+        try {
+            String repaired = complete(endpoint, request.operationId() + "-projection-repair",
+                    repairPrompt(request, configuration), configuration);
+            return new Response(parseJson(repaired, configuration));
+        } catch (CandidateResponseValidationException invalidCandidate) {
+            throw invalidCandidate;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("story plan projection repair interrupted", e);
+        } catch (Exception e) {
+            throw new IllegalStateException("story plan projection repair failed: " + rootMessage(e), e);
+        }
     }
 
     private String complete(AgentEndpoint endpoint, String operationId, String prompt, Configuration configuration) throws IOException, InterruptedException {
@@ -207,6 +239,7 @@ public final class AdventureStoryPlanController {
     }
 
     private static String phase(String operationId) {
+        if (operationId.endsWith("-projection-repair")) return "story-plan-projection-repair";
         if (operationId.endsWith("-verification")) return "story-plan-verification";
         if (operationId.endsWith("-execution-projection")) return "story-plan-execution-projection";
         return "story-plan-generation";
@@ -242,12 +275,14 @@ public final class AdventureStoryPlanController {
         return """
                 You are the execution projection agent. Read the verified Markdown plan and convert it into the smallest usable execution outline.
                 Return ONLY JSON with a stages array. Do not rewrite the narrative or invent facts.
-                Each stage MUST include these required fields: position (integer), title, goal, conflict, transitionCondition, endingIds (a non-empty array of strings), and evidence (a non-empty array when supplied citations are available).
+                Each stage MUST include these required fields: position (integer), title, goal, conflict, transitionCondition, endingIds (a non-empty array of strings), evidence (a non-empty array when supplied citations are available), schemaVersion (2), combatRequirement (NONE, POSSIBLE, or REQUIRED), combatSkeleton, sourceFactClaims, and tacticalPreparationRequirement (NOT_REQUIRED or REQUIRED).
                 The root object MUST contain stages (an array). Optional fields may be omitted, and additional properties are allowed and ignored.
-                JSON shape constraint: {"type":"object","required":["stages"],"properties":{"stages":{"type":"array","items":{"type":"object","required":["position","title","goal","conflict","transitionCondition","endingIds","evidence"],"properties":{"position":{"type":"integer"},"title":{"type":"string"},"goal":{"type":"string"},"conflict":{"type":"string"},"transitionCondition":{"type":"string"},"endingIds":{"type":"array","items":{"type":"string"},"minItems":1},"evidence":{"type":"array","items":{"type":"object","required":["documentType","documentId","extractionVersion","locator","quote","confidence"]},"minItems":1}},"additionalProperties":true}}},"additionalProperties":true}
+                JSON shape constraint: {"type":"object","required":["stages"],"properties":{"stages":{"type":"array","items":{"type":"object","required":["position","title","goal","conflict","transitionCondition","endingIds","evidence","schemaVersion","combatRequirement","combatSkeleton","sourceFactClaims","tacticalPreparationRequirement"],"properties":{"position":{"type":"integer"},"title":{"type":"string"},"goal":{"type":"string"},"conflict":{"type":"string"},"transitionCondition":{"type":"string"},"endingIds":{"type":"array","items":{"type":"string"},"minItems":1},"evidence":{"type":"array","items":{"type":"object","required":["citationKey"]},"minItems":1},"schemaVersion":{"type":"integer","const":2},"combatRequirement":{"type":"string","enum":["NONE","POSSIBLE","REQUIRED"]},"combatSkeleton":{"type":"object"},"sourceFactClaims":{"type":"array"},"tacticalPreparationRequirement":{"type":"string","enum":["NOT_REQUIRED","REQUIRED"]}},"additionalProperties":true}}},"additionalProperties":true}
                 The plan configuration requires exactly %s distinct ending IDs. Preserve the explicit ending-1 through ending-%s IDs from the plan; do not omit, merge, rename, or invent ending IDs.
                 Include stageType, location, and mapUsage (REQUIRED, OPTIONAL, or NONE) when present. Include mapDefinitionId, mapAssetId, and mapAssetLocator only when mapUsage is REQUIRED; copy all three from the same AVAILABLE MAPS entry. OPTIONAL and NONE may omit them.
-                Optional fields may be omitted or empty: npcOrClues, enemies, boss, clearCondition, failureCondition, rewards, branchIds, branchTargets, and player spawn fields. When citations are supplied, evidence is REQUIRED for every stage: copy at least one exact citation object and quote from the supplied citations. When both STORYBOOK and RULEBOOK citations are supplied, the complete plan MUST include at least one exact citation of each type across its stages. A trigger is represented only by a short reference or lookup key; never copy the full trigger or rule text.
+                Set combatRequirement to REQUIRED only when the stage has a concrete combat skeleton with at least one sourced participant; use POSSIBLE for a source-supported possibility that is not committed, and NONE for a non-combat stage. For every stage, emit combatSkeleton with objective, startTrigger, participants, successOutcome, failureOutcome, and rewards arrays (empty strings for scalar fields and empty arrays for NONE or POSSIBLE). Every participant must include participantId, role (ENEMY or BOSS), name, minimumCount, maximumCount, and citationKeys. Use sourceFactClaims with exact fieldPath values such as combatSkeleton.participants[0].name or combatSkeleton.rewards[0]. Every sourceFactClaims item MUST be an object with non-empty fieldPath, normalizedClaim, and citationKeys; normalizedClaim is the exact short claim supported by the cited excerpt, never omit it. combatSkeleton.rewards MUST be an array of the same claim objects (fieldPath, normalizedClaim, citationKeys), never an array of strings. Bind every claim to exact citation keys. Set tacticalPreparationRequirement to REQUIRED only when a REQUIRED combat stage is mapped to an available map; otherwise use NOT_REQUIRED.
+                Use only citationKey values copied verbatim from the supplied citation registry; never invent numeric, document-derived, or stage-local citation keys. Do not create sourceFactClaims for goal, conflict, transitionCondition, clearCondition, or any other narrative field: sourceFactClaims are exclusively combat skeleton claims. A combat participant name must match the cited excerpt exactly enough to be supported, and its citationKeys must point to that same registered excerpt. Keep combatRequirement consistent with the stage: NONE has no combat hints, POSSIBLE has no committed participant, and REQUIRED has a complete sourced skeleton. If a combat claim cannot be grounded by an exact supplied citation, omit the combat commitment or regenerate the complete projection rather than guessing.
+                Optional fields may be omitted or empty: npcOrClues, enemies, boss, clearCondition, failureCondition, rewards, branchIds, branchTargets, and player spawn fields. When citations are supplied, evidence is REQUIRED for every stage: copy at least one exact citationKey from the supplied citation registry. Do not copy document IDs, extraction versions, locators, quotes, or confidence into evidence. When both STORYBOOK and RULEBOOK citations are supplied, the complete plan MUST include at least one exact citationKey for each type across its stages. A trigger is represented only by a short reference or lookup key; never copy the full trigger or rule text.
                 Arrays may be empty arrays and branchTargets may be an empty object. Never invent a map, trigger, citation, enemy, reward, or ending. Use the ending IDs stated in the plan, or a stable structural ending ID when necessary.
                 If the plan is invalid, return the best faithful projection so the application can report the violation.
                 configuration=%s
@@ -260,6 +295,26 @@ public final class AdventureStoryPlanController {
                 GENERATED MARKDOWN:
                 %s
                 """.formatted(configuration.endingCount(), configuration.endingCount(), configuration, request.sourceDocuments(), request.resolutionEvidence(), request.maps(), request.citations(), request.violations(), generatedMarkdown);
+    }
+
+    private String repairPrompt(RepairRequest request, Configuration configuration) {
+        return """
+                You are repairing one rejected execution projection. Return the COMPLETE projection JSON object, never a patch.
+                Preserve every field exactly unless its JSON path is listed in STRUCTURED VIOLATIONS. Do not add, remove, rename, or
+                mutate any unlisted field. Use only the authoritative citation, map, and source registries supplied below; never invent,
+                fuzzy-match, or copy a quote, locator, document ID, map ID, or source that is not registered. The server will rerun the
+                complete schema, citation/map/source, and business-rule validation chain after this response.
+                The response root MUST be an object with a stages array and must contain the full candidate, not a JSON patch.
+                configuration=%s
+                structuredViolations=%s
+                deterministicRepairScope=%s
+                authoritativeSourceDocuments=%s
+                authoritativeResolutionEvidence=%s
+                authoritativeMaps=%s
+                authoritativeCitations=%s
+                previousFullCandidate=%s
+                """.formatted(configuration, request.violations(), request.repairScope(), request.sourceDocuments(), request.resolutionEvidence(),
+                request.maps(), request.citations(), request.previousCandidate());
     }
 
     private String verificationDecisionPrompt(Request request, Configuration configuration, String generatedMarkdown) {
@@ -321,7 +376,7 @@ public final class AdventureStoryPlanController {
             String response = complete(endpoint, request.operationId(), prompt, configuration);
             return parseVerificationResponse(response);
         } catch (CandidateResponseValidationException invalidCandidate) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, invalidCandidate.getMessage(), invalidCandidate);
+            throw invalidCandidate;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("adventure story plan verification interrupted", e);
@@ -350,11 +405,10 @@ public final class AdventureStoryPlanController {
         }
     }
 
-    private static List<String> safeViolations(List<String> violations) {
-        return violations.stream().map(item -> {
-            String normalized = item.replaceAll("\\s+", " ").trim();
-            return normalized.length() > 500 ? normalized.substring(0, 500) + "..." : normalized;
-        }).toList();
+    private static String sanitizeDiagnostic(String value) {
+        if (value == null) return "candidate validation failed";
+        String normalized = value.replaceAll("[\\r\\n\\t]+", " ").replaceAll(" +", " ").trim();
+        return normalized.length() <= 256 ? normalized : normalized.substring(0, 256) + "...";
     }
 
     /** Produces one typed, source-grounded tactical scene candidate for a mapped story-plan stage. */
@@ -391,7 +445,7 @@ public final class AdventureStoryPlanController {
                 return adapter.completeWithModel(operationId, prompt, this::parseTacticalCandidate, endpoint.model());
             }
         } catch (CandidateResponseValidationException invalidCandidate) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_ENTITY, invalidCandidate.getMessage(), invalidCandidate);
+            throw invalidCandidate;
         } catch (Exception e) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI tactical scene response malformed", e);
         }
@@ -427,7 +481,9 @@ public final class AdventureStoryPlanController {
                 List<String> endings = strings(n.get("endingIds"), "endingIds");
                 if (endings.isEmpty()) throw new IllegalArgumentException("endingIds must be explicit");
                 result.add(new Stage(position.intValue(), required(n,"title"), text(n, "stageType", "EVENT"), text(n, "location", required(n, "title")), required(n,"goal"), required(n,"conflict"), required(n,"transitionCondition"), optionalStrings(n.get("npcOrClues")), endings,
-                        text(n, "mapDefinitionId", ""), text(n, "mapAssetId", ""), text(n, "mapAssetLocator", ""), optionalStrings(n.get("enemies")), text(n, "boss", ""), text(n, "clearCondition", required(n, "transitionCondition")), text(n, "failureCondition", ""), optionalStrings(n.get("rewards")), optionalStrings(n.get("branchIds")), optionalMaps(n.get("branchTargets")), optionalCitations(n.get("evidence"))));
+                        text(n, "mapDefinitionId", ""), text(n, "mapAssetId", ""), text(n, "mapAssetLocator", ""), optionalStrings(n.get("enemies")), text(n, "boss", ""), text(n, "clearCondition", required(n, "transitionCondition")), text(n, "failureCondition", ""), optionalStrings(n.get("rewards")), optionalStrings(n.get("branchIds")), optionalMaps(n.get("branchTargets")), optionalCitations(n.get("evidence")),
+                        text(n, "combatRequirement", "NONE"), parseCombatSkeleton(n.get("combatSkeleton")), parseSourceFactClaims(n.get("sourceFactClaims")),
+                        text(n, "tacticalPreparationRequirement", "NOT_REQUIRED"), n.path("schemaVersion").asInt(1)));
             }
             if (result.size() < configuration.minimumStages() || result.size() > configuration.maximumStages()) throw new IllegalArgumentException("invalid stage count");
             if (result.stream().flatMap(s -> s.endingIds().stream()).distinct().count() != configuration.endingCount()) throw new IllegalArgumentException("invalid ending count");
@@ -435,7 +491,10 @@ public final class AdventureStoryPlanController {
         } catch (CandidateResponseValidationException invalidCandidate) {
             throw invalidCandidate;
         } catch (Exception e) {
-            throw new CandidateResponseValidationException(rootMessage(e), e);
+            JsonNode rejected = null;
+            try { rejected = mapper.readTree(extractObject(text)); }
+            catch (Exception ignored) { }
+            throw new CandidateResponseValidationException(List.of(rootMessage(e)), e, rejected);
         }
     }
     private static String extractObject(String text) { int a = text.indexOf('{'), b = text.lastIndexOf('}'); if (a < 0 || b < a) throw new IllegalArgumentException("JSON object missing"); return text.substring(a,b+1); }
@@ -456,8 +515,34 @@ public final class AdventureStoryPlanController {
     private static Map<String, String> optionalMaps(JsonNode n) {
         return n == null || n.isNull() ? Map.of() : maps(n, "branchTargets");
     }
-    private static List<SourceCitation> optionalCitations(JsonNode n) {
+    private static List<CitationProjection> optionalCitations(JsonNode n) {
         return n == null || n.isNull() ? List.of() : citations(n, "evidence");
+    }
+    private static CombatSkeletonProjection parseCombatSkeleton(JsonNode node) {
+        if (node == null || node.isNull()) return new CombatSkeletonProjection("", "", List.of(), "", "", List.of());
+        List<CombatParticipantProjection> participants = optionalObjects(node.get("participants"), item ->
+                new CombatParticipantProjection(text(item, "participantId", "participant-" + item.path("name").asText("unknown")),
+                        text(item, "role", "ENEMY"), required(item, "name"), item.path("minimumCount").asInt(1),
+                        item.path("maximumCount").asInt(item.path("minimumCount").asInt(1)), stringsOrEmpty(item.get("citationKeys"))));
+        List<SourceFactClaimProjection> rewards = optionalObjects(node.get("rewards"), AdventureStoryPlanController::sourceFactClaim);
+        return new CombatSkeletonProjection(text(node, "objective", ""), text(node, "startTrigger", ""), participants,
+                text(node, "successOutcome", ""), text(node, "failureOutcome", ""), rewards);
+    }
+    private static SourceFactClaimProjection sourceFactClaim(JsonNode node) {
+        return new SourceFactClaimProjection(required(node, "fieldPath"), required(node, "normalizedClaim"), stringsOrEmpty(node.get("citationKeys")));
+    }
+    private static List<SourceFactClaimProjection> parseSourceFactClaims(JsonNode node) {
+        return optionalObjects(node, AdventureStoryPlanController::sourceFactClaim);
+    }
+    private static List<String> stringsOrEmpty(JsonNode node) {
+        return node == null || node.isNull() ? List.of() : strings(node, "citationKeys");
+    }
+    private static <T> List<T> optionalObjects(JsonNode node, java.util.function.Function<JsonNode, T> mapper) {
+        if (node == null || node.isNull()) return List.of();
+        if (!node.isArray()) throw new IllegalArgumentException("optional collection must be an array");
+        List<T> result = new ArrayList<>();
+        node.forEach(item -> { if (!item.isObject()) throw new IllegalArgumentException("collection item must be an object"); result.add(mapper.apply(item)); });
+        return List.copyOf(result);
     }
     private static String text(JsonNode node, String key, String fallback) { String value = node.path(key).asText("").trim(); return value.isBlank() ? fallback : value; }
     private static Map<String, String> maps(JsonNode node, String field) {
@@ -466,29 +551,62 @@ public final class AdventureStoryPlanController {
         node.fields().forEachRemaining(entry -> result.put(entry.getKey(), entry.getValue().asText()));
         return Map.copyOf(result);
     }
-    private static List<SourceCitation> citations(JsonNode node, String field) {
+    private static List<CitationProjection> citations(JsonNode node, String field) {
         if (node == null || !node.isArray()) throw new IllegalArgumentException(field + " must be explicit");
-        List<SourceCitation> result = new ArrayList<>();
+        List<CitationProjection> result = new ArrayList<>();
         node.forEach(item -> {
-            String documentType = text(item, "documentType", ""); String documentId = text(item, "documentId", "");
-            String locator = text(item, "locator", ""); String quote = text(item, "quote", "");
-            if (!documentType.isBlank() && !documentId.isBlank() && !locator.isBlank() && !quote.isBlank()) {
-                result.add(new SourceCitation(documentType, documentId, item.path("extractionVersion").asLong(1), locator, quote, item.path("confidence").asDouble(.5)));
-            }
+            result.add(new CitationProjection(required(item, "citationKey")));
         });
         return List.copyOf(result);
     }
     static final class CandidateResponseValidationException extends RuntimeException {
         private final List<String> violations;
+        private final List<ProjectionViolation> structuredViolations;
+        private final JsonNode rejectedCandidate;
         CandidateResponseValidationException(String message, Throwable cause) {
             this(List.of(message), cause);
         }
-        CandidateResponseValidationException(List<String> violations, Throwable cause) {
-            super(String.join("; ", violations), cause);
+        CandidateResponseValidationException(List<?> violations, Throwable cause) {
+            this(violations, cause, null);
+        }
+        CandidateResponseValidationException(List<?> violations, Throwable cause, JsonNode rejectedCandidate) {
+            super(violations == null ? "candidate validation failed" : violations.stream()
+                    .map(item -> item instanceof ProjectionViolation violation ? violation.sanitizedMessage()
+                            : sanitizeDiagnostic(String.valueOf(item)))
+                    .reduce((left, right) -> sanitizeDiagnostic(left + "; " + right))
+                    .orElse("candidate validation failed"), cause);
             if (violations == null || violations.isEmpty()) throw new IllegalArgumentException("candidate violations must not be empty");
-            this.violations = List.copyOf(violations);
+            this.structuredViolations = violations.stream().map(CandidateResponseValidationException::toProjectionViolation).toList();
+            this.violations = this.structuredViolations.stream().map(ProjectionViolation::sanitizedMessage).toList();
+            this.rejectedCandidate = rejectedCandidate;
         }
         List<String> violations() { return violations; }
+        List<ProjectionViolation> structuredViolations() { return structuredViolations; }
+        JsonNode rejectedCandidate() { return rejectedCandidate; }
+
+        private static ProjectionViolation toProjectionViolation(Object value) {
+            if (value instanceof ProjectionViolation violation) return violation;
+            String message = String.valueOf(value).trim();
+            String normalized = message.toLowerCase(java.util.Locale.ROOT);
+            java.util.regex.Matcher stageMatcher = java.util.regex.Pattern.compile("(?i)stage\\s+(\\d+)").matcher(message);
+            Integer stagePosition = stageMatcher.find() ? Integer.valueOf(stageMatcher.group(1)) : null;
+            String field = normalized.contains("transitioncondition") ? "stages[*].transitionCondition"
+                    : normalized.contains("clearcondition") ? "stages[*].clearCondition"
+                    : normalized.contains("failurecondition") ? "stages[*].failureCondition"
+                    : normalized.contains("citation") ? "stages[*].evidence[*].citationKey" : "stages";
+            if (stagePosition != null && field.startsWith("stages[*].")) {
+                field = field.replace("stages[*]", "stages[" + (stagePosition - 1) + "]");
+            }
+            String code = normalized.contains("citation") ? "CITATION_CONTRACT_VIOLATION" : "PROJECTION_FIELD_INVALID";
+            ProjectionViolation.Repairability repairability = normalized.contains("citation")
+                    ? ProjectionViolation.Repairability.SOURCE_EVIDENCE_INSUFFICIENT
+                    : field.equals("stages") ? ProjectionViolation.Repairability.REGENERATE_REQUIRED
+                    : ProjectionViolation.Repairability.REPAIRABLE;
+            String detail = message.contains(":") ? message.substring(message.lastIndexOf(':') + 1).trim() : "";
+            String safeMessage = message.contains(":") ? message.substring(0, message.indexOf(':')).trim() : message;
+            String citationContext = normalized.contains("citation") ? detail : "";
+            return new ProjectionViolation(code, stagePosition, field, detail, citationContext, repairability, safeMessage);
+        }
     }
     public record Request(String operationId, long packageRevision, int partySize, Configuration configuration, List<String> sourceDocuments,
             List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations, List<String> violations,
@@ -520,8 +638,15 @@ public final class AdventureStoryPlanController {
     public record VerificationResponse(String status, List<String> violations) {
         public VerificationResponse { violations = List.copyOf(violations); }
     }
-    public record CandidateValidationError(List<String> violations) {
-        public CandidateValidationError { violations = List.copyOf(violations); }
+    public record CandidateValidationError(List<String> violations, List<ProjectionViolation> structuredViolations,
+            JsonNode rejectedCandidate) {
+        public CandidateValidationError(List<String> violations) {
+            this(violations, violations.stream().map(CandidateResponseValidationException::toProjectionViolation).toList(), null);
+        }
+        public CandidateValidationError {
+            violations = List.copyOf(violations);
+            structuredViolations = List.copyOf(structuredViolations);
+        }
     }
     public record MapContext(String mapDefinitionId, String assetId, String assetLocator, String sourceLocator,
             double confidence, String safetyStatus, List<SourceCitation> relatedEvidence, String context) {
@@ -534,7 +659,58 @@ public final class AdventureStoryPlanController {
             context = context == null ? "" : context;
         }
     }
-    public record SourceCitation(String documentType, String documentId, long extractionVersion, String locator, String quote, double confidence) {}
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record SourceCitation(String documentType, String documentId, long extractionVersion, String locator, String quote,
+            double confidence, @JsonInclude(JsonInclude.Include.NON_EMPTY) String citationKey) {
+        public SourceCitation(String documentType, String documentId, long extractionVersion, String locator,
+                String quote, double confidence) {
+            this(documentType, documentId, extractionVersion, locator, quote, confidence, "");
+        }
+    }
+    public record CitationProjection(String citationKey) {}
+    public record ProjectionViolation(String code, Integer stagePosition, String fieldPath, String rejectedValue,
+            String citationContext, Repairability repairability, String sanitizedMessage) {
+        public enum Repairability { REPAIRABLE, REGENERATE_REQUIRED, SOURCE_EVIDENCE_INSUFFICIENT, SYSTEM_CONTRACT_ERROR }
+        public ProjectionViolation {
+            rejectedValue = sanitizeDiagnostic(rejectedValue == null ? "" : rejectedValue);
+            citationContext = sanitizeDiagnostic(citationContext == null ? "" : citationContext);
+            sanitizedMessage = sanitizeDiagnostic(sanitizedMessage == null ? "projection validation failed" : sanitizedMessage);
+        }
+    }
+    public record RepairRequest(String operationId, long packageRevision, int partySize, Configuration configuration,
+            JsonNode previousCandidate, List<ProjectionViolation> violations, List<String> sourceDocuments,
+            List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations,
+            RepairScope repairScope) {
+        public RepairRequest(String operationId, long packageRevision, int partySize, Configuration configuration,
+                JsonNode previousCandidate, List<ProjectionViolation> violations, List<String> sourceDocuments,
+                List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations) {
+            this(operationId, packageRevision, partySize, configuration, previousCandidate, violations, sourceDocuments,
+                    resolutionEvidence, maps, citations, RepairScope.from(violations));
+        }
+        public RepairRequest {
+            violations = violations == null ? List.of() : List.copyOf(violations);
+            sourceDocuments = sourceDocuments == null ? List.of() : List.copyOf(sourceDocuments);
+            resolutionEvidence = resolutionEvidence == null ? List.of() : List.copyOf(resolutionEvidence);
+            maps = maps == null ? List.of() : List.copyOf(maps);
+            citations = citations == null ? List.of() : List.copyOf(citations);
+            if (repairScope == null) {
+                throw new IllegalArgumentException("deterministic repair scope must be explicit");
+            }
+        }
+    }
+    public record RepairScope(List<String> blockerPaths, List<String> dependentPaths, List<String> allowedPaths,
+            boolean regenerationRequired) {
+        public RepairScope {
+            blockerPaths = blockerPaths == null ? List.of() : List.copyOf(blockerPaths);
+            dependentPaths = dependentPaths == null ? List.of() : List.copyOf(dependentPaths);
+            allowedPaths = allowedPaths == null ? List.of() : List.copyOf(allowedPaths);
+        }
+
+        static RepairScope from(List<ProjectionViolation> violations) {
+            List<String> blockers = violations == null ? List.of() : violations.stream().map(ProjectionViolation::fieldPath).toList();
+            return new RepairScope(blockers, List.of(), blockers, false);
+        }
+    }
     public record Configuration(int endingCount, String adventureLength) {
         public Configuration {
             if (endingCount < 1 || endingCount > 4) throw new IllegalArgumentException("ending count must be between 1 and 4");
@@ -547,5 +723,12 @@ public final class AdventureStoryPlanController {
     public record Response(List<Stage> stages) {}
     public record Stage(int position, String title, String stageType, String location, String goal, String conflict, String transitionCondition,
             List<String> npcOrClues, List<String> endingIds, String mapDefinitionId, String mapAssetId, String mapAssetLocator, List<String> enemies, String boss,
-            String clearCondition, String failureCondition, List<String> rewards, List<String> branchIds, Map<String, String> branchTargets, List<SourceCitation> evidence) {}
+            String clearCondition, String failureCondition, List<String> rewards, List<String> branchIds, Map<String, String> branchTargets, List<CitationProjection> evidence,
+            String combatRequirement, CombatSkeletonProjection combatSkeleton, List<SourceFactClaimProjection> sourceFactClaims,
+            String tacticalPreparationRequirement, int schemaVersion) {}
+    public record CombatSkeletonProjection(String objective, String startTrigger, List<CombatParticipantProjection> participants,
+            String successOutcome, String failureOutcome, List<SourceFactClaimProjection> rewards) {}
+    public record CombatParticipantProjection(String participantId, String role, String name, int minimumCount, int maximumCount,
+            List<String> citationKeys) {}
+    public record SourceFactClaimProjection(String fieldPath, String normalizedClaim, List<String> citationKeys) {}
 }

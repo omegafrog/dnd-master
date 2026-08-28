@@ -2,6 +2,7 @@ package com.dndmaster.adventure.infrastructure.integration;
 
 import com.dndmaster.adventure.application.runtime.EvidencePack;
 import com.dndmaster.adventure.application.runtime.GmAgentPort;
+import com.dndmaster.adventure.application.runtime.GmCitationBinding;
 import com.dndmaster.adventure.application.runtime.GmContextEnvelope;
 import com.dndmaster.adventure.application.runtime.GmPlanResult;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
@@ -43,15 +44,15 @@ public final class HttpGmAgentPort implements GmAgentPort {
     @Override
     public GmPlanResult plan(GmContextEnvelope context, com.dndmaster.adventure.application.runtime.TurnCapability capability) {
         try {
-            String body = mapper.writeValueAsString(Request.from(context, capability));
-            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/agent-turns"))
+            String body = mapper.writeValueAsString(V2Request.from(context, capability));
+            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v2/gm/agent-turns"))
                     .timeout(timeout).header("Content-Type", "application/json")
                     .header("X-Internal-Token", internalToken)
                     .header("Authorization", "Bearer " + context.ownerPlayerId().value())
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() / 100 != 2) throw new IllegalStateException("GM agent returned " + response.statusCode() + ": " + response.body());
-            return Response.toResult(mapper.readValue(response.body(), Response.class));
+            return V2Response.toResult(mapper.readValue(response.body(), V2Response.class));
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("GM agent interrupted", exception);
@@ -79,12 +80,60 @@ public final class HttpGmAgentPort implements GmAgentPort {
         }
     }
 
-    record Evidence(String type, UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt) {
+    record V2Request(String operationKey, UUID adventureId, UUID ownerPlayerId, UUID sessionId, UUID turnId,
+                     UUID scenarioPackageId, long bindingVersion, String turnCapability, String action,
+                     String currentScene, String npcState, String pendingAction, String latestJudgment,
+                     List<Evidence> storybook, List<Evidence> rulebook, List<Evidence> resolution,
+                     List<String> recentTurns, List<String> characterSnapshots, String storyPlanContext,
+                     RequestedSelection requestedSelection) {
+        static V2Request from(GmContextEnvelope c, com.dndmaster.adventure.application.runtime.TurnCapability capability) {
+            var context = c.currentContext();
+            return new V2Request(c.operationKey(), c.adventureId().value(), c.ownerPlayerId().value(), c.sessionId(), c.turnId(),
+                    c.scenarioPackageId(), c.bindingVersion(), capability == null ? null : capability.token(), c.action(),
+                    context.currentScene(), context.npcState(), context.pendingAction(), context.latestJudgment(),
+                    c.evidencePack().storybook().stream().map(Evidence::from).toList(),
+                    c.evidencePack().rulebook().stream().map(Evidence::from).toList(),
+                    c.evidencePack().resolution().stream().map(Evidence::from).toList(), c.recentTurns(),
+                    c.characterSnapshots(), c.storyPlanContext(),
+                    new RequestedSelection(c.requestedSelection().endpointId(), c.requestedSelection().provider(),
+                            c.requestedSelection().model(), c.requestedSelection().reasoning()));
+        }
+    }
+
+    record RequestedSelection(UUID endpointId, String provider, String model, String reasoning) {}
+    record EffectiveSelection(UUID endpointId, java.time.Instant endpointVersion, String provider, String model, String reasoning) {
+        com.dndmaster.adventure.domain.runtime.EffectiveGmProviderSelection toDomain() {
+            return new com.dndmaster.adventure.domain.runtime.EffectiveGmProviderSelection(
+                    endpointId, endpointVersion, provider, model, reasoning);
+        }
+    }
+
+    record V2Response(Response candidate, RequestedSelection requestedSelection,
+                      EffectiveSelection effectiveSelection, int attemptCount) {
+        static GmPlanResult toResult(V2Response response) {
+            GmPlanResult result = Response.toResult(response.candidate());
+            com.dndmaster.adventure.domain.runtime.RequestedGmProviderSelection requested =
+                    new com.dndmaster.adventure.domain.runtime.RequestedGmProviderSelection(
+                            response.requestedSelection().endpointId(), response.requestedSelection().provider(),
+                            response.requestedSelection().model(), response.requestedSelection().reasoning());
+            RuntimePlan plan = result.plan();
+            RuntimePlan audited = new RuntimePlan(plan.scene(), plan.npcState(), plan.judgment(), plan.narration(),
+                    plan.proposedActiveSourceContext(), plan.citedEvidence(), plan.warnings(), plan.provider(), plan.model(),
+                    plan.reasoning(), plan.advanceStoryPlan(), plan.selectedBranchId(), requested,
+                    response.effectiveSelection().toDomain(), response.attemptCount(), plan.citationBindings());
+            return new GmPlanResult(audited, result.provider(), result.model(), result.reasoning(), result.stateDelta(), result.toolCalls());
+        }
+    }
+
+    record Evidence(String type, UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt,
+                    String citationKey) {
         static Evidence from(RuntimeEvidence e) {
-            return new Evidence(e.evidenceType().name(), e.knowledgeDocumentId().value(), e.extractionVersion(), e.locator(), e.excerpt());
+            return new Evidence(e.evidenceType().name(), e.knowledgeDocumentId().value(), e.extractionVersion(), e.locator(),
+                    e.excerpt(), e.citationKey());
         }
         RuntimeEvidence toEvidence() {
-            return new RuntimeEvidence(RuntimeEvidenceType.valueOf(type), new KnowledgeDocumentId(knowledgeDocumentId), extractionVersion, locator, excerpt);
+            return new RuntimeEvidence(RuntimeEvidenceType.valueOf(type), new KnowledgeDocumentId(knowledgeDocumentId),
+                    extractionVersion, locator, excerpt, citationKey);
         }
     }
 
@@ -94,7 +143,11 @@ public final class HttpGmAgentPort implements GmAgentPort {
 
     record Response(String scene, String npcState, String judgment, String narration, ActiveSource proposedActiveSourceContext,
                    List<Evidence> citedEvidence, List<String> warnings, String provider, String model, String reasoning, List<String> stateDelta,
-                   List<ToolCall> toolCalls, boolean advanceStoryPlan, String selectedBranchId) {
+                   List<ToolCall> toolCalls, boolean advanceStoryPlan, String selectedBranchId,
+                   List<GmCitationBinding> citationBindings) {
+        Response {
+            citationBindings = citationBindings == null ? List.of() : List.copyOf(citationBindings);
+        }
         record ToolCall(String toolName, String argumentsJson, boolean required) {
             GmToolCall toDomain() { return new GmToolCall(toolName, argumentsJson, required); }
         }
@@ -107,7 +160,8 @@ public final class HttpGmAgentPort implements GmAgentPort {
             List<GmToolCall> calls = r.toolCalls == null ? List.of() : r.toolCalls.stream().map(ToolCall::toDomain).toList();
             return new GmPlanResult(new RuntimePlan(r.scene, r.npcState, r.judgment, r.narration,
                     r.proposedActiveSourceContext == null ? null : r.proposedActiveSourceContext.toDomain(), citations,
-                    r.warnings == null ? List.of() : r.warnings, r.provider, r.model, r.reasoning, r.advanceStoryPlan, r.selectedBranchId), r.provider, r.model, r.reasoning,
+                    r.warnings == null ? List.of() : r.warnings, r.provider, r.model, r.reasoning, r.advanceStoryPlan, r.selectedBranchId,
+                    r.citationBindings), r.provider, r.model, r.reasoning,
                     r.stateDelta == null ? List.of() : r.stateDelta, calls);
         }
     }

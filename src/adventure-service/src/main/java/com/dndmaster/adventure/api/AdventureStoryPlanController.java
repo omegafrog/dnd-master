@@ -126,9 +126,9 @@ public final class AdventureStoryPlanController {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "only the current stage may be prepared");
             }
             var preparation = tacticalPreparation.prepare(new SessionId(sessionId), owner());
-            if (preparation.status() != TacticalScenePreparationApplicationService.Status.COMPLETE) {
+            if (preparation.state() != com.dndmaster.adventure.application.runtime.TacticalPreparationState.READY) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        preparation.message() + " 사유: " + preparation.failureReason());
+                        preparation.message());
             }
             plan = service.read(new SessionId(sessionId), owner());
             stage = plan.stages().stream().filter(item -> item.position() == position).findFirst().orElseThrow();
@@ -153,6 +153,16 @@ public final class AdventureStoryPlanController {
     TacticalPreparationView readTacticalScenePreparation(@PathVariable UUID sessionId, @PathVariable int position) {
         if (tacticalPreparation == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "tactical preparation is unavailable");
         return TacticalPreparationView.from(tacticalPreparation.read(new SessionId(sessionId), owner(), position));
+    }
+
+    @GetMapping("/stages/{position}/tactical-scene/prepare/diagnostics")
+    TacticalPreparationDiagnosticsView readTacticalSceneDiagnostics(@PathVariable UUID sessionId, @PathVariable int position,
+            @RequestHeader(value = "X-Internal-Token", required = false) String internalToken) {
+        requestGuard.internal(internalToken);
+        if (tacticalPreparation == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "tactical preparation is unavailable");
+        var diagnostics = tacticalPreparation.readDiagnostics(new SessionId(sessionId), owner(), position);
+        return new TacticalPreparationDiagnosticsView(diagnostics.jobStatus(), diagnostics.failureReason(),
+                diagnostics.sceneStatus(), diagnostics.mapActivationAllowed(), diagnostics.updatedAt());
     }
 
     @PostMapping("/stages/{position}/tactical-scene/retry")
@@ -210,9 +220,11 @@ public final class AdventureStoryPlanController {
             int progress, int attempts, boolean mapRequired, String message, String failureReason, java.time.Instant updatedAt) {
         static TacticalPreparationView from(TacticalScenePreparationApplicationService.PreparationView view) {
             return new TacticalPreparationView(view.jobId(), view.sessionId(), view.stagePosition(), view.stageName(),
-                    view.status().name(), view.progress(), view.attempts(), view.mapRequired(), view.message(), view.failureReason(), view.updatedAt());
+                    view.state().name(), view.progress(), view.attempts(), view.mapRequired(), view.message(), null, view.updatedAt());
         }
     }
+    public record TacticalPreparationDiagnosticsView(String jobStatus, String failureReason, String sceneStatus,
+            boolean mapActivationAllowed, java.time.Instant updatedAt) {}
     public record TriggerApplicationRequest(UUID combatMapId, UUID commandId, long expectedVersion, String qualifyingAction) {
         public TriggerApplicationRequest(UUID combatMapId, UUID commandId, long expectedVersion) {
             this(combatMapId, commandId, expectedVersion, null);
@@ -232,7 +244,7 @@ public final class AdventureStoryPlanController {
             int endingCount, String adventureLength,
             @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
             String failureReason) {
-        static PlayerPlanView from(AdventureStoryPlan plan) {
+        public static PlayerPlanView from(AdventureStoryPlan plan) {
             List<StageView> visible = plan.stages().stream()
                     .filter(stage -> stage.position() == plan.currentStage() + 1)
                     .map(StageView::from)
@@ -266,7 +278,8 @@ public final class AdventureStoryPlanController {
                     stage.playerSpawnX(), stage.playerSpawnY(), stage.playerSpawnConfidence(), stage.playerSpawnRationale());
         }
     }
-    public record EvidenceView(String documentType, UUID documentId, long extractionVersion, String locator, String quote, double confidence) {}
+    public record EvidenceView(String documentType, UUID documentId, long extractionVersion, String locator, String quote,
+            double confidence, com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance provenance) {}
 
     public record GmPlanView(UUID planId, long packageRevision, long partyRevision, long version, String status, int currentStage,
             int endingCount, String adventureLength, List<GmStageView> stages, String failureReason, String auditId,
@@ -293,7 +306,7 @@ public final class AdventureStoryPlanController {
             static GmStageView from(com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage stage) {
             return new GmStageView(stage.position(), stage.title(), stage.stageType().name(), stage.location(), stage.goal(), stage.conflict(), stage.clearCondition(), stage.failureCondition(),
                     stage.enemies(), stage.boss(), stage.transitionCondition(), stage.rewards(), stage.branchIds(), stage.endingIds(), stage.mapDefinitionId(), stage.mapAssetId(), stage.mapAssetLocator(), stage.mapSafetyStatus(), stage.mapConfidence(), stage.branchTargets(),
-                    stage.groundingStatus().name(), stage.aiSuggestions(), stage.npcOrClues(), stage.evidence().stream().map(item -> new EvidenceView(item.documentType(), item.documentId(), item.extractionVersion(), item.locator(), item.quote(), item.confidence())).toList(),
+                    stage.groundingStatus().name(), stage.aiSuggestions(), stage.npcOrClues(), stage.evidence().stream().map(item -> new EvidenceView(item.documentType(), item.documentId(), item.extractionVersion(), item.locator(), item.quote(), item.confidence(), item.provenance())).toList(),
                     GmTacticalSceneView.from(stage.tacticalScenePlan()));
         }
     }

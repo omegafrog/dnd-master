@@ -59,7 +59,7 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
-    SceneModelPort sceneModelPort(SpringAiChatAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper mapper) {
+    SceneModelPort sceneModelPort(GmCompletionAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper mapper) {
         return prompt -> new SceneOutput(prompt.scenarioId(), prompt.ruleSetId(),
                 ScenarioAlignment.WITHIN_SELECTED_SCENARIO,
                 adapter.complete("scene-" + UUID.randomUUID(), prompt.value(), text -> groundedScene(mapper, text, evidenceCount(prompt.value()))), List.of());
@@ -72,7 +72,7 @@ public class AiGameMasterApiConfiguration {
     private static int evidenceCount(String prompt){java.util.regex.Matcher m=java.util.regex.Pattern.compile("\\[E(\\d+)]").matcher(prompt);int count=0;while(m.find())count=Math.max(count,Integer.parseInt(m.group(1)));return count;}
 
     @Bean
-    RuleAnswerModelPort ruleAnswerModelPort(SpringAiChatAdapter adapter) {
+    RuleAnswerModelPort ruleAnswerModelPort(GmCompletionAdapter adapter) {
         return request -> adapter.complete(
                 "rule-" + UUID.randomUUID(), request.situation(), text -> {
                     // TODO: implement real JSON parsing from AI response
@@ -81,7 +81,7 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
-    AdjudicationModelPort adjudicationModelPort(SpringAiChatAdapter adapter) {
+    AdjudicationModelPort adjudicationModelPort(GmCompletionAdapter adapter) {
         return input -> adapter.complete(
                 "adjudicate-" + UUID.randomUUID(), input.toString(), text -> {
                     // TODO: implement real JSON parsing from AI response
@@ -90,7 +90,7 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
-    MapModelPort mapModelPort(SpringAiChatAdapter adapter) {
+    MapModelPort mapModelPort(GmCompletionAdapter adapter) {
         return input -> adapter.complete(
                 "map-" + UUID.randomUUID(), input.toString(), text -> {
                     // TODO: implement real JSON parsing from AI response
@@ -99,7 +99,7 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
-    IntentClassificationModelPort intentClassificationModelPort(SpringAiChatAdapter adapter) {
+    IntentClassificationModelPort intentClassificationModelPort(GmCompletionAdapter adapter) {
         return input -> adapter.complete(
                 "intent-" + UUID.randomUUID(), input.question(), IntentClassificationOutput::fromModelText);
     }

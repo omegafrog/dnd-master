@@ -22,7 +22,7 @@ from preprocessing_agent.domain import PageStatus, ParsedDocument, ParsedPage, P
 from preprocessing_agent.domain.layout import BoundingBox, PageGeometry, LayoutBlock
 from preprocessing_agent.domain.serialization import to_dict
 from preprocessing_agent.layout import ReadingOrderPlanner
-from preprocessing_agent.parsers.pdf import PdfDocumentParser
+from preprocessing_agent.parsers.pdf import PdfDocumentParser, _is_reliable_native_table
 from preprocessing_agent.pipeline.pipeline import PreprocessingPipeline
 from preprocessing_agent.structure import HeadingAssociator, TableStructureDetector
 from preprocessing_agent.ports.extraction import ExtractionCapabilityError, PageRenderPort, OcrPort, normalize_ocr_blocks
@@ -120,11 +120,21 @@ class PyMuPdfNativePdfAdapter:
             for number, page in enumerate(document, 1):
                 rect = page.rect
                 blocks = []
+                font_metadata = _font_metadata_by_block(page)
                 for index, raw in enumerate(page.get_text("blocks")):
                     text = str(raw[4]).strip()
                     if not text:
                         continue
-                    blocks.append({"block_id": f"p{number}-b{index}", "text": text, "bbox": raw[:4]})
+                    size, font = font_metadata.get(tuple(float(value) for value in raw[:4]), (None, None))
+                    block = {"block_id": f"p{number}-b{index}", "text": text, "bbox": raw[:4]}
+                    # Keep typography useful for heading confidence without
+                    # turning page numbers and running headers (normally 8-9pt)
+                    # into furniture merely because metadata is present.
+                    if size is not None and size > 9:
+                        block["font_size"] = size
+                    if font is not None and ("bold" in font.casefold() or "semibold" in font.casefold()):
+                        block["font_weight"] = "bold"
+                    blocks.append(block)
                 # PyMuPDF's table finder is the native structured extraction
                 # seam. Keep cells as geometry-bearing blocks so downstream
                 # structure detection receives real row/column provenance.
@@ -135,7 +145,7 @@ class PyMuPdfNativePdfAdapter:
                 except (AttributeError, RuntimeError, TypeError):
                     found_tables = ()
                 table_regions = []
-                for table_index, table in enumerate(found_tables):
+                for table_index, table in enumerate(table for table in found_tables if _is_reliable_native_table(table)):
                     rows = getattr(table, "rows", ()) or ()
                     table_id = f"p{number}-table-{table_index}"
                     table_bbox = getattr(table, "bbox", None)
@@ -165,6 +175,23 @@ class PyMuPdfNativePdfAdapter:
                 blocks = list(_deduplicate_blocks(blocks))
                 pages.append({"page_number": number, "geometry": {"width": rect.width, "height": rect.height}, "blocks": blocks})
         return pages
+
+
+def _font_metadata_by_block(page: Any) -> dict[tuple[float, float, float, float], tuple[float | None, str | None]]:
+    """Preserve native heading signals alongside the compact block payload."""
+    metadata: dict[tuple[float, float, float, float], tuple[float | None, str | None]] = {}
+    payload = page.get_text("dict")
+    if not isinstance(payload, Mapping):
+        return metadata
+    for raw in payload.get("blocks", []):
+        lines = raw.get("lines", [])
+        spans = [span for line in lines for span in line.get("spans", []) if str(span.get("text", "")).strip()]
+        if not spans or raw.get("bbox") is None:
+            continue
+        first = spans[0]
+        key = tuple(float(value) for value in raw["bbox"])
+        metadata[key] = (float(first.get("size")) if first.get("size") is not None else None, str(first.get("font")) if first.get("font") else None)
+    return metadata
 
 
 def _inside_table_region(bbox: object, regions: list[tuple[float, float, float, float]]) -> bool:

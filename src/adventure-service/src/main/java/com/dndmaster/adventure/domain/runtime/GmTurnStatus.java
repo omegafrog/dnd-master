@@ -1,3 +1,3 @@
 package com.dndmaster.adventure.domain.runtime;
 
-public enum GmTurnStatus { STARTED, PROCESSING, COMMITTED, FAILED }
+public enum GmTurnStatus { STARTED, PROCESSING, COMMITTED, FAILED, FAILED_RETRYABLE }

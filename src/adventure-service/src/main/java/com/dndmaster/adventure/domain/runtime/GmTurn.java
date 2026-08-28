@@ -17,9 +17,14 @@ public final class GmTurn {
     private final GmTurnStatus status;
     private final String failure;
     private final String providerMetadata;
+    private final RequestedGmProviderSelection requestedSelection;
+    private final EffectiveGmProviderSelection effectiveSelection;
+    private final int attemptCount;
 
     private GmTurn(UUID turnId, UUID commandId, long expectedSessionVersion, GmInput input,
-                   String fingerprint, GmTurnStatus status, String failure, String providerMetadata) {
+                   String fingerprint, GmTurnStatus status, String failure, String providerMetadata,
+                   RequestedGmProviderSelection requestedSelection,
+                   EffectiveGmProviderSelection effectiveSelection, int attemptCount) {
         this.turnId = Objects.requireNonNull(turnId);
         this.commandId = Objects.requireNonNull(commandId);
         if (expectedSessionVersion < 0) throw new IllegalArgumentException("expected session version must not be negative");
@@ -29,39 +34,68 @@ public final class GmTurn {
         this.status = Objects.requireNonNull(status);
         this.failure = failure;
         this.providerMetadata = providerMetadata;
+        this.requestedSelection = Objects.requireNonNull(requestedSelection);
+        this.effectiveSelection = Objects.requireNonNull(effectiveSelection);
+        if (attemptCount < 1) throw new IllegalArgumentException("attempt count must be positive");
+        this.attemptCount = attemptCount;
     }
 
     public static GmTurn start(UUID turnId, UUID commandId, long expectedSessionVersion, GmInput input) {
-        return new GmTurn(turnId, commandId, expectedSessionVersion, input, fingerprint(input), GmTurnStatus.STARTED, null, null);
+        return start(turnId, commandId, expectedSessionVersion, input, RequestedGmProviderSelection.legacyUnknown());
+    }
+
+    public static GmTurn start(UUID turnId, UUID commandId, long expectedSessionVersion, GmInput input,
+                               RequestedGmProviderSelection requestedSelection) {
+        return new GmTurn(turnId, commandId, expectedSessionVersion, input, fingerprint(expectedSessionVersion, input), GmTurnStatus.STARTED, null, null,
+                requestedSelection, EffectiveGmProviderSelection.legacyUnknown(), 1);
     }
 
     public GmTurn process() { return transition(GmTurnStatus.PROCESSING, null, providerMetadata); }
-    public GmTurn commit(String providerMetadata) { return transition(GmTurnStatus.COMMITTED, null, providerMetadata); }
+    public GmTurn commit(String providerMetadata) { return transition(GmTurnStatus.COMMITTED, null, providerMetadata, requestedSelection, effectiveSelection, attemptCount); }
+    public GmTurn commit(String providerMetadata, RequestedGmProviderSelection requested,
+                         EffectiveGmProviderSelection effective, int attempts) {
+        return transition(GmTurnStatus.COMMITTED, null, providerMetadata, requested, effective, attempts);
+    }
     public GmTurn fail(String failure) { return transition(GmTurnStatus.FAILED, required(failure, "failure"), providerMetadata); }
+    public GmTurn failRetryable(String failure) {
+        return transition(GmTurnStatus.FAILED_RETRYABLE, required(failure, "failure"), providerMetadata);
+    }
 
     public void assertSameCommand(GmInput other) {
-        if (!fingerprint.equals(fingerprint(Objects.requireNonNull(other)))) {
+        assertSameCommand(expectedSessionVersion, other);
+    }
+
+    public void assertSameCommand(long expectedVersion, GmInput other) {
+        if (!fingerprint.equals(fingerprint(expectedVersion, Objects.requireNonNull(other)))) {
             throw new IllegalStateException("command id reused with different payload");
         }
     }
 
     private GmTurn transition(GmTurnStatus target, String nextFailure, String nextProvider) {
-        if (status == GmTurnStatus.COMMITTED || status == GmTurnStatus.FAILED) {
+        return transition(target, nextFailure, nextProvider, requestedSelection, effectiveSelection, attemptCount);
+    }
+
+    private GmTurn transition(GmTurnStatus target, String nextFailure, String nextProvider,
+                              RequestedGmProviderSelection requested, EffectiveGmProviderSelection effective, int attempts) {
+        if (status == GmTurnStatus.COMMITTED || status == GmTurnStatus.FAILED
+                || status == GmTurnStatus.FAILED_RETRYABLE) {
             throw new IllegalStateException("terminal GM turn cannot transition");
         }
         if (target == GmTurnStatus.PROCESSING && status != GmTurnStatus.STARTED
                 || target == GmTurnStatus.COMMITTED && status != GmTurnStatus.PROCESSING
-                || target == GmTurnStatus.FAILED && status != GmTurnStatus.PROCESSING) {
+                || (target == GmTurnStatus.FAILED || target == GmTurnStatus.FAILED_RETRYABLE)
+                && status != GmTurnStatus.PROCESSING) {
             throw new IllegalStateException("invalid GM turn transition: " + status + " -> " + target);
         }
-        return new GmTurn(turnId, commandId, expectedSessionVersion, input, fingerprint, target, nextFailure, nextProvider);
+        return new GmTurn(turnId, commandId, expectedSessionVersion, input, fingerprint, target, nextFailure, nextProvider,
+                requested, effective, attempts);
     }
 
-    private static String fingerprint(GmInput input) {
+    private static String fingerprint(long expectedVersion, GmInput input) {
         String canonical = switch (input) {
-            case GmInput.TextInput text -> "TEXT|" + text.text();
-            case GmInput.MapActionInput map -> "MAP_ACTION|" + map.mapId() + "|" + map.mapVersion() + "|" + map.action();
-            case GmInput.MetaQuestionInput question -> "META_QUESTION|" + question.question();
+            case GmInput.TextInput text -> expectedVersion + "|TEXT|" + text.text();
+            case GmInput.MapActionInput map -> expectedVersion + "|MAP_ACTION|" + map.mapId() + "|" + map.mapVersion() + "|" + map.action();
+            case GmInput.MetaQuestionInput question -> expectedVersion + "|META_QUESTION|" + question.question();
         };
         try {
             return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(canonical.getBytes(StandardCharsets.UTF_8)));
@@ -83,4 +117,7 @@ public final class GmTurn {
     public GmTurnStatus status() { return status; }
     public String failure() { return failure; }
     public String providerMetadata() { return providerMetadata; }
+    public RequestedGmProviderSelection requestedSelection() { return requestedSelection; }
+    public EffectiveGmProviderSelection effectiveSelection() { return effectiveSelection; }
+    public int attemptCount() { return attemptCount; }
 }

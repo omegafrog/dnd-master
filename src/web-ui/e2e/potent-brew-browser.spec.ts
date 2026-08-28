@@ -37,7 +37,46 @@ if (storybooks.length === 3 && new Set(storybooks.map(asset => asset.role)).size
 const hasEnvironment = Boolean(backend && email && password && internalToken && storybooks.length === 3)
 const journeyStatePath = '/tmp/dnd-master-potent-brew-browser-state.json'
 
-type BrowserJourneyState = { sessionId: string; authSession: string }
+type BrowserJourneyState = { sessionId: string; authSession: string; adventureId?: string }
+
+async function createDirectCompanion(
+  page: import('@playwright/test').Page,
+  sessionId: string,
+  name: string,
+) {
+  const responseTimeout = 120_000
+  await page.getByRole('button', { name: '새 캐릭터 만들기', exact: true }).click()
+  await expect(page).toHaveURL(new RegExp(`#\\/sessions\\/${sessionId}\\/character`), { timeout: responseTimeout })
+  await page.getByLabel('캐릭터 이름').fill(name)
+  await page.getByLabel('직업', { exact: true }).selectOption({ label: '파이터' })
+  await page.getByLabel('종족', { exact: true }).selectOption({ label: '인간' })
+  await page.getByLabel('배경', { exact: true }).selectOption({ label: '학자' })
+  await page.getByLabel('성향', { exact: true }).selectOption({ label: '중립 선' })
+  await page.getByRole('button', { name: '능력치', exact: true }).click()
+  for (const [label, value] of [['근력', '15'], ['민첩', '14'], ['건강', '13'], ['지능', '12'], ['지혜', '10'], ['매력', '8']] as const) {
+    await page.getByLabel(`${label} 능력치`, { exact: true }).selectOption(value)
+  }
+  const characterResponse = page.waitForResponse(
+    response => response.request().method() === 'POST' && response.url().includes(`/adventure-sessions/${sessionId}/character-sheets`),
+    { timeout: responseTimeout },
+  )
+  const partyResponse = page.waitForResponse(
+    response => response.request().method() === 'POST' && response.url().endsWith(`/adventure-sessions/${sessionId}/party`),
+    { timeout: responseTimeout },
+  )
+  await page.getByRole('button', { name: /캐릭터 저장하기/ }).click()
+  const characterResult = await characterResponse
+  if (!characterResult.ok()) {
+    throw new Error(`캐릭터 ${name} 생성 API 실패 (${characterResult.status()}): ${await characterResult.text()}`)
+  }
+
+  const partyResult = await partyResponse
+  if (!partyResult.ok()) {
+    throw new Error(`캐릭터 ${name} 파티 추가 API 실패 (${partyResult.status()}): ${await partyResult.text()}`)
+  }
+  await expect(page).toHaveURL(new RegExp(`#\\/sessions\\/${sessionId}\\/party`), { timeout: responseTimeout })
+  await expect(page.getByRole('heading', { name: '모험을 함께할 파티' })).toBeVisible({ timeout: responseTimeout })
+}
 
 async function readJourneyState() {
   if (!existsSync(journeyStatePath)) throw new Error(`browser journey state is missing: ${journeyStatePath}`)
@@ -121,22 +160,13 @@ test('prepares the story package, characters, and party', async ({ page }) => {
   await page.goto(`/#/sessions/${sessionId}/party`)
   await expect(page.getByRole('heading', { name: '모험을 함께할 파티' })).toBeVisible({ timeout: 60_000 })
   await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/09-party-ready-for-plan.png', fullPage: true })
-  await page.getByRole('button', { name: '새 캐릭터 만들기', exact: true }).click()
-  await page.getByLabel('캐릭터 이름').fill('Aria')
-  await page.getByLabel('직업', { exact: true }).selectOption({ label: '파이터' })
-  await page.getByLabel('종족', { exact: true }).selectOption({ label: '인간' })
-  await page.getByLabel('배경', { exact: true }).selectOption({ label: '학자' })
-  await page.getByLabel('성향', { exact: true }).selectOption({ label: '중립 선' })
-  await page.getByRole('button', { name: '능력치', exact: true }).click()
-  for (const [label, value] of [['근력', '15'], ['민첩', '14'], ['건강', '13'], ['지능', '12'], ['지혜', '10'], ['매력', '8']] as const) {
-    await page.getByLabel(`${label} 능력치`, { exact: true }).selectOption(value)
+  await createDirectCompanion(page, sessionId!, 'Aria')
+  for (const name of ['Borin', 'Celia', 'Darin']) {
+    await createDirectCompanion(page, sessionId!, name)
   }
-  await page.getByRole('button', { name: /캐릭터 저장하기/ }).click()
-  await expect(page.getByRole('heading', { name: '모험을 함께할 파티' })).toBeVisible({ timeout: 60_000 })
-  for (let i = 0; i < 3; i++) {
-    await page.getByRole('button', { name: 'AI 동료 제안받기', exact: true }).click()
-    await expect(page.getByRole('button', { name: 'AI 동료로 채택', exact: true })).toBeVisible({ timeout: 60_000 })
-    await page.getByRole('button', { name: 'AI 동료로 채택', exact: true }).click()
+  await expect(page.locator('.party-slot-grid .party-slot:not(.party-slot-empty)')).toHaveCount(4)
+  for (const name of ['Aria', 'Borin', 'Celia', 'Darin']) {
+    await expect(page.locator('.party-slot-grid').getByText(name, { exact: true })).toBeVisible()
   }
   const authSession = await page.evaluate(() => window.localStorage.getItem('dnd-master.auth-session') ?? '')
   await writeFile(journeyStatePath, JSON.stringify({ sessionId, authSession }), 'utf8')
@@ -166,11 +196,57 @@ test('starts the prepared adventure and reconnects to the map', async ({ page })
   await expect(page.getByRole('heading', { name: '모험 계획 준비' })).toBeVisible({ timeout: 60_000 })
   await page.getByRole('button', { name: '모험 시작', exact: true }).click()
   await expect(page).toHaveURL(/#\/adventures\//, { timeout: 120_000 })
+  const adventureId = page.url().match(/#\/adventures\/([^/]+)/)?.[1]
+  expect(adventureId, 'starting the prepared adventure did not produce an adventure id').toBeTruthy()
   await expect(page.getByRole('region', { name: '현재 전장' })).toBeVisible({ timeout: 120_000 })
   await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/12-adventure-started-map-entry.png', fullPage: true })
   await page.reload()
   await expect(page.getByRole('region', { name: '현재 전장' })).toBeVisible({ timeout: 120_000 })
   await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/13-adventure-reconnected.png', fullPage: true })
+  const currentState = await readJourneyState()
+  await writeFile(journeyStatePath, JSON.stringify({ ...currentState, adventureId }), 'utf8')
+})
+
+test('continues the prepared adventure for five browser conversation turns', async ({ page }) => {
+  test.skip(!hasEnvironment, 'missing BACKEND_E2E_URL, BACKEND_E2E_EMAIL, BACKEND_E2E_PASSWORD, INTERNAL_SERVICE_TOKEN, or three Linux Potent Brew storybooks')
+  test.setTimeout(900_000)
+  const state = await readJourneyState()
+  expect(state.adventureId, 'prepared adventure state is missing an adventure id').toBeTruthy()
+  await installJourneyAuth(page, state)
+  await page.goto(`/#/adventures/${state.adventureId}`)
+
+  const conversation = page.getByRole('region', { name: '모험 대화' })
+  await expect(conversation).toBeVisible({ timeout: 120_000 })
+  const initialGmCount = await conversation.locator('li.adventure-chat-message.gm').count()
+  const turns = [
+    '주변을 천천히 살펴본다.',
+    '위험이 없는지 확인하며 앞으로 이동한다.',
+    '주변의 소리와 흔적을 자세히 살핀다.',
+    '발견한 단서를 동료들과 공유한다.',
+    '다음에 갈 곳을 신중하게 결정한다.',
+  ]
+
+  for (const [index, action] of turns.entries()) {
+    const beforeGmMessages = conversation.locator('li.adventure-chat-message.gm')
+    const beforeCount = await beforeGmMessages.count()
+    await conversation.getByLabel('무엇을 하시겠어요?').fill(action)
+    await conversation.getByRole('button', { name: '행동 보내기', exact: true }).click()
+    await expect.poll(() => beforeGmMessages.count(), {
+      timeout: 180_000,
+      intervals: [500, 1_000, 2_000, 5_000],
+      message: `conversation turn ${index + 1} did not receive a new GM response`,
+    }).toBeGreaterThan(beforeCount)
+    const latestGmMessage = beforeGmMessages.last()
+    await expect.poll(async () => (await latestGmMessage.innerText()).trim(), {
+      timeout: 30_000,
+      message: `conversation turn ${index + 1} received an empty GM response`,
+    }).not.toBe('')
+    await expect(conversation.getByRole('status')).not.toContainText(/턴 처리 실패|실패|오류|error/i)
+    await expect(conversation.getByRole('alert')).not.toContainText(/실패|오류|error/i)
+  }
+
+  await expect.poll(() => conversation.locator('li.adventure-chat-message.gm').count()).toBeGreaterThanOrEqual(initialGmCount + turns.length)
+  await expect(conversation.getByRole('status')).toContainText(/직접 플레이 입력 대기 중/)
 })
 })
 

@@ -88,11 +88,11 @@ export type AdventureStoryPlanGenerationJobView = {
 
 export type StageMapActivation = { stagePosition: number; mapDefinitionId: string; assetId: string; assetLocator: string; combatMapId: string }
 export type TacticalScenePreparationView = {
-  jobId: string
+  jobId: string | null
   sessionId: string
   stagePosition: number
   stageName: string
-  status: 'QUEUED' | 'RUNNING' | 'COMPLETE' | 'FAILED_RETRYABLE'
+  status: 'NOT_REQUIRED' | 'REQUIRED_PENDING' | 'PREPARING' | 'READY' | 'FAILED_RETRYABLE'
   progress: number
   attempts: number
   mapRequired: boolean

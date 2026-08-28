@@ -5,6 +5,8 @@ import static org.mockito.Mockito.*;
 import com.dndmaster.adventure.api.AdventureSessionController;
 import com.dndmaster.adventure.api.AuthenticatedPlayerResolver;
 import com.dndmaster.adventure.application.runtime.TacticalMapActivationApplicationService;
+import com.dndmaster.adventure.application.runtime.TacticalPreparationState;
+import com.dndmaster.adventure.application.runtime.TacticalScenePreparationApplicationService;
 import com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimeApplicationService;
 import com.dndmaster.adventure.application.runtime.GmProviderBindingService;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanApplicationService;
@@ -39,6 +41,7 @@ class AdventureSessionControllerTacticalStartTest {
         var scene = mock(TacticalScenePlan.class);
         when(scene.readyForActivation()).thenReturn(true);
         when(stage.tacticalScenePlan()).thenReturn(scene);
+        when(stage.tacticalPreparationRequirement()).thenReturn(TacticalPreparationRequirement.REQUIRED);
         var plan = mock(AdventureStoryPlan.class);
         when(plan.currentStage()).thenReturn(0);
         when(plan.stages()).thenReturn(List.of(stage));
@@ -53,10 +56,15 @@ class AdventureSessionControllerTacticalStartTest {
         when(stories.read(sessionId, new OwnerPlayerId(owner))).thenReturn(plan);
         when(activation.activateDefinition(packageId, adventureId, owner, ruleSetId, mapDefinitionId, scene, 2, 3))
                 .thenReturn(new TacticalMapActivationApplicationService.Activation(Optional.of(combatMapId), false));
+        var tacticalPreparation = mock(TacticalScenePreparationApplicationService.class);
+        when(tacticalPreparation.prepare(sessionId, new OwnerPlayerId(owner))).thenReturn(
+                new TacticalScenePreparationApplicationService.PreparationView(null, sessionId.value(), 1, "stage",
+                        TacticalPreparationState.READY, 100, 1, true, "ready", null, java.time.Instant.now(), Optional.empty()));
 
-        var controller = new AdventureSessionController(sessions, resolver, mock(GmProviderBindingService.class), stories, activation, triggers);
+        var controller = new AdventureSessionController(sessions, resolver, mock(GmProviderBindingService.class), stories, activation, triggers, tacticalPreparation);
         controller.start(sessionId.value(), 0, UUID.randomUUID(), new AdventureSessionController.StartRequest(adventureId));
 
+        verify(tacticalPreparation).prepare(sessionId, new OwnerPlayerId(owner));
         verify(triggers).bindActiveMap(adventureId, 1, owner, combatMapId);
     }
 }

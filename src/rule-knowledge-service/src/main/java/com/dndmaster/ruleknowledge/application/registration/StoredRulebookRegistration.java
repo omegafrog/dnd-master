@@ -1,5 +1,6 @@
 package com.dndmaster.ruleknowledge.application.registration;
 
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingPageState;
 import com.dndmaster.ruleknowledge.domain.rulebook.*;
 import java.time.Instant;
 import java.util.List;
@@ -26,7 +27,12 @@ public record StoredRulebookRegistration(
         String previewContent,
         List<String> previewWarnings,
         List<PreviewSpan> previewSpans,
-        List<PreviewAsset> previewAssets) {
+        List<PreviewAsset> previewAssets,
+        String preprocessingOperationId,
+        String candidateExtractionVersion,
+        String preprocessingPolicyVersion,
+        String preprocessingManifestSha256,
+        List<PreprocessingPageState> preprocessingPages) {
 
     public StoredRulebookRegistration(
             RulebookId rulebookId,
@@ -88,7 +94,41 @@ public record StoredRulebookRegistration(
                 extractedContent != null ? extractedContent : "",
                 List.of(),
                 List.of(),
+                List.of(),
+                null,
+                null,
+                null,
+                null,
                 List.of());
+    }
+
+    public StoredRulebookRegistration(
+            RulebookId rulebookId,
+            OwnerPlayerId ownerPlayerId,
+            String operationKey,
+            String contentHash,
+            RulebookFormat format,
+            long fileSize,
+            String storageKey,
+            ProcessingStatus processingStatus,
+            ExtractionStatus extractionStatus,
+            String extractedContent,
+            List<String> missingLocations,
+            String failureCode,
+            long version,
+            Instant createdAt,
+            Instant updatedAt,
+            DocumentType documentType,
+            String originalFilename,
+            String previewContent,
+            List<String> previewWarnings,
+            List<PreviewSpan> previewSpans,
+            List<PreviewAsset> previewAssets) {
+        this(
+                rulebookId, ownerPlayerId, operationKey, contentHash, format, fileSize, storageKey,
+                processingStatus, extractionStatus, extractedContent, missingLocations, failureCode,
+                version, createdAt, updatedAt, documentType, originalFilename, previewContent,
+                previewWarnings, previewSpans, previewAssets, null, null, null, null, List.of());
     }
 
     public StoredRulebookRegistration {
@@ -113,6 +153,7 @@ public record StoredRulebookRegistration(
         previewWarnings = previewWarnings == null ? List.of() : List.copyOf(previewWarnings);
         previewSpans = previewSpans == null ? List.of() : List.copyOf(previewSpans);
         previewAssets = previewAssets == null ? List.of() : List.copyOf(previewAssets);
+        preprocessingPages = preprocessingPages == null ? List.of() : List.copyOf(preprocessingPages);
     }
 
     public KnowledgeDocumentId knowledgeDocumentId() {

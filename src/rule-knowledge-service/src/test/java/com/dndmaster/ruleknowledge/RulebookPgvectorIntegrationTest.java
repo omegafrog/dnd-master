@@ -13,9 +13,18 @@ import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
 import com.dndmaster.ruleknowledge.domain.index.EmbeddedRulebookChunk;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.IndexMetadata;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorRuleSearchRepository;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.PostgresRagExtractionPublicationRepository;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorRuleEvidenceSearchRepository;
+import com.dndmaster.ruleknowledge.application.search.QueryIntent;
+import com.dndmaster.ruleknowledge.application.publication.EmbeddedPublishedRagChunk;
+import com.dndmaster.ruleknowledge.application.publication.RagExtractionPage;
+import com.dndmaster.ruleknowledge.application.publication.RagExtractionPublicationRequest;
+import com.dndmaster.ruleknowledge.application.publication.PublishedRagChunk;
+import com.dndmaster.ruleknowledge.application.publication.SourceProvenance;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.RuleVectorPersistenceException;
 import java.sql.Connection;
 import java.sql.DriverManager;
+import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -39,6 +48,8 @@ class RulebookPgvectorIntegrationTest {
 
     private static DataSource dataSource;
     private static PgvectorRuleSearchRepository repository;
+    private static PostgresRagExtractionPublicationRepository publicationRepository;
+    private static PgvectorRuleEvidenceSearchRepository evidenceRepository;
 
     @BeforeAll
     static void startDatabase() {
@@ -46,6 +57,8 @@ class RulebookPgvectorIntegrationTest {
         dataSource = new DriverManagerDataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
         Flyway.configure().dataSource(dataSource).load().migrate();
         repository = new PgvectorRuleSearchRepository(dataSource);
+        publicationRepository = new PostgresRagExtractionPublicationRepository(dataSource);
+        evidenceRepository = new PgvectorRuleEvidenceSearchRepository(dataSource);
     }
 
     @AfterAll
@@ -56,7 +69,80 @@ class RulebookPgvectorIntegrationTest {
     @BeforeEach
     void clearDatabase() throws SQLException {
         try (Connection connection = dataSource.getConnection(); Statement statement = connection.createStatement()) {
-            statement.execute("TRUNCATE rulebook_vector_index CASCADE");
+            statement.execute("TRUNCATE rulebook_vector_index, rulebook_registration CASCADE");
+        }
+    }
+
+    @Test
+    void publishesOnlyIndexedCandidateAndKeepsPreviousPublicVersionOnCandidateFailure() throws SQLException {
+        OwnerPlayerId owner = owner();
+        RulebookId documentId = RulebookId.generate();
+        register(documentId, owner);
+
+        RagExtractionPublicationRequest first = publicationRequest(documentId, owner, "version-1", 1);
+        publicationRepository.beginCandidate(first);
+        publicationRepository.publish(first, List.of(publicationChunk(first, 1)));
+        var publishedEvidence = evidenceRepository.search(
+                owner, List.of(documentId), new float[] {1, 0, 0}, QueryIntent.RULE, 10).getFirst();
+        assertEquals("page=1", publishedEvidence.locator());
+        assertEquals(1, publishedEvidence.extractionVersion());
+        assertEquals(1, publishedEvidence.provenance().pageNumber());
+        assertEquals(List.of("Chapter", "version-1"), publishedEvidence.provenance().sectionPath());
+        assertEquals("r1:c1", publishedEvidence.provenance().tableCell());
+
+        RagExtractionPublicationRequest second = publicationRequest(documentId, owner, "version-2", 2);
+        publicationRepository.beginCandidate(second);
+        EmbeddedPublishedRagChunk invalidPage = publicationChunk(second, 3);
+        assertThrows(RuntimeException.class, () -> publicationRepository.publish(second, List.of(invalidPage)));
+
+        try (Connection connection = dataSource.getConnection();
+                PreparedStatement statement = connection.prepareStatement(
+                        "SELECT published_extraction_version FROM rulebook_registration WHERE rulebook_id = ?")) {
+            statement.setObject(1, documentId.value());
+            try (ResultSet rows = statement.executeQuery()) {
+                assertEquals(true, rows.next());
+                assertEquals("version-1", rows.getString(1));
+            }
+        }
+        assertEquals(1, countRows("published_rag_chunk"));
+        assertEquals("page=1", evidenceRepository.search(
+                owner, List.of(documentId), new float[] {1, 0, 0}, QueryIntent.RULE, 10).getFirst().locator());
+    }
+
+    private static RagExtractionPublicationRequest publicationRequest(
+            RulebookId documentId, OwnerPlayerId owner, String version, int pageNumber) {
+        return new RagExtractionPublicationRequest(
+                documentId, owner, "operation-" + version, version, "a".repeat(64), "policy-1", "b".repeat(64),
+                List.of(new RagExtractionPage(pageNumber, "VALIDATED", 1, List.of())),
+                List.of(new PublishedRagChunk(
+                        "processor-" + version, 0, "published content", "published content",
+                        new SourceProvenance(pageNumber, List.of("Chapter", version), List.of(1d, 2d, 3d, 4d), "r1:c1", "page=" + pageNumber))),
+                "mock-embedding");
+    }
+
+    private static EmbeddedPublishedRagChunk publicationChunk(
+            RagExtractionPublicationRequest request, int pageNumber) {
+        PublishedRagChunk source = request.chunks().getFirst();
+        PublishedRagChunk withPage = new PublishedRagChunk(
+                source.processorChunkId(), source.sequence(), source.content(), source.embeddingText(),
+                new SourceProvenance(pageNumber, source.provenance().sectionPath(), source.provenance().bbox(),
+                        source.provenance().tableCell(), source.provenance().originalLocator()));
+        return new EmbeddedPublishedRagChunk(withPage, new float[] {1, 0, 0});
+    }
+
+    private static void register(RulebookId documentId, OwnerPlayerId owner) throws SQLException {
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement("""
+                INSERT INTO rulebook_registration
+                    (rulebook_id, owner_player_id, operation_key, content_hash, format, file_size,
+                     storage_key, processing_status, version, created_at, updated_at)
+                VALUES (?, ?, ?, ?, 'PDF', 1, ?, 'QUEUED', 0, now(), now())
+                """)) {
+            statement.setObject(1, documentId.value());
+            statement.setObject(2, owner.value());
+            statement.setString(3, "registration-" + documentId.value());
+            statement.setString(4, "c".repeat(64));
+            statement.setString(5, "storage/" + documentId.value());
+            statement.executeUpdate();
         }
     }
 

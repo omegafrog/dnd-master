@@ -35,20 +35,24 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
             if (request.evidenceType() == RuntimeEvidenceType.RULEBOOK) {
                 RuleSearchResponse response = post("internal/v1/rule-evidence/search",
                     new RuleSearchRequest(request.ownerPlayerId().value(), request.knowledgeDocumentIds(),
-                                request.action(), "RULE", request.limit()), request.ownerPlayerId().value(), RuleSearchResponse.class);
+                                request.action(), ruleQueryIntent(request.actionIntent()), request.limit(), request.sessionId().value(),
+                                request.scenarioPackageId(), request.stageKey(), request.actionIntent()), request.ownerPlayerId().value(), RuleSearchResponse.class);
                 return response.evidence().stream()
                         .map(item -> new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
-                                new KnowledgeDocumentId(item.rulebookId()), 1L, item.locator(), item.excerpt()))
+                                new KnowledgeDocumentId(item.rulebookId()), extractionVersion(item.provenance(), request, item.rulebookId(), item.locator()),
+                                item.locator(), item.excerpt(), item.citationKey()))
                         .toList();
             }
             StorySearchResponse response = post("internal/v1/story-sources/search",
                     new StorySearchRequest(request.ownerPlayerId().value(), request.knowledgeDocumentIds().stream()
                             .map(id -> new StoryDocument(id, extractionVersion(request, id))).toList(),
-                            activeLocators(request), request.action(), request.limit()),
+                            activeLocators(request), request.action(), request.limit(), request.sessionId().value(),
+                            request.scenarioPackageId(), request.stageKey(), request.actionIntent()),
                     request.ownerPlayerId().value(), StorySearchResponse.class);
             return response.evidence().stream()
                     .map(item -> new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
-                            new KnowledgeDocumentId(item.knowledgeDocumentId()), item.extractionVersion(), item.locator(), item.excerpt()))
+                            new KnowledgeDocumentId(item.knowledgeDocumentId()), item.extractionVersion(), item.locator(), item.excerpt(),
+                            item.citationKey()))
                     .toList();
         } catch (Exception exception) {
             throw new IllegalStateException("runtime evidence search failed", exception);
@@ -63,8 +67,24 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
                 ? request.activeSourceContext().extractionVersion() : 1L;
     }
 
+    private static long extractionVersion(ProvenanceView provenance, RuntimeEvidenceSearchRequest request, UUID documentId,
+                                         String locator) {
+        if (provenance == null) return extractionVersion(request, documentId);
+        if (!documentId.equals(provenance.documentId()) || provenance.extractionVersion() <= 0
+                || provenance.locator() == null || provenance.locator().isBlank() || !locator.equals(provenance.locator())) {
+            throw new IllegalStateException("runtime evidence provenance does not match its result");
+        }
+        return provenance.extractionVersion();
+    }
+
     private static List<String> activeLocators(RuntimeEvidenceSearchRequest request) {
         return request.activeSourceContext() == null ? List.of() : List.of(request.activeSourceContext().locator());
+    }
+
+    private static String ruleQueryIntent(String actionIntent) {
+        String normalized = actionIntent.toUpperCase(java.util.Locale.ROOT).replace('-', '_').replace(' ', '_');
+        return normalized.equals("RULE") || normalized.contains("RULE_QUESTION") || normalized.contains("ADJUDICATION")
+                ? "RULE" : "MIXED";
     }
 
     private <T> T post(String path, Object payload, UUID ownerId, Class<T> responseType) throws Exception {
@@ -80,11 +100,17 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
         return objectMapper.readValue(response.body(), responseType);
     }
 
-    record RuleSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, String queryIntent, int limit) {}
-    record StorySearchRequest(UUID ownerId, List<StoryDocument> documents, List<String> activeLocators, String situation, int limit) {}
+    record RuleSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, String queryIntent, int limit,
+                             UUID sessionId, UUID scenarioPackageId, String stageKey, String actionIntent) {}
+    record StorySearchRequest(UUID ownerId, List<StoryDocument> documents, List<String> activeLocators, String situation, int limit,
+                              UUID sessionId, UUID scenarioPackageId, String stageKey, String actionIntent) {}
     record StoryDocument(UUID documentId, long extractionVersion) {}
     record RuleSearchResponse(UUID ownerId, List<RuleEvidenceItem> evidence) {}
-    record RuleEvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score, String chapter, String section) {}
+    record RuleEvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score, String chapter,
+                            String section, ProvenanceView provenance, String citationKey) {}
     record StorySearchResponse(UUID ownerId, List<StoryEvidenceItem> evidence) {}
-    record StoryEvidenceItem(UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt, double score) {}
+    record StoryEvidenceItem(UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt, double score,
+                             ProvenanceView provenance, String citationKey) {}
+    record ProvenanceView(UUID documentId, long extractionVersion, int pageNumber, List<String> sectionPath,
+                          List<Double> bbox, String tableCell, String locator) {}
 }

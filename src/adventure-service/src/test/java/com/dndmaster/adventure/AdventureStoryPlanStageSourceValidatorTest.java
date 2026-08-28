@@ -21,10 +21,10 @@ class AdventureStoryPlanStageSourceValidatorTest {
 
         var violations = new AdventureStoryPlanStageSourceValidator().validate(stage, List.of(citation));
 
-        assertTrue(violations.contains("story stage boss is not supported by source evidence"));
-        assertTrue(violations.contains("story stage reward is not supported by source evidence: royal crown"));
-        assertTrue(violations.contains("story stage transition is not supported by source evidence"));
-        assertTrue(violations.contains("story stage ending is not supported by source evidence: coronation-ending"));
+        assertTrue(violations.contains("stage 1 boss is not supported by source evidence"));
+        assertTrue(violations.contains("stage 1 reward is not supported by source evidence"));
+        assertTrue(violations.contains("stage 1 transitionCondition is not supported by source evidence"));
+        assertTrue(violations.contains("stage 1 ending is not supported by source evidence"));
     }
 
     @Test
@@ -44,7 +44,7 @@ class AdventureStoryPlanStageSourceValidatorTest {
 
         var violations = new AdventureStoryPlanStageSourceValidator().validate(stage, List.of(citation));
 
-        assertTrue(violations.contains("story stage boss is not supported by source evidence"));
+        assertTrue(violations.contains("stage 1 boss is not supported by source evidence"));
     }
 
     @Test
@@ -56,8 +56,8 @@ class AdventureStoryPlanStageSourceValidatorTest {
 
         var violations = new AdventureStoryPlanStageSourceValidator().validate(stage, List.of(citation));
 
-        assertTrue(violations.contains("story stage NPC or clue is not supported by source evidence: invented guide"));
-        assertTrue(violations.contains("story stage enemy is not supported by source evidence: lich"));
+        assertTrue(violations.contains("stage 1 NPC or clue is not supported by source evidence"));
+        assertTrue(violations.contains("stage 1 enemy is not supported by source evidence"));
     }
 
     @Test
@@ -71,6 +71,18 @@ class AdventureStoryPlanStageSourceValidatorTest {
                         List.of(storybook, rulebook));
 
         assertTrue(violations.contains("story plan must cite at least one RULEBOOK source"));
+    }
+
+    @Test
+    void rejectsCitationThatDoesNotCarryPublishedProvenance() {
+        var ungrounded = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "STORYBOOK", UUID.randomUUID(), 1, "page:1", "The cellar contains a rat swarm.", 1.0, null);
+
+        var violations = new AdventureStoryPlanStageSourceValidator()
+                .validateCitationCoverage(List.of(stage(ungrounded, "", List.of(), "move onward", "ending-1")),
+                        List.of(ungrounded));
+
+        assertTrue(violations.contains("story plan contains evidence without published provenance"));
     }
 
     private static AdventureStoryPlanGenerationPort.SourceCitation citation(String quote) {

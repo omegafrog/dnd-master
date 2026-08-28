@@ -79,8 +79,10 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
     public void save(RuntimeTurn turn) {
         String sql = """
                 INSERT INTO adventure_runtime_turn (
-                    turn_id, command_id, adventure_id, session_id, binding_version, scenario_package_id, action, runtime_turn_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    turn_id, command_id, adventure_id, session_id, binding_version, scenario_package_id, action, runtime_turn_json,
+                    requested_endpoint_id, requested_provider, requested_model, requested_reasoning,
+                    effective_endpoint_id, effective_endpoint_version, effective_provider, effective_model, effective_reasoning, attempt_count
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (command_id) DO UPDATE SET
                     turn_id = EXCLUDED.turn_id,
                     adventure_id = EXCLUDED.adventure_id,
@@ -88,7 +90,17 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
                     binding_version = EXCLUDED.binding_version,
                     scenario_package_id = EXCLUDED.scenario_package_id,
                     action = EXCLUDED.action,
-                    runtime_turn_json = EXCLUDED.runtime_turn_json
+                    runtime_turn_json = EXCLUDED.runtime_turn_json,
+                    requested_endpoint_id = EXCLUDED.requested_endpoint_id,
+                    requested_provider = EXCLUDED.requested_provider,
+                    requested_model = EXCLUDED.requested_model,
+                    requested_reasoning = EXCLUDED.requested_reasoning,
+                    effective_endpoint_id = EXCLUDED.effective_endpoint_id,
+                    effective_endpoint_version = EXCLUDED.effective_endpoint_version,
+                    effective_provider = EXCLUDED.effective_provider,
+                    effective_model = EXCLUDED.effective_model,
+                    effective_reasoning = EXCLUDED.effective_reasoning,
+                    attempt_count = EXCLUDED.attempt_count
                 """;
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setObject(1, turn.turnId());
@@ -99,6 +111,17 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
             statement.setObject(6, turn.scenarioPackageId());
             statement.setString(7, turn.action());
             statement.setString(8, write(turn));
+            statement.setObject(9, turn.plan().requestedSelection().endpointId());
+            statement.setString(10, turn.plan().requestedSelection().provider());
+            statement.setString(11, turn.plan().requestedSelection().model());
+            statement.setString(12, turn.plan().requestedSelection().reasoning());
+            statement.setObject(13, turn.plan().effectiveSelection().endpointId());
+            if (turn.plan().effectiveSelection().endpointVersion() == null) statement.setTimestamp(14, null);
+            else statement.setTimestamp(14, java.sql.Timestamp.from(turn.plan().effectiveSelection().endpointVersion()));
+            statement.setString(15, turn.plan().effectiveSelection().provider());
+            statement.setString(16, turn.plan().effectiveSelection().model());
+            statement.setString(17, turn.plan().effectiveSelection().reasoning());
+            statement.setInt(18, 1);
             statement.executeUpdate();
         } catch (SQLException exception) {
             throw new RuntimeTurnPersistenceException("could not save runtime turn", exception);
