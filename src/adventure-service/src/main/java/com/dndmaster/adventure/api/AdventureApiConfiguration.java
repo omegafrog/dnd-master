@@ -128,7 +128,7 @@ public class AdventureApiConfiguration {
             GmAgentPort gmAgentPort, com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
             RuntimeEvidenceSearchPort runtimeEvidenceSearchPort) {
         return new AdventurePrologueApplicationService(adventures, plans, sheets, generator, gmAgentPort,
-                packageRepository, runtimeEvidenceSearchPort);
+                packageRepository, runtimeEvidenceSearchPort, narrationSafetyPort());
     }
 
     @Bean
@@ -140,9 +140,6 @@ public class AdventureApiConfiguration {
             // story clues are woven into natural table-talk instead of dumped.
             var clues = stage.npcOrClues().stream().filter(value -> value != null && !value.isBlank())
                     .limit(3).toList();
-            var sourceDetails = stage.evidence().stream()
-                    .map(item -> item.quote()).filter(value -> value != null && !value.isBlank())
-                    .limit(2).toList();
             StringBuilder narration = new StringBuilder();
             narration.append(stage.location()).append("에 도착했어요. ")
                     .append(stage.goal()).append(" ");
@@ -151,9 +148,6 @@ public class AdventureApiConfiguration {
             }
             if (!clues.isEmpty()) {
                 narration.append("주변에서 ").append(String.join(", ", clues)).append(" 같은 단서가 눈에 들어옵니다. ");
-            }
-            if (!sourceDetails.isEmpty()) {
-                narration.append(String.join(" ", sourceDetails)).append(" ");
             }
             narration.append("일행은 잠시 숨을 고르고 주변을 살펴봅니다. 어떻게 해볼까요?");
             return narration.toString();
@@ -844,7 +838,9 @@ public class AdventureApiConfiguration {
                     && !request.narration().isBlank()
                     && !request.narration().contains("\"")
                     && !request.narration().contains("“")
-                    && !request.narration().contains("”");
+                    && !request.narration().contains("”")
+                    && !com.dndmaster.adventure.application.runtime.NarrationLeakDetector
+                            .isLikelySourceLeak(request.narration(), request.evidencePack());
             return new NarrationSafetyAssessment(approved, approved ? "approved" : "narration failed safety check");
         };
     }

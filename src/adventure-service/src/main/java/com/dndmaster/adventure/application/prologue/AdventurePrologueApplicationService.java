@@ -16,6 +16,8 @@ import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceSearchPort;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceSearchRequest;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
+import com.dndmaster.adventure.application.runtime.NarrationSafetyPort;
+import com.dndmaster.adventure.application.runtime.NarrationSafetyRequest;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import java.util.ArrayList;
@@ -33,20 +35,27 @@ public final class AdventurePrologueApplicationService {
     private final GmAgentPort gmAgent;
     private final ScenarioPackageRepository packages;
     private final RuntimeEvidenceSearchPort evidenceSearch;
+    private final NarrationSafetyPort narrationSafety;
 
     public AdventurePrologueApplicationService(AdventureRepository adventures, AdventureStoryPlanRepository plans,
             CharacterSheetReadPort sheets, AdventurePrologueGenerationPort generator) {
-        this(adventures, plans, sheets, generator, null, null, null);
+        this(adventures, plans, sheets, generator, null, null, null, null);
     }
 
     public AdventurePrologueApplicationService(AdventureRepository adventures, AdventureStoryPlanRepository plans,
             CharacterSheetReadPort sheets, AdventurePrologueGenerationPort generator, GmAgentPort gmAgent) {
-        this(adventures, plans, sheets, generator, gmAgent, null, null);
+        this(adventures, plans, sheets, generator, gmAgent, null, null, null);
     }
 
     public AdventurePrologueApplicationService(AdventureRepository adventures, AdventureStoryPlanRepository plans,
             CharacterSheetReadPort sheets, AdventurePrologueGenerationPort generator, GmAgentPort gmAgent,
             ScenarioPackageRepository packages, RuntimeEvidenceSearchPort evidenceSearch) {
+        this(adventures, plans, sheets, generator, gmAgent, packages, evidenceSearch, null);
+    }
+
+    public AdventurePrologueApplicationService(AdventureRepository adventures, AdventureStoryPlanRepository plans,
+            CharacterSheetReadPort sheets, AdventurePrologueGenerationPort generator, GmAgentPort gmAgent,
+            ScenarioPackageRepository packages, RuntimeEvidenceSearchPort evidenceSearch, NarrationSafetyPort narrationSafety) {
         this.adventures = Objects.requireNonNull(adventures);
         this.plans = Objects.requireNonNull(plans);
         this.sheets = Objects.requireNonNull(sheets);
@@ -54,6 +63,7 @@ public final class AdventurePrologueApplicationService {
         this.gmAgent = gmAgent;
         this.packages = packages;
         this.evidenceSearch = evidenceSearch;
+        this.narrationSafety = narrationSafety;
     }
 
     public Adventure ensure(AdventureId adventureId, OwnerPlayerId owner) {
@@ -70,17 +80,19 @@ public final class AdventurePrologueApplicationService {
                 .map(value -> "story-plan:stage-" + stage.position() + ":" + value).toList();
         AdventurePrologueGenerationPort.Request fallbackRequest = new AdventurePrologueGenerationPort.Request(stage, party, evidence);
         String narration;
+        EvidencePack selectedEvidence = null;
         if (gmAgent == null) {
             narration = generator.generate(fallbackRequest);
         } else {
             try {
+                selectedEvidence = prologueEvidence(adventure, owner, stage);
                 narration = gmAgent.plan(new GmContextEnvelope(
                         adventure.id(), owner, adventure.sessionId().value(), java.util.UUID.randomUUID(),
                         adventure.scenarioId().value(), 0, adventure.currentContext(), null,
                         "모험의 첫 장면을 한국어로 생생하게 열어 주세요. 장소: " + stage.location() +
                                 ", 목표: " + stage.goal() + ", 갈등: " + stage.conflict() +
                                 ". 단서: " + String.join(", ", stage.npcOrClues()),
-                        prologueEvidence(adventure, owner, stage),
+                        selectedEvidence,
                         java.util.List.of(), party.stream().map(value -> value.name() + " (레벨 " + value.level() + ")").toList(),
                         "첫 단계: " + stage.title(), "", "", "")).plan().narration();
             } catch (RuntimeException failure) {
@@ -88,6 +100,12 @@ public final class AdventurePrologueApplicationService {
                         failure.getClass().getSimpleName(), failure.getMessage(), failure);
                 narration = generator.generate(fallbackRequest);
             }
+        }
+        if (narrationSafety != null && selectedEvidence != null
+                && !narrationSafety.assess(new NarrationSafetyRequest(narration, selectedEvidence,
+                        adventure.currentContext(), "prologue")).approved()) {
+            LOGGER.warn("adventure_prologue_narration_rejected fallback=deterministic");
+            narration = generator.generate(fallbackRequest);
         }
         try {
             if (narration == null || narration.isBlank()) {
