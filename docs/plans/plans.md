@@ -1,14 +1,14 @@
-# GM Eval Suite v1 Plan Index
+# Runtime Narrative Generation Plan Index
 
-Parent issue: [#204](https://github.com/omegafrog/dnd-master/issues/204)
+Parent issue: [#225](https://github.com/omegafrog/dnd-master/issues/225)
 
-| Plan | Issue | Status | Depends on | Vertical outcome |
-| --- | --- | --- | --- | --- |
-| [EVAL-001](eval-001-eval-model-hard-constraints.md) | [#215](https://github.com/omegafrog/dnd-master/issues/215) | `completed` | — | EvalCase contract, dataset loading, deterministic hard absolute evaluation. |
-| [EVAL-002](eval-002-rubric-judge-absolute-quality.md) | [#214](https://github.com/omegafrog/dnd-master/issues/214) | `completed` | EVAL-001 | Anchored LLM rubric judging and absolute quality result. |
-| [EVAL-003](eval-003-pairwise-evaluation.md) | [#216](https://github.com/omegafrog/dnd-master/issues/216) | `completed` | EVAL-001, EVAL-002 | Same-case A/B pairwise verdict and evidence. |
-| [EVAL-004](eval-004-runner-report-seed-benchmark.md) | [#217](https://github.com/omegafrog/dnd-master/issues/217) | `ready-for-agent` | EVAL-001, EVAL-002, EVAL-003 | Dataset runner, report, and v1 benchmark. |
+| Plan | Source issue | Status | Depends on | Vertical outcome |
+|---|---:|---|---|---|
+| [RN-001](RN-001-runtime-narrative-state.md) | [#226](https://github.com/omegafrog/dnd-master/issues/226) / #206 | `ready-for-agent` | #218, #219 | Typed Runtime Narrative State, epistemic-safe projection, validated State Delta commit. |
+| [RN-002](RN-002-best-of-n-planning.md) | [#227](https://github.com/omegafrog/dnd-master/issues/227) / #208 | `planned` | RN-001 | Configurable compact plan candidates, hard filter, judge, selected-plan handoff. |
+| [RN-003](RN-003-narrative-verifier.md) | [#228](https://github.com/omegafrog/dnd-master/issues/228) / #207 | `planned` | RN-001, RN-002 | Structured final verification and one bounded same-turn rewrite. |
+| [RN-004](RN-004-style-exemplar-retrieval.md) | [#229](https://github.com/omegafrog/dnd-master/issues/229) / #209 | `planned` | RN-003 | Separate style exemplar retrieval, provenance-safe writer context. |
 
 ## Dependency decision
 
-`EVAL-001`, `EVAL-002`, and `EVAL-003` are completed; EVAL-004 is now `ready-for-agent` because all dependencies are complete.
+RN-001 is executable because completed #218/#219 provide resolved-turn and writer seams. RN-002 depends on actor-safe runtime context. RN-003 depends on selected plans and writer delivery. RN-004 depends on verifier admission rules and the final writer handoff.
