@@ -25,11 +25,11 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
 
     @Override
     public Optional<RuntimeTurn> findByTurnId(UUID turnId) {
-        String sql = "SELECT runtime_turn_json FROM adventure_runtime_turn WHERE turn_id = ?";
+        String sql = "SELECT runtime_turn_json, turn_id, command_id, session_id, scenario_package_id FROM adventure_runtime_turn WHERE turn_id = ?";
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setObject(1, turnId);
             try (ResultSet row = statement.executeQuery()) {
-                return row.next() ? Optional.of(read(row.getString("runtime_turn_json"))) : Optional.empty();
+                return row.next() ? Optional.of(read(row)) : Optional.empty();
             }
         } catch (SQLException exception) {
             throw new RuntimeTurnPersistenceException("could not load runtime turn", exception);
@@ -38,11 +38,11 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
 
     @Override
     public Optional<RuntimeTurn> findByCommandId(UUID commandId) {
-        String sql = "SELECT runtime_turn_json FROM adventure_runtime_turn WHERE command_id = ?";
+        String sql = "SELECT runtime_turn_json, turn_id, command_id, session_id, scenario_package_id FROM adventure_runtime_turn WHERE command_id = ?";
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setObject(1, commandId);
             try (ResultSet row = statement.executeQuery()) {
-                return row.next() ? Optional.of(read(row.getString("runtime_turn_json"))) : Optional.empty();
+                return row.next() ? Optional.of(read(row)) : Optional.empty();
             }
         } catch (SQLException exception) {
             throw new RuntimeTurnPersistenceException("could not load runtime turn by command id", exception);
@@ -51,12 +51,12 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
 
     @Override
     public List<RuntimeTurn> findAllByAdventureId(AdventureId adventureId) {
-        String sql = "SELECT runtime_turn_json FROM adventure_runtime_turn WHERE adventure_id = ? ORDER BY created_at, turn_id";
+        String sql = "SELECT runtime_turn_json, turn_id, command_id, session_id, scenario_package_id FROM adventure_runtime_turn WHERE adventure_id = ? ORDER BY created_at, turn_id";
         List<RuntimeTurn> turns = new ArrayList<>();
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setObject(1, adventureId.value());
             try (ResultSet rows = statement.executeQuery()) {
-                while (rows.next()) turns.add(read(rows.getString("runtime_turn_json")));
+                while (rows.next()) turns.add(read(rows));
             }
             return turns;
         } catch (SQLException exception) {
@@ -66,11 +66,11 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
 
     @Override
     public List<RuntimeTurn> findAllBySessionId(UUID sessionId) {
-        String sql = "SELECT runtime_turn_json FROM adventure_runtime_turn WHERE session_id = ? ORDER BY created_at, turn_id";
+        String sql = "SELECT runtime_turn_json, turn_id, command_id, session_id, scenario_package_id FROM adventure_runtime_turn WHERE session_id = ? ORDER BY created_at, turn_id";
         List<RuntimeTurn> turns = new ArrayList<>();
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setObject(1, sessionId);
-            try (ResultSet rows = statement.executeQuery()) { while (rows.next()) turns.add(read(rows.getString("runtime_turn_json"))); }
+            try (ResultSet rows = statement.executeQuery()) { while (rows.next()) turns.add(read(rows)); }
             return turns;
         } catch (SQLException exception) { throw new RuntimeTurnPersistenceException("could not list runtime turns by session", exception); }
     }
@@ -128,12 +128,10 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
         }
     }
 
-    private RuntimeTurn read(String json) throws SQLException {
-        try {
-            return objectMapper.readValue(json, RuntimeTurn.class);
-        } catch (Exception exception) {
-            throw new SQLException("could not read runtime turn", exception);
-        }
+    private RuntimeTurn read(ResultSet row) throws SQLException {
+        return RuntimeTurnJsonCompatibilityAdapter.read(objectMapper, row.getString("runtime_turn_json"),
+                (UUID) row.getObject("turn_id"), (UUID) row.getObject("command_id"),
+                (UUID) row.getObject("session_id"), (UUID) row.getObject("scenario_package_id"));
     }
 
     private String write(RuntimeTurn turn) throws SQLException {

@@ -1,0 +1,13 @@
+package com.dndmaster.gmeval.tuning;
+
+public enum TuningRejectionReason {
+    MISSING_PREREQUISITE,
+    INSUFFICIENT_FAILURE_EVIDENCE,
+    UNSAFE_SAMPLE,
+    SPLIT_LEAKAGE,
+    NON_TRAIN_SAMPLE,
+    PROVENANCE_INVALID,
+    COMPARISON_MISMATCH,
+    ROLE_MISMATCH,
+    NO_ELIGIBLE_SAMPLES
+}

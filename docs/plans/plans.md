@@ -1,14 +1,14 @@
-# Runtime Narrative Generation Plan Index
+# GM Turn Lifecycle And Quality Governance Plan Index
 
-Parent issue: [#225](https://github.com/omegafrog/dnd-master/issues/225)
-
-| Plan | Source issue | Status | Depends on | Vertical outcome |
+| Plan | Parent | Status | Dependencies | Vertical outcome |
 |---|---:|---|---|---|
-| [RN-001](RN-001-runtime-narrative-state.md) | [#226](https://github.com/omegafrog/dnd-master/issues/226) / #206 | `completed` | #218, #219 | Typed Runtime Narrative State, epistemic-safe projection, validated State Delta commit. |
-| [RN-002](RN-002-best-of-n-planning.md) | [#227](https://github.com/omegafrog/dnd-master/issues/227) / #208 | `completed` | RN-001 | Configurable compact plan candidates, hard filter, judge, selected-plan handoff. |
-| [RN-003](RN-003-narrative-verifier.md) | [#228](https://github.com/omegafrog/dnd-master/issues/228) / #207 | `completed` | RN-001, RN-002 | Structured final verification and one bounded same-turn rewrite. |
-| [RN-004](RN-004-style-exemplar-retrieval.md) | [#229](https://github.com/omegafrog/dnd-master/issues/229) / #209 | `completed` | RN-003 | Separate style exemplar retrieval, provenance-safe writer context. |
+| [220](220-planning-diagnostics-compatibility.md) | #220 | `completed` | #219 completed | diagnostics, legacy replay, duplicate/retry compatibility |
+| [GMQ-001](GMQ-001-prompt-registry-baseline.md) | [#231](https://github.com/omegafrog/dnd-master/issues/231) / #210 | `ready-for-agent` | #220 | role registry, baseline, split contract |
+| [GMQ-002](GMQ-002-gated-prompt-evaluation.md) | [#232](https://github.com/omegafrog/dnd-master/issues/232) / #210 | `planned` | GMQ-001 | hard-gated candidate Eval/report |
+| [GMQ-003](GMQ-003-prompt-approval-rollback.md) | [#233](https://github.com/omegafrog/dnd-master/issues/233) / #210 | `planned` | GMQ-002 | review, activation, lineage, rollback |
+| [GMQ-004](GMQ-004-tuning-readiness-gate.md) | [#234](https://github.com/omegafrog/dnd-master/issues/234) / #211 | `planned` | GMQ-003 | data/evidence tuning gate |
+| [GMQ-005](GMQ-005-role-scoped-tuning-evaluation.md) | [#235](https://github.com/omegafrog/dnd-master/issues/235) / #211 | `planned` | GMQ-004 | guarded role tuning activation |
 
-## Dependency decision
+## Dependency Decision
 
-RN-001 is executable because completed #218/#219 provide resolved-turn and writer seams. RN-002 depends on actor-safe runtime context. RN-003 depends on selected plans and writer delivery. RN-004 depends on verifier admission rules and the final writer handoff.
+`#218`, `#219` completed prerequisites. `#220` only dependency-free executable plan. Prompt optimization starts after diagnostics/compatibility. Fine-tuning starts only through readiness gate.
