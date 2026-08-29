@@ -24,10 +24,10 @@ changed_files:
 tests: "./gradlew :gm-eval-service:test :architecture-tests:test --rerun-tasks --no-daemon; git diff --check; graphify update ."
 regression: "not run; EVAL-001 has no production dependency and focused module plus architecture tests passed"
 verification: "BUILD SUCCESSFUL; 3 EVAL-001 tests and architecture module expectation passed; graphify update completed with known SQL parser warnings"
-review_standards: pending
-review_spec: pending
+review_standards: "manual fixed-point review passed; no unrelated production modules/endpoints changed, module registration and immutable value objects are scoped to EVAL-001; independent review subagent unavailable in this runtime"
+review_spec: "manual fixed-point review passed for standalone module, schema-version rejection, typed PASS/FAIL/UNEVALUATED separation, deterministic supplied-response evaluation, and no provider coupling; independent review subagent unavailable in this runtime"
 blocker: none
-next_action: run separated code review, commit, and hand off EVAL-002
+next_action: none; commit 5b819998 completed EVAL-001 and EVAL-002 is ready-for-agent
 handoff_reason: milestone
 smart_zone:
   state: completed
