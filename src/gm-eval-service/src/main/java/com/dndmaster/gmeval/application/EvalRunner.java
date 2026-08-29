@@ -23,6 +23,7 @@ public final class EvalRunner {
         return report;
     }
     public EvalRunReport run(List<EvalCase> cases, EvalRunConfiguration config, ResponseGeneratorPort generator, Map<String, PairwiseResponse> pairwiseResponses) {
+        if (config == null) throw new IllegalArgumentException("run configuration required");
         if (cases == null || cases.isEmpty()) throw new IllegalArgumentException("dataset must not be empty");
         if (generator == null) throw new IllegalArgumentException("response generator required");
         List<EvalRunReport.CaseReport> reports = new ArrayList<>();

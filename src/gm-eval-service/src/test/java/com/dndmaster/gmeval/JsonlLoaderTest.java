@@ -26,4 +26,12 @@ class JsonlLoaderTest {
         Files.writeString(file, base.replace("\"hardExpectations\":[]", "\"hardExpectations\":{}") + "\n");
         assertThrows(IllegalArgumentException.class, () -> new JsonlEvalDatasetLoader().load(file));
     }
+    @Test void rejectsMalformedContextShapes() throws Exception {
+        Path file = Files.createTempFile("eval-context", ".jsonl");
+        String base = "{\"schemaVersion\":1,\"caseId\":\"x\",\"playerInput\":\"look\",\"context\":%s,\"hardExpectations\":[],\"rubrics\":[]}\n";
+        Files.writeString(file, String.format(base, "{\"worldState\":{},\"playerKnowledge\":{},\"storyStage\":\"start\"}"));
+        assertThrows(IllegalArgumentException.class, () -> new JsonlEvalDatasetLoader().load(file));
+        Files.writeString(file, String.format(base, "{\"worldState\":\"bad\",\"playerKnowledge\":[],\"storyStage\":\"start\"}"));
+        assertThrows(IllegalArgumentException.class, () -> new JsonlEvalDatasetLoader().load(file));
+    }
 }

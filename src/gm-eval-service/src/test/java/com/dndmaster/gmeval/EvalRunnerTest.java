@@ -46,4 +46,7 @@ class EvalRunnerTest {
         assertDoesNotThrow(() -> EvalDatasetIntegrity.validateSeed(cases));
         assertEquals(36, cases.size());
     }
+    @Test void rejectsNullConfigurationBeforeGeneration() {
+        assertThrows(IllegalArgumentException.class, () -> new EvalRunner(null, null).run(List.of(c("x", "quality")), null, (x, y) -> { throw new AssertionError(); }, null));
+    }
 }

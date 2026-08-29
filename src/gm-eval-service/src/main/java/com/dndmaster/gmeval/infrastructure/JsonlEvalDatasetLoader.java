@@ -17,6 +17,7 @@ public final class JsonlEvalDatasetLoader {
   try { List<EvalCase> result=new ArrayList<>(); Set<String> ids=new HashSet<>();
    for(String line:Files.readAllLines(path)) { if(line.isBlank()) continue; JsonNode n=mapper.readTree(line); if(n.path("schemaVersion").asInt(-1)!=1) throw new IllegalArgumentException("unsupported schemaVersion");
     String id=text(n,"caseId"), input=text(n,"playerInput"); JsonNode ctx=n.path("context"); if(!n.has("hardExpectations") || !n.has("rubrics") || !n.path("hardExpectations").isArray() || !n.path("rubrics").isArray()) throw new IllegalArgumentException("hardExpectations and rubrics must be arrays");
+    if (!ctx.isObject()) throw new IllegalArgumentException("context must be object");
     EvalContext context=new EvalContext(map(ctx,"worldState"),map(ctx,"playerKnowledgeFacts"),strings(ctx,"playerKnowledge"),text(ctx,"storyStage"),map(ctx,"turnPlan"),map(ctx,"resolvedContext"));
     List<HardExpectation> expectations=new ArrayList<>(); for(JsonNode e:n.path("hardExpectations")) expectations.add(expectation(e));
     List<QualityRubric> rubrics=new ArrayList<>(); for(JsonNode r:n.path("rubrics")) { Map<Integer,String> anchors=new HashMap<>(); r.path("anchors").fields().forEachRemaining(x->anchors.put(Integer.valueOf(x.getKey()),x.getValue().asText())); rubrics.add(new QualityRubric(text(r,"dimension"),anchors)); }
@@ -29,6 +30,6 @@ public final class JsonlEvalDatasetLoader {
   case "RULE_CONTRADICTION" -> new HardExpectation.RuleContradiction(cat,id,text(e,"authoritativeRule")); case "STATE_MUTATION" -> new HardExpectation.StateMutation(cat,id,text(e,"stateFact"),text(e,"expectedValue"));
   case "AGENCY_VIOLATION" -> new HardExpectation.AgencyViolation(cat,id,text(e,"voluntaryAction")); case "UNSUPPORTED" -> new HardExpectation.Unsupported(cat,id,text(e,"reason")); default -> throw new IllegalArgumentException("unknown expectation type: "+type); }; }
  private static String text(JsonNode n,String k) { String v=n.path(k).isTextual()?n.path(k).asText():""; if(v.isBlank()) throw new IllegalArgumentException("missing "+k); return v; }
- private static Map<String,Object> map(JsonNode n,String k) { if(!n.has(k)||n.path(k).isNull()) return Map.of(); return new ObjectMapper().convertValue(n.path(k),Map.class); }
- private static List<String> strings(JsonNode n,String k) { List<String> out=new ArrayList<>(); for(JsonNode x:n.path(k)) out.add(x.asText()); return out; }
+ private static Map<String,Object> map(JsonNode n,String k) { if(!n.has(k)) return Map.of(); if(!n.path(k).isObject()) throw new IllegalArgumentException(k+" must be object"); return new ObjectMapper().convertValue(n.path(k),Map.class); }
+ private static List<String> strings(JsonNode n,String k) { if(!n.has(k)) return List.of(); if(!n.path(k).isArray()) throw new IllegalArgumentException(k+" must be array"); List<String> out=new ArrayList<>(); for(JsonNode x:n.path(k)) { if(!x.isTextual()) throw new IllegalArgumentException(k+" entries must be strings"); out.add(x.asText()); } return out; }
 }
