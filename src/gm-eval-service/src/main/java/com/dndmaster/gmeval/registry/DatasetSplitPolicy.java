@@ -36,6 +36,19 @@ public final class DatasetSplitPolicy {
         }
     }
 
+    /** Search is train-only; selection is dev-only. Holdout remains a separate final check. */
+    public static void validateForPhase(List<DatasetCaseRef> cases,
+                                        com.dndmaster.gmeval.optimization.OptimizationPhase phase) {
+        Objects.requireNonNull(phase, "optimization phase required");
+        validate(cases);
+        DatasetSplit expected = phase == com.dndmaster.gmeval.optimization.OptimizationPhase.SEARCH
+                ? DatasetSplit.TRAIN : DatasetSplit.DEV;
+        if (cases.stream().anyMatch(value -> value.split() != expected)) {
+            throw new IllegalArgumentException(phase.name().toLowerCase(Locale.ROOT)
+                    + " phase requires " + expected.name().toLowerCase(Locale.ROOT) + " cases");
+        }
+    }
+
     private static void checkNoCrossSplitLeak(Map<String, DatasetSplit> seen, String key,
                                                DatasetSplit split, String kind) {
         DatasetSplit previous = seen.putIfAbsent(key, split);
