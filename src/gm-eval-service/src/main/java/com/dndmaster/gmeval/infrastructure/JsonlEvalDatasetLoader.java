@@ -9,6 +9,10 @@ import java.util.*;
 /** Loads one self-contained, schema-versioned EvalCase per JSONL line. */
 public final class JsonlEvalDatasetLoader {
  private final ObjectMapper mapper = new ObjectMapper();
+ public List<EvalCase> loadResource(String resource) {
+  try { var stream = JsonlEvalDatasetLoader.class.getClassLoader().getResourceAsStream(resource); if (stream == null) throw new IllegalArgumentException("dataset resource not found: " + resource); Path temp = Files.createTempFile("gm-eval-resource", ".jsonl"); Files.copy(stream, temp, StandardCopyOption.REPLACE_EXISTING); try { return load(temp); } finally { Files.deleteIfExists(temp); } }
+  catch (IOException e) { throw new IllegalArgumentException("invalid eval dataset resource", e); }
+ }
  public List<EvalCase> load(Path path) {
   try { List<EvalCase> result=new ArrayList<>(); Set<String> ids=new HashSet<>();
    for(String line:Files.readAllLines(path)) { if(line.isBlank()) continue; JsonNode n=mapper.readTree(line); if(n.path("schemaVersion").asInt(-1)!=1) throw new IllegalArgumentException("unsupported schemaVersion");
