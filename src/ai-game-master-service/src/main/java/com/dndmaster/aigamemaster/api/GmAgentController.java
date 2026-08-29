@@ -2,6 +2,13 @@ package com.dndmaster.aigamemaster.api;
 
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmProviderRequest;
+import com.dndmaster.aigamemaster.infrastructure.ai.EffectiveGmProviderSelection;
+import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionResult;
+import com.dndmaster.aigamemaster.infrastructure.ai.GmCandidateLifecycleResult;
+import com.dndmaster.aigamemaster.infrastructure.ai.GmProviderSelectionUnresolvedException;
+import com.dndmaster.aigamemaster.infrastructure.ai.RequestedGmProviderSelection;
+import com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException;
+import com.dndmaster.aigamemaster.application.rule.GmCitationBinding;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.UUID;
@@ -23,6 +30,34 @@ public final class GmAgentController {
         this.adapter = adapter;
         this.mapper = mapper;
         this.requestGuard = requestGuard;
+    }
+
+    @PostMapping("/internal/v2/gm/agent-turns")
+    V2Response planV2(@RequestHeader(value = "X-Internal-Token", required = false) String token,
+                      @RequestBody V2Request request) {
+        requestGuard.internal(token);
+        if (request == null || request.action() == null || request.action().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "action required");
+        }
+        if (request.requestedSelection() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "requestedSelection required");
+        }
+        try {
+            GmCandidateLifecycleResult<Response> lifecycle = adapter.completeWithOneRepair(
+                    request.operationKey(), prompt(request.toLegacyRequest()),
+                    initialCandidate -> repairPrompt(request, initialCandidate),
+                    json -> validateCandidate(request, parseStrictCompleteResponse(json)),
+                    request.requestedSelection());
+            GmCompletionResult<Response> completion = lifecycle.completion();
+            return new V2Response(completion.response(), RequestedSelection.from(request.requestedSelection()),
+                    EffectiveSelection.from(completion.effectiveSelection()), lifecycle.attemptCount(), List.of());
+        } catch (GmProviderSelectionUnresolvedException unresolved) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, unresolved.code());
+        } catch (ProviderMalformedResponseException malformed) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "GM provider unavailable", malformed);
+        } catch (RuntimeException providerFailure) {
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "GM provider unavailable", providerFailure);
+        }
     }
 
     @PostMapping("/internal/v1/gm/agent-turns")
@@ -52,18 +87,18 @@ public final class GmAgentController {
         return new Response(response.scene(), response.npcState(), response.judgment(), response.narration(),
                 response.proposedActiveSourceContext(), response.citedEvidence(), response.warnings(),
                 request.provider(), request.model(), request.reasoning(), response.stateDelta(), response.toolCalls(),
-                response.advanceStoryPlan(), response.selectedBranchId());
+                response.advanceStoryPlan(), response.selectedBranchId(), response.citationBindings());
     }
 
     private Response complete(Request request, String operation, String prompt) {
         if (request.provider() == null || request.provider().isBlank()) {
-            return adapter.complete(operation, prompt, json -> parseCompleteResponse(json, request.storyPlanContext()));
+            return adapter.complete(operation, prompt, this::parseCompleteResponse);
         }
-        return adapter.complete(operation, prompt, json -> parseCompleteResponse(json, request.storyPlanContext()),
+        return adapter.complete(operation, prompt, this::parseCompleteResponse,
                 new GmProviderRequest(request.provider(), request.model(), request.reasoning()));
     }
 
-    private Response parseCompleteResponse(String json, String storyPlanContext) {
+    private Response parseCompleteResponse(String json) {
             try {
                 // Luna occasionally emits an empty object for the read-only state
                 // delta and a structured object for npcState/advanceStoryPlan.
@@ -98,34 +133,24 @@ public final class GmAgentController {
                         || active.path("excerpt").asText().isBlank())) {
                     normalized.putNull("proposedActiveSourceContext");
                 }
-                normalizeStoryPlanTransition(normalized, storyPlanContext);
-                if (!normalized.has("scene") || normalized.get("scene").isNull()
-                        || normalized.get("scene").asText().isBlank()) normalized.put("scene", "current");
-                if (!normalized.has("judgment") || normalized.get("judgment").isNull()
-                        || normalized.get("judgment").asText().isBlank()) {
-                    normalized.put("judgment", "The action is unresolved; the scene awaits the next meaningful choice.");
-                    ((com.fasterxml.jackson.databind.node.ArrayNode) normalized.get("warnings"))
-                            .add("Provider omitted a judgment; a neutral judgment was applied.");
+                com.fasterxml.jackson.databind.JsonNode advancePlan = normalized.get("advanceStoryPlan");
+            if (advancePlan == null || advancePlan.isNull()) normalized.put("advanceStoryPlan", false);
+            // Branch transitions are committed only by the deterministic runtime after it
+            // validates a known branch id. The free-form GM adapter must never request an
+            // unverified transition (the plan context can be abbreviated in the prompt).
+                if (advancePlan != null && advancePlan.isObject()) {
+                    normalized.put("advanceStoryPlan", true);
                 }
-                if (!normalized.has("narration") || normalized.get("narration").isNull()
-                        || normalized.get("narration").asText().isBlank()) {
-                    normalized.put("narration", "The scene holds, awaiting your next decision.");
-                    ((com.fasterxml.jackson.databind.node.ArrayNode) normalized.get("warnings"))
-                            .add("Provider omitted narration; a neutral narration was applied.");
-                }
-                if (!normalized.has("provider") || normalized.get("provider").isNull()
-                        || normalized.get("provider").asText().isBlank()) normalized.put("provider", "codex-cli");
-                if (!normalized.has("model") || normalized.get("model").isNull()
-                        || normalized.get("model").asText().isBlank()) normalized.put("model", "gpt-5.6-luna");
-                if (!normalized.has("reasoning") || normalized.get("reasoning").isNull()
-                        || normalized.get("reasoning").asText().isBlank()) normalized.put("reasoning", "none");
+                // Never trust a free-form branch object without deterministic validation.
+                normalized.put("advanceStoryPlan", false);
+                normalized.put("selectedBranchId", "");
                 Response response = mapper.treeToValue(normalized, Response.class);
                 if (response.proposedActiveSourceContext() instanceof String source
                         && source.isBlank()) {
                     response = new Response(response.scene(), response.npcState(), response.judgment(),
                             response.narration(), null, response.citedEvidence(), response.warnings(),
                             response.provider(), response.model(), response.reasoning(), response.stateDelta(),
-                            response.toolCalls(), response.advanceStoryPlan(), response.selectedBranchId());
+                            response.toolCalls(), response.advanceStoryPlan(), response.selectedBranchId(), response.citationBindings());
                 }
                 return requireComplete(response);
             } catch (Exception exception) {
@@ -134,44 +159,70 @@ public final class GmAgentController {
             }
     }
 
-    private void normalizeStoryPlanTransition(com.fasterxml.jackson.databind.node.ObjectNode normalized,
-                                              String storyPlanContext) {
-        com.fasterxml.jackson.databind.JsonNode advancePlan = normalized.get("advanceStoryPlan");
-        com.fasterxml.jackson.databind.JsonNode selectedBranch = normalized.get("selectedBranchId");
-        boolean explicitAdvance = advancePlan != null && advancePlan.isBoolean() && advancePlan.booleanValue();
-        String selectedBranchId = selectedBranch != null && selectedBranch.isTextual()
-                ? selectedBranch.textValue().trim() : "";
-        boolean linearAdvance = selectedBranchId.isBlank() && hasAvailableBranchesField(storyPlanContext)
-                && storyPlanBranches(storyPlanContext).isEmpty();
-        boolean knownBranch = !selectedBranchId.isBlank()
-                && storyPlanBranches(storyPlanContext).contains(selectedBranchId);
-        normalized.put("advanceStoryPlan", explicitAdvance && (knownBranch || linearAdvance));
-        normalized.put("selectedBranchId", explicitAdvance && knownBranch ? selectedBranchId : "");
-    }
-
-    private static boolean hasAvailableBranchesField(String storyPlanContext) {
-        return storyPlanContext != null && storyPlanContext.contains("availableBranches=");
-    }
-
-    private static java.util.Set<String> storyPlanBranches(String storyPlanContext) {
-        if (storyPlanContext == null) return java.util.Set.of();
-        String marker = "availableBranches=";
-        int start = storyPlanContext.indexOf(marker);
-        if (start < 0) return java.util.Set.of();
-        start += marker.length();
-        int end = storyPlanContext.indexOf(';', start);
-        String branches = (end < 0 ? storyPlanContext.substring(start) : storyPlanContext.substring(start, end)).trim();
-        if (branches.isBlank()) return java.util.Set.of();
-        return java.util.Arrays.stream(branches.split(","))
-                .map(String::trim).filter(value -> !value.isBlank()).collect(java.util.stream.Collectors.toUnmodifiableSet());
-    }
-
     private static void normalizeArrayField(com.fasterxml.jackson.databind.node.ObjectNode node, String field) {
         com.fasterxml.jackson.databind.JsonNode value = node.get(field);
-        if (value == null || value.isNull() || (value.isTextual() && value.asText().isBlank())
-                || (value.isObject() && value.size() == 0)) {
+        if (value != null && (value.isNull() || (value.isTextual() && value.asText().isBlank())
+                || (value.isObject() && value.size() == 0))) {
             node.putArray(field);
         }
+    }
+
+    private Response parseStrictCompleteResponse(String json) {
+        try {
+            com.fasterxml.jackson.databind.JsonNode node = mapper.readTree(json);
+            if (node == null || !node.isObject()) throw new IllegalArgumentException("candidate must be a JSON object");
+            return requireComplete(mapper.treeToValue(node, Response.class));
+        } catch (Exception exception) {
+            throw new ProviderMalformedResponseException("GM candidate malformed: " + safeMessage(exception));
+        }
+    }
+
+    private Response validateCandidate(V2Request request, Response response) {
+        if (!request.storybook().isEmpty() && response.citedEvidence().isEmpty()) {
+            throw new ProviderMalformedResponseException("GM candidate violation: storybook citation required");
+        }
+        List<?> allowed = java.util.stream.Stream.of(request.storybook(), request.rulebook(), request.resolution())
+                .flatMap(List::stream).toList();
+        if (response.citedEvidence().stream().anyMatch(citation -> !citationMatchesPack(citation, allowed))) {
+            throw new ProviderMalformedResponseException("GM candidate violation: citation is outside the Evidence Pack");
+        }
+        return response;
+    }
+
+    private boolean citationMatchesPack(Object citation, List<?> allowed) {
+        if (allowed.contains(citation)) return true;
+        if (citation instanceof java.util.Map<?, ?> candidate) {
+            return allowed.stream().anyMatch(item -> item instanceof java.util.Map<?, ?> evidence
+                    && sameValue(candidate, evidence, "type")
+                    && sameValue(candidate, evidence, "knowledgeDocumentId")
+                    && sameValue(candidate, evidence, "extractionVersion")
+                    && sameValue(candidate, evidence, "locator")
+                    && sameValue(candidate, evidence, "excerpt"));
+        }
+        try {
+            String serialized = mapper.writeValueAsString(citation);
+            return allowed.stream().anyMatch(item -> {
+                try {
+                    return serialized.equals(mapper.writeValueAsString(item));
+                } catch (Exception ignored) {
+                    return false;
+                }
+            });
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static boolean sameValue(java.util.Map<?, ?> left, java.util.Map<?, ?> right, String key) {
+        Object leftValue = left.get(key);
+        Object rightValue = right.get(key);
+        return leftValue != null && rightValue != null && String.valueOf(leftValue).equals(String.valueOf(rightValue));
+    }
+
+    private static String safeMessage(Exception exception) {
+        String message = exception.getMessage();
+        if (message == null || message.isBlank()) return "required candidate fields are missing";
+        return message.replaceAll("[\\r\\n]", " ").replaceAll("[0-9a-fA-F-]{24,}", "<redacted>");
     }
 
     private static boolean validCitation(com.fasterxml.jackson.databind.JsonNode item) {
@@ -198,6 +249,23 @@ public final class GmAgentController {
                 Do not make rule claims or invent facts. The player action is: %s
                 Current scene: %s
                 """.formatted(r.action(), r.currentScene());
+    }
+
+    private static String repairPrompt(V2Request request, String initialCandidate) {
+        GmCandidateViolation violation = GmCandidateViolation.malformed(
+                "initial candidate failed the required GM candidate envelope");
+        return """
+                Return exactly one repaired JSON object and no markdown.
+                Required keys: scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings, provider, model, reasoning, stateDelta, toolCalls, advanceStoryPlan, selectedBranchId.
+                Do not add semantic defaults, neutral narration, neutral judgment, or guessed citations.
+                Preserve the same requested provider selection and the same Evidence Pack below.
+                initialCandidate=%s
+                violations=[{"code":"%s","fieldPath":"%s","repairable":%s,"safeMessage":"%s"}]
+                storybook=%s rulebook=%s resolution=%s
+                playerAction=%s currentScene=%s
+                """.formatted(initialCandidate == null ? "" : initialCandidate, violation.code(), violation.fieldPath(),
+                violation.repairable(), violation.safeMessage(), request.storybook(), request.rulebook(), request.resolution(),
+                request.action(), request.currentScene());
     }
 
     @PostMapping("/internal/v1/gm/context-compactions")
@@ -305,11 +373,8 @@ public final class GmAgentController {
                 after the player has acted on it. Keep the player's action and the GM's response in conversational
                 spoken Korean, not as a request to "설명해줘" or a report.
                 For story-plan advancement, advanceStoryPlan MUST be false unless the player explicitly completed a
-                transition condition. For a linear authored stage where availableBranches is empty, you MAY set
-                advanceStoryPlan=true with selectedBranchId="" when the player explicitly completed its clearCondition.
-                When availableBranches is non-empty and advanceStoryPlan is true, selectedBranchId MUST be copied
-                exactly from a branch ID present in the supplied storyPlan; never invent branch IDs. If no valid branch
-                ID is visible for a branching stage, keep advanceStoryPlan=false.
+                transition condition. If it is true, selectedBranchId MUST be copied exactly from a branch ID present
+                in the supplied storyPlan; never invent branch IDs. If no valid branch ID is visible, keep it false.
                 adventureId=%s packageId=%s bindingVersion=%s action=%s
                 currentScene=%s npcState=%s pendingAction=%s latestJudgment=%s
                 storybook=%s rulebook=%s resolution=%s recentTurns=%s characters=%s storyPlan=%s
@@ -323,6 +388,42 @@ public final class GmAgentController {
                           List<?> storybook, List<?> rulebook, List<?> resolution, List<String> recentTurns,
                           List<String> characterSnapshots, String storyPlanContext, String provider, String model,
                           String reasoning) {}
+
+    public record V2Request(String operationKey, UUID adventureId, UUID ownerPlayerId, UUID sessionId, UUID turnId,
+                            UUID scenarioPackageId, long bindingVersion, String turnCapability, String action,
+                            String currentScene, String npcState, String pendingAction, String latestJudgment,
+                            List<?> storybook, List<?> rulebook, List<?> resolution, List<String> recentTurns,
+                            List<String> characterSnapshots, String storyPlanContext,
+                            RequestedGmProviderSelection requestedSelection) {
+        Request toLegacyRequest() {
+            return new Request(operationKey, adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId,
+                    bindingVersion, turnCapability, action, currentScene, npcState, pendingAction, latestJudgment,
+                    storybook, rulebook, resolution, recentTurns, characterSnapshots, storyPlanContext,
+                    requestedSelection.provider(), requestedSelection.model(), requestedSelection.reasoning());
+        }
+    }
+
+    public record V2Response(Response candidate, RequestedSelection requestedSelection,
+                             EffectiveSelection effectiveSelection, int attemptCount,
+                             List<GmCandidateViolation> violations) {
+        public V2Response(Response candidate, RequestedSelection requestedSelection,
+                          EffectiveSelection effectiveSelection, int attemptCount) {
+            this(candidate, requestedSelection, effectiveSelection, attemptCount, List.of());
+        }
+    }
+
+    public record RequestedSelection(UUID endpointId, String provider, String model, String reasoning) {
+        static RequestedSelection from(RequestedGmProviderSelection value) {
+            return new RequestedSelection(value.endpointId(), value.provider(), value.model(), value.reasoning());
+        }
+    }
+
+    public record EffectiveSelection(UUID endpointId, java.time.Instant endpointVersion,
+                                     String provider, String model, String reasoning) {
+        static EffectiveSelection from(EffectiveGmProviderSelection value) {
+            return new EffectiveSelection(value.endpointId(), value.endpointVersion(), value.provider(), value.model(), value.reasoning());
+        }
+    }
     public record CompanionCandidateRequest(UUID sessionId, String provider, String model, String reasoning) {}
     public record CompanionCandidateResponse(String name, String race, String characterClass, String sheetSummary) {}
 
@@ -342,6 +443,7 @@ public final class GmAgentController {
         requireText(response.narration(), "narration");
         requireText(response.provider(), "provider");
         requireText(response.model(), "model");
+        requireText(response.reasoning(), "reasoning");
         if (!response.stateDelta().isEmpty()) throw new IllegalArgumentException("read-only GM state delta must be empty");
         if (response.toolCalls() != null && response.toolCalls().stream().anyMatch(call -> call == null
                 || (!"dice.roll".equals(call.toolName()) && !"character.update".equals(call.toolName())
@@ -357,11 +459,17 @@ public final class GmAgentController {
 
     public record Response(String scene, String npcState, String judgment, String narration, Object proposedActiveSourceContext,
                            List<?> citedEvidence, List<String> warnings, String provider, String model, String reasoning,
-                           List<String> stateDelta, List<ToolCall> toolCalls, boolean advanceStoryPlan, String selectedBranchId) {
+                           List<String> stateDelta, List<ToolCall> toolCalls, boolean advanceStoryPlan, String selectedBranchId,
+                           List<GmCitationBinding> citationBindings) {
+        public Response {
+            citationBindings = citationBindings == null ? List.of() : List.copyOf(citationBindings);
+        }
+
         public Response(String scene, String npcState, String judgment, String narration, Object proposedActiveSourceContext,
                         List<?> citedEvidence, List<String> warnings, String provider, String model, String reasoning,
                         List<String> stateDelta) {
-            this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings, provider, model, reasoning, stateDelta, List.of(), false, "");
+            this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings, provider, model, reasoning,
+                    stateDelta, List.of(), false, "", List.of());
         }
         public record ToolCall(String toolName, String argumentsJson, boolean required) {}
     }

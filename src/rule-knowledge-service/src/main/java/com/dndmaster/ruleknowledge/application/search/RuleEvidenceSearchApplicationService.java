@@ -59,11 +59,13 @@ public final class RuleEvidenceSearchApplicationService {
                 .map(hit -> new RuleEvidenceResult(
                         hit.rulebookId(),
                         hit.chunkId(),
+                        hit.extractionVersion(),
                         hit.locator(),
                         hit.content(),
                         1.0 - hit.distance(),
                         hit.chapter(),
-                        hit.section()))
+                        hit.section(),
+                        hit.provenance()))
                 .toList();
     }
 }

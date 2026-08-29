@@ -14,6 +14,7 @@ import com.dndmaster.adventure.application.storyplan.FutureTacticalSceneRevision
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository;
 import com.dndmaster.adventure.application.session.AdventureSessionRepository;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort.ProjectionCandidate;
 import com.dndmaster.adventure.application.storyplan.TacticalScenePlanCandidate;
 import com.dndmaster.adventure.application.storyplan.TacticalSceneRequest;
 import com.dndmaster.adventure.application.storyplan.TacticalScenePlanValidator;
@@ -57,7 +58,7 @@ class FutureTacticalSceneRevisionPolicyTest {
         var sessions = mock(AdventureSessionRepository.class);
         when(sessions.findById(sessionId)).thenReturn(java.util.Optional.of(session));
         AdventureStoryPlanGenerationPort generator = new AdventureStoryPlanGenerationPort() {
-            public List<AdventureStoryPlanStage> generate(Request request) { return List.of(); }
+            public ProjectionCandidate generate(Request request) { return ProjectionCandidate.fromStages(List.of()); }
             public TacticalScenePlanCandidate generateTacticalScene(TacticalSceneRequest request) {
                 return TacticalScenePlanCandidate.ready(2, tactical, List.of(new AdventureStoryPlanGenerationPort.SourceCitation(
                         "STORYBOOK", EVIDENCE_DOCUMENT_ID, 1, EVIDENCE_LOCATOR,
@@ -163,7 +164,7 @@ class FutureTacticalSceneRevisionPolicyTest {
         int[] calls = {0};
         List<TacticalSceneRequest> requests = new java.util.ArrayList<>();
         AdventureStoryPlanGenerationPort generator = new AdventureStoryPlanGenerationPort() {
-            public List<AdventureStoryPlanStage> generate(Request request) { return List.of(); }
+            public ProjectionCandidate generate(Request request) { return ProjectionCandidate.fromStages(List.of()); }
             public TacticalScenePlanCandidate generateTacticalScene(TacticalSceneRequest request) {
                 calls[0]++;
                 requests.add(request);

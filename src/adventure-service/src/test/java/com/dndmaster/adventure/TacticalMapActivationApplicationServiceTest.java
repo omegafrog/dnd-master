@@ -46,8 +46,8 @@ class TacticalMapActivationApplicationServiceTest {
 
         var result = service.activate(packageVersion.packageId(), UUID.randomUUID(), UUID.randomUUID(), "stage", "crypt", "entered");
 
-        assertEquals(Optional.of(preparedId), result.combatMapId());
-        assertTrue(!result.textFallback());
+        assertEquals(Optional.empty(), result.combatMapId());
+        assertTrue(result.textFallback());
     }
 
     @Test

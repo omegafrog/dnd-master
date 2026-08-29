@@ -29,6 +29,20 @@ class GmTurnLifecycleTest {
         assertThrows(IllegalStateException.class,
                 () -> first.assertSameCommand(new GmInput.TextInput("move")));
         first.assertSameCommand(new GmInput.TextInput("look"));
+        assertThrows(IllegalStateException.class,
+                () -> first.assertSameCommand(1L, new GmInput.TextInput("look")));
+    }
+
+    @Test
+    void failed_retryable_is_terminal_and_cannot_be_reopened() {
+        GmTurn turn = GmTurn.start(UUID.randomUUID(), UUID.randomUUID(), 4L,
+                new GmInput.TextInput("look"));
+
+        GmTurn failed = turn.process().failRetryable("GM_CANDIDATE_MALFORMED");
+
+        assertEquals(GmTurnStatus.FAILED_RETRYABLE, failed.status());
+        assertThrows(IllegalStateException.class, failed::process);
+        assertThrows(IllegalStateException.class, () -> failed.failRetryable("again"));
     }
 
     @Test

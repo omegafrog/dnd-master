@@ -21,11 +21,11 @@ public final class TacticalMapActivationApplicationService {
 
     public Activation activate(UUID packageId, UUID adventureId, UUID ownerPlayerId,
             String stage, String location, String condition) {
-        var scenarioPackage = packages.findById(packageId).orElseThrow(() -> new IllegalArgumentException("scenario package not found"));
-        var decision = policy.decide(scenarioPackage, stage, location, condition);
-        if (decision.map().isEmpty()) return new Activation(Optional.empty(), decision.textFallback());
-        MapDefinition definition = decision.map().orElseThrow();
-        return new Activation(Optional.of(preparation.prepare(adventureId, ownerPlayerId, definition)), false);
+        // The legacy binding has no validated tactical scene snapshot. It may
+        // select a definition, but it cannot activate a map by itself.
+        packages.findById(packageId).orElseThrow(() -> new IllegalArgumentException("scenario package not found"));
+        policy.decide(packages.findById(packageId).orElseThrow(), stage, location, condition);
+        return new Activation(Optional.empty(), true);
     }
 
     public Activation activateDefinition(UUID packageId, UUID adventureId, UUID ownerPlayerId, UUID mapDefinitionId) {
@@ -33,12 +33,12 @@ public final class TacticalMapActivationApplicationService {
     }
 
     public Activation activateDefinition(UUID packageId, UUID adventureId, UUID ownerPlayerId, UUID ruleSetId, UUID mapDefinitionId) {
-        return activateDefinition(packageId, adventureId, ownerPlayerId, ruleSetId, mapDefinitionId, 0, 0);
+        throw new IllegalStateException("validated tactical scene is required before map activation");
     }
 
     public Activation activateDefinition(UUID packageId, UUID adventureId, UUID ownerPlayerId, UUID ruleSetId, UUID mapDefinitionId,
             int playerSpawnX, int playerSpawnY) {
-        return activateDefinition(packageId, adventureId, ownerPlayerId, ruleSetId, mapDefinitionId, null, playerSpawnX, playerSpawnY);
+        throw new IllegalStateException("validated tactical scene is required before map activation");
     }
 
     public Activation activateDefinition(UUID packageId, UUID adventureId, UUID ownerPlayerId, UUID ruleSetId, UUID mapDefinitionId,

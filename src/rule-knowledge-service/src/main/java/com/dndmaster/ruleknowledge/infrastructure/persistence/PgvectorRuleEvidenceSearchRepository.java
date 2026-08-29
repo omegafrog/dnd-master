@@ -3,6 +3,7 @@ package com.dndmaster.ruleknowledge.infrastructure.persistence;
 import com.dndmaster.ruleknowledge.application.search.RuleEvidenceSearchPort;
 import com.dndmaster.ruleknowledge.application.search.QueryIntent;
 import com.dndmaster.ruleknowledge.application.search.RuleSearchHit;
+import com.dndmaster.ruleknowledge.application.publication.SourceProvenance;
 import com.dndmaster.ruleknowledge.domain.index.ChunkId;
 import com.dndmaster.ruleknowledge.domain.rulebook.OwnerPlayerId;
 import com.dndmaster.ruleknowledge.domain.rulebook.RulebookId;
@@ -17,13 +18,25 @@ import javax.sql.DataSource;
 
 public final class PgvectorRuleEvidenceSearchRepository implements RuleEvidenceSearchPort {
     private static final String SEARCH = """
-            SELECT c.rulebook_id, c.chunk_id, c.locator, c.content,
+            SELECT c.document_id AS rulebook_id, c.chunk_id,
+                   CASE WHEN c.extraction_version ~ '^[0-9]+$' THEN c.extraction_version::bigint
+                        ELSE GREATEST(r.version, 1) END AS extraction_version,
+                   c.original_locator AS locator, c.content,
                    c.embedding <=> CAST(? AS vector) AS distance,
-                   c.chapter, c.section
-              FROM rulebook_vector_chunk c
-              JOIN rulebook_vector_index i ON i.index_id = c.index_id AND i.status = 'READY'
+                   array_to_string(c.section_path, ' / ') AS section,
+                   CASE WHEN cardinality(c.section_path) > 0 THEN c.section_path[1] ELSE NULL END AS chapter,
+                   c.page_number, c.bbox, c.table_cell, c.section_path
+              FROM published_rag_chunk c
+              JOIN rulebook_registration r
+                ON r.rulebook_id = c.document_id
+               AND r.owner_player_id = c.owner_player_id
+               AND r.published_extraction_version = c.extraction_version
+              JOIN rag_extraction_version v
+                ON v.document_id = c.document_id
+               AND v.extraction_version = c.extraction_version
+               AND v.status = 'INDEXED'
              WHERE c.owner_player_id = ?
-               AND c.rulebook_id = ANY (?)
+               AND c.document_id = ANY (?)
              ORDER BY c.embedding <=> CAST(? AS vector), c.sequence
              LIMIT ?
             """;
@@ -69,17 +82,34 @@ public final class PgvectorRuleEvidenceSearchRepository implements RuleEvidenceS
                     hits.add(new RuleSearchHit(
                             new RulebookId(rows.getObject("rulebook_id", UUID.class)),
                             new ChunkId(rows.getObject("chunk_id", UUID.class)),
+                            rows.getLong("extraction_version"),
                             rows.getString("locator"),
                             rows.getString("content"),
                             rows.getDouble("distance"),
                             rows.getString("chapter"),
-                            rows.getString("section")));
+                            rows.getString("section"),
+                            new SourceProvenance(rows.getInt("page_number"), textArray(rows, "section_path"),
+                                    doubleArray(rows, "bbox"), rows.getString("table_cell"), rows.getString("locator"))));
                 }
                 return List.copyOf(hits);
             }
         } catch (SQLException exception) {
             throw new RuleVectorPersistenceException("could not search rulebook vectors", exception);
         }
+    }
+
+    private static List<String> textArray(ResultSet rows, String column) throws SQLException {
+        Array array = rows.getArray(column);
+        if (array == null || array.getArray() == null) return List.of();
+        Object[] values = (Object[]) array.getArray();
+        return java.util.Arrays.stream(values).map(String::valueOf).toList();
+    }
+
+    private static List<Double> doubleArray(ResultSet rows, String column) throws SQLException {
+        Array array = rows.getArray(column);
+        if (array == null || array.getArray() == null) return List.of();
+        Object[] values = (Object[]) array.getArray();
+        return java.util.Arrays.stream(values).map(value -> ((Number) value).doubleValue()).toList();
     }
 
     private static String vectorLiteral(float[] values) {

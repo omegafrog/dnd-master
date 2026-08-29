@@ -7,7 +7,22 @@ import com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlan;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStatus;
 import com.dndmaster.adventure.domain.adventure.AdventureLength;
+import com.dndmaster.adventure.domain.adventure.AdventureGroundingStatus;
+import com.dndmaster.adventure.domain.adventure.AdventureStageType;
+import com.dndmaster.adventure.domain.adventure.CombatParticipant;
+import com.dndmaster.adventure.domain.adventure.CombatRequirement;
+import com.dndmaster.adventure.domain.adventure.CombatSkeleton;
+import com.dndmaster.adventure.domain.adventure.FogPlan;
+import com.dndmaster.adventure.domain.adventure.NormalizedCoordinate;
+import com.dndmaster.adventure.domain.adventure.PlacementGrounding;
 import com.dndmaster.adventure.domain.adventure.SessionId;
+import com.dndmaster.adventure.domain.adventure.TacticalPreparationRequirement;
+import com.dndmaster.adventure.domain.adventure.TacticalPlacement;
+import com.dndmaster.adventure.domain.adventure.TacticalPlacementKind;
+import com.dndmaster.adventure.domain.adventure.TacticalSceneBoundary;
+import com.dndmaster.adventure.domain.adventure.TacticalScenePlan;
+import com.dndmaster.adventure.domain.adventure.TacticalScenePlanStatus;
+import java.util.Map;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureStoryPlanRepository;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -77,21 +92,28 @@ class PostgresAdventureStoryPlanRepositoryIntegrationTest {
     }
 
     @Test
-    void persists_linear_story_plan_advance_at_the_next_stage_index() {
-        AdventureStoryPlan first = AdventureStoryPlan.ready(UUID.randomUUID(), sessionId, 1, 0, 1,
-                List.of(stage(1), stage(2)));
-        repository.save(first);
+    void rehydrates_the_lazy_scene_snapshot_with_the_plan_intent() {
+        var grounding = PlacementGrounding.aiInference("bounded player placement");
+        var scene = new TacticalScenePlan(TacticalScenePlan.CURRENT_SCHEMA_VERSION, TacticalScenePlanStatus.READY,
+                new TacticalSceneBoundary(new NormalizedCoordinate(0, 0), new NormalizedCoordinate(1, 1), List.of()),
+                List.of(new TacticalPlacement("player", TacticalPlacementKind.PLAYER, new NormalizedCoordinate(.1, .1), grounding)),
+                List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), new FogPlan(List.of(), grounding),
+                List.of(), List.of(), List.of());
+        var base = new com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage(1, "Cellar", "defeat rats", "rats", "exit",
+                List.of(), List.of(), List.of(), AdventureStageType.DUNGEON, "Cellar", UUID.randomUUID(), "asset", "locator",
+                List.of("rat"), "", "rats defeated", "retreat", List.of(), List.of(), List.of(), AdventureGroundingStatus.GROUNDED,
+                List.of(), "SAFE", 1.0, Map.of(), 0, 0, "UNAVAILABLE", "");
+        var stage = base.withCombat(CombatRequirement.REQUIRED,
+                new CombatSkeleton("defeat rats", "enter", List.of(CombatParticipant.enemy("rat", "rat", 1, 2, List.of())),
+                        "rats defeated", "retreat", List.of()), List.of(), TacticalPreparationRequirement.REQUIRED)
+                .withTacticalScenePlan(scene);
+        var plan = AdventureStoryPlan.ready(UUID.randomUUID(), sessionId, 1, 0, 1, List.of(stage));
 
-        repository.save(first.advanceTo(1), "GM_TURN:STORY_PLAN_ADVANCE");
+        repository.save(plan);
 
-        AdventureStoryPlan loaded = repository.findBySessionId(sessionId).orElseThrow();
-        assertEquals(1, loaded.currentStage());
-        assertEquals(2, repository.readHistory(sessionId).size());
-    }
-
-    private static com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage stage(int position) {
-        return new com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage(
-                position, "Stage " + position, "goal", "conflict", "transition", List.of(), List.of());
+        var loaded = new PostgresAdventureStoryPlanRepository(dataSource).findBySessionId(sessionId).orElseThrow();
+        assertEquals(TacticalPreparationRequirement.REQUIRED, loaded.stages().getFirst().tacticalPreparationRequirement());
+        assertEquals(scene, loaded.stages().getFirst().tacticalScenePlan());
     }
 
     @Test

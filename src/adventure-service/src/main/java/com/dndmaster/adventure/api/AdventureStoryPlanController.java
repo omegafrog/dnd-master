@@ -126,9 +126,9 @@ public final class AdventureStoryPlanController {
                 throw new ResponseStatusException(HttpStatus.CONFLICT, "only the current stage may be prepared");
             }
             var preparation = tacticalPreparation.prepare(new SessionId(sessionId), owner());
-            if (preparation.status() != TacticalScenePreparationApplicationService.Status.COMPLETE) {
+            if (preparation.state() != com.dndmaster.adventure.application.runtime.TacticalPreparationState.READY) {
                 throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        preparation.message() + " 사유: " + preparation.failureReason());
+                        preparation.message());
             }
             plan = service.read(new SessionId(sessionId), owner());
             stage = plan.stages().stream().filter(item -> item.position() == position).findFirst().orElseThrow();
@@ -155,6 +155,16 @@ public final class AdventureStoryPlanController {
         return TacticalPreparationView.from(tacticalPreparation.read(new SessionId(sessionId), owner(), position));
     }
 
+    @GetMapping("/stages/{position}/tactical-scene/prepare/diagnostics")
+    TacticalPreparationDiagnosticsView readTacticalSceneDiagnostics(@PathVariable UUID sessionId, @PathVariable int position,
+            @RequestHeader(value = "X-Internal-Token", required = false) String internalToken) {
+        requestGuard.internal(internalToken);
+        if (tacticalPreparation == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "tactical preparation is unavailable");
+        var diagnostics = tacticalPreparation.readDiagnostics(new SessionId(sessionId), owner(), position);
+        return new TacticalPreparationDiagnosticsView(diagnostics.jobStatus(), diagnostics.failureReason(),
+                diagnostics.sceneStatus(), diagnostics.mapActivationAllowed(), diagnostics.updatedAt());
+    }
+
     @PostMapping("/stages/{position}/tactical-scene/retry")
     TacticalPreparationView retryTacticalScene(@PathVariable UUID sessionId, @PathVariable int position) {
         if (tacticalPreparation == null) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "tactical preparation is unavailable");
@@ -168,36 +178,10 @@ public final class AdventureStoryPlanController {
     @PostMapping("/stages/{position}/tactical-scene/revise")
     PlayerPlanView reviseFutureTacticalScene(@PathVariable UUID sessionId, @PathVariable int position,
         @RequestHeader(value = "X-Internal-Token", required = false) String internalToken,
-            @RequestBody Object payload) {
+            @RequestBody RevisionRequest request) {
         requestGuard.internal(internalToken);
-        if (payload == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "revision request is required");
-        }
-        RevisionRequest request;
-        try {
-            var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            if (payload instanceof RevisionRequest revision) request = revision;
-            else {
-                var node = mapper.valueToTree(payload);
-                request = node.has("scene") ? mapper.treeToValue(node, RevisionRequest.class)
-                        : new RevisionRequest(null, null, mapper.treeToValue(node, TacticalScenePlan.class));
-            }
-        } catch (Exception invalid) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid tactical revision payload", invalid);
-        }
         if (request == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "revision request is required");
-        }
-        if (request.causingGmTurnId() == null && request.causingGmCommandId() == null && request.scene() != null) {
-            return PlayerPlanView.from(futureRevision.reviseWithoutCausation(new SessionId(sessionId), owner(), position, request.scene()));
-        }
-        return PlayerPlanView.from(futureRevision.revise(new SessionId(sessionId), owner(), position, request.causingGmTurnId(), request.causingGmCommandId()));
-    }
-
-    // Source-compatible adapter for controller-level tests and existing callers.
-    PlayerPlanView reviseFutureTacticalScene(UUID sessionId, int position, RevisionRequest request) {
-        if (request.causingGmTurnId() == null && request.causingGmCommandId() == null && request.scene() != null) {
-            return PlayerPlanView.from(futureRevision.reviseWithoutCausation(new SessionId(sessionId), owner(), position, request.scene()));
         }
         return PlayerPlanView.from(futureRevision.revise(new SessionId(sessionId), owner(), position, request.causingGmTurnId(), request.causingGmCommandId()));
     }
@@ -207,7 +191,9 @@ public final class AdventureStoryPlanController {
             @PathVariable String triggerId, @RequestBody(required = false) TriggerApplicationRequest request) {
         var session = sessions.read(new SessionId(sessionId), owner());
         var plan = service.read(new SessionId(sessionId), owner());
-        if (request == null) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "trigger request is required");
+        if (request == null || request.qualifyingAction() == null || request.qualifyingAction().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "qualifyingAction is required");
+        }
         if (session.status() != com.dndmaster.adventure.domain.adventure.AdventureSession.Status.STARTED
                 || session.startedAdventureId() == null) throw new ResponseStatusException(HttpStatus.CONFLICT, "adventure is not active");
         if (plan.currentStage() + 1 != position) throw new ResponseStatusException(HttpStatus.CONFLICT, "trigger stage is not the active stage");
@@ -222,15 +208,8 @@ public final class AdventureStoryPlanController {
     private com.dndmaster.adventure.application.runtime.TacticalTriggerEvaluator.Evaluation applyTriggerChecked(com.dndmaster.adventure.domain.adventure.AdventureSession session,
             int position, com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage stage, String triggerId, TriggerApplicationRequest request) {
         try {
-            String action = request.qualifyingAction();
-            if (action == null || action.isBlank()) {
-                action = stage.tacticalScenePlan().triggers().stream().filter(trigger -> trigger.id().equals(triggerId))
-                        .map(com.dndmaster.adventure.domain.adventure.TacticalTrigger::qualifyingAction).findFirst()
-                        .orElse("fallback-entry".equals(triggerId) ? "enter the area" : null);
-            }
-            if (action == null || action.isBlank()) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "qualifyingAction is required");
             return triggerRuntime.apply(session.startedAdventureId().value(), position, stage.tacticalScenePlan(), triggerId,
-                    action, request.combatMapId(), owner().value(), request.expectedVersion(), request.commandId());
+                    request.qualifyingAction(), request.combatMapId(), owner().value(), request.expectedVersion(), request.commandId());
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
         }
@@ -241,18 +220,18 @@ public final class AdventureStoryPlanController {
             int progress, int attempts, boolean mapRequired, String message, String failureReason, java.time.Instant updatedAt) {
         static TacticalPreparationView from(TacticalScenePreparationApplicationService.PreparationView view) {
             return new TacticalPreparationView(view.jobId(), view.sessionId(), view.stagePosition(), view.stageName(),
-                    view.status().name(), view.progress(), view.attempts(), view.mapRequired(), view.message(), view.failureReason(), view.updatedAt());
+                    view.state().name(), view.progress(), view.attempts(), view.mapRequired(), view.message(), null, view.updatedAt());
         }
     }
+    public record TacticalPreparationDiagnosticsView(String jobStatus, String failureReason, String sceneStatus,
+            boolean mapActivationAllowed, java.time.Instant updatedAt) {}
     public record TriggerApplicationRequest(UUID combatMapId, UUID commandId, long expectedVersion, String qualifyingAction) {
         public TriggerApplicationRequest(UUID combatMapId, UUID commandId, long expectedVersion) {
             this(combatMapId, commandId, expectedVersion, null);
         }
     }
     public record TriggerApplicationView(String triggerId, String type, List<String> targetIds, String transitionId) {}
-    public record RevisionRequest(UUID causingGmTurnId, UUID causingGmCommandId, TacticalScenePlan scene) {
-        public RevisionRequest(UUID turnId, UUID commandId) { this(turnId, commandId, null); }
-    }
+    public record RevisionRequest(UUID causingGmTurnId, UUID causingGmCommandId) {}
 
     private OwnerPlayerId owner() { return new OwnerPlayerId(playerResolver.playerId()); }
 
@@ -265,7 +244,7 @@ public final class AdventureStoryPlanController {
             int endingCount, String adventureLength,
             @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
             String failureReason) {
-        static PlayerPlanView from(AdventureStoryPlan plan) {
+        public static PlayerPlanView from(AdventureStoryPlan plan) {
             List<StageView> visible = plan.stages().stream()
                     .filter(stage -> stage.position() == plan.currentStage() + 1)
                     .map(StageView::from)
@@ -299,7 +278,8 @@ public final class AdventureStoryPlanController {
                     stage.playerSpawnX(), stage.playerSpawnY(), stage.playerSpawnConfidence(), stage.playerSpawnRationale());
         }
     }
-    public record EvidenceView(String documentType, UUID documentId, long extractionVersion, String locator, String quote, double confidence) {}
+    public record EvidenceView(String documentType, UUID documentId, long extractionVersion, String locator, String quote,
+            double confidence, com.dndmaster.adventure.domain.scenario.PublishedEvidenceProvenance provenance) {}
 
     public record GmPlanView(UUID planId, long packageRevision, long partyRevision, long version, String status, int currentStage,
             int endingCount, String adventureLength, List<GmStageView> stages, String failureReason, String auditId,
@@ -326,8 +306,8 @@ public final class AdventureStoryPlanController {
             static GmStageView from(com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage stage) {
             return new GmStageView(stage.position(), stage.title(), stage.stageType().name(), stage.location(), stage.goal(), stage.conflict(), stage.clearCondition(), stage.failureCondition(),
                     stage.enemies(), stage.boss(), stage.transitionCondition(), stage.rewards(), stage.branchIds(), stage.endingIds(), stage.mapDefinitionId(), stage.mapAssetId(), stage.mapAssetLocator(), stage.mapSafetyStatus(), stage.mapConfidence(), stage.branchTargets(),
-                    stage.groundingStatus().name(), stage.aiSuggestions(), stage.npcOrClues(), stage.evidence().stream().map(item -> new EvidenceView(item.documentType(), item.documentId(), item.extractionVersion(), item.locator(), item.quote(), item.confidence())).toList(),
-                    GmTacticalSceneView.from(stage.tacticalScenePlan(), stage.mapDefinitionId() != null));
+                    stage.groundingStatus().name(), stage.aiSuggestions(), stage.npcOrClues(), stage.evidence().stream().map(item -> new EvidenceView(item.documentType(), item.documentId(), item.extractionVersion(), item.locator(), item.quote(), item.confidence(), item.provenance())).toList(),
+                    GmTacticalSceneView.from(stage.tacticalScenePlan()));
         }
     }
 
@@ -335,19 +315,14 @@ public final class AdventureStoryPlanController {
             List<TacticalEnvironmentView> environments, List<TacticalTriggerView> triggers, List<TacticalOutcomeView> outcomes,
             List<CoordinateView> hiddenRegions, List<String> transitionIds,
             com.dndmaster.adventure.domain.adventure.TacticalScenePlan plan) {
-        static GmTacticalSceneView from(com.dndmaster.adventure.domain.adventure.TacticalScenePlan scene, boolean mapBound) {
+        static GmTacticalSceneView from(com.dndmaster.adventure.domain.adventure.TacticalScenePlan scene) {
             java.util.List<com.dndmaster.adventure.domain.adventure.TacticalPlacement> all = new java.util.ArrayList<>();
             all.addAll(scene.players()); all.addAll(scene.allies()); all.addAll(scene.npcs()); all.addAll(scene.enemies());
             all.addAll(scene.bosses()); all.addAll(scene.interactiveObjects());
-            var triggers = scene.triggers().stream().map(TacticalTriggerView::from).toList();
-            var outcomes = scene.outcomes().stream().map(TacticalOutcomeView::from).toList();
-            if (mapBound && triggers.isEmpty()) {
-                triggers = List.of(new TacticalTriggerView("fallback-entry", "COMBAT_ENTRY", List.of(), "", "enter the area", "AI_INFERENCE", "", "bounded map entry fallback"));
-                outcomes = List.of(new TacticalOutcomeView("fallback-entry-outcome", "the party enters the area", "AI_INFERENCE", "", "bounded map entry fallback"));
-            }
             return new GmTacticalSceneView(scene.status().name(), all.stream().map(TacticalPlacementView::from).toList(),
                     scene.environments().stream().map(TacticalEnvironmentView::from).toList(),
-                    triggers, outcomes,
+                    scene.triggers().stream().map(TacticalTriggerView::from).toList(),
+                    scene.outcomes().stream().map(TacticalOutcomeView::from).toList(),
                     scene.initialFog() == null ? List.of() : scene.initialFog().hiddenRegions().stream().map(CoordinateView::from).toList(), scene.transitionIds(), scene);
         }
     }

@@ -1,6 +1,7 @@
 from pathlib import Path
+from types import SimpleNamespace
 
-from preprocessing_agent.parsers.pdf import PdfDocumentParser
+from preprocessing_agent.parsers.pdf import PdfDocumentParser, _is_reliable_native_table
 
 
 def test_pymupdf_native_table_cells_are_projected_when_supported(tmp_path):
@@ -25,6 +26,17 @@ def test_pymupdf_native_table_cells_are_projected_when_supported(tmp_path):
     assert tables, "native table finder must expose a structured table"
     assert tables[0].table_id
     assert {cell.text for cell in tables[0].cells} >= {"Name", "Value", "Dex", "12"}
+
+
+def test_weak_native_table_detection_is_rejected_before_cell_projection():
+    weak_one_row = SimpleNamespace(rows=(SimpleNamespace(cells=((0, 0, 20, 10), (20, 0, 40, 10))),))
+    weak_missing_cell = SimpleNamespace(rows=(
+        SimpleNamespace(cells=((0, 0, 20, 10), (20, 0, 40, 10))),
+        SimpleNamespace(cells=((0, 10, 20, 20), None)),
+    ))
+
+    assert _is_reliable_native_table(weak_one_row) is False
+    assert _is_reliable_native_table(weak_missing_cell) is False
 
 
 def test_pdf_parser_preserves_order_layout_and_source_spans():

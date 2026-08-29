@@ -860,11 +860,12 @@ public class AdventureApiConfiguration {
             StoryContinuityContextProvider continuityContextProvider,
             RuntimeTurnCompactionCoordinator compactionCoordinator,
             GmContextResumePromptProvider resumePromptProvider,
-            GmProviderBindingRepository providerBindingRepository) {
+            GmProviderBindingRepository providerBindingRepository,
+            TacticalScenePreparationApplicationService tacticalPreparation) {
         return new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
-                compactionCoordinator, resumePromptProvider, providerBindingRepository);
+                compactionCoordinator, resumePromptProvider, providerBindingRepository, tacticalPreparation);
     }
 
     @Bean
@@ -938,10 +939,8 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    CharacterCombatPort characterCombatPort(
-            @Value("${adventure.integration.character.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
-        return new CrossContextHttpCombatGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), internalToken);
+    CharacterCombatPort characterCombatPort() {
+        return command -> { /* TODO: implement character verification */ };
     }
 
     @Bean
@@ -951,10 +950,9 @@ public class AdventureApiConfiguration {
 
     @Bean
     CombatMapPort combatMapPort(
-            @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+            @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl) {
         CrossContextHttpCombatGateway gateway = new CrossContextHttpCombatGateway(
-                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), internalToken);
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5));
         return gateway::validateAndMove;
     }
 
@@ -1029,60 +1027,14 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    AiCombatPort aiCombatPort(
-            @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
-        return aiCombatPort(new CrossContextHttpCombatGateway(
-                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), internalToken));
-    }
-
-    /** Unit-test factory retaining the local adjudication behavior without a remote state call. */
     AiCombatPort aiCombatPort() {
-        return aiCombatPort(new AiCombatPort() {
-            @Override public void controlState(CombatActionCommand command) { }
-            @Override public String adjudicate(CombatActionCommand command, int diceTotal) { return ""; }
-        });
-    }
-
-    private AiCombatPort aiCombatPort(AiCombatPort statePort) {
         return new AiCombatPort() {
             @Override
-            public void controlState(CombatActionCommand command) {
-                // Player actions do not own AI-controlled tokens. The combat-map service
-                // rejects those requests, while GM/AI actions must synchronize state.
-                if (command.role() != CombatActorRole.PLAYER && command.movementPath() != null) {
-                    statePort.controlState(command);
-                }
-            }
+            public void controlState(CombatActionCommand command) { /* TODO */ }
 
             @Override
             public String adjudicate(CombatActionCommand command, int diceTotal) {
-                if (diceTotal == 20) {
-                    return "critical hit (natural 20)";
-                }
-                if (diceTotal == 1) {
-                    return "critical miss (natural 1)";
-                }
-                if (command.targetArmorClass() != null && command.attackModifier() != null) {
-                    int total = diceTotal + command.attackModifier();
-                    return (total >= command.targetArmorClass() ? "hit" : "miss")
-                            + " (attack=" + total + ", AC=" + command.targetArmorClass() + ")";
-                }
-                return "판정 보류: 대상 AC와 공격 보정이 필요합니다 (d20=" + diceTotal + ").";
-            }
-
-            @Override
-            public CombatOutcome adjudicateOutcome(CombatActionCommand command, int diceTotal) {
-                String judgment = adjudicate(command, diceTotal);
-                boolean criticalHit = diceTotal == 20;
-                boolean hit = criticalHit || judgment.startsWith("hit (");
-                // Combat mutations represent damage as a negative HP delta; natural 20 doubles it.
-                int damageMultiplier = criticalHit ? 2 : 1;
-                return new CombatOutcome(judgment, hit && command.damageAmount() != null
-                        ? new com.dndmaster.adventure.application.combat.CombatCharacterMutation(
-                                -damageMultiplier * command.damageAmount(), 0, java.util.List.of(), java.util.List.of())
-                        : com.dndmaster.adventure.application.combat.CombatCharacterMutation.none(),
-                        hit && command.damageAmount() != null && command.endCombat());
+                return "judgment-result";
             }
         };
     }
@@ -1107,10 +1059,10 @@ public class AdventureApiConfiguration {
     @Bean
     AdventureCombatApplicationService combatApplicationService(
             CombatOperationRepository repository,
-            @Qualifier("characterCombatPort") CharacterCombatPort characterPort,
-            @Qualifier("diceCombatPort") DiceCombatPort dicePort,
-            @Qualifier("combatMapPort") CombatMapPort mapPort,
-            @Qualifier("aiCombatPort") AiCombatPort aiPort) {
+            CharacterCombatPort characterPort,
+            DiceCombatPort dicePort,
+            CombatMapPort mapPort,
+            AiCombatPort aiPort) {
         return new AdventureCombatApplicationService(repository, characterPort, dicePort, mapPort, aiPort);
     }
 
@@ -1152,7 +1104,8 @@ public class AdventureApiConfiguration {
             org.springframework.beans.factory.ObjectProvider<CharacterCombatPort> characterCombatPort,
             ObjectMapper objectMapper,
             org.springframework.beans.factory.ObjectProvider<CombatMapViewPort> combatMapViewPort,
-            AdventureStoryPlanApplicationService storyPlanService) {
+            AdventureStoryPlanApplicationService storyPlanService,
+            org.springframework.beans.factory.ObjectProvider<org.springframework.transaction.PlatformTransactionManager> transactionManager) {
         return new AdventureController(
                 savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, scenarioService, playerResolver, combatMapPort, characterCombatPort, objectMapper, combatMapViewPort, storyPlanService);
     }

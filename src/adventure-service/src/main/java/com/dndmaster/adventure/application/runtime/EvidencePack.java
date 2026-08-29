@@ -9,5 +9,16 @@ public record EvidencePack(List<RuntimeEvidence> storybook, List<RuntimeEvidence
         storybook = List.copyOf(Objects.requireNonNull(storybook, "storybook evidence must not be null"));
         rulebook = List.copyOf(Objects.requireNonNull(rulebook, "rulebook evidence must not be null"));
         resolution = List.copyOf(Objects.requireNonNull(resolution, "resolution evidence must not be null"));
+        if (storybook.size() + rulebook.size() + resolution.size() > 8) {
+            throw new IllegalArgumentException("evidence pack must contain at most eight items");
+        }
+    }
+
+    public List<RuntimeEvidence> all() {
+        return java.util.stream.Stream.of(storybook, rulebook, resolution).flatMap(List::stream).toList();
+    }
+
+    public int totalEvidenceCount() {
+        return storybook.size() + rulebook.size() + resolution.size();
     }
 }

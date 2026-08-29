@@ -130,6 +130,7 @@ public final class LegacyScenarioMigrationApplicationService {
     private static boolean isUsable(com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus status) {
         return switch (status) {
             case EXTRACTED, INDEXED, PARTIAL_AWAITING_CONFIRMATION, PARTIAL_CONFIRMED -> true;
+            case NEEDS_REVIEW -> false;
             default -> false;
         };
     }

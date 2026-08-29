@@ -1,13 +1,11 @@
 package com.dndmaster.adventure.application.storyplan;
 
 import com.dndmaster.adventure.application.session.AdventureSessionRepository;
-import com.dndmaster.adventure.domain.adventure.AdventurePartyMember;
 import com.dndmaster.adventure.domain.adventure.AdventureSession;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlan;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStatus;
 import com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration;
-import com.dndmaster.adventure.domain.adventure.AdventureLength;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanGraphValidator;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
@@ -23,12 +21,13 @@ import java.util.ArrayList;
 import java.util.Objects;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import java.util.UUID;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort;
 import com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort;
 import com.dndmaster.adventure.application.scenario.ScenarioBundleRepository;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionViolation.Repairability;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 public final class AdventureStoryPlanApplicationService {
     private static final Logger LOGGER = LoggerFactory.getLogger(AdventureStoryPlanApplicationService.class);
@@ -39,9 +38,12 @@ public final class AdventureStoryPlanApplicationService {
     private final ScenarioSourceExcerptPort sourceExcerptPort;
     private final AdventureStoryPlanGenerationPort generator;
     private final AdventureStoryPlanStageSourceValidator stageSourceValidator = new AdventureStoryPlanStageSourceValidator();
+    private final AdventureStoryPlanCombatValidator combatValidator = new AdventureStoryPlanCombatValidator();
+    private final ObjectMapper projectionMapper = new ObjectMapper();
 
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions) {
-        this(plans, sessions, null, request -> defaultStages(request.configuration()));
+        this(plans, sessions, null, request -> AdventureStoryPlanGenerationPort.ProjectionCandidate
+                .fromStages(defaultStages(request.configuration())));
     }
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
             ScenarioPackageRepository packages, AdventureStoryPlanGenerationPort generator) {
@@ -88,10 +90,25 @@ public final class AdventureStoryPlanApplicationService {
         if (scenarioPackage != null && scenarioPackage.report().status() != com.dndmaster.adventure.domain.scenario.ResolutionStatus.COMPLETE) {
             throw new IllegalStateException("story plan requires a COMPLETE scenario package report");
         }
+        if (scenarioPackage != null && bundles != null && sourceExcerptPort != null) {
+            ScenarioSourceBundle sourceBundle = bundles.findById(scenarioPackage.bundleId())
+                    .orElseThrow(() -> new IllegalStateException("scenario source bundle not found"));
+            try {
+                if (planExcerpts(sourceBundle).stream().noneMatch(excerpt ->
+                        "STORYBOOK".equalsIgnoreCase(excerpt.documentType())
+                                || "RULEBOOK".equalsIgnoreCase(excerpt.documentType()))) {
+                    throw new IllegalStateException("story plan requires published evidence");
+                }
+            } catch (IllegalStateException failure) {
+                throw failure;
+            } catch (RuntimeException failure) {
+                throw new IllegalStateException("published scenario evidence is unavailable", failure);
+            }
+        }
         AdventureStoryPlanGenerationPort.Request request = new AdventureStoryPlanGenerationPort.Request(
                 UUID.randomUUID().toString(), session.scenarioPackageRevision(), session.party().size(),
                 configuration, sourceDocuments(session), resolutionEvidence(session), mapContexts(scenarioPackage), citations(session, scenarioPackage))
-                .withPreviousCandidate(previous == null ? "" : previous.stages().toString());
+                .withPreviousCandidate("");
         LOGGER.info("story_plan_generation_input packageId={} citations={} resolutionEvidence={} maps={} sourceDocuments={}",
                 session.scenarioPackageId(), request.citations().size(), request.resolutionEvidence().size(),
                 request.maps().size(), request.sourceDocuments().size());
@@ -100,55 +117,149 @@ public final class AdventureStoryPlanApplicationService {
                 .toList());
         progress.accept(25, "모험 개요 생성 중");
         List<AdventureStoryPlanStage> stages = List.of();
-        List<String> outlineViolations = List.of();
-        for (int attempt = 1; attempt <= 5; attempt++) {
+        List<AdventureStoryPlanProjectionViolation> outlineViolations = List.of();
+        String rejectedCandidate = "";
+        String lastFailureFingerprint = "";
+        int totalAttempts = 0;
+        int regenerationCount = 0;
+        int repairsOnCandidate = 0;
+        boolean repairNext = false;
+        String stopReason = "";
+        while (totalAttempts < 5) {
+            int attempt = totalAttempts + 1;
             progress.accept(Math.min(85, 25 + ((attempt - 1) * 15)),
-                    attempt == 1 ? "모험 개요 생성 중" : "모험 개요 재생성 중 (재시도 " + attempt + "/5)");
+                    repairNext ? "모험 개요 제한 복구 중 (시도 " + attempt + "/5)"
+                            : attempt == 1 ? "모험 개요 생성 중" : "모험 개요 재생성 중 (재시도 " + attempt + "/5)");
+            String candidateForValidation = rejectedCandidate;
+            List<AdventureStoryPlanProjectionViolation> activeViolations = outlineViolations;
+            outlineViolations = List.of();
             try {
-                List<AdventureStoryPlanStage> candidateStages = generator.generate(request);
-                if (candidateStages == null) {
-                    throw new AdventureStoryPlanCandidateValidationException(
-                            List.of("AI returned no story stages"));
+                totalAttempts++;
+                if (repairNext) {
+                    RepairScope repairScope = AdventureStoryPlanProjectionDependencyPolicy.scope(
+                            rejectedCandidate, activeViolations);
+                    LOGGER.info("story_plan_projection_repair_scope operationId={} attempt={} blockers={} dependents={} repairable={}",
+                            request.operationId(), attempt,
+                            repairScope.blockerPaths(), repairScope.dependentPaths(), repairScope.isRepairable());
+                    AdventureStoryPlanGenerationPort.ProjectionCandidate repaired = generator.repair(
+                            new AdventureStoryPlanGenerationPort.RepairRequest(
+                                    request.operationId(), request.packageRevision(), request.partySize(), configuration,
+                                    rejectedCandidate, activeViolations, repairScope, request.sourceDocuments(), request.resolutionEvidence(),
+                                    request.maps(), request.citations()));
+                    if (repaired == null) throw new AdventureStoryPlanCandidateValidationException(
+                            List.of("repair returned no full story plan candidate"), rejectedCandidate);
+                    candidateForValidation = repaired.serializedCandidate();
+                    if (!rejectedCandidate.isBlank()) {
+                        AdventureStoryPlanProjectionRepairPolicy.assertOnlyListedFieldsChanged(
+                                projectionMapper.readTree(rejectedCandidate), projectionMapper.readTree(candidateForValidation), repairScope);
+                    }
+                    stages = repaired.stages();
+                    repairNext = false;
+                } else {
+                    AdventureStoryPlanGenerationPort.ProjectionCandidate generated = generator.generate(request);
+                    if (generated == null) throw new AdventureStoryPlanCandidateValidationException(
+                            List.of("AI returned no full story plan candidate"));
+                    candidateForValidation = generated.serializedCandidate();
+                    stages = generated.stages();
                 }
-                stages = candidateStages;
+                List<AdventureStoryPlanProjectionViolation> deterministicViolations = validateCandidate(
+                        stages, request, scenarioPackage, configuration);
+                if (!deterministicViolations.isEmpty()) {
+                    throw new AdventureStoryPlanCandidateValidationException(
+                            deterministicViolations, candidateForValidation, true);
+                }
+                break;
             } catch (AdventureStoryPlanCandidateValidationException invalidCandidate) {
-                outlineViolations = invalidCandidate.violations();
+                outlineViolations = invalidCandidate.structuredViolations();
+                if (invalidCandidate.hasRejectedCandidate()) rejectedCandidate = invalidCandidate.rejectedCandidate();
+            } catch (AdventureStoryPlanProjectionRepairPolicy.UnlistedFieldMutation invalidRepair) {
+                outlineViolations = List.of(invalidRepair.violation());
+                rejectedCandidate = candidateForValidation;
+            } catch (java.io.IOException invalidCandidate) {
+                outlineViolations = List.of(new AdventureStoryPlanProjectionViolation(
+                        "CANDIDATE_SERIALIZATION_ERROR", null, "stages", "", "", Repairability.SYSTEM_CONTRACT_ERROR,
+                        "story plan candidate could not be safely inspected"));
             } catch (RuntimeException providerFailure) {
-                LOGGER.error("story plan generation failed; no fallback will be persisted", providerFailure);
+                LOGGER.error("story plan generation failed; no fallback will be persisted providerFailureType={}",
+                        providerFailure.getClass().getSimpleName());
                 throw providerFailure;
             }
-            if (outlineViolations.isEmpty()) {
-                try {
-                    validateMaps(stages, request.maps());
-                    outlineViolations = validateStageSources(stages, request.citations(), scenarioPackage);
-                    outlineViolations = appendViolations(outlineViolations,
-                            stageSourceValidator.validateCitationCoverage(stages, request.citations()));
-                    if (outlineViolations.isEmpty()) {
-                        AdventureStoryPlanGraphValidator.validate(stages, configuration);
-                    }
-                } catch (RuntimeException invalidCandidate) {
-                    outlineViolations = List.of(candidateValidationMessage(invalidCandidate));
+            LOGGER.warn("story_plan_candidate_rejected attempt={} codes={} classifications={}", totalAttempts,
+                    outlineViolations.stream().map(AdventureStoryPlanProjectionViolation::code).toList(),
+                    outlineViolations.stream().map(AdventureStoryPlanProjectionViolation::repairability).toList());
+            progress.accept(Math.min(90, 30 + (totalAttempts * 12)),
+                    "계획 검증 실패, 재시도 준비 중 (" + totalAttempts + "/5)");
+            String failureFingerprint = AdventureStoryPlanProjectionRepairPolicy.fingerprint(rejectedCandidate, outlineViolations);
+            if (failureFingerprint.equals(lastFailureFingerprint)) {
+                stopReason = "NO_PROGRESS";
+                break;
+            }
+            lastFailureFingerprint = failureFingerprint;
+            if (outlineViolations.stream().anyMatch(item -> item.repairability() == Repairability.SOURCE_EVIDENCE_INSUFFICIENT
+                    || item.repairability() == Repairability.SYSTEM_CONTRACT_ERROR)) {
+                stopReason = outlineViolations.stream().anyMatch(item -> item.repairability() == Repairability.SOURCE_EVIDENCE_INSUFFICIENT)
+                        ? "SOURCE_EVIDENCE_INSUFFICIENT" : "SYSTEM_CONTRACT_ERROR";
+                break;
+            }
+            boolean regenerationRequired = outlineViolations.stream()
+                    .anyMatch(item -> item.repairability() == Repairability.REGENERATE_REQUIRED);
+            if (regenerationRequired) {
+                if (regenerationCount >= 1 || totalAttempts >= 5) {
+                    stopReason = "REGENERATION_BUDGET_EXHAUSTED";
+                    break;
                 }
+                regenerationCount++;
+                request = request.withViolations(outlineViolations.stream()
+                        .map(AdventureStoryPlanProjectionViolation::sanitizedMessage).toList()).withPreviousCandidate("");
+                rejectedCandidate = "";
+                repairsOnCandidate = 0;
+                repairNext = false;
+                continue;
             }
-            if (outlineViolations.isEmpty()) break;
-            LOGGER.warn("story_plan_candidate_rejected attempt={} violations={}", attempt, outlineViolations);
-            progress.accept(Math.min(90, 30 + (attempt * 12)),
-                    "계획 검증 실패, 재시도 준비 중 (" + attempt + "/5)");
-            if (attempt == 5) {
-                AdventureStoryPlan blocked = AdventureStoryPlan.blocked(
-                        previous == null ? UUID.randomUUID() : previous.planId(), session.id(),
-                        session.scenarioPackageRevision(), session.version(), version, configuration, stages,
-                        String.join("; ", outlineViolations));
-                plans.save(blocked);
-                return blocked;
+            if (outlineViolations.stream().allMatch(item -> item.repairability() == Repairability.REPAIRABLE)
+                    && !rejectedCandidate.isBlank() && repairsOnCandidate < 2 && totalAttempts < 5) {
+                repairsOnCandidate++;
+                repairNext = true;
+                continue;
             }
-            request = request.withViolations(outlineViolations);
-            outlineViolations = List.of();
+            if (outlineViolations.stream().allMatch(item -> item.repairability() == Repairability.REPAIRABLE)
+                    && !rejectedCandidate.isBlank() && repairsOnCandidate >= 2
+                    && regenerationCount < 1 && totalAttempts < 5) {
+                regenerationCount++;
+                request = request.withViolations(outlineViolations.stream()
+                        .map(AdventureStoryPlanProjectionViolation::sanitizedMessage).toList()).withPreviousCandidate("");
+                rejectedCandidate = "";
+                repairsOnCandidate = 0;
+                repairNext = false;
+                continue;
+            }
+            if (rejectedCandidate.isBlank() && totalAttempts < 5) {
+                request = request.withViolations(outlineViolations.stream()
+                        .map(AdventureStoryPlanProjectionViolation::sanitizedMessage).toList());
+                continue;
+            }
+            stopReason = totalAttempts >= 5 ? "TOTAL_ATTEMPT_BUDGET_EXHAUSTED" : "REPAIR_BUDGET_EXHAUSTED";
+            break;
+        }
+        if (!outlineViolations.isEmpty()) {
+            LOGGER.warn("story_plan_projection_outcome operationId={} outcome=BLOCKED attempts={} repairs={} regenerations={} reason={} violationCodes={}",
+                    request.operationId(), totalAttempts, repairsOnCandidate, regenerationCount,
+                    stopReason.isBlank() ? "VALIDATION_FAILED" : stopReason,
+                    outlineViolations.stream().map(AdventureStoryPlanProjectionViolation::code).toList());
+            AdventureStoryPlan blocked = AdventureStoryPlan.blocked(
+                    previous == null ? UUID.randomUUID() : previous.planId(), session.id(),
+                    session.scenarioPackageRevision(), session.version(), version, configuration, stages,
+                    outlineViolations.stream().map(AdventureStoryPlanProjectionViolation::sanitizedMessage)
+                            .collect(java.util.stream.Collectors.joining("; ")));
+            plans.save(blocked);
+            return blocked;
         }
         AdventureStoryPlan plan = AdventureStoryPlan.ready(
                 previous == null ? java.util.UUID.randomUUID() : previous.planId(), session.id(),
                 session.scenarioPackageRevision(), session.version(), version, configuration, stages);
         plans.save(plan);
+        LOGGER.info("story_plan_projection_outcome operationId={} outcome=READY attempts={} repairs={} regenerations={}",
+                request.operationId(), totalAttempts, repairsOnCandidate, regenerationCount);
         progress.accept(100, "플레이 준비 완료");
         return plan;
     }
@@ -161,7 +272,9 @@ public final class AdventureStoryPlanApplicationService {
         return plans.findBySessionId(session.id())
                 .map(plan -> plan.status() == AdventureStoryPlanStatus.READY
                         && plan.packageRevision() == session.scenarioPackageRevision()
-                        && plan.partyRevision() == session.version())
+                        && plan.partyRevision() == session.version()
+                        && (session.startedAdventureId() != null
+                                || plan.stages().stream().allMatch(stage -> stage.schemaVersion() >= AdventureStoryPlanStage.CURRENT_SCHEMA_VERSION)))
                 .orElse(false);
     }
 
@@ -214,12 +327,8 @@ public final class AdventureStoryPlanApplicationService {
     }
 
     private void appendIndexedExcerpts(List<String> evidence, ScenarioSourceBundle bundle) {
-        try {
-            planExcerpts(bundle).stream().map(ResolutionExtractionPort.SourceExcerpt::text)
-                    .filter(s -> s != null && !s.isBlank()).limit(12).forEach(evidence::add);
-        } catch (RuntimeException ignored) {
-            // Existing compiled evidence remains usable if the retrieval gateway is unavailable.
-        }
+        planExcerpts(bundle).stream().map(ResolutionExtractionPort.SourceExcerpt::text)
+                .filter(s -> s != null && !s.isBlank()).limit(12).forEach(evidence::add);
     }
 
     private List<AdventureStoryPlanGenerationPort.MapContext> mapContexts(ScenarioPackage scenarioPackage) {
@@ -234,7 +343,7 @@ public final class AdventureStoryPlanApplicationService {
                             .limit(8).forEach(excerpt -> related.add(new AdventureStoryPlanGenerationPort.SourceCitation(
                                     excerpt.documentType(),
                                     excerpt.documentId().value(), excerpt.extractionVersion(), excerpt.locator(),
-                                    excerpt.text().replaceAll("\\s+", " ").trim(), .9)));
+                                    excerpt.text().replaceAll("\\s+", " ").trim(), .9, excerpt.provenance())));
                 } catch (RuntimeException ignored) { }
             });
         }
@@ -265,7 +374,7 @@ public final class AdventureStoryPlanApplicationService {
             bundles.findById(scenarioPackage.bundleId()).ifPresent(bundle -> {
                 planExcerpts(bundle).forEach(excerpt -> result.add(new AdventureStoryPlanGenerationPort.SourceCitation(
                         excerpt.documentType(), excerpt.documentId().value(),
-                        excerpt.extractionVersion(), excerpt.locator(), excerpt.text(), .9)));
+                        excerpt.extractionVersion(), excerpt.locator(), excerpt.text(), .9, excerpt.provenance())));
             });
         }
         return result.stream().filter(java.util.Objects::nonNull).distinct().limit(20).toList();
@@ -274,7 +383,8 @@ public final class AdventureStoryPlanApplicationService {
     private List<ResolutionExtractionPort.SourceExcerpt> planExcerpts(ScenarioSourceBundle bundle) {
         List<ResolutionExtractionPort.SourceExcerpt> available = sourceExcerptPort.load(bundle);
         return java.util.stream.Stream.of("STORYBOOK", "RULEBOOK", "MAP")
-                .flatMap(type -> available.stream().filter(excerpt -> type.equalsIgnoreCase(excerpt.documentType())).limit(8))
+                .flatMap(type -> available.stream().filter(ResolutionExtractionPort.SourceExcerpt::isPublishedEvidence)
+                        .filter(excerpt -> type.equalsIgnoreCase(excerpt.documentType())).limit(8))
                 .distinct().limit(20).toList();
     }
 
@@ -284,22 +394,20 @@ public final class AdventureStoryPlanApplicationService {
                 reference.extractionVersion(), reference.locator(), unit.sourceQuote(), unit.status().name().equals("COMPLETE") ? 1.0 : .5);
     }
 
-    private static void validateMaps(List<AdventureStoryPlanStage> stages, List<AdventureStoryPlanGenerationPort.MapContext> maps) {
+    private static List<AdventureStoryPlanProjectionViolation> validateMaps(
+            List<AdventureStoryPlanStage> stages, List<AdventureStoryPlanGenerationPort.MapContext> maps) {
         Set<UUID> known = maps.stream().map(AdventureStoryPlanGenerationPort.MapContext::mapDefinitionId).collect(java.util.stream.Collectors.toSet());
-        stages.stream().map(AdventureStoryPlanStage::mapDefinitionId).filter(java.util.Objects::nonNull).forEach(id -> {
-            if (!known.contains(id)) throw new IllegalStateException("story plan references an unknown map definition");
-        });
-        if (!maps.isEmpty() && stages.stream().anyMatch(stage -> (stage.stageType() == com.dndmaster.adventure.domain.adventure.AdventureStageType.DUNGEON
-                || stage.stageType() == com.dndmaster.adventure.domain.adventure.AdventureStageType.ENCOUNTER)
-                && stage.mapDefinitionId() == null)) {
-            throw new IllegalStateException("combat stage must select a safe map definition");
+        List<AdventureStoryPlanProjectionViolation> violations = new ArrayList<>();
+        for (AdventureStoryPlanStage stage : stages) {
+            UUID id = stage.mapDefinitionId();
+            if (id != null && !known.contains(id)) {
+                violations.add(new AdventureStoryPlanProjectionViolation(
+                        "UNKNOWN_MAP_DEFINITION", stage.position(), "stages[" + (stage.position() - 1) + "].mapDefinitionId",
+                        id.toString(), "authoritative map registry", Repairability.SOURCE_EVIDENCE_INSUFFICIENT,
+                        "stage " + stage.position() + " map definition is not registered"));
+            }
         }
-        if (!maps.isEmpty() && stages.stream().noneMatch(stage ->
-                (stage.stageType() == com.dndmaster.adventure.domain.adventure.AdventureStageType.DUNGEON
-                        || stage.stageType() == com.dndmaster.adventure.domain.adventure.AdventureStageType.ENCOUNTER)
-                        && stage.mapDefinitionId() != null)) {
-            throw new IllegalStateException("a story with safe maps must include one mapped tactical stage");
-        }
+        return List.copyOf(violations);
     }
 
     private static String candidateValidationMessage(RuntimeException failure) {
@@ -309,24 +417,95 @@ public final class AdventureStoryPlanApplicationService {
                 : message;
     }
 
-    private List<String> validateStageSources(
+    private List<AdventureStoryPlanProjectionViolation> validateStageSources(
             List<AdventureStoryPlanStage> stages,
             List<AdventureStoryPlanGenerationPort.SourceCitation> citations,
             ScenarioPackage scenarioPackage) {
-        List<String> violations = new ArrayList<>();
+        List<AdventureStoryPlanProjectionViolation> violations = new ArrayList<>();
         Set<UUID> mapDocumentIds = scenarioPackage == null ? Set.of() : scenarioPackage.documents().stream()
                 .filter(document -> document.role() == com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.MAP)
                 .map(document -> document.knowledgeDocumentId().value())
                 .collect(java.util.stream.Collectors.toSet());
         for (AdventureStoryPlanStage stage : stages) {
-            // The execution projection may intentionally omit evidence and mark
-            // connective details as AI suggestions. Only explicit evidence is
-            // authoritative enough for source-claim validation here; map
-            // identity is still checked separately by validateMaps().
-            if (stage.mapDefinitionId() == null || stage.evidence().isEmpty()) continue;
-            violations.addAll(stageSourceValidator.validate(stage, citations, mapDocumentIds));
+            if (!citations.isEmpty()) {
+                violations.addAll(stageSourceValidator.validateStructured(stage, citations, mapDocumentIds));
+            }
         }
         return List.copyOf(violations);
+    }
+
+    private List<AdventureStoryPlanProjectionViolation> validateCandidate(
+            List<AdventureStoryPlanStage> stages,
+            AdventureStoryPlanGenerationPort.Request request,
+            ScenarioPackage scenarioPackage,
+            AdventurePlanConfiguration configuration) {
+        List<AdventureStoryPlanProjectionViolation> violations = new ArrayList<>();
+        violations.addAll(validateMaps(stages, request.maps()));
+        violations.addAll(validateStageSources(stages, request.citations(), scenarioPackage));
+        for (AdventureStoryPlanStage stage : stages) {
+            violations.addAll(combatValidator.validate(stage, request.citations()));
+            if (stage.schemaVersion() < AdventureStoryPlanStage.CURRENT_SCHEMA_VERSION) {
+                violations.add(new AdventureStoryPlanProjectionViolation(
+                        "LEGACY_PROJECTION_REQUIRES_REGENERATION", stage.position(),
+                        "stages[" + (stage.position() - 1) + "].schemaVersion", "", "",
+                        Repairability.REGENERATE_REQUIRED,
+                        "new story plan READY writes require projection schema v2"));
+            }
+        }
+        for (String coverage : stageSourceValidator.validateCitationCoverage(stages, request.citations())) {
+            String requiredType = coverage.contains("RULEBOOK") ? "RULEBOOK"
+                    : coverage.contains("STORYBOOK") ? "STORYBOOK" : "";
+            violations.add(new AdventureStoryPlanProjectionViolation(
+                    "CITATION_COVERAGE_MISSING", null, "stages[*].evidence[*].citationKey", "",
+                    requiredType, Repairability.SOURCE_EVIDENCE_INSUFFICIENT,
+                    "required citation coverage is missing"));
+        }
+        try {
+            AdventureStoryPlanGraphValidator.validate(stages, configuration);
+        } catch (RuntimeException invalidGraph) {
+            violations.add(new AdventureStoryPlanProjectionViolation(
+                    "GRAPH_VALIDATION_FAILED", null, "stages", "", "", Repairability.REGENERATE_REQUIRED,
+                    sanitizeValidationMessage(invalidGraph.getMessage(), "story plan graph validation failed")));
+        }
+        return List.copyOf(violations);
+    }
+
+    private static AdventureStoryPlanProjectionViolation structuredViolation(String raw) {
+        String message = raw == null || raw.isBlank() ? "story plan candidate validation failed" : raw.trim();
+        String normalized = message.toLowerCase(java.util.Locale.ROOT);
+        Integer stagePosition = stagePosition(message);
+        String fieldName = normalized.contains("transitioncondition") ? "transitionCondition"
+                : normalized.contains("clearcondition") ? "clearCondition"
+                : normalized.contains("failurecondition") ? "failureCondition" : "";
+        String fieldPath = fieldName.isBlank() ? "stages"
+                : "stages[" + (stagePosition == null ? "*" : Math.max(0, stagePosition - 1)) + "]." + fieldName;
+        Repairability repairability;
+        if (normalized.contains("unknown source") || normalized.contains("source evidence")
+                || normalized.contains("citation") || normalized.contains("provenance") || normalized.contains("map")) {
+            repairability = Repairability.SOURCE_EVIDENCE_INSUFFICIENT;
+        } else if (!fieldName.isBlank() && normalized.contains("not supported")) {
+            repairability = Repairability.SOURCE_EVIDENCE_INSUFFICIENT;
+        } else if (!fieldName.isBlank() || normalized.contains("missing") || normalized.contains("required")) {
+            repairability = Repairability.REPAIRABLE;
+        } else {
+            repairability = Repairability.REGENERATE_REQUIRED;
+        }
+        String safeMessage = message.replaceAll("(?i):\\s*.+$", "").trim();
+        return new AdventureStoryPlanProjectionViolation(
+                fieldName.isBlank() ? "CANDIDATE_VALIDATION_FAILED" : "UNSUPPORTED_" + fieldName.toUpperCase(java.util.Locale.ROOT),
+                stagePosition, fieldPath, "", "", repairability, safeMessage);
+    }
+
+    private static String sanitizeValidationMessage(String raw, String fallback) {
+        String message = raw == null || raw.isBlank() ? fallback : raw.trim();
+        int detailSeparator = message.indexOf(':');
+        if (detailSeparator >= 0) message = message.substring(0, detailSeparator).trim();
+        return message.isBlank() ? fallback : message;
+    }
+
+    private static Integer stagePosition(String message) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(?i)stage\\s+(\\d+)").matcher(message);
+        return matcher.find() ? Integer.valueOf(matcher.group(1)) : null;
     }
 
     private static List<String> appendViolations(List<String> first, List<String> second) {

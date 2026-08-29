@@ -4,6 +4,7 @@ import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
+import com.dndmaster.adventure.domain.runtime.RequestedGmProviderSelection;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -25,7 +26,8 @@ public record GmContextEnvelope(
         String storyPlanContext,
         String provider,
         String model,
-        String reasoning) {
+        String reasoning,
+        RequestedGmProviderSelection requestedSelection) {
     public GmContextEnvelope {
         adventureId = Objects.requireNonNull(adventureId);
         ownerPlayerId = Objects.requireNonNull(ownerPlayerId);
@@ -41,6 +43,11 @@ public record GmContextEnvelope(
         provider = provider == null ? "" : provider.trim();
         model = model == null ? "" : model.trim();
         reasoning = reasoning == null ? "" : reasoning.trim();
+        requestedSelection = requestedSelection == null
+                ? provider.isBlank() || model.isBlank() || reasoning.isBlank()
+                    ? RequestedGmProviderSelection.legacyUnknown()
+                    : new RequestedGmProviderSelection(null, provider, model, reasoning)
+                : requestedSelection;
         if (bindingVersion < 0) throw new IllegalArgumentException("binding version must not be negative");
     }
 
@@ -49,7 +56,19 @@ public record GmContextEnvelope(
                              long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
                              String action, EvidencePack evidencePack, List<String> recentTurns) {
         this(adventureId, ownerPlayerId, UUID.randomUUID(), UUID.randomUUID(), scenarioPackageId, bindingVersion, currentContext, activeSourceContext, action,
-                evidencePack, recentTurns, List.of(), "", "", "", "");
+                evidencePack, recentTurns, List.of(), "", "", "", "", RequestedGmProviderSelection.legacyUnknown());
+    }
+
+    public GmContextEnvelope(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
+                             UUID scenarioPackageId, long bindingVersion, AdventureContext currentContext,
+                             ActiveSourceContext activeSourceContext, String action, EvidencePack evidencePack,
+                             List<String> recentTurns, List<String> characterSnapshots, String storyPlanContext,
+                             String provider, String model, String reasoning) {
+        this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext,
+                activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, storyPlanContext,
+                provider, model, reasoning, provider.isBlank() || model.isBlank() || reasoning.isBlank()
+                        ? RequestedGmProviderSelection.legacyUnknown()
+                        : new RequestedGmProviderSelection(null, provider, model, reasoning));
     }
 
     public String operationKey() {

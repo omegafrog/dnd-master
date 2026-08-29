@@ -8,6 +8,7 @@ import com.dndmaster.ruleknowledge.application.indexing.RulebookIndexRepository;
 import com.dndmaster.ruleknowledge.application.pipeline.RulebookPipelineApplicationService;
 import com.dndmaster.ruleknowledge.application.registration.RulebookRegistrationRepository;
 import com.dndmaster.ruleknowledge.application.registration.StoredRulebookRegistration;
+import com.dndmaster.ruleknowledge.application.preprocessing.PreprocessingPageState;
 import com.dndmaster.ruleknowledge.application.definition.GameSystemDefinitionRepository;
 import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRepository;
 import com.dndmaster.ruleknowledge.application.catalog.CatalogRulebookRevision;
@@ -23,6 +24,7 @@ import com.dndmaster.ruleknowledge.application.search.StorySourceSearchQuery;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextDocumentScope;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextEvidence;
+import com.dndmaster.ruleknowledge.application.publication.SourceProvenance;
 import com.dndmaster.ruleknowledge.application.search.CharacterContextSearchQuery;
 import com.dndmaster.ruleknowledge.domain.rulebook.*;
 import com.fasterxml.jackson.core.type.TypeReference;
@@ -186,8 +188,9 @@ public class RuleKnowledgeController {
                         r.originalFilename(),
                         r.failureCode(),
                         r.version(),
-                        warningsFor(r), progressFor(r)))
-                .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null, null, 0L, List.of(), null));
+                        warningsFor(r), progressFor(r), r.candidateExtractionVersion(), r.preprocessingPages(), retryabilityFor(r)))
+                .orElse(new RulebookStatusResponse(rulebookId, null, "NOT_FOUND", null, null, null, 0L, List.of(), null, null, List.of(),
+                        new RetryabilityView(false, List.of(), List.of("DOCUMENT_NOT_FOUND"))));
     }
 
     private DocumentProgressView progressFor(StoredRulebookRegistration registration) {
@@ -195,10 +198,16 @@ public class RuleKnowledgeController {
                 || registration.processingStatus() == ProcessingStatus.PARTIAL_CONFIRMED) {
             return new DocumentProgressView("READY", 100, null, null, null);
         }
+        if (registration.processingStatus() == ProcessingStatus.NEEDS_REVIEW) {
+            return new DocumentProgressView("NEEDS_REVIEW", 0, null, null, registration.failureCode());
+        }
         if (registration.processingStatus() == ProcessingStatus.FAILED
                 || registration.processingStatus() == ProcessingStatus.NEEDS_INPUT
                 || registration.processingStatus() == ProcessingStatus.REJECTED) {
             return new DocumentProgressView("FAILED", 0, null, null, registration.failureCode());
+        }
+        if (registration.processingStatus() == ProcessingStatus.VALIDATED) {
+            return new DocumentProgressView("VALIDATED", 75, null, null, null);
         }
         if (indexRepository != null) {
             var indexProgress = indexRepository.progressFor(registration.rulebookId(), "v1-" + registration.contentHash());
@@ -295,6 +304,25 @@ public class RuleKnowledgeController {
             return rulebookStatus(rulebookId);
         } catch (IllegalArgumentException exception) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, exception.getMessage(), exception);
+        } catch (IllegalStateException exception) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
+        }
+    }
+
+    @PostMapping("/api/v1/rulebooks/{rulebookId}/retry-pages")
+    RulebookStatusResponse retryPages(
+            @PathVariable UUID rulebookId,
+            @RequestHeader("Authorization") String authorization,
+            @RequestBody RetryPagesRequest request) {
+        StoredRulebookRegistration registration = registrationRepository.findById(new RulebookId(rulebookId))
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "knowledge document not found"));
+        requireOwner(extractPlayerId(authorization), registration.ownerPlayerId().value());
+        try {
+            pipelineService.retryPages(new RulebookId(rulebookId), request == null ? null : request.requestId(),
+                    request == null ? null : request.pages());
+            return rulebookStatus(rulebookId);
+        } catch (IllegalArgumentException exception) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, exception.getMessage(), exception);
         } catch (IllegalStateException exception) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, exception.getMessage(), exception);
         }
@@ -401,7 +429,9 @@ public class RuleKnowledgeController {
                         r.excerpt(),
                         r.score(),
                         r.chapter(),
-                        r.section()))
+                        r.section(),
+                        provenanceView(r.rulebookId().value(), r.extractionVersion(), r.provenance()),
+                        runtimeCitationKey("RULEBOOK", r.rulebookId().value(), r.extractionVersion(), r.locator())))
                 .toList();
         return new EvidenceSearchResponse(request.ownerId(), evidence);
     }
@@ -433,7 +463,10 @@ public class RuleKnowledgeController {
                 evidence.stream()
                         .map(result -> new StorySourceEvidenceItem(
                                 result.documentId().value(), result.extractionVersion(), result.sourceSpanLocator(),
-                                result.excerpt(), result.score()))
+                                result.excerpt(), result.score(), provenanceView(result.documentId().value(),
+                                        result.extractionVersion(), result.provenance()),
+                                runtimeCitationKey("STORYBOOK", result.documentId().value(),
+                                        result.extractionVersion(), result.sourceSpanLocator())))
                 .toList());
     }
 
@@ -605,7 +638,10 @@ public class RuleKnowledgeController {
     public record RulebookStatusResponse(
             UUID rulebookId, UUID knowledgeDocumentId, String status, DocumentType documentType,
             String originalFilename, String failureReason, long extractionVersion, List<String> warnings,
-            DocumentProgressView progress) {}
+            DocumentProgressView progress, String candidateExtractionVersion,
+            List<PreprocessingPageState> preprocessingPages, RetryabilityView retryability) {}
+    public record RetryabilityView(boolean retryable, List<Integer> pages, List<String> diagnostics) {}
+    public record RetryPagesRequest(String requestId, List<Integer> pages) {}
     public record DocumentProgressView(
             String stage, int percent, Integer completedUnits, Integer totalUnits, String error) {}
     public record SourcePreviewResponse(
@@ -622,19 +658,35 @@ public class RuleKnowledgeController {
     public record GameSystemDefinitionResponse(UUID rulebookId, long version, String definitionJson) {}
     public record GameSystemDefinitionRequest(long version, String definitionJson) {}
     public record RuleSetSaveRequest(List<UUID> knowledgeDocumentIds) {}
-    public record EvidenceSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, QueryIntent queryIntent, Integer limit) {}
-    public record EvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score, String chapter, String section) {}
+    public record EvidenceSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, QueryIntent queryIntent, Integer limit,
+                                        UUID sessionId, UUID scenarioPackageId, String stageKey, String actionIntent) {
+        public EvidenceSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, QueryIntent queryIntent, Integer limit) {
+            this(ownerId, rulebookIds, situation, queryIntent, limit, null, null, null, null);
+        }
+    }
+    public record EvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score,
+            String chapter, String section, ProvenanceView provenance, String citationKey) {}
     public record EvidenceSearchResponse(UUID ownerId, List<EvidenceItem> evidence) {}
     public record StorySourceSearchRequest(
             UUID ownerId,
             List<StorySourceScopeRequest> documents,
             List<String> activeLocators,
             String situation,
-            Integer limit) {}
+            Integer limit,
+            UUID sessionId,
+            UUID scenarioPackageId,
+            String stageKey,
+            String actionIntent) {
+        public StorySourceSearchRequest(UUID ownerId, List<StorySourceScopeRequest> documents,
+                                        List<String> activeLocators, String situation, Integer limit) {
+            this(ownerId, documents, activeLocators, situation, limit, null, null, null, null);
+        }
+    }
     public record StorySourceScopeRequest(UUID documentId, long extractionVersion) {}
     public record StorySourceSearchResponse(UUID ownerId, List<StorySourceEvidenceItem> evidence) {}
     public record StorySourceEvidenceItem(
-            UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt, double score) {}
+            UUID knowledgeDocumentId, long extractionVersion, String locator, String excerpt, double score,
+            ProvenanceView provenance, String citationKey) {}
     public record CharacterContextSearchRequest(
             UUID ownerId, List<CharacterContextScopeRequest> documents, String situation,
             Map<DocumentType, Double> thresholds, Integer tokenBudget) {}
@@ -660,6 +712,18 @@ public class RuleKnowledgeController {
             Double confidence) {}
     public record PreviewAssetView(String kind, String locator, String contentType, Integer pageNumber) {}
 
+    public record ProvenanceView(UUID documentId, long extractionVersion, int pageNumber, List<String> sectionPath,
+            List<Double> bbox, String tableCell, String locator) {}
+
+    private static ProvenanceView provenanceView(UUID documentId, long extractionVersion, SourceProvenance provenance) {
+        return new ProvenanceView(documentId, extractionVersion, provenance.pageNumber(), provenance.sectionPath(),
+                provenance.bbox(), provenance.tableCell(), provenance.originalLocator());
+    }
+
+    private static String runtimeCitationKey(String documentType, UUID documentId, long extractionVersion, String locator) {
+        return documentType + ":" + documentId + ":" + extractionVersion + ":" + locator;
+    }
+
     private static List<String> warningsFor(StoredRulebookRegistration registration) {
         List<String> warnings = new java.util.ArrayList<>();
         if (registration.failureCode() != null && !registration.failureCode().isBlank()) {
@@ -668,5 +732,18 @@ public class RuleKnowledgeController {
         warnings.addAll(registration.missingLocations());
         warnings.addAll(registration.previewWarnings());
         return List.copyOf(warnings);
+    }
+
+    private static RetryabilityView retryabilityFor(StoredRulebookRegistration registration) {
+        List<Integer> pages = registration.preprocessingPages().stream()
+                .filter(page -> "NEEDS_REVIEW".equals(page.status()) && page.attempts() < 3)
+                .map(PreprocessingPageState::pageNumber)
+                .toList();
+        List<String> diagnostics = registration.preprocessingPages().stream()
+                .filter(page -> "NEEDS_REVIEW".equals(page.status()))
+                .flatMap(page -> page.findings().stream())
+                .distinct()
+                .toList();
+        return new RetryabilityView(registration.processingStatus() == ProcessingStatus.NEEDS_REVIEW && !pages.isEmpty(), pages, diagnostics);
     }
 }

@@ -1,12 +1,18 @@
 package com.dndmaster.aigamemaster.application.endpoint;
 
 import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
 
 public final class AgentEndpointRegistry {
     private final AgentEndpointStore store;
     public AgentEndpointRegistry(AgentEndpointStore store) { this.store = store; }
     public List<AgentEndpoint> list() { return store.list(); }
     public AgentEndpoint active() { return store.active().orElseThrow(() -> new IllegalStateException("no active agent endpoint")); }
+    public Optional<AgentEndpoint> find(UUID endpointId) { return store.list().stream().filter(endpoint -> endpoint.id().equals(endpointId)).findFirst(); }
+    public AgentEndpoint activeOrUnresolved(com.dndmaster.aigamemaster.infrastructure.ai.RequestedGmProviderSelection requested) {
+        return store.active().orElseThrow(() -> new com.dndmaster.aigamemaster.infrastructure.ai.GmProviderSelectionUnresolvedException(requested));
+    }
     public void save(AgentEndpoint endpoint) { validate(endpoint); store.save(endpoint); }
     private static void validate(AgentEndpoint endpoint) {
         if (endpoint.name() == null || endpoint.name().isBlank() || endpoint.model() == null || endpoint.model().isBlank()) throw new IllegalArgumentException("endpoint name and model are required");

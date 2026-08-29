@@ -88,7 +88,7 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
       if (currentStage && api.prepareTacticalScene) {
         const preparation = await api.prepareTacticalScene(sessionId, currentStage.position)
         setTacticalPreparation(preparation)
-        if (preparation.status !== 'COMPLETE') throw new Error(preparation.failureReason || preparation.message)
+        if (preparation.status !== 'READY') throw new Error(preparation.message)
         if (preparation.mapRequired && api.activateStageMap) await api.activateStageMap(sessionId, currentStage.position)
       }
       if (started.adventureId) window.location.hash = `#/adventures/${started.adventureId}`

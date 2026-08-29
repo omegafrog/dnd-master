@@ -1,6 +1,8 @@
 package com.dndmaster.adventure.application.runtime;
 
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
+import com.dndmaster.adventure.domain.runtime.EffectiveGmProviderSelection;
+import com.dndmaster.adventure.domain.runtime.RequestedGmProviderSelection;
 import java.util.List;
 import java.util.Objects;
 
@@ -18,7 +20,10 @@ public record RuntimePlan(
         String reasoning,
         boolean advanceStoryPlan,
         String selectedBranchId,
-        String resolutionStatus) {
+        RequestedGmProviderSelection requestedSelection,
+        EffectiveGmProviderSelection effectiveSelection,
+        int attemptCount,
+        List<GmCitationBinding> citationBindings) {
     public RuntimePlan {
         scene = required(scene, "scene");
         judgment = required(judgment, "judgment");
@@ -30,30 +35,59 @@ public record RuntimePlan(
         model = model == null || model.isBlank() ? "legacy" : model.trim();
         reasoning = reasoning == null ? "" : reasoning.trim();
         selectedBranchId = selectedBranchId == null ? "" : selectedBranchId.trim();
-        resolutionStatus = resolutionStatus == null || resolutionStatus.isBlank() ? "RESOLVED" : resolutionStatus.trim();
+        requestedSelection = requestedSelection == null ? RequestedGmProviderSelection.legacyUnknown() : requestedSelection;
+        effectiveSelection = effectiveSelection == null ? EffectiveGmProviderSelection.legacyUnknown() : effectiveSelection;
+        if (attemptCount < 1 || attemptCount > 2) throw new IllegalArgumentException("GM candidate attempts must be one or two");
+        citationBindings = List.copyOf(Objects.requireNonNull(citationBindings, "citation bindings must not be null"));
+    }
+
+    /** Compatibility projection for older API response contracts. */
+    public String resolutionStatus() {
+        return "RESOLVED";
     }
 
     public RuntimePlan(String scene, String npcState, String judgment, String narration,
                        ActiveSourceContext proposedActiveSourceContext, List<RuntimeEvidence> citedEvidence,
                        List<String> warnings) {
         this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
-                "legacy", "legacy", "");
+                "legacy", "legacy", "", false, "", RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown(), 1);
     }
 
     public RuntimePlan(String scene, String npcState, String judgment, String narration,
                        ActiveSourceContext proposedActiveSourceContext, List<RuntimeEvidence> citedEvidence,
                        List<String> warnings, String provider, String model, String reasoning) {
         this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
-                provider, model, reasoning, false, "");
+                provider, model, reasoning, false, "", RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown(), 1);
     }
 
-    /** Compatibility constructor for plans persisted before runtime resolution status existed. */
     public RuntimePlan(String scene, String npcState, String judgment, String narration,
                        ActiveSourceContext proposedActiveSourceContext, List<RuntimeEvidence> citedEvidence,
                        List<String> warnings, String provider, String model, String reasoning,
                        boolean advanceStoryPlan, String selectedBranchId) {
         this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
-                provider, model, reasoning, advanceStoryPlan, selectedBranchId, "RESOLVED");
+                provider, model, reasoning, advanceStoryPlan, selectedBranchId,
+                RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown(), 1);
+    }
+
+    public RuntimePlan(String scene, String npcState, String judgment, String narration,
+                       ActiveSourceContext proposedActiveSourceContext, List<RuntimeEvidence> citedEvidence,
+                       List<String> warnings, String provider, String model, String reasoning,
+                       boolean advanceStoryPlan, String selectedBranchId, List<GmCitationBinding> citationBindings) {
+        this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
+                provider, model, reasoning, advanceStoryPlan, selectedBranchId,
+                RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown(), 1,
+                citationBindings);
+    }
+
+    public RuntimePlan(String scene, String npcState, String judgment, String narration,
+                       ActiveSourceContext proposedActiveSourceContext, List<RuntimeEvidence> citedEvidence,
+                       List<String> warnings, String provider, String model, String reasoning,
+                       boolean advanceStoryPlan, String selectedBranchId,
+                       RequestedGmProviderSelection requestedSelection,
+                       EffectiveGmProviderSelection effectiveSelection, int attemptCount) {
+        this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
+                provider, model, reasoning, advanceStoryPlan, selectedBranchId,
+                requestedSelection, effectiveSelection, attemptCount, List.of());
     }
 
     private static String required(String value, String name) {
