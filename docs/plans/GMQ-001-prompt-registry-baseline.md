@@ -2,7 +2,7 @@
 
 - Issue: #231
 - Parent Issue: #210
-- Status: `in-progress`
+- Status: `completed`
 - Dependencies: #220
 
 ## 구현 목적

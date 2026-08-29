@@ -2,7 +2,7 @@
 
 - Issue: #232
 - Parent Issue: #210
-- Status: `planned`
+- Status: `ready-for-agent`
 - Dependencies: GMQ-001
 
 ## 구현 목적
