@@ -29,9 +29,14 @@ import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.adventure.Adventure;
+import com.dndmaster.adventure.domain.adventure.AdventurePlanEvidence;
 import com.dndmaster.adventure.domain.adventure.AdventurePartyMember;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
+import com.dndmaster.adventure.domain.adventure.AdventureStoryPlan;
+import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
+import com.dndmaster.adventure.domain.adventure.AdventureStageType;
+import com.dndmaster.adventure.domain.adventure.AdventureGroundingStatus;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.ControlMode;
 import com.dndmaster.adventure.domain.adventure.ConversationEntry;
@@ -63,6 +68,65 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class RuntimeTurnApplicationServiceTest {
+    @Test
+    void missing_skill_check_dc_stays_pending_and_is_persisted_without_fabricating_a_dc() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId story = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId rules = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = partialPerceptionPackage(story, rules);
+        InMemoryRuntimeTurnRepository turns = new InMemoryRuntimeTurnRepository();
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
+                new InMemoryAdventureRepository(adventure), new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId())),
+                new InMemoryPackageRepository(scenarioPackage), turns,
+                request -> request.evidenceType() == RuntimeEvidenceType.STORYBOOK
+                        ? List.of(new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK, story, 1, "page:1", "A hidden door."))
+                        : request.evidenceType() == RuntimeEvidenceType.RESOLUTION
+                        ? List.of(new RuntimeEvidence(RuntimeEvidenceType.RESOLUTION, story, 1, "page:1:span:1", "Perception check."))
+                        : List.of(),
+                request -> new RuntimePlan("scene", null, "Perception succeeds against DC 10", "You notice it.", null, List.of(), List.of()),
+                new AllowingSafetyPort(true), scope(adventure, story, rules));
+
+        RuntimeTurnResult result = service.submitTurn(new SubmitRuntimeTurnCommand(
+                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "I make a Perception check", 0));
+
+        assertEquals("PENDING_RULE_INPUT", result.turn().plan().resolutionStatus());
+        assertTrue(result.turn().plan().judgment().contains("DC가 근거에 없어"));
+        assertTrue(result.turn().plan().warnings().stream().anyMatch(w -> w.startsWith("PENDING_RULE_INPUT")));
+        assertTrue(result.turn().plan().judgment().contains("DC가 근거에 없어"));
+        assertEquals("PENDING_RULE_INPUT", turns.saved.getLast().plan().resolutionStatus());
+        assertTrue(turns.saved.getLast().plan().judgment().matches(".*DC[^0-9]*근거에 없어.*"));
+    }
+
+    @Test
+    void natural_korean_perception_actions_stay_pending_without_an_authored_skill_name() {
+        for (String action : List.of("주변을 살핀다", "관찰한다", "둘러본다", "주의 깊게 본다")) {
+            RuntimeTurnResult result = submitPartialPerceptionTurn(action,
+                    new RuntimePlan("scene", null, "성공했습니다", "주변을 확인했습니다.", null, List.of(), List.of()));
+
+            assertEquals("PENDING_RULE_INPUT", result.turn().plan().resolutionStatus(), action);
+            assertTrue(result.turn().plan().judgment().contains("DC가 근거에 없어"), action);
+        }
+    }
+
+    @Test
+    void deeply_observed_korean_perception_action_stays_pending_without_an_authored_skill_name() {
+        RuntimeTurnResult result = submitPartialPerceptionTurn("주의 깊게 본다",
+                new RuntimePlan("scene", null, "성공했습니다", "주변을 확인했습니다.", null, List.of(), List.of()));
+
+        assertEquals("PENDING_RULE_INPUT", result.turn().plan().resolutionStatus());
+        assertTrue(result.turn().plan().judgment().contains("DC가 근거에 없어"));
+    }
+
+    @Test
+    void unrelated_action_does_not_trigger_pending_perception_adjudication() {
+        RuntimeTurnResult result = submitPartialPerceptionTurn("문을 연다",
+                new RuntimePlan("scene", null, "성공했습니다", "문이 열립니다.", null, List.of(), List.of()));
+
+        assertEquals("RESOLVED", result.turn().plan().resolutionStatus());
+        assertEquals("성공했습니다", result.turn().plan().judgment());
+    }
+
     @Test
     void meta_question_returns_read_only_result_and_persists_non_advancing_audit_turn() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
@@ -110,7 +174,78 @@ class RuntimeTurnApplicationServiceTest {
 
         assertEquals(2, result.conversation().size());
         assertTrue(result.conversation().stream().noneMatch(entry -> "PLAYER".equals(entry.speaker())));
+        assertEquals(List.of("AI_GAME_MASTER", "AI_GAME_MASTER"),
+                result.conversation().stream().map(ConversationEntry::speaker).toList());
+        assertEquals(List.of("The GM advances the scene.", "await player choice"),
+                result.conversation().stream().map(ConversationEntry::content).toList());
         assertEquals(1, result.version());
+    }
+
+    @Test
+    void linear_story_plan_transition_persists_the_next_stage_index() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        ScenarioPackage scenarioPackage = scenarioPackage(new KnowledgeDocumentId(UUID.randomUUID()), new KnowledgeDocumentId(UUID.randomUUID()));
+        InMemoryStoryPlanRepository plans = new InMemoryStoryPlanRepository(AdventureStoryPlan.ready(
+                adventure.sessionId(), 0, 1, List.of(
+                        new AdventureStoryPlanStage(1, "Opening", "goal", "conflict", "clear", List.of(), List.of()),
+                        new AdventureStoryPlanStage(2, "Aftermath", "goal", "conflict", "clear", List.of(), List.of()))));
+        java.util.concurrent.atomic.AtomicReference<String> prompt = new java.util.concurrent.atomic.AtomicReference<>();
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
+                new InMemoryAdventureRepository(adventure),
+                new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId())),
+                new InMemoryPackageRepository(scenarioPackage), new InMemoryRuntimeTurnRepository(),
+                request -> request.evidenceType() == RuntimeEvidenceType.STORYBOOK
+                        ? List.of(new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK, scenarioPackage.documents().getFirst().knowledgeDocumentId(), 1, "page:1", "The path opens."))
+                        : List.of(),
+                request -> { prompt.set(request.storyPlanContext()); return new RuntimePlan("scene", null, "clear", "The path opens.", null,
+                        List.of(new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK, scenarioPackage.documents().getFirst().knowledgeDocumentId(), 1, "page:1", "The path opens.")), List.of(),
+                        "test", "test", "", true, ""); },
+                new AllowingSafetyPort(true), new InMemorySessionKnowledgeSetRepository(), plans,
+                sessionId -> java.util.Optional.of(new com.dndmaster.adventure.application.runtime.StoryContinuityContext(
+                        com.dndmaster.adventure.domain.runtime.plan.AdventureStoryPlanRevision.initial(sessionId, List.of("opening", "aftermath"), UUID.randomUUID()),
+                        List.of(), com.dndmaster.adventure.domain.runtime.clock.AdventureClock.initial(sessionId))));
+
+        service.submitTurn(new SubmitRuntimeTurnCommand(
+                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Complete the clear condition", 0,
+                null, -1, true, true));
+
+        assertEquals(1, plans.plan.currentStage());
+        assertTrue(prompt.get().contains("availableBranches="));
+    }
+
+    @Test
+    void commits_a_valid_turn_when_provider_returns_an_unknown_optional_branch_id() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        ScenarioPackage scenarioPackage = scenarioPackage(new KnowledgeDocumentId(UUID.randomUUID()), new KnowledgeDocumentId(UUID.randomUUID()));
+        InMemoryRuntimeTurnRepository turns = new InMemoryRuntimeTurnRepository();
+        InMemoryStoryPlanRepository plans = new InMemoryStoryPlanRepository(AdventureStoryPlan.ready(
+                adventure.sessionId(), 0, 1, List.of(
+                        new AdventureStoryPlanStage(1, "Opening", "goal", "conflict", "clear", List.of(), List.of("known-branch")),
+                        new AdventureStoryPlanStage(2, "Aftermath", "goal", "conflict", "clear", List.of(), List.of()))));
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
+                new InMemoryAdventureRepository(adventure),
+                new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId())),
+                new InMemoryPackageRepository(scenarioPackage), turns,
+                request -> request.evidenceType() == RuntimeEvidenceType.STORYBOOK
+                        ? List.of(new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
+                        scenarioPackage.documents().getFirst().knowledgeDocumentId(), 1, "page:1", "The path opens."))
+                        : List.of(),
+                request -> new RuntimePlan("scene", null, "clear", "The path opens.", null,
+                        List.of(new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
+                                scenarioPackage.documents().getFirst().knowledgeDocumentId(), 1, "page:1", "The path opens.")),
+                        List.of(), "codex-cli", "gpt-5.6-luna", "none", true, "provider-hallucinated-branch"),
+                new AllowingSafetyPort(true), new InMemorySessionKnowledgeSetRepository(), plans);
+
+        RuntimeTurnResult result = service.submitTurn(new SubmitRuntimeTurnCommand(
+                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Open the door"));
+
+        assertTrue(result.turn().committed());
+        assertEquals(1, result.version());
+        assertEquals(0, plans.plan.currentStage());
+        assertEquals(2, turns.saved.size());
+        assertTrue(turns.saved.getLast().committed());
     }
 
     @Test
@@ -199,6 +334,127 @@ class RuntimeTurnApplicationServiceTest {
                 .map(evidence -> evidence.knowledgeDocumentId().value()).toList());
 
     }
+
+    @Test
+    void uses_grounded_current_story_stage_when_storybook_search_misses() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId storyId = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(storyId, rulebookId);
+        AdventurePlanEvidence plannedEvidence = new AdventurePlanEvidence(
+                "STORYBOOK", storyId.value(), 1, "page:2", "The brewing room is ahead.", 0.95);
+        InMemoryStoryPlanRepository plans = new InMemoryStoryPlanRepository(
+                AdventureStoryPlan.ready(adventure.sessionId(), 1, 1, List.of(storyStage(plannedEvidence))));
+        RuntimePlanningPort planning = request -> {
+            assertEquals(List.of("The brewing room is ahead."), request.evidencePack().storybook().stream()
+                    .map(RuntimeEvidence::excerpt).toList());
+            return new RuntimePlan("brewing room", null, "continue", "grounded narration", null, List.of(), List.of());
+        };
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
+                new InMemoryAdventureRepository(adventure), new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId())),
+                new InMemoryPackageRepository(scenarioPackage), new InMemoryRuntimeTurnRepository(), request ->
+                        request.evidenceType() == RuntimeEvidenceType.RULEBOOK
+                                ? List.of(new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK, rulebookId, 1, "rule:1", "Roll."))
+                                : List.of(), planning, new AllowingSafetyPort(true), scope(adventure, storyId, rulebookId), plans);
+
+        RuntimeTurnResult result = service.submitTurn(new SubmitRuntimeTurnCommand(
+                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Look around"));
+
+        assertEquals("The brewing room is ahead.", result.turn().evidencePack().storybook().getFirst().excerpt());
+    }
+
+    @Test
+    void does_not_use_current_story_stage_evidence_outside_session_scope() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId selectedStory = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId excludedStory = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(selectedStory, rulebookId);
+        InMemoryStoryPlanRepository plans = new InMemoryStoryPlanRepository(AdventureStoryPlan.ready(
+                adventure.sessionId(), 1, 1, List.of(storyStage(new AdventurePlanEvidence(
+                        "STORYBOOK", excludedStory.value(), 1, "page:2", "secret", 0.95)))));
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
+                new InMemoryAdventureRepository(adventure), new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId())),
+                new InMemoryPackageRepository(scenarioPackage), new InMemoryRuntimeTurnRepository(), request -> List.of(),
+                request -> { throw new AssertionError("must not plan without eligible story evidence"); }, new AllowingSafetyPort(true),
+                scope(adventure, selectedStory, rulebookId), plans);
+
+        assertThrows(IllegalStateException.class, () -> service.submitTurn(new SubmitRuntimeTurnCommand(
+                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Look around")));
+    }
+
+    @Test
+    void uses_grounded_story_evidence_from_a_later_plan_stage_when_current_stage_has_no_story_evidence() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId storyId = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(storyId, rulebookId);
+        AdventurePlanEvidence currentRuleEvidence = new AdventurePlanEvidence(
+                "RULEBOOK", rulebookId.value(), 1, "rule:1", "Use the perception rule.", 0.95);
+        AdventurePlanEvidence laterStoryEvidence = new AdventurePlanEvidence(
+                "STORYBOOK", storyId.value(), 1, "page:4", "The brewing room is ahead.", 0.95);
+        InMemoryStoryPlanRepository plans = new InMemoryStoryPlanRepository(AdventureStoryPlan.ready(
+                adventure.sessionId(), 1, 1, List.of(
+                        storyStage(1, currentRuleEvidence),
+                        storyStage(2, laterStoryEvidence))));
+        RuntimePlanningPort planning = request -> {
+            assertEquals(List.of("The brewing room is ahead."), request.evidencePack().storybook().stream()
+                    .map(RuntimeEvidence::excerpt).toList());
+            return new RuntimePlan("brewing room", null, "continue", "grounded narration", null, List.of(), List.of());
+        };
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
+                new InMemoryAdventureRepository(adventure), new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId())),
+                new InMemoryPackageRepository(scenarioPackage), new InMemoryRuntimeTurnRepository(), request -> List.of(),
+                planning, new AllowingSafetyPort(true), scope(adventure, storyId, rulebookId), plans);
+
+        RuntimeTurnResult result = service.submitTurn(new SubmitRuntimeTurnCommand(
+                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Look around"));
+
+        assertEquals(List.of("The brewing room is ahead."), result.turn().evidencePack().storybook().stream()
+                .map(RuntimeEvidence::excerpt).toList());
+    }
+
+    @Test
+    void falls_back_to_package_storybook_when_session_scope_only_contains_shared_rulebook() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId storyId = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(storyId, rulebookId);
+        AdventurePlanEvidence plannedEvidence = new AdventurePlanEvidence(
+                "STORYBOOK", storyId.value(), 2, "page:2", "The brewing room is ahead.", 0.95);
+        InMemoryStoryPlanRepository plans = new InMemoryStoryPlanRepository(
+                AdventureStoryPlan.ready(adventure.sessionId(), 0, 1, List.of(storyStage(plannedEvidence))));
+        InMemorySessionKnowledgeSetRepository scope = new InMemorySessionKnowledgeSetRepository();
+        scope.save(new SessionKnowledgeSet(adventure.sessionId(), List.of(rulebookId)));
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
+                new InMemoryAdventureRepository(adventure), new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId())),
+                new InMemoryPackageRepository(scenarioPackage), new InMemoryRuntimeTurnRepository(), request -> List.of(),
+                request -> {
+                    assertEquals(List.of(storyId.value()), request.evidencePack().storybook().stream()
+                            .map(evidence -> evidence.knowledgeDocumentId().value()).toList());
+                    return new RuntimePlan("brewing room", null, "continue", "grounded narration", null, List.of(), List.of());
+                }, new AllowingSafetyPort(true), scope, plans);
+
+        RuntimeTurnResult result = service.submitTurn(new SubmitRuntimeTurnCommand(
+                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Look around"));
+
+        assertEquals("The brewing room is ahead.", result.turn().evidencePack().storybook().getFirst().excerpt());
+    }
+
+    private static AdventureStoryPlanStage storyStage(AdventurePlanEvidence evidence) {
+        return storyStage(1, evidence);
+    }
+
+    private static AdventureStoryPlanStage storyStage(int position, AdventurePlanEvidence evidence) {
+        return new AdventureStoryPlanStage(position, "Brewery " + position, "Find the brew", "Something stirs", "Reach the vats",
+                List.of(), List.of(), List.of(), AdventureStageType.EVENT, "Brewery", null, "", "", List.of(), "",
+                "Reach the vats", "Retreat", List.of(), List.of(), List.of(evidence), AdventureGroundingStatus.GROUNDED,
+                List.of(), "AVAILABLE", 1.0, Map.of());
+    }
     @Test
     void rejects_stale_expected_version_before_planning_or_persistence() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
@@ -245,6 +501,10 @@ class RuntimeTurnApplicationServiceTest {
         assertEquals(1, result.turn().evidencePack().rulebook().size());
         assertEquals(1, result.turn().evidencePack().resolution().size());
         assertEquals("근거를 바탕으로 응답한다.", result.turn().plan().narration());
+        assertEquals(List.of("PLAYER", "AI_GAME_MASTER", "AI_GAME_MASTER"),
+                result.conversation().stream().map(ConversationEntry::speaker).toList());
+        assertEquals(List.of("Open the door", "근거를 바탕으로 응답한다.", "판정 완료"),
+                result.conversation().stream().map(ConversationEntry::content).toList());
         assertEquals(proposed, result.turn().activeSourceContext());
         assertEquals("page:1:span:1", bindings.current.activeSourceContext().locator());
         assertTrue(result.turn().committed());
@@ -419,6 +679,39 @@ class RuntimeTurnApplicationServiceTest {
                 new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()));
     }
 
+    private static ScenarioPackage partialPerceptionPackage(KnowledgeDocumentId storyId, KnowledgeDocumentId rulebookId) {
+        ScenarioBundleId bundleId = ScenarioBundleId.generate();
+        return ScenarioPackage.publish(bundleId, 1, "partial-perception",
+                List.of(new ScenarioBundleDocumentSelection(storyId, ScenarioBundleDocumentRole.MAIN_SCENARIO,
+                                KnowledgeDocumentStatus.INDEXED, "story.txt", "STORYBOOK", 1),
+                        new ScenarioBundleDocumentSelection(rulebookId, ScenarioBundleDocumentRole.RULEBOOK,
+                                KnowledgeDocumentStatus.INDEXED, "rules.txt", "RULEBOOK", 1)),
+                List.of(new ScenarioResolutionUnit(ResolutionKind.SKILL_ABILITY_CHECK, "Perception", null, null,
+                        ResolutionVisibility.GM_REFERENCE, "Perception check.",
+                        List.of(new ScenarioSourceReference(storyId, 1, "page:1:span:1")), "fixture",
+                        ScenarioResolutionDetail.empty(), ResolutionStatus.PARTIAL, List.of("DC is missing"))),
+                new ScenarioCompilationReport(ResolutionStatus.PARTIAL, List.of("DC is missing")));
+    }
+
+    private static RuntimeTurnResult submitPartialPerceptionTurn(String action, RuntimePlan providerPlan) {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId story = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId rules = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = partialPerceptionPackage(story, rules);
+        return new RuntimeTurnApplicationService(
+                new InMemoryAdventureRepository(adventure), new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId())),
+                new InMemoryPackageRepository(scenarioPackage), new InMemoryRuntimeTurnRepository(),
+                request -> request.evidenceType() == RuntimeEvidenceType.STORYBOOK
+                        ? List.of(new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK, story, 1, "page:1", "A hidden door."))
+                        : request.evidenceType() == RuntimeEvidenceType.RESOLUTION
+                        ? List.of(new RuntimeEvidence(RuntimeEvidenceType.RESOLUTION, story, 1, "page:1:span:1", "Perception check."))
+                        : List.of(),
+                request -> providerPlan, new AllowingSafetyPort(true), scope(adventure, story, rules))
+                .submitTurn(new SubmitRuntimeTurnCommand(
+                        adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), action, 0));
+    }
+
     private static final class InMemoryAdventureRepository implements AdventureRepository {
         private Adventure current;
 
@@ -499,6 +792,24 @@ class RuntimeTurnApplicationServiceTest {
         @Override
         public void save(ScenarioPackage scenarioPackage) {
             packages.put(scenarioPackage.packageId(), scenarioPackage);
+        }
+    }
+
+    private static final class InMemoryStoryPlanRepository implements com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository {
+        private AdventureStoryPlan plan;
+
+        private InMemoryStoryPlanRepository(AdventureStoryPlan plan) {
+            this.plan = plan;
+        }
+
+        @Override
+        public Optional<AdventureStoryPlan> findBySessionId(SessionId sessionId) {
+            return plan != null && plan.sessionId().equals(sessionId) ? Optional.of(plan) : Optional.empty();
+        }
+
+        @Override
+        public void save(AdventureStoryPlan plan) {
+            this.plan = plan;
         }
     }
 

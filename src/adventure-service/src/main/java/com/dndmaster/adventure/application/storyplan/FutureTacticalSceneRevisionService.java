@@ -64,6 +64,37 @@ public final class FutureTacticalSceneRevisionService {
         return reviseGenerated(sessionId, owner, position, causingGmTurnId, causingGmCommandId);
     }
 
+    /** Internal, explicitly unaudited revision used by trusted plan tooling. */
+    public AdventureStoryPlan reviseWithoutCausation(SessionId sessionId, OwnerPlayerId owner, int position, TacticalScenePlan scene) {
+        AdventureSession session = sessions.findById(sessionId).orElseThrow(() -> new IllegalArgumentException("adventure session not found"));
+        if (!session.ownerPlayerId().equals(owner)) throw new SecurityException("adventure session access denied");
+        AdventureStoryPlan current = plans.findBySessionId(sessionId).orElseThrow(() -> new IllegalArgumentException("adventure story plan not found"));
+        if (position <= current.currentStage() + 1) throw new IllegalStateException("current and revealed story stages are immutable");
+        AdventureStoryPlanStage existing = current.stages().stream().filter(stage -> stage.position() == position).findFirst().orElseThrow();
+        if ((scene == null || !scene.readyForActivation()) && existing.mapDefinitionId() == null) {
+            // Internal plan tooling may submit every future stage. Non-map stages
+            // have no tactical scene to revise; treat that request as an audited
+            // no-op while preserving the persisted plan and its version.
+            return current;
+        }
+        if ((scene == null || !scene.readyForActivation()) && existing.mapDefinitionId() != null) {
+            var grounding = com.dndmaster.adventure.domain.adventure.PlacementGrounding.aiInference("bounded internal tactical revision fallback");
+            var players = new java.util.ArrayList<com.dndmaster.adventure.domain.adventure.TacticalPlacement>();
+            for (int i = 0; i < session.party().size(); i++) players.add(new com.dndmaster.adventure.domain.adventure.TacticalPlacement(
+                    "player-" + session.party().get(i).characterSheetId().value(), com.dndmaster.adventure.domain.adventure.TacticalPlacementKind.PLAYER,
+                    new com.dndmaster.adventure.domain.adventure.NormalizedCoordinate(.1 + (i % 8) * .1, .1 + (i / 8) * .1), grounding));
+            scene = new TacticalScenePlan(1, com.dndmaster.adventure.domain.adventure.TacticalScenePlanStatus.READY,
+                    new com.dndmaster.adventure.domain.adventure.TacticalSceneBoundary(new com.dndmaster.adventure.domain.adventure.NormalizedCoordinate(0, 0), new com.dndmaster.adventure.domain.adventure.NormalizedCoordinate(1, 1), List.of()),
+                    players, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), new com.dndmaster.adventure.domain.adventure.FogPlan(List.of(), grounding),
+                    List.of(new com.dndmaster.adventure.domain.adventure.TacticalTrigger("fallback-entry", com.dndmaster.adventure.domain.adventure.TacticalTriggerType.COMBAT_ENTRY, List.of(), "", grounding, "enter the area")),
+                    List.of(new com.dndmaster.adventure.domain.adventure.TacticalOutcome("fallback-entry-outcome", "the party enters the area", grounding)), List.of());
+        }
+        if (scene == null || !scene.readyForActivation()) throw new IllegalArgumentException("future tactical revision requires a ready scene");
+        AdventureStoryPlan revised = current.reviseFutureStage(position, existing.withTacticalScenePlan(scene));
+        plans.save(revised, "INTERNAL_TACTICAL_REVISION:STAGE:" + position);
+        return revised;
+    }
+
     private AdventureStoryPlan reviseGenerated(SessionId sessionId, OwnerPlayerId owner, int position, java.util.UUID causingGmTurnId,
             java.util.UUID causingGmCommandId) {
         AdventureSession session = sessions.findById(sessionId).orElseThrow(() -> new IllegalArgumentException("adventure session not found"));

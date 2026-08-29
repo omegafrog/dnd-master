@@ -82,6 +82,63 @@ class GmAgentControllerContractTest {
     }
 
     @Test
+    void preserves_explicit_story_plan_advance_for_a_known_branch() {
+        var controller = controllerFor("true", "north");
+
+        var response = controller.plan("token", request("availableBranches=north,south;"));
+
+        assertEquals(true, response.advanceStoryPlan());
+        assertEquals("north", response.selectedBranchId());
+    }
+
+    @Test
+    void defaults_missing_or_false_story_plan_advance_to_false() {
+        var controller = controllerFor("false", "north");
+
+        var response = controller.plan("token", request("availableBranches=north;"));
+
+        assertEquals(false, response.advanceStoryPlan());
+        assertEquals("", response.selectedBranchId());
+
+        response = controllerFor(null, "north").plan("token", request("availableBranches=north;"));
+        assertEquals(false, response.advanceStoryPlan());
+        assertEquals("", response.selectedBranchId());
+    }
+
+    @Test
+    void rejects_story_plan_advance_for_an_unknown_branch() {
+        var controller = controllerFor("true", "invented");
+
+        var response = controller.plan("token", request("availableBranches=north;"));
+
+        assertEquals(false, response.advanceStoryPlan());
+        assertEquals("", response.selectedBranchId());
+    }
+
+    @Test
+    void preserves_explicit_story_plan_advance_for_a_linear_stage() {
+        var response = controllerFor("true", "").plan("token", request("availableBranches=;"));
+
+        assertEquals(true, response.advanceStoryPlan());
+        assertEquals("", response.selectedBranchId());
+    }
+
+    private static GmAgentController controllerFor(String advanceStoryPlan, String selectedBranchId) {
+        return new GmAgentController(new com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter() {
+            @Override public <T> T complete(String operation, String prompt,
+                                             com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                String advanceField = advanceStoryPlan == null ? "" : "\"advanceStoryPlan\":" + advanceStoryPlan + ",";
+                return parser.parse("{\"scene\":\"opening\",\"npcState\":\"alert\",\"judgment\":\"choose\","
+                        + "\"narration\":\"A bell rings.\",\"proposedActiveSourceContext\":null,"
+                        + "\"citedEvidence\":[],\"warnings\":[],\"provider\":\"codex-cli\","
+                        + "\"model\":\"gpt-5.6-luna\",\"reasoning\":\"none\",\"stateDelta\":[],"
+                        + "\"toolCalls\":[]," + advanceField
+                        + "\"selectedBranchId\":\"" + selectedBranchId + "\"}");
+            }
+        }, new com.fasterxml.jackson.databind.ObjectMapper(), new ApiRequestGuard("token"));
+    }
+
+    @Test
     void discards_citations_with_missing_or_unknown_evidence_type() {
         var controller = new GmAgentController(new com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter() {
             @Override public <T> T complete(String operation, String prompt,
@@ -165,8 +222,12 @@ class GmAgentControllerContractTest {
     }
 
     private static GmAgentController.Request request() {
+        return request("");
+    }
+
+    private static GmAgentController.Request request(String storyPlanContext) {
         return new GmAgentController.Request("turn", UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(),
                 UUID.randomUUID(), UUID.randomUUID(), 1, "capability", "open the door", "crypt", "guarding",
-                "", "", List.of(), List.of(), List.of(), List.of(), List.of(), "", "", "", "");
+                "", "", List.of(), List.of(), List.of(), List.of(), List.of(), storyPlanContext, "", "", "");
     }
 }

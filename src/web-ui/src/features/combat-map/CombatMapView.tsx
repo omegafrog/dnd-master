@@ -2,7 +2,7 @@ import { useEffect, useState, type CSSProperties } from 'react'
 import type { AdventurePlayApi, CombatMapView as CombatMapState } from '../saved-adventures/AdventurePlayApi'
 import { actionCandidate, moveCandidate, type MapInteractionCandidate } from './MapInteractionCandidate'
 
-export function CombatMapView({ adventureId, api }: { adventureId: string; api: AdventurePlayApi }) {
+export function CombatMapView({ adventureId, api, refreshToken = 0 }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number }) {
   const [map, setMap] = useState<CombatMapState | null>(null)
   const [selectedToken, setSelectedToken] = useState<string | null>(null)
   const [candidate, setCandidate] = useState<MapInteractionCandidate | null>(null)
@@ -11,8 +11,14 @@ export function CombatMapView({ adventureId, api }: { adventureId: string; api: 
   const [locationMode, setLocationMode] = useState(false)
 
   useEffect(() => {
-    void api.getCombatMap(adventureId).then(setMap).catch(() => setMap(null))
-  }, [adventureId, api])
+    let active = true
+    void api.getCombatMap(adventureId).then(nextMap => {
+      if (active) setMap(nextMap)
+    }).catch(() => {
+      if (active) setMap(null)
+    })
+    return () => { active = false }
+  }, [adventureId, api, refreshToken])
 
   function chooseCell(cell: { x: number; y: number }) {
     if (!map || !selectedToken) return

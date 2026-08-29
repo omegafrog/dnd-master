@@ -11,6 +11,7 @@ import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlPathMatching;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.adventure.application.combat.AdventureCombatApplicationService;
@@ -19,6 +20,7 @@ import com.dndmaster.adventure.application.combat.CombatActorRole;
 import com.dndmaster.adventure.application.combat.CombatOperation;
 import com.dndmaster.adventure.application.combat.CombatOperationRepository;
 import com.dndmaster.adventure.application.combat.CrossContextCallException;
+import com.dndmaster.adventure.application.combat.RuntimeCombatRejectionException;
 import com.dndmaster.adventure.application.combat.CrossContextHttpCombatGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpRuleIntentClassificationGateway;
 import com.dndmaster.adventure.application.guidance.RuleQueryIntent;
@@ -29,6 +31,7 @@ import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.stubbing.Scenario;
 import java.net.URI;
 import java.net.http.HttpClient;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
@@ -47,8 +50,14 @@ class CrossContextHttpIntegrationTest {
     void retries_only_failed_bc_step_and_never_duplicates_completed_adjudication() {
         server = new WireMockServer(0);
         server.start();
-        server.stubFor(get(urlPathMatching("/internal/v1/character-sheets/.*"))
-                .willReturn(aResponse().withStatus(200).withBody("{\"edition\":\"DND_5E_2024\",\"version\":7}")));
+        server.stubFor(get(urlPathMatching("/internal/v1/character-sheets/.*/runtime"))
+                .willReturn(aResponse().withStatus(200).withBody("""
+                        {"characterSheetId":"a1b2c3d4-e5f6-4789-abcd-0123456789ab",
+                         "edition":"DND_5E_2024","version":7,
+                         "currentHitPoints":12,"currency":25,
+                         "ownedEquipment":[{"name":"Longsword","quantity":1}],
+                         "unknownFutureField":{"source":"character-service"}}
+                        """)));
         server.stubFor(post(urlEqualTo("/rolls")).willReturn(aResponse().withStatus(200).withBody("17")));
         server.stubFor(post(urlPathMatching("/internal/v1/combat-maps/.*/moves")).willReturn(aResponse().withStatus(200)));
         server.stubFor(post(urlPathMatching("/internal/v1/combat-maps/.*/ai-state")).willReturn(aResponse().withStatus(200)));
@@ -67,9 +76,10 @@ class CrossContextHttpIntegrationTest {
         UUID combatMapId = UUID.randomUUID();
         UUID ownerId = UUID.randomUUID();
         UUID tokenId = UUID.randomUUID();
+        UUID sessionId = UUID.randomUUID();
         var command = new CombatActionCommand(
-                operationId, AdventureId.generate(), new RuleSetId(UUID.randomUUID()),
-                new CharacterSheetId(UUID.randomUUID()), combatMapId, CombatActorRole.PLAYER, "attack", "A1>B1",
+                operationId, AdventureId.generate(), sessionId, new RuleSetId(UUID.randomUUID()),
+                new CharacterSheetId(UUID.randomUUID()), combatMapId, CombatActorRole.PLAYER, "attack", "A1>B1>C1",
                 ownerId, tokenId, 7L);
 
         assertThrows(CrossContextCallException.class, () -> service.resolveCombatAction(command));
@@ -77,18 +87,49 @@ class CrossContextHttpIntegrationTest {
         assertEquals("critical hit", service.resolveCombatAction(command).judgment());
 
         String key = operationId.toString();
-        server.verify(exactly(1), getRequestedFor(urlPathMatching("/internal/v1/character-sheets/.*")).withHeader("Idempotency-Key", equalTo(key)));
+        String aiStateKey = UUID.nameUUIDFromBytes((operationId + "|ai-state").getBytes(StandardCharsets.UTF_8)).toString();
+        assertNotEquals(key, aiStateKey);
+        server.verify(exactly(1), getRequestedFor(urlEqualTo("/internal/v1/character-sheets/" + command.characterSheetId().value() + "/runtime"))
+                .withHeader("Idempotency-Key", equalTo(key))
+                .withHeader("X-Internal-Token", equalTo(""))
+                .withHeader("X-Session-ID", equalTo(sessionId.toString()))
+                .withHeader("X-Owner-Player-ID", equalTo(ownerId.toString())));
         server.verify(exactly(1), postRequestedFor(urlEqualTo("/rolls")).withHeader("Idempotency-Key", equalTo(key)));
         server.verify(exactly(1), postRequestedFor(urlPathMatching("/internal/v1/combat-maps/.*/moves"))
                 .withRequestBody(equalToJson("""
-                        {"playerId":"%s","tokenId":"%s","positions":[{"x":0,"y":0},{"x":1,"y":0}],
-                         "distance":1,"appliedEdition":"DND_5E_2024","commandId":"%s","expectedVersion":7}
+                        {"playerId":"%s","tokenId":"%s","positions":[{"x":0,"y":0},{"x":1,"y":0},{"x":2,"y":0}],
+                         "distance":10,"appliedEdition":"DND_5E_2024","commandId":"%s","expectedVersion":7}
                         """.formatted(ownerId, tokenId, key))));
         server.verify(exactly(1), postRequestedFor(urlPathMatching("/internal/v1/combat-maps/.*/ai-state"))
                 .withRequestBody(equalToJson("""
-                        {"ownerId":"%s","tokenId":"%s","x":1,"y":0,"commandId":"%s","expectedVersion":7,"layers":[]}
-                        """.formatted(ownerId, tokenId, key))));
+                        {"ownerId":"%s","tokenId":"%s","x":2,"y":0,"commandId":"%s","expectedVersion":8,"layers":[]}
+                        """.formatted(ownerId, tokenId, aiStateKey))));
         server.verify(exactly(2), postRequestedFor(urlEqualTo("/ai/adjudications")).withHeader("Idempotency-Key", equalTo(key)));
+    }
+
+    @Test
+    void rejects_zero_hit_point_character_before_dice_roll() {
+        server = new WireMockServer(0);
+        server.start();
+        server.stubFor(get(urlPathMatching("/internal/v1/character-sheets/.*/runtime"))
+                .willReturn(aResponse().withStatus(200).withBody("""
+                        {"edition":"DND_5E_2024","version":7,
+                         "characterState":"{\\\"currentHitPoints\\\":0}"}
+                        """)));
+
+        var repository = new MemoryRepository();
+        var gateway = new CrossContextHttpCombatGateway(
+                HttpClient.newHttpClient(), URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2));
+        var service = new AdventureCombatApplicationService(repository, gateway, gateway, gateway, gateway);
+        var command = new CombatActionCommand(
+                UUID.randomUUID(), AdventureId.generate(), UUID.randomUUID(), new RuleSetId(UUID.randomUUID()),
+                new CharacterSheetId(UUID.randomUUID()), UUID.randomUUID(), CombatActorRole.PLAYER, "attack", "A1>B1",
+                UUID.randomUUID(), UUID.randomUUID(), 7L);
+
+        assertThrows(RuntimeCombatRejectionException.class, () -> service.resolveCombatAction(command));
+        server.verify(exactly(0), postRequestedFor(urlEqualTo("/rolls")));
+        server.verify(exactly(0), postRequestedFor(urlPathMatching("/internal/v1/combat-maps/.*/moves")));
+        server.verify(exactly(0), postRequestedFor(urlEqualTo("/ai/adjudications")));
     }
 
     @Test

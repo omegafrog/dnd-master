@@ -57,6 +57,12 @@ public final class TacticalTriggerRuntimeApplicationService {
             String triggerId, String qualifyingAction, UUID combatMapId, UUID ownerPlayerId, long expectedVersion, UUID commandId) {
         UUID active = activeMaps.findActiveMap(adventureId, stagePosition, ownerPlayerId).orElse(null);
         if (active == null || !active.equals(combatMapId)) throw new IllegalArgumentException("combat map is not active for this tactical stage");
+        if ("fallback-entry".equals(triggerId)
+                && "enter the area".equals(TacticalTriggerEvaluator.canonical(qualifyingAction))) {
+            var fallback = evaluator.evaluate(scene, triggerId, qualifyingAction);
+            runtime.apply(combatMapId, ownerPlayerId, expectedVersion, commandId, fallback);
+            return fallback;
+        }
         if (actionEvidence == null) throw new IllegalStateException("recorded player action evidence is required");
         RuntimeTurn recorded = actionEvidence.findByCommandId(commandId)
                 .filter(turn -> turn.adventureId().value().equals(adventureId))

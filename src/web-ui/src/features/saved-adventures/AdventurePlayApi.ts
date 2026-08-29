@@ -73,9 +73,18 @@ export type MapActionCandidate = {
   location?: { x: number; y: number }
 }
 
+export type CombatResolutionStatus = 'RESOLVED' | 'PENDING_RULE_INPUT'
+export type DiceRollResponse = {
+  rollId: string
+  total: number
+  judgment?: string
+  resolutionStatus?: CombatResolutionStatus | string
+  outcomeApplied?: boolean
+}
+
 export interface AdventurePlayApi {
   getCharacter(sheetId: string): Promise<CharacterSheet>
-  rollDice(adventureId: string, ruleSetId: string, characterSheetId: string, role: string, action: string): Promise<{ rollId: string; total: number }>
+  rollDice(adventureId: string, ruleSetId: string, characterSheetId: string, role: string, action: string): Promise<DiceRollResponse>
   listSaved(ownerId: string): Promise<SavedAdventure[]>
   save(adventureId: string, playerId: string, expectedVersion: number, currentScene: string): Promise<{ adventureId: string; newVersion: number }>
   resume(adventureId: string): Promise<void>
@@ -132,7 +141,7 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
   }
 
   rollDice(adventureId: string, ruleSetId: string, characterSheetId: string, role: string, action: string) {
-    return request<{ rollId: string; total: number }>(`/api/v1/adventures/${adventureId}/dice-rolls`, {
+    return request<DiceRollResponse>(`/api/v1/adventures/${adventureId}/dice-rolls`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
       body: JSON.stringify({ ruleSetId, characterSheetId, role, action }),

@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { render, screen } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expect, it, vi } from 'vitest'
 import { CharacterSheetView } from '../character/CharacterSheetView'
@@ -19,7 +19,7 @@ function fakeApi(): AdventurePlayApi {
     },
     async getCombatMap() { return { adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0, sessionVersion: 7, grid: { width: 3, height: 2 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 1, y: 1 }] } },
     submitMapAction,
-    async rollDice() { return { rollId: 'r1', total: 19 } },
+    async rollDice() { return { rollId: 'r1', total: 19, judgment: 'hit', resolutionStatus: 'RESOLVED', outcomeApplied: true } },
     async listSaved() { return [] },
     async save() { return { adventureId: 'a1', newVersion: 1 } },
     async resume() {},
@@ -41,7 +41,8 @@ it('shows character sheet, rolls dice, and shows combat map', async () => {
   expect(screen.getByText('17')).toBeInTheDocument()
   await user.selectOptions(screen.getByLabelText('담당 역할'), 'ENEMY')
   await user.click(screen.getByRole('button', { name: '굴리기' }))
-  expect(await screen.findByText('결과: 19')).toBeInTheDocument()
+  expect(await screen.findByText(/결과: 19/)).toBeInTheDocument()
+  expect(await screen.findByText(/hit · 상태: RESOLVED/)).toBeInTheDocument()
   expect(await screen.getByRole('heading', { name: '플레이어 전투 맵' })).toBeInTheDocument()
   expect(await screen.findByText('현재 맵 상태: authoritative-map')).toBeInTheDocument()
 })
@@ -82,4 +83,29 @@ it('submits exactly one typed map action after confirmation', async () => {
   await user.click(screen.getByRole('button', { name: '확인' }))
   expect(api.submitMapAction).toHaveBeenCalledTimes(1)
   expect(api.submitMapAction).toHaveBeenCalledWith('a1', expect.objectContaining({ action: 'MOVE', path: [{ x: 1, y: 1 }, { x: 2, y: 1 }] }), undefined, 7)
+})
+
+it('refetches the map when the parent refresh token changes', async () => {
+  const api = fakeApi()
+  const getCombatMap = vi.spyOn(api, 'getCombatMap')
+  const { rerender } = render(<CombatMapView adventureId="a1" api={api} refreshToken={0} />)
+  await screen.findByRole('heading', { name: '플레이어 전투 맵' })
+  expect(getCombatMap).toHaveBeenCalledTimes(1)
+  rerender(<CombatMapView adventureId="a1" api={api} refreshToken={1} />)
+  await waitFor(() => expect(getCombatMap).toHaveBeenCalledTimes(2))
+})
+
+it('does not let a slower stale refresh overwrite the latest map', async () => {
+  let resolveFirst!: (map: Awaited<ReturnType<AdventurePlayApi['getCombatMap']>>) => void
+  let resolveSecond!: (map: Awaited<ReturnType<AdventurePlayApi['getCombatMap']>>) => void
+  const first = new Promise<Awaited<ReturnType<AdventurePlayApi['getCombatMap']>>>(resolve => { resolveFirst = resolve })
+  const second = new Promise<Awaited<ReturnType<AdventurePlayApi['getCombatMap']>>>(resolve => { resolveSecond = resolve })
+  const api = fakeApi()
+  api.getCombatMap = vi.fn().mockReturnValueOnce(first).mockReturnValueOnce(second)
+  const { rerender } = render(<CombatMapView adventureId="a1" api={api} refreshToken={0} />)
+  rerender(<CombatMapView adventureId="a1" api={api} refreshToken={1} />)
+  await act(async () => { resolveSecond({ adventureId: 'a1', status: 'latest', mapId: 'm1', version: 2, grid: { width: 1, height: 1 }, tokens: [] }) })
+  await screen.findByText('현재 맵 상태: latest')
+  await act(async () => { resolveFirst({ adventureId: 'a1', status: 'stale', mapId: 'm1', version: 1, grid: { width: 1, height: 1 }, tokens: [] }) })
+  expect(screen.getByText('현재 맵 상태: latest')).toBeInTheDocument()
 })

@@ -1,25 +1,43 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import type { AdventureApi } from './AdventureApi'
 
-export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expectedVersion = 0 }: { adventureId: string; api: AdventureApi; controlMode?: 'DIRECT' | 'AGENT'; expectedVersion?: number }) {
-  const [messages, setMessages] = useState<{ speaker: string; text: string }[]>([])
+type ChatMessageEntry = { speaker: string; text: string }
+type LocalTurn = { action: ChatMessageEntry; response: ChatMessageEntry[]; expectedVersion: number; committedVersion?: number }
+
+export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expectedVersion = 0, onTurnCommitted }: { adventureId: string; api: AdventureApi; controlMode?: 'DIRECT' | 'AGENT'; expectedVersion?: number; onTurnCommitted?: () => void }) {
+  const [messages, setMessages] = useState<ChatMessageEntry[]>([])
   const [notice, setNotice] = useState('')
   const [sending, setSending] = useState(false)
   const [agentVersion, setAgentVersion] = useState(expectedVersion)
   const [activeControlMode, setActiveControlMode] = useState(controlMode)
   const [projectionStatus, setProjectionStatus] = useState<'idle' | 'processing' | 'failed'>('idle')
+  const [conversationHydrated, setConversationHydrated] = useState(() => !api.readConversation)
+  const hydrationPending = Boolean(api.readConversation) && !conversationHydrated
   const projectionVersion = useRef(expectedVersion)
   const committedVersion = useRef(-1)
+  const localTurn = useRef<LocalTurn | null>(null)
   useEffect(() => {
-    if (!api.readConversation) return
+    if (!api.readConversation) {
+      setConversationHydrated(true)
+      return
+    }
+    setConversationHydrated(false)
     let cancelled = false
     void api.readConversation(adventureId).then(response => {
       if (cancelled) return
       projectionVersion.current = Math.max(projectionVersion.current, response.version)
-      setMessages(current => current.length === 0
-        ? response.entries.map(entry => ({ speaker: speakerLabel(entry.speaker), text: entry.content }))
-        : current)
-    }).catch(() => { if (!cancelled) setNotice('대화 기록을 불러오지 못했습니다.') })
+      setMessages(current => reconcileHydratedMessages(
+        response.entries.map(entry => ({ speaker: speakerLabel(entry.speaker), text: entry.content })),
+        response.version,
+        current,
+        localTurn.current,
+      ))
+      setConversationHydrated(true)
+    }).catch(() => {
+      if (cancelled) return
+      setConversationHydrated(true)
+      setNotice('대화 기록을 불러오지 못했습니다.')
+    })
     return () => { cancelled = true }
   }, [adventureId, api])
 
@@ -39,6 +57,21 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
       setSending(false)
       setProjectionStatus(event.type === 'GM_TURN_FAILED' ? 'failed' : 'idle')
       setNotice(event.type === 'GM_TURN_FAILED' ? '턴 처리가 실패했습니다.' : '')
+      if (event.type === 'GM_TURN_COMMITTED' && api.readConversation) {
+        void api.readConversation(adventureId).then(response => {
+          projectionVersion.current = Math.max(projectionVersion.current, response.version, event.version)
+          setMessages(current => reconcileHydratedMessages(
+            response.entries.map(entry => ({ speaker: speakerLabel(entry.speaker), text: entry.content })),
+            response.version,
+            current,
+            localTurn.current,
+            true,
+          ))
+        }).catch(() => {
+          // The event has already been acknowledged. Keep the optimistic view
+          // and let the next hydration/event reconcile it with the projection.
+        })
+      }
     }, () => { setSending(false); setProjectionStatus('failed'); setNotice('실시간 모험 이벤트 연결이 끊겼습니다.') })
   }, [adventureId, api])
   const previousControlMode = useRef(controlMode)
@@ -51,7 +84,7 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
   }, [controlMode])
 
   useEffect(() => {
-    if (activeControlMode !== 'AGENT' || !api.runAgentTurn) return
+    if (hydrationPending || activeControlMode !== 'AGENT' || !api.runAgentTurn) return
     let cancelled = false
     setSending(true)
     void api.runAgentTurn(adventureId, agentVersion).then(response => {
@@ -59,11 +92,12 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
       setMessages(current => [...current, { speaker: '에이전트 캐릭터', text: response.narration }])
       setAgentVersion(response.version)
       setActiveControlMode(response.nextControlMode ?? 'DIRECT')
+      onTurnCommitted?.()
     }).catch(() => {
       if (!cancelled) setNotice('에이전트 턴을 실행하지 못했습니다.')
     }).finally(() => { if (!cancelled) setSending(false) })
     return () => { cancelled = true }
-  }, [adventureId, agentVersion, activeControlMode, api])
+  }, [adventureId, agentVersion, activeControlMode, api, hydrationPending, onTurnCommitted])
 
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
@@ -71,13 +105,19 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
     const text = String(form.get('message')).trim()
     if (!text) return
     const command = createRuntimeCommandIdentity()
+    const action = { speaker: '플레이어', text }
+    localTurn.current = { action, response: [], expectedVersion: projectionVersion.current }
     setNotice('')
     setSending(true)
     setProjectionStatus('processing')
-    setMessages(current => [...current, { speaker: '플레이어', text }])
+    setMessages(current => [...current, action])
     try {
       const response = await api.sendMessage(adventureId, text, command, projectionVersion.current)
-      setMessages(current => [...current, { speaker: 'AI 게임 마스터', text: response.narration }])
+      const responseEntries = responseMessages(response.narration, response.judgment)
+      localTurn.current = { action, response: responseEntries, expectedVersion: localTurn.current?.expectedVersion ?? projectionVersion.current, committedVersion: response.version }
+      projectionVersion.current = Math.max(projectionVersion.current, response.version)
+      setMessages(current => [...current, ...responseEntries])
+      onTurnCommitted?.()
     } catch {
       setProjectionStatus('failed')
       setNotice('메시지를 전송하지 못했습니다.')
@@ -90,7 +130,7 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
     <section className="adventure-stream" aria-labelledby="conversation-heading">
       <h2 id="conversation-heading">모험 대화</h2>
       {messages.length > 0 && <h3 className="sr-only">첫 장면</h3>}
-      <p role="status">{projectionStatus === 'processing' ? '턴 처리 중' : projectionStatus === 'failed' ? '턴 처리 실패' : activeControlMode === 'AGENT' ? '에이전트 캐릭터 차례 — 자동 진행 중' : '직접 플레이 입력 대기 중'}</p>
+      <p role="status" aria-busy={hydrationPending || projectionStatus === 'processing'}>{hydrationPending ? '대화 기록 불러오는 중' : projectionStatus === 'processing' ? '턴 처리 중' : projectionStatus === 'failed' ? '턴 처리 실패' : activeControlMode === 'AGENT' ? '에이전트 캐릭터 차례 — 자동 진행 중' : '직접 플레이 입력 대기 중'}</p>
       <ol className={historyMessages.length === 0 ? 'opening-only' : undefined} aria-label="대화 기록">
         {historyMessages.map((message, index) => (
           <li key={index} className={`adventure-chat-message ${message.speaker === '플레이어' ? 'player' : 'gm'}`}>
@@ -100,12 +140,53 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
         ))}
       </ol>
       <p role="alert">{notice}</p>
-      <form onSubmit={send} aria-disabled={activeControlMode === 'AGENT'}>
-        <label>무엇을 하시겠어요?<input name="message" required /></label>
-        <button type="submit" disabled={sending || activeControlMode === 'AGENT'}>행동 보내기</button>
+      <form onSubmit={send} aria-disabled={hydrationPending || activeControlMode === 'AGENT'} aria-busy={hydrationPending}>
+        <label>무엇을 하시겠어요?<input name="message" required disabled={hydrationPending || sending || activeControlMode === 'AGENT'} /></label>
+        <button type="submit" disabled={hydrationPending || sending || activeControlMode === 'AGENT'}>행동 보내기</button>
       </form>
     </section>
   )
+}
+
+function reconcileHydratedMessages(
+  persisted: ChatMessageEntry[],
+  version: number,
+  current: ChatMessageEntry[],
+  turn: LocalTurn | null,
+  replaceCurrent = false,
+) {
+  if (!turn) return replaceCurrent || current.length === 0 ? persisted : current
+
+  // A stale initial read can precede persistence of the turn. Keep the local
+  // turn in that case; once the returned projection contains it, use the
+  // persisted sequence as the source of truth and retain only missing output.
+  const canMatchTurn = turn.committedVersion === undefined || version >= turn.committedVersion
+  let actionIndex = -1
+  if (canMatchTurn) {
+    for (let index = persisted.length - 1; index >= 0; index -= 1) {
+      if (sameEntry(persisted[index], turn.action)) {
+        actionIndex = index
+        break
+      }
+    }
+  }
+  if (actionIndex < 0) return [...persisted, turn.action, ...turn.response]
+
+  const persistedResponse = persisted.slice(actionIndex + 1, actionIndex + 1 + turn.response.length)
+  const responseAlreadyPersisted = turn.response.every((entry, index) => sameEntry(entry, persistedResponse[index]))
+  if (responseAlreadyPersisted) return persisted
+  return [...persisted.slice(0, actionIndex + 1), ...turn.response, ...persisted.slice(actionIndex + 1)]
+}
+
+function sameEntry(left: ChatMessageEntry | undefined, right: ChatMessageEntry | undefined) {
+  return left?.speaker === right?.speaker && left?.text === right?.text
+}
+
+function responseMessages(narration: string, judgment: string) {
+  const messages = [{ speaker: 'AI 게임 마스터', text: narration }]
+  const visibleJudgment = judgment.trim()
+  if (visibleJudgment) messages.push({ speaker: 'AI 게임 마스터', text: visibleJudgment })
+  return messages
 }
 
 function playerNarration(text: string) {

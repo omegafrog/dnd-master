@@ -113,6 +113,69 @@ class CharacterSheetControllerTest {
     }
 
     @Test
+    void initializesRuntimeHitPointsFromMaximumWhenCreationOmitsThem() throws Exception {
+        UUID adventureId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        CharacterSheet sheet = new CharacterSheet(new CharacterSheetId(UUID.fromString("11111111-1111-1111-1111-111111111111")),
+                new AdventureId(adventureId), SheetEdition.DND_5E_2024, new CharacterSheetData2024("Aria", 1, false));
+        when(service.createSheet(any())).thenReturn(sheet);
+
+        mockMvc.perform(post("/internal/v1/adventure-sessions/{sessionId}/character-sheets", adventureId)
+                        .contentType("application/json")
+                        .content("""
+                                {"edition":"DND_5E_2024","characterName":"Aria","level":1,
+                                 "derivedStatistics":"{\\"hitPointMaximum\\":12}"}
+                                """))
+                .andExpect(status().isOk());
+
+        var captor = org.mockito.ArgumentCaptor.forClass(com.dndmaster.character.application.CreateCharacterSheetCommand.class);
+        verify(service).createSheet(captor.capture());
+        org.junit.jupiter.api.Assertions.assertEquals(12,
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree(captor.getValue().data().characterState()).path("currentHitPoints").asInt());
+    }
+
+    @Test
+    void preservesExplicitZeroRuntimeHitPointsOnCreation() throws Exception {
+        UUID adventureId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        CharacterSheet sheet = new CharacterSheet(new CharacterSheetId(UUID.fromString("11111111-1111-1111-1111-111111111111")),
+                new AdventureId(adventureId), SheetEdition.DND_5E_2024, new CharacterSheetData2024("Aria", 1, false));
+        when(service.createSheet(any())).thenReturn(sheet);
+
+        mockMvc.perform(post("/internal/v1/adventure-sessions/{sessionId}/character-sheets", adventureId)
+                        .contentType("application/json")
+                        .content("""
+                                {"edition":"DND_5E_2024","characterName":"Aria","level":1,
+                                 "derivedStatistics":"{\\"hitPointMaximum\\":12}","characterState":"{\\"currentHitPoints\\":0}"}
+                                """))
+                .andExpect(status().isOk());
+
+        var captor = org.mockito.ArgumentCaptor.forClass(com.dndmaster.character.application.CreateCharacterSheetCommand.class);
+        verify(service).createSheet(captor.capture());
+        org.junit.jupiter.api.Assertions.assertEquals(0,
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree(captor.getValue().data().characterState()).path("currentHitPoints").asInt());
+    }
+
+    @Test
+    void doesNotTreatTextContainingHitPointFieldAsInitializedState() throws Exception {
+        UUID adventureId = UUID.fromString("22222222-2222-2222-2222-222222222222");
+        CharacterSheet sheet = new CharacterSheet(new CharacterSheetId(UUID.fromString("11111111-1111-1111-1111-111111111111")),
+                new AdventureId(adventureId), SheetEdition.DND_5E_2024, new CharacterSheetData2024("Aria", 1, false));
+        when(service.createSheet(any())).thenReturn(sheet);
+
+        mockMvc.perform(post("/internal/v1/adventure-sessions/{sessionId}/character-sheets", adventureId)
+                        .contentType("application/json")
+                        .content("""
+                                {"edition":"DND_5E_2024","characterName":"Aria","level":1,
+                                 "derivedStatistics":"{\\"hitPointMaximum\\":12}","characterState":"{\\"note\\":\\"currentHitPoints is pending\\"}"}
+                                """))
+                .andExpect(status().isOk());
+
+        var captor = org.mockito.ArgumentCaptor.forClass(com.dndmaster.character.application.CreateCharacterSheetCommand.class);
+        verify(service).createSheet(captor.capture());
+        org.junit.jupiter.api.Assertions.assertEquals(12,
+                new com.fasterxml.jackson.databind.ObjectMapper().readTree(captor.getValue().data().characterState()).path("currentHitPoints").asInt());
+    }
+
+    @Test
     void keepsBuildAndMutableStateSeparateFromDerivedStatistics() throws Exception {
         UUID adventureId = UUID.fromString("22222222-2222-2222-2222-222222222222");
         CharacterSheet sheet = new CharacterSheet(new CharacterSheetId(UUID.fromString("11111111-1111-1111-1111-111111111111")), new AdventureId(adventureId), SheetEdition.DND_5E_2024,

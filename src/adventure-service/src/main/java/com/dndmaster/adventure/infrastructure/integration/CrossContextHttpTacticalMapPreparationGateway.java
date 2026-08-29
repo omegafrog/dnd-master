@@ -53,10 +53,13 @@ public final class CrossContextHttpTacticalMapPreparationGateway implements Tact
                     "ruleSetId", ruleSetId,
                     "mapDefinitionId", definition.id(), "assetId", definition.assetId(), "assetLocator", definition.assetLocator(),
                     "playerSpawnX", playerSpawnX, "playerSpawnY", playerSpawnY));
-            HttpResponse<byte[]> asset = client.send(HttpRequest.newBuilder(sourceBaseUrl.resolve(
-                            "internal/v1/story-sources/" + definition.source().knowledgeDocumentId().value() + "/assets?locator="
-                                    + java.net.URLEncoder.encode(definition.assetLocator(), java.nio.charset.StandardCharsets.UTF_8)))
-                    .timeout(timeout).header("X-Internal-Token", internalToken).GET().build(), HttpResponse.BodyHandlers.ofByteArray());
+            // The compiled asset locator is the map's display/render locator.  Older
+            // catalog revisions only persisted the extraction locator, though, so use
+            // that pinned source locator when the display locator is not available.
+            HttpResponse<byte[]> asset = fetchAsset(definition, definition.assetLocator());
+            if (asset.statusCode() == 404 && !definition.source().locator().equals(definition.assetLocator())) {
+                asset = fetchAsset(definition, definition.source().locator());
+            }
             if (asset.statusCode() < 200 || asset.statusCode() >= 300) {
                 throw new IllegalStateException("source map asset lookup returned HTTP " + asset.statusCode());
             }
@@ -72,6 +75,13 @@ public final class CrossContextHttpTacticalMapPreparationGateway implements Tact
             return UUID.fromString(mapper.readTree(response.body()).path("mapId").asText());
         } catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("combat-map prepare interrupted", e); }
           catch (Exception e) { throw new IllegalStateException("combat-map prepare failed", e); }
+    }
+
+    private HttpResponse<byte[]> fetchAsset(MapDefinition definition, String locator) throws java.io.IOException, InterruptedException {
+        return client.send(HttpRequest.newBuilder(sourceBaseUrl.resolve(
+                        "internal/v1/story-sources/" + definition.source().knowledgeDocumentId().value() + "/assets?locator="
+                                + java.net.URLEncoder.encode(locator, java.nio.charset.StandardCharsets.UTF_8)))
+                .timeout(timeout).header("X-Internal-Token", internalToken).GET().build(), HttpResponse.BodyHandlers.ofByteArray());
     }
 
     private static Map<String, Object> tacticalScene(TacticalScenePlan scene) {

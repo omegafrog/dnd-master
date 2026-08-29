@@ -18,7 +18,8 @@ import javax.sql.DataSource;
         properties = {
             "spring.main.lazy-initialization=true",
             "spring.flyway.enabled=false",
-            "management.health.db.enabled=false"
+            "management.health.db.enabled=false",
+            "INTERNAL_SERVICE_TOKEN=test-internal-token"
         })
 class OpenApiIntegrationTest {
     @LocalServerPort int port;

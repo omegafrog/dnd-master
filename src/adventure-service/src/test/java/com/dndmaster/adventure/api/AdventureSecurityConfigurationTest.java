@@ -20,7 +20,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.test.web.servlet.MockMvc;
 
-@SpringBootTest
+@SpringBootTest(properties = "INTERNAL_SERVICE_TOKEN=test-internal-token")
 @AutoConfigureMockMvc
 @Import({AdventureSecurityConfiguration.class, AdventureSecurityConfigurationTest.PingController.class})
 class AdventureSecurityConfigurationTest {

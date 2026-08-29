@@ -67,10 +67,15 @@ public final class MapGridDetector {
     }
 
     private static int origin(List<Integer> peaks, int period, int dimension, int fallback) {
+        if (peaks.isEmpty()) return 0;
         return peaks.stream().filter(p -> p + period * 3 < dimension).findFirst().orElse(Math.max(0, dimension / 10));
     }
 
     private static int spanCount(List<Integer> peaks, int origin, int period, int dimension) {
+        // A rendered source may have no sufficiently dark grid lines.  Returning
+        // one cell makes every normalized tactical placement collide after
+        // materialization.  Preserve the estimated period and cover the image.
+        if (peaks.isEmpty()) return Math.max(1, Math.round(dimension / (float) period));
         int last = lastPeak(peaks, origin);
         return Math.max(1, Math.round((last - origin) / (float) period));
     }

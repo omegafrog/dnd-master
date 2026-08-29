@@ -3,6 +3,8 @@ import type { AdventurePlayApi } from '../saved-adventures/AdventurePlayApi'
 
 export function RoleDiceRoller({ adventureId, api }: { adventureId: string; api: AdventurePlayApi }) {
   const [total, setTotal] = useState<number | null>(null)
+  const [judgment, setJudgment] = useState<string | null>(null)
+  const [resolutionStatus, setResolutionStatus] = useState<string | null>(null)
   const [rolling, setRolling] = useState(false)
 
   async function roll(event: FormEvent<HTMLFormElement>) {
@@ -18,8 +20,12 @@ export function RoleDiceRoller({ adventureId, api }: { adventureId: string; api:
         String(form.get('expression')),
       )
       setTotal(result.total)
+      setJudgment(result.judgment ?? null)
+      setResolutionStatus(result.resolutionStatus ?? null)
     } catch {
       setTotal(null)
+      setJudgment(null)
+      setResolutionStatus(null)
     } finally {
       setRolling(false)
     }
@@ -41,7 +47,9 @@ export function RoleDiceRoller({ adventureId, api }: { adventureId: string; api:
         <label>캐릭터 시트 ID<input name="characterSheetId" /></label>
         <button type="submit" disabled={rolling}>{rolling ? '굴리는 중…' : '굴리기'}</button>
       </form>
-      <output aria-live="polite">{total === null ? '' : `결과: ${total}`}</output>
+      <output aria-live="polite">
+        {total === null ? '' : `결과: ${total}${judgment ? ` · ${judgment}` : ''}${resolutionStatus ? ` · 상태: ${resolutionStatus}` : ''}`}
+      </output>
     </section>
   )
 }

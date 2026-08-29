@@ -16,6 +16,18 @@ import com.dndmaster.character.application.CharacterSheetsDeletionRequested;
 @RestController
 @RequestMapping
 public class CharacterSheetController {
+    private static String initialHitPoints(String derived, String state) {
+        try {
+            var mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            var node = mapper.readTree(derived);
+            int max = node == null ? 0 : node.path("hitPointMaximum").asInt(0);
+            if (max <= 0) return state;
+            var result = state == null || state.isBlank() ? mapper.createObjectNode() : (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(state);
+            if (result.has("currentHitPoints")) return state;
+            result.put("currentHitPoints", max);
+            return result.toString();
+        } catch (Exception ignored) { return state; }
+    }
     private final CharacterSheetApplicationService characterSheetService;
     private CharacterSheetsDeletionConsumer deletionConsumer;
     private ApiRequestGuard requestGuard;
@@ -71,11 +83,12 @@ public class CharacterSheetController {
             throw new CharacterMutationRejectedException(evaluation.violations());
         }
         String derivedStatistics = evaluation == null ? request.derivedStatistics() : evaluation.serializedDerived();
+        String characterState = initialHitPoints(derivedStatistics, request.characterState());
         CharacterSheet sheet = characterSheetService.createSheet(new CreateCharacterSheetCommand(
                 new SessionId(sessionId),
                 request.ownerPlayerId(),
                 SheetEdition.valueOf(request.edition()),
-                parseData(request.edition(), request.characterName(), request.level(), request.inspiration(), request.race(), request.characterClass(), request.background(), startingAbilities(request), derivedStatistics, request.characterBuild(), request.characterState())));
+                parseData(request.edition(), request.characterName(), request.level(), request.inspiration(), request.race(), request.characterClass(), request.background(), startingAbilities(request), derivedStatistics, request.characterBuild(), characterState)));
         return CharacterSheetResponse.from(sheet);
     }
 
@@ -105,6 +118,22 @@ public class CharacterSheetController {
     @GetMapping("/internal/v1/character-sheets/{sheetId}/runtime")
     CharacterSheetResponse getRuntimeCharacterSheet(@PathVariable UUID sheetId) {
         return CharacterSheetResponse.from(characterSheetService.readForRuntime(new CharacterSheetId(sheetId)));
+    }
+
+    @PostMapping("/internal/v1/character-sheets/{sheetId}/runtime-mutations")
+    CharacterSheetResponse applyRuntimeMutation(
+            @PathVariable UUID sheetId,
+            @RequestHeader("X-Internal-Token") String internalToken,
+            @RequestHeader("X-Session-ID") UUID sessionId,
+            @RequestHeader("X-Owner-Player-ID") UUID ownerPlayerId,
+            @RequestHeader("Idempotency-Key") UUID commandId,
+            @RequestHeader("If-Match-Version") long expectedVersion,
+            @RequestBody RuntimeCharacterMutationRequest request) {
+        if (requestGuard == null) throw new IllegalStateException("request guard is not configured");
+        requestGuard.internal(internalToken);
+        return CharacterSheetResponse.from(characterSheetService.applyRuntimeMutation(
+                new CharacterSheetId(sheetId), new SessionId(sessionId), ownerPlayerId,
+                new com.dndmaster.character.application.RuntimeCharacterMutation(request.hitPointDelta(), request.currencyDelta(), request.addItems(), request.removeItems()), commandId, expectedVersion));
     }
 
     @GetMapping("/internal/v1/character-sheets")
@@ -190,6 +219,12 @@ public class CharacterSheetController {
                                      String background, String startingAbilities) {
             this(adventureId, ownerPlayerId, edition, characterName, level, inspiration, race, characterClass,
                     background, startingAbilities, null, null, null, null);
+        }
+    }
+    public record RuntimeCharacterMutationRequest(int hitPointDelta, int currencyDelta, List<String> addItems, List<String> removeItems) {
+        public RuntimeCharacterMutationRequest {
+            if (addItems == null) addItems = List.of();
+            if (removeItems == null) removeItems = List.of();
         }
     }
 

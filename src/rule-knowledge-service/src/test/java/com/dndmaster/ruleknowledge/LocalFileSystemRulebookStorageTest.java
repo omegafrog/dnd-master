@@ -68,6 +68,16 @@ class LocalFileSystemRulebookStorageTest {
     }
 
     @Test
+    void readsLegacyFileKeyLayout() throws Exception {
+        var storage = new LocalFileSystemRulebookStorage(tempDir);
+        Path legacy = tempDir.resolve("rulebooks").resolve("legacy.pdf");
+        Files.createDirectories(legacy.getParent());
+        Files.write(legacy, "legacy".getBytes());
+
+        assertArrayEquals("legacy".getBytes(), storage.read(new StoredRulebookFile("rulebooks/legacy.pdf")));
+    }
+
+    @Test
     void createsDirectoriesAutomatically() {
         var storage = new LocalFileSystemRulebookStorage(tempDir);
         RulebookId id = RulebookId.generate();

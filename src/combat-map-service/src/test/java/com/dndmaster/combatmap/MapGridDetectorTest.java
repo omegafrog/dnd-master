@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import java.awt.*;
 import java.awt.image.BufferedImage;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class MapGridDetectorTest {
     @Test
@@ -22,5 +23,20 @@ class MapGridDetectorTest {
         assertEquals(20, detected.originY());
         assertEquals(9, detected.width());
         assertEquals(7, detected.height());
+    }
+
+    @Test
+    void estimatesMultipleCellsWhenRenderedMapHasNoDarkGridPeaks() {
+        BufferedImage image = new BufferedImage(3180, 2262, BufferedImage.TYPE_INT_RGB);
+        Graphics2D graphics = image.createGraphics();
+        graphics.setColor(Color.WHITE); graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
+        graphics.dispose();
+
+        var detected = new MapGridDetector().detect(image);
+
+        assertTrue(detected.width() >= 10);
+        assertTrue(detected.height() >= 10);
+        assertEquals(0, detected.originX());
+        assertEquals(0, detected.originY());
     }
 }

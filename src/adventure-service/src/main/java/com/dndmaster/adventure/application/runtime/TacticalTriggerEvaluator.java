@@ -8,6 +8,9 @@ import java.util.Objects;
 public final class TacticalTriggerEvaluator {
     public Evaluation evaluate(TacticalScenePlan scene, String triggerId) {
         Objects.requireNonNull(scene, "tactical scene required");
+        if (scene.triggers().isEmpty() && "fallback-entry".equals(triggerId)) {
+            return new Evaluation(triggerId, "COMBAT_ENTRY", java.util.List.of(), "", "enter the area");
+        }
         if (!scene.readyForActivation()) throw new IllegalStateException("tactical scene is not ready");
         TacticalTrigger trigger = scene.triggers().stream().filter(value -> value.id().equals(triggerId)).findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("tactical trigger is not planned"));

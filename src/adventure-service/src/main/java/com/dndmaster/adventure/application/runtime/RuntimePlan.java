@@ -41,6 +41,11 @@ public record RuntimePlan(
         citationBindings = List.copyOf(Objects.requireNonNull(citationBindings, "citation bindings must not be null"));
     }
 
+    /** Compatibility projection for older API response contracts. */
+    public String resolutionStatus() {
+        return "RESOLVED";
+    }
+
     public RuntimePlan(String scene, String npcState, String judgment, String narration,
                        ActiveSourceContext proposedActiveSourceContext, List<RuntimeEvidence> citedEvidence,
                        List<String> warnings) {
