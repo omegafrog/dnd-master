@@ -43,6 +43,8 @@ public class RuntimeTurnApplicationService {
     private final GmContextResumePromptProvider resumePromptProvider;
     private final GmProviderBindingRepository providerBindingRepository;
     private final TacticalScenePreparationApplicationService tacticalPreparation;
+    private TurnWriterPort writerPort;
+    private RuntimeTurnFailurePersistence failurePersistence;
 
     public RuntimeTurnApplicationService(
             AdventureRepository adventureRepository,
@@ -133,6 +135,28 @@ public class RuntimeTurnApplicationService {
         this.resumePromptProvider = resumePromptProvider;
         this.providerBindingRepository = providerBindingRepository;
         this.tacticalPreparation = tacticalPreparation;
+        this.writerPort = new LegacyTurnWriterAdapter();
+        this.failurePersistence = new RuntimeTurnFailurePersistence(runtimeTurnRepository);
+    }
+
+    /** Explicit writer seam for contract and integration tests; legacy callers use the compatibility adapter. */
+    public RuntimeTurnApplicationService(
+            AdventureRepository adventureRepository, RuntimeBindingRepository bindingRepository,
+            ScenarioPackageRepository scenarioPackageRepository, RuntimeTurnRepository runtimeTurnRepository,
+            RuntimeEvidenceSearchPort evidenceSearchPort, RuntimePlanningPort planningPort,
+            NarrationSafetyPort narrationSafetyPort, SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
+            AdventureStoryPlanRepository storyPlanRepository, StoryContinuityContextProvider continuityContextProvider,
+            RuntimeTurnCompactionCoordinator compactionCoordinator, GmContextResumePromptProvider resumePromptProvider,
+            GmProviderBindingRepository providerBindingRepository, TacticalScenePreparationApplicationService tacticalPreparation,
+            TurnWriterPort writerPort) {
+        this(adventureRepository, bindingRepository, scenarioPackageRepository, runtimeTurnRepository, evidenceSearchPort,
+                planningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
+                compactionCoordinator, resumePromptProvider, providerBindingRepository, tacticalPreparation);
+        this.writerPort = Objects.requireNonNull(writerPort, "writer port must not be null");
+    }
+
+    public void setFailurePersistence(RuntimeTurnFailurePersistence failurePersistence) {
+        this.failurePersistence = Objects.requireNonNull(failurePersistence, "failure persistence must not be null");
     }
 
     @Transactional
@@ -156,8 +180,14 @@ public class RuntimeTurnApplicationService {
                     || !java.util.Objects.equals(existing.expectedVersion() == null ? -1L : existing.expectedVersion(), command.expectedVersion() < 0 ? -1L : command.expectedVersion())) {
                 throw new IllegalStateException("runtime command id reused with different payload");
             }
-            RuntimeTurn committed = resumeCommittedTurn(command, adventure, existing);
-            return new RuntimeTurnResult(committed, committed.context(), committed.conversation(), committed.version());
+            if (existing.lifecycle() == RuntimeTurnLifecycle.PRESENTATION_FAILED_RETRYABLE) {
+                throw new IllegalStateException("runtime turn presentation is not committed; retry presentation explicitly");
+            }
+            if (!existing.lifecycle().isCommitted()) {
+                RuntimeTurn resumed = resumeCommittedTurn(command, adventure, existing);
+                return new RuntimeTurnResult(resumed, resumed.context(), resumed.conversation(), resumed.version());
+            }
+            return new RuntimeTurnResult(existing, existing.context(), existing.conversation(), existing.version());
         }
         if (command.expectedVersion() >= 0 && adventure.version() != command.expectedVersion()) {
             throw new IllegalStateException("adventure version does not match");
@@ -196,8 +226,25 @@ public class RuntimeTurnApplicationService {
                 providerSelection(adventure.sessionId().value(), "model"),
                 providerSelection(adventure.sessionId().value(), "reasoning")));
         plan = preservePendingSkillAdjudication(plan, command.action(), scenarioPackage, evidencePack);
+        ResolvedTurnPlan resolvedPlan = ResolvedTurnPlan.of(TurnPlan.from(plan), List.of(plan.judgment()));
+        RuntimeTurn resolvedTurn = new RuntimeTurn(command.turnId(), command.commandId(), adventure.id(), adventure.sessionId().value(),
+                binding.scenarioPackageId(), binding.bindingVersion(), command.action(), evidencePack, plan,
+                binding.activeSourceContext(), adventure.currentContext(), adventure.conversation(), adventure.version(),
+                plan.citedEvidence().stream().map(evidence -> evidence.evidenceType() + ":" + evidence.locator()).toList(),
+                plan.warnings(), false, origin(command) == RuntimeTurnOrigin.PLAYER, origin(command), command.advancesState(),
+                command.turnCharacterSheetId(), command.turnIndex() < 0 ? null : command.turnIndex(), command.expectedVersion(),
+                command.gmOnly(), command.agentOrigin()).withResolvedArtifact(resolvedPlan);
+        runtimeTurnRepository.save(resolvedTurn);
+        WriterProse prose;
+        try {
+            prose = writerPort.write(WriterContext.of(resolvedPlan));
+            if (writerPort instanceof LegacyTurnWriterAdapter) prose = new WriterProse(plan.narration());
+        } catch (RuntimeException failure) {
+            failurePersistence.persist(resolvedTurn);
+            throw failure;
+        }
         NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
-                plan.narration(), evidencePack, adventure.currentContext(), command.action()));
+                prose.prose(), evidencePack, adventure.currentContext(), command.action()));
         if (!safety.approved()) {
             throw new IllegalStateException("narration safety rejected: " + safety.reason());
         }
@@ -213,29 +260,29 @@ public class RuntimeTurnApplicationService {
             bindingRepository.save(updatedBinding);
         }
 
-        AdventureContext nextContext = new AdventureContext(plan.scene(), plan.npcState(), command.action(), plan.judgment());
+        RuntimePlan presentedPlan = withNarration(plan, prose.prose());
+        AdventureContext nextContext = new AdventureContext(presentedPlan.scene(), presentedPlan.npcState(), command.action(), presentedPlan.judgment());
         List<ConversationEntry> conversation = new ArrayList<>(adventure.conversation());
         if (!command.gmOnly()) {
             conversation.add(new ConversationEntry(conversation.size(), "PLAYER", command.action()));
         }
-        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.narration()));
+        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", prose.prose()));
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.judgment()));
 
         long nextVersion = adventure.version() + 1 + (command.turnCharacterSheetId() == null ? 0 : 1);
         RuntimeTurn turn = new RuntimeTurn(
                 command.turnId(), command.commandId(), adventure.id(), adventure.sessionId().value(), binding.scenarioPackageId(),
-                binding.bindingVersion(), command.action(), evidencePack, plan, activeSourceContext, nextContext,
+                binding.bindingVersion(), command.action(), evidencePack, presentedPlan, activeSourceContext, nextContext,
                 conversation, nextVersion,
                 plan.citedEvidence().stream()
                         .map(evidence -> evidence.evidenceType() + ":" + evidence.locator())
                         .toList(),
-                plan.warnings());
+                presentedPlan.warnings());
         turn = new RuntimeTurn(turn.turnId(), turn.commandId(), turn.adventureId(), turn.sessionId(), turn.scenarioPackageId(),
                 turn.bindingVersion(), turn.action(), turn.evidencePack(), turn.plan(), turn.activeSourceContext(), turn.context(),
                 turn.conversation(), turn.version(), turn.citations(), turn.warnings(), false, origin(command) == RuntimeTurnOrigin.PLAYER,
                 origin(command), command.advancesState(), command.turnCharacterSheetId(), command.turnIndex() < 0 ? null : command.turnIndex(), command.expectedVersion(), command.gmOnly(), command.agentOrigin());
-        runtimeTurnRepository.save(turn);
-
+        turn = turn.withResolvedArtifact(resolvedPlan);
         Adventure progressed = Adventure.rehydrate(
                 adventure.id(), adventure.sessionId(), adventure.ownerPlayerId(), adventure.scenarioId(),
                 adventure.ruleSetId(), adventure.party(), adventure.conversation(), adventure.currentContext(),
@@ -258,6 +305,36 @@ public class RuntimeTurnApplicationService {
             }
         }
         return new RuntimeTurnResult(committed, progressed.currentContext(), progressed.conversation(), progressed.version());
+    }
+
+    private static RuntimePlan withNarration(RuntimePlan plan, String narration) {
+        return new RuntimePlan(plan.scene(), plan.npcState(), plan.judgment(), narration,
+                plan.proposedActiveSourceContext(), plan.citedEvidence(), plan.warnings(), plan.provider(), plan.model(),
+                plan.reasoning(), plan.advanceStoryPlan(), plan.selectedBranchId(), plan.requestedSelection(),
+                plan.effectiveSelection(), plan.attemptCount(), plan.citationBindings());
+    }
+
+    @Transactional
+    public RuntimeTurnResult retryPresentation(UUID commandId) {
+        RuntimeTurn turn = runtimeTurnRepository.findByCommandId(commandId)
+                .orElseThrow(() -> new IllegalStateException("runtime turn not found"));
+        if (turn.resolvedArtifact() == null || turn.lifecycle() == RuntimeTurnLifecycle.PRESENTED) {
+            return new RuntimeTurnResult(turn, turn.context(), turn.conversation(), turn.version());
+        }
+        WriterProse prose = writerPort.write(WriterContext.of(turn.resolvedArtifact()));
+        RuntimePlan presentedPlan = withNarration(turn.plan(), prose.prose());
+        List<ConversationEntry> conversation = new ArrayList<>(turn.conversation());
+        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", prose.prose()));
+        if (!turn.gmOnly()) conversation.add(new ConversationEntry(conversation.size(), "PLAYER", turn.action()));
+        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", presentedPlan.judgment()));
+        RuntimeTurn presented = new RuntimeTurn(turn.turnId(), turn.commandId(), turn.adventureId(), turn.sessionId(),
+                turn.scenarioPackageId(), turn.bindingVersion(), turn.action(), turn.evidencePack(), presentedPlan,
+                turn.activeSourceContext(), new AdventureContext(presentedPlan.scene(), presentedPlan.npcState(), turn.action(), presentedPlan.judgment()),
+                conversation, turn.version(), turn.citations(), turn.warnings(), false, turn.playerOrigin(), turn.origin(),
+                turn.advancesState(), turn.turnCharacterSheetId(), turn.turnIndex(), turn.expectedVersion(), turn.gmOnly(), turn.agentOrigin(),
+                RuntimeTurnLifecycle.RESOLVED_UNCOMMITTED, turn.resolvedArtifact()).markCommitted();
+        runtimeTurnRepository.save(presented);
+        return new RuntimeTurnResult(presented, presented.context(), presented.conversation(), presented.version());
     }
 
     private static RuntimeTurnOrigin origin(SubmitRuntimeTurnCommand command) {

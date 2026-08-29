@@ -36,7 +36,9 @@ public record RuntimeTurn(
         Integer turnIndex,
         Long expectedVersion,
         boolean gmOnly,
-        boolean agentOrigin) {
+        boolean agentOrigin,
+        RuntimeTurnLifecycle lifecycle,
+        ResolvedTurnPlan resolvedPlan) {
     public RuntimeTurn {
         turnId = Objects.requireNonNull(turnId, "turn id must not be null");
         commandId = Objects.requireNonNull(commandId, "command id must not be null");
@@ -63,6 +65,12 @@ public record RuntimeTurn(
         if (playerOrigin != (origin == RuntimeTurnOrigin.PLAYER)) {
             throw new IllegalArgumentException("player origin flag must match durable origin");
         }
+        // Rows written before the lifecycle split are already compatibility-presented turns.
+        if (lifecycle == null) lifecycle = RuntimeTurnLifecycle.PRESENTED;
+        if (resolvedPlan != null && resolvedPlan.lifecycle() == RuntimeTurnLifecycle.PRESENTED
+                && lifecycle != RuntimeTurnLifecycle.PRESENTED) {
+            throw new IllegalArgumentException("presented artifact requires presented lifecycle");
+        }
     }
 
     public RuntimeTurn(
@@ -83,7 +91,7 @@ public record RuntimeTurn(
             List<String> warnings) {
         this(turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action, evidencePack, plan,
                 activeSourceContext, context, conversation, version, citations, warnings, false, false, RuntimeTurnOrigin.GM, false,
-                null, null, null, false, false);
+                null, null, null, false, false, RuntimeTurnLifecycle.PRESENTED, null);
     }
 
     public RuntimeTurn(UUID turnId, UUID commandId, AdventureId adventureId, UUID sessionId, UUID scenarioPackageId,
@@ -91,7 +99,20 @@ public record RuntimeTurn(
             AdventureContext context, List<ConversationEntry> conversation, long version, List<String> citations, List<String> warnings,
             boolean committed, boolean playerOrigin, RuntimeTurnOrigin origin, boolean advancesState) {
         this(turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action, evidencePack, plan, activeSourceContext,
-                context, conversation, version, citations, warnings, committed, playerOrigin, origin, advancesState, null, null, null, false, false);
+                context, conversation, version, citations, warnings, committed, playerOrigin, origin, advancesState, null, null, null, false, false,
+                committed ? RuntimeTurnLifecycle.PRESENTED : RuntimeTurnLifecycle.RESOLVED_UNCOMMITTED, null);
+    }
+
+    /** Source-compatible constructor retained for callers compiled before lifecycle fields were added. */
+    public RuntimeTurn(UUID turnId, UUID commandId, AdventureId adventureId, UUID sessionId, UUID scenarioPackageId,
+            long bindingVersion, String action, EvidencePack evidencePack, RuntimePlan plan, ActiveSourceContext activeSourceContext,
+            AdventureContext context, List<ConversationEntry> conversation, long version, List<String> citations, List<String> warnings,
+            boolean committed, boolean playerOrigin, RuntimeTurnOrigin origin, boolean advancesState,
+            CharacterSheetId turnCharacterSheetId, Integer turnIndex, Long expectedVersion, boolean gmOnly, boolean agentOrigin) {
+        this(turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action, evidencePack, plan,
+                activeSourceContext, context, conversation, version, citations, warnings, committed, playerOrigin, origin,
+                advancesState, turnCharacterSheetId, turnIndex, expectedVersion, gmOnly, agentOrigin,
+                committed ? RuntimeTurnLifecycle.PRESENTED : RuntimeTurnLifecycle.RESOLVED_UNCOMMITTED, null);
     }
 
     private static String required(String value, String name) {
@@ -103,6 +124,37 @@ public record RuntimeTurn(
         return committed ? this : new RuntimeTurn(
                 turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action, evidencePack, plan,
                 activeSourceContext, context, conversation, version, citations, warnings, true, playerOrigin, origin, advancesState,
-                turnCharacterSheetId, turnIndex, expectedVersion, gmOnly, agentOrigin);
+                turnCharacterSheetId, turnIndex, expectedVersion, gmOnly, agentOrigin, RuntimeTurnLifecycle.PRESENTED,
+                resolvedPlan == null ? null : resolvedPlan.presented());
+    }
+
+    public RuntimeTurnLifecycle lifecycle() {
+        return lifecycle;
+    }
+
+    public ResolvedTurnPlan resolvedArtifact() {
+        return resolvedPlan;
+    }
+
+    public RuntimeTurn withResolvedArtifact(ResolvedTurnPlan artifact) {
+        Objects.requireNonNull(artifact, "resolved artifact must not be null");
+        if (lifecycle != RuntimeTurnLifecycle.RESOLVING && lifecycle != RuntimeTurnLifecycle.RESOLVED_UNCOMMITTED) {
+            throw new IllegalStateException("turn is not resolving");
+        }
+        return new RuntimeTurn(turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action, evidencePack,
+                plan, activeSourceContext, context, conversation, version, citations, warnings, false, playerOrigin, origin,
+                advancesState, turnCharacterSheetId, turnIndex, expectedVersion, gmOnly, agentOrigin,
+                RuntimeTurnLifecycle.RESOLVED_UNCOMMITTED, artifact);
+    }
+
+    public RuntimeTurn markPresentationFailed() {
+        if (resolvedPlan == null || (lifecycle != RuntimeTurnLifecycle.RESOLVED_UNCOMMITTED
+                && lifecycle != RuntimeTurnLifecycle.PRESENTATION_FAILED_RETRYABLE)) {
+            throw new IllegalStateException("turn has no retryable resolved artifact");
+        }
+        return new RuntimeTurn(turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action,
+                evidencePack, plan, activeSourceContext, context, conversation, version, citations, warnings, false,
+                playerOrigin, origin, advancesState, turnCharacterSheetId, turnIndex, expectedVersion, gmOnly,
+                agentOrigin, RuntimeTurnLifecycle.PRESENTATION_FAILED_RETRYABLE, resolvedPlan);
     }
 }

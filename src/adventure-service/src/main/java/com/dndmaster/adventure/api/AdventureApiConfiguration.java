@@ -473,6 +473,16 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    RuntimeTurnFailurePersistence runtimeTurnFailurePersistence(RuntimeTurnRepository runtimeTurnRepository) {
+        return new RuntimeTurnFailurePersistence(runtimeTurnRepository);
+    }
+
+    @Bean
+    RuntimeTurnDiagnosticsApplicationService runtimeTurnDiagnosticsApplicationService(RuntimeTurnRepository turns) {
+        return new RuntimeTurnDiagnosticsApplicationService(turns);
+    }
+
+    @Bean
     RuntimeCommandJournal runtimeCommandJournal(DataSource dataSource, ObjectMapper objectMapper) {
         return new PostgresRuntimeCommandJournal(dataSource, objectMapper);
     }
@@ -861,11 +871,14 @@ public class AdventureApiConfiguration {
             RuntimeTurnCompactionCoordinator compactionCoordinator,
             GmContextResumePromptProvider resumePromptProvider,
             GmProviderBindingRepository providerBindingRepository,
-            TacticalScenePreparationApplicationService tacticalPreparation) {
-        return new RuntimeTurnApplicationService(
+            TacticalScenePreparationApplicationService tacticalPreparation,
+            RuntimeTurnFailurePersistence failurePersistence) {
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
                 compactionCoordinator, resumePromptProvider, providerBindingRepository, tacticalPreparation);
+        service.setFailurePersistence(failurePersistence);
+        return service;
     }
 
     @Bean

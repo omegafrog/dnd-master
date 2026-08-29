@@ -20,6 +20,7 @@ import com.dndmaster.adventure.application.runtime.RuntimePlan;
 import com.dndmaster.adventure.application.runtime.RuntimePlanningPort;
 import com.dndmaster.adventure.application.runtime.RuntimePlanningRequest;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnResult;
 import com.dndmaster.adventure.application.runtime.RuntimeTurn;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnRepository;
@@ -538,7 +539,8 @@ class RuntimeTurnApplicationServiceTest {
         assertEquals(0, adventures.current.version());
         assertEquals(0, adventures.current.conversation().size());
         assertEquals(null, bindings.current.activeSourceContext());
-        assertEquals(0, turns.saved.size());
+        assertEquals(1, turns.saved.size());
+        assertEquals(RuntimeTurnLifecycle.RESOLVED_UNCOMMITTED, turns.saved.getFirst().lifecycle());
     }
 
     @Test
