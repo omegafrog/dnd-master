@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "1",
+  "turnId": "turn-observation-1",
+  "playerIntent": { "action": "observe", "goal": "inspect the mural", "targets": ["mural-1"] },
+  "resolutionRequests": [],
+  "narrativeIntent": { "scenePurpose": "OBSERVATION", "tone": "MYSTERIOUS", "pacing": "MODERATE" },
+  "informationPolicy": { "requiredFacts": [], "revealableFacts": ["mural.symbol"], "forbiddenFacts": ["mural.hidden-compartment"] },
+  "stateEffects": [],
+  "storyProgress": { "advanceStage": null, "triggeredConditions": [] }
+}
