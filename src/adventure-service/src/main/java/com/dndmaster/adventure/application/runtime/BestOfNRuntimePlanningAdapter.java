@@ -43,8 +43,13 @@ public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort 
             String candidateId = plan.selectedBranchId().isBlank() ? "runtime-" + i : plan.selectedBranchId();
             TurnPlan turnPlan = new TurnPlan(plan.scene(), plan.npcState(), plan.judgment(),
                     plan.stateDelta() == null ? List.of() : new ArrayList<>(plan.stateDelta().revealedFactIds()), List.of());
+            Set<String> referencedEntities = java.util.stream.Stream.of(plan.scene(), plan.npcState())
+                    .filter(value -> value != null && !value.isBlank()).collect(java.util.stream.Collectors.toSet());
             candidates.add(new PlanCandidate(candidateId, turnPlan, request.action(),
-                    context.stateFingerprint(), context.storyStage(), context.informationBoundary(), Set.of(), true, true, true,
+                    context.stateFingerprint(), context.storyStage(), context.informationBoundary(), referencedEntities,
+                    !hasWarning(plan, "agency", "player_agency", "player agency"),
+                    !hasWarning(plan, "continuity"),
+                    !hasWarning(plan, "rule", "rules"),
                     Math.max(1, plan.scene().length() + plan.judgment().length())));
         }
         PlanSelection selection = new BestOfNPlanningCoordinator(
@@ -57,5 +62,10 @@ public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort 
                 .findFirst()
                 .map(selected -> plans.get(candidates.indexOf(selected)))
                 .orElseThrow(() -> new IllegalStateException("selected runtime candidate is not available"));
+    }
+
+    private static boolean hasWarning(RuntimePlan plan, String... markers) {
+        return plan.warnings().stream().filter(java.util.Objects::nonNull).map(value -> value.toLowerCase(java.util.Locale.ROOT))
+                .anyMatch(warning -> java.util.Arrays.stream(markers).anyMatch(warning::contains));
     }
 }

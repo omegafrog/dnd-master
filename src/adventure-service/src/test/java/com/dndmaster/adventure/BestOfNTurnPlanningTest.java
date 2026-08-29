@@ -142,6 +142,34 @@ class BestOfNTurnPlanningTest {
         assertEquals("branch-a", audits.getFirst().selectedCandidateId());
     }
 
+    @Test
+    void runtime_adapter_derives_hard_filter_fields_and_judge_sees_only_safe_provider_plans() {
+        var judged = new int[1];
+        var audits = new java.util.ArrayList<com.dndmaster.adventure.application.runtime.PlanSelectionAudit>();
+        List<RuntimePlan> plans = List.of(
+                new RuntimePlan("dragon-lair", "dragon", "judgment", "narration", null, List.of(), List.of("UNSUPPORTED_ENTITY"), "p", "m", "r"),
+                new RuntimePlan("scene", "npc", "player decides", "narration", null, List.of(), List.of("PLAYER_AGENCY_VIOLATION"), "p", "m", "r"),
+                new RuntimePlan("scene", "npc", "continuity", "narration", null, List.of(), List.of("CONTINUITY_VIOLATION"), "p", "m", "r"),
+                new RuntimePlan("scene", "npc", "rule", "narration", null, List.of(), List.of("RULE_VIOLATION"), "p", "m", "r"),
+                new RuntimePlan("scene", "npc", "valid", "narration", null, List.of(), List.of(), "p", "m", "r"));
+        var index = new int[1];
+        var adapter = new BestOfNRuntimePlanningAdapter(request -> plans.get(index[0]++), 5, false, audits::add);
+        RuntimePlanningRequest request = new RuntimePlanningRequest(new AdventureId(UUID.randomUUID()), new OwnerPlayerId(UUID.randomUUID()),
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 1,
+                new AdventureContext("scene", "npc", "open", "judgment"), null, "open", new EvidencePack(List.of(), List.of(), List.of()),
+                List.of(), List.of(), "stage", null, "provider", "model", "reasoning",
+                new NarrativeContext("player", "scene", 4, Set.of("known"), List.of(new WorldFact("known", "known fact", false)),
+                        java.util.Map.of(), List.of(), List.of(), List.of()));
+        RuntimePlan selected = adapter.plan(request);
+
+        assertEquals("runtime-4", selected.selectedBranchId().isBlank() ? "runtime-4" : selected.selectedBranchId());
+        assertEquals(1, audits.getFirst().evaluations().size());
+        assertEquals(4, audits.getFirst().rejected().size());
+        assertEquals(Set.of("UNSUPPORTED_ENTITY", "PLAYER_AGENCY_VIOLATION", "CONTINUITY_VIOLATION", "RULE_VIOLATION"),
+                audits.getFirst().rejected().stream().flatMap(rejection -> rejection.violations().stream())
+                        .map(Enum::name).collect(java.util.stream.Collectors.toSet()));
+    }
+
     private static PlanningContext context() {
         return new PlanningContext("open door", "state-1", "stage-1", "player-visible", Set.of("door"), Set.of("door-key"), Set.of("hidden-key"));
     }

@@ -314,10 +314,15 @@ public class RuntimeTurnApplicationService {
             failurePersistence.persist(resolvedTurn);
             throw failure;
         }
-        NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
-                prose.prose(), evidencePack, adventure.currentContext(), command.action()));
-        if (!safety.approved()) {
-            throw new IllegalStateException("narration safety rejected: " + safety.reason());
+        try {
+            NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
+                    prose.prose(), evidencePack, adventure.currentContext(), command.action()));
+            if (!safety.approved()) {
+                throw new IllegalStateException("narration safety rejected: " + safety.reason());
+            }
+        } catch (RuntimeException failure) {
+            failurePersistence.persist(resolvedTurn);
+            throw failure;
         }
         advanceStoryPlanIfRequested(command.ownerPlayerId(), adventure.sessionId(), plan);
 
@@ -457,12 +462,18 @@ public class RuntimeTurnApplicationService {
         NarrativeContext narrativeContext = state.project(adventure.ownerPlayerId().value().toString(),
                 turn.resolvedArtifact().plan().scene());
         List<ExemplarResult> exemplars = retrieveExemplars(turn.plan(), turn.action());
-        WriterProse prose = writerPort.write(WriterContext.of(narrativeContext, turn.resolvedArtifact(), exemplars));
-        if (writerPort instanceof LegacyTurnWriterAdapter) prose = new WriterProse(turn.plan().narration());
-        prose = verifyAndRewrite(turn.resolvedArtifact(), prose, turn, state, narrativeContext, turn.evidencePack());
-        NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
-                prose.prose(), turn.evidencePack(), turn.context(), turn.action()));
-        if (!safety.approved()) throw new IllegalStateException("narration safety rejected: " + safety.reason());
+        WriterProse prose;
+        try {
+            prose = writerPort.write(WriterContext.of(narrativeContext, turn.resolvedArtifact(), exemplars));
+            if (writerPort instanceof LegacyTurnWriterAdapter) prose = new WriterProse(turn.plan().narration());
+            prose = verifyAndRewrite(turn.resolvedArtifact(), prose, turn, state, narrativeContext, turn.evidencePack());
+            NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
+                    prose.prose(), turn.evidencePack(), turn.context(), turn.action()));
+            if (!safety.approved()) throw new IllegalStateException("narration safety rejected: " + safety.reason());
+        } catch (RuntimeException failure) {
+            failurePersistence.persist(turn);
+            throw failure;
+        }
         RuntimePlan presentedPlan = withNarration(turn.plan(), prose.prose());
         List<ConversationEntry> conversation = new ArrayList<>(turn.conversation());
         if (!turn.gmOnly()) conversation.add(new ConversationEntry(conversation.size(), "PLAYER", turn.action()));
@@ -471,17 +482,40 @@ public class RuntimeTurnApplicationService {
         RuntimeTurn presented = new RuntimeTurn(turn.turnId(), turn.commandId(), turn.adventureId(), turn.sessionId(),
                 turn.scenarioPackageId(), turn.bindingVersion(), turn.action(), turn.evidencePack(), presentedPlan,
                 turn.activeSourceContext(), new AdventureContext(presentedPlan.scene(), presentedPlan.npcState(), turn.action(), presentedPlan.judgment()),
-                conversation, turn.version(), turn.citations(), turn.warnings(), false, turn.playerOrigin(), turn.origin(),
+                conversation, adventure.version() + 1 + (turn.turnCharacterSheetId() == null ? 0 : 1), turn.citations(), turn.warnings(), false, turn.playerOrigin(), turn.origin(),
                 turn.advancesState(), turn.turnCharacterSheetId(), turn.turnIndex(), turn.expectedVersion(), turn.gmOnly(), turn.agentOrigin(),
                 RuntimeTurnLifecycle.RESOLVED_UNCOMMITTED, turn.resolvedArtifact()).markCommitted();
+        advanceStoryPlanIfRequested(adventure.ownerPlayerId(), adventure.sessionId(), turn.plan());
+        if (turn.plan().proposedActiveSourceContext() != null) {
+            bindingRepository.findCurrentByAdventureId(turn.adventureId()).ifPresent(binding ->
+                    bindingRepository.save(binding.withSelection(turn.plan().proposedActiveSourceContext(), binding.playabilityReport())));
+        }
+        Adventure progressed = Adventure.rehydrate(
+                adventure.id(), adventure.sessionId(), adventure.ownerPlayerId(), adventure.scenarioId(), adventure.ruleSetId(), adventure.party(),
+                adventure.conversation(), adventure.currentContext(), adventure.status(), adventure.version(), adventure.turnIndex(), adventure.lastTurnKey());
+        progressed.preserveProgress(adventure.ownerPlayerId(), adventure.version(), presented.context(), presented.conversation());
+        if (turn.turnCharacterSheetId() != null) {
+            progressed.advanceTurn(adventure.ownerPlayerId(), turn.turnIndex(), turn.turnCharacterSheetId(), turn.turnId());
+        }
+        adventureRepository.save(progressed);
         runtimeTurnRepository.save(presented);
-        return new RuntimeTurnResult(presented, presented.context(), presented.conversation(), presented.version());
+        if (narrativeStateService != null) narrativeStateService.commit(turn.sessionId(), deltaFor(state, turn));
+        if (compactionCoordinator != null) compactionCoordinator.afterCommit(presented);
+        return new RuntimeTurnResult(presented, progressed.currentContext(), progressed.conversation(), progressed.version());
     }
 
     public static StateDelta deltaFor(NarrativeState state, SubmitRuntimeTurnCommand command, RuntimePlan plan) {
+        return deltaFor(state, command.turnId(), plan);
+    }
+
+    public static StateDelta deltaFor(NarrativeState state, RuntimeTurn turn) {
+        return deltaFor(state, turn.turnId(), turn.plan());
+    }
+
+    private static StateDelta deltaFor(NarrativeState state, UUID turnId, RuntimePlan plan) {
         if (plan.stateDelta() != null) return plan.stateDelta();
         List<RecentEvent> events = new ArrayList<>(state.recentEvents());
-        events.add(new RecentEvent(command.turnId().toString(), state.version(), plan.judgment()));
+        events.add(new RecentEvent(turnId.toString(), state.version(), plan.judgment()));
         return new StateDelta(state.version(), java.util.Set.of(), java.util.Set.of(),
                 List.of(), List.of(), state.relationships(), state.activeThreads(), events);
     }

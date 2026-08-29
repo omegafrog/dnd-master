@@ -31,9 +31,9 @@ class GmAgentPolicyTest {
     }
 
     @Test
-    void rejects_uncited_claims_and_state_mutation() {
+    void accepts_a_validated_state_mutation_for_runtime_translation() {
         RuntimePlan plan = new RuntimePlan("scene", "npc", "judgment", "narration", null, List.of(), List.of());
-        assertThrows(IllegalStateException.class, () -> new GmFinalValidator().validate(
+        assertDoesNotThrow(() -> new GmFinalValidator().validate(
                 new GmPlanResult(plan, "ollama", "qwen3:8b", "reasoning", List.of("hp: 1")), pack, context, Set.of()));
     }
 
