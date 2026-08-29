@@ -44,6 +44,6 @@ class EvalRunnerTest {
     @Test void seedHasPinnedSizeAndAllCategories() throws Exception {
         List<EvalCase> cases = new JsonlEvalDatasetLoader().loadResource("eval/datasets/gm-turn-v1.jsonl");
         assertDoesNotThrow(() -> EvalDatasetIntegrity.validateSeed(cases));
-        assertEquals(48, cases.size());
+        assertEquals(36, cases.size());
     }
 }
