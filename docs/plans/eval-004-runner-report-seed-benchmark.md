@@ -1,6 +1,6 @@
 # EVAL-004: Eval runner, report, and seed benchmark
 
-Status: `planned`
+Status: `ready-for-agent`
 
 Parent: #204
 
