@@ -13,8 +13,10 @@ import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.knowledge.SessionKnowledgeSet;
 import com.dndmaster.adventure.domain.adventure.RuntimeBinding;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
+import com.dndmaster.adventure.domain.scenario.ResolutionKind;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -193,6 +195,7 @@ public class RuntimeTurnApplicationService {
                 providerSelection(adventure.sessionId().value(), "provider"),
                 providerSelection(adventure.sessionId().value(), "model"),
                 providerSelection(adventure.sessionId().value(), "reasoning")));
+        plan = preservePendingSkillAdjudication(plan, command.action(), scenarioPackage, evidencePack);
         NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
                 plan.narration(), evidencePack, adventure.currentContext(), command.action()));
         if (!safety.approved()) {
@@ -212,10 +215,10 @@ public class RuntimeTurnApplicationService {
 
         AdventureContext nextContext = new AdventureContext(plan.scene(), plan.npcState(), command.action(), plan.judgment());
         List<ConversationEntry> conversation = new ArrayList<>(adventure.conversation());
-        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.narration()));
         if (!command.gmOnly()) {
             conversation.add(new ConversationEntry(conversation.size(), "PLAYER", command.action()));
         }
+        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.narration()));
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.judgment()));
 
         long nextVersion = adventure.version() + 1 + (command.turnCharacterSheetId() == null ? 0 : 1);
@@ -329,6 +332,10 @@ public class RuntimeTurnApplicationService {
             SubmitRuntimeTurnCommand command, Adventure adventure, RuntimeBinding binding, ScenarioPackage scenarioPackage) {
         List<UUID> knowledgeDocumentIds = knowledgeDocumentIds(adventure, scenarioPackage);
         List<UUID> storybookDocumentIds = documentIdsOfType(scenarioPackage, "STORYBOOK", knowledgeDocumentIds);
+        if (storybookDocumentIds.isEmpty()) {
+            storybookDocumentIds = documentIdsOfType(scenarioPackage, "STORYBOOK",
+                    scenarioPackage.documents().stream().map(d -> d.knowledgeDocumentId().value()).toList());
+        }
         List<UUID> rulebookDocumentIds = documentIdsOfType(scenarioPackage, "RULEBOOK", knowledgeDocumentIds);
         Map<UUID, Long> extractionVersions = scenarioPackage.documents().stream()
                 .collect(java.util.stream.Collectors.toMap(document -> document.knowledgeDocumentId().value(),
@@ -343,22 +350,88 @@ public class RuntimeTurnApplicationService {
                 adventure.id(), command.ownerPlayerId(), adventure.sessionId(), binding.scenarioPackageId(), storybookDocumentIds,
                 binding.activeSourceContext(), command.action(), RuntimeEvidenceType.STORYBOOK, RuntimeEvidenceSelector.MAX_EVIDENCE,
                 extractionVersions, "scene:" + adventure.currentContext().currentScene(), actionIntent(command.action()));
-        return evidenceSelector.select(request, resolution, rulebookDocumentIds).pack();
+        List<RuntimeEvidence> storybook = scopedSearch(request.forType(RuntimeEvidenceType.STORYBOOK, 5));
+        List<RuntimeEvidence> rulebook = rulebookDocumentIds.isEmpty() ? List.of()
+                : scopedSearch(request.withDocumentIds(rulebookDocumentIds, RuntimeEvidenceType.RULEBOOK, 5));
+        List<RuntimeEvidence> searchedResolution = hasPartialSkillCheck(scenarioPackage)
+                ? scopedSearch(request.withDocumentIds(knowledgeDocumentIds, RuntimeEvidenceType.RESOLUTION, 5))
+                : List.of();
+        resolution = java.util.stream.Stream.concat(resolution.stream(), searchedResolution.stream()).distinct().toList();
+        if (storybook.isEmpty() && storyPlanRepository != null) {
+            List<UUID> scopedStorybookDocumentIds = storybookDocumentIds;
+            storybook = storyPlanRepository.findBySessionId(adventure.sessionId()).stream()
+                    .flatMap(p -> p.stages().stream())
+                    .flatMap(s -> s.evidence().stream())
+                    .filter(e -> "STORYBOOK".equalsIgnoreCase(e.documentType()) && scopedStorybookDocumentIds.contains(e.documentId()))
+                    .map(e -> new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
+                            new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(e.documentId()),
+                            e.extractionVersion(), e.locator(), e.quote()))
+                    .distinct().toList();
+        }
+        if (storybook.isEmpty()) throw new RuntimeEvidenceSelectionException(new RuntimeEvidenceSelectionViolation(
+                "MISSING_STORYBOOK", "storybook evidence is unavailable"));
+        int remaining = Math.max(0, RuntimeEvidenceSelector.MAX_EVIDENCE - storybook.size());
+        return new EvidencePack(storybook.stream().limit(8).toList(), rulebook.stream().limit(remaining).toList(),
+                resolution.stream().limit(Math.max(0, remaining - Math.min(remaining, rulebook.size()))).toList());
     }
 
     private static List<UUID> documentIdsOfType(ScenarioPackage scenarioPackage, String type, List<UUID> selected) {
         return scenarioPackage.documents().stream()
-                .filter(document -> type.equalsIgnoreCase(document.documentType()))
+                .filter(document -> type.equalsIgnoreCase(document.documentType())
+                        || ("STORYBOOK".equalsIgnoreCase(type) && document.role() == ScenarioBundleDocumentRole.MAIN_SCENARIO))
                 .map(document -> document.knowledgeDocumentId().value())
                 .filter(selected::contains)
                 .distinct()
                 .toList();
     }
 
+    private List<RuntimeEvidence> scopedSearch(RuntimeEvidenceSearchRequest request) {
+        return evidenceSearchPort.search(request).stream()
+                .filter(Objects::nonNull)
+                .filter(e -> request.knowledgeDocumentIds().contains(e.knowledgeDocumentId().value()))
+                .toList();
+    }
+
+    private static RuntimePlan preservePendingSkillAdjudication(RuntimePlan plan, String action,
+            ScenarioPackage scenarioPackage, EvidencePack evidencePack) {
+        String searchable = (action + " " + plan.judgment() + " " + plan.narration()).toLowerCase(java.util.Locale.ROOT);
+        ScenarioResolutionUnit pending = scenarioPackage.runtimeCandidates().stream()
+                .filter(u -> u.status() == com.dndmaster.adventure.domain.scenario.ResolutionStatus.PARTIAL)
+                .filter(u -> u.kind() == ResolutionKind.SKILL_ABILITY_CHECK)
+                .filter(u -> evidencePack.resolution().stream().anyMatch(ev -> u.sourceRefs().stream().anyMatch(ref ->
+                        ref.knowledgeDocumentId().equals(ev.knowledgeDocumentId()) && ref.locator().equals(ev.locator()))))
+                .filter(u -> u.abilityOrSkill() != null && (searchable.contains(u.abilityOrSkill().toLowerCase(java.util.Locale.ROOT))
+                        || (u.abilityOrSkill().equalsIgnoreCase("perception") && matchesPerception(action))))
+                .findFirst().orElse(null);
+        if (pending == null || "PENDING_RULE_INPUT".equals(plan.resolutionStatus())) return plan;
+        String judgment = "판정 보류: " + pending.abilityOrSkill() + " 판정의 DC가 근거에 없어 GM adjudication이 필요합니다.";
+        List<String> warnings = new ArrayList<>(plan.warnings());
+        warnings.add("PENDING_RULE_INPUT: DC is missing for " + pending.abilityOrSkill());
+        return new RuntimePlan(plan.scene(), plan.npcState(), judgment, plan.narration(), plan.proposedActiveSourceContext(),
+                plan.citedEvidence(), warnings, plan.provider(), plan.model(), plan.reasoning(), plan.advanceStoryPlan(),
+                plan.selectedBranchId(), plan.citationBindings());
+    }
+
+    private static boolean matchesPerception(String action) {
+        String value = action == null ? "" : action.replaceAll("\\s+", "");
+        return value.contains("살펴") || value.contains("관찰") || value.contains("둘러")
+                || value.contains("주변") || value.contains("주의깊게") || value.contains("주의 깊게");
+    }
+
+    private static boolean hasPartialSkillCheck(ScenarioPackage scenarioPackage) {
+        return scenarioPackage.runtimeCandidates().stream()
+                .anyMatch(unit -> unit.status() == com.dndmaster.adventure.domain.scenario.ResolutionStatus.PARTIAL
+                        && unit.kind() == ResolutionKind.SKILL_ABILITY_CHECK);
+    }
+
     private String storyPlanContext(Adventure adventure) {
         String checkpoint = resumePromptProvider == null ? "" : resumePromptProvider.prompt(adventure.sessionId().value());
         if (continuityContextProvider != null) {
-            return checkpoint + continuityContextProvider.load(adventure.sessionId().value()).map(StoryContinuityContext::promptText).orElse("");
+            String continuity = continuityContextProvider.load(adventure.sessionId().value()).map(StoryContinuityContext::promptText).orElse("");
+            String authored = storyPlanRepository == null ? "" : storyPlanRepository.findBySessionId(adventure.sessionId())
+                    .map(AdventureStoryPlanRuntimeContext::format).orElse("");
+            return java.util.stream.Stream.of(checkpoint, authored, continuity)
+                    .filter(s -> s != null && !s.isBlank()).reduce((a, b) -> a + "\n" + b).orElse("");
         }
         if (storyPlanRepository == null) return checkpoint;
         return checkpoint + storyPlanRepository.findBySessionId(adventure.sessionId())
@@ -371,7 +444,7 @@ public class RuntimeTurnApplicationService {
             if (current.stages().isEmpty() || current.currentStage() >= current.stages().size() - 1) return;
             var stage = current.stages().get(current.currentStage());
             if (!plan.selectedBranchId().isBlank() && !stage.branchIds().contains(plan.selectedBranchId())) {
-                throw new IllegalStateException("GM selected an unknown story branch");
+                return;
             }
             int target = current.currentStage() + 1;
             if (!plan.selectedBranchId().isBlank()) {
