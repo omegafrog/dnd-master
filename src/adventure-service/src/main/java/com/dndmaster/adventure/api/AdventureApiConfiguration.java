@@ -942,7 +942,8 @@ public class AdventureApiConfiguration {
     CharacterCombatPort characterCombatPort(
             @Value("${adventure.integration.character.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
-        return new CrossContextHttpCombatGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), internalToken);
+        return new CrossContextHttpCombatGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), internalToken);
     }
 
     @Bean
@@ -1037,7 +1038,7 @@ public class AdventureApiConfiguration {
                 HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), internalToken));
     }
 
-    /** Unit-test factory retaining local adjudication without remote state calls. */
+    /** Unit-test factory retaining local adjudication without a remote state call. */
     AiCombatPort aiCombatPort() {
         return aiCombatPort(new AiCombatPort() {
             @Override public void controlState(CombatActionCommand command) { }
@@ -1065,6 +1066,17 @@ public class AdventureApiConfiguration {
                 }
                 return "판정 보류: 대상 AC와 공격 보정이 필요합니다 (d20=" + diceTotal + ").";
             }
+
+            @Override
+            public CombatOutcome adjudicateOutcome(CombatActionCommand command, int diceTotal) {
+                String judgment = adjudicate(command, diceTotal);
+                boolean criticalHit = diceTotal == 20;
+                boolean hit = criticalHit || judgment.startsWith("hit (");
+                int damageMultiplier = criticalHit ? 2 : 1;
+                return new CombatOutcome(judgment, hit && command.damageAmount() != null
+                        ? new CombatCharacterMutation(-damageMultiplier * command.damageAmount(), 0, java.util.List.of(), java.util.List.of())
+                        : CombatCharacterMutation.none(), hit && command.damageAmount() != null && command.endCombat());
+            }
         };
     }
 
@@ -1088,7 +1100,7 @@ public class AdventureApiConfiguration {
     @Bean
     AdventureCombatApplicationService combatApplicationService(
             CombatOperationRepository repository,
-            @Qualifier("characterCombatPort") CharacterCombatPort characterPort,
+            CharacterCombatPort characterPort,
             @Qualifier("diceCombatPort") DiceCombatPort dicePort,
             @Qualifier("combatMapPort") CombatMapPort mapPort,
             @Qualifier("aiCombatPort") AiCombatPort aiPort) {
