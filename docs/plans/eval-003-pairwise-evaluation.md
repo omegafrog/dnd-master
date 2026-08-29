@@ -1,6 +1,6 @@
 # EVAL-003: Pairwise GM response evaluation
 
-Status: `planned`
+Status: `ready-for-agent`
 
 Parent: #204
 

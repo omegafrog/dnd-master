@@ -1,6 +1,9 @@
 package com.dndmaster.gmeval.domain;
 import java.util.*;
 public final class AbsoluteEvaluationService {
+ private final RubricJudgePort rubricJudge;
+ public AbsoluteEvaluationService() { this(null); }
+ public AbsoluteEvaluationService(RubricJudgePort rubricJudge) { this.rubricJudge = rubricJudge; }
  public EvalResult evaluate(EvalCase c, String response) { if (response == null) throw new IllegalArgumentException("response required");
   List<HardConstraintResult> out=new ArrayList<>(); String lower=response.toLowerCase(Locale.ROOT);
   for (HardExpectation e:c.hardExpectations()) { if (e instanceof HardExpectation.ForbiddenFact f) out.add(lower.contains(f.fact().toLowerCase(Locale.ROOT)) ? HardConstraintResult.fail(e.id(),"forbidden fact disclosed",f.fact()) : HardConstraintResult.pass(e.id(),"fact absent"));
@@ -9,5 +12,13 @@ public final class AbsoluteEvaluationService {
    else if (e instanceof HardExpectation.StateMutation f) out.add(HardConstraintResult.unevaluated(e.id(),"state mutation requires structured response facts"));
    else if (e instanceof HardExpectation.AgencyViolation f) out.add(lower.contains(f.voluntaryAction().toLowerCase(Locale.ROOT)) ? HardConstraintResult.fail(e.id(),"player agency invented",f.voluntaryAction()) : HardConstraintResult.pass(e.id(),"voluntary action absent"));
    else out.add(HardConstraintResult.unevaluated(e.id(),((HardExpectation.Unsupported)e).reason())); }
-  return new EvalResult(out,List.of()); }
+  if (c.rubrics().isEmpty()) return new EvalResult(out, List.of());
+  if (rubricJudge == null) return new EvalResult(out, List.of(), "rubric judge not configured");
+  try {
+   RubricJudgeResponse judged = rubricJudge.judge(new RubricJudgeRequest(c, response, c.rubrics()));
+   return new EvalResult(out, RubricJudgeResponseValidator.validate(c.rubrics(), judged), null);
+  } catch (RuntimeException failure) {
+   return new EvalResult(out, List.of(), failure.getMessage() == null ? "invalid rubric judge response" : failure.getMessage());
+  }
+ }
 }
