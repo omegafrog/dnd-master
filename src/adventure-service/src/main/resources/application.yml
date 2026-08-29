@@ -1,4 +1,7 @@
 adventure:
+  runtime:
+    diagnostics:
+      enabled: ${ADVENTURE_RUNTIME_DIAGNOSTICS_ENABLED:false}
   gm:
     quality-gate:
       enforce: ${GM_QUALITY_GATE_ENFORCE:true}

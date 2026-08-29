@@ -473,6 +473,11 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    RuntimeTurnDiagnosticsApplicationService runtimeTurnDiagnosticsApplicationService(RuntimeTurnRepository turns) {
+        return new RuntimeTurnDiagnosticsApplicationService(turns);
+    }
+
+    @Bean
     RuntimeCommandJournal runtimeCommandJournal(DataSource dataSource, ObjectMapper objectMapper) {
         return new PostgresRuntimeCommandJournal(dataSource, objectMapper);
     }
