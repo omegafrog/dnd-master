@@ -2,7 +2,7 @@
 
 - Issue: #227
 - Parent Issue: #225
-- Status: `ready-for-agent`
+- Status: `completed`
 - Dependencies: RN-001
 - Source: #208
 
