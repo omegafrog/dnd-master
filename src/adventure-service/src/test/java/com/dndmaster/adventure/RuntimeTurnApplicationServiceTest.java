@@ -635,6 +635,77 @@ class RuntimeTurnApplicationServiceTest {
         assertTrue(turns.saved.stream().anyMatch(RuntimeTurn::committed));
     }
 
+    @Test
+    void failed_verification_is_not_promoted_by_idempotent_submit_retry() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId storyId = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(storyId, rulebookId);
+        InMemoryRuntimeTurnRepository turns = new InMemoryRuntimeTurnRepository();
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
+                new InMemoryAdventureRepository(adventure), new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId())),
+                new InMemoryPackageRepository(scenarioPackage), turns,
+                new RecordingEvidenceSearchPort(storyId, rulebookId),
+                request -> new RuntimePlan("scene", null, "judgment", "narration", null, List.of(), List.of()),
+                new AllowingSafetyPort(true), scope(adventure, storyId, rulebookId));
+        service.setNarrativeVerifier((context, draft) -> new com.dndmaster.adventure.application.runtime.VerificationResult(
+                com.dndmaster.adventure.application.runtime.VerificationStatus.FAIL,
+                List.of(new com.dndmaster.adventure.application.runtime.VerificationViolation(
+                        com.dndmaster.adventure.application.runtime.VerificationViolationType.UNSUPPORTED_FACT,
+                        com.dndmaster.adventure.application.runtime.VerificationSeverity.ERROR,
+                        "unsupported", "test", "remove unsupported fact")), 0));
+        SubmitRuntimeTurnCommand command = new SubmitRuntimeTurnCommand(
+                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Open the door", 0);
+
+        assertThrows(IllegalStateException.class, () -> service.submitTurn(command));
+        RuntimeTurn failed = turns.saved.getLast();
+        assertEquals(RuntimeTurnLifecycle.PRESENTATION_FAILED_RETRYABLE, failed.lifecycle());
+        assertThrows(IllegalStateException.class, () -> service.submitTurn(command));
+        assertEquals(RuntimeTurnLifecycle.PRESENTATION_FAILED_RETRYABLE, turns.saved.getLast().lifecycle());
+        assertTrue(turns.saved.stream().noneMatch(RuntimeTurn::committed));
+    }
+
+    @Test
+    void retry_presentation_preserves_owner_identity_and_normal_conversation_chronology() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId storyId = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(storyId, rulebookId);
+        InMemoryRuntimeTurnRepository turns = new InMemoryRuntimeTurnRepository();
+        List<com.dndmaster.adventure.domain.runtime.narrative.NarrativeContext> contexts = new ArrayList<>();
+        int[] writes = {0};
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
+                new InMemoryAdventureRepository(adventure), new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId())),
+                new InMemoryPackageRepository(scenarioPackage), turns,
+                new RecordingEvidenceSearchPort(storyId, rulebookId),
+                request -> new RuntimePlan("scene", null, "judgment", "initial narration", null, List.of(), List.of()),
+                new AllowingSafetyPort(true), scope(adventure, storyId, rulebookId),
+                null, null, null, null, null, null,
+                context -> {
+                    contexts.add(context.narrativeContext());
+                    if (writes[0]++ == 0) throw new IllegalStateException("presentation write failed");
+                    return new com.dndmaster.adventure.application.runtime.WriterProse("retried narration");
+                },
+                (context, draft) -> com.dndmaster.adventure.application.runtime.VerificationResult.pass(),
+                context -> { throw new AssertionError("rewrite is not needed"); },
+                audit -> { }, query -> List.of(), audit -> { },
+                new com.dndmaster.adventure.application.runtime.RuntimeNarrativeStateApplicationService(
+                        new com.dndmaster.adventure.application.runtime.InMemoryNarrativeStateRepository()));
+        SubmitRuntimeTurnCommand command = new SubmitRuntimeTurnCommand(
+                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Open the door", 0);
+
+        assertThrows(IllegalStateException.class, () -> service.submitTurn(command));
+        RuntimeTurnResult result = service.retryPresentation(command.commandId());
+
+        assertEquals(owner.value().toString(), contexts.getLast().actorId());
+        assertEquals(List.of("PLAYER", "AI_GAME_MASTER", "AI_GAME_MASTER"),
+                result.conversation().stream().map(ConversationEntry::speaker).toList());
+        assertEquals(List.of("Open the door", "retried narration", "judgment"),
+                result.conversation().stream().map(ConversationEntry::content).toList());
+    }
+
     private static RuntimeBinding binding(AdventureId adventureId, OwnerPlayerId owner, UUID packageId) {
         return binding(adventureId, owner, packageId, new KnowledgeDocumentId(UUID.randomUUID()));
     }

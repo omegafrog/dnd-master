@@ -452,7 +452,10 @@ public class RuntimeTurnApplicationService {
         }
         NarrativeState state = narrativeStateService == null ? NarrativeState.empty()
                 : narrativeStateService.load(turn.sessionId());
-        NarrativeContext narrativeContext = state.project(turn.origin().name(), turn.resolvedArtifact().plan().scene());
+        Adventure adventure = adventureRepository.findById(turn.adventureId())
+                .orElseThrow(() -> new IllegalStateException("adventure not found"));
+        NarrativeContext narrativeContext = state.project(adventure.ownerPlayerId().value().toString(),
+                turn.resolvedArtifact().plan().scene());
         List<ExemplarResult> exemplars = retrieveExemplars(turn.plan(), turn.action());
         WriterProse prose = writerPort.write(WriterContext.of(narrativeContext, turn.resolvedArtifact(), exemplars));
         if (writerPort instanceof LegacyTurnWriterAdapter) prose = new WriterProse(turn.plan().narration());
@@ -462,8 +465,8 @@ public class RuntimeTurnApplicationService {
         if (!safety.approved()) throw new IllegalStateException("narration safety rejected: " + safety.reason());
         RuntimePlan presentedPlan = withNarration(turn.plan(), prose.prose());
         List<ConversationEntry> conversation = new ArrayList<>(turn.conversation());
-        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", prose.prose()));
         if (!turn.gmOnly()) conversation.add(new ConversationEntry(conversation.size(), "PLAYER", turn.action()));
+        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", prose.prose()));
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", presentedPlan.judgment()));
         RuntimeTurn presented = new RuntimeTurn(turn.turnId(), turn.commandId(), turn.adventureId(), turn.sessionId(),
                 turn.scenarioPackageId(), turn.bindingVersion(), turn.action(), turn.evidencePack(), presentedPlan,

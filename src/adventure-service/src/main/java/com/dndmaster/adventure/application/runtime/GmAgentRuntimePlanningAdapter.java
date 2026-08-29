@@ -98,9 +98,34 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         GmPlanResult validated = validator.validate(result, request.evidencePack(), request.currentContext(), hiddenData);
         if (validated.stateDelta().isEmpty()) return validated.plan();
         long expectedVersion = request.narrativeContext() == null ? 0 : request.narrativeContext().stateVersion();
-        return validated.plan().withStateDelta(new com.dndmaster.adventure.domain.runtime.narrative.StateDelta(
-                expectedVersion, java.util.Set.copyOf(validated.stateDelta()), java.util.Set.copyOf(validated.stateDelta()),
-                List.of(), List.of(), List.of(), List.of(), List.of()));
+        return validated.plan().withStateDelta(translateStateDelta(validated.stateDelta(), expectedVersion));
+    }
+
+    /**
+     * Provider state deltas are deliberately a small, explicit command language.
+     * A bare id, citation key, or prose description is not a state mutation.
+     */
+    private static com.dndmaster.adventure.domain.runtime.narrative.StateDelta translateStateDelta(
+            List<String> rawDeltas, long expectedVersion) {
+        java.util.Set<String> changed = new java.util.LinkedHashSet<>();
+        java.util.Set<String> revealed = new java.util.LinkedHashSet<>();
+        for (String raw : rawDeltas) {
+            if (raw == null || raw.isBlank()) {
+                throw new IllegalArgumentException("unsupported state delta: blank item");
+            }
+            String[] parts = raw.trim().split(":", 2);
+            if (parts.length != 2 || parts[1].isBlank()) {
+                throw new IllegalArgumentException("unsupported state delta: " + raw);
+            }
+            String factId = parts[1].trim();
+            switch (parts[0].trim().toLowerCase(java.util.Locale.ROOT)) {
+                case "change" -> changed.add(factId);
+                case "reveal" -> revealed.add(factId);
+                default -> throw new IllegalArgumentException("unsupported state delta: " + raw);
+            }
+        }
+        return new com.dndmaster.adventure.domain.runtime.narrative.StateDelta(
+                expectedVersion, changed, revealed, List.of(), List.of(), List.of(), List.of(), List.of());
     }
 
     private static RequestedGmProviderSelection requestedSelection(RuntimePlanningRequest request) {

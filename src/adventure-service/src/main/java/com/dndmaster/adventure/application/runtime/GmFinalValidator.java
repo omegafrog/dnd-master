@@ -37,10 +37,6 @@ public final class GmFinalValidator {
             evidenceByType.put(type, (int) allowed.stream().filter(evidence -> evidence.evidenceType() == type).count());
         }
 
-        if (!result.stateDelta().isEmpty()) {
-            violations.add(violation("READ_ONLY_STATE_DELTA", "stateDelta", false,
-                    "read-only GM result contains state changes"));
-        }
         for (int index = 0; index < plan.citedEvidence().size(); index++) {
             if (!allowed.contains(plan.citedEvidence().get(index))) {
                 violations.add(violation("CITATION_NOT_IN_EVIDENCE_PACK", "citedEvidence[" + index + "]", true,
