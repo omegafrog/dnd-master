@@ -92,13 +92,13 @@ public final class GmAgentController {
 
     private Response complete(Request request, String operation, String prompt) {
         if (request.provider() == null || request.provider().isBlank()) {
-            return adapter.complete(operation, prompt, this::parseCompleteResponse);
+            return adapter.complete(operation, prompt, json -> parseCompleteResponse(request, json));
         }
-        return adapter.complete(operation, prompt, this::parseCompleteResponse,
+        return adapter.complete(operation, prompt, json -> parseCompleteResponse(request, json),
                 new GmProviderRequest(request.provider(), request.model(), request.reasoning()));
     }
 
-    private Response parseCompleteResponse(String json) {
+    private Response parseCompleteResponse(Request request, String json) {
             try {
                 // Luna occasionally emits an empty object for the read-only state
                 // delta and a structured object for npcState/advanceStoryPlan.
@@ -134,16 +134,14 @@ public final class GmAgentController {
                     normalized.putNull("proposedActiveSourceContext");
                 }
                 com.fasterxml.jackson.databind.JsonNode advancePlan = normalized.get("advanceStoryPlan");
-            if (advancePlan == null || advancePlan.isNull()) normalized.put("advanceStoryPlan", false);
-            // Branch transitions are committed only by the deterministic runtime after it
-            // validates a known branch id. The free-form GM adapter must never request an
-            // unverified transition (the plan context can be abbreviated in the prompt).
-                if (advancePlan != null && advancePlan.isObject()) {
-                    normalized.put("advanceStoryPlan", true);
+                if (advancePlan == null || advancePlan.isNull() || !advancePlan.isBoolean()) {
+                    normalized.put("advanceStoryPlan", false);
                 }
-                // Never trust a free-form branch object without deterministic validation.
-                normalized.put("advanceStoryPlan", false);
-                normalized.put("selectedBranchId", "");
+                if (!normalized.path("advanceStoryPlan").asBoolean(false)
+                        || !knownBranch(request.storyPlanContext(), normalized.path("selectedBranchId").asText())) {
+                    normalized.put("advanceStoryPlan", false);
+                    normalized.put("selectedBranchId", "");
+                }
                 Response response = mapper.treeToValue(normalized, Response.class);
                 if (response.proposedActiveSourceContext() instanceof String source
                         && source.isBlank()) {
@@ -165,6 +163,20 @@ public final class GmAgentController {
                 || (value.isObject() && value.size() == 0))) {
             node.putArray(field);
         }
+    }
+
+    private static boolean knownBranch(String storyPlanContext, String selectedBranchId) {
+        if (storyPlanContext == null || storyPlanContext.isBlank()) return selectedBranchId == null || selectedBranchId.isBlank();
+        String marker = "availableBranches=";
+        int start = storyPlanContext.indexOf(marker);
+        if (start < 0) return selectedBranchId == null || selectedBranchId.isBlank();
+        String listed = storyPlanContext.substring(start + marker.length());
+        int end = listed.indexOf(';');
+        if (end >= 0) listed = listed.substring(0, end);
+        if (listed.isBlank()) return selectedBranchId == null || selectedBranchId.isBlank();
+        return java.util.Arrays.stream(listed.split(","))
+                .map(String::trim)
+                .anyMatch(selectedBranchId::equals);
     }
 
     private Response parseStrictCompleteResponse(String json) {
