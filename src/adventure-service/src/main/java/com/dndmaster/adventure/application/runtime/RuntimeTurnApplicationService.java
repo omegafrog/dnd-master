@@ -22,6 +22,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import com.dndmaster.adventure.domain.runtime.narrative.NarrativeContext;
+import com.dndmaster.adventure.domain.runtime.narrative.NarrativeState;
+import com.dndmaster.adventure.domain.runtime.narrative.RecentEvent;
+import com.dndmaster.adventure.domain.runtime.narrative.StateDelta;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
@@ -50,6 +54,7 @@ public class RuntimeTurnApplicationService {
     private ExemplarRetrievalAuditPort exemplarRetrievalAuditPort;
     private RewritePort rewritePort;
     private NarrativeVerificationAuditPort verificationAuditPort;
+    private RuntimeNarrativeStateApplicationService narrativeStateService;
     private final NarrativeVerificationPolicy verificationPolicy = new NarrativeVerificationPolicy();
 
     public RuntimeTurnApplicationService(
@@ -148,6 +153,7 @@ public class RuntimeTurnApplicationService {
         this.verificationAuditPort = audit -> { };
         this.exemplarRetriever = query -> List.of();
         this.exemplarRetrievalAuditPort = audit -> { };
+        this.narrativeStateService = null;
     }
 
     /** Explicit writer seam for contract and integration tests; legacy callers use the compatibility adapter. */
@@ -188,6 +194,11 @@ public class RuntimeTurnApplicationService {
 
     public void setExemplarRetrievalAuditPort(ExemplarRetrievalAuditPort auditPort) {
         this.exemplarRetrievalAuditPort = Objects.requireNonNull(auditPort, "exemplar audit port must not be null");
+    }
+
+    /** Optional during migration; configured production runtimes use the canonical narrative state. */
+    public void setNarrativeStateService(RuntimeNarrativeStateApplicationService narrativeStateService) {
+        this.narrativeStateService = Objects.requireNonNull(narrativeStateService, "narrative state service must not be null");
     }
 
     @Transactional
@@ -247,6 +258,10 @@ public class RuntimeTurnApplicationService {
         }
 
         EvidencePack evidencePack = prefetchEvidence(command, adventure, binding, scenarioPackage);
+        NarrativeState narrativeState = narrativeStateService == null ? NarrativeState.empty()
+                : narrativeStateService.load(adventure.sessionId().value());
+        NarrativeContext narrativeContext = narrativeState.project(command.ownerPlayerId().value().toString(),
+                adventure.currentContext().currentScene());
         RuntimePlan plan = planningPort.plan(new RuntimePlanningRequest(
                 command.adventureId(), command.ownerPlayerId(), adventure.sessionId().value(), command.turnId(), binding.scenarioPackageId(), binding.bindingVersion(),
                 adventure.currentContext(), binding.activeSourceContext(), command.action(), evidencePack,
@@ -255,7 +270,7 @@ public class RuntimeTurnApplicationService {
                 storyPlanContext(adventure), providerEndpointId(adventure.sessionId().value()),
                 providerSelection(adventure.sessionId().value(), "provider"),
                 providerSelection(adventure.sessionId().value(), "model"),
-                providerSelection(adventure.sessionId().value(), "reasoning")));
+                providerSelection(adventure.sessionId().value(), "reasoning"), narrativeContext));
         plan = preservePendingSkillAdjudication(plan, command.action(), scenarioPackage, evidencePack);
         ResolvedTurnPlan resolvedPlan = ResolvedTurnPlan.of(TurnPlan.from(plan), List.of(plan.judgment()));
         RuntimeTurn resolvedTurn = new RuntimeTurn(command.turnId(), command.commandId(), adventure.id(), adventure.sessionId().value(),
@@ -266,12 +281,12 @@ public class RuntimeTurnApplicationService {
                 command.turnCharacterSheetId(), command.turnIndex() < 0 ? null : command.turnIndex(), command.expectedVersion(),
                 command.gmOnly(), command.agentOrigin()).withResolvedArtifact(resolvedPlan);
         runtimeTurnRepository.save(resolvedTurn);
-        List<ExemplarResult> exemplars = retrieveExemplars(plan);
+        List<ExemplarResult> exemplars = retrieveExemplars(plan, command.action());
         WriterProse prose;
         try {
             prose = writerPort.write(new WriterContext(resolvedPlan.plan().revealableFacts(), resolvedPlan.plan().scene(), exemplars, ""));
             if (writerPort instanceof LegacyTurnWriterAdapter) prose = new WriterProse(plan.narration());
-            prose = verifyAndRewrite(resolvedPlan, prose, resolvedTurn);
+            prose = verifyAndRewrite(resolvedPlan, prose, resolvedTurn, narrativeState, narrativeContext, evidencePack);
         } catch (RuntimeException failure) {
             failurePersistence.persist(resolvedTurn);
             throw failure;
@@ -282,6 +297,10 @@ public class RuntimeTurnApplicationService {
             throw new IllegalStateException("narration safety rejected: " + safety.reason());
         }
         advanceStoryPlanIfRequested(command.ownerPlayerId(), adventure.sessionId(), plan);
+
+        if (narrativeStateService != null) {
+            narrativeStateService.commit(adventure.sessionId().value(), deltaFor(narrativeState, command, plan));
+        }
 
         ActiveSourceContext activeSourceContext = plan.proposedActiveSourceContext() != null
                 ? plan.proposedActiveSourceContext()
@@ -340,20 +359,25 @@ public class RuntimeTurnApplicationService {
         return new RuntimeTurnResult(committed, progressed.currentContext(), progressed.conversation(), progressed.version());
     }
 
-    private List<ExemplarResult> retrieveExemplars(RuntimePlan plan) {
-        ExemplarQuery query = new ExemplarQuery("scene", "interaction", "neutral", "steady", "medium",
-                plan.scene() + " " + plan.judgment(), 3);
+    private List<ExemplarResult> retrieveExemplars(RuntimePlan plan, String action) {
+        String purpose = plan.scene().equalsIgnoreCase("scene") ? "scene transition" : plan.scene();
+        String interaction = action == null || action.isBlank() ? "narration" : interactionType(action);
+        String tone = plan.warnings().isEmpty() ? "neutral" : "cautious";
+        String pacing = plan.advanceStoryPlan() ? "escalating" : "steady";
+        String desiredLength = plan.narration().length() > 240 ? "long" : plan.narration().length() < 80 ? "short" : "medium";
+        ExemplarQuery query = new ExemplarQuery(purpose, interaction, tone, pacing, desiredLength,
+                plan.scene() + " " + plan.judgment() + " " + action, 3);
         long started = System.nanoTime();
         try {
             List<ExemplarResult> results = exemplarRetriever.retrieve(query);
             List<ExemplarResult> bounded = results == null ? List.of() : results.stream().filter(Objects::nonNull).limit(query.limit()).toList();
             exemplarRetrievalAuditPort.append(new ExemplarRetrievalAudit(query.semanticQuery(), query.limit(),
                     bounded.stream().map(result -> result.exemplar().id()).toList(),
-                    bounded.stream().map(ExemplarResult::rerankScore).toList(), "", (System.nanoTime() - started) / 1_000_000));
+                    bounded.stream().map(ExemplarResult::rerankScore).toList(), plan.model(), (System.nanoTime() - started) / 1_000_000));
             return bounded;
         } catch (RuntimeException ignored) {
             exemplarRetrievalAuditPort.append(new ExemplarRetrievalAudit(query.semanticQuery(), query.limit(), List.of(), List.of(),
-                    "", (System.nanoTime() - started) / 1_000_000));
+                    plan.model(), (System.nanoTime() - started) / 1_000_000));
             return List.of();
         }
     }
@@ -365,15 +389,21 @@ public class RuntimeTurnApplicationService {
                 plan.effectiveSelection(), plan.attemptCount(), plan.citationBindings());
     }
 
-    private WriterProse verifyAndRewrite(ResolvedTurnPlan resolvedPlan, WriterProse draft, RuntimeTurn turn) {
-        NarrativeVerificationContext context = NarrativeVerificationContext.of(
-                resolvedPlan.plan().scene(), resolvedPlan.plan().revealableFacts());
+    private WriterProse verifyAndRewrite(ResolvedTurnPlan resolvedPlan, WriterProse draft, RuntimeTurn turn,
+                                         NarrativeState state, NarrativeContext narrativeContext, EvidencePack evidencePack) {
+        NarrativeVerificationContext context = NarrativeVerificationContext.from(resolvedPlan, state, narrativeContext, evidencePack);
+        if (writerPort instanceof LegacyTurnWriterAdapter) {
+            // The legacy adapter has no grounded-claim contract; retain its historical prose fallback.
+            context = new NarrativeVerificationContext(context.turnPlanSummary(), List.of(), context.hiddenFacts(),
+                    context.ruleMismatches(), context.agencyViolations(), context.npcKnowledgeViolations(),
+                    context.turnPlanDeviations(), context.stateContradictions(), context.unsupportedFacts());
+        }
         VerificationResult result = narrativeVerifier.verify(context, draft.prose());
         if (!verificationPolicy.requiresRewrite(result)) {
             if (!verificationPolicy.accepts(result)) throw boundedVerificationFailure(result);
             verificationAuditPort.append(new NarrativeVerificationAudit(turn.turnId().toString(),
                     verificationPolicy.fingerprint(turn.turnId().toString(), resolvedPlan.plan().scene() + "|" + resolvedPlan.plan().judgment(), resolvedPlan.outcomes()),
-                    result, result, false, List.of()));
+                    result, result, false, List.of(turn.plan().provider(), turn.plan().model(), turn.plan().reasoning())));
             return draft;
         }
         String fingerprint = verificationPolicy.fingerprint(turn.turnId().toString(),
@@ -381,7 +411,7 @@ public class RuntimeTurnApplicationService {
         WriterProse rewritten = rewritePort.rewrite(new RewriteContext(draft.prose(), result.violations(), fingerprint, 0));
         VerificationResult rewrittenResult = narrativeVerifier.verify(context, rewritten.prose()).withRewriteCount(1);
         verificationAuditPort.append(new NarrativeVerificationAudit(turn.turnId().toString(), fingerprint,
-                result, rewrittenResult, true, List.of()));
+                result, rewrittenResult, true, List.of(turn.plan().provider(), turn.plan().model(), turn.plan().reasoning())));
         if (!verificationPolicy.accepts(rewrittenResult)) throw boundedVerificationFailure(rewrittenResult);
         return rewritten;
     }
@@ -398,7 +428,17 @@ public class RuntimeTurnApplicationService {
         if (turn.resolvedArtifact() == null || turn.lifecycle() == RuntimeTurnLifecycle.PRESENTED) {
             return new RuntimeTurnResult(turn, turn.context(), turn.conversation(), turn.version());
         }
-        WriterProse prose = writerPort.write(WriterContext.of(turn.resolvedArtifact()));
+        NarrativeState state = narrativeStateService == null ? NarrativeState.empty()
+                : narrativeStateService.load(turn.sessionId());
+        NarrativeContext narrativeContext = state.project(turn.origin().name(), turn.resolvedArtifact().plan().scene());
+        List<ExemplarResult> exemplars = retrieveExemplars(turn.plan(), turn.action());
+        WriterProse prose = writerPort.write(new WriterContext(turn.resolvedArtifact().plan().revealableFacts(),
+                turn.resolvedArtifact().plan().scene(), exemplars, ""));
+        if (writerPort instanceof LegacyTurnWriterAdapter) prose = new WriterProse(turn.plan().narration());
+        prose = verifyAndRewrite(turn.resolvedArtifact(), prose, turn, state, narrativeContext, turn.evidencePack());
+        NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
+                prose.prose(), turn.evidencePack(), turn.context(), turn.action()));
+        if (!safety.approved()) throw new IllegalStateException("narration safety rejected: " + safety.reason());
         RuntimePlan presentedPlan = withNarration(turn.plan(), prose.prose());
         List<ConversationEntry> conversation = new ArrayList<>(turn.conversation());
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", prose.prose()));
@@ -412,6 +452,23 @@ public class RuntimeTurnApplicationService {
                 RuntimeTurnLifecycle.RESOLVED_UNCOMMITTED, turn.resolvedArtifact()).markCommitted();
         runtimeTurnRepository.save(presented);
         return new RuntimeTurnResult(presented, presented.context(), presented.conversation(), presented.version());
+    }
+
+    private static StateDelta deltaFor(NarrativeState state, SubmitRuntimeTurnCommand command, RuntimePlan plan) {
+        List<String> revealed = plan.citedEvidence().stream().map(RuntimeEvidence::citationKey)
+                .filter(Objects::nonNull).filter(state.worldFacts()::containsKey).toList();
+        List<RecentEvent> events = new ArrayList<>(state.recentEvents());
+        events.add(new RecentEvent(command.turnId().toString(), state.version(), plan.judgment()));
+        return new StateDelta(state.version(), java.util.Set.copyOf(revealed), java.util.Set.copyOf(revealed),
+                List.of(), List.of(), state.relationships(), state.activeThreads(), events);
+    }
+
+    private static String interactionType(String action) {
+        String lower = action.toLowerCase(java.util.Locale.ROOT);
+        if (lower.contains("ask") || lower.contains("tell") || lower.contains("speak") || lower.contains("말")) return "dialogue";
+        if (lower.contains("look") || lower.contains("search") || lower.contains("살펴") || lower.contains("관찰")) return "exploration";
+        if (lower.contains("attack") || lower.contains("fight") || lower.contains("공격")) return "combat";
+        return "action";
     }
 
     private static RuntimeTurnOrigin origin(SubmitRuntimeTurnCommand command) {

@@ -1,6 +1,7 @@
 package com.dndmaster.adventure.application.runtime;
 
 import java.util.ArrayList;
+import java.util.List;
 
 public final class DefaultNarrativeVerifier implements NarrativeVerifierPort {
     private final DeterministicNarrativeValidator deterministic;
@@ -8,7 +9,16 @@ public final class DefaultNarrativeVerifier implements NarrativeVerifierPort {
 
     public DefaultNarrativeVerifier(NarrativeVerifierPort semantic) {
         this.deterministic = new DeterministicNarrativeValidator();
-        this.semantic = semantic == null ? (context, draft) -> VerificationResult.pass() : semantic;
+        // A missing provider is still a real gate: deterministic grounding remains active.
+        this.semantic = semantic == null ? (context, draft) -> {
+            if (context.supportedFacts().isEmpty()) return VerificationResult.pass();
+            boolean grounded = context.supportedFacts().stream().anyMatch(fact ->
+                    !fact.isBlank() && draft.toLowerCase(java.util.Locale.ROOT)
+                            .contains(fact.toLowerCase(java.util.Locale.ROOT)));
+            return grounded ? VerificationResult.pass() : new VerificationResult(VerificationStatus.FAIL,
+                    List.of(new VerificationViolation(VerificationViolationType.UNSUPPORTED_FACT,
+                            VerificationSeverity.ERROR, "draft has no grounded claim", "semantic", "include a supported fact")), 0);
+        } : semantic;
     }
 
     @Override

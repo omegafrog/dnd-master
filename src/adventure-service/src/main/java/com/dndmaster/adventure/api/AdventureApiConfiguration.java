@@ -26,6 +26,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresResolutionOver
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioCompilationRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeBindingRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresNarrativeStateRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeCommandJournal;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresGmTurnRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionEventRepository;
@@ -473,6 +474,17 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    NarrativeStateRepository narrativeStateRepository(DataSource dataSource, ObjectMapper objectMapper) {
+        return new PostgresNarrativeStateRepository(dataSource, objectMapper);
+    }
+
+    @Bean
+    RuntimeNarrativeStateApplicationService runtimeNarrativeStateApplicationService(
+            NarrativeStateRepository repository) {
+        return new RuntimeNarrativeStateApplicationService(repository);
+    }
+
+    @Bean
     RuntimeTurnFailurePersistence runtimeTurnFailurePersistence(RuntimeTurnRepository runtimeTurnRepository) {
         return new RuntimeTurnFailurePersistence(runtimeTurnRepository);
     }
@@ -837,8 +849,11 @@ public class AdventureApiConfiguration {
 
     @Bean
     RuntimePlanningPort runtimePlanningPort(GmAgentPort gmAgentPort, GmToolGateway gmToolGateway,
-                                            RuntimeCommandSagaApplicationService saga) {
-        return new GmAgentRuntimePlanningAdapter(gmAgentPort, new GmFinalValidator(), gmToolGateway, saga);
+                                            RuntimeCommandSagaApplicationService saga,
+                                            @Value("${adventure.runtime.best-of-n.count:3}") int candidateCount,
+                                            @Value("${adventure.runtime.best-of-n.simple:false}") boolean simpleTurn) {
+        RuntimePlanningPort legacy = new GmAgentRuntimePlanningAdapter(gmAgentPort, new GmFinalValidator(), gmToolGateway, saga);
+        return new BestOfNRuntimePlanningAdapter(legacy, candidateCount, simpleTurn, audit -> { });
     }
 
     @Bean
@@ -872,12 +887,14 @@ public class AdventureApiConfiguration {
             GmContextResumePromptProvider resumePromptProvider,
             GmProviderBindingRepository providerBindingRepository,
             TacticalScenePreparationApplicationService tacticalPreparation,
-            RuntimeTurnFailurePersistence failurePersistence) {
+            RuntimeTurnFailurePersistence failurePersistence,
+            RuntimeNarrativeStateApplicationService narrativeStateService) {
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
                 compactionCoordinator, resumePromptProvider, providerBindingRepository, tacticalPreparation);
         service.setFailurePersistence(failurePersistence);
+        service.setNarrativeStateService(narrativeStateService);
         return service;
     }
 

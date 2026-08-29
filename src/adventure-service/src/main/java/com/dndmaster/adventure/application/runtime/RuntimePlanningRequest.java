@@ -6,6 +6,7 @@ import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import java.util.Objects;
 import java.util.UUID;
+import com.dndmaster.adventure.domain.runtime.narrative.NarrativeContext;
 
 // 계획 단계에 넘기는 입력값이다. 현재 문맥과 근거를 같이 전달한다.
 public record RuntimePlanningRequest(
@@ -25,7 +26,7 @@ public record RuntimePlanningRequest(
         UUID providerEndpointId,
         String provider,
         String model,
-        String reasoning) {
+        String reasoning, NarrativeContext narrativeContext) {
     public RuntimePlanningRequest {
         adventureId = Objects.requireNonNull(adventureId, "adventure id must not be null");
         ownerPlayerId = Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
@@ -47,7 +48,7 @@ public record RuntimePlanningRequest(
                                   long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
                                   String action, EvidencePack evidencePack) {
         this(adventureId, ownerPlayerId, UUID.randomUUID(), UUID.randomUUID(), scenarioPackageId, bindingVersion, currentContext, activeSourceContext, action,
-                evidencePack, java.util.List.of(), java.util.List.of(), "", null, "", "", "");
+                evidencePack, java.util.List.of(), java.util.List.of(), "", null, "", "", "", null);
     }
 
     public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId,
@@ -56,7 +57,7 @@ public record RuntimePlanningRequest(
                                   java.util.List<String> characterSnapshots, String storyPlanContext) {
         this(adventureId, ownerPlayerId, UUID.randomUUID(), UUID.randomUUID(), scenarioPackageId, bindingVersion,
                 currentContext, activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, storyPlanContext,
-                null, "", "", "");
+                null, "", "", "", null);
     }
 
     public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
@@ -66,7 +67,7 @@ public record RuntimePlanningRequest(
                                   String storyPlanContext) {
         this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext,
                 activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, storyPlanContext,
-                null, "", "", "");
+                null, "", "", "", null);
     }
 
     private static String required(String value, String name) {
