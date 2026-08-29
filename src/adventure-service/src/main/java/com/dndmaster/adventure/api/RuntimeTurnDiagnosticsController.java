@@ -15,7 +15,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 /** Development-only, authenticated and read-only runtime diagnostics. */
 @RestController
-@RequestMapping("/api/v1/internal/runtime/diagnostics")
+@RequestMapping({"/internal/v1/runtime-turns", "/api/v1/internal/runtime/diagnostics"})
 public final class RuntimeTurnDiagnosticsController {
     private final RuntimeTurnDiagnosticsApplicationService service;
     private final ApiRequestGuard requestGuard;
@@ -35,7 +35,7 @@ public final class RuntimeTurnDiagnosticsController {
         this.requestGuard = requestGuard;
     }
 
-    @GetMapping("/turns/{turnId}")
+    @GetMapping({"/{turnId}/diagnostics", "/turns/{turnId}"})
     public RuntimeTurnDiagnosticsView read(@PathVariable UUID turnId,
             @RequestHeader(value = "X-Internal-Token", required = false) String internalToken) {
         requestGuard.internal(internalToken);
@@ -44,7 +44,7 @@ public final class RuntimeTurnDiagnosticsController {
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "runtime turn not found"));
     }
 
-    @GetMapping("/commands/{commandId}")
+    @GetMapping({"/commands/{commandId}/diagnostics", "/commands/{commandId}"})
     public RuntimeTurnDiagnosticsView readByCommand(@PathVariable UUID commandId,
             @RequestHeader(value = "X-Internal-Token", required = false) String internalToken) {
         requestGuard.internal(internalToken);

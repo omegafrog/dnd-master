@@ -10,6 +10,8 @@ import com.dndmaster.adventure.domain.scenario.StorybookProposalEvidenceRequired
 import com.dndmaster.adventure.domain.scenario.StorybookProposalNotFoundException;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintPublicationBlockedException;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDeletionConflictException;
+import com.dndmaster.adventure.infrastructure.persistence.RuntimeTurnCompatibilityException;
+import com.dndmaster.adventure.infrastructure.persistence.RuntimeTurnPersistenceException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -85,5 +87,19 @@ public final class ScenarioExceptionHandler {
     @ExceptionHandler(CharacterCreationBlueprintRevisionConflictException.class)
     public ResponseEntity<Void> blueprintRevisionConflict(CharacterCreationBlueprintRevisionConflictException exception) {
         return ResponseEntity.status(HttpStatus.CONFLICT).build();
+    }
+
+    @ExceptionHandler(RuntimeTurnCompatibilityException.class)
+    public ResponseEntity<Map<String, String>> runtimeTurnCompatibility(RuntimeTurnCompatibilityException exception) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
+                "error", "RUNTIME_TURN_COMPATIBILITY_ERROR",
+                "message", "runtime turn payload cannot be safely read"));
+    }
+
+    @ExceptionHandler(RuntimeTurnPersistenceException.class)
+    public ResponseEntity<Map<String, String>> runtimeTurnPersistence(RuntimeTurnPersistenceException exception) {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(Map.of(
+                "error", "RUNTIME_TURN_STORAGE_UNAVAILABLE",
+                "message", "runtime turn storage is temporarily unavailable"));
     }
 }
