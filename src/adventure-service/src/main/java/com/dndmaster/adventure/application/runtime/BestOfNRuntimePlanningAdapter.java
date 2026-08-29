@@ -25,14 +25,25 @@ public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort 
         int count = PlanningContext.boundedCandidateCount(requestedCount, simpleTurn);
         List<RuntimePlan> plans = new ArrayList<>();
         for (int i = 0; i < count; i++) plans.add(legacy.plan(request));
+        Set<String> knownFacts = request.narrativeContext() == null
+                ? Set.of() : request.narrativeContext().factsKnownBy();
+        Set<String> allFacts = request.narrativeContext() == null ? Set.of()
+                : request.narrativeContext().worldFacts().stream().map(fact -> fact.id()).collect(java.util.stream.Collectors.toSet());
+        Set<String> supportedEntities = new java.util.HashSet<>(knownFacts);
+        supportedEntities.add(request.currentContext().currentScene());
+        if (!request.currentContext().npcState().isBlank()) supportedEntities.add(request.currentContext().npcState());
         PlanningContext context = new PlanningContext(request.action(),
                 request.currentContext().currentScene() + "|" + request.currentContext().latestJudgmentValue().orElse(""),
                 request.storyPlanContext().isBlank() ? "current" : request.storyPlanContext(),
-                request.ownerPlayerId().value().toString(), Set.of(), Set.of(), Set.of());
+                request.ownerPlayerId().value().toString(), supportedEntities, knownFacts,
+                allFacts.stream().filter(fact -> !knownFacts.contains(fact)).collect(java.util.stream.Collectors.toSet()));
         List<PlanCandidate> candidates = new ArrayList<>();
         for (int i = 0; i < plans.size(); i++) {
             RuntimePlan plan = plans.get(i);
-            candidates.add(new PlanCandidate("runtime-" + i, TurnPlan.from(plan), request.action(),
+            String candidateId = plan.selectedBranchId().isBlank() ? "runtime-" + i : plan.selectedBranchId();
+            TurnPlan turnPlan = new TurnPlan(plan.scene(), plan.npcState(), plan.judgment(),
+                    plan.stateDelta() == null ? List.of() : new ArrayList<>(plan.stateDelta().revealedFactIds()), List.of());
+            candidates.add(new PlanCandidate(candidateId, turnPlan, request.action(),
                     context.stateFingerprint(), context.storyStage(), context.informationBoundary(), Set.of(), true, true, true,
                     Math.max(1, plan.scene().length() + plan.judgment().length())));
         }
@@ -41,6 +52,10 @@ public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort 
                 (valid, ignored) -> valid.stream().map(candidate -> PlanSelection.score(candidate.candidateId(),
                         0, 0, 0, 0, -candidate.complexity(), List.of())).toList(), audit)
                 .plan(context, count, simpleTurn);
-        return plans.get(Integer.parseInt(selection.selected().candidateId().substring("runtime-".length())));
+        return candidates.stream()
+                .filter(candidate -> candidate.candidateId().equals(selection.selected().candidateId()))
+                .findFirst()
+                .map(selected -> plans.get(candidates.indexOf(selected)))
+                .orElseThrow(() -> new IllegalStateException("selected runtime candidate is not available"));
     }
 }

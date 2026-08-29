@@ -3,6 +3,7 @@ package com.dndmaster.adventure.application.runtime;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.runtime.EffectiveGmProviderSelection;
 import com.dndmaster.adventure.domain.runtime.RequestedGmProviderSelection;
+import com.dndmaster.adventure.domain.runtime.narrative.StateDelta;
 import java.util.List;
 import java.util.Objects;
 
@@ -23,7 +24,8 @@ public record RuntimePlan(
         RequestedGmProviderSelection requestedSelection,
         EffectiveGmProviderSelection effectiveSelection,
         int attemptCount,
-        List<GmCitationBinding> citationBindings) {
+        List<GmCitationBinding> citationBindings,
+        StateDelta stateDelta) {
     public RuntimePlan {
         scene = required(scene, "scene");
         judgment = required(judgment, "judgment");
@@ -50,14 +52,14 @@ public record RuntimePlan(
                        ActiveSourceContext proposedActiveSourceContext, List<RuntimeEvidence> citedEvidence,
                        List<String> warnings) {
         this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
-                "legacy", "legacy", "", false, "", RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown(), 1);
+                "legacy", "legacy", "", false, "", RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown(), 1, List.of(), null);
     }
 
     public RuntimePlan(String scene, String npcState, String judgment, String narration,
                        ActiveSourceContext proposedActiveSourceContext, List<RuntimeEvidence> citedEvidence,
                        List<String> warnings, String provider, String model, String reasoning) {
         this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
-                provider, model, reasoning, false, "", RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown(), 1);
+                provider, model, reasoning, false, "", RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown(), 1, List.of(), null);
     }
 
     public RuntimePlan(String scene, String npcState, String judgment, String narration,
@@ -66,7 +68,7 @@ public record RuntimePlan(
                        boolean advanceStoryPlan, String selectedBranchId) {
         this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
                 provider, model, reasoning, advanceStoryPlan, selectedBranchId,
-                RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown(), 1);
+                RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown(), 1, List.of(), null);
     }
 
     public RuntimePlan(String scene, String npcState, String judgment, String narration,
@@ -76,7 +78,7 @@ public record RuntimePlan(
         this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
                 provider, model, reasoning, advanceStoryPlan, selectedBranchId,
                 RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown(), 1,
-                citationBindings);
+                citationBindings, null);
     }
 
     public RuntimePlan(String scene, String npcState, String judgment, String narration,
@@ -87,7 +89,13 @@ public record RuntimePlan(
                        EffectiveGmProviderSelection effectiveSelection, int attemptCount) {
         this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings,
                 provider, model, reasoning, advanceStoryPlan, selectedBranchId,
-                requestedSelection, effectiveSelection, attemptCount, List.of());
+                requestedSelection, effectiveSelection, attemptCount, List.of(), null);
+    }
+
+    public RuntimePlan withStateDelta(StateDelta delta) {
+        return new RuntimePlan(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence,
+                warnings, provider, model, reasoning, advanceStoryPlan, selectedBranchId, requestedSelection,
+                effectiveSelection, attemptCount, citationBindings, delta);
     }
 
     private static String required(String value, String name) {

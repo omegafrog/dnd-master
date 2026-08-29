@@ -86,7 +86,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
                             "The requested action needs clarification before it can be completed.", result.plan().proposedActiveSourceContext(),
                             result.plan().citedEvidence(), result.plan().warnings(), result.plan().provider(), result.plan().model(), result.plan().reasoning(),
                             result.plan().advanceStoryPlan(), result.plan().selectedBranchId(), result.plan().requestedSelection(), result.plan().effectiveSelection(),
-                            result.plan().attemptCount(), result.plan().citationBindings());
+                            result.plan().attemptCount(), result.plan().citationBindings(), result.plan().stateDelta());
                     result = new GmPlanResult(safe, result.provider(), result.model(), result.reasoning(), result.stateDelta(), result.toolCalls());
                 }
             } finally {
@@ -96,7 +96,11 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
             gateway.revoke(capability);
         }
         GmPlanResult validated = validator.validate(result, request.evidencePack(), request.currentContext(), hiddenData);
-        return validated.plan();
+        if (validated.stateDelta().isEmpty()) return validated.plan();
+        long expectedVersion = request.narrativeContext() == null ? 0 : request.narrativeContext().stateVersion();
+        return validated.plan().withStateDelta(new com.dndmaster.adventure.domain.runtime.narrative.StateDelta(
+                expectedVersion, java.util.Set.copyOf(validated.stateDelta()), java.util.Set.copyOf(validated.stateDelta()),
+                List.of(), List.of(), List.of(), List.of(), List.of()));
     }
 
     private static RequestedGmProviderSelection requestedSelection(RuntimePlanningRequest request) {

@@ -172,6 +172,29 @@ public class RuntimeTurnApplicationService {
         this.writerPort = Objects.requireNonNull(writerPort, "writer port must not be null");
     }
 
+    /** Production constructor: all narrative collaborators are explicit; legacy constructors remain test seams. */
+    public RuntimeTurnApplicationService(
+            AdventureRepository adventureRepository, RuntimeBindingRepository bindingRepository,
+            ScenarioPackageRepository scenarioPackageRepository, RuntimeTurnRepository runtimeTurnRepository,
+            RuntimeEvidenceSearchPort evidenceSearchPort, RuntimePlanningPort planningPort,
+            NarrationSafetyPort narrationSafetyPort, SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
+            AdventureStoryPlanRepository storyPlanRepository, StoryContinuityContextProvider continuityContextProvider,
+            RuntimeTurnCompactionCoordinator compactionCoordinator, GmContextResumePromptProvider resumePromptProvider,
+            GmProviderBindingRepository providerBindingRepository, TacticalScenePreparationApplicationService tacticalPreparation,
+            TurnWriterPort writerPort, NarrativeVerifierPort narrativeVerifier, RewritePort rewritePort,
+            NarrativeVerificationAuditPort verificationAuditPort, ExemplarRetrieverPort exemplarRetriever,
+            ExemplarRetrievalAuditPort exemplarRetrievalAuditPort, RuntimeNarrativeStateApplicationService narrativeStateService) {
+        this(adventureRepository, bindingRepository, scenarioPackageRepository, runtimeTurnRepository, evidenceSearchPort,
+                planningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
+                compactionCoordinator, resumePromptProvider, providerBindingRepository, tacticalPreparation, writerPort);
+        this.narrativeVerifier = Objects.requireNonNull(narrativeVerifier, "narrative verifier must not be null");
+        this.rewritePort = Objects.requireNonNull(rewritePort, "rewrite port must not be null");
+        this.verificationAuditPort = Objects.requireNonNull(verificationAuditPort, "verification audit port must not be null");
+        this.exemplarRetriever = Objects.requireNonNull(exemplarRetriever, "exemplar retriever must not be null");
+        this.exemplarRetrievalAuditPort = Objects.requireNonNull(exemplarRetrievalAuditPort, "exemplar audit port must not be null");
+        this.narrativeStateService = Objects.requireNonNull(narrativeStateService, "narrative state service must not be null");
+    }
+
     public void setFailurePersistence(RuntimeTurnFailurePersistence failurePersistence) {
         this.failurePersistence = Objects.requireNonNull(failurePersistence, "failure persistence must not be null");
     }
@@ -284,7 +307,7 @@ public class RuntimeTurnApplicationService {
         List<ExemplarResult> exemplars = retrieveExemplars(plan, command.action());
         WriterProse prose;
         try {
-            prose = writerPort.write(new WriterContext(resolvedPlan.plan().revealableFacts(), resolvedPlan.plan().scene(), exemplars, ""));
+            prose = writerPort.write(WriterContext.of(narrativeContext, resolvedPlan, exemplars));
             if (writerPort instanceof LegacyTurnWriterAdapter) prose = new WriterProse(plan.narration());
             prose = verifyAndRewrite(resolvedPlan, prose, resolvedTurn, narrativeState, narrativeContext, evidencePack);
         } catch (RuntimeException failure) {
@@ -297,10 +320,6 @@ public class RuntimeTurnApplicationService {
             throw new IllegalStateException("narration safety rejected: " + safety.reason());
         }
         advanceStoryPlanIfRequested(command.ownerPlayerId(), adventure.sessionId(), plan);
-
-        if (narrativeStateService != null) {
-            narrativeStateService.commit(adventure.sessionId().value(), deltaFor(narrativeState, command, plan));
-        }
 
         ActiveSourceContext activeSourceContext = plan.proposedActiveSourceContext() != null
                 ? plan.proposedActiveSourceContext()
@@ -347,6 +366,9 @@ public class RuntimeTurnApplicationService {
 
         RuntimeTurn committed = turn.markCommitted();
         runtimeTurnRepository.save(committed);
+        if (narrativeStateService != null) {
+            narrativeStateService.commit(adventure.sessionId().value(), deltaFor(narrativeState, command, plan));
+        }
         if (compactionCoordinator != null) {
             if (TransactionSynchronizationManager.isSynchronizationActive()) {
                 TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
@@ -386,7 +408,7 @@ public class RuntimeTurnApplicationService {
         return new RuntimePlan(plan.scene(), plan.npcState(), plan.judgment(), narration,
                 plan.proposedActiveSourceContext(), plan.citedEvidence(), plan.warnings(), plan.provider(), plan.model(),
                 plan.reasoning(), plan.advanceStoryPlan(), plan.selectedBranchId(), plan.requestedSelection(),
-                plan.effectiveSelection(), plan.attemptCount(), plan.citationBindings());
+                plan.effectiveSelection(), plan.attemptCount(), plan.citationBindings(), plan.stateDelta());
     }
 
     private WriterProse verifyAndRewrite(ResolvedTurnPlan resolvedPlan, WriterProse draft, RuntimeTurn turn,
@@ -432,8 +454,7 @@ public class RuntimeTurnApplicationService {
                 : narrativeStateService.load(turn.sessionId());
         NarrativeContext narrativeContext = state.project(turn.origin().name(), turn.resolvedArtifact().plan().scene());
         List<ExemplarResult> exemplars = retrieveExemplars(turn.plan(), turn.action());
-        WriterProse prose = writerPort.write(new WriterContext(turn.resolvedArtifact().plan().revealableFacts(),
-                turn.resolvedArtifact().plan().scene(), exemplars, ""));
+        WriterProse prose = writerPort.write(WriterContext.of(narrativeContext, turn.resolvedArtifact(), exemplars));
         if (writerPort instanceof LegacyTurnWriterAdapter) prose = new WriterProse(turn.plan().narration());
         prose = verifyAndRewrite(turn.resolvedArtifact(), prose, turn, state, narrativeContext, turn.evidencePack());
         NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
@@ -454,12 +475,11 @@ public class RuntimeTurnApplicationService {
         return new RuntimeTurnResult(presented, presented.context(), presented.conversation(), presented.version());
     }
 
-    private static StateDelta deltaFor(NarrativeState state, SubmitRuntimeTurnCommand command, RuntimePlan plan) {
-        List<String> revealed = plan.citedEvidence().stream().map(RuntimeEvidence::citationKey)
-                .filter(Objects::nonNull).filter(state.worldFacts()::containsKey).toList();
+    public static StateDelta deltaFor(NarrativeState state, SubmitRuntimeTurnCommand command, RuntimePlan plan) {
+        if (plan.stateDelta() != null) return plan.stateDelta();
         List<RecentEvent> events = new ArrayList<>(state.recentEvents());
         events.add(new RecentEvent(command.turnId().toString(), state.version(), plan.judgment()));
-        return new StateDelta(state.version(), java.util.Set.copyOf(revealed), java.util.Set.copyOf(revealed),
+        return new StateDelta(state.version(), java.util.Set.of(), java.util.Set.of(),
                 List.of(), List.of(), state.relationships(), state.activeThreads(), events);
     }
 

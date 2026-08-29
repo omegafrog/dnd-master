@@ -617,9 +617,13 @@ class RuntimeTurnApplicationServiceTest {
 
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventures, bindings, packages, turns, search, planning, safety, scope(adventure, storyId, rulebookId));
+        var narrativeRepository = new com.dndmaster.adventure.application.runtime.InMemoryNarrativeStateRepository();
+        service.setNarrativeStateService(new com.dndmaster.adventure.application.runtime.RuntimeNarrativeStateApplicationService(narrativeRepository));
         SubmitRuntimeTurnCommand command = new SubmitRuntimeTurnCommand(adventure.id(), owner, turnId, commandId, "Open the door");
 
         assertThrows(IllegalStateException.class, () -> service.submitTurn(command));
+        assertTrue(narrativeRepository.findBySessionId(adventure.sessionId().value()).isEmpty(),
+                "a failed runtime-turn write must not leave narrative state committed");
         RuntimeTurnResult resumed = service.submitTurn(command);
 
         assertEquals("근거를 바탕으로 응답한다.", resumed.turn().plan().narration());

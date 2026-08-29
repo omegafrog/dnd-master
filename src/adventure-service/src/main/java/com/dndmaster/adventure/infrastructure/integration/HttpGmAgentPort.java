@@ -120,7 +120,7 @@ public final class HttpGmAgentPort implements GmAgentPort {
             RuntimePlan audited = new RuntimePlan(plan.scene(), plan.npcState(), plan.judgment(), plan.narration(),
                     plan.proposedActiveSourceContext(), plan.citedEvidence(), plan.warnings(), plan.provider(), plan.model(),
                     plan.reasoning(), plan.advanceStoryPlan(), plan.selectedBranchId(), requested,
-                    response.effectiveSelection().toDomain(), response.attemptCount(), plan.citationBindings());
+                    response.effectiveSelection().toDomain(), response.attemptCount(), plan.citationBindings(), plan.stateDelta());
             return new GmPlanResult(audited, result.provider(), result.model(), result.reasoning(), result.stateDelta(), result.toolCalls());
         }
     }

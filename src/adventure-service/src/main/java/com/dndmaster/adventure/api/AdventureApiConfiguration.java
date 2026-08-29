@@ -848,12 +848,46 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    NarrativeVerifierPort narrativeVerifier() {
+        return new DefaultNarrativeVerifier(new DeterministicSemanticNarrativeVerifier());
+    }
+
+    @Bean
+    RewritePort narrativeRewritePort() {
+        return new BoundedNarrativeRewriteAdapter();
+    }
+
+    @Bean
+    NarrativeVerificationAuditPort narrativeVerificationAuditPort() {
+        return new LoggingNarrativeVerificationAuditPort();
+    }
+
+    @Bean
+    ExemplarRetrievalAuditPort exemplarRetrievalAuditPort() {
+        return new LoggingExemplarRetrievalAuditPort();
+    }
+
+    @Bean
+    PlanAuditPort planAuditPort() {
+        return new LoggingPlanAuditPort();
+    }
+
+    @Bean
+    ExemplarRetrieverPort exemplarRetriever() {
+        return new InMemoryExemplarCatalogIndexAdapter(java.util.List.of(
+                new StyleExemplar("production-default", "The moment settles into a clear, playable beat.",
+                        "scene", "action", "neutral", "steady", "short",
+                        new Provenance("runtime-default", "style-exemplar", "1"), true)));
+    }
+
+    @Bean
     RuntimePlanningPort runtimePlanningPort(GmAgentPort gmAgentPort, GmToolGateway gmToolGateway,
                                             RuntimeCommandSagaApplicationService saga,
                                             @Value("${adventure.runtime.best-of-n.count:3}") int candidateCount,
-                                            @Value("${adventure.runtime.best-of-n.simple:false}") boolean simpleTurn) {
+                                            @Value("${adventure.runtime.best-of-n.simple:false}") boolean simpleTurn,
+                                            PlanAuditPort planAuditPort) {
         RuntimePlanningPort legacy = new GmAgentRuntimePlanningAdapter(gmAgentPort, new GmFinalValidator(), gmToolGateway, saga);
-        return new BestOfNRuntimePlanningAdapter(legacy, candidateCount, simpleTurn, audit -> { });
+        return new BestOfNRuntimePlanningAdapter(legacy, candidateCount, simpleTurn, planAuditPort);
     }
 
     @Bean
@@ -888,13 +922,19 @@ public class AdventureApiConfiguration {
             GmProviderBindingRepository providerBindingRepository,
             TacticalScenePreparationApplicationService tacticalPreparation,
             RuntimeTurnFailurePersistence failurePersistence,
-            RuntimeNarrativeStateApplicationService narrativeStateService) {
+            RuntimeNarrativeStateApplicationService narrativeStateService,
+            NarrativeVerifierPort narrativeVerifier,
+            RewritePort narrativeRewritePort,
+            NarrativeVerificationAuditPort narrativeVerificationAuditPort,
+            ExemplarRetrieverPort exemplarRetriever,
+            ExemplarRetrievalAuditPort exemplarRetrievalAuditPort) {
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
-                compactionCoordinator, resumePromptProvider, providerBindingRepository, tacticalPreparation);
+                compactionCoordinator, resumePromptProvider, providerBindingRepository, tacticalPreparation,
+                new LegacyTurnWriterAdapter(), narrativeVerifier, narrativeRewritePort, narrativeVerificationAuditPort,
+                exemplarRetriever, exemplarRetrievalAuditPort, narrativeStateService);
         service.setFailurePersistence(failurePersistence);
-        service.setNarrativeStateService(narrativeStateService);
         return service;
     }
 

@@ -12,9 +12,19 @@ import com.dndmaster.adventure.application.runtime.PlanSelectionPolicy;
 import com.dndmaster.adventure.application.runtime.PlanningContext;
 import com.dndmaster.adventure.application.runtime.TurnPlan;
 import com.dndmaster.adventure.application.runtime.BestOfNPlanningCoordinator;
+import com.dndmaster.adventure.application.runtime.BestOfNRuntimePlanningAdapter;
+import com.dndmaster.adventure.application.runtime.RuntimePlanningRequest;
+import com.dndmaster.adventure.application.runtime.RuntimePlan;
+import com.dndmaster.adventure.application.runtime.EvidencePack;
+import com.dndmaster.adventure.domain.adventure.AdventureContext;
+import com.dndmaster.adventure.domain.adventure.AdventureId;
+import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
+import com.dndmaster.adventure.domain.runtime.narrative.NarrativeContext;
+import com.dndmaster.adventure.domain.runtime.narrative.WorldFact;
 import com.dndmaster.adventure.infrastructure.integration.TurnPlanCandidateV1;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class BestOfNTurnPlanningTest {
@@ -102,6 +112,34 @@ class BestOfNTurnPlanningTest {
         TurnPlanCandidateV1 dto = TurnPlanCandidateV1.from(original);
         assertEquals(original, dto.toDomain());
         assertTrue(!dto.toString().contains("narration"));
+    }
+
+    @Test
+    void runtime_adapter_passes_actor_scoped_fact_boundary_and_preserves_branch_identity() {
+        var captured = new NarrativeContext[1];
+        var audits = new java.util.ArrayList<com.dndmaster.adventure.application.runtime.PlanSelectionAudit>();
+        var index = new int[1];
+        RuntimePlan first = new RuntimePlan("scene", "npc", "judgment", "narration", null, List.of(), List.of(),
+                "provider", "model", "reasoning", false, "branch-a");
+        RuntimePlan second = new RuntimePlan("scene", "npc", "judgment", "narration", null, List.of(), List.of(),
+                "provider", "model", "reasoning", false, "branch-b");
+        var adapter = new BestOfNRuntimePlanningAdapter(request -> {
+            captured[0] = request.narrativeContext();
+            index[0]++;
+            return index[0] == 1 ? first : second;
+        }, 2, false, audits::add);
+        UUID session = UUID.randomUUID();
+        NarrativeContext actor = new NarrativeContext("player", "scene", 4, Set.of("known"),
+                List.of(new WorldFact("known", "known fact", false), new WorldFact("secret", "secret fact", false)),
+                java.util.Map.of(), List.of(), List.of(), List.of());
+        RuntimePlan selected = adapter.plan(new RuntimePlanningRequest(new AdventureId(UUID.randomUUID()),
+                new OwnerPlayerId(UUID.randomUUID()), session, UUID.randomUUID(), UUID.randomUUID(), 1,
+                new AdventureContext("scene", "npc", "open", "judgment"), null, "open", new EvidencePack(List.of(), List.of(), List.of()),
+                List.of(), List.of(), "stage", null, "provider", "model", "reasoning", actor));
+
+        assertEquals("branch-a", selected.selectedBranchId());
+        assertEquals(Set.of("known"), captured[0].factsKnownBy());
+        assertEquals("branch-a", audits.getFirst().selectedCandidateId());
     }
 
     private static PlanningContext context() {
