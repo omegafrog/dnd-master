@@ -1,6 +1,6 @@
 # EVAL-001: Eval model and deterministic hard constraints
 
-Status: `ready-for-agent`
+Status: `completed`
 
 Parent: #204
 

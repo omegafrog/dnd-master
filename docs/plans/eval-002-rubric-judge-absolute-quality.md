@@ -1,6 +1,6 @@
 # EVAL-002: Rubric judge and absolute quality evaluation
 
-Status: `planned`
+Status: `ready-for-agent`
 
 Parent: #204
 
