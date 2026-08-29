@@ -30,7 +30,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         GmContextEnvelope context = new GmContextEnvelope(request.adventureId(), request.ownerPlayerId(), request.sessionId(), request.turnId(), request.scenarioPackageId(),
                 request.bindingVersion(), request.currentContext(), request.activeSourceContext(), request.action(), request.evidencePack(),
                 request.recentTurns(), request.characterSnapshots(), request.storyPlanContext(), request.provider(), request.model(), request.reasoning(),
-                requestedSelection(request));
+                requestedSelection(request), request.narrativeContext());
         java.util.Set<String> hiddenData = context.storyPlanContext().isBlank()
                 ? java.util.Set.of()
                 : java.util.Set.of(context.storyPlanContext());
@@ -86,7 +86,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
                             "The requested action needs clarification before it can be completed.", result.plan().proposedActiveSourceContext(),
                             result.plan().citedEvidence(), result.plan().warnings(), result.plan().provider(), result.plan().model(), result.plan().reasoning(),
                             result.plan().advanceStoryPlan(), result.plan().selectedBranchId(), result.plan().requestedSelection(), result.plan().effectiveSelection(),
-                            result.plan().attemptCount(), result.plan().citationBindings());
+                            result.plan().attemptCount(), result.plan().citationBindings(), result.plan().stateDelta());
                     result = new GmPlanResult(safe, result.provider(), result.model(), result.reasoning(), result.stateDelta(), result.toolCalls());
                 }
             } finally {
@@ -96,7 +96,36 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
             gateway.revoke(capability);
         }
         GmPlanResult validated = validator.validate(result, request.evidencePack(), request.currentContext(), hiddenData);
-        return validated.plan();
+        if (validated.stateDelta().isEmpty()) return validated.plan();
+        long expectedVersion = request.narrativeContext() == null ? 0 : request.narrativeContext().stateVersion();
+        return validated.plan().withStateDelta(translateStateDelta(validated.stateDelta(), expectedVersion));
+    }
+
+    /**
+     * Provider state deltas are deliberately a small, explicit command language.
+     * A bare id, citation key, or prose description is not a state mutation.
+     */
+    private static com.dndmaster.adventure.domain.runtime.narrative.StateDelta translateStateDelta(
+            List<String> rawDeltas, long expectedVersion) {
+        java.util.Set<String> changed = new java.util.LinkedHashSet<>();
+        java.util.Set<String> revealed = new java.util.LinkedHashSet<>();
+        for (String raw : rawDeltas) {
+            if (raw == null || raw.isBlank()) {
+                throw new IllegalArgumentException("unsupported state delta: blank item");
+            }
+            String[] parts = raw.trim().split(":", 2);
+            if (parts.length != 2 || parts[1].isBlank()) {
+                throw new IllegalArgumentException("unsupported state delta: " + raw);
+            }
+            String factId = parts[1].trim();
+            switch (parts[0].trim().toLowerCase(java.util.Locale.ROOT)) {
+                case "change" -> changed.add(factId);
+                case "reveal" -> revealed.add(factId);
+                default -> throw new IllegalArgumentException("unsupported state delta: " + raw);
+            }
+        }
+        return new com.dndmaster.adventure.domain.runtime.narrative.StateDelta(
+                expectedVersion, changed, revealed, List.of(), List.of(), List.of(), List.of(), List.of());
     }
 
     private static RequestedGmProviderSelection requestedSelection(RuntimePlanningRequest request) {

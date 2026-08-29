@@ -8,6 +8,7 @@ import com.dndmaster.adventure.domain.runtime.RequestedGmProviderSelection;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import com.dndmaster.adventure.domain.runtime.narrative.NarrativeContext;
 
 /** Complete provider input. It carries only the locked session knowledge set. */
 public record GmContextEnvelope(
@@ -27,7 +28,8 @@ public record GmContextEnvelope(
         String provider,
         String model,
         String reasoning,
-        RequestedGmProviderSelection requestedSelection) {
+        RequestedGmProviderSelection requestedSelection,
+        NarrativeContext narrativeContext) {
     public GmContextEnvelope {
         adventureId = Objects.requireNonNull(adventureId);
         ownerPlayerId = Objects.requireNonNull(ownerPlayerId);
@@ -56,7 +58,7 @@ public record GmContextEnvelope(
                              long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
                              String action, EvidencePack evidencePack, List<String> recentTurns) {
         this(adventureId, ownerPlayerId, UUID.randomUUID(), UUID.randomUUID(), scenarioPackageId, bindingVersion, currentContext, activeSourceContext, action,
-                evidencePack, recentTurns, List.of(), "", "", "", "", RequestedGmProviderSelection.legacyUnknown());
+                evidencePack, recentTurns, List.of(), "", "", "", "", RequestedGmProviderSelection.legacyUnknown(), null);
     }
 
     public GmContextEnvelope(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
@@ -68,7 +70,7 @@ public record GmContextEnvelope(
                 activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, storyPlanContext,
                 provider, model, reasoning, provider.isBlank() || model.isBlank() || reasoning.isBlank()
                         ? RequestedGmProviderSelection.legacyUnknown()
-                        : new RequestedGmProviderSelection(null, provider, model, reasoning));
+                : new RequestedGmProviderSelection(null, provider, model, reasoning), null);
     }
 
     public String operationKey() {

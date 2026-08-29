@@ -26,6 +26,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresResolutionOver
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioCompilationRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeBindingRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresNarrativeStateRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeCommandJournal;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresGmTurnRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionEventRepository;
@@ -473,6 +474,17 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    NarrativeStateRepository narrativeStateRepository(DataSource dataSource, ObjectMapper objectMapper) {
+        return new PostgresNarrativeStateRepository(dataSource, objectMapper);
+    }
+
+    @Bean
+    RuntimeNarrativeStateApplicationService runtimeNarrativeStateApplicationService(
+            NarrativeStateRepository repository) {
+        return new RuntimeNarrativeStateApplicationService(repository);
+    }
+
+    @Bean
     RuntimeTurnFailurePersistence runtimeTurnFailurePersistence(RuntimeTurnRepository runtimeTurnRepository) {
         return new RuntimeTurnFailurePersistence(runtimeTurnRepository);
     }
@@ -836,9 +848,46 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    NarrativeVerifierPort narrativeVerifier() {
+        return new DefaultNarrativeVerifier(new DeterministicSemanticNarrativeVerifier());
+    }
+
+    @Bean
+    RewritePort narrativeRewritePort() {
+        return new BoundedNarrativeRewriteAdapter();
+    }
+
+    @Bean
+    NarrativeVerificationAuditPort narrativeVerificationAuditPort() {
+        return new LoggingNarrativeVerificationAuditPort();
+    }
+
+    @Bean
+    ExemplarRetrievalAuditPort exemplarRetrievalAuditPort() {
+        return new LoggingExemplarRetrievalAuditPort();
+    }
+
+    @Bean
+    PlanAuditPort planAuditPort() {
+        return new LoggingPlanAuditPort();
+    }
+
+    @Bean
+    ExemplarRetrieverPort exemplarRetriever() {
+        return new InMemoryExemplarCatalogIndexAdapter(java.util.List.of(
+                new StyleExemplar("production-default", "The moment settles into a clear, playable beat.",
+                        "scene", "action", "neutral", "steady", "short",
+                        new Provenance("runtime-default", "style-exemplar", "1"), true)));
+    }
+
+    @Bean
     RuntimePlanningPort runtimePlanningPort(GmAgentPort gmAgentPort, GmToolGateway gmToolGateway,
-                                            RuntimeCommandSagaApplicationService saga) {
-        return new GmAgentRuntimePlanningAdapter(gmAgentPort, new GmFinalValidator(), gmToolGateway, saga);
+                                            RuntimeCommandSagaApplicationService saga,
+                                            @Value("${adventure.runtime.best-of-n.count:3}") int candidateCount,
+                                            @Value("${adventure.runtime.best-of-n.simple:false}") boolean simpleTurn,
+                                            PlanAuditPort planAuditPort) {
+        RuntimePlanningPort legacy = new GmAgentRuntimePlanningAdapter(gmAgentPort, new GmFinalValidator(), gmToolGateway, saga);
+        return new BestOfNRuntimePlanningAdapter(legacy, candidateCount, simpleTurn, planAuditPort);
     }
 
     @Bean
@@ -872,11 +921,19 @@ public class AdventureApiConfiguration {
             GmContextResumePromptProvider resumePromptProvider,
             GmProviderBindingRepository providerBindingRepository,
             TacticalScenePreparationApplicationService tacticalPreparation,
-            RuntimeTurnFailurePersistence failurePersistence) {
+            RuntimeTurnFailurePersistence failurePersistence,
+            RuntimeNarrativeStateApplicationService narrativeStateService,
+            NarrativeVerifierPort narrativeVerifier,
+            RewritePort narrativeRewritePort,
+            NarrativeVerificationAuditPort narrativeVerificationAuditPort,
+            ExemplarRetrieverPort exemplarRetriever,
+            ExemplarRetrievalAuditPort exemplarRetrievalAuditPort) {
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
-                compactionCoordinator, resumePromptProvider, providerBindingRepository, tacticalPreparation);
+                compactionCoordinator, resumePromptProvider, providerBindingRepository, tacticalPreparation,
+                new LegacyTurnWriterAdapter(), narrativeVerifier, narrativeRewritePort, narrativeVerificationAuditPort,
+                exemplarRetriever, exemplarRetrievalAuditPort, narrativeStateService);
         service.setFailurePersistence(failurePersistence);
         return service;
     }
