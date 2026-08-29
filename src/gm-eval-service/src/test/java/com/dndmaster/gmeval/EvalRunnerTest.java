@@ -23,9 +23,17 @@ class EvalRunnerTest {
         String json = Files.readString(out);
         assertTrue(json.contains("run-1") && json.contains("gm-turn-v1") && json.contains("hardUnevaluatedCount"));
     }
+    @Test void generatorFailureIsRecordedAndDoesNotAbortFollowingCases() {
+        EvalRunConfiguration config = new EvalRunConfiguration("run-2", "v1", "fake", "p", "c", null, null);
+        EvalRunner runner = new EvalRunner(null, null);
+        EvalRunReport report = runner.run(List.of(c("bad", "quality"), c("good", "quality")), config,
+                (x, y) -> { if (x.caseId().equals("bad")) throw new IllegalStateException("provider unavailable"); return new GeneratedResponse("ok", "fixture"); }, null);
+        assertEquals("provider unavailable", report.cases().getFirst().generatorFailure());
+        assertEquals("good", report.cases().get(1).caseId());
+    }
     @Test void seedHasPinnedSizeAndAllCategories() throws Exception {
         List<EvalCase> cases = new JsonlEvalDatasetLoader().loadResource("eval/datasets/gm-turn-v1.jsonl");
         assertDoesNotThrow(() -> EvalDatasetIntegrity.validateSeed(cases));
-        assertEquals(30, cases.size());
+        assertEquals(48, cases.size());
     }
 }
