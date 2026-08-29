@@ -2,7 +2,7 @@
 
 - Issue: #233
 - Parent Issue: #210
-- Status: `ready-for-agent`
+- Status: `in-progress`
 - Dependencies: GMQ-002
 
 ## 구현 목적

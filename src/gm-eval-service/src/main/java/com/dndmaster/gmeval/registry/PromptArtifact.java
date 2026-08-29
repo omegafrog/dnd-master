@@ -17,7 +17,8 @@ public record PromptArtifact(
         String datasetVersion,
         String evalVersion,
         boolean baseline,
-        PromptArtifactStatus status) {
+        PromptArtifactStatus status,
+        String optimizationRunId) {
     public PromptArtifact {
         promptVersion = Objects.requireNonNull(promptVersion, "prompt version required");
         if (parentVersion != null && parentVersion.role() != promptVersion.role()) {
@@ -35,6 +36,15 @@ public record PromptArtifact(
         datasetVersion = required(datasetVersion, "dataset version");
         evalVersion = required(evalVersion, "eval version");
         status = Objects.requireNonNull(status, "artifact status required");
+        if (optimizationRunId != null && optimizationRunId.isBlank()) optimizationRunId = null;
+    }
+
+    public PromptArtifact(PromptVersion promptVersion, PromptVersion parentVersion, String promptContent,
+                          String outputSchema, List<String> contextOrdering, String exemplarPlacement,
+                          String modelVersion, String configurationVersion, String datasetVersion,
+                          String evalVersion, boolean baseline, PromptArtifactStatus status) {
+        this(promptVersion, parentVersion, promptContent, outputSchema, contextOrdering, exemplarPlacement,
+                modelVersion, configurationVersion, datasetVersion, evalVersion, baseline, status, null);
     }
 
     @JsonIgnore
@@ -44,7 +54,13 @@ public record PromptArtifact(
 
     public PromptArtifact withStatus(PromptArtifactStatus nextStatus) {
         return new PromptArtifact(promptVersion, parentVersion, promptContent, outputSchema, contextOrdering,
-                exemplarPlacement, modelVersion, configurationVersion, datasetVersion, evalVersion, baseline, nextStatus);
+                exemplarPlacement, modelVersion, configurationVersion, datasetVersion, evalVersion, baseline, nextStatus,
+                optimizationRunId);
+    }
+
+    public PromptArtifact withOptimizationRunId(String runId) {
+        return new PromptArtifact(promptVersion, parentVersion, promptContent, outputSchema, contextOrdering,
+                exemplarPlacement, modelVersion, configurationVersion, datasetVersion, evalVersion, baseline, status, runId);
     }
 
     private static String required(String value, String name) {
