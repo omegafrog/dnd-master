@@ -28,4 +28,20 @@ class EvalModelTest {
                 EvalContext.empty(), List.of(), List.of()));
         assertThrows(IllegalArgumentException.class, () -> new QualityRubric("clarity", Map.of(1, "")));
     }
+
+    @Test void evaluatesStateMutationAndExplicitRuleContradiction() {
+        EvalCase c = new EvalCase("state", 1, "act", new EvalContext(Map.of("door", "closed"), Map.of(), List.of(), "start", null, null),
+                List.of(new HardExpectation.StateMutation("state", "s", "door", "closed"),
+                        new HardExpectation.RuleContradiction("rule", "r", "door is closed")), List.of());
+        EvalResult result = new AbsoluteEvaluationService().evaluate(c, "The door is open.");
+        assertEquals(List.of(HardStatus.FAIL, HardStatus.FAIL), result.hardResults().stream().map(HardConstraintResult::status).toList());
+    }
+
+    @Test void doesNotTreatNegatedFactsAsDirectFacts() {
+        EvalCase c = new EvalCase("negation", 1, "look", EvalContext.empty(),
+                List.of(new HardExpectation.RequiredFact("fact", "required", "door is closed"),
+                        new HardExpectation.ForbiddenFact("fact", "forbidden", "moon is red")), List.of());
+        EvalResult result = new AbsoluteEvaluationService().evaluate(c, "The door is not closed and the moon is not red.");
+        assertEquals(List.of(HardStatus.FAIL, HardStatus.PASS), result.hardResults().stream().map(HardConstraintResult::status).toList());
+    }
 }
