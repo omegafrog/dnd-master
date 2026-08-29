@@ -16,7 +16,8 @@ class DomainResponsibilityContractTest {
             "OwnershipAccessPolicy.java",
             "RulebookIndexingPolicy.java",
             "VisibilityPolicy.java",
-            "GameTimePolicy.java");
+            "GameTimePolicy.java",
+            "InformationPolicy.java");
 
     @Test
     void domainAndApplicationDependenciesPointInward() throws Exception {
