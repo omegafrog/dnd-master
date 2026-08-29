@@ -34,7 +34,9 @@ class PromptRegistryTest {
 
         assertEquals(planner.promptVersion(), registry.active(PromptRole.PLANNER).promptVersion());
         assertEquals(writer.promptVersion(), registry.active(PromptRole.WRITER).promptVersion());
-        assertTrue(registry.active(PromptRole.PLANNER).isApproved());
+        assertEquals(PromptArtifactStatus.ACTIVE, registry.list().stream()
+                .filter(value -> value.promptVersion().equals(planner.promptVersion()))
+                .findFirst().orElseThrow().status());
 
         assertThrows(IllegalArgumentException.class, () -> registry.register(
                 artifact(PromptRole.PLANNER, "1.0.0", null, false)));

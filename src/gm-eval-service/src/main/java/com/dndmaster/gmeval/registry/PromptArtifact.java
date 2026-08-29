@@ -1,8 +1,8 @@
 package com.dndmaster.gmeval.registry;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import java.util.List;
 import java.util.Objects;
-import com.fasterxml.jackson.annotation.JsonIgnore;
 
 /** Immutable, reproducible prompt and generation configuration artifact. */
 public record PromptArtifact(

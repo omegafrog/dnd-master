@@ -15,10 +15,6 @@ public record PromptRuntimeConfiguration(
         String configurationVersion,
         String datasetVersion,
         String evalVersion) {
-    public boolean isApproved() {
-        return true;
-    }
-
     static PromptRuntimeConfiguration from(PromptArtifact artifact) {
         if (artifact == null || !artifact.isApproved() || artifact.status() != PromptArtifactStatus.ACTIVE) {
             throw new IllegalStateException("only an approved active prompt can be used at runtime");
