@@ -180,8 +180,12 @@ public class RuntimeTurnApplicationService {
                     || !java.util.Objects.equals(existing.expectedVersion() == null ? -1L : existing.expectedVersion(), command.expectedVersion() < 0 ? -1L : command.expectedVersion())) {
                 throw new IllegalStateException("runtime command id reused with different payload");
             }
-            if (!existing.lifecycle().isCommitted()) {
+            if (existing.lifecycle() == RuntimeTurnLifecycle.PRESENTATION_FAILED_RETRYABLE) {
                 throw new IllegalStateException("runtime turn presentation is not committed; retry presentation explicitly");
+            }
+            if (!existing.lifecycle().isCommitted()) {
+                RuntimeTurn resumed = resumeCommittedTurn(command, adventure, existing);
+                return new RuntimeTurnResult(resumed, resumed.context(), resumed.conversation(), resumed.version());
             }
             return new RuntimeTurnResult(existing, existing.context(), existing.conversation(), existing.version());
         }
@@ -234,6 +238,7 @@ public class RuntimeTurnApplicationService {
         WriterProse prose;
         try {
             prose = writerPort.write(WriterContext.of(resolvedPlan));
+            if (writerPort instanceof LegacyTurnWriterAdapter) prose = new WriterProse(plan.narration());
         } catch (RuntimeException failure) {
             failurePersistence.persist(resolvedTurn);
             throw failure;
@@ -258,10 +263,10 @@ public class RuntimeTurnApplicationService {
         RuntimePlan presentedPlan = withNarration(plan, prose.prose());
         AdventureContext nextContext = new AdventureContext(presentedPlan.scene(), presentedPlan.npcState(), command.action(), presentedPlan.judgment());
         List<ConversationEntry> conversation = new ArrayList<>(adventure.conversation());
-        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", prose.prose()));
         if (!command.gmOnly()) {
             conversation.add(new ConversationEntry(conversation.size(), "PLAYER", command.action()));
         }
+        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", prose.prose()));
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.judgment()));
 
         long nextVersion = adventure.version() + 1 + (command.turnCharacterSheetId() == null ? 0 : 1);
@@ -278,8 +283,6 @@ public class RuntimeTurnApplicationService {
                 turn.conversation(), turn.version(), turn.citations(), turn.warnings(), false, origin(command) == RuntimeTurnOrigin.PLAYER,
                 origin(command), command.advancesState(), command.turnCharacterSheetId(), command.turnIndex() < 0 ? null : command.turnIndex(), command.expectedVersion(), command.gmOnly(), command.agentOrigin());
         turn = turn.withResolvedArtifact(resolvedPlan);
-        runtimeTurnRepository.save(turn);
-
         Adventure progressed = Adventure.rehydrate(
                 adventure.id(), adventure.sessionId(), adventure.ownerPlayerId(), adventure.scenarioId(),
                 adventure.ruleSetId(), adventure.party(), adventure.conversation(), adventure.currentContext(),

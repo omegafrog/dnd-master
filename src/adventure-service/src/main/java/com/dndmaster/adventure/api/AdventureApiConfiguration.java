@@ -973,11 +973,6 @@ public class AdventureApiConfiguration {
         return gateway::validateAndMove;
     }
 
-    /** Source-compatible factory retained for direct configuration tests and local wiring. */
-    CombatMapPort combatMapPort(String baseUrl, String internalToken) {
-        return new CrossContextHttpCombatGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), internalToken)::validateAndMove;
-    }
-
     @Bean
     CombatMapViewPort combatMapViewPort(
             @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
@@ -1094,21 +1089,6 @@ public class AdventureApiConfiguration {
                 return new CombatOutcome(judgment, hit && command.damageAmount() != null
                         ? new CombatCharacterMutation(-damageMultiplier * command.damageAmount(), 0, java.util.List.of(), java.util.List.of())
                         : CombatCharacterMutation.none(), hit && command.damageAmount() != null && command.endCombat());
-            }
-        };
-    }
-
-    AiCombatPort aiCombatPort(String baseUrl, String internalToken) {
-        CrossContextHttpCombatGateway gateway = new CrossContextHttpCombatGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), internalToken);
-        return new AiCombatPort() {
-            @Override public void controlState(CombatActionCommand command) {
-                if (command.role() == CombatActorRole.PLAYER || command.combatMapId() == null || command.movementPath() == null) return;
-                gateway.controlState(command);
-            }
-            @Override public String adjudicate(CombatActionCommand command, int diceTotal) {
-                if (diceTotal == 20) return "critical hit (natural 20)";
-                if (diceTotal == 1) return "critical miss (natural 1)";
-                return "판정 보류: 대상 AC와 공격 보정이 필요합니다 (d20=" + diceTotal + ").";
             }
         };
     }
