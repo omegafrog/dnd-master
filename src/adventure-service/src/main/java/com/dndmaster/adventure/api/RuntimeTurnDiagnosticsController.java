@@ -36,7 +36,7 @@ public final class RuntimeTurnDiagnosticsController {
     }
 
     @GetMapping("/turns/{turnId}")
-    RuntimeTurnDiagnosticsView read(@PathVariable UUID turnId,
+    public RuntimeTurnDiagnosticsView read(@PathVariable UUID turnId,
             @RequestHeader(value = "X-Internal-Token", required = false) String internalToken) {
         requestGuard.internal(internalToken);
         if (!enabled) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "runtime diagnostics unavailable");
@@ -45,7 +45,7 @@ public final class RuntimeTurnDiagnosticsController {
     }
 
     @GetMapping("/commands/{commandId}")
-    RuntimeTurnDiagnosticsView readByCommand(@PathVariable UUID commandId,
+    public RuntimeTurnDiagnosticsView readByCommand(@PathVariable UUID commandId,
             @RequestHeader(value = "X-Internal-Token", required = false) String internalToken) {
         requestGuard.internal(internalToken);
         if (!enabled) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "runtime diagnostics unavailable");

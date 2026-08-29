@@ -21,7 +21,7 @@ public record TurnPlan(
     public static TurnPlan from(RuntimePlan plan) {
         Objects.requireNonNull(plan, "runtime plan must not be null");
         return new TurnPlan(plan.scene(), plan.npcState(), plan.judgment(),
-                List.of(plan.narration()), List.of());
+                List.of(), List.of());
     }
 
     private static String required(String value, String name) {

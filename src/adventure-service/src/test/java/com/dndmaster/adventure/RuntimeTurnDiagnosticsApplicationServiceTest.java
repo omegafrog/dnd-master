@@ -44,7 +44,7 @@ class RuntimeTurnDiagnosticsApplicationServiceTest {
         RuntimeTurnDiagnosticsView view = new RuntimeTurnDiagnosticsApplicationService(repository).readByTurnId(turnId).orElseThrow();
 
         assertEquals("visible prose", view.writer().prose());
-        assertEquals(List.of("visible prose"), view.planner().revealableFacts());
+        assertTrue(view.planner().revealableFacts().isEmpty());
         assertTrue(view.resolved().outcomes().contains("judgment"));
         assertFalse(view.writer().toString().contains("private reasoning"));
     }

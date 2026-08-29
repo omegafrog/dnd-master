@@ -1,7 +1,7 @@
 # Plan 220: Planning Diagnostics And Compatibility
 
 - Issue: #220
-- Status: `completed`
+- Status: `ready-for-agent`
 - Dependencies: #219
 
 ## 구현 목적

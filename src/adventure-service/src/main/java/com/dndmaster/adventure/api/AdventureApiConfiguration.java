@@ -473,6 +473,11 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    RuntimeTurnFailurePersistence runtimeTurnFailurePersistence(RuntimeTurnRepository runtimeTurnRepository) {
+        return new RuntimeTurnFailurePersistence(runtimeTurnRepository);
+    }
+
+    @Bean
     RuntimeTurnDiagnosticsApplicationService runtimeTurnDiagnosticsApplicationService(RuntimeTurnRepository turns) {
         return new RuntimeTurnDiagnosticsApplicationService(turns);
     }
@@ -866,11 +871,14 @@ public class AdventureApiConfiguration {
             RuntimeTurnCompactionCoordinator compactionCoordinator,
             GmContextResumePromptProvider resumePromptProvider,
             GmProviderBindingRepository providerBindingRepository,
-            TacticalScenePreparationApplicationService tacticalPreparation) {
-        return new RuntimeTurnApplicationService(
+            TacticalScenePreparationApplicationService tacticalPreparation,
+            RuntimeTurnFailurePersistence failurePersistence) {
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
                 compactionCoordinator, resumePromptProvider, providerBindingRepository, tacticalPreparation);
+        service.setFailurePersistence(failurePersistence);
+        return service;
     }
 
     @Bean
@@ -961,6 +969,11 @@ public class AdventureApiConfiguration {
         return gateway::validateAndMove;
     }
 
+    /** Source-compatible factory retained for direct configuration tests and local wiring. */
+    CombatMapPort combatMapPort(String baseUrl, String internalToken) {
+        return new CrossContextHttpCombatGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), internalToken)::validateAndMove;
+    }
+
     @Bean
     CombatMapViewPort combatMapViewPort(
             @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
@@ -1040,6 +1053,21 @@ public class AdventureApiConfiguration {
             @Override
             public String adjudicate(CombatActionCommand command, int diceTotal) {
                 return "judgment-result";
+            }
+        };
+    }
+
+    AiCombatPort aiCombatPort(String baseUrl, String internalToken) {
+        CrossContextHttpCombatGateway gateway = new CrossContextHttpCombatGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), internalToken);
+        return new AiCombatPort() {
+            @Override public void controlState(CombatActionCommand command) {
+                if (command.role() == CombatActorRole.PLAYER || command.combatMapId() == null || command.movementPath() == null) return;
+                gateway.controlState(command);
+            }
+            @Override public String adjudicate(CombatActionCommand command, int diceTotal) {
+                if (diceTotal == 20) return "critical hit (natural 20)";
+                if (diceTotal == 1) return "critical miss (natural 1)";
+                return "판정 보류: 대상 AC와 공격 보정이 필요합니다 (d20=" + diceTotal + ").";
             }
         };
     }

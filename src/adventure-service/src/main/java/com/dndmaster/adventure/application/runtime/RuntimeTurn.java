@@ -146,4 +146,15 @@ public record RuntimeTurn(
                 advancesState, turnCharacterSheetId, turnIndex, expectedVersion, gmOnly, agentOrigin,
                 RuntimeTurnLifecycle.RESOLVED_UNCOMMITTED, artifact);
     }
+
+    public RuntimeTurn markPresentationFailed() {
+        if (resolvedPlan == null || (lifecycle != RuntimeTurnLifecycle.RESOLVED_UNCOMMITTED
+                && lifecycle != RuntimeTurnLifecycle.PRESENTATION_FAILED_RETRYABLE)) {
+            throw new IllegalStateException("turn has no retryable resolved artifact");
+        }
+        return new RuntimeTurn(turnId, commandId, adventureId, sessionId, scenarioPackageId, bindingVersion, action,
+                evidencePack, plan, activeSourceContext, context, conversation, version, citations, warnings, false,
+                playerOrigin, origin, advancesState, turnCharacterSheetId, turnIndex, expectedVersion, gmOnly,
+                agentOrigin, RuntimeTurnLifecycle.PRESENTATION_FAILED_RETRYABLE, resolvedPlan);
+    }
 }

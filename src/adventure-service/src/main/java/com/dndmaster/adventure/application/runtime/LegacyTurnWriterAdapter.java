@@ -4,11 +4,10 @@ package com.dndmaster.adventure.application.runtime;
 public final class LegacyTurnWriterAdapter implements TurnWriterPort {
     @Override
     public WriterProse write(WriterContext context) {
-        ResolvedTurnPlan resolved = context.resolvedPlan();
-        String prose = resolved.plan().revealableFacts().stream()
+        String prose = context.visibleFacts().stream()
                 .filter(value -> value != null && !value.isBlank())
                 .findFirst()
-                .orElse(resolved.plan().judgment());
+                .orElse("The moment passes without further detail.");
         return new WriterProse(prose);
     }
 }

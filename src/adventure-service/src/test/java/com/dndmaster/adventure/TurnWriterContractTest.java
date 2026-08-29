@@ -16,8 +16,8 @@ class TurnWriterContractTest {
         WriterContext context = WriterContext.of(ResolvedTurnPlan.of(
                 new TurnPlan("hall", "guard", "door opens", List.of("A bell rings"), List.of("hidden key")), List.of("door opens")));
 
-        assertTrue(context.resolvedPlan().plan().forbiddenFacts().contains("hidden key"));
-        assertTrue(context.resolvedPlan().plan().revealableFacts().contains("A bell rings"));
+        assertTrue(context.visibleFacts().contains("A bell rings"));
+        assertTrue(context.visibleFacts().stream().noneMatch("hidden key"::equals));
         assertThrows(IllegalArgumentException.class, () -> new WriterProse(" "));
     }
 }

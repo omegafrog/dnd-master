@@ -10,7 +10,7 @@ changed_files:
   - src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/LegacyTurnWriterAdapter.java
   - src/adventure-service/src/main/java/com/dndmaster/adventure/application/runtime/RuntimeTurnApplicationService.java
   - src/adventure-service/src/test/java/com/dndmaster/adventure/TurnWriterContractTest.java
-tests: main compilation passed; focused test compilation blocked by pre-existing AdventureApiConfigurationTest signature errors
+tests: targeted writer test and test compilation passed
 blocker: none
-next_action: plan 220 is unblocked and ready-for-agent
+next_action: plan 220 is ready-for-agent
 updated_at: 2026-08-29T00:00:00Z
