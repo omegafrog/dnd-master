@@ -13,5 +13,7 @@ class JsonlLoaderTest {
         assertEquals("x", new JsonlEvalDatasetLoader().load(file).getFirst().caseId());
         Files.writeString(file, "{\"schemaVersion\":2,\"caseId\":\"x\"}\n");
         assertThrows(IllegalArgumentException.class, () -> new JsonlEvalDatasetLoader().load(file));
+        Files.writeString(file, "{\"schemaVersion\":1,\"caseId\":\"x\",\"playerInput\":\"look\",\"context\":{\"worldState\":{},\"playerKnowledge\":[],\"storyStage\":\"start\"}}\n");
+        assertThrows(IllegalArgumentException.class, () -> new JsonlEvalDatasetLoader().load(file));
     }
 }

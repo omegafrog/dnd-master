@@ -44,4 +44,24 @@ class EvalModelTest {
         EvalResult result = new AbsoluteEvaluationService().evaluate(c, "The door is not closed and the moon is not red.");
         assertEquals(List.of(HardStatus.FAIL, HardStatus.PASS), result.hardResults().stream().map(HardConstraintResult::status).toList());
     }
+
+    @Test void detectsNaturalRuleNegationAndOrderedStateMutationWithResponseEvidence() {
+        EvalCase c = new EvalCase("review", 1, "look", EvalContext.empty(),
+                List.of(new HardExpectation.RuleContradiction("rule", "r", "door is closed"),
+                        new HardExpectation.StateMutation("state", "s", "door", "closed")), List.of());
+        EvalResult result = new AbsoluteEvaluationService().evaluate(c, "The door is not closed. It is closed, then open.");
+        assertEquals(HardStatus.FAIL, result.hardResults().get(0).status());
+        assertEquals(HardStatus.FAIL, result.hardResults().get(1).status());
+        assertTrue(result.hardResults().get(0).evidence().contains("not closed"));
+        assertTrue(result.hardResults().get(1).evidence().contains("open"));
+    }
+
+    @Test void requiredOmissionHasReasonWithoutInventedResponseEvidence() {
+        EvalCase c = new EvalCase("omit", 1, "look", EvalContext.empty(),
+                List.of(new HardExpectation.RequiredFact("fact", "r", "hidden fact")), List.of());
+        HardConstraintResult result = new AbsoluteEvaluationService().evaluate(c, "Nothing relevant.").hardResults().getFirst();
+        assertEquals(HardStatus.FAIL, result.status());
+        assertTrue(result.evidence().isEmpty());
+        assertTrue(result.reason().contains("omitted"));
+    }
 }

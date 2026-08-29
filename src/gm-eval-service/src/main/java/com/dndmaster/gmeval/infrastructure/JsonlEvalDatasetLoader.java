@@ -16,7 +16,7 @@ public final class JsonlEvalDatasetLoader {
  public List<EvalCase> load(Path path) {
   try { List<EvalCase> result=new ArrayList<>(); Set<String> ids=new HashSet<>();
    for(String line:Files.readAllLines(path)) { if(line.isBlank()) continue; JsonNode n=mapper.readTree(line); if(n.path("schemaVersion").asInt(-1)!=1) throw new IllegalArgumentException("unsupported schemaVersion");
-    String id=text(n,"caseId"), input=text(n,"playerInput"); JsonNode ctx=n.path("context");
+    String id=text(n,"caseId"), input=text(n,"playerInput"); JsonNode ctx=n.path("context"); if(!n.has("hardExpectations") || !n.has("rubrics")) throw new IllegalArgumentException("missing hardExpectations or rubrics");
     EvalContext context=new EvalContext(map(ctx,"worldState"),map(ctx,"playerKnowledgeFacts"),strings(ctx,"playerKnowledge"),text(ctx,"storyStage"),map(ctx,"turnPlan"),map(ctx,"resolvedContext"));
     List<HardExpectation> expectations=new ArrayList<>(); for(JsonNode e:n.path("hardExpectations")) expectations.add(expectation(e));
     List<QualityRubric> rubrics=new ArrayList<>(); for(JsonNode r:n.path("rubrics")) { Map<Integer,String> anchors=new HashMap<>(); r.path("anchors").fields().forEachRemaining(x->anchors.put(Integer.valueOf(x.getKey()),x.getValue().asText())); rubrics.add(new QualityRubric(text(r,"dimension"),anchors)); }
