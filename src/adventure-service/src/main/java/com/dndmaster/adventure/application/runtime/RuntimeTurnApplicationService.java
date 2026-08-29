@@ -231,6 +231,7 @@ public class RuntimeTurnApplicationService {
                 turn.bindingVersion(), turn.action(), turn.evidencePack(), turn.plan(), turn.activeSourceContext(), turn.context(),
                 turn.conversation(), turn.version(), turn.citations(), turn.warnings(), false, origin(command) == RuntimeTurnOrigin.PLAYER,
                 origin(command), command.advancesState(), command.turnCharacterSheetId(), command.turnIndex() < 0 ? null : command.turnIndex(), command.expectedVersion(), command.gmOnly(), command.agentOrigin());
+        turn = turn.withResolvedArtifact(ResolvedTurnPlan.of(TurnPlan.from(plan), List.of(plan.judgment())));
         runtimeTurnRepository.save(turn);
 
         Adventure progressed = Adventure.rehydrate(

@@ -1,7 +1,7 @@
 # Plan 219: Bounded Writer Delivery
 
 - Issue: #219
-- Status: `planned`
+- Status: `ready-for-agent`
 - Dependencies: #218
 
 ## 구현 목적
@@ -42,4 +42,3 @@ Planner와 Writer의 책임과 context를 분리한다. Writer는 최소 WriterC
 2. AI GM application/adapters.
 3. Runtime orchestration과 atomic presentation commit.
 4. endpoint compatibility 및 E2E.
-

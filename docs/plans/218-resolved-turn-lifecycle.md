@@ -1,7 +1,7 @@
 # Plan 218: Resolved Turn Lifecycle
 
 - Issue: #218
-- Status: `ready-for-agent`
+- Status: `completed`
 - Dependencies: 없음
 
 ## 구현 목적
@@ -40,4 +40,3 @@ Planner 결정과 rule/tool 해결 결과를 prose와 분리한 `ResolvedTurnPla
 2. persistence migration/repository.
 3. application orchestration과 recovery.
 4. unit/integration/E2E regression.
-
