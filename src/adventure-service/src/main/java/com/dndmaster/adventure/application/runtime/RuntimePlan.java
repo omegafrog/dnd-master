@@ -43,7 +43,7 @@ public record RuntimePlan(
 
     /** Compatibility projection for older API response contracts. */
     public String resolutionStatus() {
-        return "RESOLVED";
+        return judgment != null && judgment.startsWith("판정 보류") ? "PENDING_RULE_INPUT" : "RESOLVED";
     }
 
     public RuntimePlan(String scene, String npcState, String judgment, String narration,
