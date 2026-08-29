@@ -2,7 +2,7 @@
 
 - Issue: #231
 - Parent Issue: #210
-- Status: `ready-for-agent`
+- Status: `in-progress`
 - Dependencies: #220
 
 ## 구현 목적
