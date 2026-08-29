@@ -45,6 +45,10 @@ public class RuntimeTurnApplicationService {
     private final TacticalScenePreparationApplicationService tacticalPreparation;
     private TurnWriterPort writerPort;
     private RuntimeTurnFailurePersistence failurePersistence;
+    private NarrativeVerifierPort narrativeVerifier;
+    private RewritePort rewritePort;
+    private NarrativeVerificationAuditPort verificationAuditPort;
+    private final NarrativeVerificationPolicy verificationPolicy = new NarrativeVerificationPolicy();
 
     public RuntimeTurnApplicationService(
             AdventureRepository adventureRepository,
@@ -137,6 +141,9 @@ public class RuntimeTurnApplicationService {
         this.tacticalPreparation = tacticalPreparation;
         this.writerPort = new LegacyTurnWriterAdapter();
         this.failurePersistence = new RuntimeTurnFailurePersistence(runtimeTurnRepository);
+        this.narrativeVerifier = new DefaultNarrativeVerifier(null);
+        this.rewritePort = context -> { throw new IllegalStateException("narrative rewrite port is not configured"); };
+        this.verificationAuditPort = audit -> { };
     }
 
     /** Explicit writer seam for contract and integration tests; legacy callers use the compatibility adapter. */
@@ -157,6 +164,18 @@ public class RuntimeTurnApplicationService {
 
     public void setFailurePersistence(RuntimeTurnFailurePersistence failurePersistence) {
         this.failurePersistence = Objects.requireNonNull(failurePersistence, "failure persistence must not be null");
+    }
+
+    public void setNarrativeVerifier(NarrativeVerifierPort narrativeVerifier) {
+        this.narrativeVerifier = Objects.requireNonNull(narrativeVerifier, "narrative verifier must not be null");
+    }
+
+    public void setRewritePort(RewritePort rewritePort) {
+        this.rewritePort = Objects.requireNonNull(rewritePort, "rewrite port must not be null");
+    }
+
+    public void setVerificationAuditPort(NarrativeVerificationAuditPort verificationAuditPort) {
+        this.verificationAuditPort = Objects.requireNonNull(verificationAuditPort, "verification audit port must not be null");
     }
 
     @Transactional
@@ -239,6 +258,7 @@ public class RuntimeTurnApplicationService {
         try {
             prose = writerPort.write(WriterContext.of(resolvedPlan));
             if (writerPort instanceof LegacyTurnWriterAdapter) prose = new WriterProse(plan.narration());
+            prose = verifyAndRewrite(resolvedPlan, prose, resolvedTurn);
         } catch (RuntimeException failure) {
             failurePersistence.persist(resolvedTurn);
             throw failure;
@@ -312,6 +332,32 @@ public class RuntimeTurnApplicationService {
                 plan.proposedActiveSourceContext(), plan.citedEvidence(), plan.warnings(), plan.provider(), plan.model(),
                 plan.reasoning(), plan.advanceStoryPlan(), plan.selectedBranchId(), plan.requestedSelection(),
                 plan.effectiveSelection(), plan.attemptCount(), plan.citationBindings());
+    }
+
+    private WriterProse verifyAndRewrite(ResolvedTurnPlan resolvedPlan, WriterProse draft, RuntimeTurn turn) {
+        NarrativeVerificationContext context = NarrativeVerificationContext.of(
+                resolvedPlan.plan().scene(), resolvedPlan.plan().revealableFacts());
+        VerificationResult result = narrativeVerifier.verify(context, draft.prose());
+        if (!verificationPolicy.requiresRewrite(result)) {
+            if (!verificationPolicy.accepts(result)) throw boundedVerificationFailure(result);
+            verificationAuditPort.append(new NarrativeVerificationAudit(turn.turnId().toString(),
+                    verificationPolicy.fingerprint(turn.turnId().toString(), resolvedPlan.plan().scene() + "|" + resolvedPlan.plan().judgment(), resolvedPlan.outcomes()),
+                    result, result, false, List.of()));
+            return draft;
+        }
+        String fingerprint = verificationPolicy.fingerprint(turn.turnId().toString(),
+                resolvedPlan.plan().scene() + "|" + resolvedPlan.plan().judgment(), resolvedPlan.outcomes());
+        WriterProse rewritten = rewritePort.rewrite(new RewriteContext(draft.prose(), result.violations(), fingerprint, 0));
+        VerificationResult rewrittenResult = narrativeVerifier.verify(context, rewritten.prose()).withRewriteCount(1);
+        verificationAuditPort.append(new NarrativeVerificationAudit(turn.turnId().toString(), fingerprint,
+                result, rewrittenResult, true, List.of()));
+        if (!verificationPolicy.accepts(rewrittenResult)) throw boundedVerificationFailure(rewrittenResult);
+        return rewritten;
+    }
+
+    private static IllegalStateException boundedVerificationFailure(VerificationResult result) {
+        String codes = result.violations().stream().map(v -> v.type().name()).distinct().toList().toString();
+        return new IllegalStateException("narrative verification failed after bounded rewrite: " + codes);
     }
 
     @Transactional
