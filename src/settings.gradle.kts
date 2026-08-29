@@ -8,6 +8,7 @@ include(
     ":dice-roll-service",
     ":combat-map-service",
     ":ai-game-master-service",
+    ":gm-eval-service",
     ":app-all",
     ":architecture-tests",
     ":contract-tests",

@@ -35,6 +35,7 @@ Thumbs.db
 plans.md
 **/docs/plans/**
 **/specs/**
+docs/plans/.runtime/
 .gradle/**
 dnd-master/docs/specs/**
 skills-lock.json
