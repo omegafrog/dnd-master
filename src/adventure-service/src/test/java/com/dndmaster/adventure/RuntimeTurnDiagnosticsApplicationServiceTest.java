@@ -8,6 +8,7 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import com.dndmaster.adventure.application.runtime.RuntimePlan;
+import com.dndmaster.adventure.application.runtime.EffectivePromptLineage;
 import com.dndmaster.adventure.application.runtime.ResolvedTurnPlan;
 import com.dndmaster.adventure.application.runtime.RuntimeTurn;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnDiagnosticsApplicationService;
@@ -74,7 +75,8 @@ class RuntimeTurnDiagnosticsApplicationServiceTest {
                 mock(ActiveSourceContext.class), List.of(), List.of(), "provider", "model", "private reasoning");
         ResolvedTurnPlan resolved = ResolvedTurnPlan.of(
                 new TurnPlan("visible scene", "visible npc", "resolved judgment", List.of("known fact"),
-                        List.of("future secret")), List.of("door opened"));
+                        List.of("future secret")), List.of("door opened"))
+                .withPromptLineage(new EffectivePromptLineage("WRITER", "1.1.0", "model-writer", "run-42", "1.0.0"));
         when(repository.findByTurnId(turnId)).thenReturn(java.util.Optional.of(turn));
         when(turn.turnId()).thenReturn(turnId);
         when(turn.commandId()).thenReturn(UUID.randomUUID());
@@ -93,6 +95,7 @@ class RuntimeTurnDiagnosticsApplicationServiceTest {
         assertEquals("", view.writer().prose());
         assertFalse(view.writer().toString().contains("future secret"));
         assertFalse(view.writer().toString().contains("private reasoning"));
+        assertEquals("run-42", view.resolved().promptLineage().optimizationRunId());
     }
 
     @Test

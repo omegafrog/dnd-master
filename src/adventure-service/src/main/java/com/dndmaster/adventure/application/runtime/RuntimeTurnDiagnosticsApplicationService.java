@@ -52,10 +52,10 @@ public final class RuntimeTurnDiagnosticsApplicationService {
 
     public record ResolvedArtifact(String scene, String npcState, String judgment,
                                    List<String> revealableFacts, List<String> outcomes,
-                                   RuntimeTurnLifecycle lifecycle) {
+                                   RuntimeTurnLifecycle lifecycle, EffectivePromptLineage promptLineage) {
         static ResolvedArtifact from(ResolvedTurnPlan plan) {
             return new ResolvedArtifact(plan.plan().scene(), plan.plan().npcState(), plan.plan().judgment(),
-                    plan.plan().revealableFacts(), plan.outcomes(), plan.lifecycle());
+                    plan.plan().revealableFacts(), plan.outcomes(), plan.lifecycle(), plan.promptLineage());
         }
     }
 
