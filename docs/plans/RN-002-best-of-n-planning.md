@@ -2,7 +2,7 @@
 
 - Issue: #227
 - Parent Issue: #225
-- Status: `planned`
+- Status: `ready-for-agent`
 - Dependencies: RN-001
 - Source: #208
 

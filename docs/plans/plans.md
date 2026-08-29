@@ -5,7 +5,7 @@ Parent issue: [#225](https://github.com/omegafrog/dnd-master/issues/225)
 | Plan | Source issue | Status | Depends on | Vertical outcome |
 |---|---:|---|---|---|
 | [RN-001](RN-001-runtime-narrative-state.md) | [#226](https://github.com/omegafrog/dnd-master/issues/226) / #206 | `ready-for-agent` | #218, #219 | Typed Runtime Narrative State, epistemic-safe projection, validated State Delta commit. |
-| [RN-002](RN-002-best-of-n-planning.md) | [#227](https://github.com/omegafrog/dnd-master/issues/227) / #208 | `planned` | RN-001 | Configurable compact plan candidates, hard filter, judge, selected-plan handoff. |
+| [RN-002](RN-002-best-of-n-planning.md) | [#227](https://github.com/omegafrog/dnd-master/issues/227) / #208 | `ready-for-agent` | RN-001 | Configurable compact plan candidates, hard filter, judge, selected-plan handoff. |
 | [RN-003](RN-003-narrative-verifier.md) | [#228](https://github.com/omegafrog/dnd-master/issues/228) / #207 | `planned` | RN-001, RN-002 | Structured final verification and one bounded same-turn rewrite. |
 | [RN-004](RN-004-style-exemplar-retrieval.md) | [#229](https://github.com/omegafrog/dnd-master/issues/229) / #209 | `planned` | RN-003 | Separate style exemplar retrieval, provenance-safe writer context. |
 
