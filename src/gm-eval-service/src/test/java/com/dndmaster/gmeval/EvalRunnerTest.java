@@ -31,6 +31,16 @@ class EvalRunnerTest {
         assertEquals("provider unavailable", report.cases().getFirst().generatorFailure());
         assertEquals("good", report.cases().get(1).caseId());
     }
+    @Test void qualityScoreIsAttributedOnlyToItsRubricDimension() {
+        EvalCase mixed = new EvalCase("mixed", 1, "look", EvalContext.empty(),
+                List.of(new HardExpectation.Unsupported("rule", "r", "judge"), new HardExpectation.Unsupported("information", "i", "judge")),
+                List.of(new QualityRubric("clarity", Map.of(1,"poor",2,"weak",3,"okay",4,"good",5,"great"))));
+        EvalRunReport report = new EvalRunner(new AbsoluteEvaluationService(request -> new RubricJudgeResponse(List.of(new QualityScore("clarity", 4, "clear", "line")))), null)
+                .run(List.of(mixed), new EvalRunConfiguration("run-3", "v1", "fake", "p", "c", null, null), (x, y) -> new GeneratedResponse("ok", "fixture"), null);
+        assertEquals(4.0, report.aggregate().qualityAverageByCategory().get("clarity"));
+        assertFalse(report.aggregate().qualityAverageByCategory().containsKey("rule"));
+        assertFalse(report.aggregate().qualityAverageByCategory().containsKey("information"));
+    }
     @Test void seedHasPinnedSizeAndAllCategories() throws Exception {
         List<EvalCase> cases = new JsonlEvalDatasetLoader().loadResource("eval/datasets/gm-turn-v1.jsonl");
         assertDoesNotThrow(() -> EvalDatasetIntegrity.validateSeed(cases));
