@@ -46,6 +46,8 @@ public class RuntimeTurnApplicationService {
     private TurnWriterPort writerPort;
     private RuntimeTurnFailurePersistence failurePersistence;
     private NarrativeVerifierPort narrativeVerifier;
+    private ExemplarRetrieverPort exemplarRetriever;
+    private ExemplarRetrievalAuditPort exemplarRetrievalAuditPort;
     private RewritePort rewritePort;
     private NarrativeVerificationAuditPort verificationAuditPort;
     private final NarrativeVerificationPolicy verificationPolicy = new NarrativeVerificationPolicy();
@@ -144,6 +146,8 @@ public class RuntimeTurnApplicationService {
         this.narrativeVerifier = new DefaultNarrativeVerifier(null);
         this.rewritePort = context -> { throw new IllegalStateException("narrative rewrite port is not configured"); };
         this.verificationAuditPort = audit -> { };
+        this.exemplarRetriever = query -> List.of();
+        this.exemplarRetrievalAuditPort = audit -> { };
     }
 
     /** Explicit writer seam for contract and integration tests; legacy callers use the compatibility adapter. */
@@ -176,6 +180,14 @@ public class RuntimeTurnApplicationService {
 
     public void setVerificationAuditPort(NarrativeVerificationAuditPort verificationAuditPort) {
         this.verificationAuditPort = Objects.requireNonNull(verificationAuditPort, "verification audit port must not be null");
+    }
+
+    public void setExemplarRetriever(ExemplarRetrieverPort exemplarRetriever) {
+        this.exemplarRetriever = Objects.requireNonNull(exemplarRetriever, "exemplar retriever must not be null");
+    }
+
+    public void setExemplarRetrievalAuditPort(ExemplarRetrievalAuditPort auditPort) {
+        this.exemplarRetrievalAuditPort = Objects.requireNonNull(auditPort, "exemplar audit port must not be null");
     }
 
     @Transactional
@@ -254,9 +266,10 @@ public class RuntimeTurnApplicationService {
                 command.turnCharacterSheetId(), command.turnIndex() < 0 ? null : command.turnIndex(), command.expectedVersion(),
                 command.gmOnly(), command.agentOrigin()).withResolvedArtifact(resolvedPlan);
         runtimeTurnRepository.save(resolvedTurn);
+        List<ExemplarResult> exemplars = retrieveExemplars(plan);
         WriterProse prose;
         try {
-            prose = writerPort.write(WriterContext.of(resolvedPlan));
+            prose = writerPort.write(new WriterContext(resolvedPlan.plan().revealableFacts(), resolvedPlan.plan().scene(), exemplars, ""));
             if (writerPort instanceof LegacyTurnWriterAdapter) prose = new WriterProse(plan.narration());
             prose = verifyAndRewrite(resolvedPlan, prose, resolvedTurn);
         } catch (RuntimeException failure) {
@@ -325,6 +338,24 @@ public class RuntimeTurnApplicationService {
             }
         }
         return new RuntimeTurnResult(committed, progressed.currentContext(), progressed.conversation(), progressed.version());
+    }
+
+    private List<ExemplarResult> retrieveExemplars(RuntimePlan plan) {
+        ExemplarQuery query = new ExemplarQuery("scene", "interaction", "neutral", "steady", "medium",
+                plan.scene() + " " + plan.judgment(), 3);
+        long started = System.nanoTime();
+        try {
+            List<ExemplarResult> results = exemplarRetriever.retrieve(query);
+            List<ExemplarResult> bounded = results == null ? List.of() : results.stream().filter(Objects::nonNull).limit(query.limit()).toList();
+            exemplarRetrievalAuditPort.append(new ExemplarRetrievalAudit(query.semanticQuery(), query.limit(),
+                    bounded.stream().map(result -> result.exemplar().id()).toList(),
+                    bounded.stream().map(ExemplarResult::rerankScore).toList(), "", (System.nanoTime() - started) / 1_000_000));
+            return bounded;
+        } catch (RuntimeException ignored) {
+            exemplarRetrievalAuditPort.append(new ExemplarRetrievalAudit(query.semanticQuery(), query.limit(), List.of(), List.of(),
+                    "", (System.nanoTime() - started) / 1_000_000));
+            return List.of();
+        }
     }
 
     private static RuntimePlan withNarration(RuntimePlan plan, String narration) {

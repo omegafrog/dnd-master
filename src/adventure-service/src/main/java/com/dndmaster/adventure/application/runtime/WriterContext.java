@@ -7,13 +7,22 @@ import java.util.Objects;
 public record WriterContext(
         List<String> visibleFacts,
         String visibleScene,
-        List<String> styleHints,
+        List<ExemplarResult> styleExemplars,
         String writingConfiguration) {
     public WriterContext {
         visibleFacts = List.copyOf(Objects.requireNonNull(visibleFacts, "visible facts must not be null"));
         visibleScene = visibleScene == null ? "" : visibleScene.trim();
-        styleHints = List.copyOf(Objects.requireNonNull(styleHints, "style hints must not be null"));
+        styleExemplars = List.copyOf(Objects.requireNonNull(styleExemplars, "style exemplars must not be null"));
         writingConfiguration = writingConfiguration == null ? "" : writingConfiguration.trim();
+    }
+
+    public WriterContext(List<String> visibleFacts, String visibleScene, String writingConfiguration) {
+        this(visibleFacts, visibleScene, List.of(), writingConfiguration);
+    }
+
+    /** Legacy presentation projection; provenance-bearing exemplars remain available via styleExemplars(). */
+    public List<String> styleHints() {
+        return styleExemplars.stream().map(exemplar -> exemplar.exemplar().text()).toList();
     }
 
     public static WriterContext of(ResolvedTurnPlan resolvedPlan) {
