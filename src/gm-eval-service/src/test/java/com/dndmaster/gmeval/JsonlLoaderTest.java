@@ -16,4 +16,14 @@ class JsonlLoaderTest {
         Files.writeString(file, "{\"schemaVersion\":1,\"caseId\":\"x\",\"playerInput\":\"look\",\"context\":{\"worldState\":{},\"playerKnowledge\":[],\"storyStage\":\"start\"}}\n");
         assertThrows(IllegalArgumentException.class, () -> new JsonlEvalDatasetLoader().load(file));
     }
+    @Test void rejectsNullExpectationAndRubricFields() throws Exception {
+        Path file = Files.createTempFile("eval-null", ".jsonl");
+        String base = "{\"schemaVersion\":1,\"caseId\":\"x\",\"playerInput\":\"look\",\"context\":{\"worldState\":{},\"playerKnowledge\":[],\"storyStage\":\"start\"},\"hardExpectations\":[],\"rubrics\":[]}";
+        for (String field : new String[]{"hardExpectations", "rubrics"}) {
+            Files.writeString(file, base.replace("\"" + field + "\":[]", "\"" + field + "\":null") + "\n");
+            assertThrows(IllegalArgumentException.class, () -> new JsonlEvalDatasetLoader().load(file));
+        }
+        Files.writeString(file, base.replace("\"hardExpectations\":[]", "\"hardExpectations\":{}") + "\n");
+        assertThrows(IllegalArgumentException.class, () -> new JsonlEvalDatasetLoader().load(file));
+    }
 }

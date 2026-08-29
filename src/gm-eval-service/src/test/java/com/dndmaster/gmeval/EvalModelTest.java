@@ -64,4 +64,11 @@ class EvalModelTest {
         assertTrue(result.evidence().isEmpty());
         assertTrue(result.reason().contains("omitted"));
     }
+    @Test void stateMutationDoesNotPassNegatedOrUnrelatedClaims() {
+        EvalCase c = new EvalCase("state-p2", 1, "look", EvalContext.empty(),
+                List.of(new HardExpectation.StateMutation("state", "s", "door", "closed")), List.of());
+        AbsoluteEvaluationService service = new AbsoluteEvaluationService();
+        assertEquals(HardStatus.FAIL, service.evaluate(c, "The door is not closed.").hardResults().getFirst().status());
+        assertEquals(HardStatus.UNEVALUATED, service.evaluate(c, "The window is closed.").hardResults().getFirst().status());
+    }
 }
