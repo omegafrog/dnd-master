@@ -18,6 +18,12 @@ require_env() {
         exit 1
     fi
 }
+
+# Local-only defaults keep this developer launcher runnable without exporting
+# production credentials. Deployments must provide their own values.
+export INTERNAL_SERVICE_TOKEN="${INTERNAL_SERVICE_TOKEN:-local-development-internal-token}"
+export RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS="${RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS:-local-catalog-admin}"
+export CODEX_EXECUTABLE="${CODEX_EXECUTABLE:-/home/jiwoo/.nvm/versions/node/v24.12.0/bin/codex}"
 require_env INTERNAL_SERVICE_TOKEN
 require_env RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS
 require_env CODEX_EXECUTABLE

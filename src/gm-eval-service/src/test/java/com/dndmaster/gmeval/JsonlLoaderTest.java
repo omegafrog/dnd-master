@@ -1,0 +1,37 @@
+package com.dndmaster.gmeval;
+
+import static org.junit.jupiter.api.Assertions.*;
+import com.dndmaster.gmeval.infrastructure.JsonlEvalDatasetLoader;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import org.junit.jupiter.api.Test;
+
+class JsonlLoaderTest {
+    @Test void loadsVersionedCaseAndRejectsWrongVersion() throws Exception {
+        Path file = Files.createTempFile("eval", ".jsonl");
+        Files.writeString(file, "{\"schemaVersion\":1,\"caseId\":\"x\",\"playerInput\":\"look\",\"context\":{\"worldState\":{},\"playerKnowledge\":[],\"storyStage\":\"start\"},\"hardExpectations\":[],\"rubrics\":[]}\n");
+        assertEquals("x", new JsonlEvalDatasetLoader().load(file).getFirst().caseId());
+        Files.writeString(file, "{\"schemaVersion\":2,\"caseId\":\"x\"}\n");
+        assertThrows(IllegalArgumentException.class, () -> new JsonlEvalDatasetLoader().load(file));
+        Files.writeString(file, "{\"schemaVersion\":1,\"caseId\":\"x\",\"playerInput\":\"look\",\"context\":{\"worldState\":{},\"playerKnowledge\":[],\"storyStage\":\"start\"}}\n");
+        assertThrows(IllegalArgumentException.class, () -> new JsonlEvalDatasetLoader().load(file));
+    }
+    @Test void rejectsNullExpectationAndRubricFields() throws Exception {
+        Path file = Files.createTempFile("eval-null", ".jsonl");
+        String base = "{\"schemaVersion\":1,\"caseId\":\"x\",\"playerInput\":\"look\",\"context\":{\"worldState\":{},\"playerKnowledge\":[],\"storyStage\":\"start\"},\"hardExpectations\":[],\"rubrics\":[]}";
+        for (String field : new String[]{"hardExpectations", "rubrics"}) {
+            Files.writeString(file, base.replace("\"" + field + "\":[]", "\"" + field + "\":null") + "\n");
+            assertThrows(IllegalArgumentException.class, () -> new JsonlEvalDatasetLoader().load(file));
+        }
+        Files.writeString(file, base.replace("\"hardExpectations\":[]", "\"hardExpectations\":{}") + "\n");
+        assertThrows(IllegalArgumentException.class, () -> new JsonlEvalDatasetLoader().load(file));
+    }
+    @Test void rejectsMalformedContextShapes() throws Exception {
+        Path file = Files.createTempFile("eval-context", ".jsonl");
+        String base = "{\"schemaVersion\":1,\"caseId\":\"x\",\"playerInput\":\"look\",\"context\":%s,\"hardExpectations\":[],\"rubrics\":[]}\n";
+        Files.writeString(file, String.format(base, "{\"worldState\":{},\"playerKnowledge\":{},\"storyStage\":\"start\"}"));
+        assertThrows(IllegalArgumentException.class, () -> new JsonlEvalDatasetLoader().load(file));
+        Files.writeString(file, String.format(base, "{\"worldState\":\"bad\",\"playerKnowledge\":[],\"storyStage\":\"start\"}"));
+        assertThrows(IllegalArgumentException.class, () -> new JsonlEvalDatasetLoader().load(file));
+    }
+}
