@@ -1,7 +1,7 @@
 # Plan 220: Planning Diagnostics And Compatibility
 
 - Issue: #220
-- Status: `planned`
+- Status: `ready-for-agent`
 - Dependencies: #219
 
 ## 구현 목적
@@ -38,4 +38,3 @@
 1. diagnostic read model/API authorization.
 2. persistence/replay compatibility tests.
 3. UI-to-entity regression journey.
-

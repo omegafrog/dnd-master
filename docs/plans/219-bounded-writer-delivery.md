@@ -1,7 +1,7 @@
 # Plan 219: Bounded Writer Delivery
 
 - Issue: #219
-- Status: `ready-for-agent`
+- Status: `completed`
 - Dependencies: #218
 
 ## 구현 목적
