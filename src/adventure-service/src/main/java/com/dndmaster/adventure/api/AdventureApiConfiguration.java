@@ -497,6 +497,7 @@ public class AdventureApiConfiguration {
         return new PostgresRuntimeTurnFailureRepository(dataSource);
     }
 
+    @Bean
     RuntimeTurnFailurePersistence runtimeTurnFailurePersistence(RuntimeTurnRepository runtimeTurnRepository,
             RuntimeTurnFailureRepository failureRepository) {
         return new RuntimeTurnFailurePersistence(runtimeTurnRepository, failureRepository);
