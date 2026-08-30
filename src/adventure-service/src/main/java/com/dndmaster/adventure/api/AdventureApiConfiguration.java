@@ -498,6 +498,24 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    ApprovedPromptConfigurationReadPort approvedPromptConfigurationReadPort(
+            org.springframework.core.env.Environment environment) {
+        java.util.Map<String, com.dndmaster.adventure.application.runtime.ApprovedPromptConfiguration> configurations = new java.util.LinkedHashMap<>();
+        for (String role : java.util.List.of("PLANNER", "JUDGE", "WRITER", "VERIFIER")) {
+            String prefix = "adventure.runtime.prompt." + role.toLowerCase(java.util.Locale.ROOT) + ".";
+            String promptVersion = environment.getProperty(prefix + "version");
+            String modelVersion = environment.getProperty(prefix + "model");
+            if (promptVersion == null || promptVersion.isBlank() || modelVersion == null || modelVersion.isBlank()) continue;
+            long activationVersion = Long.parseLong(environment.getProperty(prefix + "activation-version", "1"));
+            configurations.put(role, new com.dndmaster.adventure.application.runtime.ApprovedPromptConfiguration(
+                    role, promptVersion, modelVersion, environment.getProperty(prefix + "optimization-run"),
+                    environment.getProperty(prefix + "parent-version"), environment.getProperty(prefix + "dataset"),
+                    environment.getProperty(prefix + "eval"), activationVersion));
+        }
+        return new com.dndmaster.adventure.application.runtime.EnvironmentApprovedPromptConfigurationReadPort(configurations);
+    }
+
+    @Bean
     RuntimeTurnFailurePersistence runtimeTurnFailurePersistence(RuntimeTurnRepository runtimeTurnRepository,
             RuntimeTurnFailureRepository failureRepository) {
         return new RuntimeTurnFailurePersistence(runtimeTurnRepository, failureRepository);
@@ -939,6 +957,7 @@ public class AdventureApiConfiguration {
             TacticalScenePreparationApplicationService tacticalPreparation,
             RuntimeTurnFailurePersistence failurePersistence,
             RuntimeNarrativeStateApplicationService narrativeStateService,
+            ApprovedPromptConfigurationReadPort approvedPromptConfigurationReadPort,
             NarrativeVerifierPort narrativeVerifier,
             RewritePort narrativeRewritePort,
             NarrativeVerificationAuditPort narrativeVerificationAuditPort,
@@ -951,6 +970,7 @@ public class AdventureApiConfiguration {
                 new LegacyTurnWriterAdapter(), narrativeVerifier, narrativeRewritePort, narrativeVerificationAuditPort,
                 exemplarRetriever, exemplarRetrievalAuditPort, narrativeStateService);
         service.setFailurePersistence(failurePersistence);
+        service.setApprovedPromptConfigurationReadPort(approvedPromptConfigurationReadPort);
         return service;
     }
 

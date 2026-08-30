@@ -314,13 +314,15 @@ public class RuntimeTurnApplicationService {
                 command.turnCharacterSheetId(), command.turnIndex() < 0 ? null : command.turnIndex(), command.expectedVersion(),
                 command.gmOnly(), command.agentOrigin()).withResolvedArtifact(resolvedPlan);
         runtimeTurnRepository.save(resolvedTurn);
-        try {
-            meaningfulProgressPolicy.evaluate(command.action(), resolvedPlan.plan(), adventure.currentContext(),
-                    resolvedPlan.outcomes(), plan.advanceStoryPlan());
-        } catch (RuntimeException failure) {
-            failurePersistence.persist(resolvedTurn, FAILURE_CLASSIFIER.classify(resolvedTurn.turnId(),
-                    RuntimeTurnFailureStage.VALIDATION, failure, resolvedTurn.commandId(), 1));
-            throw failure;
+        if (!command.gmOnly()) {
+            try {
+                meaningfulProgressPolicy.evaluate(command.action(), resolvedPlan.plan(), adventure.currentContext(),
+                        resolvedPlan.outcomes(), plan.advanceStoryPlan());
+            } catch (RuntimeException failure) {
+                failurePersistence.persist(resolvedTurn, FAILURE_CLASSIFIER.classify(resolvedTurn.turnId(),
+                        RuntimeTurnFailureStage.VALIDATION, failure, resolvedTurn.commandId(), 1));
+                throw failure;
+            }
         }
         List<ExemplarResult> exemplars = retrieveExemplars(plan, command.action());
         WriterProse prose = writePresentationWithRetry(resolvedTurn, resolvedPlan, narrativeState,
