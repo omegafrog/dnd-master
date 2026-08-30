@@ -10,6 +10,8 @@ public interface TacticalScenePreparationJobRepository {
     Optional<Job> find(UUID sessionId, int stagePosition);
     List<Job> findUnfinished();
     boolean claim(UUID jobId);
+    default boolean claim(UUID jobId, UUID leaseToken, java.time.Duration lease) { return claim(jobId); }
+    default void recoverExpiredLeases(java.time.Instant now) {}
     void update(UUID jobId, Status status, int progress, int attempts, String message, String failureReason);
     void resetForRetry(UUID jobId);
 

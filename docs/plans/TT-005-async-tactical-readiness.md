@@ -1,7 +1,7 @@
 # TT-005: Durable Async Tactical Readiness Workflow
 
 - Issue: [#242](https://github.com/omegafrog/dnd-master/issues/242)
-- Status: `ready-for-agent`
+- Status: `completed`
 - Dependencies: 없음
 - Parent: [#237](https://github.com/omegafrog/dnd-master/issues/237)
 
@@ -35,3 +35,10 @@ Stage 진입 시 tactical preparation을 durable async job으로 enqueue한다. 
 - Progress phase/count UI는 TT-006
 - raw job failure reason player projection 비노출
 - dirty `potent-brew-browser.spec.ts` timeout 변경 보존
+
+## Completion Evidence
+
+- Player preparation path now enqueues and reads readiness; durable worker owns generation.
+- Added worker polling seam, restart queue recovery, lease-token/expiry migration, and structured `TACTICAL_SCENE_NOT_READY` 409 response.
+- UI now polls asynchronous tactical readiness and activates maps only after `READY`.
+- Verification: targeted tactical tests and `npm --prefix src/web-ui run typecheck` passed. PostgreSQL Testcontainers test could not start because Docker is unavailable.

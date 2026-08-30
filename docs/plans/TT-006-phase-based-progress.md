@@ -1,7 +1,7 @@
 # TT-006: Phase-Based Preparation Progress
 
 - Issue: [#243](https://github.com/omegafrog/dnd-master/issues/243)
-- Status: `planned`
+- Status: `ready-for-agent`
 - Dependencies: TT-005 `completed`
 - Parent: [#237](https://github.com/omegafrog/dnd-master/issues/237)
 

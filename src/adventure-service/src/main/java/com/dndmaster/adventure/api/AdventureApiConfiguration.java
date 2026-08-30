@@ -1116,6 +1116,12 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.runtime.TacticalScenePreparationWorker tacticalScenePreparationWorker(
+            com.dndmaster.adventure.application.runtime.TacticalScenePreparationApplicationService preparation) {
+        return new com.dndmaster.adventure.application.runtime.TacticalScenePreparationWorker(preparation);
+    }
+
+    @Bean
     AiCombatPort aiCombatPort(
             @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {

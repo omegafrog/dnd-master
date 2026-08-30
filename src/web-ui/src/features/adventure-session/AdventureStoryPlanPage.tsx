@@ -37,7 +37,15 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
     const currentStage = plan?.stages.find(stage => stage.position === (plan.currentStage + 1))
     if (!session || !plan || session.status !== 'STARTED' || !currentStage || !api.readTacticalScenePreparation) return
     let active = true
-    void api.readTacticalScenePreparation(sessionId, currentStage.position).then(view => { if (active) setTacticalPreparation(view) }).catch(() => undefined)
+    const poll = async () => {
+      try {
+        const view = await api.readTacticalScenePreparation?.(sessionId, currentStage.position)
+        if (!active || !view) return
+        setTacticalPreparation(view)
+        if (view.status === 'PREPARING' || view.status === 'REQUIRED_PENDING') window.setTimeout(() => void poll(), 1000)
+      } catch { /* readiness polling is best effort */ }
+    }
+    void poll()
     return () => { active = false }
   }, [api, plan, session, sessionId])
 
@@ -88,8 +96,8 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
       if (currentStage && api.prepareTacticalScene) {
         const preparation = await api.prepareTacticalScene(sessionId, currentStage.position)
         setTacticalPreparation(preparation)
-        if (preparation.status !== 'READY') throw new Error(preparation.message)
-        if (preparation.mapRequired && api.activateStageMap) await api.activateStageMap(sessionId, currentStage.position)
+        if (preparation.status === 'READY' && preparation.mapRequired && api.activateStageMap) await api.activateStageMap(sessionId, currentStage.position)
+        if (preparation.status !== 'READY') setMessage(preparation.message)
       }
       if (started.adventureId) window.location.hash = `#/adventures/${started.adventureId}`
     } catch (error) {

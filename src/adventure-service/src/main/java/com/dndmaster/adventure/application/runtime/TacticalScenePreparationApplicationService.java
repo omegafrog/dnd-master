@@ -30,20 +30,28 @@ public final class TacticalScenePreparationApplicationService {
     private final TacticalScenePlanValidator validator;
     private final TacticalScenePreparationJobRepository jobs;
     private final TacticalPreparationStatePolicy statePolicy;
+    private final boolean inlineLegacyMode;
 
     public TacticalScenePreparationApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
             AdventureStoryPlanGenerationPort generator, TacticalScenePlanValidator validator) {
-        this(plans, sessions, generator, validator, new InMemoryTacticalScenePreparationJobRepository());
+        this(plans, sessions, generator, validator, new InMemoryTacticalScenePreparationJobRepository(), true);
     }
 
     public TacticalScenePreparationApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
             AdventureStoryPlanGenerationPort generator, TacticalScenePlanValidator validator,
             TacticalScenePreparationJobRepository jobs) {
+        this(plans, sessions, generator, validator, jobs, false);
+    }
+
+    private TacticalScenePreparationApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
+            AdventureStoryPlanGenerationPort generator, TacticalScenePlanValidator validator,
+            TacticalScenePreparationJobRepository jobs, boolean inlineLegacyMode) {
         this.plans = Objects.requireNonNull(plans);
         this.sessions = Objects.requireNonNull(sessions);
         this.generator = Objects.requireNonNull(generator);
         this.validator = Objects.requireNonNull(validator);
         this.jobs = Objects.requireNonNull(jobs);
+        this.inlineLegacyMode = inlineLegacyMode;
         this.statePolicy = new TacticalPreparationStatePolicy();
         for (var job : jobs.findUnfinished()) {
             var recovered = job;
@@ -52,7 +60,7 @@ public final class TacticalScenePreparationApplicationService {
                         job.attempts(), "재접속 후 준비 작업이 복원되었습니다.", job.failureReason());
                 recovered = jobs.find(job.sessionId(), job.stagePosition()).orElse(job);
             }
-            resume(recovered);
+            if (inlineLegacyMode) resume(recovered);
         }
     }
 
@@ -105,11 +113,19 @@ public final class TacticalScenePreparationApplicationService {
                 && job.status() == TacticalScenePreparationJobRepository.Status.QUEUED) {
             jobs.update(job.jobId(), TacticalScenePreparationJobRepository.Status.COMPLETE, 100, job.attempts(),
                     "전술 장면 준비가 복원되었습니다.", null);
-        } else if (job.status() == TacticalScenePreparationJobRepository.Status.QUEUED) {
+        } else if (inlineLegacyMode && job.status() == TacticalScenePreparationJobRepository.Status.QUEUED) {
             run(job);
         }
         AdventureStoryPlan refreshed = plans.findBySessionId(sessionId).orElseThrow();
         return compose(sessionId.value(), refreshed, stage(refreshed, stage.position()));
+    }
+
+    /** Worker entrypoint. Player-facing prepare only enqueues and reads readiness. */
+    public void processQueuedJobs() {
+        jobs.recoverExpiredLeases(Instant.now());
+        for (var job : jobs.findUnfinished()) {
+            if (job.status() == TacticalScenePreparationJobRepository.Status.QUEUED) run(job);
+        }
     }
 
     private void resume(TacticalScenePreparationJobRepository.Job job) {
@@ -127,7 +143,7 @@ public final class TacticalScenePreparationApplicationService {
     }
 
     private void run(TacticalScenePreparationJobRepository.Job job) {
-        if (!jobs.claim(job.jobId())) return;
+        if (!jobs.claim(job.jobId(), UUID.randomUUID(), java.time.Duration.ofMinutes(5))) return;
         AdventureSession session = sessions.findById(new SessionId(job.sessionId()))
                 .orElseThrow(() -> new IllegalStateException("adventure session not found"));
         AdventureStoryPlan plan = plans.findBySessionId(new SessionId(job.sessionId()))

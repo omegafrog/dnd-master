@@ -32,6 +32,18 @@ public final class PostgresTacticalScenePreparationJobRepository implements Tact
         try (var c = dataSource.getConnection(); var s = c.prepareStatement("UPDATE tactical_scene_preparation_job SET status='RUNNING', message='전술 장면 준비 중', updated_at=? WHERE job_id=? AND status='QUEUED'")) { s.setTimestamp(1, Timestamp.from(Instant.now())); s.setObject(2, jobId); return s.executeUpdate() == 1; }
         catch (SQLException e) { throw new AdventurePersistenceException("could not claim tactical preparation job", e); }
     }
+    @Override public boolean claim(UUID jobId, UUID leaseToken, java.time.Duration lease) {
+        String sql = "UPDATE tactical_scene_preparation_job SET status='RUNNING', lease_token=?, lease_until=?, message='전술 장면 준비 중', updated_at=? WHERE job_id=? AND (status='QUEUED' OR (status='RUNNING' AND lease_until < ?))";
+        try (var c = dataSource.getConnection(); var s = c.prepareStatement(sql)) {
+            Instant until = Instant.now().plus(lease);
+            s.setObject(1, leaseToken); s.setTimestamp(2, Timestamp.from(until)); s.setTimestamp(3, Timestamp.from(Instant.now()));
+            s.setObject(4, jobId); s.setTimestamp(5, Timestamp.from(Instant.now())); return s.executeUpdate() == 1;
+        } catch (SQLException e) { throw new AdventurePersistenceException("could not claim tactical preparation lease", e); }
+    }
+    @Override public void recoverExpiredLeases(Instant now) {
+        execute("UPDATE tactical_scene_preparation_job SET status='QUEUED', lease_token=NULL, lease_until=NULL, message='만료된 준비 작업을 복원했습니다.', updated_at=? WHERE status='RUNNING' AND lease_until < ?",
+                s -> { s.setTimestamp(1, Timestamp.from(now)); s.setTimestamp(2, Timestamp.from(now)); });
+    }
     @Override public void update(UUID jobId, Status status, int progress, int attempts, String message, String reason) { execute("UPDATE tactical_scene_preparation_job SET status=?,progress=?,attempts=?,message=?,failure_reason=?,updated_at=? WHERE job_id=?", s -> { s.setString(1, status.name()); s.setInt(2, progress); s.setInt(3, attempts); s.setString(4, message); s.setString(5, reason); s.setTimestamp(6, Timestamp.from(Instant.now())); s.setObject(7, jobId); }); }
     @Override public void resetForRetry(UUID jobId) { execute("UPDATE tactical_scene_preparation_job SET status='QUEUED',progress=0,attempts=0,message='대기 중',failure_reason=NULL,updated_at=? WHERE job_id=? AND status='FAILED_RETRYABLE'", s -> { s.setTimestamp(1, Timestamp.from(Instant.now())); s.setObject(2, jobId); }); }
     private Optional<Job> query(String sql, Binder binder) { try (var c = dataSource.getConnection(); var s = c.prepareStatement(sql)) { binder.bind(s); try (var rows = s.executeQuery()) { return rows.next() ? Optional.of(read(rows)) : Optional.empty(); } } catch (SQLException e) { throw new AdventurePersistenceException("could not load tactical preparation job", e); } }

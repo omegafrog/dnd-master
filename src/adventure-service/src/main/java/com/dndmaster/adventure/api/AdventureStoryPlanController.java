@@ -10,6 +10,7 @@ import java.util.UUID;
 import java.util.List;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.beans.factory.annotation.Autowired;
 import com.dndmaster.adventure.application.session.AdventureSessionApplicationService;
@@ -18,6 +19,7 @@ import com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimeApplica
 import com.dndmaster.adventure.application.storyplan.FutureTacticalSceneRevisionService;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationJobService;
 import com.dndmaster.adventure.application.runtime.TacticalScenePreparationApplicationService;
+import com.dndmaster.adventure.application.runtime.TacticalSceneNotReadyException;
 import com.dndmaster.adventure.domain.adventure.TacticalScenePlan;
 
 @RestController
@@ -127,8 +129,7 @@ public final class AdventureStoryPlanController {
             }
             var preparation = tacticalPreparation.prepare(new SessionId(sessionId), owner());
             if (preparation.state() != com.dndmaster.adventure.application.runtime.TacticalPreparationState.READY) {
-                throw new ResponseStatusException(HttpStatus.CONFLICT,
-                        preparation.message());
+                throw new TacticalSceneNotReadyException(position, preparation.stageName(), preparation.state());
             }
             plan = service.read(new SessionId(sessionId), owner());
             stage = plan.stages().stream().filter(item -> item.position() == position).findFirst().orElseThrow();
@@ -137,6 +138,12 @@ public final class AdventureStoryPlanController {
                 session.runtimeConfiguration().ruleSetId().value(), stage.mapDefinitionId(), stage.tacticalScenePlan(), stage.playerSpawnX(), stage.playerSpawnY());
         activation.combatMapId().ifPresent(id -> triggerRuntime.bindActiveMap(session.startedAdventureId().value(), position, owner().value(), id));
         return new MapActivationView(position, stage.mapDefinitionId(), stage.mapAssetId(), stage.mapAssetLocator(), activation.combatMapId().orElse(null));
+    }
+
+    @ExceptionHandler(TacticalSceneNotReadyException.class)
+    ResponseEntity<ReadinessError> tacticalSceneNotReady(TacticalSceneNotReadyException failure) {
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+                .body(new ReadinessError("TACTICAL_SCENE_NOT_READY", failure.stageId(), failure.stagePosition(), failure.state().name()));
     }
 
     @PostMapping("/stages/{position}/tactical-scene/prepare")
@@ -216,6 +223,7 @@ public final class AdventureStoryPlanController {
     }
 
     public record MapActivationView(int stagePosition, UUID mapDefinitionId, String assetId, String assetLocator, UUID combatMapId) {}
+    public record ReadinessError(String code, String stageId, int stagePosition, String state) {}
     public record TacticalPreparationView(UUID jobId, UUID sessionId, int stagePosition, String stageName, String status,
             int progress, int attempts, boolean mapRequired, String message, String failureReason, java.time.Instant updatedAt) {
         static TacticalPreparationView from(TacticalScenePreparationApplicationService.PreparationView view) {
