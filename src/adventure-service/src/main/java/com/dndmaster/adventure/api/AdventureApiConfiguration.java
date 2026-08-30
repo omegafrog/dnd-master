@@ -14,6 +14,8 @@ import com.dndmaster.adventure.application.session.*;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanApplicationService;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationJobService;
+import com.dndmaster.adventure.application.storyplan.ScopedEvidenceReadPort;
+import com.dndmaster.adventure.application.storyplan.StoryPlanSemanticConsistencyJudge;
 import com.dndmaster.adventure.application.scenario.*;
 import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
@@ -335,8 +337,21 @@ public class AdventureApiConfiguration {
     AdventureStoryPlanApplicationService adventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packages, AdventureStoryPlanGenerationPort generator,
             ScenarioBundleRepository bundles,
-            com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort sourceExcerptPort) {
-        return new AdventureStoryPlanApplicationService(plans, sessions, packages, generator, bundles, sourceExcerptPort);
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort sourceExcerptPort,
+            StoryPlanSemanticConsistencyJudge semanticJudge) {
+        return new AdventureStoryPlanApplicationService(plans, sessions, packages, generator, bundles, sourceExcerptPort, semanticJudge);
+    }
+
+    @Bean
+    StoryPlanSemanticConsistencyJudge storyPlanSemanticConsistencyJudge(ObjectMapper mapper,
+            @Value("${adventure.integration.ai-adventure.base-url:${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}}") String baseUrl,
+            @Value("${adventure.integration.ai-adventure.story-plan-timeout:${adventure.integration.ai-game-master.story-plan-timeout:1800s}}") Duration timeout,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        var provider = new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpStoryPlanSemanticJudgeGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), timeout, mapper, internalToken);
+        var scope = new com.dndmaster.adventure.domain.adventure.RetrievalScope(java.util.Set.of(), java.util.Set.of(), 3);
+        return new StoryPlanSemanticConsistencyJudge(provider, (requestedScope, query) ->
+                new ScopedEvidenceReadPort.Result(java.util.List.of(), java.util.Set.of()), scope);
     }
 
     @Bean

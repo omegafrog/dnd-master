@@ -31,6 +31,11 @@ import com.dndmaster.adventure.domain.adventure.SourceConstraintPack;
 import com.dndmaster.adventure.domain.adventure.StoryPlanGenerationMode;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionViolation.Repairability;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.dndmaster.adventure.application.runtime.EvidencePack;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
+import com.dndmaster.adventure.domain.adventure.RetrievalScope;
+import com.dndmaster.adventure.domain.adventure.SemanticVerdict;
 
 public final class AdventureStoryPlanApplicationService {
     private static final Logger LOGGER = LoggerFactory.getLogger(AdventureStoryPlanApplicationService.class);
@@ -44,6 +49,7 @@ public final class AdventureStoryPlanApplicationService {
     private final AdventureStoryPlanCombatValidator combatValidator = new AdventureStoryPlanCombatValidator();
     private final StoryPlanStructuralGuard structuralGuard = new StoryPlanStructuralGuard();
     private final ObjectMapper projectionMapper = new ObjectMapper();
+    private final StoryPlanSemanticConsistencyJudge semanticJudge;
 
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions) {
         this(plans, sessions, null, request -> AdventureStoryPlanGenerationPort.ProjectionCandidate
@@ -56,9 +62,16 @@ public final class AdventureStoryPlanApplicationService {
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
             ScenarioPackageRepository packages, AdventureStoryPlanGenerationPort generator,
             ScenarioBundleRepository bundles, ScenarioSourceExcerptPort sourceExcerptPort) {
+        this(plans, sessions, packages, generator, bundles, sourceExcerptPort, null);
+    }
+    public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
+            ScenarioPackageRepository packages, AdventureStoryPlanGenerationPort generator,
+            ScenarioBundleRepository bundles, ScenarioSourceExcerptPort sourceExcerptPort,
+            StoryPlanSemanticConsistencyJudge semanticJudge) {
         this.plans = Objects.requireNonNull(plans); this.sessions = Objects.requireNonNull(sessions);
         this.packages = packages; this.generator = Objects.requireNonNull(generator);
         this.bundles = bundles; this.sourceExcerptPort = sourceExcerptPort;
+        this.semanticJudge = semanticJudge;
     }
 
     public AdventureStoryPlan read(SessionId sessionId, OwnerPlayerId owner) {
@@ -132,6 +145,7 @@ public final class AdventureStoryPlanApplicationService {
         int repairsOnCandidate = 0;
         boolean repairNext = false;
         String stopReason = "";
+        List<SemanticVerdict> semanticVerdicts = new ArrayList<>();
         while (totalAttempts < 5) {
             int attempt = totalAttempts + 1;
             progress.accept(Math.min(85, 25 + ((attempt - 1) * 15)),
@@ -174,6 +188,25 @@ public final class AdventureStoryPlanApplicationService {
                 if (!deterministicViolations.isEmpty()) {
                     throw new AdventureStoryPlanCandidateValidationException(
                             deterministicViolations, candidateForValidation, true);
+                }
+                if (semanticJudge != null) {
+                    SemanticVerdict verdict = semanticJudge.judge(
+                            evidencePack(request), candidateForValidation);
+                    semanticVerdicts.add(verdict);
+                    StoryPlanVerdictPolicy.Decision decision = StoryPlanVerdictPolicy.decide(
+                            verdict, totalAttempts, 5);
+                    if (decision == StoryPlanVerdictPolicy.Decision.RETRY
+                            || decision == StoryPlanVerdictPolicy.Decision.BLOCK) {
+                        throw new AdventureStoryPlanCandidateValidationException(
+                                List.of(semanticViolation(verdict)), candidateForValidation, true);
+                    }
+                    if (decision == StoryPlanVerdictPolicy.Decision.READY_WITH_WARNING) {
+                        LOGGER.warn("story_plan_semantic_verdict operationId={} attempt={} verdict={} confidence={} claimPath={}",
+                                request.operationId(), totalAttempts, verdict.type(), verdict.confidence(), verdict.claimPath());
+                    } else {
+                        LOGGER.info("story_plan_semantic_verdict operationId={} attempt={} verdict={} confidence={} claimPath={}",
+                                request.operationId(), totalAttempts, verdict.type(), verdict.confidence(), verdict.claimPath());
+                    }
                 }
                 break;
             } catch (AdventureStoryPlanCandidateValidationException invalidCandidate) {
@@ -258,17 +291,50 @@ public final class AdventureStoryPlanApplicationService {
                     session.scenarioPackageRevision(), session.version(), version, configuration, stages,
                     outlineViolations.stream().map(AdventureStoryPlanProjectionViolation::sanitizedMessage)
                             .collect(java.util.stream.Collectors.joining("; ")));
-            plans.save(blocked);
+            saveWithSemanticHistory(blocked, semanticVerdicts);
             return blocked;
         }
         AdventureStoryPlan plan = AdventureStoryPlan.ready(
                 previous == null ? java.util.UUID.randomUUID() : previous.planId(), session.id(),
                 session.scenarioPackageRevision(), session.version(), version, configuration, stages);
-        plans.save(plan);
+        saveWithSemanticHistory(plan, semanticVerdicts);
         LOGGER.info("story_plan_projection_outcome operationId={} outcome=READY attempts={} repairs={} regenerations={}",
                 request.operationId(), totalAttempts, repairsOnCandidate, regenerationCount);
         progress.accept(100, "플레이 준비 완료");
         return plan;
+    }
+
+    private void saveWithSemanticHistory(AdventureStoryPlan plan, List<SemanticVerdict> verdicts) {
+        if (verdicts == null || verdicts.isEmpty()) {
+            plans.save(plan);
+            return;
+        }
+        plans.save(plan, "STORY_PLAN_SEMANTIC_VERDICTS:" + StoryPlanVerdictJson.serialize(verdicts));
+    }
+
+    private EvidencePack evidencePack(AdventureStoryPlanGenerationPort.Request request) {
+        List<RuntimeEvidence> storybook = new ArrayList<>();
+        List<RuntimeEvidence> rulebook = new ArrayList<>();
+        for (AdventureStoryPlanGenerationPort.SourceCitation citation : request.citations()) {
+            if (citation.documentId() == null || citation.quote() == null || citation.quote().isBlank()) continue;
+            RuntimeEvidence evidence = new RuntimeEvidence(
+                    "STORYBOOK".equalsIgnoreCase(citation.documentType()) ? RuntimeEvidenceType.STORYBOOK
+                            : "RULEBOOK".equalsIgnoreCase(citation.documentType()) ? RuntimeEvidenceType.RULEBOOK
+                            : RuntimeEvidenceType.RESOLUTION,
+                    new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(citation.documentId()),
+                    citation.extractionVersion(), citation.locator(), citation.quote(), citation.citationKey());
+            if (evidence.evidenceType() == RuntimeEvidenceType.STORYBOOK) storybook.add(evidence);
+            else if (evidence.evidenceType() == RuntimeEvidenceType.RULEBOOK) rulebook.add(evidence);
+        }
+        return new EvidencePack(storybook.stream().limit(8).toList(), rulebook.stream().limit(8).toList(), List.of());
+    }
+
+    private static AdventureStoryPlanProjectionViolation semanticViolation(SemanticVerdict verdict) {
+        String code = "JUDGE_UNAVAILABLE".equals(verdict.failureCode()) ? "JUDGE_UNAVAILABLE" : "SOURCE_CONTRADICTION";
+        String message = verdict.summary().replaceAll("[\\r\\n\\t]+", " ").trim();
+        if (message.length() > 256) message = message.substring(0, 256) + "...";
+        return new AdventureStoryPlanProjectionViolation(code, null, verdict.claimPath(), "", "",
+                Repairability.REGENERATE_REQUIRED, message);
     }
 
     public AdventureStoryPlan retry(SessionId sessionId, OwnerPlayerId owner) {

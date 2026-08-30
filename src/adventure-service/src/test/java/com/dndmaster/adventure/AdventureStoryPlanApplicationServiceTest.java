@@ -12,6 +12,9 @@ import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGeneratio
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanCandidateValidationException;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionViolation;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionViolation.Repairability;
+import com.dndmaster.adventure.application.storyplan.ScopedEvidenceReadPort;
+import com.dndmaster.adventure.application.storyplan.SemanticJudgeProvider;
+import com.dndmaster.adventure.application.storyplan.StoryPlanSemanticConsistencyJudge;
 import com.dndmaster.adventure.domain.adventure.*;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
@@ -24,6 +27,55 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class AdventureStoryPlanApplicationServiceTest {
+    @Test
+    void uncertain_semantic_verdict_keeps_plan_ready_and_records_warning() {
+        var session = draftSession();
+        var sessions = mock(AdventureSessionRepository.class);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        when(plans.findBySessionId(session.id())).thenReturn(Optional.empty());
+        var judge = semanticJudge(SemanticVerdict.uncertain("stages[0]", "source does not decide this detail"));
+
+        var result = new AdventureStoryPlanApplicationService(plans, sessions, null,
+                request -> AdventureStoryPlanGenerationPort.ProjectionCandidate.fromStages(defaultStages()),
+                null, null, judge).generate(session.id(), session.ownerPlayerId());
+
+        assertEquals(AdventureStoryPlanStatus.READY, result.status());
+        verify(plans).save(eq(result), contains("STORY_PLAN_SEMANTIC_VERDICTS:"));
+    }
+
+    @Test
+    void contradictory_semantic_verdict_retries_then_persists_blocked_plan() {
+        var session = draftSession();
+        var sessions = mock(AdventureSessionRepository.class);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        when(plans.findBySessionId(session.id())).thenReturn(Optional.empty());
+        var judge = semanticJudge(SemanticVerdict.contradictory(.99, "stages[0].outcome",
+                "outcome reverses Storybook result", java.util.Set.of("STORYBOOK:1"), java.util.Set.of()));
+
+        var result = new AdventureStoryPlanApplicationService(plans, sessions, null,
+                request -> AdventureStoryPlanGenerationPort.ProjectionCandidate.fromStages(defaultStages()),
+                null, null, judge).generate(session.id(), session.ownerPlayerId());
+
+        assertEquals(AdventureStoryPlanStatus.BLOCKED, result.status());
+        assertTrue(result.failureReason().contains("outcome reverses Storybook result"));
+        verify(plans).save(eq(result), contains("STORY_PLAN_SEMANTIC_VERDICTS:"));
+    }
+
+    private static StoryPlanSemanticConsistencyJudge semanticJudge(SemanticVerdict verdict) {
+        SemanticJudgeProvider provider = request -> new SemanticJudgeProvider.Response(verdict);
+        ScopedEvidenceReadPort rag = (scope, query) -> new ScopedEvidenceReadPort.Result(List.of(), java.util.Set.of());
+        return new StoryPlanSemanticConsistencyJudge(provider, rag,
+                new RetrievalScope(java.util.Set.of(), java.util.Set.of(), 3));
+    }
+
+    private static List<AdventureStoryPlanStage> defaultStages() {
+        return java.util.stream.IntStream.rangeClosed(1, 4)
+                .mapToObj(position -> new AdventureStoryPlanStage(position, "Stage " + position, "Goal", "Conflict", "Continue", List.of(), List.of("ending-a", "ending-b")))
+                .toList();
+    }
+
     @Test
     void refuses_normal_regeneration_after_adventure_started() {
         var session = AdventureSession.create(SessionId.generate(), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(), 1, 1,
