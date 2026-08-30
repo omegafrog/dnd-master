@@ -225,10 +225,18 @@ public final class AdventureStoryPlanController {
     public record MapActivationView(int stagePosition, UUID mapDefinitionId, String assetId, String assetLocator, UUID combatMapId) {}
     public record ReadinessError(String code, String stageId, int stagePosition, String state) {}
     public record TacticalPreparationView(UUID jobId, UUID sessionId, int stagePosition, String stageName, String status,
-            int progress, int attempts, boolean mapRequired, String message, String failureReason, java.time.Instant updatedAt) {
+            int progress, int attempts, boolean mapRequired, String message, String failureReason, java.time.Instant updatedAt,
+            String phase, int completedUnits, Integer totalUnits, Integer percentage) {
+        public TacticalPreparationView(UUID jobId, UUID sessionId, int stagePosition, String stageName, String status,
+                int progress, int attempts, boolean mapRequired, String message, String failureReason, java.time.Instant updatedAt) {
+            this(jobId, sessionId, stagePosition, stageName, status, progress, attempts, mapRequired, message,
+                    failureReason, updatedAt, "LEGACY", progress, 100, progress);
+        }
         static TacticalPreparationView from(TacticalScenePreparationApplicationService.PreparationView view) {
             return new TacticalPreparationView(view.jobId(), view.sessionId(), view.stagePosition(), view.stageName(),
-                    view.state().name(), view.progress(), view.attempts(), view.mapRequired(), view.message(), null, view.updatedAt());
+                    view.state().name(), view.progress(), view.attempts(), view.mapRequired(), view.message(), null, view.updatedAt(),
+                    view.preparationProgress().phase(), view.preparationProgress().completedUnits(),
+                    view.preparationProgress().totalUnits(), view.preparationProgress().percentage());
         }
     }
     public record TacticalPreparationDiagnosticsView(String jobStatus, String failureReason, String sceneStatus,

@@ -151,7 +151,8 @@ public final class TacticalScenePreparationApplicationService {
         AdventureStoryPlanStage stage = stage(plan, job.stagePosition());
         if (stage.tacticalPreparationRequirement() != TacticalPreparationRequirement.REQUIRED
                 || stage.mapDefinitionId() == null) {
-            jobs.update(job.jobId(), TacticalScenePreparationJobRepository.Status.FAILED_RETRYABLE, 100,
+            jobs.updateProgress(job.jobId(), TacticalScenePreparationJobRepository.Status.FAILED_RETRYABLE,
+                    PreparationProgress.of("FAILED", 0, null),
                     job.attempts(), "전술 장면을 준비할 수 없습니다. 다시 시도해 주세요.",
                     "required tactical stage has no map definition");
             return;
@@ -166,15 +167,17 @@ public final class TacticalScenePreparationApplicationService {
                 .map(member -> member.characterSheetId().value().toString()).toList();
         List<String> violations = List.of();
         for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
-            jobs.update(job.jobId(), TacticalScenePreparationJobRepository.Status.RUNNING,
-                    Math.min(95, attempt * 25), attempt, "전술 장면을 준비하고 있습니다.", null);
+            jobs.updateProgress(job.jobId(), TacticalScenePreparationJobRepository.Status.RUNNING,
+                    PreparationProgress.of("TACTICAL_SCENE", attempt, null), attempt,
+                    "전술 장면을 준비하고 있습니다.", null);
             try {
                 TacticalSceneRequest request = new TacticalSceneRequest(stage, map, citations, party, violations);
                 TacticalScenePlanCandidate candidate = generator.generateTacticalScene(request);
                 violations = validator.validate(request, candidate);
                 if (violations.isEmpty() && candidate.scene().readyForActivation()) {
                     plans.save(plan.prepareCurrentStage(stage.withTacticalScenePlan(candidate.scene())));
-                    jobs.update(job.jobId(), TacticalScenePreparationJobRepository.Status.COMPLETE, 100, attempt,
+                    jobs.updateProgress(job.jobId(), TacticalScenePreparationJobRepository.Status.COMPLETE,
+                            PreparationProgress.of("TACTICAL_SCENE", 1, 1), attempt,
                             "전술 장면이 준비되었습니다.", null);
                     return;
                 }
@@ -183,7 +186,8 @@ public final class TacticalScenePreparationApplicationService {
                 violations = List.of(message(failure));
             }
         }
-        jobs.update(job.jobId(), TacticalScenePreparationJobRepository.Status.FAILED_RETRYABLE, 100, MAX_ATTEMPTS,
+        jobs.updateProgress(job.jobId(), TacticalScenePreparationJobRepository.Status.FAILED_RETRYABLE,
+                PreparationProgress.of("TACTICAL_SCENE", 0, null), MAX_ATTEMPTS,
                 "전술 장면 준비에 실패했습니다. 다시 시도해 주세요.", String.join("; ", violations));
     }
 
@@ -194,6 +198,8 @@ public final class TacticalScenePreparationApplicationService {
         TacticalPreparationState state = statePolicy.compose(stage.tacticalPreparationRequirement(), current, job, scene);
         int progress = job.map(TacticalScenePreparationJobRepository.Job::progress)
                 .orElse(state == TacticalPreparationState.READY ? 100 : 0);
+        PreparationProgress preparationProgress = job.map(TacticalScenePreparationJobRepository.Job::preparationProgress)
+                .orElse(PreparationProgress.legacy(progress));
         int attempts = job.map(TacticalScenePreparationJobRepository.Job::attempts).orElse(0);
         Instant updatedAt = job.map(TacticalScenePreparationJobRepository.Job::updatedAt).orElseGet(Instant::now);
         String message = playerMessage(state);
@@ -202,7 +208,7 @@ public final class TacticalScenePreparationApplicationService {
         return new TacticalPreparationReadModel(sessionId, stage.position(), stage.title(),
                 stage.tacticalPreparationRequirement(), current, state, job, scene,
                 new TacticalPreparationReadModel.PlayerSafeProjection(state, message, progress, attempts,
-                        mapRequired, activationAllowed, updatedAt),
+                        mapRequired, activationAllowed, updatedAt, preparationProgress),
                 new TacticalPreparationReadModel.InternalDiagnostics(job.map(value -> value.status().name()).orElse("ABSENT"),
                         job.map(TacticalScenePreparationJobRepository.Job::failureReason).orElse(null),
                         scene.status().name(), activationAllowed, updatedAt));
@@ -235,7 +241,7 @@ public final class TacticalScenePreparationApplicationService {
         var projection = model.player();
         return new PreparationView(jobId, model.sessionId(), model.stagePosition(), model.stageName(), model.state(),
                 projection.progress(), projection.attempts(), projection.mapRequired(), projection.message(), null,
-                projection.updatedAt(), model.job());
+                projection.updatedAt(), model.job(), projection.preparationProgress());
     }
 
     private static SourceCitation citation(AdventurePlanEvidence evidence) {
@@ -254,7 +260,14 @@ public final class TacticalScenePreparationApplicationService {
     /** Player-safe projection; raw failure diagnostics are never copied into failureReason. */
     public record PreparationView(UUID jobId, UUID sessionId, int stagePosition, String stageName,
             TacticalPreparationState state, int progress, int attempts, boolean mapRequired, String message,
-            String failureReason, Instant updatedAt, Optional<TacticalScenePreparationJobRepository.Job> job) {
+            String failureReason, Instant updatedAt, Optional<TacticalScenePreparationJobRepository.Job> job,
+            PreparationProgress preparationProgress) {
+        public PreparationView(UUID jobId, UUID sessionId, int stagePosition, String stageName,
+                TacticalPreparationState state, int progress, int attempts, boolean mapRequired, String message,
+                String failureReason, Instant updatedAt, Optional<TacticalScenePreparationJobRepository.Job> job) {
+            this(jobId, sessionId, stagePosition, stageName, state, progress, attempts, mapRequired, message,
+                    failureReason, updatedAt, job, PreparationProgress.legacy(progress));
+        }
         public Status status() {
             return switch (state) {
                 case PREPARING -> Status.RUNNING;

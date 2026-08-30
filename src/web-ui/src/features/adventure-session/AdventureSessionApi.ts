@@ -99,6 +99,10 @@ export type TacticalScenePreparationView = {
   message: string
   failureReason: string | null
   updatedAt: string
+  phase?: string
+  completedUnits?: number
+  totalUnits?: number | null
+  percentage?: number | null
 }
 
 export type GmProviderView = {

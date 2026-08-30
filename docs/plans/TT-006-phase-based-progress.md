@@ -1,7 +1,7 @@
 # TT-006: Phase-Based Preparation Progress
 
 - Issue: [#243](https://github.com/omegafrog/dnd-master/issues/243)
-- Status: `ready-for-agent`
+- Status: `completed`
 - Dependencies: TT-005 `completed`
 - Parent: [#237](https://github.com/omegafrog/dnd-master/issues/237)
 
@@ -34,3 +34,11 @@ Backend phase, completed units, optional total units를 progress 정본으로 �
 
 - TT-005 job identity/worker 재사용
 - rule-knowledge async schema를 tactical contract로 오용하지 않음
+
+## Implementation Evidence
+
+- Added `PreparationProgress` with phase/count validation and nullable percentage projection.
+- Added additive tactical job columns via `V46__tactical_preparation_progress.sql`; legacy integer rows map to `LEGACY`/known-percent progress.
+- Tactical API and player projection expose phase, completed units, nullable total, and nullable percentage.
+- React `Progress` now renders unknown totals as accessible indeterminate progress; fixed tactical percentages are removed.
+- Verification: targeted adventure-service tactical tests, `PreparationProgressTest`, and web UI typecheck/unit tests.
