@@ -27,6 +27,9 @@ public final class RuntimeTurnFailureClassifier {
         if (message.contains("provider") || message.contains("unavailable") || message.contains("connection")) {
             return RuntimeTurnFailureCode.PROVIDER_UNAVAILABLE;
         }
+        if (message.contains("no_meaningful_progress") || message.contains("no meaningful progress")) {
+            return RuntimeTurnFailureCode.NO_MEANINGFUL_PROGRESS;
+        }
         if (message.contains("citation")) return RuntimeTurnFailureCode.CITATION_INVALID;
         if (message.contains("json") || message.contains("schema")) return RuntimeTurnFailureCode.JSON_INVALID;
         if (message.contains("judgment") || message.contains("intent")) return RuntimeTurnFailureCode.JUDGMENT_INVALID;

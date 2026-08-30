@@ -9,5 +9,6 @@ public enum RuntimeTurnFailureCode {
     NARRATION_INVALID,
     SAFETY_FAILURE,
     VERSION_CONFLICT,
+    NO_MEANINGFUL_PROGRESS,
     UNKNOWN
 }

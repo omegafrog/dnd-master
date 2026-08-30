@@ -1,7 +1,7 @@
 # TT-004: Meaningful Progress And Presentation-Only Retry
 
 - Issue: [#241](https://github.com/omegafrog/dnd-master/issues/241)
-- Status: `ready-for-agent`
+- Status: `completed`
 - Dependencies: TT-003 `completed`
 - Parent: [#237](https://github.com/omegafrog/dnd-master/issues/237)
 
@@ -34,3 +34,10 @@ Player intent 반영과 Meaningful Progress를 GM Turn commit 조건으로 만�
 
 - TT-003 failure artifact 사용
 - Writer가 state delta/tool command를 생성하지 않음
+
+## Implementation Evidence
+
+- `MeaningfulProgress`, `MeaningfulProgressCategory`, `MeaningfulProgressPolicy` added.
+- Runtime resolution now validates player progress before presentation and records `NO_MEANINGFUL_PROGRESS` as a typed validation failure.
+- Existing presentation retry reuses the persisted `ResolvedTurnPlan`; no planner, evidence, or tool resolution is invoked during retry.
+- Verification: `./gradlew :adventure-service:test --tests com.dndmaster.adventure.MeaningfulProgressPolicyTest --tests com.dndmaster.adventure.RuntimeTurnApplicationServiceTest --no-daemon`.
