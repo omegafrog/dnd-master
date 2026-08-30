@@ -1,7 +1,7 @@
 # TT-001: Compilation Candidate Diagnostics And Outcomes
 
 - Issue: [#238](https://github.com/omegafrog/dnd-master/issues/238)
-- Status: `ready-for-agent`
+- Status: `completed`
 - Dependencies: 없음
 - Parent: [#237](https://github.com/omegafrog/dnd-master/issues/237)
 
@@ -36,3 +36,11 @@
 - Recoverability를 validation message 문자열로 판정하지 않음
 - Candidate repair와 worker delivery retry는 TT-002 범위
 - 기존 dirty worker 코드 수정은 최소화
+
+## Completion Evidence
+
+- Added typed candidate completeness/recoverability/validation/outcome model.
+- Added `V31__scenario_compilation_candidates.sql` and PostgreSQL candidate repository.
+- Preserved legacy `ResolutionStatus` while persisting canonical `CompilationOutcome`.
+- Worker persists candidate diagnostics and publishes optional-only incomplete packages.
+- Verification: targeted adventure-service policy, compiler, and worker tests passed.

@@ -24,6 +24,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioBundle
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioPackageRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresResolutionOverrideRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioCompilationRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresCompilationCandidateRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeBindingRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresNarrativeStateRepository;
@@ -464,6 +465,12 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.scenario.compilation.CompilationCandidateRepository compilationCandidateRepository(
+            DataSource dataSource) {
+        return new PostgresCompilationCandidateRepository(dataSource);
+    }
+
+    @Bean
     RuntimeBindingRepository runtimeBindingRepository(DataSource dataSource, ObjectMapper objectMapper) {
         return new PostgresRuntimeBindingRepository(dataSource, objectMapper);
     }
@@ -683,11 +690,12 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort characterInputTagExtractionPort,
             com.dndmaster.adventure.application.scenario.compilation.CharacterContextSearchPort characterContextSearchPort,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService compiler,
-            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository) {
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
+            com.dndmaster.adventure.application.scenario.compilation.CompilationCandidateRepository candidateRepository) {
         return new com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationWorker(
                 processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort,
                 characterInputTagExtractionPort, characterContextSearchPort, compiler,
-                packageRepository);
+                packageRepository, candidateRepository);
     }
 
     @Bean

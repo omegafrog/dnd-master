@@ -12,4 +12,12 @@ public interface ResolutionCandidate {
     List<ScenarioSourceReference> sourceRefs();
     String provenance();
     ScenarioResolutionDetail detail();
+
+    default String candidateKey() {
+        return kind() == null ? "candidate" : kind().name();
+    }
+
+    default boolean required() {
+        return true;
+    }
 }

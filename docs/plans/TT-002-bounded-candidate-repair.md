@@ -1,7 +1,7 @@
 # TT-002: Bounded Candidate Repair And Worker Retry Separation
 
 - Issue: [#239](https://github.com/omegafrog/dnd-master/issues/239)
-- Status: `planned`
+- Status: `ready-for-agent`
 - Dependencies: TT-001 `completed`
 - Parent: [#237](https://github.com/omegafrog/dnd-master/issues/237)
 

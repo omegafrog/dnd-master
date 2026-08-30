@@ -35,6 +35,7 @@ public final class ScenarioCompilationWorker {
     private final CharacterContextSearchPort characterContextSearchPort;
     private final CharacterInputTagExtractionPort characterTagPort;
     private final ScenarioPackageCompilationService compiler;
+    private final CompilationCandidateRepository candidateRepository;
 
     public ScenarioCompilationWorker(
             ScenarioCompilationProcessManager processManager,
@@ -46,7 +47,8 @@ public final class ScenarioCompilationWorker {
             ScenarioPackageCompilationService compiler,
             ScenarioPackageRepository ignoredPackageRepository) {
         this(processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort,
-                ignored -> List.of(), ignored -> List.of(), compiler, ignoredPackageRepository);
+                ignored -> List.of(), ignored -> List.of(), compiler, ignoredPackageRepository,
+                new NoopCompilationCandidateRepository());
     }
 
     public ScenarioCompilationWorker(
@@ -60,6 +62,23 @@ public final class ScenarioCompilationWorker {
             CharacterContextSearchPort characterContextSearchPort,
             ScenarioPackageCompilationService compiler,
             ScenarioPackageRepository ignoredPackageRepository) {
+        this(processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort,
+                characterTagPort, characterContextSearchPort, compiler, ignoredPackageRepository,
+                new NoopCompilationCandidateRepository());
+    }
+
+    public ScenarioCompilationWorker(
+            ScenarioCompilationProcessManager processManager,
+            ScenarioCompilationRepository compilationRepository,
+            WorkQueuePort queue,
+            ScenarioBundleRepository bundleRepository,
+            ResolutionExtractionPort extractionPort,
+            ScenarioSourceExcerptPort excerptPort,
+            CharacterInputTagExtractionPort characterTagPort,
+            CharacterContextSearchPort characterContextSearchPort,
+            ScenarioPackageCompilationService compiler,
+            ScenarioPackageRepository ignoredPackageRepository,
+            CompilationCandidateRepository candidateRepository) {
         this.processManager = Objects.requireNonNull(processManager, "process manager must not be null");
         this.compilationRepository = Objects.requireNonNull(compilationRepository, "compilation repository must not be null");
         this.queue = Objects.requireNonNull(queue, "queue must not be null");
@@ -70,6 +89,7 @@ public final class ScenarioCompilationWorker {
         this.characterTagPort = Objects.requireNonNull(characterTagPort, "character tag port must not be null");
         this.compiler = Objects.requireNonNull(compiler, "compiler must not be null");
         Objects.requireNonNull(ignoredPackageRepository, "package repository must not be null");
+        this.candidateRepository = Objects.requireNonNull(candidateRepository, "candidate repository must not be null");
     }
 
     public ScenarioCompilationWorker(
@@ -139,6 +159,14 @@ public final class ScenarioCompilationWorker {
                     bundle, candidates == null ? List.of() : candidates,
                     excerpts == null ? List.of() : excerpts,
                     characterCandidates == null ? List.of() : characterCandidates);
+            candidateRepository.saveAll(claimed.id(), CompilationCandidateFactory.from(
+                    claimed.id(), candidates == null ? List.of() : candidates, scenarioPackage.units()));
+
+            if (scenarioPackage.report().outcome()
+                    == com.dndmaster.adventure.domain.scenario.CompilationOutcome.FAILED) {
+                throw new IllegalStateException(
+                        "scenario package compilation report is " + scenarioPackage.report().status());
+            }
 
             processManager.publish(claimed, delivery, scenarioPackage.packageId());
             log.info("scenario compilation worker published compilationId={} packageId={}",

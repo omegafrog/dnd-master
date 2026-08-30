@@ -157,11 +157,29 @@ public final class ScenarioPackageCompilationService {
             warnings.add("no resolution candidates were produced");
             warnings.addAll(overrideResult.warnings());
         }
+        boolean requiredIncomplete = false;
+        boolean optionalIncomplete = false;
+        for (int index = 0; index < units.size(); index++) {
+            boolean required = overrideResult.effectiveCandidates().get(index) == null
+                    || overrideResult.effectiveCandidates().get(index).required();
+            if (units.get(index).status() != ResolutionStatus.COMPLETE) {
+                if (required) requiredIncomplete = true;
+                else optionalIncomplete = true;
+            }
+        }
+        com.dndmaster.adventure.domain.scenario.CompilationOutcome outcome = requiredIncomplete
+                ? com.dndmaster.adventure.domain.scenario.CompilationOutcome.FAILED
+                : optionalIncomplete
+                        ? com.dndmaster.adventure.domain.scenario.CompilationOutcome.COMPLETE_WITH_WARNINGS
+                        : com.dndmaster.adventure.domain.scenario.CompilationOutcome.COMPLETE;
+        // Preserve the historical report status for old readers. The explicit outcome above
+        // carries the required/optional policy that the legacy enum cannot express.
         boolean hasUnsafeInvalid = units.stream().filter(unit -> unit.status() == ResolutionStatus.INVALID)
                 .anyMatch(unit -> !unit.validationMessages().equals(List.of("dice expression is invalid")));
         boolean hasRecoverableDiceFailure = units.stream().anyMatch(unit -> unit.status() == ResolutionStatus.INVALID
                 && unit.validationMessages().equals(List.of("dice expression is invalid")));
-        ResolutionStatus reportStatus = hasUnsafeInvalid || (!units.isEmpty() && units.stream().allMatch(unit -> unit.status() == ResolutionStatus.INVALID))
+        ResolutionStatus reportStatus = hasUnsafeInvalid
+                || (!units.isEmpty() && units.stream().allMatch(unit -> unit.status() == ResolutionStatus.INVALID))
                 ? ResolutionStatus.INVALID
                 : units.stream().anyMatch(unit -> unit.status() == ResolutionStatus.PARTIAL)
                         || hasRecoverableDiceFailure ? ResolutionStatus.PARTIAL : ResolutionStatus.COMPLETE;
@@ -177,11 +195,11 @@ public final class ScenarioPackageCompilationService {
         ScenarioPackage scenarioPackage = ScenarioPackage.publishWithMaps(
                 bundle.id(), bundle.currentRevision().revision(), fingerprint,
                 bundle.currentRevision().documents(), units,
-                new ScenarioCompilationReport(reportStatus, warnings),
+                new ScenarioCompilationReport(reportStatus, warnings, outcome),
                 characterLimit(bundle, availableExcerpts),
                 characterBlueprint,
                 mapCompilation.maps(), mapCompilation.bindings());
-        if (reportStatus == ResolutionStatus.COMPLETE) {
+        if (outcome != com.dndmaster.adventure.domain.scenario.CompilationOutcome.FAILED) {
             repository.save(scenarioPackage);
         }
         return scenarioPackage;
