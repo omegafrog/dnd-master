@@ -5,26 +5,27 @@
 ## 1.1 Target
 
 | 항목 | 대상 |
-|---|---|
+| --- | --- |
 | Product Spec | `docs/specs/product-spec.md` |
-| Use Cases | UC-218-1/2, UC-219-1, UC-220-1/2, UC-210-1, UC-211-1 |
-| Domain | GM Turn lifecycle, bounded presentation, prompt/model evaluation governance |
-| Bounded Contexts | Adventure Runtime, AI Game Master, GM Quality Governance |
-| Existing Services | `adventure-service`, `ai-game-master-service`, `system-tests` |
-| External Dependencies | rule/tool gateways, AI providers, PostgreSQL, Eval datasets |
-| Affected Data | RuntimeTurn, TurnPlan/ResolvedTurnPlan, writer artifacts, diagnostics, prompt/model registry, eval runs |
+| Use Cases | UC-001–UC-010 |
+| Domain | Scenario compilation diagnostics/recovery, GM Turn lifecycle/failure/quality, tactical readiness/progress, prompt/model governance |
+| Bounded Contexts | Scenario Preparation, Adventure Runtime, AI Game Master, GM Quality Governance |
+| Existing Services | `adventure-service`, `ai-game-master-service`, `gm-eval-service`, `web-ui` |
+| External Dependencies | Document Knowledge, Rule/Tool gateways, Combat Map, AI providers, PostgreSQL, Eval datasets |
+| Affected Data | compilation jobs/candidates/packages, runtime turns/failures/artifacts, tactical jobs, prompt/model lineage |
 
 ## 1.2 Product Spec Mapping
 
-| Product Spec | Architecture |
-|---|---|
-| Resolved Turn 저장 | `RuntimeTurn` aggregate + `ResolvedTurnRepository` |
-| Writer isolation | `WriterContext` + `TurnWriterPort` |
-| bounded retry | `PresentationCoordinator` + lifecycle transition |
-| legacy replay | `LegacyTurnProjection` + compatibility adapter |
-| diagnostics | authenticated read-only `RuntimeTurnDiagnosticsController` |
-| prompt optimization | offline `PromptOptimizationRun` and role registry |
-| fine-tuning gate | `TuningProposal` quality gate, no runtime coupling |
+| Product requirement | Architecture element |
+| --- | --- |
+| UC-001 candidate diagnostics | `ScenarioCompilation` + `CompilationCandidate` + `CandidateValidation` |
+| UC-002 GM failure diagnostics | `RuntimeTurnFailureArtifact` + typed failure mapping |
+| UC-003 Meaningful Progress | `MeaningfulProgressPolicy` + `NarrativeVerifierPort` |
+| UC-004 tactical lazy preparation | `TacticalPreparationJob` + asynchronous worker + readiness policy |
+| UC-005 progress | `PreparationProgress` value object + player projection |
+| UC-006/007 resolved/presentation split | `RuntimeTurn` + `TurnResolutionCoordinator` + `PresentationCoordinator` |
+| UC-008 diagnostics/legacy | read-only diagnostics + compatibility adapters |
+| UC-009/010 quality governance | existing `gm-eval-service` registry, gates, tuning eligibility |
 
 # 2. Domain Flow
 
@@ -32,25 +33,32 @@
 
 ```plantuml
 @startuml
-title GM Turn lifecycle
+title Compilation and Runtime Recovery Flow
 start
-:Solo Player submits action;
-:Runtime Authority accepts idempotency key;
-:Create RuntimeTurn;
-:Plan TurnPlan;
-:Resolve rules/tools;
-:Persist ResolvedTurnPlan;
-:Project WriterContext;
-:Generate prose;
-:Verify presentation;
-if (Writer/Verifier succeeds?) then (yes)
-  :Commit state and presentation;
-  :Return public response;
+:Scenario compilation requested;
+:Extract candidates;
+:Validate each candidate;
+if (candidate incomplete and repairable?) then (yes)
+  :Repair candidate once;
+  :Validate repaired candidate;
+endif
+:Persist candidate diagnostics;
+:Apply required/optional compilation policy;
+if (required candidate incomplete?) then (yes)
+  :Compilation failed;
 else (no)
-  :Retry Writer only;
-  if (retry exhausted?) then (yes)
-    :Persist presentation failure;
-  endif
+  :Publish package complete or with warnings;
+endif
+
+:Solo Player submits GM action;
+:Plan and resolve once;
+:Persist ResolvedTurnPlan;
+:Write narration;
+:Verify intent and meaningful progress;
+if (verified?) then (yes)
+  :Commit presentation and state;
+else (no)
+  :Persist typed failure artifact;
 endif
 stop
 @enduml
@@ -58,176 +66,111 @@ stop
 
 ## 2.2 Commands
 
-| Command | Actor | Target | Input | Preconditions | Result |
-|---|---|---|---|---|---|
-| `SubmitRuntimeTurn` | Solo Player | RuntimeTurn | action, session, commandId, expectedVersion | adventure active, owner, fingerprint unused | planning started or existing result |
-| `ResolveRuntimeTurn` | Runtime Authority | RuntimeTurn | TurnPlan, rule/tool results | turn planning/resolution valid | `ResolvedTurnPersisted` |
-| `PresentRuntimeTurn` | Runtime Authority | RuntimeTurn | resolved turn, WriterContext | resolved and not presented | public response or retryable failure |
-| `RetryPresentation` | Runtime Authority | RuntimeTurn | commandId | resolved, not presented, retry budget | presented or exhausted |
-| `ReadTurnDiagnostics` | Developer | Diagnostics projection | session/turn id | authenticated internal access | read-only artifact view |
-| `RunPromptOptimization` | Operator | Quality Governance | role, candidates, datasets, model | Eval version and split valid | run report |
-| `ApprovePromptCandidate` | Reviewer | Prompt Registry | candidate/run id | hard gates and review complete | active version |
-| `EvaluateTuningProposal` | Reviewer | Quality Governance | proposal, train/dev/holdout | tuning gate satisfied | approve/reject |
+| Command | Actor | Target | Result |
+| --- | --- | --- | --- |
+| `CompileScenario` | Scenario worker | `ScenarioCompilation` | candidate diagnostics and outcome |
+| `RepairCompilationCandidate` | repair policy | `CompilationCandidate` | one revised candidate or unchanged failure |
+| `PublishScenarioPackage` | compiler | `ScenarioPackage` | immutable package version |
+| `SubmitRuntimeTurn` | Solo Player | `RuntimeTurn` | existing/replayed or new lifecycle |
+| `ResolveRuntimeTurn` | Runtime Authority | `RuntimeTurn` | persisted ResolvedTurnPlan |
+| `PresentRuntimeTurn` | Runtime Authority | `RuntimeTurn` | verified response or typed failure |
+| `EnsureTacticalPreparation` | stage-entry policy | `TacticalPreparationJob` | queued existing/new job |
+| `ActivateTacticalScene` | Solo Player | current stage | activation or typed not-ready conflict |
 
-## 2.3 Domain Events
+## 2.3 Domain Events and Policies
 
-| Event | Producer | Trigger | Payload | Consumers |
-|---|---|---|---|---|
-| `RuntimeTurnRequested` | RuntimeTurn | accepted new command | turnId, commandId, fingerprint | runtime coordinator |
-| `TurnPlanResolved` | RuntimeTurn | plan and rules resolved | planId, version, delta fingerprint | presentation coordinator |
-| `ResolvedTurnPersisted` | RuntimeTurn | atomic save succeeds | turnId, resolved fingerprint | diagnostics, replay |
-| `PresentationAttempted` | Presentation coordinator | writer call | attempt, prompt/model versions | diagnostics |
-| `RuntimeTurnPresented` | RuntimeTurn | verified prose and commit | public response ref, versions | conversation/read models |
-| `PresentationFailed` | RuntimeTurn | retry exhausted | failure category, resolved ref | diagnostics/alerting |
-| `PromptRunCompleted` | Quality Governance | offline eval ends | runId, metrics, candidates | reviewer |
-| `PromptVersionActivated` | Quality Governance | reviewer approval | role, version, runId | provider config |
+| Event | Policy | Follow-up |
+| --- | --- | --- |
+| `CompilationCandidateValidated` | recoverability policy | repair once or finalize candidate |
+| `CompilationCandidatesFinalized` | compilation outcome policy | publish, publish with warnings, or fail |
+| `RuntimeTurnResolved` | resolve-before-present | start presentation from persisted result |
+| `PresentationRejected` | retry classification | retry transient provider once; otherwise persist failure |
+| `RuntimeTurnVerified` | commit policy | atomically commit player-visible result |
+| `StoryPlanStageEntered` | tactical preparation policy | enqueue current-stage preparation |
+| `TacticalPreparationCompleted` | readiness policy | allow activation |
 
-## 2.4 Policies
+## 2.4 External Interactions
 
-| Policy | Trigger | Decision | Command | Owner |
-|---|---|---|---|---|
-| Resolve-before-present | requested turn | no prose before resolved persistence | `ResolveRuntimeTurn` | Adventure Runtime |
-| Writer-only retry | presentation failure | never rerun planner/rules/tools | `RetryPresentation` | Adventure Runtime |
-| Idempotent replay | duplicate command/fingerprint | return existing result or conflict | none / resume presentation | RuntimeTurn |
-| Context boundary | writer projection | reject hidden/future/raw reasoning | `PresentRuntimeTurn` rejection | Runtime Runtime |
-| Prompt hard gate | candidate evaluated | hard regression always rejects | review candidate | Quality Governance |
-| Tuning gate | proposal submitted | no tuning without evidence and holdout | evaluate proposal | Quality Governance |
-
-## 2.5 Read Models
-
-| Read Model | Consumer | Source | Fields | Owner |
-|---|---|---|---|---|
-| `RuntimeTurnDiagnosticsView` | developer | lifecycle/artifacts | states, fingerprints, attempts, versions, errors | Adventure Runtime |
-| `PublicTurnResult` | player | presented event | prose, public state, citations | Adventure Runtime |
-| `PromptRunReport` | reviewer | eval results | dataset/model/candidate metrics, deltas, gates | Quality Governance |
-| `ModelConfigurationView` | runtime | approved registry | role, active prompt/model version | Quality Governance |
-
-## 2.6 External Interactions
-
-| System | Trigger | Input | Output | Failure |
-|---|---|---|---|---|
-| Rule/Tool gateways | resolve | selected plan, idempotency | resolved effects | retry via existing saga; no duplicate effect |
-| Knowledge service | plan/context | scoped evidence query | grounded evidence | empty/timeout becomes typed failure |
-| AI provider | plan/write/eval | role-specific prompt/context | typed candidate/prose | bounded role-specific retry |
-| PostgreSQL | lifecycle commit | aggregate/artifacts | versioned rows | transaction rollback/conflict |
-| Eval dataset store | optimization | versioned cases/splits | cases and metadata | run invalidated |
-
-## 2.7 Hotspots
-
-| Hotspot | Decision |
-|---|---|
-| presentation commit boundary | `PRESENTED` transition owns public conversation and runtime state commit |
-| legacy shape | read adapter/projection; no destructive migration required for first slice |
-| lifecycle durability | persist every externally meaningful lifecycle state; intermediate saves are idempotent |
-| runtime JSON evolution | add explicit payload schema version and tolerant reader; malformed data is a compatibility error |
-| prompt storage | registry metadata is durable; prompt content/config is versioned artifact |
-| tuning execution | offline governance boundary; runtime only consumes approved model config |
+| System | Boundary | Failure handling |
+| --- | --- | --- |
+| Document Knowledge | ID/version/source evidence | missing evidence is typed non-repairable validation |
+| AI Game Master | candidate/prose provider port | provider-specific errors translated at adapter |
+| Rule/Tool contexts | Runtime Command Saga | commandId idempotency; no blind replay |
+| Combat Map | tactical preparation/activation ports | readiness and provider failure remain typed |
+| Eval datasets/providers | offline quality ports | never execute in player request path |
 
 # 3. DDD Architecture
 
 ## 3.1 Bounded Contexts
 
-| Context | Responsibility | Owned Model | Owned Data |
-|---|---|---|---|
-| Adventure Runtime | turn ordering, resolution, presentation, public commit | RuntimeTurn, TurnPlan, ResolvedTurnPlan, WriterContext | runtime turns, artifacts, conversation refs |
-| AI Game Master | provider-specific planning/writing/evaluation calls | provider DTOs, completion result | provider operation audit |
-| GM Quality Governance | offline prompt/model/dataset evaluation and approval | PromptCandidate, OptimizationRun, TuningProposal | registry, eval runs, reports |
+| Context | Responsibility | Owned model/data |
+| --- | --- | --- |
+| Scenario Preparation | candidate validation, repair, compilation policy, package publication | `ScenarioCompilation`, candidates, diagnostics, packages |
+| Adventure Runtime | turn lifecycle, failure artifacts, meaningful progress, tactical readiness | runtime turns/artifacts, tactical jobs/read models |
+| AI Game Master | stateless typed proposals and provider translation | provider DTO/audit only |
+| GM Quality Governance | prompt/model Eval, approval, rollback, tuning gate | registry, immutable runs/reports |
 
 ## 3.2 Context Map
 
 ```plantuml
 @startuml
+rectangle "Document Knowledge" as knowledge
+rectangle "Scenario Preparation" as preparation
 rectangle "Adventure Runtime" as runtime
 rectangle "AI Game Master" as ai
 rectangle "GM Quality Governance" as quality
-rectangle "Rule/Tool Contexts" as tools
-runtime --> ai : typed ports / ACL
-runtime --> tools : idempotent command gateways
-quality --> ai : evaluation adapter
-runtime --> quality : approved model configuration only
+rectangle "Rule/Tool + Combat Map" as tools
+knowledge --> preparation : evidence IDs + versions
+preparation --> ai : candidate generation port
+preparation --> runtime : published package version
+runtime --> ai : planning/writing typed ports
+runtime --> tools : idempotent command ports
+quality --> ai : approved role config
 @enduml
 ```
 
-| Upstream | Downstream | Relationship | Contract | Translation |
-|---|---|---|---|---|
-| Adventure Runtime | AI Game Master | Customer/Supplier | `RuntimePlanningPort`, `TurnWriterPort` | typed context/result ACL |
-| Rule/Tool Contexts | Adventure Runtime | Customer/Supplier | existing command saga ports | command/result translation |
-| Quality Governance | Adventure Runtime | Published Language | approved role config | registry projection |
-| AI providers | AI Game Master | ACL | completion client | provider result to domain DTO |
-
 ## 3.3 Aggregates
 
-| Aggregate | Root | Responsibility | Commands | Events | Invariants |
-|---|---|---|---|---|---|
-| `RuntimeTurn` | RuntimeTurn | lifecycle and single-turn idempotency | submit, resolve, present, retry | requested, resolved, presented, failed | legal transitions; one resolution; one presentation commit |
-| `ResolvedTurn` | ResolvedTurnPlan | immutable resolved meaning/effects | create | resolved persisted | no prose; fingerprint stable |
-| `PromptOptimizationRun` | run | candidate evaluation and gate result | run, review, activate, rollback | run completed, version activated | split isolation; hard gate |
-| `TuningProposal` | proposal | evidence-based tuning decision | gate, evaluate, approve | tuning approved/rejected | role-scoped; baseline comparable |
+| Aggregate | Root | Entities | Invariants |
+| --- | --- | --- | --- |
+| Scenario Compilation | `ScenarioCompilation` | `CompilationCandidate` | one repair/candidate; outcome only after all candidates final |
+| Scenario Package | `ScenarioPackage` | accepted resolution units/report projection | only final candidate data; immutable published version |
+| Runtime Turn | `RuntimeTurn` | lifecycle/failure/presentation artifacts | resolve once; commit only verified presentation; replay by fingerprint |
+| Tactical Preparation | `TacticalPreparationJob` | attempts/progress | one durable job per session+stage; only READY activates |
+| Prompt Optimization | existing `PromptOptimizationRun` | candidates/splits/results | hard-first gate; immutable completed run |
 
-## 3.4 Entities
+## 3.4 Entities and Value Objects
 
-| Entity | Aggregate | Identity | Responsibility | State |
-|---|---|---|---|---|
-| `RuntimeTurnAttempt` | RuntimeTurn | turnId + attempt | record writer/verifier attempt | status, error, output ref |
-| `PlannerArtifact` | RuntimeTurn | artifactId | preserve plan candidate/selection | version, fingerprint |
-| `WriterArtifact` | RuntimeTurn | artifactId + attempt | preserve bounded output | prompt/model, output, verification |
-| `PromptCandidate` | OptimizationRun | role + version | candidate metadata/metrics | draft/evaluated/approved/active |
-| `DatasetSplit` | OptimizationRun | dataset + version | train/dev/holdout identity | immutable |
+| Type | Kind | Key fields/behavior |
+| --- | --- | --- |
+| `CompilationCandidate` | entity | candidateId/key, required, completeness, validation, recoverability, repairCount, raw/final refs |
+| `CandidateValidation` | value object | stable code, message, recoverability |
+| `CompilationOutcome` | value object/enum | COMPLETE, COMPLETE_WITH_WARNINGS, FAILED |
+| `RuntimeTurnFailureArtifact` | append-only entity | failureCode, stage, retryable, rootCauseClass, correlationId, attempt |
+| `MeaningfulProgress` | value object | non-empty set of accepted progress categories |
+| `PreparationProgress` | value object | phase, completedUnits, optional totalUnits; derives optional percentage |
+| `TacticalReadiness` | value object | state, stageId/position, activationAllowed, player-safe message |
 
-## 3.5 Value Objects
+## 3.5 Domain Services and Rule Ownership
 
-| Value Object | Values / validation | Behavior |
-|---|---|---|
-| `TurnFingerprint` | canonical input hash, nonblank | equality for conflict detection |
-| `IdempotencyKey` | command-scoped nonblank | duplicate detection |
-| `ResolvedTurnFingerprint` | canonical plan/effect hash | replay identity |
-| `WriterContext` | only public-safe fields | rejects forbidden context |
-| `PromptVersion` | role + semantic version | registry identity |
-| `MetricVector` | hard/soft metrics | gate comparison |
+| Service/policy | Responsibility |
+| --- | --- |
+| `CandidateValidator` | produce stable validation codes and candidate completeness |
+| `CandidateRepairPolicy` | map codes to recoverability and permit one repair |
+| `CompilationOutcomePolicy` | apply required/optional rules after all candidates finalize |
+| `MeaningfulProgressPolicy` | verify player intent resolution and one progress category |
+| `RuntimeTurnFailureClassifier` | convert stage-specific failures to internal artifact/retry decision |
+| `TacticalPreparationStatePolicy` | compose job+scene state into readiness |
 
-## 3.6 Domain Services
+## 3.6 Aggregate State Transitions
 
-| Service | Responsibility | Input | Output |
-|---|---|---|---|
-| `TurnResolutionCoordinator` | plan and resolve once | runtime request | ResolvedTurnPlan |
-| `PresentationCoordinator` | project, write, verify, bounded retry | resolved turn | presentation result |
-| `LegacyTurnProjectionService` | read old rows safely | legacy record | new read model |
-| `PromptCandidateGate` | hard-first metric gate | run metrics | accepted/rejected |
-| `TuningEligibilityPolicy` | enforce preconditions | proposal evidence | eligible/ineligible |
-
-## 3.7 Business Rule Ownership
-
-| Rule | Owner | Enforcement |
-|---|---|---|
-| legal lifecycle transition | RuntimeTurn | `transitionTo` |
-| no duplicate resolution/effect | RuntimeTurn + repository | fingerprint uniqueness and command lookup |
-| writer context safety | WriterContext factory | projection validation |
-| writer-only retry | PresentationCoordinator | retry policy |
-| legacy read-only conversion | LegacyTurnProjectionService | adapter boundary |
-| hard metric precedence | PromptCandidateGate | gate method |
-| tuning prerequisites | TuningEligibilityPolicy | eligibility method |
-
-## 3.8 Aggregate State Transitions
-
-| Current | Command/Event | Next | Owner | Preconditions |
-|---|---|---|---|---|
-| REQUESTED | submit accepted | PLANNING | RuntimeTurn | owner/active adventure |
-| PLANNING | plan accepted | RESOLVING | coordinator | valid plan |
-| RESOLVING | effects persisted | RESOLVED_UNCOMMITTED | RuntimeTurn | idempotent resolution |
-| RESOLVED_UNCOMMITTED | present | WRITING | coordinator | safe projection |
-| WRITING | verified + commit | PRESENTED | RuntimeTurn | same resolved fingerprint |
-| WRITING | writer/verifier failure | PRESENTATION_FAILED_RETRYABLE | RuntimeTurn | attempts remain/exhausted marker |
-| PRESENTATION_FAILED_RETRYABLE | retry | WRITING | coordinator | no state commit |
-
-## 3.9 Repository Boundaries
-
-| Repository | Aggregate | Operations | Consistency |
-|---|---|---|---|
-| `RuntimeTurnRepository` | RuntimeTurn | find by id/command, save versioned | RuntimeTurn transaction |
-| `ResolvedTurnRepository` | ResolvedTurn | save/find by fingerprint | resolution uniqueness |
-| `RuntimeArtifactRepository` | artifacts | append/read | same turn, immutable artifacts |
-| `PromptRegistry` | PromptCandidate | register/activate/rollback | role + version |
-| `OptimizationRunRepository` | OptimizationRun | save/read report | run immutable after completion |
+| Aggregate | Transition | Guard |
+| --- | --- | --- |
+| Candidate | EXTRACTED → VALIDATED → REPAIRING → FINAL | repairCount ≤ 1 |
+| Compilation | REQUESTED → RUNNING → PUBLISHED/WARNED/FAILED | outcome finalized; lease valid |
+| RuntimeTurn | REQUESTED → PLANNING → RESOLVING → RESOLVED_UNCOMMITTED → WRITING → PRESENTED | public commit only at PRESENTED |
+| RuntimeTurn | WRITING → PRESENTATION_FAILED_RETRYABLE → WRITING | only transient provider retry budget remains |
+| TacticalJob | QUEUED → RUNNING → COMPLETE/FAILED_RETRYABLE | stage job identity stable |
 
 # 4. Program Design
 
@@ -235,441 +178,238 @@ runtime --> quality : approved model configuration only
 
 ```plantuml
 @startuml
-component "AdventureController" as entry
-component "RuntimeTurnApplicationService" as app
-component "RuntimeTurn / Coordinators" as domain
-interface "RuntimeTurnRepository / AI ports" as ports
-component "Postgres + AI adapters" as infra
-entry --> app
+component "API" as api
+component "Application coordinators" as app
+component "Domain aggregates/policies" as domain
+interface "Ports" as ports
+component "Postgres/HTTP adapters" as infra
+api --> app
 app --> domain
 app --> ports
 infra ..|> ports
 @enduml
 ```
 
-## 4.2 Major Components and Responsibilities
+Dependency rule remains `ui → app → domain`; `app → ports`; `infra → ports`. Domain must not depend on Spring, DB, HTTP, provider DTOs, or UI percentage conventions.
 
-| Component | Responsibility | Must Not Do |
-|---|---|---|
-| `AdventureController` | public turn/retry API | domain transition or provider call |
-| `RuntimeTurnApplicationService` | transaction orchestration | own prompt text or provider semantics |
-| `RuntimeTurn` | lifecycle/invariant enforcement | load repositories |
-| `PresentationCoordinator` | writer/verifier bounded flow | resolve rules/tools |
-| `WriterContext` | safe input boundary | expose raw RAG/hidden state |
-| `RuntimeTurnDiagnosticsController` | authenticated read-only projection | mutate/retry turn |
-| AI adapters | provider translation and timeout | commit runtime state |
-| Quality Governance runner | offline eval/registry | execute in player request path |
+## 4.2 Major Components
 
-## 4.3 Application Flow
+| Component | Responsibility | Must not do |
+| --- | --- | --- |
+| `ScenarioPackageCompilationService` | orchestrate validation and package projection | infer recoverability from message text |
+| `ScenarioCompilationWorker` | claim/deliver job and classify infrastructure retry | retry deterministic package outcome |
+| `TurnResolutionCoordinator` | plan and resolve once | generate narration |
+| `PresentationCoordinator` | write, verify, safety-check, classify failure | rerun rules/tools |
+| `RuntimeTurnApplicationService` | transaction orchestration and compatibility facade | contain provider-specific exception tree |
+| `TacticalScenePreparationApplicationService` | enqueue/query/retry jobs | execute generation inline in request thread |
+| `TacticalScenePreparationWorker` | claim and execute durable preparation | expose raw failure to player |
 
-```plantuml
-@startuml
-start
-:AdventureController.submit;
-:RuntimeTurnApplicationService;
-if (existing command?) then (yes)
-  :fingerprint compare;
-  :return existing or resume presentation;
-else (no)
-  :create RuntimeTurn;
-  :resolve once;
-  :persist ResolvedTurn;
-  :project WriterContext;
-  :write + verify;
-  if (success?) then (yes)
-    :commit presentation/state;
-  else (no)
-    :retry writer only / persist failure;
-  endif
-endif
-:public response;
-stop
-@enduml
-```
-
-## 4.4 Component Call Contracts
-
-| # | Caller | Callee | Operation | Failure |
-|---:|---|---|---|---|
-| 1 | Controller | RuntimeTurnApplicationService | `submitTurn(command)` | validation/conflict |
-| 2 | Application | RuntimeTurnRepository | `findByCommandId` | persistence failure |
-| 3 | ResolutionCoordinator | planning/rule ports | `resolve` | typed resolution failure |
-| 4 | Application | ResolvedTurnRepository | `saveIfAbsent` | duplicate/version conflict |
-| 5 | PresentationCoordinator | WriterContextFactory | `project` | boundary violation |
-| 6 | PresentationCoordinator | TurnWriterPort | `write(context)` | provider/shape error |
-| 7 | PresentationCoordinator | NarrativeVerifierPort | `verify(context, prose)` | verifier error |
-| 8 | Application | RuntimeTurnRepository | `savePresented` | transaction failure |
-| 9 | DiagnosticsController | DiagnosticsService | `read(session, turn)` | auth/not found |
-| 10 | QualityRunner | Eval adapters | `evaluate(candidate, split)` | invalid run |
-
-## 4.5 Major Types
-
-| Type | Kind | Responsibility |
-|---|---|---|
-| `RuntimeTurnLifecycle` | domain enum | legal lifecycle |
-| `ResolvedTurnPlan` | domain value/object | immutable resolved meaning |
-| `WriterContext` | domain value/object | safe writer boundary |
-| `TurnWriterPort` | output port | prose generation |
-| `NarrativeVerifierPort` | output port | presentation validation |
-| `RuntimeTurnDiagnosticsApplicationService` | app service | read-only diagnostics |
-| `PromptRegistry` | quality port | approved prompt versions |
-| `PromptCandidateGate` | domain service | metric gate |
-
-## 4.6 Type Design
-
-### `RuntimeTurn`
-
-| 항목 | 정의 |
-|---|---|
-| Kind | aggregate root |
-| Responsibility | lifecycle, idempotency, immutable resolved reference |
-| Dependencies | value objects only |
-| Must Not Depend On | Spring, repositories, AI clients |
-
-| Field | Meaning | Constraint |
-|---|---|---|
-| `turnId` | stable identity | immutable |
-| `commandId` | request identity | unique per turn request |
-| `turnFingerprint` | request payload identity | conflict on mismatch |
-| `lifecycle` | current state | legal transitions only |
-| `resolvedFingerprint` | resolved result identity | immutable after resolve |
-| `presentationAttempts` | writer attempts | bounded |
-
-| Method | Responsibility |
-|---|---|
-| `resolve(resolved)` | attach once and transition |
-| `beginPresentation()` | transition to writing |
-| `failPresentation(error)` | mark retryable failure |
-| `presented(result)` | commit boundary transition |
-| `canReplay(fingerprint)` | duplicate decision |
-
-## 4.7 Interfaces and Function Signatures
+## 4.3 Interfaces and Signatures
 
 ```java
-interface ResolvedTurnRepository {
-    Optional<ResolvedTurnPlan> findByTurnId(TurnId turnId);
-    ResolvedTurnPlan saveIfAbsent(ResolvedTurnPlan resolved);
+interface CompilationCandidateRepository {
+    List<CompilationCandidate> findByCompilationId(UUID compilationId);
+    void saveAll(UUID compilationId, List<CompilationCandidate> candidates);
 }
 
-interface TurnWriterPort {
-    WriterProse write(WriterContext context, ResolvedTurnPlan resolved);
+interface CandidateRepairPort {
+    ResolutionCandidate repair(ResolutionCandidate candidate, List<CandidateValidation> validation);
 }
 
-interface RuntimeTurnDiagnosticsQuery {
-    RuntimeTurnDiagnosticsView get(TurnId turnId, DiagnosticsPrincipal principal);
+interface RuntimeTurnFailureRepository {
+    void append(RuntimeTurnFailureArtifact failure);
+    List<RuntimeTurnFailureArtifact> findByTurnId(UUID turnId);
+}
+
+interface TacticalPreparationCommandPort {
+    TacticalReadiness ensure(UUID sessionId, int stagePosition);
+    TacticalReadiness retry(UUID sessionId, int stagePosition);
 }
 ```
 
-`TurnWriterPort` must not accept raw RAG, hidden future state, planner reasoning, State Delta, or tool command objects.
+## 4.4 Error Propagation
 
-## 4.8 Error Propagation
-
-| Failure Point | Source | Converted Error | Handler | Result |
-|---|---|---|---|---|
-| command lookup | DB | persistence error | application | retryable server failure |
-| fingerprint mismatch | domain | idempotency conflict | controller | conflict response |
-| resolution | gateway/provider | resolution failure | coordinator | no resolved turn |
-| writer | provider/schema | presentation attempt failure | coordinator | writer-only retry |
-| verifier | policy/provider | presentation rejection | coordinator | rewrite/retry or failure |
-| diagnostics | auth | forbidden/not found | controller | no mutation |
-| eval split | dataset | invalid run | runner | run rejected |
-
-## 4.9 Dependency Rules
-
-Allowed: `api → app → domain`; `app → ports`; `infra → ports`; quality runner → AI evaluation adapter.
-
-Forbidden: `domain → Spring/DB/AI client`; `writer → repository/state mutation`; `runtime request → tuning runner`; `diagnostics → mutation command`.
+| Source | Internal failure | Retry | External result |
+| --- | --- | ---: | --- |
+| candidate validation | stable validation code | candidate repair ≤1 | package warning/failure |
+| provider timeout/unavailable | `PROVIDER_*` at stage | 1 | stable retryable GM error |
+| JSON/citation/judgment/narration | typed validation failure | 0 | stable non-auto-retried error |
+| safety | safety failure artifact | 0 | safe alternative only if separately verified |
+| version conflict | conflict artifact | 0 | refresh/retry instruction |
+| tactical not ready | readiness conflict | 0 | structured 409 |
 
 # 5. Technical Architecture
 
 ## 5.1 Service and Module Mapping
 
-| Context | Component | Service | Runtime |
-|---|---|---|---|
-| Adventure Runtime | lifecycle/application | `adventure-service` | synchronous HTTP + DB transaction |
-| AI Game Master | planning/writing adapters | `ai-game-master-service` | provider-bound HTTP/client |
-| Quality Governance | eval/registry | `ai-game-master-service` offline module or dedicated worker | batch/offline |
+| Context | Service/module |
+| --- | --- |
+| Scenario Preparation | `adventure-service` scenario packages |
+| Adventure Runtime | `adventure-service` runtime/storyplan packages |
+| AI Game Master | `ai-game-master-service` |
+| GM Quality Governance | existing `gm-eval-service` |
+| Player projection | `web-ui` adventure-session feature |
 
-## 5.2 Service and Module Boundaries
+No new deployment service. Scenario Preparation and Adventure Runtime remain separate internal boundaries inside `adventure-service` per ADR-002.
 
-| Service | Public Contract | Internal Components |
-|---|---|---|
-| adventure | existing turn API + internal diagnostics | runtime app/domain/infra |
-| ai-game-master | typed provider operations | provider ACL, prompt/model selection |
-| quality runner | run report/registry contract | dataset, metrics, gate, review |
+## 5.2 Data Ownership and Schema Changes
 
-## 5.3 System Interaction Flow
+| Target | Change | Compatibility |
+| --- | --- | --- |
+| `scenario_compilation_candidate` | new additive table for candidate state/diagnostics/refs | old compilations have no candidate rows; report remains readable |
+| scenario package report | add `CompilationOutcome`; retain tolerant reader for legacy `ResolutionStatus` | map legacy COMPLETE directly; preserve legacy PARTIAL/INVALID as historical outcome |
+| runtime failure artifact | new append-only table or versioned JSON child collection | legacy GmTurn failure fields projected into typed read model where provable |
+| tactical job | add phase/completed_units/nullable total_units; retain legacy progress reader | old integer progress maps to known-percent legacy phase |
+| runtime/provider lineage | additive approved prompt/model/run references | absent lineage remains explicit legacy/unknown |
 
-Runtime request remains synchronous through resolution and presentation. Prompt optimization/tuning never runs in player request path. Approved model configuration is read-only runtime input.
+Candidate rows minimally contain: id, compilation_id, candidate_type/key, required, completeness, validation JSON, recoverability, repair_attempt_count, raw/final resolution refs, timestamps. Raw provider content is referenced, not duplicated into logs.
 
-## 5.4 Synchronous Communication
+## 5.3 API Contracts
 
-| Caller | Provider | Protocol | Operation | Timeout |
-|---|---|---|---|---|
-| adventure | AI GM | internal HTTP/port | plan/write/verify | existing provider deadline |
-| diagnostics client | adventure | internal authenticated HTTP | read diagnostics | standard API timeout |
+### Tactical activation conflict
 
-## 5.5 API Contracts
-
-### Existing public turn endpoint
-
-Preserve current request/response shape. Internally attach `commandId`, lifecycle, and artifact references; do not expose hidden artifacts.
-
-### `GET /internal/v1/runtime-turns/{turnId}/diagnostics`
-
-Response contains lifecycle, turn/resolved fingerprints, artifact metadata, attempt statuses, prompt/model versions, verifier result, and compatibility flags. It excludes raw secrets, hidden narrative facts, planner chain-of-thought, and mutable commands.
-
-| Property | Value |
-|---|---|
-| Authentication | internal service auth + developer authorization |
-| Authorization | read-only diagnostics |
-| Idempotency | not applicable |
-| Compatibility | additive internal endpoint |
-
-## 5.6 Asynchronous Communication
-
-Offline Eval and tuning are batch jobs. Runtime does not await them. Registry activation publishes a versioned configuration update or is read on next request with cache invalidation.
-
-## 5.7 Message Contracts
-
-`PromptVersionActivated`: `{messageId, role, promptVersion, modelVersion, optimizationRunId, evalVersion, occurredAt}`. Duplicate activation is harmless; older version cannot overwrite newer active version without explicit rollback.
-
-## 5.8 Data Ownership
-
-| Data | Owner | Storage | Readers | Writers |
-|---|---|---|---|---|
-| RuntimeTurn/resolved/artifacts | Adventure Runtime | PostgreSQL | runtime, diagnostics | runtime app |
-| public conversation/state | Adventure Runtime | existing stores | player runtime | presentation commit |
-| prompt registry | Quality Governance | versioned registry/DB | AI adapters, reviewers | governance |
-| eval reports/datasets | Quality Governance | artifact store/DB | reviewers | offline runner |
-
-## 5.9 Schema Changes
-
-| Target | Change | Migration | Compatibility |
-|---|---|---|---|
-| runtime turn table | add resolved/presentation lifecycle and fingerprints if absent | additive migration/backfill legacy projection | old rows readable |
-| runtime artifact table | append planner/resolved/writer metadata | additive | no old row rewrite required |
-| runtime JSON payload | add explicit schema version | tolerant reader plus fixture migration tests | legacy defaults only where semantics are provable |
-| prompt registry | role/version/model/run/metrics/status | new schema | no runtime fallback to unapproved candidate |
-
-## 5.10 Consistency Model
-
-| Operation | Consistency | Source of Truth | Recovery |
-|---|---|---|---|
-| resolve once | strong per turn | RuntimeTurn + resolved row | replay saved result |
-| presentation commit | strong transaction | RuntimeTurn + runtime state | retry presentation only |
-| diagnostics | read committed | persisted artifacts | eventual index acceptable |
-| prompt optimization | immutable run | run report | rerun with new run id |
-| active prompt config | versioned published | registry | explicit rollback |
-
-## 5.11 Infrastructure Dependencies
-
-PostgreSQL through repositories; existing AI provider clients through ports; existing rule/tool gateways through saga ports; dataset/artifact storage through quality adapters.
-
-## 5.12 External Dependency Isolation
-
-Provider-specific response, model id, retry, and prompt formatting remain in `ai-game-master-service` adapters. Adventure Runtime receives domain DTOs only. Dataset runner receives an `EvaluationPort`, not a concrete provider.
-
-## 5.13 File and Module Structure
-
-### Existing relevant structure
-
-```text
-src/adventure-service/.../application/runtime/
-  RuntimeTurnApplicationService.java
-  RuntimeTurnLifecycle.java
-  RuntimeTurnRepository.java
-  ResolvedTurnPlan.java
-  WriterContext.java
-  TurnWriterPort.java
-  RuntimeTurnDiagnosticsApplicationService.java
-src/adventure-service/.../test/
-  RuntimeTurnApplicationServiceTest.java
-  RuntimeTurnPostgresIntegrationTest.java
-  RuntimeTurnDiagnosticsApplicationServiceTest.java
-  TurnWriterContractTest.java
-src/ai-game-master-service/.../infrastructure/ai/
-  GmCompletionAdapter.java
-  SpringAiChatAdapter.java
+```json
+{
+  "code": "TACTICAL_SCENE_NOT_READY",
+  "stageId": "...",
+  "stagePosition": 1,
+  "state": "PREPARING"
+}
 ```
 
-### Target structure
+### Progress projection
 
-```text
-adventure/application/runtime/
-  RuntimeTurnApplicationService
-  TurnResolutionCoordinator
-  PresentationCoordinator
-  RuntimeTurnDiagnosticsApplicationService
-  ports/*
-adventure/domain/runtime/
-  RuntimeTurn
-  ResolvedTurnPlan
-  WriterContext
-  lifecycle/*
-adventure/infra/runtime/
-  PostgresRuntimeTurnRepository
-  PostgresResolvedTurnRepository
-  LegacyTurnProjectionAdapter
-ai-game-master/quality/
-  PromptRegistry
-  PromptOptimizationRunner
-  PromptCandidateGate
-  TuningEligibilityPolicy
+```json
+{
+  "phase": "TACTICAL_MAP_PREPARATION",
+  "completedUnits": 2,
+  "totalUnits": null,
+  "percentage": null
+}
 ```
 
-## 5.14 File Change Map
+Player APIs expose stable code, state, safe message, retry action. Internal diagnostics expose stage, recoverability/retryability, correlation and artifact metadata under existing internal authorization.
 
-| Path | Action | Responsibility |
-|---|---|---|
-| `adventure/application/runtime/RuntimeTurnApplicationService.java` | modify/split orchestration | call coordinators, preserve API |
-| `adventure/application/runtime/RuntimeTurnLifecycle.java` | modify | canonical transitions and failed state semantics |
-| `adventure/application/runtime/ResolvedTurnPlan.java` | modify | immutable persistence contract |
-| `adventure/application/runtime/WriterContext.java` | modify | strict safe projection |
-| `adventure/application/runtime/RuntimeTurnRepository.java` | extend | resolved/artifact/idempotency queries |
-| `adventure/application/runtime/RuntimeTurnDiagnosticsApplicationService.java` | extend | read-only projection |
-| `adventure/api/*` | modify/add | internal diagnostics, public compatibility |
-| `adventure` migrations/adapters | add/modify | additive lifecycle/artifact schema |
-| `ai-game-master` quality module | add | offline registry, run, gate, tuning proposal |
-| existing runtime tests | extend | lifecycle, concurrency, legacy, writer boundary |
+## 5.4 File Change Map
+
+| Path/area | Action | Responsibility |
+| --- | --- | --- |
+| `domain/scenario/ScenarioCompilation.java` | modify | candidate/outcome lifecycle identity |
+| `domain/scenario/ScenarioCompilationReport.java` | modify | package-level outcome only |
+| `domain/scenario/CompilationCandidate*.java` | add | candidate entity, completeness, validation, recoverability |
+| `application/scenario/compilation/ScenarioPackageCompilationService.java` | split/modify | validator + outcome policy orchestration |
+| `application/scenario/compilation/ScenarioCompilationWorker.java` | modify | transient delivery retry only |
+| `infrastructure/persistence/PostgresScenarioCompilation*` | extend | candidate diagnostics storage |
+| `application/runtime/RuntimeTurn.java` | evolve | canonical aggregate/failure references |
+| `application/runtime/TurnResolutionCoordinator.java` | add/extract | resolve once |
+| `application/runtime/PresentationCoordinator.java` | add/extract | writer/verifier/failure classification |
+| `application/runtime/RuntimeTurnFailure*.java` | add/modify | typed append-only failures |
+| `application/runtime/MeaningfulProgress*.java` | add | verifier policy/value object |
+| `api/RuntimeTurnDiagnosticsController.java` | extend | typed read-only diagnostics/redaction |
+| `api/AdventureController.java` | modify | route canonical RuntimeTurn; legacy projection only |
+| `application/runtime/TacticalScenePreparationApplicationService.java` | modify | enqueue/query, no inline execution |
+| `application/runtime/TacticalScenePreparationWorker.java` | add | durable async processing |
+| `application/runtime/TacticalPreparationReadModel.java` | modify | phase/count/nullable total projection |
+| `api/AdventureStoryPlanController.java` | modify | structured readiness error |
+| `web-ui/.../AdventureSessionApi.ts` | modify | typed phase/readiness contracts |
+| `web-ui/.../AdventureStoryPlanPage.tsx` | modify | determinate/indeterminate rendering |
+| `gm-eval-service` registry/runtime adapter seam | extend | approved role lineage consumed by provider router |
 
 # 6. Runtime Design
 
-## 6.1 Runtime Flow
+## 6.1 Transactions, Idempotency, Ordering
 
-Use optimistic versioning on RuntimeTurn and adventure state. On duplicate command, return existing result; on same command id with different fingerprint, reject. Save resolution before any presentation commit. `PRESENTED` is the only state allowed to commit public conversation and state delta.
+| Operation | Boundary | Idempotency/order |
+| --- | --- | --- |
+| candidate finalize | one compilation | candidate key + repair count; diagnostics saved before outcome |
+| package publish | one compilation/package | publish once after final outcome |
+| runtime resolve | one RuntimeTurn | commandId + turn fingerprint; persisted before presentation |
+| presentation commit | RuntimeTurn + owned runtime state transaction | resolved fingerprint; one public commit |
+| tactical ensure | session+stage | create-or-get durable job |
+| tactical worker | job lease | claim token; restart unfinished jobs |
 
-## 6.2 Concurrent Access
+Compilation worker attempts count infrastructure delivery only. Candidate repair count lives on candidate and never increments compilation delivery attempt.
 
-| Resource | Actors | Conflict |
-|---|---|---|
-| RuntimeTurn | duplicate player requests/retry worker | duplicate resolution or lost update |
-| adventure state | concurrent turns | stale expected version |
-| active prompt role | reviewer/runtime reads | stale config |
+## 6.2 Partial Failure
 
-## 6.3 Concurrency Control
-
-| Target | Unit | Strategy | Owner |
-|---|---|---|---|
-| RuntimeTurn | turnId/commandId | unique key + optimistic lock | RuntimeTurn repository |
-| adventure state | adventure version | existing optimistic lock | Runtime Authority |
-| prompt activation | role/version | compare-and-set + explicit rollback | registry |
-
-## 6.4 Ordering
-
-Runtime operations ordered per adventure/turn. Writer attempts ordered per resolved turn. Eval candidates may run parallel but report aggregation is deterministic by candidate id and seed.
-
-## 6.5 Transaction Boundaries
-
-| Transaction | Operations | Commit |
-|---|---|---|
-| resolution | create/request, lifecycle saves, resolve result, persist resolved | resolved row durable; no public commit |
-| presentation | writer artifact, verifier result, public state/conversation, presented lifecycle | verified result committed |
-| retry | load resolved, writer attempt, presentation commit | presented or failure marker |
-| diagnostics | read only | no writes |
-
-## 6.6 Idempotency
-
-| Operation | Key | Detection | Duplicate |
-|---|---|---|---|
-| submit | commandId + fingerprint | RuntimeTurnRepository | existing result/resume |
-| resolve | turnId + resolved fingerprint | resolved repository | existing resolved |
-| tool saga | existing command key | gateway journal | stored tool result |
-| present | turnId + resolved fingerprint | lifecycle row | existing prose/attempt |
-
-## 6.7 Partial Failure
-
-| Situation | Persisted | External | Recovery |
-|---|---|---|---|
-| provider fails before resolution | last durable lifecycle state | no committed effect | retry planning if safe |
-| tool partially executes | saga journal | effect may exist | existing saga recovery, never blind rerun |
-| writer fails | resolved + attempt | no runtime commit | Writer-only retry |
-| DB commit fails after provider output | artifact may be absent | no state commit | replay from idempotent resolution |
+| Failure | Persisted state | Recovery |
+| --- | --- | --- |
+| candidate repair provider fails | original candidate + repair artifact | transient provider retry once inside repair; then finalize incomplete |
+| required candidate incomplete | all diagnostics + FAILED outcome | new compilation only after input/policy change |
+| writer fails | ResolvedTurnPlan + failure artifact | transient provider retry once, no re-resolution |
+| verifier rejects | resolved + typed failure | no automatic retry unless explicit safe rewrite policy applies |
+| tactical worker stops | leased job/progress | lease recovery and resume/retry |
 
 # 7. Error Handling and Recovery
 
-## 7.1 Failure Classification
+## 7.1 Typed Failure Taxonomy
 
-| Error | Category | Retryable | Result |
-|---|---|---|---|
-| fingerprint mismatch | conflict | no | 409/conflict |
-| stale version | concurrency | bounded | retry with current result or conflict |
-| provider timeout in writer | infrastructure | yes | writer retry |
-| writer schema violation | validation | yes, bounded | presentation failure |
-| context leak | security/domain | no automatic expansion | reject and audit |
-| legacy decode failure | compatibility | no blind retry | diagnostic error |
-| hard metric regression | policy | no | candidate rejected |
+`RuntimeFailureStage`: PLANNING, RESOLUTION, PRESENTATION, CITATION_VERIFICATION, JUDGMENT_VERIFICATION, NARRATION_SAFETY, NARRATIVE_VERIFICATION, COMMIT.
+
+`RuntimeFailureCode`: PROVIDER_TIMEOUT, PROVIDER_UNAVAILABLE, INVALID_PLANNER_RESPONSE, CITATION_VALIDATION_FAILED, JUDGMENT_VALIDATION_FAILED, NARRATION_SAFETY_FAILED, NARRATIVE_VERIFICATION_FAILED, NO_MEANINGFUL_PROGRESS, ADVENTURE_VERSION_CONFLICT.
+
+Root-cause class is diagnostic metadata, not public contract. Raw exception messages/provider bodies are redacted.
 
 ## 7.2 Retry Policy
 
-| Operation | Condition | Max | Exhausted |
-|---|---|---:|---|
-| writer | provider transient/schema/verifier rewrite | configured bounded count; default existing one-rewrite policy | `PRESENTATION_FAILED_RETRYABLE` |
-| resolved replay | persisted resolved exists | 0 resolution retries | presentation only |
-| tool saga | existing gateway policy | existing bound | saga failure |
-| eval | deterministic runner error | 0 candidate substitution | run invalid |
-
-## 7.3 Compensation / Rollback
-
-No compensation for prose. State/tool compensation remains owned by existing command saga. Prompt/model activation uses explicit previous-version rollback. Tuning never mutates active config during evaluation.
+| Operation | Retry condition | Max additional attempts |
+| --- | --- | ---: |
+| candidate repair | `REPAIRABLE`/approved `MAYBE_REPAIRABLE` | 1 per candidate |
+| compilation delivery | lease/DB/transient infrastructure only | existing bounded worker policy |
+| GM provider call | timeout/unavailable | 1 |
+| validation/verifier/safety/conflict | never automatic | 0 |
+| tactical job | player/operator retry after FAILED_RETRYABLE | one new claimed attempt per explicit retry |
 
 # 8. Security
 
-## 8.1 Authentication and Authorization
-
-| Entry | Authentication | Authorization |
-|---|---|---|
-| public turn API | existing player auth | adventure owner/member policy |
-| internal diagnostics | internal token + authenticated developer | read-only diagnostics role |
-| registry approval | operator/reviewer auth | quality governance role |
-
-## 8.2 Sensitive Data
-
-Hidden facts, raw RAG, planner reasoning, provider secrets, and training data with unclear rights are excluded from Writer output, diagnostics, logs, and tuning datasets as applicable. Logs use IDs/fingerprints, not secret content.
+- Public responses never include raw provider response, root-cause message, hidden story facts, raw RAG, planner reasoning, or internal failure artifact.
+- Candidate diagnostics and runtime diagnostics require existing internal-service authentication and developer/operator authorization.
+- WriterContext remains allow-list based. Writer and AI candidate providers have no persistence or domain-command authority.
+- Prompt/tuning data requires provenance and quality gate; secrets and unclear-rights data are excluded.
 
 # 9. Observability
 
-## 9.1 Logs and Metrics
+| Signal | Required attributes |
+| --- | --- |
+| candidate validation metric | type, validationCode, completeness, recoverability, required |
+| compilation outcome metric | outcome, requiredIncompleteCount, optionalIncompleteCount, repairCount |
+| runtime failure metric | failureCode, stage, retryable, provider/model version |
+| meaningful progress metric | category or NO_MEANINGFUL_PROGRESS |
+| tactical preparation metric | phase, state, attempt, duration |
+| trace correlation | compilationId/candidateId or sessionId/turnId/correlationId |
 
-Log lifecycle transitions, command/fingerprint, attempt, provider/model version, verifier category, and compatibility result. Never log hidden context or full prompt by default.
-
-Metrics: resolution duplicate rate, writer retry rate, presentation failure rate, commit conflict rate, legacy decode failure rate, prompt hard violation rate, soft quality delta, holdout delta, tuning cost/latency.
-
-## 9.2 Tracing
-
-Trace spans: `runtime.submit`, `runtime.resolve`, `runtime.persist_resolved`, `runtime.write`, `runtime.verify`, `runtime.commit_presented`, `quality.eval_candidate`. Attributes include turnId, runId, role, version, and attempt.
+Alerts target repeated required candidate failures, provider transient exhaustion, no-meaningful-progress rate, tactical job lease stalls, and legacy/canonical GM lifecycle divergence.
 
 # 10. Change Boundaries
 
-## 10.1 Allowed Changes
+## 10.1 Allowed
 
-- Additive RuntimeTurn lifecycle/artifact persistence and adapters.
-- Split application orchestration while preserving public API.
-- Strict WriterContext and port contracts.
-- Internal authenticated diagnostics.
-- Offline quality registry/eval/tuning governance.
+- Additive candidate/failure/progress persistence and compatibility readers.
+- Internal application-service splits preserving public APIs.
+- Typed internal failure and player-safe error projections.
+- Canonical RuntimeTurn routing with explicit legacy adapter.
 
-## 10.2 Forbidden Changes
+## 10.2 Forbidden
 
-- Writer direct access to repositories, state mutation, tool invocation, raw RAG, hidden state, or planner reasoning.
-- Re-running rule/tool resolution during Writer retry.
-- Exposing internal artifacts or secrets through public turn API.
-- Activating prompt/model candidates without hard gate and review.
-- Running fine-tuning in synchronous player request path.
+- Message-text-based recoverability.
+- Deterministic candidate/validation failure as worker delivery retry.
+- Writer or AI provider direct persistence/state mutation.
+- Rule/tool replay during presentation retry.
+- StoryPlan READY implying Tactical READY.
+- Invented percentage when total is unknown.
+- Eval/tuning execution in synchronous runtime path.
 
-## 10.3 Conditional Changes
+## 10.3 Conditional
 
-| Target | Condition | Decision |
-|---|---|---|
-| legacy schema migration | existing rows cannot project safely | additive backfill only after compatibility test |
-| fine-tuning runtime config | tuning passes all gates | role-scoped activation, default remains rollbackable |
-| dedicated quality service | offline workload exceeds current module boundary | extract behind same registry/eval ports |
+- Legacy GmTurn schema deletion only after all readers/writers route through canonical RuntimeTurn and compatibility coverage passes.
+- Dedicated quality deployment only if existing `gm-eval-service` boundary cannot meet offline workload.
+- Backfill candidate diagnostics only when historical source artifacts make values provable; otherwise mark legacy unknown.
 
 # 11. Verification Requirements
 
-- Unit: lifecycle transition, fingerprint conflict, resolved immutability, WriterContext rejection, writer-only retry, hard metric gate, tuning eligibility.
-- Integration: PostgreSQL resolved/artifact persistence, optimistic concurrency, duplicate replay, legacy row/JSON projection, public API compatibility.
-- Contract: `TurnWriterContractTest`, diagnostics response redaction, AI provider typed port, prompt registry schema.
-- System/E2E: submit → resolve → writer failure → retry → presented; duplicate request; legacy replay; diagnostics read-only authorization.
-- Quality: fixed seed Eval run, train/dev/holdout isolation, hard regression rejection, baseline comparison, approval and rollback.
-- Required existing seams to extend: `RuntimeTurnApplicationServiceTest`, `RuntimeTurnPostgresIntegrationTest`, `RuntimeCompatibilityPostgresIntegrationTest`, `PostgresGmTurnConcurrencyIntegrationTest`, `RuntimeTurnDiagnosticsApplicationServiceTest`, `TurnWriterContractTest`.
+- Unit: validation-code/recoverability mapping, one-repair invariant, required/optional outcome matrix, MeaningfulProgress categories, failure classifier/retry matrix, tactical readiness/progress projection.
+- Integration: candidate diagnostics schema/repository, package legacy compatibility, runtime failure artifact append/read, canonical/legacy runtime projection, tactical lease recovery.
+- Contract: candidate/provider typed ports, public GM error redaction, structured tactical 409, nullable progress total/percentage, diagnostics authorization.
+- System/E2E: partial optional package publishes with warnings; required incomplete fails without worker loop; provider transient retries once; deterministic GM failure does not retry; empty-progress narration rejects; stage entry prepares then activates when READY; unknown total renders indeterminate.
+- Existing tests to extend: `ScenarioPackageCompilationServiceTest`, `ScenarioCompilationWorkerTest`, `PostgresScenarioCompilationRepositoryIntegrationTest`, `RuntimeTurnApplicationServiceTest`, `RuntimeTurnFailurePersistenceTest`, `RuntimeTurnCompatibilityTest`, `TurnWriterContractTest`, `TacticalPreparationStatePolicyTest`, `TacticalScenePreparationApplicationServiceTest`, `TacticalMapActivationApplicationServiceTest`, `AdventureSessionControllerTacticalStartTest`, `TacticalScenePreparationProgress.test.tsx`, `backend-potent-brew-tactical.spec.ts`.
+- Compatibility: existing public turn response, old ScenarioPackage report JSON, legacy RuntimeTurn/GmTurn rows, and old integer tactical progress remain readable during migration.

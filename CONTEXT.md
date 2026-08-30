@@ -30,12 +30,17 @@
 - **Scenario Package**: Scenario Source Bundle을 분석하고 컴파일해 만든 버전형 산출물. Source Span 검색 자료, Resolution Unit, 원문 참조, 추출 경고, 사용자 수정, 컴파일 보고서를 포함한다. 자체로 실제 플레이 가능성을 보증하지 않는다.
 - **Runtime Binding**: 특정 Scenario Package 버전을 실제 GM agent, 게임 엔진, 룰북 지식 집합, 캐릭터, 도구와 결합한 세션 실행 구성.
 - **Compilation Status**: 원본 자료의 추출, 구조화, 근거 연결, 컴파일 완전성을 나타내는 상태. 실제 플레이 가능성과 구분한다.
+- **Compilation Candidate**: Scenario Package 컴파일 중 개별 판정·근거·서술 요소에 대해 추출하고 검증하는 후보. 각 후보는 전체 컴파일 결과와 독립된 완전성 상태와 진단을 가진다.
+- **Candidate Completeness**: Compilation Candidate의 검증 결과. 요구 정보를 충족한 `COMPLETE`, 일부 정보가 부족한 `PARTIAL`, 사용할 수 없는 `INVALID`로 구분한다.
+- **Candidate Recoverability**: 불완전한 Compilation Candidate를 동일 근거 안에서 보완할 가능성. `REPAIRABLE`, `MAYBE_REPAIRABLE`, `NON_REPAIRABLE`로 구분하며 자동 반복 재시도 가능성과는 별개다.
+- **Compilation Outcome**: 모든 Compilation Candidate 처리 후 required/optional 정책을 적용한 Scenario Package 컴파일 결과. `COMPLETE`, `COMPLETE_WITH_WARNINGS`, `FAILED`로 구분한다.
 - **Playability Status**: Runtime Binding을 대상으로 프리플라이트한 결과. 현재 GM agent와 게임 엔진 구성으로 핵심 흐름을 실행할 수 있는지를 나타낸다.
 - **Runtime Health**: 실제 세션 중 검색 실패, 상태 충돌, 시나리오 이탈 등 실행 품질을 나타내는 상태.
 - **Source Span**: 원본 문서의 텍스트나 시각 요소와 그 위치를 보존하는 추적 단위. PDF와 이미지는 페이지·좌표·읽기 순서, DOCX와 TXT는 구조·문자 범위를 사용한다. 시나리오 컴파일 전 과정의 정본이다.
 - **Progressive Scenario Compilation**: Source Span을 정본으로 유지하면서 안전하게 해석할 수 있는 판정과 굴림만 Resolution Unit으로 투영하는 방식. 구조화하지 못한 내용은 버리거나 추측하지 않고 원문 조회로 강등한다.
 - **Resolution Unit**: 시나리오 원문에 명시된 판정 또는 굴림 절차를 실행 가능한 형태로 투영한 단위. 능력치·기술 판정, 내성, 공격, 피해, 회복, 대항, 우선권, 충전, 랜덤 테이블, 특수 굴림, 수동 수치 기준을 포함한다. 원문에 없는 절차나 결과는 생성하지 않는다.
 - **GM Turn**: Solo Player의 텍스트 입력 또는 확정된 맵 상호작용 하나를 AI Game Master가 해석하고, 판정·서술·상태 변화·다음 상황을 하나의 원자적 결과로 확정하는 진행 단위. 게임 시스템의 전투 턴이나 시간 단위와 구분한다.
+- **Meaningful Progress**: GM Turn이 플레이어 의도를 해결하면서 세계 상태 변경, 정보 공개, 결과를 수반한 행동 실패, 구체적 결정 요구, 진행 달성 중 하나 이상을 만든 상태. 어느 것도 없으면 `NO_MEANINGFUL_PROGRESS`다.
 - **Tactical Map**: Scenario Bundle에서 감지되어 Adventure Story Plan의 장면·장소·진입 조건에 연결되는 격자형 플레이 공간. 탐험, 잠입, 추격, 전투에 사용한다.
 - **Map Interaction Candidate**: Solo Player가 토큰 드래그, 문·오브젝트 클릭, 대상 또는 위치 선택을 완료했지만 확인 팝오버에서 아직 확정하지 않은 맵 행동. 확인 전에는 모험 상태를 바꾸지 않는다.
 - **Fog of War**: 플레이어 토큰의 시야, 벽, 문, 장애물, 발견 판정을 바탕으로 Tactical Map의 현재 가시 영역, 과거 탐험 영역, 미탐험 영역을 구분하는 공개 규칙.

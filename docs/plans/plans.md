@@ -1,14 +1,21 @@
-# GM Turn Lifecycle And Quality Governance Plan Index
+# Failure Observability And Recovery Plan Index
 
-| Plan | Parent | Status | Dependencies | Vertical outcome |
-|---|---:|---|---|---|
-| [220](220-planning-diagnostics-compatibility.md) | #220 | `completed` | #219 completed | diagnostics, legacy replay, duplicate/retry compatibility |
-| [GMQ-001](GMQ-001-prompt-registry-baseline.md) | [#231](https://github.com/omegafrog/dnd-master/issues/231) / #210 | `ready-for-agent` | #220 | role registry, baseline, split contract |
-| [GMQ-002](GMQ-002-gated-prompt-evaluation.md) | [#232](https://github.com/omegafrog/dnd-master/issues/232) / #210 | `planned` | GMQ-001 | hard-gated candidate Eval/report |
-| [GMQ-003](GMQ-003-prompt-approval-rollback.md) | [#233](https://github.com/omegafrog/dnd-master/issues/233) / #210 | `planned` | GMQ-002 | review, activation, lineage, rollback |
-| [GMQ-004](GMQ-004-tuning-readiness-gate.md) | [#234](https://github.com/omegafrog/dnd-master/issues/234) / #211 | `planned` | GMQ-003 | data/evidence tuning gate |
-| [GMQ-005](GMQ-005-role-scoped-tuning-evaluation.md) | [#235](https://github.com/omegafrog/dnd-master/issues/235) / #211 | `planned` | GMQ-004 | guarded role tuning activation |
+Parent: [#237](https://github.com/omegafrog/dnd-master/issues/237)
 
-## Dependency Decision
+Tracker: GitHub `omegafrog/dnd-master`
 
-`#218`, `#219` completed prerequisites. `#220` only dependency-free executable plan. Prompt optimization starts after diagnostics/compatibility. Fine-tuning starts only through readiness gate.
+| Plan | Issue | Status | Dependencies |
+| --- | --- | --- | --- |
+| [TT-001](TT-001-compilation-candidate-diagnostics.md) | [#238](https://github.com/omegafrog/dnd-master/issues/238) | `ready-for-agent` | 없음 |
+| [TT-002](TT-002-bounded-candidate-repair.md) | [#239](https://github.com/omegafrog/dnd-master/issues/239) | `planned` | TT-001 |
+| [TT-003](TT-003-typed-gm-failure-artifacts.md) | [#240](https://github.com/omegafrog/dnd-master/issues/240) | `ready-for-agent` | 없음 |
+| [TT-004](TT-004-meaningful-progress.md) | [#241](https://github.com/omegafrog/dnd-master/issues/241) | `planned` | TT-003 |
+| [TT-005](TT-005-async-tactical-readiness.md) | [#242](https://github.com/omegafrog/dnd-master/issues/242) | `ready-for-agent` | 없음 |
+| [TT-006](TT-006-phase-based-progress.md) | [#243](https://github.com/omegafrog/dnd-master/issues/243) | `planned` | TT-005 |
+| [TT-007](TT-007-runtime-prompt-lineage.md) | [#244](https://github.com/omegafrog/dnd-master/issues/244) | `planned` | TT-003 |
+
+```text
+TT-001 → TT-002
+TT-003 → TT-004, TT-007
+TT-005 → TT-006
+```
