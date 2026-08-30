@@ -307,7 +307,7 @@ class AdventureStoryPlanControllerMarkdownTest {
         assertTrue(prompt.contains("JSON shape constraint"));
         assertTrue(prompt.contains("non-empty array of strings"));
         assertTrue(prompt.contains("citationKey"));
-        assertTrue(prompt.contains("Every sourceFactClaims item MUST be an object with non-empty fieldPath, normalizedClaim, and citationKeys"));
+        assertTrue(prompt.contains("Every sourceFactClaims item MUST be an object with non-empty fieldPath, normalizedClaim, citationKeys, and origin"));
         assertTrue(prompt.contains("combatSkeleton.rewards MUST be an array of the same claim objects"));
         assertTrue(prompt.contains("previousViolations"));
     }

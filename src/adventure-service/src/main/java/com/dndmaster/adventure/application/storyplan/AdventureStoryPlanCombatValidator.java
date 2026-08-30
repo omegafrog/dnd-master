@@ -84,7 +84,7 @@ public final class AdventureStoryPlanCombatValidator {
                 }
                 var source = sources.get(key);
                 if (source == null) {
-                    violations.add(violation(stage, "SOURCE_FACT_CLAIM_UNKNOWN_CITATION", path, claim.normalizedClaim(),
+                    violations.add(repairableViolation(stage, "SOURCE_FACT_CLAIM_UNKNOWN_CITATION", path, claim.normalizedClaim(),
                             "source fact citation key is not registered: " + key));
                 } else if (!supports(source.quote(), claim.normalizedClaim())) {
                     violations.add(violation(stage, "SOURCE_FACT_CLAIM_UNSUPPORTED", path, claim.normalizedClaim(),
@@ -103,7 +103,7 @@ public final class AdventureStoryPlanCombatValidator {
                 for (String key : participant.citationKeys()) {
                     if (!evidence.containsKey(key) || !sources.containsKey(key)
                             || !supports(sources.get(key).quote(), participant.name())) {
-                        violations.add(violation(stage, "COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED",
+                        violations.add(repairableViolation(stage, "COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED",
                                 "combatSkeleton.participants[" + index + "].name", participant.name(),
                                 "combat participant is not supported by its field-specific source"));
                     } else if (!supportsCount(sources.get(key).quote(), participant.minimumCount(), participant.maximumCount())) {
@@ -115,6 +115,14 @@ public final class AdventureStoryPlanCombatValidator {
                 }
             }
         }
+    }
+
+    private static AdventureStoryPlanProjectionViolation repairableViolation(AdventureStoryPlanStage stage,
+            String code, String path, String rejectedValue, String message) {
+        return new AdventureStoryPlanProjectionViolation(code, stage.position(),
+                path.startsWith("stages[") ? path : "stages[" + Math.max(0, stage.position() - 1) + "]." + path,
+                rejectedValue, "authoritative source evidence",
+                AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE, message);
     }
 
     private static List<SourceFactClaim> allClaims(AdventureStoryPlanStage stage) {
@@ -190,11 +198,9 @@ public final class AdventureStoryPlanCombatValidator {
     private static boolean requiresRegeneration(String code) {
         return code.equals("SOURCE_FACT_CLAIM_FIELD_INVALID")
                 || code.equals("SOURCE_FACT_CLAIM_UNBOUND")
-                || code.equals("SOURCE_FACT_CLAIM_UNKNOWN_CITATION")
                 || code.equals("SOURCE_FACT_CLAIM_UNSUPPORTED")
                 || code.equals("COMBAT_REQUIREMENT_MISMATCH")
                 || code.equals("COMBAT_PARTICIPANT_SOURCE_REQUIRED")
-                || code.equals("COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED")
                 || code.equals("COMBAT_PARTICIPANT_COUNT_UNSUPPORTED");
     }
 }

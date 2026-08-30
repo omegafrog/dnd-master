@@ -95,7 +95,7 @@ class AdventureStoryPlanCombatValidatorTest {
 
         assertTrue(violations.stream().anyMatch(v ->
                 v.code().equals("COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED")
-                        && v.repairability() == AdventureStoryPlanProjectionViolation.Repairability.REGENERATE_REQUIRED));
+                        && v.repairability() == AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE));
     }
 
     @Test
