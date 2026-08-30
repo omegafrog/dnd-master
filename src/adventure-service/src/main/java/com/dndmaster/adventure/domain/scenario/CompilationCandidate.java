@@ -36,8 +36,14 @@ public record CompilationCandidate(
     public static CompilationCandidate of(UUID compilationId, String key, String type, boolean required,
             CandidateCompleteness completeness, List<CandidateValidation> validations,
             CandidateRecoverability recoverability, String rawRef, String finalRef) {
+        return of(compilationId, key, type, required, completeness, validations, recoverability, 0, rawRef, finalRef);
+    }
+
+    public static CompilationCandidate of(UUID compilationId, String key, String type, boolean required,
+            CandidateCompleteness completeness, List<CandidateValidation> validations,
+            CandidateRecoverability recoverability, int repairAttemptCount, String rawRef, String finalRef) {
         Instant now = Instant.now();
         return new CompilationCandidate(UUID.randomUUID(), compilationId, key, type, required,
-                completeness, validations, recoverability, 0, rawRef, finalRef, now, now);
+                completeness, validations, recoverability, repairAttemptCount, rawRef, finalRef, now, now);
     }
 }

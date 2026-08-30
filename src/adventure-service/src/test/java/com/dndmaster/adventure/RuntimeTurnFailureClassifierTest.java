@@ -25,4 +25,12 @@ class RuntimeTurnFailureClassifierTest {
         assertFalse(citation.retryable());
         assertFalse(classifier.allowsAutomaticRetry(citation));
     }
+
+    @Test
+    void safety_failure_is_not_shadowed_by_the_narration_keyword() {
+        var failure = new RuntimeTurnFailureClassifier().classify(UUID.randomUUID(), RuntimeTurnFailureStage.SAFETY,
+                new IllegalStateException("narration safety rejected"), UUID.randomUUID(), 1);
+        assertEquals(RuntimeTurnFailureCode.SAFETY_FAILURE, failure.failureCode());
+        assertFalse(failure.retryable());
+    }
 }

@@ -141,8 +141,11 @@ public final class ScenarioCompilationWorker {
                                     .filter(excerpt -> resolutionExcerpts.contains(excerpt))
                                     .toList(),
                             "resolution-candidate-v1", "resolution-prompt-v1"));
+            List<ResolutionCandidate> extractedCandidates = candidates == null ? List.of() : List.copyOf(candidates);
+            List<ScenarioResolutionUnit> rawResolutionUnits = compiler.validateResolutionCandidates(bundle,
+                    extractedCandidates, resolutionExcerpts);
             candidates = repairInvalidCandidates(
-                    claimed.id().toString(), bundle, candidates == null ? List.of() : candidates, resolutionExcerpts);
+                    claimed.id().toString(), bundle, extractedCandidates, resolutionExcerpts);
 
             List<CharacterContextSearchPort.Evidence> characterContext = searchCharacterContext(bundle);
             List<CharacterInputTagExtractionPort.SourceExcerpt> tagExcerpts = characterContext.stream()
@@ -159,7 +162,7 @@ public final class ScenarioCompilationWorker {
                     excerpts == null ? List.of() : excerpts,
                     characterCandidates == null ? List.of() : characterCandidates);
             candidateRepository.saveAll(claimed.id(), CompilationCandidateFactory.from(
-                    claimed.id(), candidates == null ? List.of() : candidates, scenarioPackage.units()));
+                    claimed.id(), extractedCandidates, rawResolutionUnits, scenarioPackage.units()));
 
             if (scenarioPackage.report().outcome()
                     == com.dndmaster.adventure.domain.scenario.CompilationOutcome.FAILED) {

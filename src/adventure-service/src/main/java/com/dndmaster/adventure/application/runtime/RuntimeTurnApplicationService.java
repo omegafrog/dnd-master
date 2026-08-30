@@ -323,16 +323,8 @@ public class RuntimeTurnApplicationService {
             throw failure;
         }
         List<ExemplarResult> exemplars = retrieveExemplars(plan, command.action());
-        WriterProse prose;
-        try {
-            prose = writerPort.write(WriterContext.of(narrativeContext, resolvedPlan, exemplars));
-            if (writerPort instanceof LegacyTurnWriterAdapter) prose = new WriterProse(plan.narration());
-            prose = verifyAndRewrite(resolvedPlan, prose, resolvedTurn, narrativeState, narrativeContext, evidencePack);
-        } catch (RuntimeException failure) {
-            failurePersistence.persist(resolvedTurn, FAILURE_CLASSIFIER.classify(resolvedTurn.turnId(),
-                    RuntimeTurnFailureStage.PRESENTATION, failure, resolvedTurn.commandId(), 1));
-            throw failure;
-        }
+        WriterProse prose = writePresentationWithRetry(resolvedTurn, resolvedPlan, narrativeState,
+                narrativeContext, evidencePack, exemplars);
         try {
             NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
                     prose.prose(), evidencePack, adventure.currentContext(), command.action()));
@@ -429,6 +421,26 @@ public class RuntimeTurnApplicationService {
         }
     }
 
+    private WriterProse writePresentationWithRetry(RuntimeTurn turn, ResolvedTurnPlan resolvedPlan,
+                                                    NarrativeState narrativeState, NarrativeContext narrativeContext,
+                                                    EvidencePack evidencePack, List<ExemplarResult> exemplars) {
+        for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+                WriterProse prose = writerPort.write(WriterContext.of(narrativeContext, resolvedPlan, exemplars));
+                if (writerPort instanceof LegacyTurnWriterAdapter) prose = new WriterProse(turn.plan().narration());
+                return verifyAndRewrite(resolvedPlan, prose, turn, narrativeState, narrativeContext, evidencePack);
+            } catch (RuntimeException failure) {
+                RuntimeTurnFailureArtifact artifact = FAILURE_CLASSIFIER.classify(turn.turnId(),
+                        RuntimeTurnFailureStage.PRESENTATION, failure, turn.commandId(), attempt);
+                if (attempt == 2 || !FAILURE_CLASSIFIER.allowsAutomaticRetry(artifact)) {
+                    failurePersistence.persist(turn, artifact);
+                    throw failure;
+                }
+            }
+        }
+        throw new IllegalStateException("presentation retry exhausted");
+    }
+
     private ResolvedTurnPlan captureApprovedPromptLineage(ResolvedTurnPlan resolvedPlan) {
         if (approvedPromptConfigurationReadPort == null) return resolvedPlan;
         Map<String, EffectivePromptLineage> lineages = new java.util.LinkedHashMap<>();
@@ -494,17 +506,15 @@ public class RuntimeTurnApplicationService {
         NarrativeContext narrativeContext = state.project(adventure.ownerPlayerId().value().toString(),
                 turn.resolvedArtifact().plan().scene());
         List<ExemplarResult> exemplars = retrieveExemplars(turn.plan(), turn.action());
-        WriterProse prose;
+        WriterProse prose = writePresentationWithRetry(turn, turn.resolvedArtifact(), state, narrativeContext,
+                turn.evidencePack(), exemplars);
         try {
-            prose = writerPort.write(WriterContext.of(narrativeContext, turn.resolvedArtifact(), exemplars));
-            if (writerPort instanceof LegacyTurnWriterAdapter) prose = new WriterProse(turn.plan().narration());
-            prose = verifyAndRewrite(turn.resolvedArtifact(), prose, turn, state, narrativeContext, turn.evidencePack());
             NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
                     prose.prose(), turn.evidencePack(), turn.context(), turn.action()));
             if (!safety.approved()) throw new IllegalStateException("narration safety rejected: " + safety.reason());
         } catch (RuntimeException failure) {
             failurePersistence.persist(turn, FAILURE_CLASSIFIER.classify(turn.turnId(),
-                    RuntimeTurnFailureStage.PRESENTATION, failure, turn.commandId(), 1));
+                    RuntimeTurnFailureStage.SAFETY, failure, turn.commandId(), 1));
             throw failure;
         }
         RuntimePlan presentedPlan = withNarration(turn.plan(), prose.prose());

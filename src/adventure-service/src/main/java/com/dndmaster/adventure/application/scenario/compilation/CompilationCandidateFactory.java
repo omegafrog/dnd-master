@@ -16,6 +16,12 @@ public final class CompilationCandidateFactory {
     public static List<CompilationCandidate> from(UUID compilationId,
             List<? extends com.dndmaster.adventure.domain.scenario.ResolutionCandidate> requested,
             List<ScenarioResolutionUnit> validated) {
+        return from(compilationId, requested, List.of(), validated);
+    }
+
+    public static List<CompilationCandidate> from(UUID compilationId,
+            List<? extends com.dndmaster.adventure.domain.scenario.ResolutionCandidate> requested,
+            List<ScenarioResolutionUnit> rawValidated, List<ScenarioResolutionUnit> validated) {
         List<CompilationCandidate> result = new ArrayList<>();
         for (int index = 0; index < validated.size(); index++) {
             ScenarioResolutionUnit unit = validated.get(index);
@@ -38,10 +44,14 @@ public final class CompilationCandidateFactory {
                     : validations.stream().map(CandidateValidation::recoverability)
                             .reduce(CompilationCandidateFactory::leastRecoverable)
                             .orElse(CandidateRecoverability.NON_REPAIRABLE);
+            int repairCount = index < rawValidated.size()
+                    && rawValidated.get(index).status() != com.dndmaster.adventure.domain.scenario.ResolutionStatus.COMPLETE
+                    && unit.status() == com.dndmaster.adventure.domain.scenario.ResolutionStatus.COMPLETE ? 1 : 0;
+            String rawReference = index < rawValidated.size() ? reference(rawValidated.get(index)) : reference(unit);
             result.add(CompilationCandidate.of(compilationId, key,
                     unit.kind() == null ? "UNKNOWN" : unit.kind().name(),
                     source == null || source.required(), completeness, validations, recoverability,
-                    reference(unit), reference(unit)));
+                    repairCount, rawReference, reference(unit)));
         }
         return List.copyOf(result);
     }
