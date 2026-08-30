@@ -21,7 +21,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 
 /** Executes one queued scenario compilation delivery. */
 public final class ScenarioCompilationWorker {
-    private static final int MAX_RESOLUTION_RECOVERY_ATTEMPTS = 3;
     private static final int MAX_ATTEMPTS = 3;
     private static final String WORKER_ID = "scenario-compilation-worker";
     private static final Duration LEASE = Duration.ofMinutes(5);
@@ -142,7 +141,7 @@ public final class ScenarioCompilationWorker {
                                     .filter(excerpt -> resolutionExcerpts.contains(excerpt))
                                     .toList(),
                             "resolution-candidate-v1", "resolution-prompt-v1"));
-            candidates = recoverInvalidResolutions(
+            candidates = repairInvalidCandidates(
                     claimed.id().toString(), bundle, candidates == null ? List.of() : candidates, resolutionExcerpts);
 
             List<CharacterContextSearchPort.Evidence> characterContext = searchCharacterContext(bundle);
@@ -164,7 +163,7 @@ public final class ScenarioCompilationWorker {
 
             if (scenarioPackage.report().outcome()
                     == com.dndmaster.adventure.domain.scenario.CompilationOutcome.FAILED) {
-                throw new IllegalStateException(
+                throw new ScenarioCompilationRejectedException(
                         "scenario package compilation report is " + scenarioPackage.report().status());
             }
 
@@ -175,7 +174,7 @@ public final class ScenarioCompilationWorker {
         } catch (RuntimeException exception) {
             String reason = exception.getMessage() == null || exception.getMessage().isBlank()
                     ? "scenario compilation failed" : exception.getMessage();
-            if (claimed.attempt() >= MAX_ATTEMPTS) {
+            if (exception instanceof ScenarioCompilationRejectedException || claimed.attempt() >= MAX_ATTEMPTS) {
                 processManager.fail(claimed, delivery, reason);
             } else {
                 processManager.retry(claimed, delivery, reason);
@@ -186,47 +185,41 @@ public final class ScenarioCompilationWorker {
         }
     }
 
-    private List<ResolutionCandidate> recoverInvalidResolutions(
+    private List<ResolutionCandidate> repairInvalidCandidates(
             String operationId, ScenarioSourceBundle bundle, List<ResolutionCandidate> original,
             List<ResolutionExtractionPort.SourceExcerpt> excerpts) {
         List<ResolutionCandidate> recovered = new ArrayList<>(original);
-        for (int attempt = 1; attempt <= MAX_RESOLUTION_RECOVERY_ATTEMPTS; attempt++) {
-            List<ScenarioResolutionUnit> units = compiler.validateResolutionCandidates(bundle, recovered, excerpts);
-            List<Integer> invalidIndexes = new ArrayList<>();
-            for (int index = 0; index < units.size(); index++) {
-                if (units.get(index).status() == com.dndmaster.adventure.domain.scenario.ResolutionStatus.INVALID) {
-                    invalidIndexes.add(index);
-                }
+        List<ScenarioResolutionUnit> units = compiler.validateResolutionCandidates(bundle, recovered, excerpts);
+        CandidateRepairPolicy policy = new CandidateRepairPolicy();
+        for (int index = 0; index < units.size(); index++) {
+            ScenarioResolutionUnit unit = units.get(index);
+            if (unit.status() == com.dndmaster.adventure.domain.scenario.ResolutionStatus.COMPLETE) continue;
+            String code = validationCode(unit.validationMessages());
+            if (!policy.mayRepair(code, 0)) continue;
+            ResolutionCandidate failed = recovered.get(index);
+            if (failed == null) continue;
+            List<ResolutionExtractionPort.SourceExcerpt> targets = excerpts.stream()
+                    .filter(excerpt -> references(failed, excerpt)).distinct().toList();
+            ResolutionCandidate replacement = extractionPort.retryCandidate(new ResolutionExtractionPort.CandidateRetryRequest(
+                    operationId + ":candidate-repair-" + index, failed, targets,
+                    "resolution-candidate-v1", "resolution-repair-prompt-v1", 1, unit.validationMessages()));
+            if (replacement != null && compiler.validateResolutionCandidates(bundle, List.of(replacement), excerpts).getFirst().status()
+                    == com.dndmaster.adventure.domain.scenario.ResolutionStatus.COMPLETE) {
+                recovered.set(index, replacement);
             }
-            if (invalidIndexes.isEmpty()) return recovered;
-
-            List<ResolutionExtractionPort.SourceExcerpt> targets = invalidIndexes.stream()
-                    .map(recovered::get)
-                    .flatMap(candidate -> excerpts.stream().filter(excerpt -> references(candidate, excerpt)))
-                    .distinct().toList();
-            if (targets.isEmpty()) return recovered;
-
-            List<ResolutionCandidate> retry = extractionPort.extract(new ResolutionExtractionPort.ResolutionExtractionRequest(
-                    operationId + ":resolution-recovery-" + attempt, targets,
-                    "resolution-candidate-v1", "resolution-recovery-prompt-v1"));
-            if (retry == null || retry.isEmpty()) {
-                log.warn("resolution recovery returned no candidates operationId={} attempt={} invalid={}",
-                        operationId, attempt, invalidIndexes.size());
-                continue;
-            }
-            for (int index : invalidIndexes) {
-                ResolutionCandidate replacement = retry.stream()
-                        .filter(candidate -> candidate != null && targets.stream().anyMatch(target -> references(candidate, target)))
-                        .filter(candidate -> compiler.validateResolutionCandidates(bundle, List.of(candidate), excerpts).getFirst().status()
-                                != com.dndmaster.adventure.domain.scenario.ResolutionStatus.INVALID)
-                        .findFirst().orElse(null);
-                if (replacement != null) recovered.set(index, replacement);
-            }
-            log.info("resolution recovery completed operationId={} attempt={} invalidBefore={} recovered={}",
-                    operationId, attempt, invalidIndexes.size(), invalidIndexes.stream()
-                            .filter(index -> recovered.get(index) != original.get(index)).count());
         }
         return recovered;
+    }
+
+    private static String validationCode(List<String> messages) {
+        if (messages == null || messages.isEmpty()) return "";
+        return switch (messages.getFirst()) {
+            case "dice expression is invalid" -> "DICE_EXPRESSION_INVALID";
+            case "recharge range is invalid" -> "RECHARGE_RANGE_INVALID";
+            case "source excerpt is unavailable" -> "SOURCE_EXCERPT_UNAVAILABLE";
+            case "source quote cannot be verified against referenced excerpt" -> "SOURCE_QUOTE_UNVERIFIED";
+            default -> "NON_REPAIRABLE";
+        };
     }
 
     private static boolean references(

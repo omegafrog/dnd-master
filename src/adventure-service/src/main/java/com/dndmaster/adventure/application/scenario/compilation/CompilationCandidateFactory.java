@@ -50,6 +50,7 @@ public final class CompilationCandidateFactory {
             com.dndmaster.adventure.domain.scenario.ResolutionStatus status) {
         String code = switch (message) {
             case "dice expression is invalid" -> "DICE_EXPRESSION_INVALID";
+            case "recharge range is invalid" -> "RECHARGE_RANGE_INVALID";
             case "source reference is missing" -> "SOURCE_REFERENCE_MISSING";
             case "source excerpt is unavailable" -> "SOURCE_EXCERPT_UNAVAILABLE";
             case "source quote cannot be verified against referenced excerpt" -> "SOURCE_QUOTE_UNVERIFIED";
@@ -58,7 +59,7 @@ public final class CompilationCandidateFactory {
                     + message.toUpperCase(java.util.Locale.ROOT).replaceAll("[^A-Z0-9]+", "_");
         };
         CandidateRecoverability recoverability = switch (code) {
-            case "DICE_EXPRESSION_INVALID", "SOURCE_EXCERPT_UNAVAILABLE" -> CandidateRecoverability.REPAIRABLE;
+            case "DICE_EXPRESSION_INVALID", "RECHARGE_RANGE_INVALID", "SOURCE_EXCERPT_UNAVAILABLE" -> CandidateRecoverability.REPAIRABLE;
             case "SOURCE_QUOTE_UNVERIFIED" -> CandidateRecoverability.MAYBE_REPAIRABLE;
             default -> CandidateRecoverability.NON_REPAIRABLE;
         };

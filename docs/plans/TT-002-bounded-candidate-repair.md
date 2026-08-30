@@ -1,7 +1,7 @@
 # TT-002: Bounded Candidate Repair And Worker Retry Separation
 
 - Issue: [#239](https://github.com/omegafrog/dnd-master/issues/239)
-- Status: `ready-for-agent`
+- Status: `completed`
 - Dependencies: TT-001 `completed`
 - Parent: [#237](https://github.com/omegafrog/dnd-master/issues/237)
 
@@ -34,3 +34,10 @@
 
 - TT-001 candidate schema 재사용
 - unrelated dirty worker/E2E 변경 보존
+
+## Completion Evidence
+
+- Added typed `CandidateRepairPolicy` and `CandidateRepairPort` with one-attempt invariant.
+- Worker now repairs eligible candidates once through `retryCandidate`; deterministic incomplete outcomes fail immediately.
+- Delivery retry remains reserved for transient/infrastructure failures.
+- Verification: targeted worker and candidate-repair policy tests passed.

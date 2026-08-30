@@ -81,7 +81,7 @@ class ScenarioCompilationWorkerTest {
     }
 
     @Test
-    void limitsResolutionRecoveryToThreeRetries() {
+    void limitsCandidateRepairToOneAttempt() {
         KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(List.of(
                 document(storybook, ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 2)));
@@ -98,10 +98,40 @@ class ScenarioCompilationWorkerTest {
                 ignored -> List.of(excerpt), fixture.tags, fixture.search,
                 new ScenarioPackageCompilationService(fixture.packages), fixture.packages);
 
-        ScenarioPackage result = worker.processNext("worker", Duration.ofMinutes(1)).orElseThrow();
+        IllegalStateException failure = assertThrows(
+                IllegalStateException.class,
+                () -> worker.processNext("worker", Duration.ofMinutes(1)));
 
-        assertEquals(4, calls[0]);
-        assertEquals("INVALID", result.units().getFirst().status().name());
+        assertEquals(2, calls[0]);
+        assertTrue(failure.getMessage().contains("INVALID"));
+    }
+
+    @Test
+    void doesNotPublishACompilationWhenThePackageReportIsNotComplete() {
+        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(List.of(
+                document(storybook, ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 2)));
+        ResolutionExtractionPort.SourceExcerpt excerpt = new ResolutionExtractionPort.SourceExcerpt(
+                storybook, 2, "page:1", "Burning Web (Recharge 5-6)");
+        com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate invalid =
+                new com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate(
+                ResolutionKind.RECHARGE_ROLL, null, null, null, ResolutionVisibility.GM_REFERENCE,
+                "Burning Web (Recharge 5-6)", List.of(new ScenarioSourceReference(storybook, 2, "page:1")),
+                "source text", null);
+        Fixture fixture = new Fixture(bundle);
+        ScenarioCompilationWorker worker = new ScenarioCompilationWorker(
+                fixture.manager, fixture.compilations, fixture.queue, new Bundles(bundle),
+                request -> List.of(invalid), ignored -> List.of(excerpt), fixture.tags, fixture.search,
+                new ScenarioPackageCompilationService(fixture.packages), fixture.packages);
+        String fingerprint = fixture.compilations.values.values().iterator().next().inputFingerprint();
+
+        IllegalStateException failure = assertThrows(
+                IllegalStateException.class,
+                () -> worker.processNext("worker", Duration.ofMinutes(1)));
+
+        assertTrue(failure.getMessage().contains("INVALID"));
+        assertEquals("FAILED", fixture.compilations.findByInputFingerprint(fingerprint).orElseThrow().status().name());
+        assertTrue(fixture.packages.values.isEmpty());
     }
 
     @Test
