@@ -31,6 +31,7 @@ import com.dndmaster.adventure.domain.adventure.SourceConstraintPack;
 import com.dndmaster.adventure.domain.adventure.StoryPlanGenerationMode;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionViolation.Repairability;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.dndmaster.adventure.application.runtime.EvidencePack;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
@@ -50,6 +51,8 @@ public final class AdventureStoryPlanApplicationService {
     private final StoryPlanStructuralGuard structuralGuard = new StoryPlanStructuralGuard();
     private final ObjectMapper projectionMapper = new ObjectMapper();
     private final StoryPlanSemanticConsistencyJudge semanticJudge;
+    private final StoryPlanScopedMerger scopedMerger = new StoryPlanScopedMerger(projectionMapper);
+    private final RepairScopeResolver repairScopeResolver = new RepairScopeResolver();
 
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions) {
         this(plans, sessions, null, request -> AdventureStoryPlanGenerationPort.ProjectionCandidate
@@ -145,6 +148,7 @@ public final class AdventureStoryPlanApplicationService {
         int repairsOnCandidate = 0;
         boolean repairNext = false;
         String stopReason = "";
+        List<AdventureStoryPlanProjectionViolation> accumulatedViolations = List.of();
         List<SemanticVerdict> semanticVerdicts = new ArrayList<>();
         while (totalAttempts < 5) {
             int attempt = totalAttempts + 1;
@@ -157,26 +161,28 @@ public final class AdventureStoryPlanApplicationService {
             try {
                 totalAttempts++;
                 if (repairNext) {
-                    RepairScope repairScope = AdventureStoryPlanProjectionDependencyPolicy.scope(
-                            rejectedCandidate, activeViolations);
+                    RepairScope repairScope = repairScopeResolver.resolve(rejectedCandidate, accumulatedViolations);
+                    logAttempt(request, AttemptType.REPAIR, totalAttempts, repairScope, accumulatedViolations, "STARTED");
                     LOGGER.info("story_plan_projection_repair_scope operationId={} attempt={} blockers={} dependents={} repairable={}",
                             request.operationId(), attempt,
                             repairScope.blockerPaths(), repairScope.dependentPaths(), repairScope.isRepairable());
                     AdventureStoryPlanGenerationPort.ProjectionCandidate repaired = generator.repair(
                             new AdventureStoryPlanGenerationPort.RepairRequest(
                                     request.operationId(), request.packageRevision(), request.partySize(), configuration,
-                                    rejectedCandidate, activeViolations, repairScope, request.sourceDocuments(), request.resolutionEvidence(),
+                                    rejectedCandidate, accumulatedViolations, repairScope, request.sourceDocuments(), request.resolutionEvidence(),
                                     request.maps(), request.citations()));
                     if (repaired == null) throw new AdventureStoryPlanCandidateValidationException(
                             List.of("repair returned no full story plan candidate"), rejectedCandidate);
                     candidateForValidation = repaired.serializedCandidate();
                     if (!rejectedCandidate.isBlank()) {
-                        AdventureStoryPlanProjectionRepairPolicy.assertOnlyListedFieldsChanged(
-                                projectionMapper.readTree(rejectedCandidate), projectionMapper.readTree(candidateForValidation), repairScope);
+                        candidateForValidation = scopedMerger.merge(rejectedCandidate, candidateForValidation, repairScope).toString();
                     }
-                    stages = repaired.stages();
+                    stages = readMergedStages(candidateForValidation);
                     repairNext = false;
                 } else {
+                    logAttempt(request, regenerationCount == 0 && totalAttempts == 1
+                            ? AttemptType.INITIAL_GENERATION : AttemptType.FULL_REGENERATION,
+                            totalAttempts, null, accumulatedViolations, "STARTED");
                     AdventureStoryPlanGenerationPort.ProjectionCandidate generated = generator.generate(request);
                     if (generated == null) throw new AdventureStoryPlanCandidateValidationException(
                             List.of("AI returned no full story plan candidate"));
@@ -211,14 +217,17 @@ public final class AdventureStoryPlanApplicationService {
                 break;
             } catch (AdventureStoryPlanCandidateValidationException invalidCandidate) {
                 outlineViolations = invalidCandidate.structuredViolations();
+                accumulatedViolations = appendStructuredViolations(accumulatedViolations, outlineViolations);
                 if (invalidCandidate.hasRejectedCandidate()) rejectedCandidate = invalidCandidate.rejectedCandidate();
             } catch (AdventureStoryPlanProjectionRepairPolicy.UnlistedFieldMutation invalidRepair) {
                 outlineViolations = List.of(invalidRepair.violation());
+                accumulatedViolations = appendStructuredViolations(accumulatedViolations, outlineViolations);
                 rejectedCandidate = candidateForValidation;
-            } catch (java.io.IOException invalidCandidate) {
+            } catch (IllegalArgumentException invalidScopeOrMerge) {
                 outlineViolations = List.of(new AdventureStoryPlanProjectionViolation(
-                        "CANDIDATE_SERIALIZATION_ERROR", null, "stages", "", "", Repairability.SYSTEM_CONTRACT_ERROR,
-                        "story plan candidate could not be safely inspected"));
+                        "SCOPED_MERGE_UNAVAILABLE", null, "stages", "", "", Repairability.REGENERATE_REQUIRED,
+                        "story plan scoped repair could not be safely merged"));
+                accumulatedViolations = appendStructuredViolations(accumulatedViolations, outlineViolations);
             } catch (RuntimeException providerFailure) {
                 LOGGER.error("story plan generation failed; no fallback will be persisted providerFailureType={}",
                         providerFailure.getClass().getSimpleName());
@@ -286,10 +295,12 @@ public final class AdventureStoryPlanApplicationService {
                     request.operationId(), totalAttempts, repairsOnCandidate, regenerationCount,
                     stopReason.isBlank() ? "VALIDATION_FAILED" : stopReason,
                     outlineViolations.stream().map(AdventureStoryPlanProjectionViolation::code).toList());
+            List<AdventureStoryPlanProjectionViolation> finalViolations = accumulatedViolations.isEmpty()
+                    ? outlineViolations : accumulatedViolations;
             AdventureStoryPlan blocked = AdventureStoryPlan.blocked(
                     previous == null ? UUID.randomUUID() : previous.planId(), session.id(),
                     session.scenarioPackageRevision(), session.version(), version, configuration, stages,
-                    outlineViolations.stream().map(AdventureStoryPlanProjectionViolation::sanitizedMessage)
+                    finalViolations.stream().map(AdventureStoryPlanProjectionViolation::sanitizedMessage)
                             .collect(java.util.stream.Collectors.joining("; ")));
             saveWithSemanticHistory(blocked, semanticVerdicts);
             return blocked;
@@ -327,6 +338,15 @@ public final class AdventureStoryPlanApplicationService {
             else if (evidence.evidenceType() == RuntimeEvidenceType.RULEBOOK) rulebook.add(evidence);
         }
         return new EvidencePack(storybook.stream().limit(8).toList(), rulebook.stream().limit(8).toList(), List.of());
+    }
+
+    private List<AdventureStoryPlanStage> readMergedStages(String serializedCandidate) {
+        try {
+            return projectionMapper.readValue(projectionMapper.readTree(serializedCandidate).get("stages").toString(),
+                    new TypeReference<List<AdventureStoryPlanStage>>() { });
+        } catch (Exception failure) {
+            throw new IllegalArgumentException("merged story plan candidate could not be parsed", failure);
+        }
     }
 
     private static AdventureStoryPlanProjectionViolation semanticViolation(SemanticVerdict verdict) {
@@ -606,6 +626,27 @@ public final class AdventureStoryPlanApplicationService {
         List<String> combined = new ArrayList<>(first);
         combined.addAll(second);
         return List.copyOf(combined);
+    }
+
+    private void logAttempt(AdventureStoryPlanGenerationPort.Request request, AttemptType type, int attempt,
+            RepairScope scope, List<AdventureStoryPlanProjectionViolation> violations, String outcome) {
+        LOGGER.info("story_plan_attempt operationId={} attemptType={} attempt={} scope={} violations={} outcome={}",
+                request.operationId(), type, attempt, scope == null ? List.of() : scope.allowedPaths(),
+                violations.stream().map(AdventureStoryPlanProjectionViolation::code).toList(), outcome);
+    }
+
+    private static List<AdventureStoryPlanProjectionViolation> appendStructuredViolations(
+            List<AdventureStoryPlanProjectionViolation> first, List<AdventureStoryPlanProjectionViolation> second) {
+        List<AdventureStoryPlanProjectionViolation> result = new ArrayList<>(first == null ? List.of() : first);
+        for (AdventureStoryPlanProjectionViolation violation : second == null ? List.<AdventureStoryPlanProjectionViolation>of() : second) {
+            if (result.stream().noneMatch(existing -> existing.code().equals(violation.code())
+                    && existing.fieldPath().equals(violation.fieldPath()))) result.add(violation);
+        }
+        return List.copyOf(result);
+    }
+
+    private enum AttemptType {
+        INITIAL_GENERATION, REPAIR, FULL_REGENERATION
     }
 
     private static AdventureStoryPlanStage stage(int position, String title, String goal, String conflict, String transition, String ending) {
