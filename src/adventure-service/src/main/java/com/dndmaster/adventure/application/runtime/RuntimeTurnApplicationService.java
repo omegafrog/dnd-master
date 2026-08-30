@@ -49,6 +49,8 @@ public class RuntimeTurnApplicationService {
     private final GmProviderBindingRepository providerBindingRepository;
     private final TacticalScenePreparationApplicationService tacticalPreparation;
     private final MeaningfulProgressPolicy meaningfulProgressPolicy = new MeaningfulProgressPolicy();
+    private ApprovedPromptConfigurationReadPort approvedPromptConfigurationReadPort;
+    private final ApprovedPromptSelectionPolicy approvedPromptSelectionPolicy = new ApprovedPromptSelectionPolicy();
     private TurnWriterPort writerPort;
     private RuntimeTurnFailurePersistence failurePersistence;
     private NarrativeVerifierPort narrativeVerifier;
@@ -201,6 +203,11 @@ public class RuntimeTurnApplicationService {
         this.failurePersistence = Objects.requireNonNull(failurePersistence, "failure persistence must not be null");
     }
 
+    /** Optional cross-context adapter; when present, only approved active role configurations are captured. */
+    public void setApprovedPromptConfigurationReadPort(ApprovedPromptConfigurationReadPort port) {
+        this.approvedPromptConfigurationReadPort = Objects.requireNonNull(port, "prompt configuration port must not be null");
+    }
+
     public void setNarrativeVerifier(NarrativeVerifierPort narrativeVerifier) {
         this.narrativeVerifier = Objects.requireNonNull(narrativeVerifier, "narrative verifier must not be null");
     }
@@ -298,6 +305,7 @@ public class RuntimeTurnApplicationService {
                 providerSelection(adventure.sessionId().value(), "reasoning"), narrativeContext));
         plan = preservePendingSkillAdjudication(plan, command.action(), scenarioPackage, evidencePack);
         ResolvedTurnPlan resolvedPlan = ResolvedTurnPlan.of(TurnPlan.from(plan), List.of(plan.judgment()));
+        resolvedPlan = captureApprovedPromptLineage(resolvedPlan);
         RuntimeTurn resolvedTurn = new RuntimeTurn(command.turnId(), command.commandId(), adventure.id(), adventure.sessionId().value(),
                 binding.scenarioPackageId(), binding.bindingVersion(), command.action(), evidencePack, plan,
                 binding.activeSourceContext(), adventure.currentContext(), adventure.conversation(), adventure.version(),
@@ -419,6 +427,18 @@ public class RuntimeTurnApplicationService {
                     plan.model(), (System.nanoTime() - started) / 1_000_000));
             return List.of();
         }
+    }
+
+    private ResolvedTurnPlan captureApprovedPromptLineage(ResolvedTurnPlan resolvedPlan) {
+        if (approvedPromptConfigurationReadPort == null) return resolvedPlan;
+        Map<String, EffectivePromptLineage> lineages = new java.util.LinkedHashMap<>();
+        for (String role : List.of("PLANNER", "JUDGE", "WRITER", "VERIFIER")) {
+            approvedPromptConfigurationReadPort.current(role).ifPresent(configuration -> {
+                EffectivePromptLineage lineage = approvedPromptSelectionPolicy.select(approvedPromptConfigurationReadPort, role);
+                lineages.put(role, lineage);
+            });
+        }
+        return lineages.isEmpty() ? resolvedPlan : resolvedPlan.withPromptLineages(lineages);
     }
 
     private static RuntimePlan withNarration(RuntimePlan plan, String narration) {

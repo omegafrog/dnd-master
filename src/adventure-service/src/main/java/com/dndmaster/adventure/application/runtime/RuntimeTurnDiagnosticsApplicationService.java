@@ -2,6 +2,7 @@ package com.dndmaster.adventure.application.runtime;
 
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -59,10 +60,17 @@ public final class RuntimeTurnDiagnosticsApplicationService {
 
     public record ResolvedArtifact(String scene, String npcState, String judgment,
                                    List<String> revealableFacts, List<String> outcomes,
-                                   RuntimeTurnLifecycle lifecycle, EffectivePromptLineage promptLineage) {
+                                   RuntimeTurnLifecycle lifecycle, EffectivePromptLineage promptLineage,
+                                   Map<String, EffectivePromptLineage> promptLineages) {
+        public ResolvedArtifact(String scene, String npcState, String judgment,
+                                List<String> revealableFacts, List<String> outcomes,
+                                RuntimeTurnLifecycle lifecycle, EffectivePromptLineage promptLineage) {
+            this(scene, npcState, judgment, revealableFacts, outcomes, lifecycle, promptLineage,
+                    promptLineage == null ? Map.of() : Map.of(promptLineage.role(), promptLineage));
+        }
         static ResolvedArtifact from(ResolvedTurnPlan plan) {
             return new ResolvedArtifact(plan.plan().scene(), plan.plan().npcState(), plan.plan().judgment(),
-                    plan.plan().revealableFacts(), plan.outcomes(), plan.lifecycle(), plan.promptLineage());
+                    plan.plan().revealableFacts(), plan.outcomes(), plan.lifecycle(), plan.promptLineage(), plan.promptLineages());
         }
     }
 

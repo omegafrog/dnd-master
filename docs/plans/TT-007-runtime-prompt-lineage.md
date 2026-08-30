@@ -1,7 +1,7 @@
 # TT-007: Approved Prompt And Model Runtime Lineage
 
 - Issue: [#244](https://github.com/omegafrog/dnd-master/issues/244)
-- Status: `ready-for-agent`
+- Status: `completed`
 - Dependencies: TT-003 `completed`
 - Parent: [#237](https://github.com/omegafrog/dnd-master/issues/237)
 
@@ -34,3 +34,10 @@
 
 - TT-003 canonical RuntimeTurn/failure artifact 사용
 - 기존 `gm-eval-service` gate/approval 구현 재사용
+
+## Implementation Evidence
+
+- Added approved runtime configuration read port, exact-role selection policy, local monotonic activation adapter, and dataset/eval lineage fields.
+- Resolved artifacts now retain per-role lineages for planner, judge, writer, and verifier when the approved configuration adapter is configured; presentation retry carries the same immutable map.
+- Diagnostics exposes both the legacy primary lineage and the role-keyed lineage projection; legacy rows remain explicit unknown (`null`) rather than inferred.
+- Verification: `ApprovedPromptSelectionPolicyTest`, `ResolvedTurnLifecycleTest`, runtime diagnostics tests, and adventure-service compilation.
