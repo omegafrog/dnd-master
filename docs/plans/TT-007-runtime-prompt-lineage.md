@@ -1,7 +1,7 @@
 # TT-007: Approved Prompt And Model Runtime Lineage
 
 - Issue: [#244](https://github.com/omegafrog/dnd-master/issues/244)
-- Status: `planned`
+- Status: `ready-for-agent`
 - Dependencies: TT-003 `completed`
 - Parent: [#237](https://github.com/omegafrog/dnd-master/issues/237)
 

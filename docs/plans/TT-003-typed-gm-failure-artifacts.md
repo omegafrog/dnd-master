@@ -1,7 +1,7 @@
 # TT-003: Typed GM Failure Artifacts On Canonical RuntimeTurn
 
 - Issue: [#240](https://github.com/omegafrog/dnd-master/issues/240)
-- Status: `ready-for-agent`
+- Status: `completed`
 - Dependencies: 없음
 - Parent: [#237](https://github.com/omegafrog/dnd-master/issues/237)
 
@@ -35,3 +35,10 @@ GM 실패를 stage, code, retryability, root-cause class, correlation ID로 보�
 
 - Meaningful Progress와 presentation retry endpoint는 TT-004
 - raw provider body, hidden facts, exception message 비노출
+
+## Completion Evidence
+
+- Added typed failure artifact, stage/code enums, retry classifier, append/read repository, and V32 migration.
+- Runtime presentation/safety failures now append redacted artifacts in an independent transaction.
+- Diagnostics projection exposes typed artifacts while preserving legacy turn projection.
+- Verification: targeted classifier, persistence, diagnostics, and runtime lifecycle tests passed.

@@ -1,7 +1,7 @@
 # TT-004: Meaningful Progress And Presentation-Only Retry
 
 - Issue: [#241](https://github.com/omegafrog/dnd-master/issues/241)
-- Status: `planned`
+- Status: `ready-for-agent`
 - Dependencies: TT-003 `completed`
 - Parent: [#237](https://github.com/omegafrog/dnd-master/issues/237)
 

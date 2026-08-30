@@ -27,6 +27,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioCompil
 import com.dndmaster.adventure.infrastructure.persistence.PostgresCompilationCandidateRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeBindingRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnFailureRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresNarrativeStateRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeCommandJournal;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresGmTurnRepository;
@@ -492,13 +493,19 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    RuntimeTurnFailurePersistence runtimeTurnFailurePersistence(RuntimeTurnRepository runtimeTurnRepository) {
-        return new RuntimeTurnFailurePersistence(runtimeTurnRepository);
+    RuntimeTurnFailureRepository runtimeTurnFailureRepository(DataSource dataSource) {
+        return new PostgresRuntimeTurnFailureRepository(dataSource);
+    }
+
+    RuntimeTurnFailurePersistence runtimeTurnFailurePersistence(RuntimeTurnRepository runtimeTurnRepository,
+            RuntimeTurnFailureRepository failureRepository) {
+        return new RuntimeTurnFailurePersistence(runtimeTurnRepository, failureRepository);
     }
 
     @Bean
-    RuntimeTurnDiagnosticsApplicationService runtimeTurnDiagnosticsApplicationService(RuntimeTurnRepository turns) {
-        return new RuntimeTurnDiagnosticsApplicationService(turns);
+    RuntimeTurnDiagnosticsApplicationService runtimeTurnDiagnosticsApplicationService(RuntimeTurnRepository turns,
+            RuntimeTurnFailureRepository failures) {
+        return new RuntimeTurnDiagnosticsApplicationService(turns, failures);
     }
 
     @Bean

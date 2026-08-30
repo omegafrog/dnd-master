@@ -32,6 +32,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 // 근거 수집 -> 계획 -> 안전 검사 -> 세션 저장 순서로 런타임 턴을 처리한다.
 public class RuntimeTurnApplicationService {
+    private static final RuntimeTurnFailureClassifier FAILURE_CLASSIFIER = new RuntimeTurnFailureClassifier();
     private final AdventureRepository adventureRepository;
     private final RuntimeBindingRepository bindingRepository;
     private final ScenarioPackageRepository scenarioPackageRepository;
@@ -311,7 +312,8 @@ public class RuntimeTurnApplicationService {
             if (writerPort instanceof LegacyTurnWriterAdapter) prose = new WriterProse(plan.narration());
             prose = verifyAndRewrite(resolvedPlan, prose, resolvedTurn, narrativeState, narrativeContext, evidencePack);
         } catch (RuntimeException failure) {
-            failurePersistence.persist(resolvedTurn);
+            failurePersistence.persist(resolvedTurn, FAILURE_CLASSIFIER.classify(resolvedTurn.turnId(),
+                    RuntimeTurnFailureStage.PRESENTATION, failure, resolvedTurn.commandId(), 1));
             throw failure;
         }
         try {
@@ -321,7 +323,8 @@ public class RuntimeTurnApplicationService {
                 throw new IllegalStateException("narration safety rejected: " + safety.reason());
             }
         } catch (RuntimeException failure) {
-            failurePersistence.persist(resolvedTurn);
+            failurePersistence.persist(resolvedTurn, FAILURE_CLASSIFIER.classify(resolvedTurn.turnId(),
+                    RuntimeTurnFailureStage.SAFETY, failure, resolvedTurn.commandId(), 1));
             throw failure;
         }
         advanceStoryPlanIfRequested(command.ownerPlayerId(), adventure.sessionId(), plan);
@@ -471,7 +474,8 @@ public class RuntimeTurnApplicationService {
                     prose.prose(), turn.evidencePack(), turn.context(), turn.action()));
             if (!safety.approved()) throw new IllegalStateException("narration safety rejected: " + safety.reason());
         } catch (RuntimeException failure) {
-            failurePersistence.persist(turn);
+            failurePersistence.persist(turn, FAILURE_CLASSIFIER.classify(turn.turnId(),
+                    RuntimeTurnFailureStage.PRESENTATION, failure, turn.commandId(), 1));
             throw failure;
         }
         RuntimePlan presentedPlan = withNarration(turn.plan(), prose.prose());

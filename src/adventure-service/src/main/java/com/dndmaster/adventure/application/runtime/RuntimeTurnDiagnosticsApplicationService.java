@@ -9,27 +9,34 @@ import java.util.UUID;
 /** Read-only, deliberately whitelisted diagnostics projection for development support. */
 public final class RuntimeTurnDiagnosticsApplicationService {
     private final RuntimeTurnRepository turns;
+    private final RuntimeTurnFailureRepository failures;
 
     public RuntimeTurnDiagnosticsApplicationService(RuntimeTurnRepository turns) {
+        this(turns, new NoopRuntimeTurnFailureRepository());
+    }
+
+    public RuntimeTurnDiagnosticsApplicationService(RuntimeTurnRepository turns, RuntimeTurnFailureRepository failures) {
         this.turns = Objects.requireNonNull(turns, "runtime turn repository must not be null");
+        this.failures = Objects.requireNonNull(failures, "failure repository must not be null");
     }
 
     public Optional<RuntimeTurnDiagnosticsView> readByTurnId(UUID turnId) {
         return turns.findByTurnId(Objects.requireNonNull(turnId, "turn id must not be null"))
-                .map(RuntimeTurnDiagnosticsView::from);
+                .map(turn -> RuntimeTurnDiagnosticsView.from(turn, failures.findByTurnId(turn.turnId())));
     }
 
     public Optional<RuntimeTurnDiagnosticsView> readByCommandId(UUID commandId) {
         return turns.findByCommandId(Objects.requireNonNull(commandId, "command id must not be null"))
-                .map(RuntimeTurnDiagnosticsView::from);
+                .map(turn -> RuntimeTurnDiagnosticsView.from(turn, failures.findByTurnId(turn.turnId())));
     }
 
     /** Safe diagnostic view: forbidden facts, reasoning, raw evidence, and mutable context are excluded. */
     public record RuntimeTurnDiagnosticsView(
             UUID turnId, UUID commandId, AdventureId adventureId, UUID sessionId,
             RuntimeTurnLifecycle lifecycle, boolean committed, RuntimeTurnOrigin origin,
-            PlannerArtifact planner, ResolvedArtifact resolved, WriterArtifact writer) {
-        static RuntimeTurnDiagnosticsView from(RuntimeTurn turn) {
+            PlannerArtifact planner, ResolvedArtifact resolved, WriterArtifact writer,
+            List<RuntimeTurnFailureArtifact> failures) {
+        static RuntimeTurnDiagnosticsView from(RuntimeTurn turn, List<RuntimeTurnFailureArtifact> failures) {
             Objects.requireNonNull(turn, "turn must not be null");
             TurnPlan plannerPlan = turn.resolvedArtifact() == null
                     ? TurnPlan.from(turn.plan()) : turn.resolvedArtifact().plan();
@@ -40,7 +47,7 @@ public final class RuntimeTurnDiagnosticsApplicationService {
             }
             return new RuntimeTurnDiagnosticsView(turn.turnId(), turn.commandId(), turn.adventureId(), turn.sessionId(),
                     turn.lifecycle(), turn.committed(), turn.origin(), PlannerArtifact.from(plannerPlan),
-                    ResolvedArtifact.from(resolvedPlan), WriterArtifact.from(turn, resolvedPlan));
+                    ResolvedArtifact.from(resolvedPlan), WriterArtifact.from(turn, resolvedPlan), List.copyOf(failures));
         }
     }
 
