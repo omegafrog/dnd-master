@@ -115,6 +115,7 @@ final class AdventureStoryPlanProjectionCandidateConsistency {
             value.put("fieldPath", claim.fieldPath());
             value.put("normalizedClaim", claim.normalizedClaim());
             putArray(value, "citationKeys", claim.citationKeys());
+            value.put("origin", claim.origin().name());
         });
         result.put("tacticalPreparationRequirement", stage.tacticalPreparationRequirement().name());
         result.put("evidenceCount", stage.evidence().size());
@@ -160,8 +161,14 @@ final class AdventureStoryPlanProjectionCandidateConsistency {
 
     private static void copySourceFactClaims(JsonNode source, ObjectNode target) {
         JsonNode claims = source == null ? null : source.get("sourceFactClaims");
-        if (claims != null && claims.isArray()) target.set("sourceFactClaims", claims);
-        else target.putArray("sourceFactClaims");
+        ArrayNode normalized = target.putArray("sourceFactClaims");
+        if (claims != null && claims.isArray()) claims.forEach(item -> {
+            ObjectNode claim = normalized.addObject();
+            claim.put("fieldPath", text(item, "fieldPath", ""));
+            claim.put("normalizedClaim", text(item, "normalizedClaim", ""));
+            copyArray(item, claim, "citationKeys");
+            claim.put("origin", text(item, "origin", "SOURCE"));
+        });
     }
 
     private static String text(JsonNode node, String field, String fallback) {

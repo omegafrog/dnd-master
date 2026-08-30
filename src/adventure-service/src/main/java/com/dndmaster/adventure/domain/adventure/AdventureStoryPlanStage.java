@@ -154,6 +154,14 @@ public record AdventureStoryPlanStage(
                 combatRequirement, combatSkeleton, sourceFactClaims, tacticalPreparationRequirement, schemaVersion);
     }
 
+    public AdventureStoryPlanStage withSourceFactClaims(List<SourceFactClaim> nextClaims) {
+        return new AdventureStoryPlanStage(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings,
+                stageType, location, mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition,
+                rewards, branchIds, evidence, groundingStatus, aiSuggestions, mapSafetyStatus, mapConfidence, branchTargets,
+                playerSpawnX, playerSpawnY, playerSpawnConfidence, playerSpawnRationale, tacticalScenePlan,
+                combatRequirement, combatSkeleton, nextClaims, tacticalPreparationRequirement, schemaVersion);
+    }
+
     public AdventureStoryPlanStage withSchemaVersion(int nextSchemaVersion) {
         return new AdventureStoryPlanStage(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings,
                 stageType, location, mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition,

@@ -3,6 +3,8 @@ package com.dndmaster.adventure.application.storyplan;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage;
 import com.dndmaster.adventure.domain.adventure.AdventurePlanConfiguration;
+import com.dndmaster.adventure.domain.adventure.SourceConstraintPack;
+import com.dndmaster.adventure.domain.adventure.StoryPlanGenerationMode;
 import java.util.UUID;
 import java.util.List;
 
@@ -21,27 +23,37 @@ public interface AdventureStoryPlanGenerationPort {
 
     record Request(String operationId, long packageRevision, int partySize, AdventurePlanConfiguration configuration,
                    List<String> sourceDocuments, List<String> resolutionEvidence, List<MapContext> maps,
-                   List<SourceCitation> citations, List<String> violations, String previousCandidate) {
+                   List<SourceCitation> citations, List<String> violations, String previousCandidate,
+                   StoryPlanGenerationMode generationMode, SourceConstraintPack sourceConstraintPack) {
+        public Request(String operationId, long packageRevision, int partySize, AdventurePlanConfiguration configuration,
+                List<String> sourceDocuments, List<String> resolutionEvidence, List<MapContext> maps,
+                List<SourceCitation> citations, List<String> violations, String previousCandidate) {
+            this(operationId, packageRevision, partySize, configuration, sourceDocuments, resolutionEvidence, maps,
+                    citations, violations, previousCandidate, StoryPlanGenerationMode.GENERATIVE,
+                    new SourceConstraintPack(List.of(), List.of()));
+        }
         public Request(String operationId, long packageRevision, int partySize, AdventurePlanConfiguration configuration,
                 List<String> sourceDocuments, List<String> resolutionEvidence, List<MapContext> maps,
                 List<SourceCitation> citations) {
             this(operationId, packageRevision, partySize, configuration, sourceDocuments, resolutionEvidence,
-                    maps, citations, List.of(), "");
+                    maps, citations, List.of(), "", StoryPlanGenerationMode.GENERATIVE, new SourceConstraintPack(List.of(), List.of()));
         }
         public Request(String operationId, long packageRevision, int partySize, AdventurePlanConfiguration configuration,
                 List<String> sourceDocuments, List<String> resolutionEvidence) {
             this(operationId, packageRevision, partySize, configuration, sourceDocuments, resolutionEvidence,
-                    List.of(), List.of(), List.of(), "");
+                    List.of(), List.of(), List.of(), "", StoryPlanGenerationMode.GENERATIVE, new SourceConstraintPack(List.of(), List.of()));
         }
         public Request(String operationId, long packageRevision, int partySize, List<String> sourceDocuments,
                 List<String> resolutionEvidence) {
             this(operationId, packageRevision, partySize, AdventurePlanConfiguration.defaults(), sourceDocuments,
-                    resolutionEvidence, List.of(), List.of(), List.of(), "");
+                    resolutionEvidence, List.of(), List.of(), List.of(), "", StoryPlanGenerationMode.GENERATIVE, new SourceConstraintPack(List.of(), List.of()));
         }
         public Request {
             citations = citations == null ? List.of() : List.copyOf(citations);
             violations = violations == null ? List.of() : List.copyOf(violations);
             previousCandidate = previousCandidate == null ? "" : previousCandidate;
+            generationMode = generationMode == null ? StoryPlanGenerationMode.GENERATIVE : generationMode;
+            sourceConstraintPack = sourceConstraintPack == null ? new SourceConstraintPack(List.of(), List.of()) : sourceConstraintPack;
         }
         public Request withCitationKeys() {
             java.util.Set<String> usedKeys = new java.util.HashSet<>();
@@ -65,15 +77,15 @@ public interface AdventureStoryPlanGenerationPort {
                 keyed.add(citation.withCitationKey(key));
             }
             return new Request(operationId, packageRevision, partySize, configuration, sourceDocuments,
-                    resolutionEvidence, maps, keyed, violations, previousCandidate);
+                    resolutionEvidence, maps, keyed, violations, previousCandidate, generationMode, sourceConstraintPack);
         }
         public Request withViolations(List<String> nextViolations) {
             return new Request(operationId, packageRevision, partySize, configuration, sourceDocuments,
-                    resolutionEvidence, maps, citations, nextViolations, previousCandidate);
+                    resolutionEvidence, maps, citations, nextViolations, previousCandidate, generationMode, sourceConstraintPack);
         }
         public Request withPreviousCandidate(String candidate) {
             return new Request(operationId, packageRevision, partySize, configuration, sourceDocuments,
-                    resolutionEvidence, maps, citations, violations, candidate);
+                    resolutionEvidence, maps, citations, violations, candidate, generationMode, sourceConstraintPack);
         }
     }
 

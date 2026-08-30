@@ -81,36 +81,6 @@ public final class AdventureStoryPlanStageSourceValidator {
                 .filter(item -> !nonNarrativeDocumentIds.contains(item.documentId()))
                 .map(AdventureStoryPlanGenerationPort.SourceCitation::quote)
                 .reduce("", (left, right) -> left + " " + right);
-        if (!stage.boss().isBlank() && !SourceClaimSupport.supports(source, stage.boss())) {
-            structured.add(unsupported(stage, "boss", stage.boss(), "stage " + stage.position() + " boss is not supported by source evidence"));
-        }
-        for (String reward : stage.rewards()) {
-            if (!SourceClaimSupport.supports(source, reward)) {
-                structured.add(unsupported(stage, "rewards[*]", reward, "stage " + stage.position() + " reward is not supported by source evidence"));
-            }
-        }
-        for (String npcOrClue : stage.npcOrClues()) {
-            if (!SourceClaimSupport.supports(source, npcOrClue)) {
-                structured.add(unsupported(stage, "npcOrClues[*]", npcOrClue, "stage " + stage.position() + " NPC or clue is not supported by source evidence"));
-            }
-        }
-        for (String enemy : stage.enemies()) {
-            if (!SourceClaimSupport.supports(source, enemy)) {
-                structured.add(unsupported(stage, "enemies[*]", enemy, "stage " + stage.position() + " enemy is not supported by source evidence"));
-            }
-        }
-        if (!supportsCondition(source, stage.transitionCondition())) {
-            structured.add(unsupported(stage, "transitionCondition", stage.transitionCondition(),
-                    "stage " + stage.position() + " transitionCondition is not supported by source evidence"));
-        }
-        if (!supportsCondition(source, stage.clearCondition())) {
-            structured.add(unsupported(stage, "clearCondition", stage.clearCondition(),
-                    "stage " + stage.position() + " clearCondition is not supported by source evidence"));
-        }
-        if (!stage.failureCondition().isBlank() && !supportsCondition(source, stage.failureCondition())) {
-            structured.add(unsupported(stage, "failureCondition", stage.failureCondition(),
-                    "stage " + stage.position() + " failureCondition is not supported by source evidence"));
-        }
         for (String ending : stage.endingIds()) {
             if (!SourceClaimSupport.structuralTarget(ending) && !SourceClaimSupport.supports(source, ending)) {
                 structured.add(unsupported(stage, "endingIds[*]", ending, "stage " + stage.position() + " ending is not supported by source evidence"));

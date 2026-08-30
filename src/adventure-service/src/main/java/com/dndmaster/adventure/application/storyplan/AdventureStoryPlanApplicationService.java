@@ -26,6 +26,9 @@ import com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceEx
 import com.dndmaster.adventure.application.scenario.compilation.ResolutionExtractionPort;
 import com.dndmaster.adventure.application.scenario.ScenarioBundleRepository;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
+import com.dndmaster.adventure.domain.adventure.SourceConstraint;
+import com.dndmaster.adventure.domain.adventure.SourceConstraintPack;
+import com.dndmaster.adventure.domain.adventure.StoryPlanGenerationMode;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionViolation.Repairability;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -39,6 +42,7 @@ public final class AdventureStoryPlanApplicationService {
     private final AdventureStoryPlanGenerationPort generator;
     private final AdventureStoryPlanStageSourceValidator stageSourceValidator = new AdventureStoryPlanStageSourceValidator();
     private final AdventureStoryPlanCombatValidator combatValidator = new AdventureStoryPlanCombatValidator();
+    private final StoryPlanStructuralGuard structuralGuard = new StoryPlanStructuralGuard();
     private final ObjectMapper projectionMapper = new ObjectMapper();
 
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions) {
@@ -107,7 +111,10 @@ public final class AdventureStoryPlanApplicationService {
         }
         AdventureStoryPlanGenerationPort.Request request = new AdventureStoryPlanGenerationPort.Request(
                 UUID.randomUUID().toString(), session.scenarioPackageRevision(), session.party().size(),
-                configuration, sourceDocuments(session), resolutionEvidence(session), mapContexts(scenarioPackage), citations(session, scenarioPackage))
+                configuration, sourceDocuments(session), resolutionEvidence(session), mapContexts(scenarioPackage), citations(session, scenarioPackage),
+                List.of(), "", StoryPlanGenerationMode.fromDocumentTypes(citations(session, scenarioPackage).stream()
+                        .map(AdventureStoryPlanGenerationPort.SourceCitation::documentType).toList()),
+                constraintPack(citations(session, scenarioPackage)))
                 .withPreviousCandidate("");
         LOGGER.info("story_plan_generation_input packageId={} citations={} resolutionEvidence={} maps={} sourceDocuments={}",
                 session.scenarioPackageId(), request.citations().size(), request.resolutionEvidence().size(),
@@ -410,6 +417,21 @@ public final class AdventureStoryPlanApplicationService {
         return List.copyOf(violations);
     }
 
+    private static SourceConstraintPack constraintPack(List<AdventureStoryPlanGenerationPort.SourceCitation> citations) {
+        List<SourceConstraint> storybook = new ArrayList<>();
+        List<SourceConstraint> rulebook = new ArrayList<>();
+        int index = 1;
+        for (AdventureStoryPlanGenerationPort.SourceCitation citation : citations) {
+            if (citation.quote() == null || citation.quote().isBlank()) continue;
+            String key = citation.citationKey() == null || citation.citationKey().isBlank() ? "citation-" + index : citation.citationKey();
+            SourceConstraint constraint = new SourceConstraint(key, "source", citation.quote(), List.of(key));
+            if ("STORYBOOK".equalsIgnoreCase(citation.documentType())) storybook.add(constraint);
+            if ("RULEBOOK".equalsIgnoreCase(citation.documentType())) rulebook.add(constraint);
+            index++;
+        }
+        return new SourceConstraintPack(storybook, rulebook);
+    }
+
     private static String candidateValidationMessage(RuntimeException failure) {
         String message = failure.getMessage();
         return message == null || message.isBlank()
@@ -440,6 +462,10 @@ public final class AdventureStoryPlanApplicationService {
             ScenarioPackage scenarioPackage,
             AdventurePlanConfiguration configuration) {
         List<AdventureStoryPlanProjectionViolation> violations = new ArrayList<>();
+        for (String structural : structuralGuard.validate(stages)) {
+            violations.add(new AdventureStoryPlanProjectionViolation(
+                    "STRUCTURAL_CONTRACT_VIOLATION", null, "stages", "", "", Repairability.REGENERATE_REQUIRED, structural));
+        }
         violations.addAll(validateMaps(stages, request.maps()));
         violations.addAll(validateStageSources(stages, request.citations(), scenarioPackage));
         for (AdventureStoryPlanStage stage : stages) {

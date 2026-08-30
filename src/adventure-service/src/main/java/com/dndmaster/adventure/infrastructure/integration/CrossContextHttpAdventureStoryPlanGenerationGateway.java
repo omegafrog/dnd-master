@@ -17,6 +17,7 @@ import com.dndmaster.adventure.domain.adventure.CombatParticipant;
 import com.dndmaster.adventure.domain.adventure.CombatRequirement;
 import com.dndmaster.adventure.domain.adventure.CombatSkeleton;
 import com.dndmaster.adventure.domain.adventure.SourceFactClaim;
+import com.dndmaster.adventure.domain.adventure.ClaimOrigin;
 import com.dndmaster.adventure.domain.adventure.TacticalPreparationRequirement;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -354,7 +355,8 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                 projection.citationKeys());
     }
     private static SourceFactClaim toDomain(SourceFactClaimProjection projection) {
-        return new SourceFactClaim(projection.fieldPath(), projection.normalizedClaim(), projection.citationKeys());
+        return new SourceFactClaim(projection.fieldPath(), projection.normalizedClaim(), projection.citationKeys(),
+                projection.origin() == null ? ClaimOrigin.SOURCE : ClaimOrigin.valueOf(projection.origin().trim().toUpperCase(java.util.Locale.ROOT)));
     }
     static UUID parseMapDefinitionId(String value) {
         if (value == null || value.isBlank()) return null;
@@ -449,9 +451,10 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         }
     }
     @JsonIgnoreProperties(ignoreUnknown = true) record SourceFactClaimProjection(String fieldPath, String normalizedClaim,
-            List<String> citationKeys) {
+            List<String> citationKeys, String origin) {
         SourceFactClaimProjection {
             citationKeys = citationKeys == null ? List.of() : List.copyOf(citationKeys);
+            origin = origin == null || origin.isBlank() ? "SOURCE" : origin;
         }
     }
     @JsonIgnoreProperties(ignoreUnknown = true) record CitationProjection(String citationKey) {}

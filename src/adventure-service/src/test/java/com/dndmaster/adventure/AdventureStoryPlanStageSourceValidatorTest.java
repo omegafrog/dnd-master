@@ -14,17 +14,15 @@ import org.junit.jupiter.api.Test;
 
 class AdventureStoryPlanStageSourceValidatorTest {
     @Test
-    void rejectsUnsupportedBossRewardEndingAndTransitionFactsDespiteAValidCitation() {
+    void allowsUnsupportedNarrativeElaborationButKeepsStructuralEndingChecks() {
         var citation = citation("The cellar contains a rat swarm and an exit by the stairs.");
         var stage = stage(citation, "ancient dragon", List.of("royal crown"),
                 "inherit the kingdom", "coronation-ending");
 
         var violations = new AdventureStoryPlanStageSourceValidator().validate(stage, List.of(citation));
 
-        assertTrue(violations.contains("stage 1 boss is not supported by source evidence"));
-        assertTrue(violations.contains("stage 1 reward is not supported by source evidence"));
-        assertTrue(violations.contains("stage 1 transitionCondition is not supported by source evidence"));
         assertTrue(violations.contains("stage 1 ending is not supported by source evidence"));
+        assertTrue(violations.stream().noneMatch(item -> item.contains("boss") || item.contains("reward")));
     }
 
     @Test
@@ -44,7 +42,7 @@ class AdventureStoryPlanStageSourceValidatorTest {
 
         var violations = new AdventureStoryPlanStageSourceValidator().validate(stage, List.of(citation));
 
-        assertTrue(violations.contains("stage 1 boss is not supported by source evidence"));
+        assertTrue(violations.stream().noneMatch(item -> item.contains("boss")));
     }
 
     @Test
@@ -56,8 +54,7 @@ class AdventureStoryPlanStageSourceValidatorTest {
 
         var violations = new AdventureStoryPlanStageSourceValidator().validate(stage, List.of(citation));
 
-        assertTrue(violations.contains("stage 1 NPC or clue is not supported by source evidence"));
-        assertTrue(violations.contains("stage 1 enemy is not supported by source evidence"));
+        assertTrue(violations.stream().noneMatch(item -> item.contains("NPC") || item.contains("enemy")));
     }
 
     @Test

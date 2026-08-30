@@ -145,6 +145,7 @@ public final class AdventureStoryPlanController {
                 + "TRANSITION CONTRACT: transitionCondition and clearCondition are execution scaffolding, not source facts. Keep them generic and operational (for example, 확보한 단서로 다음 단계로 이동한다) and do not introduce named places, creatures, rewards, DCs, or other claims absent from the citations. "
                 + "EVIDENCE COVERAGE CONTRACT: when both STORYBOOK and RULEBOOK citations are supplied, use at least one exact STORYBOOK citation and at least one exact RULEBOOK citation somewhere across the complete plan. Do not satisfy this requirement by repeating only one document type; repair any previous validation violation that names missing coverage. "
                 + "Do not invent named rules, DCs, monsters, or facts absent from evidence. For a check without an evidenced DC, write 'GM adjudication' rather than inventing a number. Include checks only when a trigger exists. Documents=" + request.sourceDocuments()
+                + " Generation mode=" + request.generationMode() + " Source constraint pack=" + request.sourceConstraintPack()
                 + " Evidence=" + request.resolutionEvidence() + " citations=" + request.citations() + " maps=" + request.maps()
                 + " Previous validation violations=" + request.violations()
                 + " Previous candidate to repair=" + request.previousCandidate()
@@ -280,7 +281,7 @@ public final class AdventureStoryPlanController {
                 JSON shape constraint: {"type":"object","required":["stages"],"properties":{"stages":{"type":"array","items":{"type":"object","required":["position","title","goal","conflict","transitionCondition","endingIds","evidence","schemaVersion","combatRequirement","combatSkeleton","sourceFactClaims","tacticalPreparationRequirement"],"properties":{"position":{"type":"integer"},"title":{"type":"string"},"goal":{"type":"string"},"conflict":{"type":"string"},"transitionCondition":{"type":"string"},"endingIds":{"type":"array","items":{"type":"string"},"minItems":1},"evidence":{"type":"array","items":{"type":"object","required":["citationKey"]},"minItems":1},"schemaVersion":{"type":"integer","const":2},"combatRequirement":{"type":"string","enum":["NONE","POSSIBLE","REQUIRED"]},"combatSkeleton":{"type":"object"},"sourceFactClaims":{"type":"array"},"tacticalPreparationRequirement":{"type":"string","enum":["NOT_REQUIRED","REQUIRED"]}},"additionalProperties":true}}},"additionalProperties":true}
                 The plan configuration requires exactly %s distinct ending IDs. Preserve the explicit ending-1 through ending-%s IDs from the plan; do not omit, merge, rename, or invent ending IDs.
                 Include stageType, location, and mapUsage (REQUIRED, OPTIONAL, or NONE) when present. Include mapDefinitionId, mapAssetId, and mapAssetLocator only when mapUsage is REQUIRED; copy all three from the same AVAILABLE MAPS entry. OPTIONAL and NONE may omit them.
-                Set combatRequirement to REQUIRED only when the stage has a concrete combat skeleton with at least one sourced participant; use POSSIBLE for a source-supported possibility that is not committed, and NONE for a non-combat stage. For every stage, emit combatSkeleton with objective, startTrigger, participants, successOutcome, failureOutcome, and rewards arrays (empty strings for scalar fields and empty arrays for NONE or POSSIBLE). Every participant must include participantId, role (ENEMY or BOSS), name, minimumCount, maximumCount, and citationKeys. Use sourceFactClaims with exact fieldPath values such as combatSkeleton.participants[0].name or combatSkeleton.rewards[0]. Every sourceFactClaims item MUST be an object with non-empty fieldPath, normalizedClaim, and citationKeys; normalizedClaim is the exact short claim supported by the cited excerpt, never omit it. combatSkeleton.rewards MUST be an array of the same claim objects (fieldPath, normalizedClaim, citationKeys), never an array of strings. Bind every claim to exact citation keys. Set tacticalPreparationRequirement to REQUIRED only when a REQUIRED combat stage is mapped to an available map; otherwise use NOT_REQUIRED.
+                Set combatRequirement to REQUIRED only when the stage has a concrete combat skeleton with at least one sourced participant; use POSSIBLE for a source-supported possibility that is not committed, and NONE for a non-combat stage. For every stage, emit combatSkeleton with objective, startTrigger, participants, successOutcome, failureOutcome, and rewards arrays (empty strings for scalar fields and empty arrays for NONE or POSSIBLE). Every participant must include participantId, role (ENEMY or BOSS), name, minimumCount, maximumCount, and citationKeys. Use sourceFactClaims with exact fieldPath values such as combatSkeleton.participants[0].name or combatSkeleton.rewards[0]. Every sourceFactClaims item MUST be an object with non-empty fieldPath, normalizedClaim, citationKeys, and origin (SOURCE, GENERATED, or UNKNOWN). SOURCE claims require citationKeys; GENERATED and UNKNOWN detail may have an empty citationKeys array. normalizedClaim is the exact short claim supported by the cited excerpt for SOURCE claims, never omit it. combatSkeleton.rewards MUST be an array of the same claim objects (fieldPath, normalizedClaim, citationKeys, origin), never an array of strings. Bind every SOURCE claim to exact citation keys, and every citationKey used by a claim MUST also appear in that same stage's evidence array. Set tacticalPreparationRequirement to REQUIRED only when a REQUIRED combat stage is mapped to an available map; otherwise use NOT_REQUIRED.
                 Use only citationKey values copied verbatim from the supplied citation registry; never invent numeric, document-derived, or stage-local citation keys. Do not create sourceFactClaims for goal, conflict, transitionCondition, clearCondition, or any other narrative field: sourceFactClaims are exclusively combat skeleton claims. A combat participant name must match the cited excerpt exactly enough to be supported, and its citationKeys must point to that same registered excerpt. Keep combatRequirement consistent with the stage: NONE has no combat hints, POSSIBLE has no committed participant, and REQUIRED has a complete sourced skeleton. If a combat claim cannot be grounded by an exact supplied citation, omit the combat commitment or regenerate the complete projection rather than guessing.
                 Optional fields may be omitted or empty: npcOrClues, enemies, boss, clearCondition, failureCondition, rewards, branchIds, branchTargets, and player spawn fields. When citations are supplied, evidence is REQUIRED for every stage: copy at least one exact citationKey from the supplied citation registry. Do not copy document IDs, extraction versions, locators, quotes, or confidence into evidence. When both STORYBOOK and RULEBOOK citations are supplied, the complete plan MUST include at least one exact citationKey for each type across its stages. A trigger is represented only by a short reference or lookup key; never copy the full trigger or rule text.
                 Arrays may be empty arrays and branchTargets may be an empty object. Never invent a map, trigger, citation, enemy, reward, or ending. Use the ending IDs stated in the plan, or a stable structural ending ID when necessary.
@@ -529,7 +530,7 @@ public final class AdventureStoryPlanController {
                 text(node, "successOutcome", ""), text(node, "failureOutcome", ""), rewards);
     }
     private static SourceFactClaimProjection sourceFactClaim(JsonNode node) {
-        return new SourceFactClaimProjection(required(node, "fieldPath"), required(node, "normalizedClaim"), stringsOrEmpty(node.get("citationKeys")));
+        return new SourceFactClaimProjection(required(node, "fieldPath"), required(node, "normalizedClaim"), stringsOrEmpty(node.get("citationKeys")), text(node, "origin", "SOURCE"));
     }
     private static List<SourceFactClaimProjection> parseSourceFactClaims(JsonNode node) {
         return optionalObjects(node, AdventureStoryPlanController::sourceFactClaim);
@@ -610,7 +611,13 @@ public final class AdventureStoryPlanController {
     }
     public record Request(String operationId, long packageRevision, int partySize, Configuration configuration, List<String> sourceDocuments,
             List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations, List<String> violations,
-            String previousCandidate) {
+            String previousCandidate, String generationMode, JsonNode sourceConstraintPack) {
+        public Request(String operationId, long packageRevision, int partySize, Configuration configuration, List<String> sourceDocuments,
+                List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations, List<String> violations,
+                String previousCandidate) {
+            this(operationId, packageRevision, partySize, configuration, sourceDocuments, resolutionEvidence, maps, citations,
+                    violations, previousCandidate, "GENERATIVE", null);
+        }
         public Request(String operationId, long packageRevision, int partySize, Configuration configuration,
                 List<String> sourceDocuments, List<String> resolutionEvidence,
                 List<MapContext> maps, List<SourceCitation> citations) {
@@ -624,6 +631,7 @@ public final class AdventureStoryPlanController {
         public Request {
             violations = violations == null ? List.of() : List.copyOf(violations);
             previousCandidate = previousCandidate == null ? "" : previousCandidate;
+            generationMode = generationMode == null || generationMode.isBlank() ? "GENERATIVE" : generationMode;
         }
     }
     public record VerificationRequest(String operationId, Configuration configuration, List<String> sourceDocuments,
@@ -730,5 +738,9 @@ public final class AdventureStoryPlanController {
             String successOutcome, String failureOutcome, List<SourceFactClaimProjection> rewards) {}
     public record CombatParticipantProjection(String participantId, String role, String name, int minimumCount, int maximumCount,
             List<String> citationKeys) {}
-    public record SourceFactClaimProjection(String fieldPath, String normalizedClaim, List<String> citationKeys) {}
+    public record SourceFactClaimProjection(String fieldPath, String normalizedClaim, List<String> citationKeys, String origin) {
+        public SourceFactClaimProjection(String fieldPath, String normalizedClaim, List<String> citationKeys) {
+            this(fieldPath, normalizedClaim, citationKeys, "SOURCE");
+        }
+    }
 }

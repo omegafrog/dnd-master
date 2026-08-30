@@ -354,7 +354,7 @@ class AdventureStoryPlanApplicationServiceTest {
                 service, List.of(stage, nonMappedStage, mappedStage), request, null, request.configuration());
 
         assertTrue(violations.stream().anyMatch(item -> item.code().equals("UNKNOWN_MAP_DEFINITION")));
-        assertTrue(violations.stream().anyMatch(item -> item.code().equals("SOURCE_CLAIM_UNSUPPORTED")));
+        assertTrue(violations.stream().noneMatch(item -> item.code().equals("SOURCE_CLAIM_UNSUPPORTED")));
         assertTrue(violations.stream().anyMatch(item -> item.code().equals("MISSING_STAGE_EVIDENCE")
                 && item.fieldPath().equals("stages[1].evidence")));
         assertTrue(violations.stream().anyMatch(item -> item.code().equals("MISSING_STAGE_EVIDENCE")
