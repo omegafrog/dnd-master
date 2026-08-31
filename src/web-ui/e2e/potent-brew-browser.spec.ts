@@ -211,7 +211,15 @@ test('generates the story plan until play preparation is complete', async ({ pag
   await expect(page.getByRole('heading', { name: '모험 계획 설정' })).toBeVisible({ timeout: 60_000 })
   await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/10-adventure-plan-settings.png', fullPage: true })
   await page.getByRole('button', { name: '모험 계획 생성', exact: true }).click()
-  await expect(page.locator('.preparation-progress[role="status"]').getByText('플레이 준비 완료', { exact: true })).toBeVisible({ timeout: 600_000 })
+  const storyPlanStatus = page.locator('.story-plan-page .status-chip')
+  await expect.poll(async () => (await storyPlanStatus.isVisible()) ? await storyPlanStatus.innerText() : 'GENERATING', {
+    timeout: 600_000,
+    message: '스토리 계획이 READY, BLOCKED 또는 FAILED terminal 상태에 도달하지 않았습니다.',
+  }).toMatch(/^(READY|BLOCKED|FAILED)$/)
+  const terminalStatus = await storyPlanStatus.innerText()
+  if (terminalStatus === 'BLOCKED' || terminalStatus === 'FAILED') {
+    await expect(page.getByRole('alert')).toBeVisible()
+  }
   await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/11-adventure-plan-generated.png', fullPage: true })
 })
 

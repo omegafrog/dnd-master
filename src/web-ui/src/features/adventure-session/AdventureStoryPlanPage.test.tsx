@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { AdventureStoryPlanPage } from './AdventureStoryPlanPage'
@@ -87,5 +87,40 @@ describe('AdventureStoryPlanPage configuration', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('의존 필드 검증이 차단되었습니다.')
     expect(screen.queryByText('rejected-candidate-secret')).toBeNull()
     expect((screen.getByRole('button', { name: '모험 시작' }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it.each([
+    ['BLOCKED', '근거 검증 실패', 'COMPLETE'],
+    ['FAILED', 'provider timeout', 'FAILED'],
+  ] as const)('stops generation polling and shows %s diagnostics when the terminal plan is returned', async (status, failureReason, jobStatus) => {
+    const terminalPlan = {
+      status,
+      currentStage: 0,
+      planRevision: 1,
+      endingCount: 2,
+      adventureLength: 'STANDARD' as const,
+      stages: [],
+      failureReason,
+    }
+    const api = {
+      read: vi.fn().mockResolvedValue({
+        sessionId: 's', version: 1, status: 'DRAFT', party: [], runtimeConfiguration: null,
+      }),
+      readStoryPlan: vi.fn()
+        .mockRejectedValueOnce(new Error('not found'))
+        .mockResolvedValueOnce(terminalPlan),
+      startStoryPlanGeneration: vi.fn().mockResolvedValue({ jobId: 'job-1', sessionId: 's', status: 'QUEUED', progress: 0, stage: '대기 중', message: null, updatedAt: '' }),
+      readStoryPlanGeneration: vi.fn().mockResolvedValue({ jobId: 'job-1', sessionId: 's', status: jobStatus, progress: 100, stage: '완료', message: null, updatedAt: '' }),
+      retryStoryPlan: vi.fn(), start: vi.fn(), recoverStart: vi.fn(), saveAppliedRuleSet: vi.fn(),
+    }
+
+    render(<AdventureStoryPlanPage api={api} sessionId="s" />)
+    fireEvent.click(await screen.findByRole('button', { name: '모험 계획 생성' }))
+
+    await waitFor(() => expect(screen.getByText(status)).toBeTruthy(), { timeout: 3_000 })
+    expect(screen.getAllByRole('alert').map(alert => alert.textContent).join(' ')).toContain(failureReason)
+    const generationReads = api.readStoryPlanGeneration.mock.calls.length
+    await new Promise(resolve => window.setTimeout(resolve, 1_200))
+    expect(api.readStoryPlanGeneration).toHaveBeenCalledTimes(generationReads)
   })
 })

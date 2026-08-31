@@ -59,8 +59,11 @@ export type CreateAdventureSessionRequest = {
   partySize?: number
 }
 
+export type AdventureStoryPlanStatus = 'GENERATING' | 'READY' | 'BLOCKED' | 'FAILED'
+export type AdventureStoryPlanTerminalStatus = Exclude<AdventureStoryPlanStatus, 'GENERATING'>
+
 export type AdventureStoryPlanView = {
-  status: 'GENERATING' | 'READY' | 'BLOCKED' | 'FAILED'
+  status: AdventureStoryPlanStatus
   currentStage: number
   planRevision: number
   endingCount: number
