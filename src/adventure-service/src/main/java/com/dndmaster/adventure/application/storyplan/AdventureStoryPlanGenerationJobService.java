@@ -82,7 +82,14 @@ public final class AdventureStoryPlanGenerationJobService implements AutoCloseab
         private volatile String message;
         private volatile Instant updatedAt = Instant.now();
         private Job(UUID jobId, UUID sessionId, UUID ownerId) { this.jobId = jobId; this.sessionId = sessionId; this.ownerId = ownerId.toString(); }
-        private void update(Status status, int progress, String stage, String message) { this.status = status; this.progress = progress; this.stage = stage; this.message = message; this.updatedAt = Instant.now(); }
+        private synchronized void update(Status status, int progress, String stage, String message) {
+            if (this.status == Status.COMPLETE || this.status == Status.FAILED) return;
+            this.status = status;
+            this.progress = progress;
+            this.stage = stage;
+            this.message = message;
+            this.updatedAt = Instant.now();
+        }
         private JobView view() { return new JobView(jobId, sessionId, status, progress, stage, message, updatedAt); }
     }
 }
