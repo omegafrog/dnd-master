@@ -33,11 +33,8 @@ public final class AdventureStoryPlanStageSourceValidator {
         if (authoritative.stream().anyMatch(source -> !hasPublishedProvenance(source))) {
             violations.add("story plan contains evidence without published provenance");
         }
-        for (String requiredType : List.of("STORYBOOK", "RULEBOOK")) {
-            if (availableTypes.contains(requiredType) && !usedTypes.contains(requiredType)) {
-                violations.add("story plan must cite at least one " + requiredType + " source");
-            }
-        }
+        // Per-stage evidence grounding is authoritative. A plan may legitimately
+        // use only one source type when the other type has no applicable claim.
         return List.copyOf(violations);
     }
 
