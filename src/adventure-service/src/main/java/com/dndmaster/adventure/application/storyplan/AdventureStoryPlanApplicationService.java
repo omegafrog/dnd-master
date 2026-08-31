@@ -176,9 +176,8 @@ public final class AdventureStoryPlanApplicationService {
                     if (repaired == null) throw new AdventureStoryPlanCandidateValidationException(
                             List.of("repair returned no full story plan candidate"), rejectedCandidate);
                     candidateForValidation = repaired.serializedCandidate();
-                    if (!rejectedCandidate.isBlank()) {
-                        candidateForValidation = scopedMerger.merge(rejectedCandidate, candidateForValidation, repairScope).toString();
-                    }
+                    // Repair gateways return a complete candidate after applying the
+                    // deterministic scope. Do not merge it a second time here.
                     stages = readMergedStages(candidateForValidation);
                     repairNext = false;
                 } else {
