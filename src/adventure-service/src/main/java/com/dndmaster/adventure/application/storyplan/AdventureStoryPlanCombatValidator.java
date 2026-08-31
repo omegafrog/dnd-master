@@ -149,11 +149,9 @@ public final class AdventureStoryPlanCombatValidator {
 
     private static boolean hasCombatHint(AdventureStoryPlanStage stage) {
         if (!stage.enemies().isEmpty() || !stage.boss().isBlank() || !stage.combatSkeleton().participants().isEmpty()) return true;
-        if (stage.stageType() == com.dndmaster.adventure.domain.adventure.AdventureStageType.ENCOUNTER
-                || stage.stageType() == com.dndmaster.adventure.domain.adventure.AdventureStageType.FINALE) return true;
-        String text = String.join(" ", stage.title(), stage.goal(), stage.conflict(), stage.transitionCondition(),
-                stage.clearCondition(), stage.failureCondition(), String.join(" ", stage.npcOrClues())).toLowerCase(Locale.ROOT);
-        return text.matches(".*(combat|battle|fight|encounter|ambush|enemy|boss|monster|attack|전투|전투|적|보스|괴물|습격|싸움|거미|쥐).*" );
+        // Narrative tension alone is not a committed combat requirement. Only
+        // structured enemy/boss/participant data should force combat metadata.
+        return false;
     }
 
     private static boolean supports(String source, String claim) {
