@@ -1,4 +1,4 @@
-description = "All-in-one: single bootable jar merging every backend service"
+description = "All-in-one: single bootable jar composing every backend context"
 
 springBoot {
     mainClass = "com.dndmaster.appall.DndMasterAllInOneApplication"
@@ -12,7 +12,5 @@ dependencies {
     implementation(project(":adventure-service"))
     implementation(project(":rule-knowledge-service"))
     implementation(project(":character-management-service"))
-    implementation(project(":dice-roll-service"))
-    implementation(project(":combat-map-service"))
     implementation(project(":ai-game-master-service"))
 }

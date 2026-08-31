@@ -4,7 +4,6 @@ dependencies {
     testImplementation(project(":identity-access-service"))
     testImplementation(project(":adventure-service"))
     testImplementation(project(":rule-knowledge-service"))
-    testImplementation(project(":combat-map-service"))
     testImplementation(project(":ai-game-master-service"))
     testImplementation("org.springframework.ai:spring-ai-starter-model-ollama")
     testImplementation("org.testcontainers:postgresql")
@@ -44,7 +43,6 @@ val integrationTest by tasks.registering(Test::class) {
         ":identity-access-service:classes",
         ":adventure-service:classes",
         ":rule-knowledge-service:classes",
-        ":combat-map-service:classes",
         ":ai-game-master-service:classes",
     )
 }

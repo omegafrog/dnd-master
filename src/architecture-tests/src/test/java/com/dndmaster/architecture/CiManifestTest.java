@@ -9,13 +9,11 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class CiManifestTest {
-    private static final List<String> SERVICES = List.of(
+    private static final List<String> CONTEXT_MODULES = List.of(
             "identity-access-service",
             "adventure-service",
             "rule-knowledge-service",
             "character-management-service",
-            "dice-roll-service",
-            "combat-map-service",
             "ai-game-master-service");
 
     @Test
@@ -23,7 +21,7 @@ class CiManifestTest {
         Path root = Path.of(System.getProperty("reactorRoot"));
         String workflow = Files.readString(root.getParent().resolve(".github/workflows/dnd-master-ci.yml"));
 
-        assertContainsAll(workflow, SERVICES);
+        assertContainsAll(workflow, CONTEXT_MODULES);
         assertContainsAll(workflow, List.of(
                 "actions/setup-java@v4",
                 "java-version: \"21\"",

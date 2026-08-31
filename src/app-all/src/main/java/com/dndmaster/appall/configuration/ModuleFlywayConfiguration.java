@@ -216,11 +216,18 @@ public class ModuleFlywayConfiguration {
 
     record ModuleMigration(String module, String historyTable) {
         String location() {
-            return "classpath:db/migration/" + module;
+            return "classpath:" + resourceRoot() + module;
         }
 
         String scanPattern() {
-            return "classpath*:db/migration/" + module + "/*.sql";
+            return "classpath*:" + resourceRoot() + module + "/*.sql";
+        }
+
+        private String resourceRoot() {
+            return switch (module) {
+                case "dice-roll-service", "combat-map-service" -> "db/capability-migration/";
+                default -> "db/migration/";
+            };
         }
     }
 }

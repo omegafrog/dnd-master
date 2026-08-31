@@ -12,33 +12,33 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class ModuleBoundaryTest {
-    private static final Map<String, String> SERVICE_PACKAGES = servicePackages();
+    private static final Map<String, List<String>> CONTEXT_PACKAGES = contextPackages();
 
     @Test
-    void serviceBuildsDoNotCreateInterServiceJavaDependencies() throws Exception {
+    void contextBuildsDoNotCreateInterContextJavaDependencies() throws Exception {
         Path root = reactorRoot();
-        List<String> allServiceNames = List.copyOf(SERVICE_PACKAGES.keySet());
-        for (String module : SERVICE_PACKAGES.keySet()) {
+        List<String> contextModules = List.copyOf(CONTEXT_PACKAGES.keySet());
+        for (String module : contextModules) {
             Path buildFile = root.resolve(module).resolve("build.gradle.kts");
             if (!Files.isRegularFile(buildFile)) {
                 continue;
             }
             String buildContent = Files.readString(buildFile);
-            for (String otherService : allServiceNames) {
-                if (otherService.equals(module)) {
+            for (String otherContext : contextModules) {
+                if (otherContext.equals(module)) {
                     continue;
                 }
-                String projectDep = "project(\":" + otherService + "\")";
+                String projectDep = "project(\":" + otherContext + "\")";
                 assertTrue(
                         !buildContent.contains(projectDep),
-                        () -> module + " must communicate with " + otherService + " through a contract, not a Java dependency");
+                        () -> module + " must communicate with " + otherContext + " through a contract, not a Java dependency");
             }
         }
     }
 
     @Test
     void compiledClassesRespectDomainAndBoundedContextBoundaries() throws Exception {
-        List<Path> classDirectories = SERVICE_PACKAGES.keySet().stream()
+        List<Path> classDirectories = CONTEXT_PACKAGES.keySet().stream()
                 .map(module -> reactorRoot().resolve(module).resolve("build/classes/java/main"))
                 .filter(Files::isDirectory)
                 .filter(ModuleBoundaryTest::containsClassFile)
@@ -55,16 +55,20 @@ class ModuleBoundaryTest {
                 .allowEmptyShould(true)
                 .check(classes);
 
-        for (String ownPackage : SERVICE_PACKAGES.values()) {
-            String[] otherPackages = SERVICE_PACKAGES.values().stream()
-                    .filter(candidate -> !candidate.equals(ownPackage))
+        for (Map.Entry<String, List<String>> ownContext : CONTEXT_PACKAGES.entrySet()) {
+            String[] otherPackages = CONTEXT_PACKAGES.entrySet().stream()
+                    .filter(candidate -> !candidate.getKey().equals(ownContext.getKey()))
+                    .flatMap(candidate -> candidate.getValue().stream())
                     .map(candidate -> candidate + "..")
                     .toArray(String[]::new);
-            noClasses()
-                    .that().resideInAPackage(ownPackage + "..")
-                    .should().dependOnClassesThat().resideInAnyPackage(otherPackages)
-                    .allowEmptyShould(true)
-                    .check(classes);
+
+            for (String ownPackage : ownContext.getValue()) {
+                noClasses()
+                        .that().resideInAPackage(ownPackage + "..")
+                        .should().dependOnClassesThat().resideInAnyPackage(otherPackages)
+                        .allowEmptyShould(true)
+                        .check(classes);
+            }
         }
     }
 
@@ -80,15 +84,16 @@ class ModuleBoundaryTest {
         return Path.of(System.getProperty("reactorRoot"));
     }
 
-    private static Map<String, String> servicePackages() {
-        Map<String, String> packages = new LinkedHashMap<>();
-        packages.put("identity-access-service", "com.dndmaster.identityaccess");
-        packages.put("adventure-service", "com.dndmaster.adventure");
-        packages.put("rule-knowledge-service", "com.dndmaster.ruleknowledge");
-        packages.put("character-management-service", "com.dndmaster.character");
-        packages.put("dice-roll-service", "com.dndmaster.diceroll");
-        packages.put("combat-map-service", "com.dndmaster.combatmap");
-        packages.put("ai-game-master-service", "com.dndmaster.aigamemaster");
+    private static Map<String, List<String>> contextPackages() {
+        Map<String, List<String>> packages = new LinkedHashMap<>();
+        packages.put("identity-access-service", List.of("com.dndmaster.identityaccess"));
+        packages.put("adventure-service", List.of(
+                "com.dndmaster.adventure",
+                "com.dndmaster.diceroll",
+                "com.dndmaster.combatmap"));
+        packages.put("rule-knowledge-service", List.of("com.dndmaster.ruleknowledge"));
+        packages.put("character-management-service", List.of("com.dndmaster.character"));
+        packages.put("ai-game-master-service", List.of("com.dndmaster.aigamemaster"));
         return Map.copyOf(packages);
     }
 }

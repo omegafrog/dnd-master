@@ -2,7 +2,6 @@ package com.dndmaster.architecture;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
-import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -12,7 +11,7 @@ import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 class PackageDependencyTest {
-    private static final Map<String, String> SERVICE_PACKAGES = servicePackages();
+    private static final Map<String, List<String>> CONTEXT_PACKAGES = contextPackages();
     private static final List<String> FORBIDDEN_REPOSITORY_REFERENCES = List.of(
             "harness_codex/", ".codex/", "completions/", "docs/changes/", "docs/plans/");
 
@@ -21,14 +20,14 @@ class PackageDependencyTest {
         List<String> violations = new ArrayList<>();
         Path root = Path.of(System.getProperty("reactorRoot"));
 
-        for (var service : SERVICE_PACKAGES.entrySet()) {
-            Path sourceRoot = root.resolve(service.getKey()).resolve("src/main/java");
+        for (var context : CONTEXT_PACKAGES.entrySet()) {
+            Path sourceRoot = root.resolve(context.getKey()).resolve("src/main/java");
             if (!Files.isDirectory(sourceRoot)) {
                 continue;
             }
             try (var paths = Files.walk(sourceRoot)) {
                 for (Path source : paths.filter(path -> path.toString().endsWith(".java")).toList()) {
-                    inspectSource(service, sourceRoot, source, Files.readString(source), violations);
+                    inspectSource(context, sourceRoot, source, Files.readString(source), violations);
                 }
             }
         }
@@ -37,30 +36,33 @@ class PackageDependencyTest {
     }
 
     private static void inspectSource(
-            Map.Entry<String, String> service,
+            Map.Entry<String, List<String>> context,
             Path sourceRoot,
             Path source,
             String content,
             List<String> violations) {
         String relativePath = sourceRoot.relativize(source).toString().replace('\\', '/');
-        String location = service.getKey() + "/src/main/java/" + relativePath;
+        String location = context.getKey() + "/src/main/java/" + relativePath;
 
         if (relativePath.contains("/domain/")) {
             rejectContains(content, "import org.springframework.", location, "domain depends on Spring", violations);
             rejectContains(content, "import jakarta.persistence.", location, "domain depends on JPA", violations);
         }
 
-        for (var otherService : SERVICE_PACKAGES.entrySet()) {
-            if (!otherService.getKey().equals(service.getKey())) {
+        for (var otherContext : CONTEXT_PACKAGES.entrySet()) {
+            if (otherContext.getKey().equals(context.getKey())) {
+                continue;
+            }
+            for (String otherPackage : otherContext.getValue()) {
                 rejectContains(
                         content,
-                        "import " + otherService.getValue() + ".",
+                        "import " + otherPackage + ".",
                         location,
-                        "cross-BC Java import of " + otherService.getKey(),
+                        "cross-BC Java import of " + otherContext.getKey(),
                         violations);
                 rejectContains(
                         content,
-                        otherService.getValue() + ".infrastructure.persistence",
+                        otherPackage + ".infrastructure.persistence",
                         location,
                         "cross-BC persistence access",
                         violations);
@@ -79,15 +81,16 @@ class PackageDependencyTest {
         }
     }
 
-    private static Map<String, String> servicePackages() {
-        Map<String, String> packages = new LinkedHashMap<>();
-        packages.put("identity-access-service", "com.dndmaster.identityaccess");
-        packages.put("adventure-service", "com.dndmaster.adventure");
-        packages.put("rule-knowledge-service", "com.dndmaster.ruleknowledge");
-        packages.put("character-management-service", "com.dndmaster.character");
-        packages.put("dice-roll-service", "com.dndmaster.diceroll");
-        packages.put("combat-map-service", "com.dndmaster.combatmap");
-        packages.put("ai-game-master-service", "com.dndmaster.aigamemaster");
+    private static Map<String, List<String>> contextPackages() {
+        Map<String, List<String>> packages = new LinkedHashMap<>();
+        packages.put("identity-access-service", List.of("com.dndmaster.identityaccess"));
+        packages.put("adventure-service", List.of(
+                "com.dndmaster.adventure",
+                "com.dndmaster.diceroll",
+                "com.dndmaster.combatmap"));
+        packages.put("rule-knowledge-service", List.of("com.dndmaster.ruleknowledge"));
+        packages.put("character-management-service", List.of("com.dndmaster.character"));
+        packages.put("ai-game-master-service", List.of("com.dndmaster.aigamemaster"));
         return Map.copyOf(packages);
     }
 }

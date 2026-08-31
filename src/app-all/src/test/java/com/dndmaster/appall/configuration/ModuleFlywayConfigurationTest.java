@@ -10,7 +10,7 @@ import org.junit.jupiter.api.Test;
 
 class ModuleFlywayConfigurationTest {
     @Test
-    void modulesUseModuleScopedFlywayLocationsAndHistoryTables() {
+    void migrationOwnersKeepIndependentLocationsAndHistoryTables() {
         List<ModuleFlywayConfiguration.ModuleMigration> modules = ModuleFlywayConfiguration.modules();
 
         assertEquals(7, modules.size());
@@ -34,8 +34,20 @@ class ModuleFlywayConfigurationTest {
                         "flyway_combat_map_schema_history",
                         "flyway_ai_game_master_schema_history"),
                 modules.stream().map(ModuleFlywayConfiguration.ModuleMigration::historyTable).collect(Collectors.toSet()));
+
+        var byOwner = modules.stream().collect(Collectors.toMap(
+                ModuleFlywayConfiguration.ModuleMigration::module,
+                module -> module));
+        assertEquals(
+                "classpath:db/capability-migration/dice-roll-service",
+                byOwner.get("dice-roll-service").location());
+        assertEquals(
+                "classpath:db/capability-migration/combat-map-service",
+                byOwner.get("combat-map-service").location());
         assertTrue(
-                modules.stream().allMatch(module -> module.location().startsWith("classpath:db/migration/")),
-                "Each migration location must be module-scoped");
+                modules.stream()
+                        .filter(module -> !Set.of("dice-roll-service", "combat-map-service").contains(module.module()))
+                        .allMatch(module -> module.location().startsWith("classpath:db/migration/")),
+                "Context migration owners must remain under the conventional Flyway root");
     }
 }

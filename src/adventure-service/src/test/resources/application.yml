@@ -9,3 +9,7 @@ spring:
   autoconfigure:
     exclude:
       - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
+
+dice:
+  integration:
+    internal-token: test-internal-token

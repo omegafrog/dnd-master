@@ -33,7 +33,11 @@ class DiceRollPostgresIntegrationTest {
     @BeforeAll static void startDatabase() {
         POSTGRES.start();
         dataSource = new DriverManagerDataSource(POSTGRES.getJdbcUrl(), POSTGRES.getUsername(), POSTGRES.getPassword());
-        Flyway.configure().dataSource(dataSource).load().migrate();
+        Flyway.configure()
+                .dataSource(dataSource)
+                .locations("classpath:db/capability-migration/dice-roll-service")
+                .load()
+                .migrate();
     }
     @AfterAll static void stopDatabase() { POSTGRES.stop(); }
 

@@ -3,7 +3,7 @@ name: DND Master CI
 on:
   pull_request:
   push:
-    branches: [main, "changes/**"]
+    branches: [main, "changes/**", "refactor/**"]
 
 permissions:
   contents: read
@@ -22,8 +22,6 @@ jobs:
           - adventure-service
           - rule-knowledge-service
           - character-management-service
-          - dice-roll-service
-          - combat-map-service
           - ai-game-master-service
     steps:
       - uses: actions/checkout@v4
@@ -33,7 +31,7 @@ jobs:
           java-version: "21"
           cache: gradle
       - uses: gradle/actions/setup-gradle@v4
-      - name: Build and run focused service tests
+      - name: Build and run focused context tests
         run: |
           gradle -p src :${{ matrix.service }}:test
 
