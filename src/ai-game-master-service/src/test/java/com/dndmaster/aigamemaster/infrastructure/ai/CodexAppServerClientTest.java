@@ -43,7 +43,14 @@ class CodexAppServerClientTest {
         long started = System.nanoTime();
         try {
             assertThatThrownBy(() -> client.complete("timeout", "complete", "gpt-5.6-luna"))
-                    .isInstanceOf(ProviderTimeoutException.class);
+                    .isInstanceOf(CodexTurnTimeoutException.class)
+                    .satisfies(error -> {
+                        var timeout = (CodexTurnTimeoutException) error;
+                        assertThat(timeout.operationId()).isEqualTo("timeout");
+                        assertThat(timeout.phase()).isEqualTo("story-plan-markdown");
+                        assertThat(timeout.timeoutMillis()).isEqualTo(150L);
+                        assertThat(timeout.lastEvent()).isEqualTo("request");
+                    });
             assertThat(elapsedMillis(started)).isLessThan(1_000L);
         } finally {
             client.close();
@@ -90,6 +97,56 @@ class CodexAppServerClientTest {
                     .isInstanceOf(IllegalStateException.class)
                     .hasMessageContaining("Codex turn failed")
                     .hasMessageContaining("unauthorized");
+        } finally {
+            client.close();
+        }
+    }
+
+    @Test
+    void sendsBestEffortCancelAndDoesNotWaitForCancelAcknowledgement() throws Exception {
+        Path executable = appServerScript("""
+                #!/usr/bin/env bash
+                while IFS= read -r line; do
+                  case "$line" in
+                    *'\"method\":\"initialize\"'*) echo '{\"id\":1,\"result\":{}}';;
+                    *'\"method\":\"thread/start\"'*) echo '{\"id\":2,\"result\":{\"thread\":{\"id\":\"thread-1\"}}}';;
+                    *'\"method\":\"turn/start\"'*) echo '{\"id\":3,\"result\":{\"turn\":{\"id\":\"turn-1\"}}}';;
+                    *'\"method\":\"turn/cancel\"'*) touch cancel-requested; sleep 5;;
+                  esac
+                done
+                """);
+        CodexAppServerClient client = CodexAppServerClient.shared(
+                executable.toString(), executable.getParent(), Duration.ofMillis(120), new ObjectMapper());
+        try {
+            assertThatThrownBy(() -> client.complete("cancel-timeout", "complete", "gpt-5.6-luna"))
+                    .isInstanceOf(CodexTurnTimeoutException.class);
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(1);
+            while (!Files.exists(executable.getParent().resolve("cancel-requested"))
+                    && System.nanoTime() < deadline) Thread.sleep(10);
+            assertThat(Files.exists(executable.getParent().resolve("cancel-requested"))).isTrue();
+        } finally {
+            client.close();
+        }
+    }
+
+    @Test
+    void distinguishesTurnFailedFromDeadlineTimeout() throws Exception {
+        Path executable = appServerScript("""
+                #!/usr/bin/env bash
+                while IFS= read -r line; do
+                  case "$line" in
+                    *'\"method\":\"initialize\"'*) echo '{\"id\":1,\"result\":{}}';;
+                    *'\"method\":\"thread/start\"'*) echo '{\"id\":2,\"result\":{\"thread\":{\"id\":\"thread-1\"}}}';;
+                    *'\"method\":\"turn/start\"'*) echo '{\"id\":3,\"result\":{}}'; echo '{\"method\":\"turn/failed\",\"params\":{\"error\":\"bad turn\"}}';;
+                  esac
+                done
+                """);
+        CodexAppServerClient client = CodexAppServerClient.shared(
+                executable.toString(), executable.getParent(), Duration.ofSeconds(2), new ObjectMapper());
+        try {
+            assertThatThrownBy(() -> client.complete("turn-failed", "complete", "gpt-5.6-luna"))
+                    .isInstanceOf(CodexTurnFailedException.class)
+                    .hasMessageContaining("bad turn");
         } finally {
             client.close();
         }
