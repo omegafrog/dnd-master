@@ -614,12 +614,24 @@ public final class AdventureStoryPlanController {
 
         String requirement = text(stage, "combatRequirement", "NONE").toUpperCase(java.util.Locale.ROOT);
         if (participants.isEmpty()) {
-            stage.put("combatRequirement", requirement.equals("POSSIBLE") ? "POSSIBLE" : "NONE");
+            // Narrative combat hints are a supported possibility even when the
+            // provider omitted a concrete sourced participant. Keeping NONE in
+            // that case violates the downstream combat validator contract.
+            stage.put("combatRequirement", requirement.equals("NONE") && hasCombatHint(stage) ? "POSSIBLE"
+                    : (requirement.equals("POSSIBLE") ? "POSSIBLE" : "NONE"));
             stage.put("tacticalPreparationRequirement", "NOT_REQUIRED");
         } else if (!requirement.equals("REQUIRED")) {
             stage.put("combatRequirement", "POSSIBLE");
             stage.put("tacticalPreparationRequirement", "NOT_REQUIRED");
         }
+    }
+
+    private static boolean hasCombatHint(ObjectNode stage) {
+        String text = String.join(" ", text(stage, "title", ""), text(stage, "goal", ""),
+                text(stage, "conflict", ""), text(stage, "transitionCondition", ""),
+                text(stage, "clearCondition", ""), text(stage, "failureCondition", ""),
+                String.join(" ", optionalStrings(stage.get("npcOrClues")))).toLowerCase(java.util.Locale.ROOT);
+        return text.matches(".*(combat|battle|fight|encounter|ambush|enemy|boss|monster|attack|전투|적|보스|괴물|습격|싸움|거미|쥐).*");
     }
 
     private void canonicalizeRewards(ObjectNode skeleton, Map<String, SourceCitation> registry, Set<String> evidenceKeys) {
