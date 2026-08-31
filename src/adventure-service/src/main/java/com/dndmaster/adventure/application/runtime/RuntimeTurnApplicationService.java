@@ -683,9 +683,11 @@ public class RuntimeTurnApplicationService {
         }
         if (storybook.isEmpty()) throw new RuntimeEvidenceSelectionException(new RuntimeEvidenceSelectionViolation(
                 "MISSING_STORYBOOK", "storybook evidence is unavailable"));
-        int remaining = Math.max(0, RuntimeEvidenceSelector.MAX_EVIDENCE - storybook.size());
-        return new EvidencePack(storybook.stream().limit(8).toList(), rulebook.stream().limit(remaining).toList(),
-                resolution.stream().limit(Math.max(0, remaining - Math.min(remaining, rulebook.size()))).toList());
+        List<RuntimeEvidence> boundedStorybook = storybook.stream().limit(RuntimeEvidenceSelector.MAX_EVIDENCE).toList();
+        int remaining = Math.max(0, RuntimeEvidenceSelector.MAX_EVIDENCE - boundedStorybook.size());
+        List<RuntimeEvidence> boundedRulebook = rulebook.stream().limit(remaining).toList();
+        remaining = Math.max(0, remaining - boundedRulebook.size());
+        return new EvidencePack(boundedStorybook, boundedRulebook, resolution.stream().limit(remaining).toList());
     }
 
     private static List<UUID> documentIdsOfType(ScenarioPackage scenarioPackage, String type, List<UUID> selected) {

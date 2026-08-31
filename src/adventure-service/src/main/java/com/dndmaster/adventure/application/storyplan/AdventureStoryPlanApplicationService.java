@@ -231,6 +231,8 @@ public final class AdventureStoryPlanApplicationService {
                 accumulatedViolations = appendStructuredViolations(accumulatedViolations, outlineViolations);
                 rejectedCandidate = candidateForValidation;
             } catch (IllegalArgumentException invalidScopeOrMerge) {
+                LOGGER.warn("story plan projection pipeline rejected candidate type={} message={}",
+                        invalidScopeOrMerge.getClass().getSimpleName(), invalidScopeOrMerge.getMessage(), invalidScopeOrMerge);
                 outlineViolations = List.of(new AdventureStoryPlanProjectionViolation(
                         "SCOPED_MERGE_UNAVAILABLE", null, "stages", "", "", Repairability.REGENERATE_REQUIRED,
                         "story plan scoped repair could not be safely merged"));
@@ -342,7 +344,14 @@ public final class AdventureStoryPlanApplicationService {
             if (evidence.evidenceType() == RuntimeEvidenceType.STORYBOOK) storybook.add(evidence);
             else if (evidence.evidenceType() == RuntimeEvidenceType.RULEBOOK) rulebook.add(evidence);
         }
-        return new EvidencePack(storybook.stream().limit(8).toList(), rulebook.stream().limit(8).toList(), List.of());
+        // EvidencePack enforces a total budget of eight items, not eight per
+        // category. Preserve the source ordering while allocating the budget
+        // across the two categories so semantic validation cannot fail before
+        // it even reaches the candidate.
+        List<RuntimeEvidence> boundedStorybook = storybook.stream().limit(8).toList();
+        int remaining = Math.max(0, 8 - boundedStorybook.size());
+        List<RuntimeEvidence> boundedRulebook = rulebook.stream().limit(remaining).toList();
+        return new EvidencePack(boundedStorybook, boundedRulebook, List.of());
     }
 
     private List<AdventureStoryPlanStage> readMergedStages(String serializedCandidate) {

@@ -143,7 +143,9 @@ public final class AdventurePrologueApplicationService {
         var rulebook = withPlanEvidence(search(adventure, owner, rulebookIds, action, RuntimeEvidenceType.RULEBOOK, extractionVersions), stage, RuntimeEvidenceType.RULEBOOK);
         org.slf4j.LoggerFactory.getLogger(AdventurePrologueApplicationService.class).info(
                 "adventure_prologue_evidence storybook={} rulebook={} stage={}", storybook.size(), rulebook.size(), stage.position());
-        return new EvidencePack(storybook, rulebook, java.util.List.of());
+        List<RuntimeEvidence> boundedStorybook = storybook.stream().limit(8).toList();
+        int remaining = Math.max(0, 8 - boundedStorybook.size());
+        return new EvidencePack(boundedStorybook, rulebook.stream().limit(remaining).toList(), java.util.List.of());
     }
 
     private static List<RuntimeEvidence> withPlanEvidence(List<RuntimeEvidence> searched,
