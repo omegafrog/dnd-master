@@ -145,7 +145,9 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             List<AdventureStoryPlanStage> domainStages = java.util.stream.IntStream.range(0, stages.size())
                     .mapToObj(index -> toDomain(stages.get(index), resolvedEvidence.get(index), maps)).toList();
             AdventureStoryPlanGraphValidator.validate(domainStages, configuration);
-            return new AdventureStoryPlanGenerationPort.ProjectionCandidate(candidateJson, domainStages);
+            // Re-serialize the validated domain projection so provider-only defaults
+            // cannot make the full candidate diverge from the runtime model.
+            return AdventureStoryPlanGenerationPort.ProjectionCandidate.fromStages(domainStages);
         } catch (AdventureStoryPlanCandidateValidationException invalidCandidate) {
             throw invalidCandidate;
         } catch (RuntimeException | IOException invalidCandidate) {
