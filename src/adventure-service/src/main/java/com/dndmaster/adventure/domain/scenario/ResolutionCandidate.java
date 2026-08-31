@@ -5,7 +5,7 @@ import java.util.List;
 public interface ResolutionCandidate {
     ResolutionKind kind();
     String abilityOrSkill();
-    Integer dc();
+    SaveDc dc();
     String diceExpression();
     ResolutionVisibility visibility();
     String sourceQuote();

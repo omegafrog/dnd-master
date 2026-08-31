@@ -12,6 +12,7 @@ import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
+import com.dndmaster.adventure.domain.scenario.SaveDc;
 import java.util.List;
 import java.util.UUID;
 import java.time.Instant;
@@ -190,7 +191,7 @@ public class ScenarioCompilationController {
         }
     }
     public record CandidateRequest(
-            ResolutionKind kind, String abilityOrSkill, Integer dc, String diceExpression,
+            ResolutionKind kind, String abilityOrSkill, SaveDc dc, String diceExpression,
             ResolutionVisibility visibility, String sourceQuote,
             List<SourceReferenceRequest> sourceRefs, String provenance, DetailRequest detail) {}
     public record DetailRequest(
@@ -267,7 +268,7 @@ public class ScenarioCompilationController {
                         entry.sourceRefs().stream().map(ScenarioCompilationController::sourceRef).toList())).toList(),
                 detail.tableCoverage());
     }
-    public record UnitResponse(String kind, String status, String abilityOrSkill, Integer dc, String diceExpression,
+    public record UnitResponse(String kind, String status, String abilityOrSkill, SaveDc dc, String diceExpression,
                                String visibility, String sourceQuote, String provenance, List<String> validationMessages,
                                List<String> runtimeCapabilities, DetailRequest detail,
                                List<SourceReferenceRequest> sourceRefs) {}

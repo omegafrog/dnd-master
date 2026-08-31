@@ -17,7 +17,7 @@ public final class CandidateRepairPolicy {
     public boolean mayRepair(String validationCode, int repairAttempts) {
         if (validationCode == null || validationCode.isBlank()) return false;
         CandidateRecoverability recoverability = switch (validationCode) {
-            case "DICE_EXPRESSION_INVALID", "RECHARGE_RANGE_INVALID", "SOURCE_EXCERPT_UNAVAILABLE" -> CandidateRecoverability.REPAIRABLE;
+            case "DICE_EXPRESSION_INVALID", "RECHARGE_RANGE_INVALID", "DC_MISSING", "DC_RESOLUTION_MISSING", "SOURCE_EXCERPT_UNAVAILABLE" -> CandidateRecoverability.REPAIRABLE;
             case "SOURCE_QUOTE_UNVERIFIED" -> CandidateRecoverability.MAYBE_REPAIRABLE;
             default -> CandidateRecoverability.NON_REPAIRABLE;
         };

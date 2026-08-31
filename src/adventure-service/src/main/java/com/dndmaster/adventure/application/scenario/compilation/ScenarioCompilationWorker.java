@@ -241,6 +241,7 @@ public final class ScenarioCompilationWorker {
             case "dice expression is invalid" -> "DICE_EXPRESSION_INVALID";
             case "recharge range is invalid" -> "RECHARGE_RANGE_INVALID";
             case "DC is missing" -> "DC_MISSING";
+            case "DC resolution is missing" -> "DC_RESOLUTION_MISSING";
             case "source excerpt is unavailable" -> "SOURCE_EXCERPT_UNAVAILABLE";
             case "source quote cannot be verified against referenced excerpt" -> "SOURCE_QUOTE_UNVERIFIED";
             default -> "NON_REPAIRABLE";

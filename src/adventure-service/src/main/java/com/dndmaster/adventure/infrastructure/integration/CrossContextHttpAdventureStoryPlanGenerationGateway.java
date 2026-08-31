@@ -4,6 +4,7 @@ import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGeneratio
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanCandidateValidationException;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionViolation;
 import com.dndmaster.adventure.application.storyplan.StoryPlanScopedMerger;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionRepairPolicy;
 import com.dndmaster.adventure.application.storyplan.TacticalScenePlanCandidate;
 import com.dndmaster.adventure.application.storyplan.TacticalSceneRequest;
 import com.dndmaster.adventure.application.storyplan.TacticalScenePlanValidator;

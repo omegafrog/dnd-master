@@ -7,6 +7,7 @@ import com.dndmaster.adventure.domain.scenario.ResolutionKind;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionDetail;
 import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
+import com.dndmaster.adventure.domain.scenario.SaveDc;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -97,7 +98,7 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
     record CandidateResponse(
             ResolutionKind kind,
             String abilityOrSkill,
-            Integer dc,
+            SaveDc dc,
             String diceExpression,
             ResolutionVisibility visibility,
             String sourceQuote,

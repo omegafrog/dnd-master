@@ -74,6 +74,24 @@ class ProcessCliPreprocessingAdapterTest {
     }
 
     @Test
+    void drainsLargeProcessOutputBeforeWaitingForTheProcessToExit() throws Exception {
+        Path work = Files.createTempDirectory("rag-014-adapter-large-output-");
+        Path source = work.resolve("rules.txt");
+        Files.writeString(source, "content", StandardCharsets.UTF_8);
+        String hash = sha256(source);
+        Map<String, Object> fixture = fixture(work, hash, "candidate-large", "adapter-large", "preprocess");
+        fixture.put("diagnostic", "x".repeat(128 * 1024));
+        Path script = writeScript(work.resolve("fake-python-large-output"), new ObjectMapper().writeValueAsString(fixture));
+        ProcessCliPreprocessingAdapter adapter = new ProcessCliPreprocessingAdapter(
+                script.toString(), work, Duration.ofSeconds(3), new ObjectMapper());
+
+        PreprocessingRunResult result = adapter.preprocess(
+                new PreprocessingRunRequest("adapter-large", source, hash, "p1", work.resolve("out"), "candidate-large"));
+
+        assertEquals("candidate-large", result.versionId());
+    }
+
+    @Test
     void rejectsUnknownArtifactManifestEntries() throws Exception {
         Path work = Files.createTempDirectory("rag-014-adapter-");
         Path unexpected = work.resolve("unexpected.json");

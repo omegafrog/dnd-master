@@ -12,6 +12,13 @@ import org.junit.jupiter.api.Test;
 
 class ResolutionCandidateControllerTest {
     @Test
+    void preservesCasterSpellSaveDcAsASymbolicStrategy() {
+        var controller = new ResolutionCandidateController(null, new ObjectMapper());
+        var candidates = controller.parseModel("[{\"kind\":\"SAVING_THROW\",\"abilityOrSkill\":\"Dexterity\",\"dc\":{\"type\":\"CASTER_SPELL_SAVE_DC\"},\"visibility\":\"GM_REFERENCE\",\"sourceQuote\":\"against your spell save DC\",\"sourceRefs\":[],\"provenance\":\"source text\"}]");
+        assertEquals("CASTER_SPELL_SAVE_DC", candidates.getFirst().dc().path("type").asText());
+    }
+
+    @Test
     void acceptsJsonWrappedInModelMarkdownAndKeepsValidCandidates() {
         var controller = new ResolutionCandidateController(null, new ObjectMapper());
 
@@ -39,7 +46,7 @@ class ResolutionCandidateControllerTest {
         assertEquals(1, candidates.size());
         assertEquals("SAVING_THROW", candidates.getFirst().kind());
         assertEquals("GM_REFERENCE", candidates.getFirst().visibility());
-        assertEquals(12, candidates.getFirst().dc());
+        assertEquals(12, candidates.getFirst().dc().path("value").asInt());
     }
 
     @Test
@@ -51,7 +58,7 @@ class ResolutionCandidateControllerTest {
 
         assertFalse(candidates.isEmpty());
         assertEquals("SAVING_THROW", candidates.getFirst().kind());
-        assertEquals(12, candidates.getFirst().dc());
+        assertEquals(12, candidates.getFirst().dc().path("value").asInt());
     }
 
     @Test
@@ -73,7 +80,7 @@ class ResolutionCandidateControllerTest {
 
         assertEquals(1, candidates.size());
         assertEquals("SAVING_THROW", candidates.getFirst().kind());
-        assertEquals(12, candidates.getFirst().dc());
+        assertEquals(12, candidates.getFirst().dc().path("value").asInt());
     }
 
     @Test
@@ -91,7 +98,7 @@ class ResolutionCandidateControllerTest {
         var candidates = ResolutionCandidateController.deduplicate(
                 ResolutionCandidateController.fallbackCandidates(excerpts));
         var unique = candidates.stream().collect(Collectors.toMap(
-                candidate -> candidate.kind() + ":" + candidate.abilityOrSkill() + ":" + candidate.dc(),
+                candidate -> candidate.kind() + ":" + candidate.abilityOrSkill() + ":" + candidate.dc().path("value").asInt(),
                 Function.identity(), (first, ignored) -> first));
 
         assertEquals(4, unique.size());

@@ -23,6 +23,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
@@ -110,7 +112,10 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
                 String existingPythonPath = builder.environment().get("PYTHONPATH");
                 builder.environment().put("PYTHONPATH", sourceRoot + (existingPythonPath == null ? "" : java.io.File.pathSeparator + existingPythonPath));
             }
-            process = builder.start();
+            Process started = builder.start();
+            process = started;
+            CompletableFuture<byte[]> stdout = CompletableFuture.supplyAsync(() -> readAll(started.getInputStream()));
+            CompletableFuture<byte[]> stderr = CompletableFuture.supplyAsync(() -> readAll(started.getErrorStream()));
             String requestJson = objectMapper.writeValueAsString(request);
             process.getOutputStream().write(requestJson.getBytes(StandardCharsets.UTF_8));
             process.getOutputStream().close();
@@ -119,10 +124,10 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
                 process.destroyForcibly();
                 throw new PreprocessingProcessException("PREPROCESSING_TIMEOUT");
             }
-            String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+            String stdoutText = new String(readFuture(stdout), StandardCharsets.UTF_8).trim();
             // stderr is deliberately consumed but never included in a user-facing exception or response.
-            process.getErrorStream().readAllBytes();
-            JsonNode response = stdout.isBlank() ? null : objectMapper.readTree(stdout);
+            readFuture(stderr);
+            JsonNode response = stdoutText.isBlank() ? null : objectMapper.readTree(stdoutText);
             if (response == null || !response.isObject()) {
                 throw new PreprocessingProcessException("MALFORMED_PROCESS_RESPONSE");
             }
@@ -145,6 +150,25 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
             if (process != null && process.isAlive()) {
                 process.destroyForcibly();
             }
+        }
+    }
+
+    private static byte[] readAll(java.io.InputStream stream) {
+        try {
+            return stream.readAllBytes();
+        } catch (IOException exception) {
+            throw new java.io.UncheckedIOException(exception);
+        }
+    }
+
+    private static byte[] readFuture(CompletableFuture<byte[]> future) {
+        try {
+            return future.get();
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new PreprocessingProcessException("PREPROCESSING_INTERRUPTED", exception);
+        } catch (ExecutionException exception) {
+            throw new PreprocessingProcessException("PREPROCESSING_PROCESS_UNAVAILABLE", exception.getCause());
         }
     }
 

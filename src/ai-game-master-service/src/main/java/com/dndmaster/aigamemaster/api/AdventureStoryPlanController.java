@@ -459,7 +459,7 @@ public final class AdventureStoryPlanController {
 
     private List<Stage> parseJson(String text, Configuration configuration, List<SourceCitation> authoritativeCitations) {
         try {
-            JsonNode root = canonicalizeProjection(mapper.readTree(extractObject(text)), authoritativeCitations);
+            JsonNode root = canonicalizeProjection(mapper.readTree(extractObject(text)), authoritativeCitations, configuration);
             JsonNode stages = root.get("stages");
             if (stages == null || !stages.isArray()) throw new IllegalArgumentException("stages missing");
             List<Stage> result = new ArrayList<>();
@@ -505,22 +505,52 @@ public final class AdventureStoryPlanController {
                 rejectedValue, "", ProjectionViolation.Repairability.REPAIRABLE, message)), null, rejectedCandidate);
     }
 
-    private JsonNode canonicalizeProjection(JsonNode input, List<SourceCitation> authoritativeCitations) {
+    private JsonNode canonicalizeProjection(JsonNode input, List<SourceCitation> authoritativeCitations, Configuration configuration) {
         if (input == null || !input.isObject()) return input;
+        ObjectNode root = ((ObjectNode) input).deepCopy();
+        JsonNode stages = root.get("stages");
+        // endingIds are canonical plan data, not a projection decision. Preserve
+        // the values already present in the candidate and copy the authoritative
+        // set to any stage where the provider emitted an empty array.
+        copyCanonicalEndingIds(root, configuration);
         Map<String, SourceCitation> registry = new java.util.LinkedHashMap<>();
         for (SourceCitation citation : authoritativeCitations == null ? List.<SourceCitation>of() : authoritativeCitations) {
             if (citation != null && citation.citationKey() != null && !citation.citationKey().isBlank()) {
                 registry.putIfAbsent(citation.citationKey().trim(), citation);
             }
         }
-        if (registry.isEmpty()) return input;
-        ObjectNode root = ((ObjectNode) input).deepCopy();
-        JsonNode stages = root.get("stages");
         if (stages == null || !stages.isArray()) return root;
         for (JsonNode stage : stages) {
             if (stage.isObject()) canonicalizeStage((ObjectNode) stage, registry);
         }
         return root;
+    }
+
+    private void copyCanonicalEndingIds(ObjectNode root, Configuration configuration) {
+        JsonNode stages = root.get("stages");
+        if (stages == null || !stages.isArray()) return;
+        Set<String> canonical = new LinkedHashSet<>();
+        stages.forEach(stage -> {
+            JsonNode endings = stage.isObject() ? stage.get("endingIds") : null;
+            if (endings != null && endings.isArray()) {
+                endings.forEach(value -> {
+                    if (value.isTextual() && !value.asText().isBlank()) canonical.add(value.asText());
+                });
+            }
+        });
+        if (canonical.isEmpty() && configuration != null) {
+            for (int i = 1; i <= configuration.endingCount(); i++) canonical.add("ending-" + i);
+        }
+        if (canonical.isEmpty()) return;
+        stages.forEach(stage -> {
+            if (!stage.isObject()) return;
+            JsonNode endings = stage.get("endingIds");
+            if (endings == null || !endings.isArray() || endings.isEmpty()) {
+                ArrayNode copied = mapper.createArrayNode();
+                canonical.forEach(copied::add);
+                ((ObjectNode) stage).set("endingIds", copied);
+            }
+        });
     }
 
     private void canonicalizeStage(ObjectNode stage, Map<String, SourceCitation> registry) {

@@ -81,6 +81,36 @@ class ScenarioCompilationWorkerTest {
     }
 
     @Test
+    void retriesSkillCheckWhenDcIsMissingAndPublishesRecoveredCandidate() {
+        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(List.of(
+                document(storybook, ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 2)));
+        ResolutionExtractionPort.SourceExcerpt excerpt = new ResolutionExtractionPort.SourceExcerpt(
+                storybook, 2, "page:1", "Make a DC 12 Wisdom check");
+        com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate missingDc = new com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate(
+                ResolutionKind.SKILL_ABILITY_CHECK, "Wisdom", null, null, ResolutionVisibility.GM_REFERENCE,
+                "DC 12 Wisdom check", List.of(new ScenarioSourceReference(storybook, 2, "page:1")),
+                "source text", null);
+        com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate repaired = new com.dndmaster.adventure.application.scenario.compilation.ResolutionCandidate(
+                ResolutionKind.SKILL_ABILITY_CHECK, "Wisdom", 12, null, ResolutionVisibility.GM_REFERENCE,
+                "DC 12 Wisdom check", List.of(new ScenarioSourceReference(storybook, 2, "page:1")),
+                "source text", null);
+        Fixture fixture = new Fixture(bundle);
+        int[] calls = {0};
+        ScenarioCompilationWorker worker = new ScenarioCompilationWorker(fixture.manager, fixture.compilations,
+                fixture.queue, new Bundles(bundle), request -> calls[0]++ == 0 ? List.of(missingDc) : List.of(repaired),
+                ignored -> List.of(excerpt), fixture.tags, fixture.search,
+                new ScenarioPackageCompilationService(fixture.packages), fixture.packages);
+
+        ScenarioPackage result = worker.processNext("worker", Duration.ofMinutes(1)).orElseThrow();
+
+        assertEquals(2, calls[0]);
+        assertEquals("COMPLETE", result.report().status().name());
+        assertEquals(12, ((com.dndmaster.adventure.domain.scenario.FixedSaveDc) result.units().getFirst().dc()).value());
+        assertEquals(ResolutionStatus.COMPLETE, result.units().getFirst().status());
+    }
+
+    @Test
     void limitsCandidateRepairToOneAttempt() {
         KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(List.of(

@@ -14,6 +14,8 @@ import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
 import com.dndmaster.adventure.domain.scenario.CharacterLimit;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
+import com.dndmaster.adventure.domain.scenario.FixedSaveDc;
+import com.dndmaster.adventure.domain.scenario.SaveDc;
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler;
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate;
 import com.dndmaster.adventure.application.scenario.blueprint.DndCharacterCreationTemplate;
@@ -371,7 +373,7 @@ public final class ScenarioPackageCompilationService {
         List<String> incomplete = new ArrayList<>();
         if (candidate == null) {
             return new ScenarioResolutionUnit(
-                    null, null, null, null, ResolutionVisibility.GM_REFERENCE,
+                    null, null, (SaveDc) null, null, ResolutionVisibility.GM_REFERENCE,
                     "", List.of(), "", ScenarioResolutionDetail.empty(), ResolutionStatus.INVALID, List.of("candidate is null"));
         }
         if (candidate.kind() == null) invalid.add("resolution kind is missing");
@@ -460,16 +462,13 @@ public final class ScenarioPackageCompilationService {
                 validateDc(candidate.dc(), invalid, incomplete);
             }
             case ATTACK_ROLL -> {
-                if (candidate.abilityOrSkill() == null || candidate.abilityOrSkill().isBlank()) {
-                    incomplete.add("ability or skill is missing");
-                }
                 if (!validDice(candidate.diceExpression())) invalid.add("dice expression is invalid");
             }
             case OPPOSED_CHECK -> {
                 if (candidate.abilityOrSkill() == null || candidate.abilityOrSkill().isBlank()) {
                     incomplete.add("ability or skill is missing");
                 }
-                if (candidate.dc() != null && (candidate.dc() < 0 || candidate.dc() > 100)) {
+                if (candidate.dc() instanceof FixedSaveDc fixed && (fixed.value() < 0 || fixed.value() > 100)) {
                     invalid.add("DC is outside supported range");
                 }
             }
@@ -506,10 +505,10 @@ public final class ScenarioPackageCompilationService {
         }
     }
 
-    private static void validateDc(Integer dc, List<String> invalid, List<String> incomplete) {
+    private static void validateDc(SaveDc dc, List<String> invalid, List<String> incomplete) {
         if (dc == null) {
-            incomplete.add("DC is missing");
-        } else if (dc < 0 || dc > 100) {
+            incomplete.add("DC resolution is missing");
+        } else if (dc instanceof FixedSaveDc fixed && (fixed.value() <= 0 || fixed.value() > 100)) {
             invalid.add("DC is outside supported range");
         }
     }

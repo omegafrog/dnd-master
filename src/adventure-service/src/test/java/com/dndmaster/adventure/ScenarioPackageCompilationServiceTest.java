@@ -29,6 +29,45 @@ import org.junit.jupiter.api.Test;
 
 class ScenarioPackageCompilationServiceTest {
     @Test
+    void completesSavingThrowWhoseDcComesFromTheCastersSpellSaveDc() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ResolutionCandidate web = new ResolutionCandidate(
+                com.dndmaster.adventure.domain.scenario.ResolutionKind.SAVING_THROW,
+                "Dexterity", new com.dndmaster.adventure.domain.scenario.CasterSpellSaveDc(), null,
+                com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
+                "make a Dexterity saving throw against your spell save DC",
+                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 2, "page=86:web")),
+                "web-rulebook-fixture", null);
+        var unit = new ScenarioPackageCompilationService(new InMemoryPackageRepository())
+                .compile(bundle(documentId, 2), List.of(web), List.of(new ResolutionExtractionPort.SourceExcerpt(
+                        documentId, 2, "page=86:web", "make a Dexterity saving throw against your spell save DC")))
+                .units().getFirst();
+        assertEquals("COMPLETE", unit.status().name());
+        assertTrue(unit.dc() instanceof com.dndmaster.adventure.domain.scenario.CasterSpellSaveDc);
+    }
+
+    @Test
+    void allowsAttackRollWithoutAbilityOrSkillWhenAttackFormulaIsPresent() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackageCompilationService service = new ScenarioPackageCompilationService(new InMemoryPackageRepository());
+        ResolutionCandidate candidate = new ResolutionCandidate(
+                com.dndmaster.adventure.domain.scenario.ResolutionKind.ATTACK_ROLL,
+                null,
+                null,
+                "1d20+5",
+                com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
+                "Ranged Weapon Attack: +5 to hit",
+                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 4, "page:4")),
+                "source text",
+                null);
+
+        var unit = service.compile(bundle(documentId, 4), List.of(candidate)).units().getFirst();
+
+        assertEquals("COMPLETE", unit.status().name());
+        assertTrue(unit.validationMessages().isEmpty());
+    }
+
+    @Test
     void preservesOrderedStepsAndOutcomesForCompoundSavingThrowProcedure() {
         KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(documentId, 4);
@@ -382,7 +421,7 @@ class ScenarioPackageCompilationServiceTest {
         var unit = new ScenarioPackageCompilationService(new InMemoryPackageRepository(), overrides)
                 .compile(bundle, List.of(revised), List.of(excerpt)).units().get(0);
 
-        assertEquals(15, unit.dc());
+        assertEquals(15, ((com.dndmaster.adventure.domain.scenario.FixedSaveDc) unit.dc()).value());
         assertEquals("COMPLETE", unit.status().name());
     }
 
@@ -414,8 +453,8 @@ class ScenarioPackageCompilationServiceTest {
         var packageVersion = new ScenarioPackageCompilationService(new InMemoryPackageRepository(), overrides)
                 .compile(bundle, List.of(candidate, candidate), List.of(excerpt));
 
-        assertEquals(13, packageVersion.units().get(0).dc());
-        assertEquals(13, packageVersion.units().get(1).dc());
+        assertEquals(13, ((com.dndmaster.adventure.domain.scenario.FixedSaveDc) packageVersion.units().get(0).dc()).value());
+        assertEquals(13, ((com.dndmaster.adventure.domain.scenario.FixedSaveDc) packageVersion.units().get(1).dc()).value());
         assertTrue(packageVersion.report().warnings().stream().anyMatch(message -> message.contains("multiple candidates")));
     }
 
