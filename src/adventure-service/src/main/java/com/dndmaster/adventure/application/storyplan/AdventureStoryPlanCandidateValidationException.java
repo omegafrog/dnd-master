@@ -72,12 +72,15 @@ public final class AdventureStoryPlanCandidateValidationException extends Runtim
                 || normalized.contains("failure consequence")
                 || normalized.contains("fail-forward consequence")
                 || normalized.contains("failure outcome");
+        boolean missingEndingIds = normalized.contains("endingids")
+                && (normalized.contains("missing") || normalized.contains("empty")
+                || normalized.contains("explicit") || normalized.contains("required"));
         java.util.regex.Matcher stageMatcher = java.util.regex.Pattern.compile("(?i)stage\\s+(\\d+)").matcher(message);
         Integer stagePosition = stageMatcher.find() ? Integer.valueOf(stageMatcher.group(1)) : null;
         AdventureStoryPlanProjectionViolation.Repairability repairability = normalized.contains("serialized projection")
                 || normalized.contains("full projection candidate")
                 ? AdventureStoryPlanProjectionViolation.Repairability.SYSTEM_CONTRACT_ERROR
-                : unknownCitation || unsupportedCombatParticipant || missingFailureConsequence
+                : unknownCitation || unsupportedCombatParticipant || missingFailureConsequence || missingEndingIds
                 ? AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE
                 : normalized.contains("citation")
                 || normalized.contains("source") || normalized.contains("map")
@@ -88,7 +91,8 @@ public final class AdventureStoryPlanCandidateValidationException extends Runtim
                         || normalized.contains("required") || normalized.contains("stage count")
                         ? AdventureStoryPlanProjectionViolation.Repairability.REGENERATE_REQUIRED
                 : AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE;
-        String field = unknownCitation ? "stages[*].evidence[*].citationKey"
+        String field = missingEndingIds ? "stages[*].endingIds"
+                : unknownCitation ? "stages[*].evidence[*].citationKey"
                 : unsupportedCombatParticipant ? "stages[*].combatSkeleton.participants[*].name"
                 : missingFailureConsequence ? "stages[*].failureCondition"
                 : normalized.contains("transitioncondition") ? "stages[*].transitionCondition"
@@ -96,7 +100,8 @@ public final class AdventureStoryPlanCandidateValidationException extends Runtim
                 : normalized.contains("failurecondition") ? "stages[*].failureCondition"
                 : normalized.contains("ending") ? "stages[*].endingIds" : "stages";
         if (stagePosition != null) field = field.replaceFirst("\\[\\*\\]", "[" + (stagePosition - 1) + "]");
-        String code = unsupportedCombatParticipant ? "COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED"
+        String code = missingEndingIds ? "ENDING_IDS_MISSING"
+                : unsupportedCombatParticipant ? "COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED"
                 : normalized.contains("citation") ? "CITATION_CONTRACT_VIOLATION"
                 : missingFailureConsequence ? "FAILURE_CONSEQUENCE_MISSING"
                 : normalized.contains("map") ? "MAP_CONTRACT_VIOLATION"

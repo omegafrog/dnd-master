@@ -463,12 +463,19 @@ public final class AdventureStoryPlanController {
             JsonNode stages = root.get("stages");
             if (stages == null || !stages.isArray()) throw new IllegalArgumentException("stages missing");
             List<Stage> result = new ArrayList<>();
-            for (JsonNode n : stages) {
+            for (int stageIndex = 0; stageIndex < stages.size(); stageIndex++) {
+                JsonNode n = stages.get(stageIndex);
                 if (!n.isObject()) throw new IllegalArgumentException("stage must be an object");
                 JsonNode position = n.get("position");
                 if (position == null || !position.isIntegralNumber()) throw new IllegalArgumentException("position missing");
-                List<String> endings = strings(n.get("endingIds"), "endingIds");
-                if (endings.isEmpty()) throw new IllegalArgumentException("endingIds must be explicit");
+                JsonNode endingNode = n.get("endingIds");
+                if (endingNode == null || !endingNode.isArray()) {
+                    throw endingIdsViolation(position.intValue(), stageIndex, "", root, "endingIds must be explicit");
+                }
+                List<String> endings = strings(endingNode, "endingIds");
+                if (endings.isEmpty()) {
+                    throw endingIdsViolation(position.intValue(), stageIndex, endingNode.toString(), root, "endingIds must not be empty");
+                }
                 result.add(new Stage(position.intValue(), required(n,"title"), text(n, "stageType", "EVENT"), text(n, "location", required(n, "title")), required(n,"goal"), required(n,"conflict"), required(n,"transitionCondition"), optionalStrings(n.get("npcOrClues")), endings,
                         text(n, "mapDefinitionId", ""), text(n, "mapAssetId", ""), text(n, "mapAssetLocator", ""), optionalStrings(n.get("enemies")), text(n, "boss", ""), text(n, "clearCondition", required(n, "transitionCondition")), text(n, "failureCondition", ""), optionalStrings(n.get("rewards")), optionalStrings(n.get("branchIds")), optionalMaps(n.get("branchTargets")), optionalCitations(n.get("evidence")),
                         text(n, "combatRequirement", "NONE"), parseCombatSkeleton(n.get("combatSkeleton")), parseSourceFactClaims(n.get("sourceFactClaims")),
@@ -491,6 +498,13 @@ public final class AdventureStoryPlanController {
      * Provider JSON is untrusted. Canonicalize only at the projection boundary so
      * invented provenance or combat facts cannot enter the application model.
      */
+    private CandidateResponseValidationException endingIdsViolation(int stagePosition, int stageIndex,
+            String rejectedValue, JsonNode rejectedCandidate, String message) {
+        return new CandidateResponseValidationException(List.of(new ProjectionViolation(
+                "ENDING_IDS_MISSING", stagePosition, "stages[" + stageIndex + "].endingIds",
+                rejectedValue, "", ProjectionViolation.Repairability.REPAIRABLE, message)), null, rejectedCandidate);
+    }
+
     private JsonNode canonicalizeProjection(JsonNode input, List<SourceCitation> authoritativeCitations) {
         if (input == null || !input.isObject()) return input;
         Map<String, SourceCitation> registry = new java.util.LinkedHashMap<>();
@@ -773,15 +787,22 @@ public final class AdventureStoryPlanController {
             String normalized = message.toLowerCase(java.util.Locale.ROOT);
             java.util.regex.Matcher stageMatcher = java.util.regex.Pattern.compile("(?i)stage\\s+(\\d+)").matcher(message);
             Integer stagePosition = stageMatcher.find() ? Integer.valueOf(stageMatcher.group(1)) : null;
-            String field = normalized.contains("transitioncondition") ? "stages[*].transitionCondition"
+            boolean missingEndingIds = normalized.contains("endingids")
+                    && (normalized.contains("missing") || normalized.contains("empty")
+                    || normalized.contains("explicit") || normalized.contains("required"));
+            String field = missingEndingIds ? "stages[*].endingIds"
+                    : normalized.contains("transitioncondition") ? "stages[*].transitionCondition"
                     : normalized.contains("clearcondition") ? "stages[*].clearCondition"
                     : normalized.contains("failurecondition") ? "stages[*].failureCondition"
                     : normalized.contains("citation") ? "stages[*].evidence[*].citationKey" : "stages";
             if (stagePosition != null && field.startsWith("stages[*].")) {
                 field = field.replace("stages[*]", "stages[" + (stagePosition - 1) + "]");
             }
-            String code = normalized.contains("citation") ? "CITATION_CONTRACT_VIOLATION" : "PROJECTION_FIELD_INVALID";
-            ProjectionViolation.Repairability repairability = normalized.contains("citation")
+            String code = missingEndingIds ? "ENDING_IDS_MISSING"
+                    : normalized.contains("citation") ? "CITATION_CONTRACT_VIOLATION" : "PROJECTION_FIELD_INVALID";
+            ProjectionViolation.Repairability repairability = missingEndingIds
+                    ? ProjectionViolation.Repairability.REPAIRABLE
+                    : normalized.contains("citation")
                     ? ProjectionViolation.Repairability.SOURCE_EVIDENCE_INSUFFICIENT
                     : field.equals("stages") ? ProjectionViolation.Repairability.REGENERATE_REQUIRED
                     : ProjectionViolation.Repairability.REPAIRABLE;

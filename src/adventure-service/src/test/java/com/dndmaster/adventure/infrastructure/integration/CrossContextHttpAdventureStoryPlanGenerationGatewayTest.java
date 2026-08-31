@@ -430,6 +430,9 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
                         List.of(), List.of(), List.of(), List.of())));
 
         assertEquals(List.of("endingIds must be explicit"), failure.violations());
+        assertEquals(AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE,
+                failure.structuredViolations().getFirst().repairability());
+        assertEquals("stages[0].endingIds", failure.structuredViolations().getFirst().fieldPath());
     }
 
     @Test
@@ -451,6 +454,9 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
                         List.of(), List.of(), List.of(), List.of())));
 
         assertEquals(List.of("endingIds must not be empty"), failure.violations());
+        assertEquals(AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE,
+                failure.structuredViolations().getFirst().repairability());
+        assertEquals("stages[0].endingIds", failure.structuredViolations().getFirst().fieldPath());
     }
 
     @Test

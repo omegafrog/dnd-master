@@ -37,4 +37,14 @@ class AdventureStoryPlanCandidateValidationExceptionTest {
         assertEquals(Repairability.REPAIRABLE, violation.repairability());
         assertEquals("stages[1].failureCondition", violation.fieldPath());
     }
+
+    @Test
+    void maps_missing_ending_ids_to_the_exact_stage_field_and_repair() {
+        var violation = AdventureStoryPlanCandidateValidationException.legacyViolation(
+                "Stage 3 endingIds must be explicit");
+
+        assertEquals("ENDING_IDS_MISSING", violation.code());
+        assertEquals(Repairability.REPAIRABLE, violation.repairability());
+        assertEquals("stages[2].endingIds", violation.fieldPath());
+    }
 }

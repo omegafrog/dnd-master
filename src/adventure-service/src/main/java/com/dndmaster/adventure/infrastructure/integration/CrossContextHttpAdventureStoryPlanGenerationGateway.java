@@ -122,7 +122,7 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             List<Stage> stages = parsed.stages();
             List<List<AdventureStoryPlanGenerationPort.SourceCitation>> resolvedEvidence = stages.stream()
                     .map(stage -> resolveCitationKeys(stage.evidence(), request.citations())).toList();
-            validateEndingIdProjection(stages);
+            validateEndingIdProjection(stages, candidateJson);
             if (!request.citations().isEmpty() && stages.stream().anyMatch(stage -> stage.evidence().isEmpty())) {
                 throw new IllegalStateException("every story stage must include at least one supplied source citation");
             }
@@ -154,18 +154,28 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         }
     }
 
-    private static void validateEndingIdProjection(List<Stage> stages) {
-        for (Stage stage : stages) {
+    private static void validateEndingIdProjection(List<Stage> stages, String candidateJson) {
+        for (int index = 0; index < stages.size(); index++) {
+            Stage stage = stages.get(index);
             if (stage.endingIds() == null) {
-                throw new IllegalStateException("endingIds must be explicit");
+                throw endingIdsViolation(index, "", candidateJson, "endingIds must be explicit");
             }
             if (stage.endingIds().stream().anyMatch(item -> item == null || item.isBlank())) {
                 throw new IllegalStateException("endingIds must not contain blank values");
             }
             if (stage.endingIds().isEmpty()) {
-                throw new IllegalStateException("endingIds must not be empty");
+                throw endingIdsViolation(index, "[]", candidateJson, "endingIds must not be empty");
             }
         }
+    }
+
+    private static AdventureStoryPlanCandidateValidationException endingIdsViolation(
+            int index, String rejectedValue, String candidateJson, String message) {
+        return new AdventureStoryPlanCandidateValidationException(List.of(
+                new AdventureStoryPlanProjectionViolation("ENDING_IDS_MISSING", index + 1,
+                        "stages[" + index + "].endingIds", rejectedValue, "",
+                        AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE, message)),
+                candidateJson, true);
     }
 
     @Override public TacticalScenePlanCandidate generateTacticalScene(TacticalSceneRequest request) {
@@ -418,7 +428,9 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             List<SourceFactClaimProjection> sourceFactClaims, String tacticalPreparationRequirement, Integer schemaVersion) {
         Stage {
             npcOrClues = List.copyOf(Objects.requireNonNull(npcOrClues, "npcOrClues must be explicit"));
-            endingIds = List.copyOf(Objects.requireNonNull(endingIds, "endingIds must be explicit"));
+            // Keep null long enough for the typed projection validator to report the
+            // exact repairable stages[n].endingIds path. Domain conversion rejects it later.
+            endingIds = endingIds == null ? null : List.copyOf(endingIds);
             enemies = List.copyOf(Objects.requireNonNull(enemies, "enemies must be explicit"));
             rewards = List.copyOf(Objects.requireNonNull(rewards, "rewards must be explicit"));
             branchIds = List.copyOf(Objects.requireNonNull(branchIds, "branchIds must be explicit"));

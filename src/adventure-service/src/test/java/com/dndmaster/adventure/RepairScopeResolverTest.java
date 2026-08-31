@@ -47,6 +47,17 @@ class RepairScopeResolverTest {
         assertTrue(!scope.allows("stages[1].title"));
     }
 
+    @Test
+    void accepts_exact_stage_ending_ids_repair_without_expanding_other_fields() {
+        var scope = new RepairScopeResolver().resolve("{\"stages\":[{}]}", List.of(
+                violation("ENDING_IDS_MISSING", "stages[0].endingIds")));
+
+        assertTrue(scope.isRepairable());
+        assertTrue(scope.allows("stages[0].endingIds"));
+        assertTrue(!scope.allows("stages[0].title"));
+        assertTrue(!scope.allows("stages[1].endingIds"));
+    }
+
     private static AdventureStoryPlanProjectionViolation violation(String code, String path) {
         return new AdventureStoryPlanProjectionViolation(code, 4, path, "", "",
                 AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE, "test");
