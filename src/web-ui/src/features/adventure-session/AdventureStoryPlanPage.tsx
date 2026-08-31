@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { normalizeAdventureStoryPlan, normalizeAdventureStoryPlanGenerationJob } from './AdventureSessionApi'
 import type { AdventureSessionApi, AdventureSessionView, AdventureStoryPlanGenerationJobView, AdventureStoryPlanStatus, AdventureStoryPlanView, TacticalScenePreparationView } from './AdventureSessionApi'
 import { Progress } from '../../components/ui/progress'
 
@@ -28,7 +29,7 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
       return api.readStoryPlan(sessionId).catch(() => null)
     }).then(nextPlan => {
       if (!active || !nextPlan) return
-      setPlan(nextPlan)
+      setPlan(normalizeAdventureStoryPlan(nextPlan))
       setEndingCount(nextPlan.endingCount)
       setAdventureLength(nextPlan.adventureLength)
     }).catch(error => { if (active) setMessage(error instanceof Error ? error.message : '모험 계획을 불러오지 못했습니다.') })
@@ -54,14 +55,14 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
   async function retry() {
     setMessage('')
     setLoadingPlan(true)
-    try { setGeneration(await api.retryStoryPlan(sessionId, { endingCount, adventureLength })) } catch (error) { setMessage(error instanceof Error ? error.message : '모험 계획을 다시 생성하지 못했습니다.') }
+    try { setGeneration(normalizeAdventureStoryPlanGenerationJob(await api.retryStoryPlan(sessionId, { endingCount, adventureLength }))) } catch (error) { setMessage(error instanceof Error ? error.message : '모험 계획을 다시 생성하지 못했습니다.') }
     finally { setLoadingPlan(false) }
   }
 
   async function generate() {
     setMessage('')
     setLoadingPlan(true)
-    try { setGeneration(await api.startStoryPlanGeneration(sessionId, { endingCount, adventureLength })) } catch (error) { setMessage(error instanceof Error ? error.message : '모험 계획을 생성하지 못했습니다.') }
+    try { setGeneration(normalizeAdventureStoryPlanGenerationJob(await api.startStoryPlanGeneration(sessionId, { endingCount, adventureLength }))) } catch (error) { setMessage(error instanceof Error ? error.message : '모험 계획을 생성하지 못했습니다.') }
     finally { setLoadingPlan(false) }
   }
 
@@ -70,16 +71,20 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
     let active = true
     const poll = async () => {
       try {
-        const next = await api.readStoryPlanGeneration(generation.jobId, sessionId)
+        const next = normalizeAdventureStoryPlanGenerationJob(await api.readStoryPlanGeneration(generation.jobId, sessionId))
         if (!active) return
         setGeneration(next)
         if (next.status === 'COMPLETE' || next.status === 'FAILED') {
           const terminalPlan = await api.readStoryPlan(sessionId).catch(() => null)
           if (!active) return
-          if (terminalPlan && isTerminalStoryPlanStatus(terminalPlan.status)) {
-            setPlan(terminalPlan)
-            if (terminalPlan.status === 'BLOCKED' || terminalPlan.status === 'FAILED') {
-              setMessage(terminalPlan.failureReason || next.message || '모험 계획 생성에 실패했습니다.')
+          if (terminalPlan) {
+            const normalizedPlan = normalizeAdventureStoryPlan(terminalPlan)
+            const effectivePlan = isTerminalStoryPlanStatus(normalizedPlan.status)
+              ? normalizedPlan
+              : { ...normalizedPlan, status: next.status === 'COMPLETE' ? 'READY' as const : (next.message?.includes('검증') ? 'BLOCKED' as const : 'FAILED' as const), failureReason: normalizedPlan.failureReason || next.message }
+            setPlan(effectivePlan)
+            if (effectivePlan.status === 'BLOCKED' || effectivePlan.status === 'FAILED') {
+              setMessage(effectivePlan.failureReason || next.message || '모험 계획 생성에 실패했습니다.')
             }
           } else if (next.status === 'FAILED') {
             setMessage(next.message || '모험 계획 생성에 실패했습니다.')

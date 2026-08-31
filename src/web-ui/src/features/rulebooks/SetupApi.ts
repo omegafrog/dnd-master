@@ -352,6 +352,20 @@ export type ScenarioCompilationView = {
   failureReason?: string | null
 }
 
+export function normalizeScenarioCompilation(view: ScenarioCompilationView): ScenarioCompilationView {
+  const raw = String(view.status ?? '').trim().toUpperCase()
+  const status = raw === 'PUBLISHED' || raw.includes('완료')
+    ? 'PUBLISHED'
+    : raw === 'FAILED' || raw.includes('실패') || raw.includes('TIMEOUT') || view.failureReason
+      ? 'FAILED'
+      : raw === 'WAITING_RETRY' || raw.includes('재시도')
+        ? 'WAITING_RETRY'
+        : raw === 'RUNNING' || raw.includes('진행')
+          ? 'RUNNING'
+          : 'REQUESTED'
+  return { ...view, status }
+}
+
 export type AgentEndpointPreflightView = {
   configured: boolean
   connected: boolean
@@ -645,13 +659,13 @@ export class HttpSetupApi implements SetupApi {
       method: 'POST',
       headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
       body: JSON.stringify({ playerId: ownerId, inputFingerprint }),
-    }, '게임 준비를 시작하지 못했습니다.')
+    }, '게임 준비를 시작하지 못했습니다.').then(normalizeScenarioCompilation)
   }
 
   getScenarioCompilation(compilationId: string) {
     return request<ScenarioCompilationView>(`/api/v1/adventures/compilations/${compilationId}`, {
       headers: this.authHeaders(),
-    }, '게임 준비 상태를 불러오지 못했습니다.')
+    }, '게임 준비 상태를 불러오지 못했습니다.').then(normalizeScenarioCompilation)
   }
 
   async preflightAgentEndpoint(): Promise<AgentEndpointPreflightView> {

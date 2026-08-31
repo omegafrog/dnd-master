@@ -2,8 +2,13 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { AdventureStoryPlanPage } from './AdventureStoryPlanPage'
+import { normalizeAdventureStoryPlanStatus, normalizeAdventureStoryPlanGenerationJob } from './AdventureSessionApi'
 
 describe('AdventureStoryPlanPage configuration', () => {
+  it('normalizes legacy Korean API terminal values', () => {
+    expect(normalizeAdventureStoryPlanStatus('계획 검증 실패')).toBe('BLOCKED')
+    expect(normalizeAdventureStoryPlanGenerationJob({ status: 'COMPLETE', message: '계획 검증 실패', stage: '완료' } as never).status).toBe('FAILED')
+  })
   it('shows completion progress when an existing story plan is already ready', async () => {
     const api = {
       read: vi.fn().mockResolvedValue({ sessionId: 's', version: 1, status: 'DRAFT', party: [], runtimeConfiguration: null }),
@@ -122,5 +127,26 @@ describe('AdventureStoryPlanPage configuration', () => {
     const generationReads = api.readStoryPlanGeneration.mock.calls.length
     await new Promise(resolve => window.setTimeout(resolve, 1_200))
     expect(api.readStoryPlanGeneration).toHaveBeenCalledTimes(generationReads)
+  })
+
+  it('converges a stale generating plan when a failed job carries the terminal diagnostic', async () => {
+    const api = {
+      read: vi.fn().mockResolvedValue({ sessionId: 's', version: 1, status: 'DRAFT', party: [], runtimeConfiguration: null }),
+      readStoryPlan: vi.fn()
+        .mockRejectedValueOnce(new Error('not found'))
+        .mockResolvedValueOnce({ status: 'GENERATING', currentStage: 0, planRevision: 1, endingCount: 2, adventureLength: 'STANDARD', stages: [], failureReason: null }),
+      startStoryPlanGeneration: vi.fn().mockResolvedValue({ jobId: 'job-1', sessionId: 's', status: 'QUEUED', progress: 0, stage: '대기 중', message: null, updatedAt: '' }),
+      readStoryPlanGeneration: vi.fn().mockResolvedValue({ jobId: 'job-1', sessionId: 's', status: 'FAILED', progress: 100, stage: '계획 검증 실패', message: '계획 검증 실패', updatedAt: '' }),
+      retryStoryPlan: vi.fn(), start: vi.fn(), recoverStart: vi.fn(), saveAppliedRuleSet: vi.fn(),
+    }
+
+    render(<AdventureStoryPlanPage api={api} sessionId="s" />)
+    await userEvent.click(await screen.findByRole('button', { name: '모험 계획 생성' }))
+
+    expect(await screen.findByText('BLOCKED')).toBeTruthy()
+    expect((await screen.findAllByRole('alert')).some(alert => alert.textContent?.includes('계획 검증 실패'))).toBe(true)
+    const reads = api.readStoryPlanGeneration.mock.calls.length
+    await new Promise(resolve => window.setTimeout(resolve, 1200))
+    expect(api.readStoryPlanGeneration).toHaveBeenCalledTimes(reads)
   })
 })
