@@ -12,6 +12,13 @@ import org.junit.jupiter.api.Test;
 
 class CodexAppServerClientTest {
     @Test
+    void estimatesTokensAndSanitizesMetadataWithoutPayloads() {
+        assertThat(AiCallObservability.estimatedTokens(0)).isZero();
+        assertThat(AiCallObservability.estimatedTokens(7)).isEqualTo(2);
+        assertThat(AiCallObservability.safe("model with secret/prompt")).isEqualTo("model_with_secret_prompt");
+        assertThat(AiCallObservability.safe("PRIVATE_PROMPT_DO_NOT_LOG")).doesNotContain(" ");
+    }
+    @Test
     void boundsCompletionWhenAppServerNeverAnswersThreadStart() throws Exception {
         Path executable = appServerScript("""
                 #!/usr/bin/env bash

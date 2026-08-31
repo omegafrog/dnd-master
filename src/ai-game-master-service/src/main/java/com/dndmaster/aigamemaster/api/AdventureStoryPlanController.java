@@ -2,6 +2,7 @@ package com.dndmaster.aigamemaster.api;
 
 import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.CodexCliStoryPlanAdapter;
+import com.dndmaster.aigamemaster.infrastructure.ai.AiCallObservability;
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint;
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointRegistry;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -45,6 +46,7 @@ public final class AdventureStoryPlanController {
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final URI ollamaBaseUrl; private final String ollamaModel;
     private final String codexExecutable; private final java.nio.file.Path codexWorkDirectory; private final Duration codexTimeout;
+    private final String codexReasoning;
     private final ApiRequestGuard requestGuard;
     public AdventureStoryPlanController(SpringAiChatAdapter adapter, ObjectMapper mapper, AgentEndpointRegistry endpointRegistry,
             @Value("${local-ai.ollama.base-url:http://127.0.0.1:11434}") String ollamaBaseUrl,
@@ -52,21 +54,28 @@ public final class AdventureStoryPlanController {
             @Value("${ai.codex.executable:codex}") String codexExecutable,
             @Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
             @Value("${ai.codex.timeout:PT5M}") Duration codexTimeout,
+            @Value("${ai.codex.reasoning:${GM_REASONING:medium}}") String codexReasoning,
             @Value("${ai-game-master.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         this(adapter, mapper, endpointRegistry, ollamaBaseUrl, ollamaModel, codexExecutable, codexWorkDirectory, codexTimeout,
-                new ApiRequestGuard(internalToken));
+                codexReasoning, new ApiRequestGuard(internalToken));
     }
     public AdventureStoryPlanController(SpringAiChatAdapter adapter, ObjectMapper mapper, AgentEndpointRegistry endpointRegistry,
             String ollamaBaseUrl, String ollamaModel, String codexExecutable, String codexWorkDirectory, Duration codexTimeout,
             ApiRequestGuard requestGuard) {
+        this(adapter, mapper, endpointRegistry, ollamaBaseUrl, ollamaModel, codexExecutable, codexWorkDirectory, codexTimeout, "medium", requestGuard);
+    }
+    public AdventureStoryPlanController(SpringAiChatAdapter adapter, ObjectMapper mapper, AgentEndpointRegistry endpointRegistry,
+            String ollamaBaseUrl, String ollamaModel, String codexExecutable, String codexWorkDirectory, Duration codexTimeout,
+            String codexReasoning, ApiRequestGuard requestGuard) {
         this.adapter = adapter; this.mapper = mapper; this.endpointRegistry = endpointRegistry; this.ollamaBaseUrl = URI.create(ollamaBaseUrl); this.ollamaModel = ollamaModel;
-        this.codexExecutable = codexExecutable; this.codexWorkDirectory = java.nio.file.Path.of(codexWorkDirectory); this.codexTimeout = codexTimeout;
+        this.codexExecutable = codexExecutable; this.codexWorkDirectory = java.nio.file.Path.of(codexWorkDirectory); this.codexTimeout = codexTimeout; this.codexReasoning = codexReasoning;
         this.requestGuard = requestGuard;
     }
     @PostMapping("/internal/v1/gm/adventure-story-plan")
     Response generate(@RequestHeader(value = "X-Internal-Token", required = false) String internalToken, @RequestBody Request request) {
         requestGuard.internal(internalToken);
         AgentEndpoint endpoint = endpointRegistry.active();
+        LOGGER.info("story_plan_generation_started operationId={} provider={} model={} reasoning={}", AiCallObservability.safe(request.operationId()), endpoint.provider(), AiCallObservability.safe(endpoint.model()), AiCallObservability.safe(codexReasoning));
         Configuration configuration = request.configuration() == null ? Configuration.defaults() : request.configuration();
         String endingTemplate = java.util.stream.IntStream.rangeClosed(1, configuration.endingCount())
                 .mapToObj(index -> "## Ending " + index + " (ending-" + index + "): [ending name]\n"
@@ -219,24 +228,34 @@ public final class AdventureStoryPlanController {
 
     private String complete(AgentEndpoint endpoint, String operationId, String prompt, Configuration configuration) throws IOException, InterruptedException {
         long startedAt = System.nanoTime();
-        LOGGER.info("ai_agent_phase_started phase={} provider={} operationId={} promptLength={}", phase(operationId), endpoint.provider(), operationId, prompt.length());
-        if (endpoint.provider() == AgentEndpoint.Provider.CODEX_CLI) {
-            return new CodexCliStoryPlanAdapter(codexExecutable, endpoint.model(), codexWorkDirectory, codexTimeout)
-                    .complete(operationId, prompt);
-        }
-        URI baseUrl = endpoint.provider() == AgentEndpoint.Provider.OLLAMA ? endpoint.baseUrl() : ollamaBaseUrl;
+        String phase = phase(operationId);
         String model = endpoint.model().isBlank() ? ollamaModel : endpoint.model();
-        int outputTokens = Math.max(4096, configuration.maximumStages() * 900);
-        String body = mapper.writeValueAsString(Map.of("model", model, "prompt", prompt,
-                "stream", false, "think", false, "options", Map.of("num_predict", outputTokens)));
-        HttpResponse<String> response = httpClient.send(HttpRequest.newBuilder(baseUrl.resolve("/api/generate"))
-                .timeout(Duration.ofMinutes(10)).header("Content-Type", "application/json")
-                .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
-        if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("Ollama returned HTTP " + response.statusCode());
-        String result = mapper.readTree(response.body()).path("response").asText();
-        LOGGER.info("ai_agent_phase_completed phase={} provider={} operationId={} durationMs={} responseLength={}", phase(operationId), endpoint.provider(), operationId,
-                java.time.Duration.ofNanos(System.nanoTime() - startedAt).toMillis(), result.length());
-        return result;
+        LOGGER.info("story_plan_stage_started stage={} operationId={} provider={} model={} reasoning={} promptChars={} estimatedPromptTokens={}", phase, AiCallObservability.safe(operationId), endpoint.provider(), AiCallObservability.safe(model), AiCallObservability.safe(codexReasoning), prompt.length(), AiCallObservability.estimatedTokens(prompt.length()));
+        String result = null;
+        boolean turnCompletedReceived = false;
+        boolean timeout = false;
+        try {
+            if (endpoint.provider() == AgentEndpoint.Provider.CODEX_CLI) {
+                result = new CodexCliStoryPlanAdapter(codexExecutable, model, codexWorkDirectory, codexTimeout, codexReasoning).complete(operationId, prompt);
+                return result;
+            }
+            URI baseUrl = endpoint.provider() == AgentEndpoint.Provider.OLLAMA ? endpoint.baseUrl() : ollamaBaseUrl;
+            int outputTokens = Math.max(4096, configuration.maximumStages() * 900);
+            String body = mapper.writeValueAsString(Map.of("model", model, "prompt", prompt,
+                    "stream", false, "think", false, "options", Map.of("num_predict", outputTokens)));
+            HttpResponse<String> response = httpClient.send(HttpRequest.newBuilder(baseUrl.resolve("/api/generate"))
+                    .timeout(Duration.ofMinutes(10)).header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(body)).build(), HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("Ollama returned HTTP " + response.statusCode());
+            result = mapper.readTree(response.body()).path("response").asText();
+            return result;
+        } catch (RuntimeException failure) {
+            timeout = failure instanceof com.dndmaster.aigamemaster.infrastructure.ai.ProviderTimeoutException;
+            throw failure;
+        } finally {
+            turnCompletedReceived = result != null;
+            LOGGER.info("story_plan_stage_completed stage={} operationId={} provider={} model={} reasoning={} durationMs={} promptChars={} estimatedPromptTokens={} responseChars={} turnId={} turnCompletedReceived={} timeout={}", phase, AiCallObservability.safe(operationId), endpoint.provider(), AiCallObservability.safe(model), AiCallObservability.safe(codexReasoning), java.time.Duration.ofNanos(System.nanoTime() - startedAt).toMillis(), prompt.length(), AiCallObservability.estimatedTokens(prompt.length()), result == null ? 0 : result.length(), "provider-managed", turnCompletedReceived, timeout);
+        }
     }
 
     private static String phase(String operationId) {
