@@ -9,6 +9,8 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
@@ -77,109 +79,17 @@ public final class AdventureStoryPlanController {
         AgentEndpoint endpoint = endpointRegistry.active();
         LOGGER.info("story_plan_generation_started operationId={} provider={} model={} reasoning={}", AiCallObservability.safe(request.operationId()), endpoint.provider(), AiCallObservability.safe(endpoint.model()), AiCallObservability.safe(codexReasoning));
         Configuration configuration = request.configuration() == null ? Configuration.defaults() : request.configuration();
-        String endingTemplate = java.util.stream.IntStream.rangeClosed(1, configuration.endingCount())
-                .mapToObj(index -> "## Ending " + index + " (ending-" + index + "): [ending name]\n"
-                        + "- Resolution: [what happens]\n- Requirements: [what must be true]\n- Rewards: [final rewards]")
-                .collect(java.util.stream.Collectors.joining("\n\n"));
-        String template = """
-                # Adventure Plan
-
-                ## Premise
-                [one paragraph]
-
-                ## Locations and Maps
-                [locations, map assets, and how each map is used]
-
-                ## Party Hooks
-                [why this party is involved]
-
-                ## Stage 1: [stage name]
-                - Type: [dungeon | town | event]
-                - Purpose: [combat | exploration | puzzle | social | travel | rest]
-                - Location: [location]
-                - Entry condition: [condition]
-                - Exit condition: [condition]
-                - Goal: [goal]
-                - Enemies: [enemies]
-                - Boss: [boss or none]
-                - Clear condition: [condition]
-                - Failure condition: [condition]
-                - Rewards: [rewards]
-                - Branches: [branch choices and destinations]
-                - Map definition ID: [exact supplied mapDefinitionId or none]
-                - Map asset: [map filename, page, or none]
-                - Map locator: [exact supplied assetLocator or none]
-                - Map decision: [REQUIRED | OPTIONAL | NONE]
-                - Map decision rationale: [why this scene does or does not need a map]
-                - Map usage: [tactical map | reference image | no map]
-                - Player spawn: [semantic area or coordinates]
-                - Enemy placement: [enemy, count, semantic area or coordinates]
-                - Boss placement: [semantic area or coordinates]
-                - NPC placement: [name and semantic area or coordinates]
-                - Interactive objects: [objects and locations]
-                - Hazards: [hazards and affected areas]
-                - State flags set: [flags]
-                - State flags required: [flags]
-                - Required checks:
-                  - Trigger: [when the roll is requested]
-                  - Check type: [ability check | skill check | saving throw | attack | initiative | none]
-                  - Ability or skill: [name or none]
-                  - DC or dice: [only if supported by evidence; otherwise GM adjudication]
-                  - Success: [result]
-                  - Failure: [result or fail-forward consequence]
-                - Source notes: [grounding from supplied documents]
-
-                ## Stage 2: [stage name]
-                [repeat the exact fields above for every stage]
-
-                [ENDINGS]
-                """.replace("[ENDINGS]", endingTemplate);
         String availableMaps = request.maps().isEmpty() ? "(no maps supplied)" : request.maps().stream()
                 .map(map -> "- mapDefinitionId=" + map.mapDefinitionId() + ", assetId=" + map.assetId()
                         + ", assetLocator=" + map.assetLocator() + ", sourceLocator=" + map.sourceLocator()
                         + ", confidence=" + map.confidence() + ", safetyStatus=" + map.safetyStatus()
                         + ", relatedStoryEvidence=" + map.relatedEvidence() + ", mapContext=" + map.context())
                 .collect(java.util.stream.Collectors.joining("\n"));
-        String prompt = "Create a source-grounded tabletop adventure plan by filling the Markdown template below. "
-                + "All player-facing fields (title, location, goal, conflict, clues, enemies, rewards, conditions, and endings) MUST be written in natural Korean. Keep proper nouns in Korean where possible and never mix English prose into player-facing text. "
-                + "Return the completed Markdown document only. Replace every bracketed placeholder with concrete content; do not leave placeholders. "
-                + "Keep the headings and field labels stable so another agent can read the plan. "
-                + "Create " + configuration.minimumStages() + "-" + configuration.maximumStages() + " stages and exactly " + configuration.endingCount() + " endings; duplicate or remove the sample stage/ending sections as needed. "
-                + "Use exactly the explicit ending IDs ending-1 through ending-" + configuration.endingCount() + ". Keep these IDs in the ending headings and use only these IDs in every stage's endingIds field. "
-                + "HIDDEN-INFORMATION CONTRACT: every hidden-information trigger, secret, clue reveal, conditional event, or rules check MUST state its activation condition and both an explicit success result and an explicit failure or fail-forward consequence. Never leave Success or Failure blank, and do not describe a trigger without its outcomes. "
-                + "MAP CONTRACT: decide map usage per stage as REQUIRED, OPTIONAL, or NONE. Use REQUIRED only when tactical positioning, exploration, movement, or spatial interaction materially needs a map; use NONE for scenes that can run without spatial representation. When REQUIRED, copy the exact mapDefinitionId, assetId, and assetLocator from one AVAILABLE MAPS entry. OPTIONAL and NONE stages may leave map fields empty. Never invent a map ID or locator. "
-                + "DUNGEON MAP RULE: whenever a stage uses stageType dungeon, it MUST use mapUsage REQUIRED and MUST copy mapDefinitionId, mapAssetId, and mapAssetLocator from the same AVAILABLE MAPS entry. Never emit a dungeon stage with NONE or OPTIONAL when maps are supplied. "
-                + "MAP CONTEXT LOOKUP: treat each AVAILABLE MAPS entry as the map-context registry. Match a stage to a map using its location, binding, and source locator; then copy the exact mapDefinitionId, assetId, and assetLocator from that same entry. Use the supplied grid, walls, doors, obstacles, and binding context when describing player spawn or movement. Do not guess a filesystem path and do not create a new map identifier. "
-                + "For every mapped dungeon, use the supplied map image/page and the supplied story evidence to infer the party's starting area. In Player spawn, write the semantic entrance and grid coordinates when the map grid makes them identifiable; otherwise state 'GM confirmation required' and explain the evidence. Do not silently default to (0,0). "
-                + "TRANSITION CONTRACT: transitionCondition and clearCondition are execution scaffolding, not source facts. Keep them generic and operational (for example, 확보한 단서로 다음 단계로 이동한다) and do not introduce named places, creatures, rewards, DCs, or other claims absent from the citations. "
-                + "EVIDENCE COVERAGE CONTRACT: when both STORYBOOK and RULEBOOK citations are supplied, use at least one exact STORYBOOK citation and at least one exact RULEBOOK citation somewhere across the complete plan. Do not satisfy this requirement by repeating only one document type; repair any previous validation violation that names missing coverage. "
-                + "Do not invent named rules, DCs, monsters, or facts absent from evidence. For a check without an evidenced DC, write 'GM adjudication' rather than inventing a number. Include checks only when a trigger exists. Documents=" + request.sourceDocuments()
-                + " Generation mode=" + request.generationMode() + " Source constraint pack=" + request.sourceConstraintPack()
-                + " Evidence=" + request.resolutionEvidence() + " citations=" + request.citations() + " maps=" + request.maps()
-                + " Previous validation violations=" + request.violations()
-                + " Previous candidate to repair=" + request.previousCandidate()
-                + " partySize=" + request.partySize() + " configuration=" + configuration + "\n\nAVAILABLE MAPS (authoritative):\n" + availableMaps
-                + "\n\nTEMPLATE:\n" + template;
+        String prompt = structuredStoryPlanPrompt(request, configuration, availableMaps);
         try {
-            String generatedMarkdown = complete(endpoint, request.operationId(), prompt, configuration);
-            if (generatedMarkdown == null || generatedMarkdown.trim().length() < 500) {
-                throw new CandidateResponseValidationException(
-                        "generated plan is incomplete: return the full adventure plan with goals, stages, map scenes, and endings", null);
-            }
-            // Providers occasionally copy a plausible DC from their prior context. Repair the
-            // narrow resolution field deterministically before the verifier sees it: a numeric
-            // value is retained only when that exact value occurs in supplied citations.
-            generatedMarkdown = normalizeResolutionValues(generatedMarkdown, request.citations());
-            VerificationResponse verification = parseVerificationResponse(complete(endpoint, request.operationId() + "-verification",
-                    verificationDecisionPrompt(request, configuration, generatedMarkdown), configuration));
-            LOGGER.warn("ai_agent_verification_result operationId={} status={} violationsCount={}", request.operationId(),
-                    verification.status(), verification.violations().size());
-            if (verification.status().equals("FAIL")) {
-                throw new CandidateResponseValidationException(verification.violations(), null);
-            }
-            String projectedJson = complete(endpoint, request.operationId() + "-execution-projection",
-                    projectionPrompt(request, configuration, generatedMarkdown), configuration);
-            return new Response(parseJson(projectedJson, configuration));
+            String canonicalJson = complete(endpoint, request.operationId(), prompt, configuration);
+            List<Stage> stages = parseJson(canonicalJson, configuration, request.citations());
+            return new Response(stages, renderMarkdown(stages));
         } catch (CandidateResponseValidationException invalidCandidate) {
             throw invalidCandidate;
         } catch (InterruptedException e) {
@@ -215,7 +125,7 @@ public final class AdventureStoryPlanController {
         try {
             String repaired = complete(endpoint, request.operationId() + "-projection-repair",
                     repairPrompt(request, configuration), configuration);
-            return new Response(parseJson(repaired, configuration));
+            return new Response(parseJson(repaired, configuration, request.citations()));
         } catch (CandidateResponseValidationException invalidCandidate) {
             throw invalidCandidate;
         } catch (InterruptedException e) {
@@ -224,6 +134,61 @@ public final class AdventureStoryPlanController {
         } catch (Exception e) {
             throw new IllegalStateException("story plan projection repair failed: " + rootMessage(e), e);
         }
+    }
+
+    private String structuredStoryPlanPrompt(Request request, Configuration configuration, String availableMaps) {
+        return """
+                You are the canonical Story Plan generator. Return ONLY one JSON object; do not return Markdown.
+                The JSON response is the authoritative Story Plan model. Java will parse it, validate schema,
+                references, citations, maps, stage counts, and grounding before publishing it. Never invent IDs.
+                Root shape: {"stages":[...]}. Generate %s-%s stages and exactly %s distinct ending IDs: ending-1 through ending-%s.
+                Every stage requires position, title, goal, conflict, transitionCondition, endingIds, evidence, schemaVersion,
+                combatRequirement, combatSkeleton, sourceFactClaims, and tacticalPreparationRequirement.
+                Use schemaVersion 2. Evidence items contain only citationKey copied verbatim from the supplied registry.
+                Every stage with supplied citations must contain at least one registered evidence citationKey.
+                sourceFactClaims are limited to combatSkeleton paths and SOURCE claims must cite the same-stage evidence.
+                A combat participant must be supported by the exact cited excerpt; otherwise omit the commitment.
+                Preserve explicit failure/fail-forward consequences in failureCondition. Do not create claims for narrative fields.
+                Map IDs, assets, and locators must be copied from one AVAILABLE MAPS entry. Dungeon stages with supplied maps require REQUIRED map usage.
+                All player-facing prose must be natural Korean. Keep arrays explicit, including empty arrays.
+                configuration=%s
+                sourceDocuments=%s
+                resolutionEvidence=%s
+                sourceConstraintPack=%s
+                citations=%s
+                maps=%s
+                previousViolations=%s
+                previousCandidate=%s
+
+                AVAILABLE MAPS (authoritative):
+                %s
+                """.formatted(configuration.minimumStages(), configuration.maximumStages(), configuration.endingCount(),
+                configuration.endingCount(), configuration, request.sourceDocuments(), request.resolutionEvidence(),
+                request.sourceConstraintPack(), request.citations(), request.maps(), request.violations(),
+                request.previousCandidate(), availableMaps);
+    }
+
+    /** Stable player-facing view derived solely from the canonical structured candidate. */
+    static String renderMarkdown(List<Stage> stages) {
+        StringBuilder markdown = new StringBuilder("# Adventure Plan\n\n");
+        for (Stage stage : stages == null ? List.<Stage>of() : stages) {
+            markdown.append("## Stage ").append(stage.position()).append(": ").append(stage.title()).append("\n")
+                    .append("- Type: ").append(stage.stageType()).append("\n")
+                    .append("- Location: ").append(stage.location()).append("\n")
+                    .append("- Goal: ").append(stage.goal()).append("\n")
+                    .append("- Conflict: ").append(stage.conflict()).append("\n")
+                    .append("- Entry condition: ").append(stage.transitionCondition()).append("\n")
+                    .append("- Clear condition: ").append(stage.clearCondition()).append("\n")
+                    .append("- Failure condition: ").append(stage.failureCondition()).append("\n")
+                    .append("- Enemies: ").append(String.join(", ", stage.enemies())).append("\n")
+                    .append("- Boss: ").append(stage.boss()).append("\n")
+                    .append("- Rewards: ").append(String.join(", ", stage.rewards())).append("\n")
+                    .append("- Ending IDs: ").append(String.join(", ", stage.endingIds())).append("\n")
+                    .append("- Source citations: ").append(stage.evidence().stream()
+                            .map(CitationProjection::citationKey).sorted().collect(java.util.stream.Collectors.joining(", ")))
+                    .append("\n\n");
+        }
+        return markdown.toString();
     }
 
     private String complete(AgentEndpoint endpoint, String operationId, String prompt, Configuration configuration) throws IOException, InterruptedException {
@@ -489,8 +454,12 @@ public final class AdventureStoryPlanController {
         return root.getMessage() == null || root.getMessage().isBlank() ? root.getClass().getSimpleName() : root.getMessage();
     }
     private List<Stage> parseJson(String text, Configuration configuration) {
+        return parseJson(text, configuration, List.of());
+    }
+
+    private List<Stage> parseJson(String text, Configuration configuration, List<SourceCitation> authoritativeCitations) {
         try {
-            JsonNode root = mapper.readTree(extractObject(text));
+            JsonNode root = canonicalizeProjection(mapper.readTree(extractObject(text)), authoritativeCitations);
             JsonNode stages = root.get("stages");
             if (stages == null || !stages.isArray()) throw new IllegalArgumentException("stages missing");
             List<Stage> result = new ArrayList<>();
@@ -516,6 +485,200 @@ public final class AdventureStoryPlanController {
             catch (Exception ignored) { }
             throw new CandidateResponseValidationException(List.of(rootMessage(e)), e, rejected);
         }
+    }
+
+    /**
+     * Provider JSON is untrusted. Canonicalize only at the projection boundary so
+     * invented provenance or combat facts cannot enter the application model.
+     */
+    private JsonNode canonicalizeProjection(JsonNode input, List<SourceCitation> authoritativeCitations) {
+        if (input == null || !input.isObject()) return input;
+        Map<String, SourceCitation> registry = new java.util.LinkedHashMap<>();
+        for (SourceCitation citation : authoritativeCitations == null ? List.<SourceCitation>of() : authoritativeCitations) {
+            if (citation != null && citation.citationKey() != null && !citation.citationKey().isBlank()) {
+                registry.putIfAbsent(citation.citationKey().trim(), citation);
+            }
+        }
+        if (registry.isEmpty()) return input;
+        ObjectNode root = ((ObjectNode) input).deepCopy();
+        JsonNode stages = root.get("stages");
+        if (stages == null || !stages.isArray()) return root;
+        for (JsonNode stage : stages) {
+            if (stage.isObject()) canonicalizeStage((ObjectNode) stage, registry);
+        }
+        return root;
+    }
+
+    private void canonicalizeStage(ObjectNode stage, Map<String, SourceCitation> registry) {
+        Set<String> evidenceKeys = new java.util.LinkedHashSet<>();
+        ArrayNode evidence = mapper.createArrayNode();
+        JsonNode rawEvidence = stage.get("evidence");
+        if (rawEvidence != null && rawEvidence.isArray()) {
+            rawEvidence.forEach(item -> {
+                String key = item.path("citationKey").asText("").trim();
+                if (!key.isBlank() && registry.containsKey(key) && evidenceKeys.add(key)) {
+                    evidence.addObject().put("citationKey", key);
+                }
+            });
+        }
+        // A stage still needs authoritative evidence; use a deterministic registered
+        // citation when the provider supplied only invented/repeated keys.
+        if (evidence.isEmpty() && !registry.isEmpty()) {
+            evidence.addObject().put("citationKey", registry.keySet().iterator().next());
+            evidenceKeys.add(registry.keySet().iterator().next());
+        }
+        stage.set("evidence", evidence);
+
+        ObjectNode skeleton = stage.get("combatSkeleton") != null && stage.get("combatSkeleton").isObject()
+                ? (ObjectNode) stage.get("combatSkeleton") : mapper.createObjectNode();
+        ArrayNode participants = mapper.createArrayNode();
+        JsonNode rawParticipants = skeleton.get("participants");
+        if (rawParticipants != null && rawParticipants.isArray()) {
+            rawParticipants.forEach(item -> {
+                if (!item.isObject()) return;
+                String name = text(item, "name", "");
+                List<String> keys = supportedKeys(item.get("citationKeys"), registry, evidenceKeys, name);
+                if (name.isBlank() || keys.isEmpty()) return;
+                ObjectNode participant = ((ObjectNode) item).deepCopy();
+                participant.put("name", name);
+                participant.set("citationKeys", textArray(keys));
+                int minimum = positiveInt(item, "minimumCount", 1);
+                int maximum = positiveInt(item, "maximumCount", minimum);
+                if (!supportsCount(keys, registry, minimum, maximum)) {
+                    minimum = 1;
+                    maximum = 1;
+                }
+                participant.put("minimumCount", minimum);
+                participant.put("maximumCount", Math.max(minimum, maximum));
+                participants.add(participant);
+            });
+        }
+        skeleton.set("participants", participants);
+        if (participants.isEmpty()) {
+            skeleton.put("objective", "");
+            skeleton.put("startTrigger", "");
+            skeleton.put("successOutcome", "");
+            skeleton.put("failureOutcome", "");
+            skeleton.set("rewards", mapper.createArrayNode());
+        } else {
+            canonicalizeRewards(skeleton, registry, evidenceKeys);
+        }
+        stage.set("combatSkeleton", skeleton);
+
+        filterSupportedCombatHints(stage, registry);
+        canonicalizeClaims(stage, registry, evidenceKeys, participants.size(), skeleton.path("rewards").size());
+
+        String requirement = text(stage, "combatRequirement", "NONE").toUpperCase(java.util.Locale.ROOT);
+        if (participants.isEmpty()) {
+            stage.put("combatRequirement", requirement.equals("POSSIBLE") ? "POSSIBLE" : "NONE");
+            stage.put("tacticalPreparationRequirement", "NOT_REQUIRED");
+        } else if (!requirement.equals("REQUIRED")) {
+            stage.put("combatRequirement", "POSSIBLE");
+            stage.put("tacticalPreparationRequirement", "NOT_REQUIRED");
+        }
+    }
+
+    private void canonicalizeRewards(ObjectNode skeleton, Map<String, SourceCitation> registry, Set<String> evidenceKeys) {
+        ArrayNode rewards = mapper.createArrayNode();
+        JsonNode raw = skeleton.get("rewards");
+        if (raw != null && raw.isArray()) {
+            raw.forEach(item -> {
+                if (!item.isObject()) return;
+                String path = text(item, "fieldPath", "");
+                String claim = text(item, "normalizedClaim", "");
+                if (!path.matches("combatSkeleton\\.rewards\\[[0-9]+\\]") || claim.isBlank()) return;
+                List<String> keys = supportedKeys(item.get("citationKeys"), registry, evidenceKeys, claim);
+                if (!keys.isEmpty()) {
+                    ObjectNode reward = ((ObjectNode) item).deepCopy();
+                    reward.put("fieldPath", path);
+                    reward.put("normalizedClaim", claim);
+                    reward.set("citationKeys", textArray(keys));
+                    rewards.add(reward);
+                }
+            });
+        }
+        skeleton.set("rewards", rewards);
+    }
+
+    private void canonicalizeClaims(ObjectNode stage, Map<String, SourceCitation> registry, Set<String> evidenceKeys,
+            int participantCount, int rewardCount) {
+        ArrayNode claims = mapper.createArrayNode();
+        JsonNode raw = stage.get("sourceFactClaims");
+        if (raw != null && raw.isArray()) {
+            raw.forEach(item -> {
+                if (!item.isObject()) return;
+                String path = text(item, "fieldPath", "");
+                if (!allowedCombatClaimPath(path, participantCount, rewardCount)) return;
+                String claim = text(item, "normalizedClaim", "");
+                if (claim.isBlank()) return;
+                List<String> keys = supportedKeys(item.get("citationKeys"), registry, evidenceKeys, claim);
+                String origin = text(item, "origin", "SOURCE").toUpperCase(java.util.Locale.ROOT);
+                if (origin.equals("SOURCE") && keys.isEmpty()) return;
+                ObjectNode normalized = ((ObjectNode) item).deepCopy();
+                normalized.put("fieldPath", path);
+                normalized.put("normalizedClaim", claim);
+                normalized.set("citationKeys", textArray(keys));
+                normalized.put("origin", origin);
+                claims.add(normalized);
+            });
+        }
+        stage.set("sourceFactClaims", claims);
+    }
+
+    private static boolean allowedCombatClaimPath(String path, int participantCount, int rewardCount) {
+        if (path.matches("combatSkeleton\\.(objective|startTrigger|successOutcome|failureOutcome)")) return true;
+        Matcher participant = Pattern.compile("combatSkeleton\\.participants\\[(\\d+)\\]\\.(participantId|role|name|minimumCount|maximumCount)").matcher(path);
+        if (participant.matches()) return Integer.parseInt(participant.group(1)) < participantCount;
+        Matcher reward = Pattern.compile("combatSkeleton\\.rewards\\[(\\d+)\\]").matcher(path);
+        return reward.matches() && Integer.parseInt(reward.group(1)) < rewardCount;
+    }
+
+    private static List<String> supportedKeys(JsonNode raw, Map<String, SourceCitation> registry,
+            Set<String> evidenceKeys, String claim) {
+        Set<String> result = new java.util.LinkedHashSet<>();
+        if (raw != null && raw.isArray()) raw.forEach(item -> {
+            String key = item.asText("").trim();
+            SourceCitation citation = registry.get(key);
+            if (!key.isBlank() && evidenceKeys.contains(key) && citation != null && supports(citation.quote(), claim)) result.add(key);
+        });
+        return List.copyOf(result);
+    }
+
+    private static boolean supports(String quote, String claim) {
+        String source = normalize(quote);
+        String value = normalize(claim);
+        return !value.isBlank() && source.contains(value);
+    }
+
+    private static int positiveInt(JsonNode source, String field, int fallback) {
+        int value = source == null ? 0 : source.path(field).asInt(0);
+        return value > 0 ? value : fallback;
+    }
+
+    private static String normalize(String value) {
+        return value == null ? "" : value.toLowerCase(java.util.Locale.ROOT).replaceAll("[^\\p{L}\\p{N}]+", " ").trim();
+    }
+
+    private static boolean supportsCount(List<String> keys, Map<String, SourceCitation> registry, int minimum, int maximum) {
+        if (minimum == 1 && maximum == 1) return true;
+        return keys.stream().map(registry::get).anyMatch(citation -> citation != null
+                && normalize(citation.quote()).matches(".*(^| )" + minimum + "( |$).*"));
+    }
+
+    private static ArrayNode textArray(List<String> values) {
+        ArrayNode result = new ObjectMapper().createArrayNode();
+        values.forEach(result::add);
+        return result;
+    }
+
+    private static void filterSupportedCombatHints(ObjectNode stage, Map<String, SourceCitation> registry) {
+        if (stage.get("enemies") != null && stage.get("enemies").isArray()) {
+            ArrayNode enemies = new ObjectMapper().createArrayNode();
+            stage.get("enemies").forEach(item -> { String value = item.asText("").trim(); if (registry.values().stream().anyMatch(c -> supports(c.quote(), value))) enemies.add(value); });
+            stage.set("enemies", enemies);
+        }
+        String boss = text(stage, "boss", "");
+        if (!boss.isBlank() && registry.values().stream().noneMatch(c -> supports(c.quote(), boss))) stage.put("boss", "");
     }
     private static String extractObject(String text) { int a = text.indexOf('{'), b = text.lastIndexOf('}'); if (a < 0 || b < a) throw new IllegalArgumentException("JSON object missing"); return text.substring(a,b+1); }
     private static String required(JsonNode n, String key) { String v = n.path(key).asText("").trim(); if (v.isBlank()) throw new IllegalArgumentException(key + " missing"); return v; }
@@ -747,7 +910,10 @@ public final class AdventureStoryPlanController {
         int minimumStages() { return switch (adventureLength) { case "SHORT" -> 3; case "STANDARD" -> 4; default -> 7; }; }
         int maximumStages() { return switch (adventureLength) { case "SHORT" -> 4; case "STANDARD" -> 6; default -> 8; }; }
     }
-    public record Response(List<Stage> stages) {}
+    public record Response(List<Stage> stages, String markdown) {
+        public Response(List<Stage> stages) { this(stages, ""); }
+        public Response { stages = stages == null ? List.of() : List.copyOf(stages); markdown = markdown == null ? "" : markdown; }
+    }
     public record Stage(int position, String title, String stageType, String location, String goal, String conflict, String transitionCondition,
             List<String> npcOrClues, List<String> endingIds, String mapDefinitionId, String mapAssetId, String mapAssetLocator, List<String> enemies, String boss,
             String clearCondition, String failureCondition, List<String> rewards, List<String> branchIds, Map<String, String> branchTargets, List<CitationProjection> evidence,
