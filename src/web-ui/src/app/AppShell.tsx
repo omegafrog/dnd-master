@@ -94,7 +94,16 @@ export function AppShell() {
   const playerId = auth.session.playerId
   const getToken = () => token
   const getPlayerId = () => playerId
-  const adventureApi = new HttpAdventureApi(getToken, getPlayerId)
+  const adventureApi = useMemo(() => new HttpAdventureApi(getToken, getPlayerId), [token, playerId])
+  const [adventureVersion, setAdventureVersion] = useState(0)
+  useEffect(() => {
+    if (!auth.session || route.page !== 'adventure') return
+    let active = true
+    void adventureApi.readConversation(route.adventureId).then(response => {
+      if (active) setAdventureVersion(response.version)
+    }).catch(() => undefined)
+    return () => { active = false }
+  }, [auth.session, adventureApi, route])
   const playApi = new HttpAdventurePlayApi(getToken)
   const creatorRoute = route.page === 'character-blueprint' || route.page === 'character-create'
   const initials = auth.session.playerName.slice(0, 1).toUpperCase()
@@ -108,7 +117,7 @@ export function AppShell() {
       {route.page === 'setup' && <RulebookSetup api={setupApi} playerId={playerId} sessionApi={sessionApi} asMain={false} />}
       {route.page === 'bundle' && <BundleDetailPage bundleId={route.bundleId} api={setupApi} playerId={playerId} sessionApi={sessionApi} />}
       {route.page === 'adventures' && <SavedAdventurePanel playApi={playApi} setupApi={setupApi} playerId={playerId} onResumed={adventureId => { window.location.hash = `#/adventures/${adventureId}` }} />}
-      {route.page === 'adventure' && <><div className="page-heading"><div><p className="eyebrow">ACTIVE ADVENTURE</p><h1>모험 진행 중</h1></div><span className="page-id">{shortId(route.adventureId)}</span></div><div className="adventure-workspace"><section className="adventure-map-main" aria-label="현재 전장"><CombatMapView adventureId={route.adventureId} api={playApi} refreshToken={mapRefreshToken} /></section><aside className="adventure-side-panel" aria-label="모험 대화"><AdventureStream adventureId={route.adventureId} api={adventureApi} onTurnCommitted={refreshCombatMap} /></aside></div></>}
+      {route.page === 'adventure' && <><div className="page-heading"><div><p className="eyebrow">ACTIVE ADVENTURE</p><h1>모험 진행 중</h1></div><span className="page-id">{shortId(route.adventureId)}</span></div><div className="adventure-workspace"><section className="adventure-map-main" aria-label="현재 전장"><CombatMapView adventureId={route.adventureId} api={playApi} refreshToken={mapRefreshToken} /></section><aside className="adventure-side-panel" aria-label="모험 대화"><AdventureStream adventureId={route.adventureId} api={adventureApi} expectedVersion={adventureVersion} onTurnCommitted={refreshCombatMap} /></aside></div></>}
       {route.page === 'character' && <CharacterSheetView sheetId={route.sheetId} api={playApi} />}
       {(route.page === 'session' || route.page === 'party') && <AdventureSessionPanel api={sessionApi} ownerPlayerId={playerId} sessionId={route.sessionId} />}
       {route.page === 'story-plan' && <AdventureStoryPlanPage api={sessionApi} sessionId={route.sessionId} />}
