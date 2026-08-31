@@ -8,6 +8,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioResolutionDetail;
 import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import com.dndmaster.adventure.domain.scenario.SaveDc;
+import com.dndmaster.adventure.domain.scenario.CasterSpellSaveDc;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -80,8 +81,14 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
     }
 
     private static ResolutionCandidate toCandidate(CandidateResponse candidate) {
+        SaveDc dc = candidate.dc();
+        if (dc == null && candidate.kind() == ResolutionKind.SAVING_THROW
+                && candidate.sourceQuote() != null
+                && candidate.sourceQuote().matches("(?is).*\\bspell\\s+save\\s+DC\\b.*")) {
+            dc = new CasterSpellSaveDc();
+        }
         return new ResolutionCandidate(
-                candidate.kind(), candidate.abilityOrSkill(), candidate.dc(), candidate.diceExpression(),
+                candidate.kind(), candidate.abilityOrSkill(), dc, candidate.diceExpression(),
                 candidate.visibility(), candidate.sourceQuote(),
                 (candidate.sourceRefs() == null ? List.<SourceReferenceResponse>of() : candidate.sourceRefs()).stream()
                         .map(ref -> new ScenarioSourceReference(
