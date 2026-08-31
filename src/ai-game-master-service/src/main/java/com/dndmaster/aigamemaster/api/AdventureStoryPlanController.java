@@ -617,7 +617,7 @@ public final class AdventureStoryPlanController {
             // Narrative combat hints are a supported possibility even when the
             // provider omitted a concrete sourced participant. Keeping NONE in
             // that case violates the downstream combat validator contract.
-            stage.put("combatRequirement", requirement.equals("NONE") && hasCombatHint(stage) ? "POSSIBLE"
+            stage.put("combatRequirement", requirement.equals("NONE") ? "POSSIBLE"
                     : (requirement.equals("POSSIBLE") ? "POSSIBLE" : "NONE"));
             stage.put("tacticalPreparationRequirement", "NOT_REQUIRED");
         } else if (!requirement.equals("REQUIRED")) {
@@ -627,6 +627,9 @@ public final class AdventureStoryPlanController {
     }
 
     private static boolean hasCombatHint(ObjectNode stage) {
+        if (!optionalStrings(stage.get("enemies")).isEmpty() || !text(stage, "boss", "").isBlank()) return true;
+        String stageType = text(stage, "stageType", "").toUpperCase(java.util.Locale.ROOT);
+        if (stageType.equals("ENCOUNTER") || stageType.equals("FINALE")) return true;
         String text = String.join(" ", text(stage, "title", ""), text(stage, "goal", ""),
                 text(stage, "conflict", ""), text(stage, "transitionCondition", ""),
                 text(stage, "clearCondition", ""), text(stage, "failureCondition", ""),
