@@ -183,6 +183,31 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
     }
 
     @Test
+    void repair_accepts_partial_stage_patch_and_preserves_omitted_npc_or_clues() {
+        server = new WireMockServer(0);
+        server.start();
+        UUID documentId = UUID.randomUUID();
+        String previous = projectionCandidate("Open").replace("\"npcOrClues\":[]", "\"npcOrClues\":[\"Keeper\"]");
+        String partial = "{\"stages\":[{\"endingIds\":[\"ending-1\"]}]}";
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/adventure-story-plan/repair"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody(partial)));
+        var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "test-internal-token");
+        var citation = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "STORYBOOK", documentId, 1, "page:1", "authoritative", .9).withCitationKey("citation-1");
+        var violation = new AdventureStoryPlanProjectionViolation("ENDING_IDS_MISSING", 1,
+                "stages[0].endingIds", "", "", Repairability.REPAIRABLE, "endingIds must be explicit");
+
+        var candidate = gateway.repair(new AdventureStoryPlanGenerationPort.RepairRequest(
+                "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT), previous,
+                List.of(violation), List.of("storybook.pdf"), List.of("source excerpt"), List.of(), List.of(citation)));
+
+        assertEquals("ending-1", candidate.stages().getFirst().endingIds().getFirst());
+        assertEquals(List.of("Keeper"), candidate.stages().getFirst().npcOrClues());
+        assertEquals("Open", candidate.stages().getFirst().transitionCondition());
+    }
+
+    @Test
     void accepts_case_insensitive_stage_type_from_projection_agent() {
         server = new WireMockServer(0);
         server.start();

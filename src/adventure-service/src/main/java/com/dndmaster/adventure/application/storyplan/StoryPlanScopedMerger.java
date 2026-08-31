@@ -6,7 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.util.Objects;
 
-/** Applies an untrusted full repair candidate only inside the deterministic repair scope. */
+/** Applies an untrusted full or partial repair candidate only inside the deterministic repair scope. */
 public final class StoryPlanScopedMerger {
     private final ObjectMapper mapper;
 
@@ -37,6 +37,10 @@ public final class StoryPlanScopedMerger {
     }
 
     private JsonNode mergeNode(JsonNode previous, JsonNode repaired, String path, RepairScope scope) {
+        // Repair providers may return a sparse stage patch. A missing member is not
+        // a deletion request: keep the complete value from the rejected candidate.
+        // Only an explicitly present member can reach the scope check below.
+        if (repaired == null || repaired.isMissingNode()) return previous.deepCopy();
         if (scope.allows(path)) return repaired.deepCopy();
         if (previous.isObject() && repaired.isObject()) {
             ObjectNode result = previous.deepCopy();
