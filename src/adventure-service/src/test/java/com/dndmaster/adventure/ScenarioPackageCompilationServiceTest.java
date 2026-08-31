@@ -228,7 +228,7 @@ class ScenarioPackageCompilationServiceTest {
     }
 
     @Test
-    void rejectsPlayerSafeOutputForMainScenarioAndPreservesProvenance() {
+    void downgradesPlayerSafeOutputForMainScenarioWithoutChangingEvidence() {
         KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(documentId, 1);
         ResolutionCandidate candidate = new ResolutionCandidate(
@@ -245,8 +245,32 @@ class ScenarioPackageCompilationServiceTest {
         var unit = new ScenarioPackageCompilationService(new InMemoryPackageRepository())
                 .compile(bundle, List.of(candidate)).units().get(0);
 
-        assertEquals("INVALID", unit.status().name());
+        assertEquals("COMPLETE", unit.status().name());
+        assertEquals(com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE, unit.visibility());
         assertEquals("model-v2/prompt-v4/schema-v1", unit.provenance());
+        assertEquals(candidate.sourceQuote(), unit.sourceQuote());
+        assertEquals(candidate.sourceRefs(), unit.sourceRefs());
+    }
+
+    @Test
+    void preservesPlayerSafeOutputForHandout() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(documentId, 1, ScenarioBundleDocumentRole.HANDOUT);
+        ResolutionCandidate candidate = new ResolutionCandidate(
+                com.dndmaster.adventure.domain.scenario.ResolutionKind.DICE_ROLL,
+                null, null, "1d6",
+                com.dndmaster.adventure.domain.scenario.ResolutionVisibility.PLAYER_SAFE,
+                "A visible clue.",
+                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 1, "page:1:span:9")),
+                "model-v2/prompt-v4/schema-v1", null);
+
+        var unit = new ScenarioPackageCompilationService(new InMemoryPackageRepository())
+                .compile(bundle, List.of(candidate)).units().get(0);
+
+        assertEquals("COMPLETE", unit.status().name());
+        assertEquals(com.dndmaster.adventure.domain.scenario.ResolutionVisibility.PLAYER_SAFE, unit.visibility());
+        assertEquals(candidate.sourceQuote(), unit.sourceQuote());
+        assertEquals(candidate.sourceRefs(), unit.sourceRefs());
     }
 
     @Test
@@ -396,13 +420,18 @@ class ScenarioPackageCompilationServiceTest {
     }
 
     private static ScenarioSourceBundle bundle(KnowledgeDocumentId documentId, long extractionVersion) {
+        return bundle(documentId, extractionVersion, ScenarioBundleDocumentRole.MAIN_SCENARIO);
+    }
+
+    private static ScenarioSourceBundle bundle(
+            KnowledgeDocumentId documentId, long extractionVersion, ScenarioBundleDocumentRole role) {
         return ScenarioSourceBundle.create(
                 ScenarioBundleId.generate(),
                 new OwnerPlayerId(UUID.randomUUID()),
                 new ScenarioSourceBundleRevision(1, List.of(
                         new com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection(
                                 documentId,
-                                ScenarioBundleDocumentRole.MAIN_SCENARIO,
+                                role,
                                 KnowledgeDocumentStatus.INDEXED,
                                 "scenario.pdf",
                                 "STORYBOOK",

@@ -85,7 +85,7 @@ public final class ScenarioPackageCompilationService {
             documents.put(key(document.knowledgeDocumentId(), document.extractionVersion()), document);
         }
         return List.copyOf(Objects.requireNonNull(candidates, "candidates must not be null").stream()
-                .map(candidate -> validate(candidate, documents, List.copyOf(excerpts), true))
+                .map(candidate -> validate(normalizeVisibility(candidate, documents), documents, List.copyOf(excerpts), true))
                 .toList());
     }
 
@@ -144,7 +144,10 @@ public final class ScenarioPackageCompilationService {
         for (ScenarioBundleDocumentSelection document : bundle.currentRevision().documents()) {
             documents.put(key(document.knowledgeDocumentId(), document.extractionVersion()), document);
         }
-        List<ScenarioResolutionUnit> units = overrideResult.effectiveCandidates().stream()
+        List<ResolutionCandidate> effectiveCandidates = overrideResult.effectiveCandidates().stream()
+                .map(candidate -> normalizeVisibility(candidate, documents))
+                .toList();
+        List<ScenarioResolutionUnit> units = effectiveCandidates.stream()
                 .map(candidate -> validate(candidate, documents, availableExcerpts, verifyEvidence))
                 .toList();
         List<String> warnings = units.stream()
@@ -160,8 +163,8 @@ public final class ScenarioPackageCompilationService {
         boolean requiredIncomplete = false;
         boolean optionalIncomplete = false;
         for (int index = 0; index < units.size(); index++) {
-            boolean required = overrideResult.effectiveCandidates().get(index) == null
-                    || overrideResult.effectiveCandidates().get(index).required();
+            boolean required = effectiveCandidates.get(index) == null
+                    || effectiveCandidates.get(index).required();
             if (units.get(index).status() != ResolutionStatus.COMPLETE) {
                 if (required) requiredIncomplete = true;
                 else optionalIncomplete = true;
@@ -337,6 +340,28 @@ public final class ScenarioPackageCompilationService {
 
     private static String normalizeEvidenceText(String value) {
         return value == null ? "" : value.strip().replaceAll("(?U)\\s+", " ").toLowerCase(Locale.ROOT);
+    }
+
+    private static ResolutionCandidate normalizeVisibility(
+            ResolutionCandidate candidate,
+            Map<String, ScenarioBundleDocumentSelection> documents) {
+        if (candidate == null || candidate.visibility() != ResolutionVisibility.PLAYER_SAFE
+                || candidate.sourceRefs() == null || candidate.sourceRefs().isEmpty()) {
+            return candidate;
+        }
+        boolean referencesNonPlayerSafeSource = candidate.sourceRefs().stream()
+                .filter(Objects::nonNull)
+                .map(ref -> documents.get(key(ref.knowledgeDocumentId(), ref.extractionVersion())))
+                .anyMatch(document -> document == null
+                        || (document.role() != ScenarioBundleDocumentRole.HANDOUT
+                        && document.role() != ScenarioBundleDocumentRole.CHARACTER_SHEET));
+        if (!referencesNonPlayerSafeSource) {
+            return candidate;
+        }
+        return new ResolutionCandidate(
+                candidate.kind(), candidate.abilityOrSkill(), candidate.dc(), candidate.diceExpression(),
+                ResolutionVisibility.GM_REFERENCE, candidate.sourceQuote(), candidate.sourceRefs(),
+                candidate.provenance(), candidate.detail());
     }
 
     private static ScenarioResolutionUnit validate(
