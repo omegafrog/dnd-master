@@ -38,6 +38,10 @@ public final class AdventureStoryPlanProjectionDependencyPolicy {
         if (!matcher.matches()) return Set.of();
         String stage = matcher.group(1);
         String field = matcher.group(3) == null ? "" : matcher.group(3);
+        if (field.equals("evidence") || field.startsWith("evidence[")
+                || field.equals("sourceFactClaims") || field.startsWith("sourceFactClaims[")) {
+            return citationDependencies(stage);
+        }
         if (!isCombatDependency(field)) return Set.of();
         Matcher participant = Pattern.compile("^combatSkeleton\\.participants\\[(\\d+|\\*)\\]\\.(.+)$").matcher(field);
         if (participant.matches()) {
@@ -59,6 +63,13 @@ public final class AdventureStoryPlanProjectionDependencyPolicy {
         paths.add(stage + ".sourceFactClaims[*]");
         paths.add(stage + ".tacticalPreparationRequirement");
         return Set.copyOf(paths);
+    }
+
+    private static Set<String> citationDependencies(String stage) {
+        return Set.of(stage + ".evidence", stage + ".evidence[*].citationKey",
+                stage + ".combatSkeleton.participants[*].citationKeys",
+                stage + ".combatSkeleton.rewards[*].citationKeys",
+                stage + ".sourceFactClaims[*].citationKeys");
     }
 
     private static boolean isCombatDependency(String field) {

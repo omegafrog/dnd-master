@@ -592,7 +592,13 @@ public final class AdventureStoryPlanApplicationService {
         String message = raw == null || raw.isBlank() ? "story plan candidate validation failed" : raw.trim();
         String normalized = message.toLowerCase(java.util.Locale.ROOT);
         Integer stagePosition = stagePosition(message);
-        String fieldName = normalized.contains("transitioncondition") ? "transitionCondition"
+        boolean missingFailureConsequence = normalized.contains("burning-web")
+                || normalized.contains("burning web")
+                || normalized.contains("failure consequence")
+                || normalized.contains("fail-forward consequence")
+                || normalized.contains("failure outcome");
+        String fieldName = missingFailureConsequence ? "failureCondition"
+                : normalized.contains("transitioncondition") ? "transitionCondition"
                 : normalized.contains("clearcondition") ? "clearCondition"
                 : normalized.contains("failurecondition") ? "failureCondition" : "";
         String fieldPath = fieldName.isBlank() ? "stages"

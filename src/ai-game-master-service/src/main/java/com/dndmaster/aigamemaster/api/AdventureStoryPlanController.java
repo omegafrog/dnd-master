@@ -304,7 +304,7 @@ public final class AdventureStoryPlanController {
                 Use only citationKey values copied verbatim from the supplied citation registry; never invent numeric, document-derived, or stage-local citation keys. Do not create sourceFactClaims for goal, conflict, transitionCondition, clearCondition, or any other narrative field: sourceFactClaims are exclusively combat skeleton claims. A combat participant name must match the cited excerpt exactly enough to be supported, and its citationKeys must point to that same registered excerpt. Keep combatRequirement consistent with the stage: NONE has no combat hints, POSSIBLE has no committed participant, and REQUIRED has a complete sourced skeleton. If a combat claim cannot be grounded by an exact supplied citation, omit the combat commitment or regenerate the complete projection rather than guessing.
                 Optional fields may be omitted or empty: npcOrClues, enemies, boss, clearCondition, failureCondition, rewards, branchIds, branchTargets, and player spawn fields. When citations are supplied, evidence is REQUIRED for every stage: copy at least one exact citationKey from the supplied citation registry. Do not copy document IDs, extraction versions, locators, quotes, or confidence into evidence. When both STORYBOOK and RULEBOOK citations are supplied, the complete plan MUST include at least one exact citationKey for each type across its stages. A trigger is represented only by a short reference or lookup key; never copy the full trigger or rule text.
                 Arrays may be empty arrays and branchTargets may be an empty object. Never invent a map, trigger, citation, enemy, reward, or ending. Use the ending IDs stated in the plan, or a stable structural ending ID when necessary.
-                If the plan is invalid, return the best faithful projection so the application can report the violation.
+                If the plan is invalid, return the best faithful projection so the application can report the violation. Preserve required burning-web or other hazard failure consequences from the verified Markdown as stage failureCondition text; do not turn them into sourceFactClaims or drop them.
                 configuration=%s
                 sourceDocuments=%s
                 resolutionEvidence=%s
@@ -324,7 +324,7 @@ public final class AdventureStoryPlanController {
                 mutate any unlisted field. Use only the authoritative citation, map, and source registries supplied below; never invent,
                 fuzzy-match, or copy a quote, locator, document ID, map ID, or source that is not registered. The server will rerun the
                 complete schema, citation/map/source, and business-rule validation chain after this response.
-                The response root MUST be an object with a stages array and must contain the full candidate, not a JSON patch.
+                The response root MUST be an object with a stages array and must contain the full candidate, not a JSON patch. For a failure-consequence violation, repair only the affected stage failureCondition and preserve its concrete fail-forward consequence. For citation or participant violations, use only exact registered keys and keep the claim, participant, and same-stage evidence binding consistent.
                 configuration=%s
                 structuredViolations=%s
                 deterministicRepairScope=%s

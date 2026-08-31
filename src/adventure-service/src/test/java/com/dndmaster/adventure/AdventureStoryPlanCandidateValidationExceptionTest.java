@@ -27,4 +27,14 @@ class AdventureStoryPlanCandidateValidationExceptionTest {
         assertEquals(Repairability.REPAIRABLE, violation.repairability());
         assertEquals("stages[1].combatSkeleton.participants[*].name", violation.fieldPath());
     }
+
+    @Test
+    void maps_burning_web_consequence_to_failure_condition_scope_repair() {
+        var violation = AdventureStoryPlanCandidateValidationException.legacyViolation(
+                "Stage 2 burning-web consequence is missing");
+
+        assertEquals("FAILURE_CONSEQUENCE_MISSING", violation.code());
+        assertEquals(Repairability.REPAIRABLE, violation.repairability());
+        assertEquals("stages[1].failureCondition", violation.fieldPath());
+    }
 }

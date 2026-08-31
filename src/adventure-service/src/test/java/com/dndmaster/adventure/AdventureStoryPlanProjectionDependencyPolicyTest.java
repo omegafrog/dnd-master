@@ -31,6 +31,20 @@ class AdventureStoryPlanProjectionDependencyPolicyTest {
     }
 
     @Test
+    void expands_citation_blocker_to_same_stage_grounding_bindings() {
+        var scope = AdventureStoryPlanProjectionDependencyPolicy.scope(
+                "{\"stages\":[{\"position\":1}]}",
+                List.of(new AdventureStoryPlanProjectionViolation("CITATION_CONTRACT_VIOLATION", 1,
+                        "stages[0].evidence[*].citationKey", "citation-999", "", Repairability.REPAIRABLE,
+                        "citation field grounding mismatch")));
+
+        assertTrue(scope.allows("stages[0].evidence[*].citationKey"));
+        assertTrue(scope.allows("stages[0].combatSkeleton.participants[*].citationKeys"));
+        assertTrue(scope.allows("stages[0].sourceFactClaims[*].citationKeys"));
+        assertFalse(scope.allows("stages[1].evidence[*].citationKey"));
+    }
+
+    @Test
     void diff_guard_accepts_only_dependency_closure_and_preserves_unrelated_stage() throws Exception {
         var previous = mapper.readTree("""
                 {"stages":[
