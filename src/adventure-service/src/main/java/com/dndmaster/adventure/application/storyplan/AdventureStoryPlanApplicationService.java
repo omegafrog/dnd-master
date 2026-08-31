@@ -570,14 +570,6 @@ public final class AdventureStoryPlanApplicationService {
                         "new story plan READY writes require projection schema v2"));
             }
         }
-        for (String coverage : stageSourceValidator.validateCitationCoverage(stages, request.citations())) {
-            String requiredType = coverage.contains("RULEBOOK") ? "RULEBOOK"
-                    : coverage.contains("STORYBOOK") ? "STORYBOOK" : "";
-            violations.add(new AdventureStoryPlanProjectionViolation(
-                    "CITATION_COVERAGE_MISSING", null, "stages[*].evidence[*].citationKey", "",
-                    requiredType, Repairability.SOURCE_EVIDENCE_INSUFFICIENT,
-                    "required citation coverage is missing"));
-        }
         try {
             AdventureStoryPlanGraphValidator.validate(stages, configuration);
         } catch (RuntimeException invalidGraph) {
