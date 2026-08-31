@@ -49,10 +49,10 @@ class StoryPlanScopedMergerTest {
     @Test
     void repairs_only_missing_stage_ending_ids() throws Exception {
         String previous = """
-                {"stages":[{"title":"Keep title","goal":"Keep goal"}]}
+                {"stages":[{"title":"Keep title","goal":"Keep goal","combatRequirement":"NONE","evidence":[{"citationKey":"citation-1"}]}]}
                 """;
         String repaired = """
-                {"stages":[{"title":"Provider rewrite","goal":"Provider rewrite","endingIds":["ending-1"]}]}
+                {"stages":[{"title":"Provider rewrite","goal":"Provider rewrite","combatRequirement":"REQUIRED","evidence":[{"citationKey":"citation-999"}],"endingIds":["ending-1"]}]}
                 """;
         RepairScope scope = new RepairScope(Set.of("stages[0].endingIds"), Set.of(), Set.of());
 
@@ -61,5 +61,7 @@ class StoryPlanScopedMergerTest {
         assertEquals("ending-1", merged.at("/stages/0/endingIds/0").asText());
         assertEquals("Keep title", merged.at("/stages/0/title").asText());
         assertEquals("Keep goal", merged.at("/stages/0/goal").asText());
+        assertEquals("NONE", merged.at("/stages/0/combatRequirement").asText());
+        assertEquals("citation-1", merged.at("/stages/0/evidence/0/citationKey").asText());
     }
 }

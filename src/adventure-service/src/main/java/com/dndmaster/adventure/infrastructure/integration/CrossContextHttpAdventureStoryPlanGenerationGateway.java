@@ -2,8 +2,8 @@ package com.dndmaster.adventure.infrastructure.integration;
 
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanCandidateValidationException;
-import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionRepairPolicy;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionViolation;
+import com.dndmaster.adventure.application.storyplan.StoryPlanScopedMerger;
 import com.dndmaster.adventure.application.storyplan.TacticalScenePlanCandidate;
 import com.dndmaster.adventure.application.storyplan.TacticalSceneRequest;
 import com.dndmaster.adventure.application.storyplan.TacticalScenePlanValidator;
@@ -99,18 +99,18 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IllegalStateException("story plan AI repair failed: " + response.statusCode());
             }
-            var candidate = parseOutlineCandidate(response.body(), keyedRequest);
-            AdventureStoryPlanProjectionRepairPolicy.assertOnlyListedFieldsChanged(
-                    previousCandidate, mapper.readTree(candidate.serializedCandidate()), request.repairScope());
-            return candidate;
+            // The provider returns a full candidate and may rewrite unrelated fields while
+            // repairing. Treat that response as untrusted input: apply only the explicit
+            // repair scope, then run all normal validation against the merged candidate.
+            JsonNode repairedCandidate = mapper.readTree(candidateJson(response.body()));
+            String mergedCandidate = new StoryPlanScopedMerger(mapper)
+                    .merge(previousCandidate, repairedCandidate, request.repairScope()).toString();
+            return parseOutlineCandidate(mergedCandidate, keyedRequest);
         } catch (AdventureStoryPlanCandidateValidationException e) {
             throw e;
         } catch (HttpTimeoutException e) { throw new IllegalStateException("story plan AI repair timed out after " + timeout, e); }
         catch (IOException e) { throw new IllegalStateException("story plan AI repair request encoding failed", e); }
         catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("story plan AI repair interrupted", e); }
-        catch (AdventureStoryPlanProjectionRepairPolicy.UnlistedFieldMutation e) {
-            throw new AdventureStoryPlanCandidateValidationException(List.of(e.violation()), request.previousCandidate(), true);
-        }
     }
 
     private AdventureStoryPlanGenerationPort.ProjectionCandidate parseOutlineCandidate(String responseBody, Request request) {
