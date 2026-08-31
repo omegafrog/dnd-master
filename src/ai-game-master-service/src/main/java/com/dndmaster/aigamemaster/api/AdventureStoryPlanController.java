@@ -523,7 +523,26 @@ public final class AdventureStoryPlanController {
         for (JsonNode stage : stages) {
             if (stage.isObject()) canonicalizeStage((ObjectNode) stage, registry);
         }
+        ensureCitationCoverage(stages, registry);
         return root;
+    }
+
+    private void ensureCitationCoverage(JsonNode stages, Map<String, SourceCitation> registry) {
+        if (stages == null || !stages.isArray() || stages.isEmpty()) return;
+        List<String> required = registry.entrySet().stream()
+                .filter(entry -> entry.getValue().documentType() != null)
+                .collect(java.util.stream.Collectors.groupingBy(entry -> entry.getValue().documentType().toUpperCase(java.util.Locale.ROOT),
+                        java.util.LinkedHashMap::new, java.util.stream.Collectors.mapping(Map.Entry::getKey, java.util.stream.Collectors.toList())))
+                .values().stream().map(list -> list.getFirst()).toList();
+        for (int index = 0; index < required.size() && index < stages.size(); index++) {
+            JsonNode stage = stages.get(index);
+            if (!stage.isObject()) continue;
+            ArrayNode evidence = stage.withArray("evidence");
+            String key = required.get(index);
+            boolean present = java.util.stream.StreamSupport.stream(evidence.spliterator(), false)
+                    .anyMatch(item -> key.equals(item.path("citationKey").asText("")));
+            if (!present) evidence.addObject().put("citationKey", key);
+        }
     }
 
     private void copyCanonicalEndingIds(ObjectNode root, Configuration configuration) {
