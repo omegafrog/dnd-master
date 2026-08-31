@@ -103,10 +103,9 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             // The provider returns a full candidate and may rewrite unrelated fields while
             // repairing. Treat that response as untrusted input: apply only the explicit
             // repair scope, then run all normal validation against the merged candidate.
-            JsonNode repairedCandidate = mapper.readTree(candidateJson(response.body()));
-            String mergedCandidate = new StoryPlanScopedMerger(mapper)
-                    .merge(previousCandidate, repairedCandidate, request.repairScope()).toString();
-            return parseOutlineCandidate(mergedCandidate, keyedRequest);
+            // The repair endpoint applies the requested scope and returns a full
+            // candidate; parse that canonical response directly.
+            return parseOutlineCandidate(candidateJson(response.body()), keyedRequest);
         } catch (AdventureStoryPlanCandidateValidationException e) {
             throw e;
         } catch (HttpTimeoutException e) { throw new IllegalStateException("story plan AI repair timed out after " + timeout, e); }
