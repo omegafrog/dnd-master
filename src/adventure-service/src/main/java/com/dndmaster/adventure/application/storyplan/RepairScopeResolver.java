@@ -28,6 +28,6 @@ public final class RepairScopeResolver {
 
     private static boolean knownPath(String path) {
         String normalized = RepairScope.normalize(path);
-        return normalized.matches("stages\\[(?:\\d+|\\*)\\](?:\\.(?:title|goal|conflict|transitionCondition|endingIds|clearCondition|failureCondition|rules(?:\\.(?:check|outcome))?|evidence(?:\\[\\*\\])?\\.citationKey|combatSkeleton(?:\\.(?:participants(?:\\[(?:\\d+|\\*)\\])?(?:\\.(?:participantId|role|name|minimumCount|maximumCount))?|rewards(?:\\[(?:\\d+|\\*)\\])?|objective|startTrigger|successOutcome|failureOutcome))?|sourceFactClaims(?:\\[(?:\\d+|\\*)\\])?|tacticalPreparationRequirement|mapDefinitionId|mapAssetId|mapAssetLocator))?");
+        return normalized.matches("stages\\[(?:\\d+|\\*)\\](?:\\.(?:title|goal|conflict|transitionCondition|endingIds|clearCondition|failureCondition|rules(?:\\.(?:check|outcome))?|evidence(?:\\[\\*\\])?(?:\\.citationKey)?|combatSkeleton(?:\\.(?:participants(?:\\[(?:\\d+|\\*)\\])?(?:\\.(?:participantId|role|name|minimumCount|maximumCount))?|rewards(?:\\[(?:\\d+|\\*)\\])?|objective|startTrigger|successOutcome|failureOutcome))?|sourceFactClaims(?:\\[(?:\\d+|\\*)\\])?|tacticalPreparationRequirement|mapDefinitionId|mapAssetId|mapAssetLocator))?");
     }
 }
