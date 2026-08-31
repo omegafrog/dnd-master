@@ -11,7 +11,8 @@ public final class StoryPlanRepairPolicy {
         String normalized = code == null ? "" : code.trim().toUpperCase(Locale.ROOT);
         return switch (normalized) {
             case "MISSING_RULE_CHECK", "MISSING_RULE_OUTCOME",
-                    "SOURCE_FACT_CLAIM_UNKNOWN_CITATION", "COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED" ->
+                    "SOURCE_FACT_CLAIM_UNKNOWN_CITATION", "UNKNOWN_CITATION", "UNKNOWN_CITATION_KEY",
+                    "COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED" ->
                     AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE;
             case "SOURCE_EVIDENCE_INSUFFICIENT", "UNKNOWN_SOURCE_EVIDENCE", "SOURCE_CLAIM_UNSUPPORTED",
                     "SOURCE_FACT_CLAIM_UNSUPPORTED", "SOURCE_FACT_CLAIM_UNBOUND" ->

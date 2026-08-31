@@ -62,11 +62,18 @@ public final class AdventureStoryPlanCandidateValidationException extends Runtim
     public static AdventureStoryPlanProjectionViolation legacyViolation(String raw) {
         String message = raw == null || raw.isBlank() ? "candidate validation failed" : raw.trim();
         String normalized = message.toLowerCase(Locale.ROOT);
+        boolean unknownCitation = normalized.contains("unknown citation")
+                || normalized.contains("citation key is not registered");
+        boolean unsupportedCombatParticipant = normalized.contains("unsupported combat participant")
+                || normalized.contains("combat participant is not supported")
+                || normalized.contains("combat participant source unsupported");
         java.util.regex.Matcher stageMatcher = java.util.regex.Pattern.compile("(?i)stage\\s+(\\d+)").matcher(message);
         Integer stagePosition = stageMatcher.find() ? Integer.valueOf(stageMatcher.group(1)) : null;
         AdventureStoryPlanProjectionViolation.Repairability repairability = normalized.contains("serialized projection")
                 || normalized.contains("full projection candidate")
                 ? AdventureStoryPlanProjectionViolation.Repairability.SYSTEM_CONTRACT_ERROR
+                : unknownCitation || unsupportedCombatParticipant
+                ? AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE
                 : normalized.contains("citation")
                 || normalized.contains("source") || normalized.contains("map")
                 ? AdventureStoryPlanProjectionViolation.Repairability.SOURCE_EVIDENCE_INSUFFICIENT
@@ -76,12 +83,15 @@ public final class AdventureStoryPlanCandidateValidationException extends Runtim
                         || normalized.contains("required") || normalized.contains("stage count")
                         ? AdventureStoryPlanProjectionViolation.Repairability.REGENERATE_REQUIRED
                 : AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE;
-        String field = normalized.contains("transitioncondition") ? "stages[*].transitionCondition"
+        String field = unknownCitation ? "stages[*].evidence[*].citationKey"
+                : unsupportedCombatParticipant ? "stages[*].combatSkeleton.participants[*].name"
+                : normalized.contains("transitioncondition") ? "stages[*].transitionCondition"
                 : normalized.contains("clearcondition") ? "stages[*].clearCondition"
                 : normalized.contains("failurecondition") ? "stages[*].failureCondition"
                 : normalized.contains("ending") ? "stages[*].endingIds" : "stages";
-        if (stagePosition != null) field = field.replace("[*]", "[" + (stagePosition - 1) + "]");
-        String code = normalized.contains("citation") ? "CITATION_CONTRACT_VIOLATION"
+        if (stagePosition != null) field = field.replaceFirst("\\[\\*\\]", "[" + (stagePosition - 1) + "]");
+        String code = unsupportedCombatParticipant ? "COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED"
+                : normalized.contains("citation") ? "CITATION_CONTRACT_VIOLATION"
                 : normalized.contains("map") ? "MAP_CONTRACT_VIOLATION"
                 : normalized.contains("missing") || normalized.contains("required") ? "REQUIRED_FIELD_MISSING"
                 : "CANDIDATE_VALIDATION_FAILED";
