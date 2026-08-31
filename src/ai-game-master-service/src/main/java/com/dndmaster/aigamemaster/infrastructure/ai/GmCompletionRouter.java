@@ -7,6 +7,7 @@ import java.net.http.HttpClient;
 import java.util.Objects;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -85,7 +86,7 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
 
     @Override
     public <T> GmCandidateLifecycleResult<T> completeWithOneRepair(
-            String operationId, String prompt, java.util.function.Function<String, String> repairPrompt,
+            String operationId, String prompt, java.util.function.Function<GmRepairContext, String> repairPrompt,
             StructuredResponseParser<T> parser, RequestedGmProviderSelection requested) {
         if (selectionResolver == null) throw new GmProviderSelectionUnresolvedException(requested);
         GmProviderSelectionResolver.EndpointResolution resolution = selectionResolver.resolveEndpoint(requested);
@@ -99,7 +100,14 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
             T response = completeResolved(operationId, prompt, capturingParser, resolution.endpoint(), effective);
             return new GmCandidateLifecycleResult<>(new GmCompletionResult<>(response, effective), 1);
         } catch (ProviderMalformedResponseException malformed) {
-            T repaired = completeResolved(operationId + ":repair", repairPrompt.apply(raw.get()),
+            LOGGER.warn("gm_candidate_validation_failed stage=INITIAL_CANDIDATE_VALIDATION code=MALFORMED_JSON message={}", malformed.getMessage());
+            T repaired = completeResolved(operationId + ":repair", repairPrompt.apply(new GmRepairContext(raw.get(), List.of(
+                            new GmCandidateViolation("MALFORMED_JSON", "candidate", malformed.getMessage())))),
+                    capturingParser, resolution.endpoint(), effective);
+            return new GmCandidateLifecycleResult<>(new GmCompletionResult<>(repaired, effective), 2);
+        } catch (GmCandidateValidationException invalid) {
+            LOGGER.warn("gm_candidate_validation_failed stage=INITIAL_CANDIDATE_VALIDATION violations={}", invalid.violations());
+            T repaired = completeResolved(operationId + ":repair", repairPrompt.apply(new GmRepairContext(raw.get(), invalid.violations())),
                     capturingParser, resolution.endpoint(), effective);
             return new GmCandidateLifecycleResult<>(new GmCompletionResult<>(repaired, effective), 2);
         }

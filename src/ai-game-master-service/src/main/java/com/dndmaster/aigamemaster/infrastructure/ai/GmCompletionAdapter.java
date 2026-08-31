@@ -1,5 +1,7 @@
 package com.dndmaster.aigamemaster.infrastructure.ai;
 
+import java.util.List;
+
 @FunctionalInterface
 public interface GmCompletionAdapter {
     <T> T complete(String operationId, String prompt, StructuredResponseParser<T> parser);
@@ -12,7 +14,7 @@ public interface GmCompletionAdapter {
 
     /** Runs one initial completion and, only for a malformed candidate, one repair. */
     default <T> GmCandidateLifecycleResult<T> completeWithOneRepair(
-            String operationId, String prompt, java.util.function.Function<String, String> repairPrompt,
+            String operationId, String prompt, java.util.function.Function<GmRepairContext, String> repairPrompt,
             StructuredResponseParser<T> parser, RequestedGmProviderSelection requested) {
         java.util.concurrent.atomic.AtomicReference<String> raw = new java.util.concurrent.atomic.AtomicReference<>("");
         StructuredResponseParser<T> capturingParser = json -> {
@@ -23,7 +25,11 @@ public interface GmCompletionAdapter {
             return new GmCandidateLifecycleResult<>(completeWithSelection(operationId, prompt, capturingParser, requested), 1);
         } catch (ProviderMalformedResponseException malformed) {
             return new GmCandidateLifecycleResult<>(completeWithSelection(operationId + ":repair",
-                    repairPrompt.apply(raw.get()), capturingParser, requested), 2);
+                    repairPrompt.apply(new GmRepairContext(raw.get(), List.of(new GmCandidateViolation(
+                            "MALFORMED_JSON", "candidate", malformed.getMessage())))), capturingParser, requested), 2);
+        } catch (GmCandidateValidationException invalid) {
+            return new GmCandidateLifecycleResult<>(completeWithSelection(operationId + ":repair",
+                    repairPrompt.apply(new GmRepairContext(raw.get(), invalid.violations())), capturingParser, requested), 2);
         }
     }
 

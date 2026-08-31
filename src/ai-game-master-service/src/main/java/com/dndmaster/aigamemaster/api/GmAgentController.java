@@ -18,10 +18,13 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Provider-neutral read-only GM loop. No tool calls or state mutations are exposed. */
 @RestController
 public final class GmAgentController {
+    private static final Logger LOGGER = LoggerFactory.getLogger(GmAgentController.class);
     private final GmCompletionAdapter adapter;
     private final ObjectMapper mapper;
     private final ApiRequestGuard requestGuard;
@@ -45,7 +48,7 @@ public final class GmAgentController {
         try {
             GmCandidateLifecycleResult<Response> lifecycle = adapter.completeWithOneRepair(
                     request.operationKey(), prompt(request.toLegacyRequest()),
-                    initialCandidate -> repairPrompt(request, initialCandidate),
+                    repairContext -> repairPrompt(request, repairContext),
                     json -> validateCandidate(request, parseStrictCompleteResponse(json)),
                     request.requestedSelection());
             GmCompletionResult<Response> completion = lifecycle.completion();
@@ -53,7 +56,11 @@ public final class GmAgentController {
                     EffectiveSelection.from(completion.effectiveSelection()), lifecycle.attemptCount(), List.of());
         } catch (GmProviderSelectionUnresolvedException unresolved) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, unresolved.code());
+        } catch (com.dndmaster.aigamemaster.infrastructure.ai.GmCandidateValidationException invalid) {
+            LOGGER.warn("gm_candidate_validation_failed stage=REPAIR violations={}", invalid.violations());
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "GM provider unavailable", invalid);
         } catch (ProviderMalformedResponseException malformed) {
+            LOGGER.warn("gm_provider_malformed_response message={}", malformed.getMessage());
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "GM provider unavailable", malformed);
         } catch (RuntimeException providerFailure) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "GM provider unavailable", providerFailure);
@@ -180,23 +187,38 @@ public final class GmAgentController {
     }
 
     private Response parseStrictCompleteResponse(String json) {
+        com.fasterxml.jackson.databind.JsonNode node;
         try {
-            com.fasterxml.jackson.databind.JsonNode node = mapper.readTree(json);
-            if (node == null || !node.isObject()) throw new IllegalArgumentException("candidate must be a JSON object");
-            return requireComplete(mapper.treeToValue(node, Response.class));
-        } catch (Exception exception) {
+            node = mapper.readTree(json);
+            if (node == null || !node.isObject()) {
+                throw new ProviderMalformedResponseException("GM candidate malformed: candidate must be a JSON object");
+            }
+        } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
             throw new ProviderMalformedResponseException("GM candidate malformed: " + safeMessage(exception));
         }
+        final Response response;
+        try {
+            response = requireComplete(mapper.treeToValue(node, Response.class));
+        } catch (Exception exception) {
+            throw new com.dndmaster.aigamemaster.infrastructure.ai.GmCandidateValidationException(List.of(
+                    new com.dndmaster.aigamemaster.infrastructure.ai.GmCandidateViolation(
+                            "GM_CANDIDATE_MALFORMED", "candidate", safeMessage(exception))));
+        }
+        return response;
     }
 
     private Response validateCandidate(V2Request request, Response response) {
         if (!request.storybook().isEmpty() && response.citedEvidence().isEmpty()) {
-            throw new ProviderMalformedResponseException("GM candidate violation: storybook citation required");
+            throw new com.dndmaster.aigamemaster.infrastructure.ai.GmCandidateValidationException(List.of(
+                    new com.dndmaster.aigamemaster.infrastructure.ai.GmCandidateViolation(
+                            "STORYBOOK_CITATION_REQUIRED", "citedEvidence", "Storybook citation required")));
         }
         List<?> allowed = java.util.stream.Stream.of(request.storybook(), request.rulebook(), request.resolution())
                 .flatMap(List::stream).toList();
         if (response.citedEvidence().stream().anyMatch(citation -> !citationMatchesPack(citation, allowed))) {
-            throw new ProviderMalformedResponseException("GM candidate violation: citation is outside the Evidence Pack");
+            throw new com.dndmaster.aigamemaster.infrastructure.ai.GmCandidateValidationException(List.of(
+                    new com.dndmaster.aigamemaster.infrastructure.ai.GmCandidateViolation(
+                            "CITATION_OUTSIDE_EVIDENCE_PACK", "citedEvidence", "Citation is outside the Evidence Pack")));
         }
         return response;
     }
@@ -263,20 +285,17 @@ public final class GmAgentController {
                 """.formatted(r.action(), r.currentScene());
     }
 
-    private static String repairPrompt(V2Request request, String initialCandidate) {
-        GmCandidateViolation violation = GmCandidateViolation.malformed(
-                "initial candidate failed the required GM candidate envelope");
+    private static String repairPrompt(V2Request request, com.dndmaster.aigamemaster.infrastructure.ai.GmRepairContext repair) {
         return """
                 Return exactly one repaired JSON object and no markdown.
                 Required keys: scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings, provider, model, reasoning, stateDelta, toolCalls, advanceStoryPlan, selectedBranchId.
                 Do not add semantic defaults, neutral narration, neutral judgment, or guessed citations.
                 Preserve the same requested provider selection and the same Evidence Pack below.
                 initialCandidate=%s
-                violations=[{"code":"%s","fieldPath":"%s","repairable":%s,"safeMessage":"%s"}]
+                violations=%s
                 storybook=%s rulebook=%s resolution=%s
                 playerAction=%s currentScene=%s
-                """.formatted(initialCandidate == null ? "" : initialCandidate, violation.code(), violation.fieldPath(),
-                violation.repairable(), violation.safeMessage(), request.storybook(), request.rulebook(), request.resolution(),
+                """.formatted(repair.rawResponse(), repair.violations(), request.storybook(), request.rulebook(), request.resolution(),
                 request.action(), request.currentScene());
     }
 
