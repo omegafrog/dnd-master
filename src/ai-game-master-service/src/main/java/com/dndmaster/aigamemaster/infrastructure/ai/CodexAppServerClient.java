@@ -149,8 +149,10 @@ public final class CodexAppServerClient implements AutoCloseable {
         return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
     }
 
-    private static String stage(String operationId) {
+    static String stage(String operationId) {
         if (operationId == null) return "unknown";
+        if (operationId.contains(":resolution-candidate-repair")) return "resolution-candidate-repair";
+        if (operationId.contains(":resolution-candidates")) return "resolution-candidate-extraction";
         if (operationId.endsWith("-verification")) return "story-plan-verification";
         if (operationId.endsWith("-execution-projection")) return "story-plan-projection";
         if (operationId.endsWith("-projection-repair")) return "story-plan-projection-repair";

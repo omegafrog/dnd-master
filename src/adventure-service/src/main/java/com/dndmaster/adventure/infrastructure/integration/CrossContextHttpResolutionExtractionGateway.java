@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Objects;
 
 public final class CrossContextHttpResolutionExtractionGateway implements ResolutionExtractionPort {
+    private static final String SCENARIO_COMPILATION_OPERATION_PREFIX = "scenario-compilation:";
     private final HttpClient client;
     private final URI baseUri;
     private final Duration timeout;
@@ -35,8 +36,9 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
     @Override
     public List<ResolutionCandidate> extract(ResolutionExtractionRequest request) {
         try {
+            String operationId = operationId(request.operationId(), request.attempt() > 0);
             String body = objectMapper.writeValueAsString(new ResolutionExtractionWireRequest(
-                    request.operationId(),
+                    operationId,
                     request.excerpts().stream()
                             .map(excerpt -> new ResolutionExcerpt(
                                     excerpt.documentId().value(), excerpt.extractionVersion(), excerpt.locator(), excerpt.text()))
@@ -66,6 +68,14 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
             Thread.currentThread().interrupt();
             throw new ResolutionExtractionException("resolution extraction interrupted", exception);
         }
+    }
+
+    /** Makes the non-Story-Plan authoring responsibility explicit in provider diagnostics. */
+    static String operationId(String operationId, boolean repair) {
+        String base = Objects.requireNonNull(operationId, "operation id must not be null");
+        String prefixed = base.startsWith(SCENARIO_COMPILATION_OPERATION_PREFIX)
+                ? base : SCENARIO_COMPILATION_OPERATION_PREFIX + base;
+        return repair ? prefixed + ":resolution-candidate-repair" : prefixed + ":resolution-candidates";
     }
 
     private static ResolutionCandidate toCandidate(CandidateResponse candidate) {

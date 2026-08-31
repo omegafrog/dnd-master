@@ -12,6 +12,16 @@ import org.junit.jupiter.api.Test;
 
 class CodexAppServerClientTest {
     @Test
+    void classifiesScenarioCompilationResolutionCallsSeparatelyFromStoryPlanAuthoring() {
+        assertThat(CodexAppServerClient.stage("scenario-compilation:abc:resolution-candidates"))
+                .isEqualTo("resolution-candidate-extraction");
+        assertThat(CodexAppServerClient.stage("scenario-compilation:abc:resolution-candidate-repair"))
+                .isEqualTo("resolution-candidate-repair");
+        assertThat(CodexAppServerClient.stage("story-plan-123"))
+                .isEqualTo("story-plan-markdown");
+    }
+
+    @Test
     void estimatesTokensAndSanitizesMetadataWithoutPayloads() {
         assertThat(AiCallObservability.estimatedTokens(0)).isZero();
         assertThat(AiCallObservability.estimatedTokens(7)).isEqualTo(2);
