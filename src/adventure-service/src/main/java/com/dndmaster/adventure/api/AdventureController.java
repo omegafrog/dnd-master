@@ -187,6 +187,13 @@ public class AdventureController {
                     || exception instanceof ApiRequestGuard.ApiContractException) {
                 throw exception;
             }
+            String message = exception.getMessage() == null ? "" : exception.getMessage();
+            if (message.contains("ADVENTURE_VERSION_CONFLICT")) {
+                return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).build();
+            }
+            if (message.contains("GM_TURN_ALREADY_IN_PROGRESS")) {
+                return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).build();
+            }
             return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_GATEWAY).build();
         }
         String providerMetadata = "provider=" + result.turn().plan().provider()

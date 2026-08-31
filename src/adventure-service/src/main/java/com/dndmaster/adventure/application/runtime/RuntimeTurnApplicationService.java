@@ -47,6 +47,7 @@ public class RuntimeTurnApplicationService {
     private final RuntimeTurnCompactionCoordinator compactionCoordinator;
     private final GmContextResumePromptProvider resumePromptProvider;
     private final GmProviderBindingRepository providerBindingRepository;
+    private RuntimeTurnLockService turnLockService;
     private final TacticalScenePreparationApplicationService tacticalPreparation;
     private final MeaningfulProgressPolicy meaningfulProgressPolicy = new MeaningfulProgressPolicy();
     private ApprovedPromptConfigurationReadPort approvedPromptConfigurationReadPort;
@@ -203,6 +204,8 @@ public class RuntimeTurnApplicationService {
         this.failurePersistence = Objects.requireNonNull(failurePersistence, "failure persistence must not be null");
     }
 
+    public void setTurnLockService(RuntimeTurnLockService service) { this.turnLockService = service; }
+
     /** Optional cross-context adapter; when present, only approved active role configurations are captured. */
     public void setApprovedPromptConfigurationReadPort(ApprovedPromptConfigurationReadPort port) {
         this.approvedPromptConfigurationReadPort = Objects.requireNonNull(port, "prompt configuration port must not be null");
@@ -264,7 +267,15 @@ public class RuntimeTurnApplicationService {
             return new RuntimeTurnResult(existing, existing.context(), existing.conversation(), existing.version());
         }
         if (command.expectedVersion() >= 0 && adventure.version() != command.expectedVersion()) {
-            throw new IllegalStateException("adventure version does not match");
+            throw new IllegalStateException("ADVENTURE_VERSION_CONFLICT expected=" + command.expectedVersion() + " actual=" + adventure.version());
+        }
+        if (turnLockService != null && command.advancesState()) {
+            turnLockService.acquire(adventure.sessionId().value(), command.turnId());
+            if (TransactionSynchronizationManager.isSynchronizationActive()) {
+                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                    @Override public void afterCompletion(int status) { turnLockService.release(adventure.sessionId().value()); }
+                });
+            }
         }
         RuntimeBinding binding = bindingRepository.findCurrentByAdventureId(command.adventureId())
                 .orElseThrow(() -> new IllegalStateException("runtime binding not found"));

@@ -76,6 +76,21 @@ export function AppShell() {
     return () => { active = false }
   }, [auth.session, rawSetupApi, route.page, selectedBundleId])
 
+  const token = auth.session?.accessToken ?? ''
+  const playerId = auth.session?.playerId ?? ''
+  const getToken = () => token
+  const getPlayerId = () => playerId
+  const adventureApi = useMemo(() => new HttpAdventureApi(getToken, getPlayerId), [token, playerId])
+  const [adventureVersion, setAdventureVersion] = useState(0)
+  useEffect(() => {
+    if (!auth.session || route.page !== 'adventure') return
+    let active = true
+    void adventureApi.readConversation(route.adventureId).then(response => {
+      if (active) setAdventureVersion(response.version)
+    }).catch(() => undefined)
+    return () => { active = false }
+  }, [auth.session, adventureApi, route])
+
   if (!auth.session) {
     return <div className="app-shell auth-shell">
       <header className="app-header auth-header"><Brand /></header>
@@ -90,20 +105,6 @@ export function AppShell() {
     </div>
   }
 
-  const token = auth.session.accessToken
-  const playerId = auth.session.playerId
-  const getToken = () => token
-  const getPlayerId = () => playerId
-  const adventureApi = useMemo(() => new HttpAdventureApi(getToken, getPlayerId), [token, playerId])
-  const [adventureVersion, setAdventureVersion] = useState(0)
-  useEffect(() => {
-    if (!auth.session || route.page !== 'adventure') return
-    let active = true
-    void adventureApi.readConversation(route.adventureId).then(response => {
-      if (active) setAdventureVersion(response.version)
-    }).catch(() => undefined)
-    return () => { active = false }
-  }, [auth.session, adventureApi, route])
   const playApi = new HttpAdventurePlayApi(getToken)
   const creatorRoute = route.page === 'character-blueprint' || route.page === 'character-create'
   const initials = auth.session.playerName.slice(0, 1).toUpperCase()

@@ -27,6 +27,8 @@ public class GmTurnFailureRecorder {
         if (normalized.contains("provider") || normalized.contains("timeout")) return "GM_PROVIDER_UNAVAILABLE";
         if (normalized.contains("candidate") || normalized.contains("citation")
                 || normalized.contains("narration") || normalized.contains("judgment")) return "GM_CANDIDATE_INVALID";
+        if (normalized.contains("already_in_progress")) return "GM_TURN_ALREADY_IN_PROGRESS";
+        if (normalized.contains("adventure_version_conflict")) return "ADVENTURE_VERSION_CONFLICT";
         if (normalized.contains("version") || normalized.contains("conflict")) return "GM_TURN_CONFLICT";
         return "GM_TURN_FAILED_RETRYABLE";
     }

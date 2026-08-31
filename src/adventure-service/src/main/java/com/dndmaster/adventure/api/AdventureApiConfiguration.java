@@ -955,6 +955,11 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    RuntimeTurnLockService runtimeTurnLockService(GmProviderBindingRepository repository) {
+        return new RuntimeTurnLockService(repository);
+    }
+
+    @Bean
     RuntimeTurnApplicationService runtimeTurnApplicationService(
             AdventureRepository adventureRepository,
             RuntimeBindingRepository runtimeBindingRepository,
@@ -978,7 +983,8 @@ public class AdventureApiConfiguration {
             RewritePort narrativeRewritePort,
             NarrativeVerificationAuditPort narrativeVerificationAuditPort,
             ExemplarRetrieverPort exemplarRetriever,
-            ExemplarRetrievalAuditPort exemplarRetrievalAuditPort) {
+            ExemplarRetrievalAuditPort exemplarRetrievalAuditPort,
+            RuntimeTurnLockService runtimeTurnLockService) {
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
@@ -987,6 +993,7 @@ public class AdventureApiConfiguration {
                 exemplarRetriever, exemplarRetrievalAuditPort, narrativeStateService);
         service.setFailurePersistence(failurePersistence);
         service.setApprovedPromptConfigurationReadPort(approvedPromptConfigurationReadPort);
+        service.setTurnLockService(runtimeTurnLockService);
         return service;
     }
 
