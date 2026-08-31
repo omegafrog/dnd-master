@@ -32,6 +32,21 @@ import org.junit.jupiter.api.Test;
 @ExtendWith(OutputCaptureExtension.class)
 class AdventureStoryPlanApplicationServiceTest {
     @Test
+    void assigns_stable_request_local_citation_keys_before_provider_calls() {
+        var first = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "STORYBOOK", UUID.randomUUID(), 1, "page:1", "A cellar", .9);
+        var second = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "RULEBOOK", UUID.randomUUID(), 1, "page:2", "A rule", .9);
+
+        var request = new AdventureStoryPlanGenerationPort.Request(
+                "operation", 1, 1, AdventurePlanConfiguration.defaults(), List.of(), List.of(), List.of(),
+                List.of(first, second)).withCitationKeys();
+
+        assertEquals(List.of("citation-1", "citation-2"),
+                request.citations().stream().map(AdventureStoryPlanGenerationPort.SourceCitation::citationKey).toList());
+    }
+
+    @Test
     void uncertain_semantic_verdict_keeps_plan_ready_and_records_warning() {
         var session = draftSession();
         var sessions = mock(AdventureSessionRepository.class);
@@ -513,9 +528,9 @@ class AdventureStoryPlanApplicationServiceTest {
         assertEquals(AdventureStoryPlanStatus.READY, result.status());
         var request = org.mockito.ArgumentCaptor.forClass(AdventureStoryPlanGenerationPort.RepairRequest.class);
         verify(generator).repair(request.capture());
-        assertTrue(request.getValue().repairScope().allows("stages[0].combatSkeleton.objective"));
-        assertTrue(request.getValue().repairScope().allows("stages[0].tacticalPreparationRequirement"));
-        assertTrue(request.getValue().repairScope().allows("stages[0].sourceFactClaims[*]"));
+        assertTrue(request.getValue().repairScope().allows("stages[0].combatSkeleton.participants[0].citationKeys"));
+        assertTrue(request.getValue().repairScope().allows("stages[0].evidence[0].citationKey"));
+        assertTrue(!request.getValue().repairScope().allows("stages[0].combatSkeleton.objective"));
     }
 
     @Test

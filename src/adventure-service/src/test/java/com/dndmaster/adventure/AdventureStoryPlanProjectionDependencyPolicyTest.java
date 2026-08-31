@@ -23,12 +23,10 @@ class AdventureStoryPlanProjectionDependencyPolicyTest {
 
         assertTrue(scope.blockerPaths().contains("stages[0].combatSkeleton.participants[0].name"));
         assertTrue(scope.dependentPaths().contains("stages[0].combatRequirement"));
-        assertTrue(scope.dependentPaths().contains("stages[0].combatSkeleton.objective"));
-        assertTrue(scope.dependentPaths().contains("stages[0].combatSkeleton.successOutcome"));
-        assertTrue(scope.dependentPaths().contains("stages[0].combatSkeleton.failureOutcome"));
-        assertTrue(scope.dependentPaths().contains("stages[0].sourceFactClaims[*]"));
-        assertTrue(scope.dependentPaths().contains("stages[0].tacticalPreparationRequirement"));
-        assertTrue(scope.allows("stages[0].combatSkeleton.objective"));
+        assertTrue(scope.dependentPaths().contains("stages[0].combatSkeleton.participants[0].citationKeys"));
+        assertTrue(scope.dependentPaths().contains("stages[0].evidence[*].citationKey"));
+        assertTrue(scope.allows("stages[0].combatSkeleton.participants[0].name"));
+        assertFalse(scope.allows("stages[0].combatSkeleton.objective"));
         assertFalse(scope.allows("stages[1].combatSkeleton.objective"));
     }
 
@@ -42,14 +40,15 @@ class AdventureStoryPlanProjectionDependencyPolicyTest {
                 """);
         var repaired = mapper.readTree("""
                 {"stages":[
-                  {"combatRequirement":"REQUIRED","combatSkeleton":{"participants":[{"name":"거대 쥐"}],"objective":"거대 쥐를 퇴치","successOutcome":"성공","failureOutcome":"후퇴"},"sourceFactClaims":[{"fieldPath":"combatSkeleton.participants[0].name"}],"tacticalPreparationRequirement":"REQUIRED","title":"고정"},
+                  {"combatRequirement":"REQUIRED","combatSkeleton":{"participants":[{"name":"거대 쥐","citationKeys":["rat"]}],"objective":"거대 쥐를 퇴치","successOutcome":"성공","failureOutcome":"후퇴"},"sourceFactClaims":[{"fieldPath":"combatSkeleton.participants[0].name"}],"tacticalPreparationRequirement":"REQUIRED","title":"고정"},
                   {"title":"검증된 사실","goal":"보존"}
                 ]}
                 """);
         var scope = AdventureStoryPlanProjectionDependencyPolicy.scope(previous.toString(),
                 List.of(violation("stages[0].combatSkeleton.participants[0].name")));
 
-        AdventureStoryPlanProjectionRepairPolicy.assertOnlyListedFieldsChanged(previous, repaired, scope);
+        org.junit.jupiter.api.Assertions.assertThrows(AdventureStoryPlanProjectionRepairPolicy.UnlistedFieldMutation.class,
+                () -> AdventureStoryPlanProjectionRepairPolicy.assertOnlyListedFieldsChanged(previous, repaired, scope));
     }
 
     @Test

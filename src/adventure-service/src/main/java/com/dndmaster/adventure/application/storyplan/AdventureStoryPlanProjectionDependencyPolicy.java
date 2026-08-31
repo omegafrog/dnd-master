@@ -39,9 +39,14 @@ public final class AdventureStoryPlanProjectionDependencyPolicy {
         String stage = matcher.group(1);
         String field = matcher.group(3) == null ? "" : matcher.group(3);
         if (!isCombatDependency(field)) return Set.of();
+        Matcher participant = Pattern.compile("^combatSkeleton\\.participants\\[(\\d+|\\*)\\]\\.(.+)$").matcher(field);
+        if (participant.matches()) {
+            String item = stage + ".combatSkeleton.participants[" + participant.group(1) + "]";
+            return Set.of(stage + ".combatRequirement", item + "." + participant.group(2),
+                    item + ".citationKeys", stage + ".evidence[*].citationKey");
+        }
         List<String> paths = new ArrayList<>();
         paths.add(stage + ".combatRequirement");
-        paths.add(stage + ".combatSkeleton");
         paths.add(stage + ".combatSkeleton.objective");
         paths.add(stage + ".combatSkeleton.startTrigger");
         paths.add(stage + ".combatSkeleton.successOutcome");

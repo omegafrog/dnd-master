@@ -147,7 +147,7 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
         server.verify(postRequestedFor(urlEqualTo("/internal/v1/gm/adventure-story-plan/repair"))
                 .withRequestBody(matchingJsonPath("$.previousCandidate.stages[0].position", equalTo("1")))
                 .withRequestBody(matchingJsonPath("$.repairScope.allowedPaths",
-                        containing("stages[0].combatSkeleton.objective")))
+                        containing("stages[0].combatSkeleton.participants[0].citationKeys")))
                 .withRequestBody(matchingJsonPath("$.citations[0].citationKey", equalTo("rat-fact")))
                 .withRequestBody(matchingJsonPath("$.sourceDocuments[0]", equalTo("storybook.pdf")))
                 .withRequestBody(matchingJsonPath("$.resolutionEvidence[0]", equalTo("authoritative excerpt"))));

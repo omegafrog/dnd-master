@@ -32,6 +32,21 @@ class RepairScopeResolverTest {
         assertTrue(result.isEmpty());
     }
 
+    @Test
+    void expands_combat_participant_grounding_to_its_same_stage_dependencies() {
+        var scope = new RepairScopeResolver().resolve("{\"stages\":[{}]}", List.of(
+                violation("COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED",
+                        "stages[0].combatSkeleton.participants[0].name")));
+
+        assertTrue(scope.allows("stages[0].combatSkeleton.participants[0].name"));
+        assertTrue(scope.allows("stages[0].combatSkeleton.participants[0].citationKeys"));
+        assertTrue(scope.allows("stages[0].evidence[0].citationKey"));
+        assertTrue(!scope.allows("stages[0].combatSkeleton.objective"));
+        assertTrue(!scope.allows("stages[0].sourceFactClaims[0]"));
+        assertTrue(!scope.allows("stages[0].tacticalPreparationRequirement"));
+        assertTrue(!scope.allows("stages[1].title"));
+    }
+
     private static AdventureStoryPlanProjectionViolation violation(String code, String path) {
         return new AdventureStoryPlanProjectionViolation(code, 4, path, "", "",
                 AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE, "test");

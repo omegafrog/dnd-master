@@ -125,12 +125,14 @@ public final class AdventureStoryPlanApplicationService {
                 throw new IllegalStateException("published scenario evidence is unavailable", failure);
             }
         }
+        List<AdventureStoryPlanGenerationPort.SourceCitation> authoritativeCitations = citations(session, scenarioPackage);
         AdventureStoryPlanGenerationPort.Request request = new AdventureStoryPlanGenerationPort.Request(
                 UUID.randomUUID().toString(), session.scenarioPackageRevision(), session.party().size(),
-                configuration, sourceDocuments(session), resolutionEvidence(session), mapContexts(scenarioPackage), citations(session, scenarioPackage),
-                List.of(), "", StoryPlanGenerationMode.fromDocumentTypes(citations(session, scenarioPackage).stream()
+                configuration, sourceDocuments(session), resolutionEvidence(session), mapContexts(scenarioPackage), authoritativeCitations,
+                List.of(), "", StoryPlanGenerationMode.fromDocumentTypes(authoritativeCitations.stream()
                         .map(AdventureStoryPlanGenerationPort.SourceCitation::documentType).toList()),
-                constraintPack(citations(session, scenarioPackage)))
+                constraintPack(authoritativeCitations))
+                .withCitationKeys()
                 .withPreviousCandidate("");
         LOGGER.info("story_plan_generation_input packageId={} citations={} resolutionEvidence={} maps={} sourceDocuments={}",
                 session.scenarioPackageId(), request.citations().size(), request.resolutionEvidence().size(),
