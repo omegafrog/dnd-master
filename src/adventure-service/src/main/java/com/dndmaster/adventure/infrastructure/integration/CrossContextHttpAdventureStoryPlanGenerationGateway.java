@@ -111,6 +111,9 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         } catch (HttpTimeoutException e) { throw new IllegalStateException("story plan AI repair timed out after " + timeout, e); }
         catch (IOException e) { throw new IllegalStateException("story plan AI repair request encoding failed", e); }
         catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("story plan AI repair interrupted", e); }
+        catch (AdventureStoryPlanProjectionRepairPolicy.UnlistedFieldMutation e) {
+            throw new AdventureStoryPlanCandidateValidationException(List.of(e.violation()), request.previousCandidate(), true);
+        }
     }
 
     private AdventureStoryPlanGenerationPort.ProjectionCandidate parseOutlineCandidate(String responseBody, Request request) {
@@ -131,8 +134,6 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                     || stages.size() > configuration.adventureLength().maximumStages()) {
                 throw new IllegalStateException("AI returned an invalid stage count for adventure length");
             }
-            long endingCount = stages.stream().flatMap(stage -> stage.endingIds().stream()).distinct().count();
-            if (endingCount != configuration.endingCount()) throw new IllegalStateException("AI returned an invalid ending count");
             Map<UUID, AdventureStoryPlanGenerationPort.MapContext> maps = request.maps().stream().collect(
                     Collectors.toMap(AdventureStoryPlanGenerationPort.MapContext::mapDefinitionId, item -> item));
             if (!maps.isEmpty() && stages.stream().anyMatch(stage ->
@@ -177,7 +178,6 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                         AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE, message)),
                 candidateJson, true);
     }
-
     @Override public TacticalScenePlanCandidate generateTacticalScene(TacticalSceneRequest request) {
         try {
             var response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/tactical-scene-plan"))
