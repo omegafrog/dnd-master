@@ -107,7 +107,7 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             throw e;
         } catch (HttpTimeoutException e) { throw new IllegalStateException("story plan AI repair timed out after " + timeout, e); }
         catch (IOException e) { throw new IllegalStateException("story plan AI repair request encoding failed", e); }
-        catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("story plan AI repair interrupted", e); }
+        catch (InterruptedException e) { Thread.currentThread().interrupt(); throw new IllegalStateException("story plan AI interrupted", e); }
         catch (AdventureStoryPlanProjectionRepairPolicy.UnlistedFieldMutation e) {
             throw new AdventureStoryPlanCandidateValidationException(List.of(e.violation()), request.previousCandidate(), true);
         }
@@ -122,7 +122,6 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             List<Stage> stages = parsed.stages();
             List<List<AdventureStoryPlanGenerationPort.SourceCitation>> resolvedEvidence = stages.stream()
                     .map(stage -> resolveCitationKeys(stage.evidence(), request.citations())).toList();
-            validateEndingIdProjection(stages);
             if (!request.citations().isEmpty() && stages.stream().anyMatch(stage -> stage.evidence().isEmpty())) {
                 throw new IllegalStateException("every story stage must include at least one supplied source citation");
             }
@@ -131,8 +130,6 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                     || stages.size() > configuration.adventureLength().maximumStages()) {
                 throw new IllegalStateException("AI returned an invalid stage count for adventure length");
             }
-            long endingCount = stages.stream().flatMap(stage -> stage.endingIds().stream()).distinct().count();
-            if (endingCount != configuration.endingCount()) throw new IllegalStateException("AI returned an invalid ending count");
             Map<UUID, AdventureStoryPlanGenerationPort.MapContext> maps = request.maps().stream().collect(
                     Collectors.toMap(AdventureStoryPlanGenerationPort.MapContext::mapDefinitionId, item -> item));
             if (!maps.isEmpty() && stages.stream().anyMatch(stage ->
@@ -151,20 +148,6 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                     AdventureStoryPlanCandidateValidationException.legacyViolation(
                             validationMessage(invalidCandidate, "AI returned an invalid story plan candidate"))),
                     candidateJson, true);
-        }
-    }
-
-    private static void validateEndingIdProjection(List<Stage> stages) {
-        for (Stage stage : stages) {
-            if (stage.endingIds() == null) {
-                throw new IllegalStateException("endingIds must be explicit");
-            }
-            if (stage.endingIds().stream().anyMatch(item -> item == null || item.isBlank())) {
-                throw new IllegalStateException("endingIds must not contain blank values");
-            }
-            if (stage.endingIds().isEmpty()) {
-                throw new IllegalStateException("endingIds must not be empty");
-            }
         }
     }
 
@@ -417,13 +400,13 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             String combatRequirement, CombatSkeletonProjection combatSkeleton,
             List<SourceFactClaimProjection> sourceFactClaims, String tacticalPreparationRequirement, Integer schemaVersion) {
         Stage {
-            npcOrClues = List.copyOf(Objects.requireNonNull(npcOrClues, "npcOrClues must be explicit"));
-            endingIds = List.copyOf(Objects.requireNonNull(endingIds, "endingIds must be explicit"));
-            enemies = List.copyOf(Objects.requireNonNull(enemies, "enemies must be explicit"));
-            rewards = List.copyOf(Objects.requireNonNull(rewards, "rewards must be explicit"));
-            branchIds = List.copyOf(Objects.requireNonNull(branchIds, "branchIds must be explicit"));
-            branchTargets = java.util.Map.copyOf(Objects.requireNonNull(branchTargets, "branchTargets must be explicit"));
-            evidence = List.copyOf(Objects.requireNonNull(evidence, "evidence must be explicit"));
+            npcOrClues = npcOrClues == null ? List.of() : List.copyOf(npcOrClues);
+            endingIds = endingIds == null ? List.of() : List.copyOf(endingIds);
+            enemies = enemies == null ? List.of() : List.copyOf(enemies);
+            rewards = rewards == null ? List.of() : List.copyOf(rewards);
+            branchIds = branchIds == null ? List.of() : List.copyOf(branchIds);
+            branchTargets = branchTargets == null ? java.util.Map.of() : java.util.Map.copyOf(branchTargets);
+            evidence = evidence == null ? List.of() : List.copyOf(evidence);
             sourceFactClaims = sourceFactClaims == null ? List.of() : List.copyOf(sourceFactClaims);
             mapDefinitionId = mapDefinitionId == null ? "" : mapDefinitionId;
             mapAssetId = mapAssetId == null ? "" : mapAssetId;
