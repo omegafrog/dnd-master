@@ -24,8 +24,12 @@ import java.util.Optional;
 import java.util.List;
 import java.util.UUID;
 import java.util.Map;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.boot.test.system.CapturedOutput;
+import org.springframework.boot.test.system.OutputCaptureExtension;
 import org.junit.jupiter.api.Test;
 
+@ExtendWith(OutputCaptureExtension.class)
 class AdventureStoryPlanApplicationServiceTest {
     @Test
     void uncertain_semantic_verdict_keeps_plan_ready_and_records_warning() {
@@ -264,6 +268,148 @@ class AdventureStoryPlanApplicationServiceTest {
         assertEquals(rejected, repair.getValue().previousCandidate());
         assertEquals(List.of(violation, clearViolation), repair.getValue().violations());
         verify(plans).save(result);
+    }
+
+    @Test
+    void records_initial_and_scoped_repair_attempts_with_violation_and_scope(CapturedOutput output) {
+        var session = draftSession();
+        var sessions = mock(AdventureSessionRepository.class);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        var generator = mock(AdventureStoryPlanGenerationPort.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        when(plans.findBySessionId(session.id())).thenReturn(Optional.empty());
+        String rejected = shortCandidate("bad");
+        var violation = new AdventureStoryPlanProjectionViolation("UNKNOWN_CITATION", 1,
+                "stages[0].evidence[*].citationKey", "citation-999", "citation-999",
+                Repairability.REPAIRABLE, "citation key is not registered");
+        when(generator.generate(any())).thenThrow(new AdventureStoryPlanCandidateValidationException(
+                List.of(violation), rejected, true));
+        when(generator.repair(any())).thenReturn(new AdventureStoryPlanGenerationPort.ProjectionCandidate(
+                shortCandidate("good"), shortStages("good")));
+
+        var result = new AdventureStoryPlanApplicationService(plans, sessions, null, generator)
+                .generate(session.id(), session.ownerPlayerId(), new AdventurePlanConfiguration(2, AdventureLength.SHORT));
+
+        assertEquals(AdventureStoryPlanStatus.READY, result.status());
+        String logs = output.getOut();
+        assertTrue(logs.contains("story_plan_attempt") && logs.contains("attemptType=INITIAL_GENERATION"));
+        assertTrue(logs.contains("attemptType=REPAIR") && logs.contains("UNKNOWN_CITATION"));
+        assertTrue(logs.contains("stages[0].evidence[*].citationKey"));
+        verify(generator, times(1)).generate(any());
+        verify(generator, times(1)).repair(any());
+    }
+
+    @Test
+    void repairs_unsupported_combat_participant_without_full_regeneration(CapturedOutput output) {
+        var session = draftSession();
+        var sessions = mock(AdventureSessionRepository.class);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        var generator = mock(AdventureStoryPlanGenerationPort.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        when(plans.findBySessionId(session.id())).thenReturn(Optional.empty());
+        String rejected = shortCandidate("unsupported-goblin");
+        var violation = new AdventureStoryPlanProjectionViolation(
+                "COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED", 1,
+                "stages[0].combatSkeleton.participants[*].name", "goblin", "storybook-1",
+                Repairability.REPAIRABLE, "combat participant is not supported by its source");
+        when(generator.generate(any())).thenThrow(new AdventureStoryPlanCandidateValidationException(
+                List.of(violation), rejected, true));
+        when(generator.repair(any())).thenReturn(new AdventureStoryPlanGenerationPort.ProjectionCandidate(
+                shortCandidate("supported-goblin"), shortStages("supported-goblin")));
+
+        var result = new AdventureStoryPlanApplicationService(plans, sessions, null, generator)
+                .generate(session.id(), session.ownerPlayerId(), new AdventurePlanConfiguration(2, AdventureLength.SHORT));
+
+        assertEquals(AdventureStoryPlanStatus.READY, result.status());
+        var repair = org.mockito.ArgumentCaptor.forClass(AdventureStoryPlanGenerationPort.RepairRequest.class);
+        verify(generator, times(1)).generate(any());
+        verify(generator, times(1)).repair(repair.capture());
+        assertEquals(rejected, repair.getValue().previousCandidate());
+        assertEquals(List.of(violation), repair.getValue().violations());
+        assertTrue(repair.getValue().repairScope().allowedPaths().contains(
+                "stages[0].combatSkeleton.participants[*].name"));
+        String logs = output.getOut();
+        assertTrue(logs.contains("attemptType=REPAIR")
+                && logs.contains("COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED"));
+        assertEquals(0, logs.split("attemptType=FULL_REGENERATION", -1).length - 1);
+    }
+
+    @Test
+    void records_one_full_regeneration_and_blocks_without_repeating_it(CapturedOutput output) {
+        var session = draftSession();
+        var sessions = mock(AdventureSessionRepository.class);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        var generator = mock(AdventureStoryPlanGenerationPort.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        when(plans.findBySessionId(session.id())).thenReturn(Optional.empty());
+        String rejected = shortCandidate("bad");
+        var first = new AdventureStoryPlanProjectionViolation("STRUCTURAL_CONTRACT_VIOLATION", 1,
+                "stages[0]", "", "", Repairability.REGENERATE_REQUIRED, "candidate structure is invalid");
+        var second = new AdventureStoryPlanProjectionViolation("REQUIRED_FIELD_MISSING", 1,
+                "stages[0].title", "", "", Repairability.REGENERATE_REQUIRED, "required title is missing");
+        when(generator.generate(any())).thenThrow(
+                new AdventureStoryPlanCandidateValidationException(List.of(first), rejected, true),
+                new AdventureStoryPlanCandidateValidationException(List.of(second), rejected, true));
+
+        var result = new AdventureStoryPlanApplicationService(plans, sessions, null, generator)
+                .generate(session.id(), session.ownerPlayerId(), new AdventurePlanConfiguration(2, AdventureLength.SHORT));
+
+        assertEquals(AdventureStoryPlanStatus.BLOCKED, result.status());
+        verify(generator, times(2)).generate(any());
+        verify(generator, never()).repair(any());
+        String logs = output.getOut();
+        assertEquals(1, logs.split("attemptType=FULL_REGENERATION", -1).length - 1);
+        assertTrue(logs.contains("attemptType=INITIAL_GENERATION"));
+        assertTrue(logs.contains("STRUCTURAL_CONTRACT_VIOLATION"));
+        assertTrue(logs.contains("REGENERATION_BUDGET_EXHAUSTED"));
+    }
+
+    @Test
+    void counts_full_regeneration_even_when_provider_rejection_has_no_candidate() {
+        var session = draftSession();
+        var sessions = mock(AdventureSessionRepository.class);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        var generator = mock(AdventureStoryPlanGenerationPort.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        when(plans.findBySessionId(session.id())).thenReturn(Optional.empty());
+        var first = new AdventureStoryPlanProjectionViolation("CANDIDATE_VALIDATION_FAILED", 1,
+                "stages", "first", "", Repairability.REGENERATE_REQUIRED, "candidate validation failed first");
+        var second = new AdventureStoryPlanProjectionViolation("CANDIDATE_VALIDATION_FAILED", 1,
+                "stages", "second", "", Repairability.REGENERATE_REQUIRED, "candidate validation failed second");
+        when(generator.generate(any())).thenThrow(
+                new AdventureStoryPlanCandidateValidationException(List.of(first), null, true),
+                new AdventureStoryPlanCandidateValidationException(List.of(second), null, true));
+
+        var result = new AdventureStoryPlanApplicationService(plans, sessions, null, generator)
+                .generate(session.id(), session.ownerPlayerId(), new AdventurePlanConfiguration(2, AdventureLength.SHORT));
+
+        assertEquals(AdventureStoryPlanStatus.BLOCKED, result.status());
+        verify(generator, times(2)).generate(any());
+        verify(generator, never()).repair(any());
+    }
+
+    @Test
+    void does_not_repeat_full_generation_after_candidate_less_repairable_rejection() {
+        var session = draftSession();
+        var sessions = mock(AdventureSessionRepository.class);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        var generator = mock(AdventureStoryPlanGenerationPort.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        when(plans.findBySessionId(session.id())).thenReturn(Optional.empty());
+        var first = new AdventureStoryPlanProjectionViolation("CANDIDATE_VALIDATION_FAILED", 1,
+                "stages", "first", "", Repairability.REPAIRABLE, "candidate validation failed first");
+        var second = new AdventureStoryPlanProjectionViolation("CANDIDATE_VALIDATION_FAILED", 1,
+                "stages", "second", "", Repairability.REPAIRABLE, "candidate validation failed second");
+        when(generator.generate(any())).thenThrow(
+                new AdventureStoryPlanCandidateValidationException(List.of(first), null, true),
+                new AdventureStoryPlanCandidateValidationException(List.of(second), null, true));
+
+        var result = new AdventureStoryPlanApplicationService(plans, sessions, null, generator)
+                .generate(session.id(), session.ownerPlayerId(), new AdventurePlanConfiguration(2, AdventureLength.SHORT));
+
+        assertEquals(AdventureStoryPlanStatus.BLOCKED, result.status());
+        verify(generator, times(2)).generate(any());
+        verify(generator, never()).repair(any());
     }
 
     @Test

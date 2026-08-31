@@ -180,8 +180,14 @@ public final class AdventureStoryPlanApplicationService {
                     stages = readMergedStages(candidateForValidation);
                     repairNext = false;
                 } else {
-                    logAttempt(request, regenerationCount == 0 && totalAttempts == 1
-                            ? AttemptType.INITIAL_GENERATION : AttemptType.FULL_REGENERATION,
+                    boolean initialGeneration = totalAttempts == 1 && regenerationCount == 0;
+                    if (!initialGeneration && regenerationCount >= 1) {
+                        outlineViolations = activeViolations;
+                        stopReason = "REGENERATION_BUDGET_EXHAUSTED";
+                        break;
+                    }
+                    if (!initialGeneration) regenerationCount++;
+                    logAttempt(request, initialGeneration ? AttemptType.INITIAL_GENERATION : AttemptType.FULL_REGENERATION,
                             totalAttempts, null, accumulatedViolations, "STARTED");
                     AdventureStoryPlanGenerationPort.ProjectionCandidate generated = generator.generate(request);
                     if (generated == null) throw new AdventureStoryPlanCandidateValidationException(
@@ -257,7 +263,6 @@ public final class AdventureStoryPlanApplicationService {
                     stopReason = "REGENERATION_BUDGET_EXHAUSTED";
                     break;
                 }
-                regenerationCount++;
                 request = request.withViolations(outlineViolations.stream()
                         .map(AdventureStoryPlanProjectionViolation::sanitizedMessage).toList()).withPreviousCandidate("");
                 rejectedCandidate = "";
@@ -274,7 +279,6 @@ public final class AdventureStoryPlanApplicationService {
             if (outlineViolations.stream().allMatch(item -> item.repairability() == Repairability.REPAIRABLE)
                     && !rejectedCandidate.isBlank() && repairsOnCandidate >= 2
                     && regenerationCount < 1 && totalAttempts < 5) {
-                regenerationCount++;
                 request = request.withViolations(outlineViolations.stream()
                         .map(AdventureStoryPlanProjectionViolation::sanitizedMessage).toList()).withPreviousCandidate("");
                 rejectedCandidate = "";
