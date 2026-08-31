@@ -149,4 +149,27 @@ describe('AdventureStoryPlanPage configuration', () => {
     await new Promise(resolve => window.setTimeout(resolve, 1200))
     expect(api.readStoryPlanGeneration).toHaveBeenCalledTimes(reads)
   })
+
+  it('materializes a blocked terminal plan when the rejected plan is not readable', async () => {
+    const failureReason = 'endingIds must be empty; npcOrClues must be explicit; story plan scoped repair could not be safely merged'
+    const api = {
+      read: vi.fn().mockResolvedValue({ sessionId: 's', version: 1, status: 'DRAFT', party: [], runtimeConfiguration: null }),
+      readStoryPlan: vi.fn().mockRejectedValue(new Error('not found')),
+      startStoryPlanGeneration: vi.fn().mockResolvedValue({ jobId: 'job-1', sessionId: 's', status: 'QUEUED', progress: 0, stage: '대기 중', message: null, updatedAt: '' }),
+      readStoryPlanGeneration: vi.fn().mockResolvedValue({
+        jobId: 'job-1', sessionId: 's', status: 'FAILED', progress: 100,
+        stage: '계획 검증 실패', message: failureReason, updatedAt: '',
+      }),
+      retryStoryPlan: vi.fn(), start: vi.fn(), recoverStart: vi.fn(), saveAppliedRuleSet: vi.fn(),
+    }
+
+    render(<AdventureStoryPlanPage api={api} sessionId="s" />)
+    await userEvent.click(await screen.findByRole('button', { name: '모험 계획 생성' }))
+
+    expect(await screen.findByText('BLOCKED')).toBeTruthy()
+    expect(screen.getAllByRole('alert').map(alert => alert.textContent).join(' ')).toContain(failureReason)
+    const reads = api.readStoryPlanGeneration.mock.calls.length
+    await new Promise(resolve => window.setTimeout(resolve, 1_200))
+    expect(api.readStoryPlanGeneration).toHaveBeenCalledTimes(reads)
+  })
 })

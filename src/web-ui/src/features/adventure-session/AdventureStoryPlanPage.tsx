@@ -8,6 +8,9 @@ type AdventureLength = 'SHORT' | 'STANDARD' | 'LONG'
 
 const isTerminalStoryPlanStatus = (status: AdventureStoryPlanStatus) => status !== 'GENERATING'
 
+const isBlockedStoryPlanDiagnostic = (message: string | null | undefined) =>
+  /검증|grounding|citation|endingids|npcorclues|source evidence|blocked/i.test(message ?? '')
+
 export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; sessionId: string }) {
   const [session, setSession] = useState<AdventureSessionView | null>(null)
   const [plan, setPlan] = useState<AdventureStoryPlanView | null>(null)
@@ -29,7 +32,12 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
       return api.readStoryPlan(sessionId).catch(() => null)
     }).then(nextPlan => {
       if (!active || !nextPlan) return
-      setPlan(normalizeAdventureStoryPlan(nextPlan))
+      const normalizedPlan = normalizeAdventureStoryPlan(nextPlan)
+      // The initial read can complete after generation polling. Never let a
+      // stale GENERATING snapshot overwrite a terminal result already shown.
+      setPlan(current => current && isTerminalStoryPlanStatus(current.status) && !isTerminalStoryPlanStatus(normalizedPlan.status)
+        ? current
+        : normalizedPlan)
       setEndingCount(nextPlan.endingCount)
       setAdventureLength(nextPlan.adventureLength)
     }).catch(error => { if (active) setMessage(error instanceof Error ? error.message : '모험 계획을 불러오지 못했습니다.') })
@@ -86,7 +94,29 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
             if (effectivePlan.status === 'BLOCKED' || effectivePlan.status === 'FAILED') {
               setMessage(effectivePlan.failureReason || next.message || '모험 계획 생성에 실패했습니다.')
             }
-          } else if (next.status === 'FAILED') {
+          } else if (next.status === 'FAILED' || next.status === 'COMPLETE') {
+            // A blocked plan may not be readable from the player endpoint (for
+            // example, when the rejected candidate was never persisted). The
+            // terminal job is still authoritative: materialize a minimal plan
+            // so the page cannot fall back to the settings/GENERATING view.
+            const terminalStatus = next.status === 'COMPLETE'
+              ? 'READY' as const
+              : isBlockedStoryPlanDiagnostic(next.message) ? 'BLOCKED' as const : 'FAILED' as const
+            setPlan(current => current && isTerminalStoryPlanStatus(current.status)
+              ? current
+              : {
+                  ...(current ?? {
+                    status: terminalStatus,
+                    currentStage: 0,
+                    planRevision: 0,
+                    endingCount,
+                    adventureLength,
+                    stages: [],
+                    failureReason: null,
+                  }),
+                  status: terminalStatus,
+                  failureReason: current?.failureReason || next.message,
+                })
             setMessage(next.message || '모험 계획 생성에 실패했습니다.')
           }
         }
@@ -96,7 +126,7 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
     }
     const timer = window.setTimeout(() => void poll(), 1000)
     return () => { active = false; window.clearTimeout(timer) }
-  }, [api, generation, sessionId])
+  }, [adventureLength, api, endingCount, generation, sessionId])
 
   async function start() {
     if (!session || !plan || plan.status !== 'READY') return
