@@ -18,7 +18,7 @@ class CodexAppServerClientTest {
         assertThat(CodexAppServerClient.stage("scenario-compilation:abc:resolution-candidate-repair"))
                 .isEqualTo("resolution-candidate-repair");
         assertThat(CodexAppServerClient.stage("story-plan-123"))
-                .isEqualTo("story-plan-markdown");
+                .isEqualTo("story-plan-generation");
     }
 
     @Test
@@ -47,7 +47,7 @@ class CodexAppServerClientTest {
                     .satisfies(error -> {
                         var timeout = (CodexTurnTimeoutException) error;
                         assertThat(timeout.operationId()).isEqualTo("timeout");
-                        assertThat(timeout.phase()).isEqualTo("story-plan-markdown");
+                        assertThat(timeout.phase()).isEqualTo("story-plan-generation");
                         assertThat(timeout.timeoutMillis()).isEqualTo(150L);
                         assertThat(timeout.lastEvent()).isEqualTo("request");
                     });

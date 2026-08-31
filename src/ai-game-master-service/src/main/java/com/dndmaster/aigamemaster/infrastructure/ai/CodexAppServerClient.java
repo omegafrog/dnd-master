@@ -190,7 +190,7 @@ public final class CodexAppServerClient implements AutoCloseable {
         if (operationId.endsWith("-verification")) return "story-plan-verification";
         if (operationId.endsWith("-execution-projection")) return "story-plan-projection";
         if (operationId.endsWith("-projection-repair")) return "story-plan-projection-repair";
-        return "story-plan-markdown";
+        return "story-plan-generation";
     }
 
     private static String safe(String value) { return AiCallObservability.safe(value); }

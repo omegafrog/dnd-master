@@ -161,8 +161,16 @@ public final class ScenarioCompilationWorker {
                     bundle, candidates == null ? List.of() : candidates,
                     excerpts == null ? List.of() : excerpts,
                     characterCandidates == null ? List.of() : characterCandidates);
-            candidateRepository.saveAll(claimed.id(), CompilationCandidateFactory.from(
-                    claimed.id(), extractedCandidates, rawResolutionUnits, scenarioPackage.units()));
+            List<com.dndmaster.adventure.domain.scenario.CompilationCandidate> diagnostics =
+                    CompilationCandidateFactory.from(claimed.id(), extractedCandidates, rawResolutionUnits, scenarioPackage.units());
+            candidateRepository.saveAll(claimed.id(), diagnostics);
+            log.info("scenario compilation candidate diagnostics compilationId={} bundleId={} extractedCandidates={} "
+                            + "validatedCandidates={} candidateStatuses={} validationCodes={} outcome={} reportStatus={}",
+                    claimed.id(), bundle.id().value(), extractedCandidates.size(), diagnostics.size(),
+                    diagnostics.stream().map(candidate -> candidate.candidateKey() + ":" + candidate.completeness()).toList(),
+                    diagnostics.stream().flatMap(candidate -> candidate.validations().stream())
+                            .map(validation -> validation.code()).distinct().sorted().toList(),
+                    scenarioPackage.report().outcome(), scenarioPackage.report().status());
 
             if (scenarioPackage.report().outcome()
                     == com.dndmaster.adventure.domain.scenario.CompilationOutcome.FAILED) {
@@ -177,7 +185,11 @@ public final class ScenarioCompilationWorker {
         } catch (RuntimeException exception) {
             String reason = exception.getMessage() == null || exception.getMessage().isBlank()
                     ? "scenario compilation failed" : exception.getMessage();
-            if (exception instanceof ScenarioCompilationRejectedException || claimed.attempt() >= MAX_ATTEMPTS) {
+            if (isCodexTurnTimeout(exception)) {
+                log.error("scenario compilation provider timeout compilationId={} failureType={} reason={}",
+                        claimed.id(), exception.getClass().getName(), reason, exception);
+                processManager.fail(claimed, delivery, reason);
+            } else if (exception instanceof ScenarioCompilationRejectedException || claimed.attempt() >= MAX_ATTEMPTS) {
                 processManager.fail(claimed, delivery, reason);
             } else {
                 processManager.retry(claimed, delivery, reason);
@@ -186,6 +198,15 @@ public final class ScenarioCompilationWorker {
                     claimed.id(), claimed.attempt(), reason, exception);
             throw exception;
         }
+    }
+
+    private static boolean isCodexTurnTimeout(Throwable failure) {
+        Throwable current = failure;
+        while (current != null) {
+            if ("CodexTurnTimeoutException".equals(current.getClass().getSimpleName())) return true;
+            current = current.getCause();
+        }
+        return false;
     }
 
     private List<ResolutionCandidate> repairInvalidCandidates(
@@ -219,6 +240,7 @@ public final class ScenarioCompilationWorker {
         return switch (messages.getFirst()) {
             case "dice expression is invalid" -> "DICE_EXPRESSION_INVALID";
             case "recharge range is invalid" -> "RECHARGE_RANGE_INVALID";
+            case "DC is missing" -> "DC_MISSING";
             case "source excerpt is unavailable" -> "SOURCE_EXCERPT_UNAVAILABLE";
             case "source quote cannot be verified against referenced excerpt" -> "SOURCE_QUOTE_UNVERIFIED";
             default -> "NON_REPAIRABLE";

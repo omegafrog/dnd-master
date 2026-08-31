@@ -5,7 +5,7 @@ ai-game-master:
 ai:
   codex:
     # Maximum time to wait for a local Codex CLI process authenticated via OAuth.
-    timeout: ${CODEX_OAUTH_TIMEOUT:PT5M}
+    timeout: ${CODEX_OAUTH_TIMEOUT:PT3M}
     executable: ${CODEX_EXECUTABLE:codex}
     work-directory: ${CODEX_WORK_DIRECTORY:/tmp}
   gm:

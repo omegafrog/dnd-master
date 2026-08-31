@@ -345,7 +345,7 @@ public class AdventureApiConfiguration {
     @Bean
     StoryPlanSemanticConsistencyJudge storyPlanSemanticConsistencyJudge(ObjectMapper mapper,
             @Value("${adventure.integration.ai-adventure.base-url:${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}}") String baseUrl,
-            @Value("${adventure.integration.ai-adventure.story-plan-timeout:${adventure.integration.ai-game-master.story-plan-timeout:1800s}}") Duration timeout,
+            @Value("${adventure.integration.ai-adventure.story-plan-timeout:${adventure.integration.ai-game-master.story-plan-timeout:450s}}") Duration timeout,
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         var provider = new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpStoryPlanSemanticJudgeGateway(
                 HttpClient.newHttpClient(), URI.create(baseUrl), timeout, mapper, internalToken);
@@ -357,15 +357,16 @@ public class AdventureApiConfiguration {
     @Bean
     AdventureStoryPlanGenerationPort adventureStoryPlanGenerationPort(ObjectMapper mapper,
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.ai-game-master.story-plan-timeout:1800s}") Duration timeout,
+            @Value("${adventure.integration.ai-game-master.story-plan-timeout:450s}") Duration timeout,
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(), URI.create(baseUrl), timeout, mapper, internalToken);
     }
 
     @Bean(destroyMethod = "close")
     AdventureStoryPlanGenerationJobService adventureStoryPlanGenerationJobService(
-            AdventureStoryPlanApplicationService plans, AdventureSessionRepository sessions) {
-        return new AdventureStoryPlanGenerationJobService(plans, sessions);
+            AdventureStoryPlanApplicationService plans, AdventureSessionRepository sessions,
+            @Value("${adventure.integration.ai-game-master.story-plan-job-timeout:450s}") Duration timeout) {
+        return new AdventureStoryPlanGenerationJobService(plans, sessions, timeout);
     }
 
     @Bean

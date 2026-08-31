@@ -278,9 +278,13 @@ public final class AdventureStoryPlanController {
         }
     }
 
-    public record GenerationJobView(UUID jobId, UUID sessionId, String status, int progress, String stage, String message, java.time.Instant updatedAt) {
+    public record GenerationJobView(UUID jobId, UUID sessionId, String status, int progress, String stage, String message,
+                                    java.time.Instant updatedAt, String phase) {
+        public GenerationJobView(UUID jobId, UUID sessionId, String status, int progress, String stage, String message, java.time.Instant updatedAt) {
+            this(jobId, sessionId, status, progress, stage, message, updatedAt, "VALIDATING");
+        }
         static GenerationJobView from(AdventureStoryPlanGenerationJobService.JobView job) {
-            return new GenerationJobView(job.jobId(), job.sessionId(), job.status().name(), job.progress(), job.stage(), job.message(), job.updatedAt());
+            return new GenerationJobView(job.jobId(), job.sessionId(), job.status().name(), job.progress(), job.stage(), job.message(), job.updatedAt(), job.phase().name());
         }
     }
 
