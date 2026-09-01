@@ -12,6 +12,7 @@ import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintPublica
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDeletionConflictException;
 import com.dndmaster.adventure.infrastructure.persistence.RuntimeTurnCompatibilityException;
 import com.dndmaster.adventure.infrastructure.persistence.RuntimeTurnPersistenceException;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -45,6 +46,13 @@ public final class ScenarioExceptionHandler {
     @ExceptionHandler(ScenarioBundleValidationException.class)
     public ResponseEntity<Void> validation(ScenarioBundleValidationException exception) {
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+    }
+
+    @ExceptionHandler(AdventureStoryPlanNotFoundException.class)
+    public ResponseEntity<Map<String, String>> storyPlanNotFound(AdventureStoryPlanNotFoundException exception) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(Map.of(
+                "error", "STORY_PLAN_NOT_FOUND",
+                "message", exception.getMessage()));
     }
 
     @ExceptionHandler(StorybookProposalEvidenceRequiredException.class)

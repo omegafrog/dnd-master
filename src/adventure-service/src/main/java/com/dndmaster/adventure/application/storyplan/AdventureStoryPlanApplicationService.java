@@ -79,7 +79,7 @@ public final class AdventureStoryPlanApplicationService {
 
     public AdventureStoryPlan read(SessionId sessionId, OwnerPlayerId owner) {
         requireSession(sessionId, owner);
-        return plans.findBySessionId(sessionId).orElseThrow(() -> new IllegalStateException("adventure story plan not found"));
+        return plans.findBySessionId(sessionId).orElseThrow(() -> new AdventureStoryPlanNotFoundException(sessionId));
     }
     public List<AdventureStoryPlan> readHistory(SessionId sessionId, OwnerPlayerId owner) {
         requireSession(sessionId, owner); return plans.readHistory(sessionId);

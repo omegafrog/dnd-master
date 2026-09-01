@@ -37,6 +37,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @RestController
 @RequestMapping
 public class AdventureController {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(AdventureController.class);
     private static final String LEGACY_SCENARIO_UPLOAD_SUNSET = "Fri, 31 Dec 2027 00:00:00 GMT";
     private final SavedAdventureApplicationService savedAdventureService;
     private final RuntimeTurnApplicationService runtimeTurnService;
@@ -182,7 +183,9 @@ public class AdventureController {
                     input.actionText(), expectedVersion,
                     null, -1, !(input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput), false, false));
         } catch (RuntimeException exception) {
-            gmTurnFailureRecorder.record(turn, adventureId, adventure.sessionId().value(), exception.getMessage(), expectedVersion);
+            LOGGER.error("gm_turn_request_failed stage=GM_TURN_CONTROLLER turnId={} commandId={} adventureId={} exceptionClass={} exceptionMessage={}",
+                    request.turnId(), commandId, adventureId, exception.getClass().getName(), exception.getMessage(), exception);
+            gmTurnFailureRecorder.record(turn, adventureId, adventure.sessionId().value(), exception, expectedVersion);
             if (exception instanceof RuntimeCombatRejectionException
                     || exception instanceof ApiRequestGuard.ApiContractException) {
                 throw exception;

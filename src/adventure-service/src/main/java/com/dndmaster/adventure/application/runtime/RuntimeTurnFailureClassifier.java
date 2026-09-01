@@ -7,15 +7,23 @@ import java.util.UUID;
 public final class RuntimeTurnFailureClassifier {
     public RuntimeTurnFailureArtifact classify(UUID turnId, RuntimeTurnFailureStage stage,
             Throwable failure, UUID correlationId, int attempt) {
-        String message = failure == null || failure.getMessage() == null
-                ? "" : failure.getMessage().toLowerCase(Locale.ROOT);
-        RuntimeTurnFailureCode code = code(message, stage);
+        Throwable root = rootCause(failure);
+        String message = root == null || root.getMessage() == null
+                ? "" : root.getMessage().toLowerCase(Locale.ROOT);
+        RuntimeTurnFailureCode code = root instanceof ToolAuthorizationException
+                ? RuntimeTurnFailureCode.TOOL_CAPABILITY_DENIED : code(message, stage);
         boolean retryable = code == RuntimeTurnFailureCode.PROVIDER_TIMEOUT
                 || code == RuntimeTurnFailureCode.PROVIDER_UNAVAILABLE;
-        String rootCause = failure == null ? "unknown" : failure.getClass().getName();
+        String rootCause = root == null ? "unknown" : root.getClass().getName();
         return new RuntimeTurnFailureArtifact(UUID.randomUUID(), turnId, code, stage, retryable,
                 rootCause, correlationId == null ? UUID.randomUUID() : correlationId,
                 Math.max(1, attempt), Instant.now());
+    }
+
+    private static Throwable rootCause(Throwable failure) {
+        Throwable root = failure;
+        while (root != null && root.getCause() != null) root = root.getCause();
+        return root;
     }
 
     public boolean allowsAutomaticRetry(RuntimeTurnFailureArtifact failure) {

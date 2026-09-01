@@ -1,7 +1,12 @@
 package com.dndmaster.adventure.application.runtime;
 
+import java.util.List;
+
 public interface GmAgentPort {
     GmPlanResult plan(GmContextEnvelope context);
     default GmPlanResult plan(GmContextEnvelope context, TurnCapability capability) { return plan(context); }
+    default GmPlanResult plan(GmContextEnvelope context, TurnCapability capability, List<GmToolSpec> tools) {
+        return plan(context, capability);
+    }
     default GmToolCall repair(GmContextEnvelope context, GmToolCall failedCall) { return null; }
 }

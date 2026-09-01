@@ -41,6 +41,18 @@ dnd-master/docs/specs/**
 skills-lock.json
 docs/plans/plans.md
 
+# Harness tracked specifications and configuration
+!docs/specs/
+!docs/specs/**
+!docs/plans/
+!docs/plans/*.md
+!/.codex/
+!/.codex/harness.yaml
+!/.codex/agents/
+!/.codex/agents/**
+!/.codex/skills/
+!/.codex/skills/**
+
 # Generated Graphify knowledge graph
 /graphify-out/
 /.playwright-cli/

@@ -11,6 +11,27 @@ const isTerminalStoryPlanStatus = (status: AdventureStoryPlanStatus) => status !
 const isBlockedStoryPlanDiagnostic = (message: string | null | undefined) =>
   /검증|grounding|citation|endingids|npcorclues|source evidence|blocked/i.test(message ?? '')
 
+const isPendingStoryPlanRead = (error: unknown) =>
+  /story plan not found|STORY_PLAN_NOT_FOUND|adventure story plan not found/i.test(error instanceof Error ? error.message : String(error))
+
+async function readStoryPlanAfterGeneration(
+  api: Pick<StoryPlanApi, 'readStoryPlan'>,
+  sessionId: string,
+  active: () => boolean,
+) {
+  // A refresh can race the asynchronous generation job and lose the job id.
+  // Retry only the explicit not-found response; other failures remain visible.
+  for (let attempt = 0; ; attempt += 1) {
+    try { return await api.readStoryPlan(sessionId) }
+    catch (error) {
+      if (!isPendingStoryPlanRead(error) || attempt >= 120 || !active()) throw error
+      await new Promise(resolve => window.setTimeout(resolve, 1_000))
+    }
+  }
+}
+
+const generationMarker = (sessionId: string) => `adventure-story-plan-generation:${sessionId}`
+
 export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; sessionId: string }) {
   const [session, setSession] = useState<AdventureSessionView | null>(null)
   const [plan, setPlan] = useState<AdventureStoryPlanView | null>(null)
@@ -29,7 +50,11 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
       if (!active) return
       setSession(next)
       setAdventureId(next.adventureId ?? crypto.randomUUID())
-      return api.readStoryPlan(sessionId).catch(() => null)
+      const pendingGeneration = window.sessionStorage.getItem(generationMarker(sessionId)) === 'pending'
+      return (pendingGeneration ? readStoryPlanAfterGeneration(api, sessionId, () => active) : api.readStoryPlan(sessionId)).catch(error => {
+        if (isPendingStoryPlanRead(error)) return null
+        throw error
+      })
     }).then(nextPlan => {
       if (!active || !nextPlan) return
       const normalizedPlan = normalizeAdventureStoryPlan(nextPlan)
@@ -63,14 +88,20 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
   async function retry() {
     setMessage('')
     setLoadingPlan(true)
-    try { setGeneration(normalizeAdventureStoryPlanGenerationJob(await api.retryStoryPlan(sessionId, { endingCount, adventureLength }))) } catch (error) { setMessage(error instanceof Error ? error.message : '모험 계획을 다시 생성하지 못했습니다.') }
+    try {
+      window.sessionStorage.setItem(generationMarker(sessionId), 'pending')
+      setGeneration(normalizeAdventureStoryPlanGenerationJob(await api.retryStoryPlan(sessionId, { endingCount, adventureLength })))
+    } catch (error) { window.sessionStorage.removeItem(generationMarker(sessionId)); setMessage(error instanceof Error ? error.message : '모험 계획을 다시 생성하지 못했습니다.') }
     finally { setLoadingPlan(false) }
   }
 
   async function generate() {
     setMessage('')
     setLoadingPlan(true)
-    try { setGeneration(normalizeAdventureStoryPlanGenerationJob(await api.startStoryPlanGeneration(sessionId, { endingCount, adventureLength }))) } catch (error) { setMessage(error instanceof Error ? error.message : '모험 계획을 생성하지 못했습니다.') }
+    try {
+      window.sessionStorage.setItem(generationMarker(sessionId), 'pending')
+      setGeneration(normalizeAdventureStoryPlanGenerationJob(await api.startStoryPlanGeneration(sessionId, { endingCount, adventureLength })))
+    } catch (error) { window.sessionStorage.removeItem(generationMarker(sessionId)); setMessage(error instanceof Error ? error.message : '모험 계획을 생성하지 못했습니다.') }
     finally { setLoadingPlan(false) }
   }
 
@@ -83,6 +114,7 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
         if (!active) return
         setGeneration(next)
         if (next.status === 'COMPLETE' || next.status === 'FAILED') {
+          window.sessionStorage.removeItem(generationMarker(sessionId))
           const terminalPlan = await api.readStoryPlan(sessionId).catch(() => null)
           if (!active) return
           if (terminalPlan) {

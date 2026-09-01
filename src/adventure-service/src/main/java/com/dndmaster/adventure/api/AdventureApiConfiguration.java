@@ -943,14 +943,14 @@ public class AdventureApiConfiguration {
     @Bean
     NarrationSafetyPort narrationSafetyPort() {
         return request -> {
-            boolean approved = request.narration() != null
-                    && !request.narration().isBlank()
-                    && !request.narration().contains("\"")
-                    && !request.narration().contains("“")
-                    && !request.narration().contains("”")
-                    && !com.dndmaster.adventure.application.runtime.NarrationLeakDetector
-                            .isLikelySourceLeak(request.narration(), request.evidencePack());
-            return new NarrationSafetyAssessment(approved, approved ? "approved" : "narration failed safety check");
+            String narration = request.narration();
+            String reason = "approved";
+            if (narration == null || narration.isBlank()) reason = "blank narration";
+            else if (narration.contains("\"") || narration.contains("“") || narration.contains("”")) reason = "quotation mark detected";
+            else if (com.dndmaster.adventure.application.runtime.NarrationLeakDetector
+                    .isLikelySourceLeak(narration, request.evidencePack())) reason = "source leak or prohibited reference detected";
+            boolean approved = "approved".equals(reason);
+            return new NarrationSafetyAssessment(approved, reason);
         };
     }
 

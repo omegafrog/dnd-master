@@ -1,0 +1,9 @@
+agents:
+  default_model: "gpt-5.6-luna"
+tracker:
+  mode: github
+  github:
+    repository: omegafrog/dnd-master
+    project_owner: omegafrog
+    project_number: 5
+    status_field: Workflow Status

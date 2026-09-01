@@ -81,13 +81,13 @@ export function AppShell() {
   const getToken = () => token
   const getPlayerId = () => playerId
   const adventureApi = useMemo(() => new HttpAdventureApi(getToken, getPlayerId), [token, playerId])
-  const [adventureVersion, setAdventureVersion] = useState(0)
+  const [adventureVersion, setAdventureVersion] = useState<number | null>(null)
   useEffect(() => {
     if (!auth.session || route.page !== 'adventure') return
     let active = true
     void adventureApi.readConversation(route.adventureId).then(response => {
       if (active) setAdventureVersion(response.version)
-    }).catch(() => undefined)
+    }).catch(() => { if (active) setAdventureVersion(null) })
     return () => { active = false }
   }, [auth.session, adventureApi, route])
 

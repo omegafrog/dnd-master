@@ -22,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.Supplier;
 import com.dndmaster.adventure.domain.runtime.narrative.NarrativeContext;
 import com.dndmaster.adventure.domain.runtime.narrative.NarrativeState;
 import com.dndmaster.adventure.domain.runtime.narrative.RecentEvent;
@@ -32,6 +33,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 // 근거 수집 -> 계획 -> 안전 검사 -> 세션 저장 순서로 런타임 턴을 처리한다.
 public class RuntimeTurnApplicationService {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(RuntimeTurnApplicationService.class);
     private static final RuntimeTurnFailureClassifier FAILURE_CLASSIFIER = new RuntimeTurnFailureClassifier();
     private final AdventureRepository adventureRepository;
     private final RuntimeBindingRepository bindingRepository;
@@ -305,7 +307,7 @@ public class RuntimeTurnApplicationService {
                 : narrativeStateService.load(adventure.sessionId().value());
         NarrativeContext narrativeContext = narrativeState.project(command.ownerPlayerId().value().toString(),
                 adventure.currentContext().currentScene());
-        RuntimePlan plan = planningPort.plan(new RuntimePlanningRequest(
+        RuntimePlanningRequest planningRequest = new RuntimePlanningRequest(
                 command.adventureId(), command.ownerPlayerId(), adventure.sessionId().value(), command.turnId(), binding.scenarioPackageId(), binding.bindingVersion(),
                 adventure.currentContext(), binding.activeSourceContext(), command.action(), evidencePack,
                 adventure.conversation().stream().map(entry -> entry.speaker() + ": " + entry.content()).toList(),
@@ -313,10 +315,24 @@ public class RuntimeTurnApplicationService {
                 storyPlanContext(adventure), providerEndpointId(adventure.sessionId().value()),
                 providerSelection(adventure.sessionId().value(), "provider"),
                 providerSelection(adventure.sessionId().value(), "model"),
-                providerSelection(adventure.sessionId().value(), "reasoning"), narrativeContext));
+                providerSelection(adventure.sessionId().value(), "reasoning"), narrativeContext, adventure.ruleSetId().value());
+        RuntimePlan plan;
+        stageEnter(command.turnId(), "PLANNING");
+        long planningStarted = System.nanoTime();
+        try {
+            plan = planningPort.plan(planningRequest);
+            stageExit(command.turnId(), "PLANNING", planningStarted);
+        } catch (RuntimeException failure) {
+            stageExitFailure(command.turnId(), "PLANNING", planningStarted, failure);
+            LOGGER.error("runtime_turn_failed stage=RUNTIME_PLANNING turnId={} adventureId={} exceptionClass={} exceptionMessage={}",
+                    command.turnId(), command.adventureId().value(), failure.getClass().getSimpleName(), safeMessage(failure), failure);
+            throw failure;
+        }
         plan = preservePendingSkillAdjudication(plan, command.action(), scenarioPackage, evidencePack);
         ResolvedTurnPlan resolvedPlan = ResolvedTurnPlan.of(TurnPlan.from(plan), List.of(plan.judgment()));
         resolvedPlan = captureApprovedPromptLineage(resolvedPlan);
+        final RuntimePlan planned = plan;
+        final ResolvedTurnPlan resolvedForStage = resolvedPlan;
         RuntimeTurn resolvedTurn = new RuntimeTurn(command.turnId(), command.commandId(), adventure.id(), adventure.sessionId().value(),
                 binding.scenarioPackageId(), binding.bindingVersion(), command.action(), evidencePack, plan,
                 binding.activeSourceContext(), adventure.currentContext(), adventure.conversation(), adventure.version(),
@@ -335,21 +351,30 @@ public class RuntimeTurnApplicationService {
                 throw failure;
             }
         }
-        List<ExemplarResult> exemplars = retrieveExemplars(plan, command.action());
-        WriterProse prose = writePresentationWithRetry(resolvedTurn, resolvedPlan, narrativeState,
-                narrativeContext, evidencePack, exemplars);
+        List<ExemplarResult> exemplars = stage(command.turnId(), "EXEMPLAR_RETRIEVAL",
+                () -> retrieveExemplars(planned, command.action()));
+        WriterProse prose = stage(command.turnId(), "PRESENTATION_WRITE",
+                () -> writePresentationWithRetry(resolvedTurn, resolvedForStage, narrativeState,
+                        narrativeContext, evidencePack, exemplars));
         try {
+            stageEnter(command.turnId(), "NARRATION_SAFETY");
+            long safetyStarted = System.nanoTime();
             NarrationSafetyAssessment safety = narrationSafetyPort.assess(new NarrationSafetyRequest(
                     prose.prose(), evidencePack, adventure.currentContext(), command.action()));
             if (!safety.approved()) {
                 throw new IllegalStateException("narration safety rejected: " + safety.reason());
             }
+            stageExit(command.turnId(), "NARRATION_SAFETY", safetyStarted);
         } catch (RuntimeException failure) {
+            stageExitFailure(command.turnId(), "NARRATION_SAFETY", 0, failure);
             failurePersistence.persist(resolvedTurn, FAILURE_CLASSIFIER.classify(resolvedTurn.turnId(),
                     RuntimeTurnFailureStage.SAFETY, failure, resolvedTurn.commandId(), 1));
             throw failure;
         }
-        advanceStoryPlanIfRequested(command.ownerPlayerId(), adventure.sessionId(), plan);
+        stage(command.turnId(), "STORY_PLAN_ADVANCE", () -> {
+            advanceStoryPlanIfRequested(command.ownerPlayerId(), adventure.sessionId(), planned);
+            return null;
+        });
 
         ActiveSourceContext activeSourceContext = plan.proposedActiveSourceContext() != null
                 ? plan.proposedActiveSourceContext()
@@ -395,7 +420,7 @@ public class RuntimeTurnApplicationService {
         adventureRepository.save(progressed);
 
         RuntimeTurn committed = turn.markCommitted();
-        runtimeTurnRepository.save(committed);
+        stage(command.turnId(), "COMMIT", () -> { runtimeTurnRepository.save(committed); return null; });
         if (narrativeStateService != null) {
             narrativeStateService.commit(adventure.sessionId().value(), deltaFor(narrativeState, command, plan));
         }
@@ -409,6 +434,34 @@ public class RuntimeTurnApplicationService {
             }
         }
         return new RuntimeTurnResult(committed, progressed.currentContext(), progressed.conversation(), progressed.version());
+    }
+
+    private <T> T stage(UUID turnId, String stage, Supplier<T> operation) {
+        stageEnter(turnId, stage);
+        long started = System.nanoTime();
+        try {
+            T result = operation.get();
+            stageExit(turnId, stage, started);
+            return result;
+        } catch (RuntimeException failure) {
+            stageExitFailure(turnId, stage, started, failure);
+            throw failure;
+        }
+    }
+
+    private void stageEnter(UUID turnId, String stage) {
+        LOGGER.info("runtime_turn_stage_enter turnId={} stage={}", turnId, stage);
+    }
+
+    private void stageExit(UUID turnId, String stage, long started) {
+        LOGGER.info("runtime_turn_stage_exit turnId={} stage={} elapsedMs={}", turnId, stage,
+                started == 0 ? 0 : (System.nanoTime() - started) / 1_000_000);
+    }
+
+    private void stageExitFailure(UUID turnId, String stage, long started, RuntimeException failure) {
+        LOGGER.error("runtime_turn_stage_exit turnId={} stage={} outcome=FAILED elapsedMs={} exceptionClass={} exceptionMessage={}",
+                turnId, stage, started == 0 ? 0 : (System.nanoTime() - started) / 1_000_000,
+                failure.getClass().getSimpleName(), safeMessage(failure), failure);
     }
 
     private List<ExemplarResult> retrieveExemplars(RuntimePlan plan, String action) {
@@ -825,5 +878,10 @@ public class RuntimeTurnApplicationService {
                     unit.sourceQuote()));
         }
         return evidence;
+    }
+
+    private static String safeMessage(Throwable failure) {
+        String message = failure.getMessage();
+        return message == null ? "" : message.replaceAll("[\\r\\n]", " ");
     }
 }

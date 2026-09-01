@@ -26,6 +26,27 @@ describe('AdventureStoryPlanPage configuration', () => {
     expect(api.readStoryPlanGeneration).not.toHaveBeenCalled()
   })
 
+  it('retries a not-found plan after refresh while generation is marked pending', async () => {
+    const marker = 'adventure-story-plan-generation:s'
+    window.sessionStorage.setItem(marker, 'pending')
+    const api = {
+      read: vi.fn().mockResolvedValue({ sessionId: 's', version: 1, status: 'DRAFT', party: [], runtimeConfiguration: null }),
+      readStoryPlan: vi.fn()
+        .mockRejectedValueOnce(new Error('{"error":"STORY_PLAN_NOT_FOUND"}'))
+        .mockResolvedValueOnce({ status: 'READY', currentStage: 0, planRevision: 1, endingCount: 2, adventureLength: 'STANDARD', stages: [], failureReason: null }),
+      startStoryPlanGeneration: vi.fn(), readStoryPlanGeneration: vi.fn(), retryStoryPlan: vi.fn(),
+      start: vi.fn(), recoverStart: vi.fn(), saveAppliedRuleSet: vi.fn(),
+    }
+
+    try {
+      render(<AdventureStoryPlanPage api={api} sessionId="s" />)
+      expect(await screen.findByText('100%', {}, { timeout: 2_500 })).toBeTruthy()
+      expect(api.readStoryPlan).toHaveBeenCalledTimes(2)
+    } finally {
+      window.sessionStorage.removeItem(marker)
+    }
+  })
+
   it('asks for adventure settings before generating and forwards them', async () => {
     const api = {
       read: vi.fn().mockResolvedValue({ sessionId: 's', version: 1, party: [{ characterSheetId: 'c' }], runtimeConfiguration: null }),

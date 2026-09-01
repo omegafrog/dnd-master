@@ -32,6 +32,11 @@ public interface GmCompletionAdapter {
                     repairPrompt.apply(new GmRepairContext(raw.get(), invalid.violations())), capturingParser, requested), 2);
         }
     }
+    default <T> GmCandidateLifecycleResult<T> completeWithOneRepair(
+            String operationId, String prompt, java.util.function.Function<GmRepairContext, String> repairPrompt,
+            StructuredResponseContract<T> contract, RequestedGmProviderSelection requested) {
+        return completeWithOneRepair(operationId, prompt, repairPrompt, contract.parser(), requested);
+    }
 
     default <T> T complete(String operationId, String prompt, StructuredResponseParser<T> parser,
                             GmProviderRequest provider) {

@@ -4,16 +4,16 @@ import type { AdventureApi } from './AdventureApi'
 type ChatMessageEntry = { speaker: string; text: string }
 type LocalTurn = { action: ChatMessageEntry; response: ChatMessageEntry[]; expectedVersion: number; committedVersion?: number }
 
-export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expectedVersion = 0, onTurnCommitted }: { adventureId: string; api: AdventureApi; controlMode?: 'DIRECT' | 'AGENT'; expectedVersion?: number; onTurnCommitted?: () => void }) {
+export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expectedVersion, onTurnCommitted }: { adventureId: string; api: AdventureApi; controlMode?: 'DIRECT' | 'AGENT'; expectedVersion?: number | null; onTurnCommitted?: () => void }) {
   const [messages, setMessages] = useState<ChatMessageEntry[]>([])
   const [notice, setNotice] = useState('')
   const [sending, setSending] = useState(false)
-  const [agentVersion, setAgentVersion] = useState(expectedVersion)
+  const [agentVersion, setAgentVersion] = useState(expectedVersion ?? 0)
   const [activeControlMode, setActiveControlMode] = useState(controlMode)
   const [projectionStatus, setProjectionStatus] = useState<'idle' | 'processing' | 'failed'>('idle')
   const [conversationHydrated, setConversationHydrated] = useState(() => !api.readConversation)
   const hydrationPending = Boolean(api.readConversation) && !conversationHydrated
-  const projectionVersion = useRef(expectedVersion)
+  const projectionVersion = useRef<number | null>(expectedVersion ?? (api.readConversation ? null : 0))
   const committedVersion = useRef(-1)
   const localTurn = useRef<LocalTurn | null>(null)
   useEffect(() => {
@@ -23,9 +23,10 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
     }
     setConversationHydrated(false)
     let cancelled = false
+    const knownVersion = projectionVersion.current ?? 0
     void api.readConversation(adventureId).then(response => {
       if (cancelled) return
-      projectionVersion.current = Math.max(projectionVersion.current, response.version)
+      projectionVersion.current = Math.max(knownVersion, response.version)
       setMessages(current => reconcileHydratedMessages(
         response.entries.map(entry => ({ speaker: speakerLabel(entry.speaker), text: entry.content })),
         response.version,
@@ -35,7 +36,7 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
       setConversationHydrated(true)
     }).catch(() => {
       if (cancelled) return
-      setConversationHydrated(true)
+      setConversationHydrated(false)
       setNotice('대화 기록을 불러오지 못했습니다.')
     })
     return () => { cancelled = true }
@@ -48,9 +49,11 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
 
   useEffect(() => {
     if (!api.subscribeEvents) return
-    return api.subscribeEvents(adventureId, projectionVersion.current, event => {
+    if (projectionVersion.current == null) return
+    const subscribedVersion = projectionVersion.current
+    return api.subscribeEvents(adventureId, subscribedVersion, event => {
       if (event.type !== 'GM_TURN_FAILED') {
-        projectionVersion.current = Math.max(projectionVersion.current, event.version)
+        projectionVersion.current = Math.max(projectionVersion.current ?? 0, event.version)
       }
       if (event.type === 'GM_TURN_FAILED' && event.version <= committedVersion.current) return
       if (event.type === 'GM_TURN_COMMITTED') committedVersion.current = Math.max(committedVersion.current, event.version)
@@ -59,7 +62,7 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
       setNotice(event.type === 'GM_TURN_FAILED' ? '턴 처리가 실패했습니다.' : '')
       if (event.type === 'GM_TURN_COMMITTED' && api.readConversation) {
         void api.readConversation(adventureId).then(response => {
-          projectionVersion.current = Math.max(projectionVersion.current, response.version, event.version)
+          projectionVersion.current = Math.max(projectionVersion.current ?? 0, response.version, event.version)
           setMessages(current => reconcileHydratedMessages(
             response.entries.map(entry => ({ speaker: speakerLabel(entry.speaker), text: entry.content })),
             response.version,
@@ -72,7 +75,14 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
           // and let the next hydration/event reconcile it with the projection.
         })
       }
-    }, () => { setSending(false); setProjectionStatus('failed'); setNotice('실시간 모험 이벤트 연결이 끊겼습니다.') })
+    }, () => {
+      setSending(false); setProjectionStatus('failed'); setNotice('실시간 모험 이벤트 연결이 끊겼습니다.')
+      setConversationHydrated(false)
+      void api.readConversation?.(adventureId).then(response => {
+        projectionVersion.current = response.version
+        setConversationHydrated(true)
+      }).catch(() => undefined)
+    })
   }, [adventureId, api])
   const previousControlMode = useRef(controlMode)
 
@@ -106,16 +116,35 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
     if (!text) return
     const command = createRuntimeCommandIdentity()
     const action = { speaker: '플레이어', text }
-    localTurn.current = { action, response: [], expectedVersion: projectionVersion.current }
+    let currentVersion = projectionVersion.current
+    if (api.readConversation) {
+      try {
+        const latest = await api.readConversation(adventureId)
+        currentVersion = latest.version
+        projectionVersion.current = latest.version
+        setConversationHydrated(true)
+      } catch {
+        setConversationHydrated(false)
+        setNotice('최신 모험 상태를 확인하지 못해 행동을 보내지 않았습니다.')
+        return
+      }
+    }
+    if (currentVersion == null) {
+      setNotice('최신 모험 상태를 확인한 뒤 다시 시도해주세요.')
+      return
+    }
+    localTurn.current = { action, response: [], expectedVersion: currentVersion }
     setNotice('')
     setSending(true)
     setProjectionStatus('processing')
     setMessages(current => [...current, action])
     try {
-      const response = await api.sendMessage(adventureId, text, command, projectionVersion.current)
+      const response = await api.sendMessage(adventureId, text, command, currentVersion)
       const responseEntries = responseMessages(response.narration, response.judgment)
       localTurn.current = { action, response: responseEntries, expectedVersion: localTurn.current?.expectedVersion ?? projectionVersion.current, committedVersion: response.version }
-      projectionVersion.current = Math.max(projectionVersion.current, response.version)
+      projectionVersion.current = Math.max(projectionVersion.current ?? 0, response.version)
+      committedVersion.current = Math.max(committedVersion.current, response.version)
+      setProjectionStatus('idle')
       setMessages(current => [...current, ...responseEntries])
       onTurnCommitted?.()
     } catch {
@@ -140,9 +169,9 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
         ))}
       </ol>
       <p role="alert">{notice}</p>
-      <form onSubmit={send} aria-disabled={hydrationPending || activeControlMode === 'AGENT'} aria-busy={hydrationPending}>
-        <label>무엇을 하시겠어요?<input name="message" required disabled={hydrationPending || sending || activeControlMode === 'AGENT'} /></label>
-        <button type="submit" disabled={hydrationPending || sending || activeControlMode === 'AGENT'}>행동 보내기</button>
+      <form onSubmit={send} aria-disabled={hydrationPending || projectionVersion.current == null || activeControlMode === 'AGENT'} aria-busy={hydrationPending}>
+        <label>무엇을 하시겠어요?<input name="message" required disabled={hydrationPending || projectionVersion.current == null || sending || activeControlMode === 'AGENT'} /></label>
+        <button type="submit" disabled={hydrationPending || projectionVersion.current == null || sending || activeControlMode === 'AGENT'}>행동 보내기</button>
       </form>
     </section>
   )

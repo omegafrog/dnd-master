@@ -101,11 +101,14 @@ public final class AdventurePrologueApplicationService {
                 narration = generator.generate(fallbackRequest);
             }
         }
-        if (narrationSafety != null && selectedEvidence != null
-                && !narrationSafety.assess(new NarrationSafetyRequest(narration, selectedEvidence,
-                        adventure.currentContext(), "prologue")).approved()) {
-            LOGGER.warn("adventure_prologue_narration_rejected fallback=deterministic");
+        if (narrationSafety != null && selectedEvidence != null) {
+            var safety = narrationSafety.assess(new NarrationSafetyRequest(narration, selectedEvidence,
+                    adventure.currentContext(), "prologue"));
+            if (!safety.approved()) {
+                LOGGER.warn("adventure_prologue_narration_rejected fallback=deterministic reason={} narrationLength={}",
+                        safety.reason(), narration == null ? 0 : narration.length());
             narration = generator.generate(fallbackRequest);
+            }
         }
         try {
             if (narration == null || narration.isBlank()) {

@@ -73,8 +73,9 @@ export class HttpAdventureApi implements AdventureApi {
     adventureId: string,
     message: string,
     command?: { turnId: string; commandId: string },
-    expectedVersion = 0,
+    expectedVersion?: number,
   ): Promise<AdventureMessageResponse> {
+    if (expectedVersion == null) throw new Error('최신 모험 버전이 필요합니다.')
     const identity = command ?? createRuntimeCommandIdentity()
     const response = await fetch(`/api/v1/adventures/${adventureId}/turns`, {
       method: 'POST',

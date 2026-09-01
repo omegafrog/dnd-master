@@ -1,0 +1,54 @@
+# Page snapshot
+
+```yaml
+- generic [ref=e3]:
+  - banner [ref=e4]:
+    - link "본문으로 건너뛰기" [ref=e5] [cursor=pointer]:
+      - /url: "#main"
+    - link "D&D Master 홈" [ref=e6] [cursor=pointer]:
+      - /url: "#/setup"
+      - img [ref=e7] [cursor=pointer]
+      - generic [ref=e8] [cursor=pointer]:
+        - strong [ref=e9] [cursor=pointer]: D&D Master
+        - generic [ref=e10] [cursor=pointer]: Solo Adventure Studio
+    - navigation "주요 메뉴" [ref=e11]:
+      - link "자료 설정" [ref=e12] [cursor=pointer]:
+        - /url: "#/setup"
+      - link "모험 목록" [ref=e13] [cursor=pointer]:
+        - /url: "#/adventures"
+      - link "현재 자료 0d16e368…" [ref=e14] [cursor=pointer]:
+        - /url: "#/bundles/0d16e368-f2ea-4411-9cf1-cf20bbd85b26"
+        - text: 현재 자료
+        - generic [ref=e15] [cursor=pointer]: 0d16e368…
+      - group [ref=e16]:
+        - button "계정 메뉴" [ref=e17] [cursor=pointer]:
+          - generic [ref=e18] [cursor=pointer]: D
+          - generic [ref=e19] [cursor=pointer]: demo-player@example.com
+  - main [ref=e20]:
+    - region "모험 계획 설정" [ref=e22]:
+      - generic [ref=e24]:
+        - paragraph [ref=e25]: ADVENTURE STORY PLAN
+        - heading "모험 계획 설정" [level=1] [ref=e26]
+        - paragraph [ref=e27]: 모험의 길이와 결말 수를 정하면 룰북·스토리북 근거를 바탕으로 플레이용 골격을 만듭니다.
+      - generic "모험 계획 설정" [ref=e28]:
+        - generic [ref=e29]:
+          - text: "분기 결말 수:"
+          - strong [ref=e30]: 2개
+        - 'slider "분기 결말 수: 2개" [ref=e31]': "2"
+        - generic [ref=e32]:
+          - generic [ref=e33]: 선형
+          - generic [ref=e34]: 다중 결말
+        - generic [ref=e35]: 모험 길이
+        - combobox "모험 길이" [ref=e36]:
+          - option "짧게 · 1~2회"
+          - option "보통 · 3~5회" [selected]
+          - option "길게 · 6~8회"
+        - paragraph [ref=e37]: 확정 파티 4명 · 룰북과 스토리북 근거는 생성 결과에 함께 연결됩니다.
+        - status [ref=e38]:
+          - generic [ref=e39]:
+            - generic [ref=e40]: 모험 개요 재생성 중 (재시도 4/5)
+            - strong [ref=e41]: 70%
+          - progressbar "모험 계획 생성 진행률" [ref=e42]
+        - button "계획 생성 중…" [disabled] [ref=e44]
+      - alert [ref=e45]: HTTP 500
+```

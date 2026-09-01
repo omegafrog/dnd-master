@@ -1,5 +1,11 @@
 # Ubiquitous Language
 
+# Execution Preconditions
+
+- **Rulebook Administration Precondition**: 모험 실행 여정을 시작하기 전에 관리자가 Shared Rulebook Catalog에 룰북을 등록하고, 추출·색인·검증을 완료한 뒤 공개 상태로 게시해야 한다.
+- **End-User Rulebook Selection**: 엔드유저(Solo Player)는 관리자에 의해 공개된 룰북 중 하나를 선택만 한다. 엔드유저가 룰북을 업로드·등록·색인·검증·게시하거나 그 처리를 기다리는 흐름은 지원하지 않는다.
+- **Adventure Start Gate**: 공개된 룰북이 하나 이상 없으면 번들 구성과 모험 시작을 허용하지 않고, 관리자 사전 준비가 필요하다는 상태를 표시한다.
+
 - **Solo Player**: 자료 준비, 시나리오 구성, 캐릭터 생성, 세션 실행을 혼자 수행하는 유일한 인간 사용자. 별도 인간 GM 역할은 없다.
 - **AI Game Master**: Solo Player의 모험 진행 중 장면 서술, 행동 판정, 규칙 근거 활용을 담당하는 AI 역할. 사용자 권한이나 별도 관리 화면을 갖는 인간 GM과 구분한다.
 - **Player Dashboard**: 로그인 후 Solo Player가 처음 도착하는 상태 기반 시작 화면. 진행 중 모험, 작성 중 세션, 준비된 번들, 최초 자료 준비 순서로 다음 행동을 제시한다.

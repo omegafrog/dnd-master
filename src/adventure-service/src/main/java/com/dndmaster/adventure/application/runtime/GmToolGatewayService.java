@@ -29,12 +29,27 @@ public final class GmToolGatewayService implements GmToolGateway {
     }
 
     @Override
+    public java.util.List<GmToolSpec> modelTools() {
+        return registry.values().stream().map(d -> new GmToolSpec(d.name(), d.inputSchema())).toList();
+    }
+
+    @Override
     public void revoke(TurnCapability capability) { revokedNonces.add(capability.nonce()); }
 
     @Override
     public java.util.Optional<GmToolOutcome> query(String toolName, UUID commandId) {
         GmToolDefinition definition = registry.get(toolName);
         return definition == null ? java.util.Optional.empty() : definition.query().apply(commandId);
+    }
+
+    @Override
+    public void preflight(TurnCapability capability, GmToolInvocation invocation) {
+        Objects.requireNonNull(capability); Objects.requireNonNull(invocation);
+        if (revokedNonces.contains(capability.nonce())) throw new ToolAuthorizationException();
+        capability.authorize(invocation, Instant.now(clock));
+        GmToolDefinition definition = registry.get(invocation.toolName());
+        if (definition == null) throw new UnknownToolException(invocation.toolName());
+        validate(definition.inputSchema(), invocation.argumentsJson());
     }
 
     @Override
@@ -58,9 +73,15 @@ public final class GmToolGatewayService implements GmToolGateway {
                 if (!args.has(name.asText())) throw new ToolArgumentInvalidException("missing tool argument: " + name.asText());
             }
             JsonNode properties = schema.get("properties");
+            if (schema.has("additionalProperties") && !schema.path("additionalProperties").asBoolean(true) && args.fieldNames().hasNext()) {
+                java.util.Set<String> known = new java.util.HashSet<>(); properties.fieldNames().forEachRemaining(known::add);
+                args.fieldNames().forEachRemaining(name -> { if (!known.contains(name)) throw new ToolArgumentInvalidException("unknown tool argument: " + name); });
+            }
             if (properties != null && properties.isObject()) properties.fields().forEachRemaining(field -> {
                 JsonNode value = args.get(field.getKey()); JsonNode type = field.getValue().get("type");
                 if (value != null && type != null && !matches(type.asText(), value)) throw new ToolArgumentInvalidException("invalid tool argument: " + field.getKey());
+                JsonNode enums = field.getValue().get("enum");
+                if (value != null && enums != null && enums.isArray() && java.util.stream.StreamSupport.stream(enums.spliterator(), false).noneMatch(item -> item.equals(value))) throw new ToolArgumentInvalidException("invalid tool argument: " + field.getKey());
             });
         } catch (ToolArgumentInvalidException e) { throw e; }
         catch (Exception e) { throw new ToolArgumentInvalidException("invalid tool arguments/schema"); }

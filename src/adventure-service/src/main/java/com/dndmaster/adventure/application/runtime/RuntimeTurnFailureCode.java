@@ -10,5 +10,6 @@ public enum RuntimeTurnFailureCode {
     SAFETY_FAILURE,
     VERSION_CONFLICT,
     NO_MEANINGFUL_PROGRESS,
+    TOOL_CAPABILITY_DENIED,
     UNKNOWN
 }

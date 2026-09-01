@@ -12,12 +12,16 @@ import java.util.Set;
 
 /** Fail-closed boundary between provider output and player-visible narration. */
 public final class GmFinalValidator {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(GmFinalValidator.class);
     public GmPlanResult validate(
             GmPlanResult result, EvidencePack evidencePack, AdventureContext currentContext, Set<String> hiddenData) {
         GmValidationReport report = validateReport(result, evidencePack, currentContext, hiddenData);
         if (!report.passed()) {
-            String codes = report.violations().stream().map(GmValidationViolation::code).distinct().toList().toString();
-            throw new IllegalStateException("GM final validation failed: " + codes);
+            String details = report.violations().stream()
+                    .map(v -> v.code() + "@" + v.fieldPath() + ":" + v.safeMessage())
+                    .toList().toString();
+            LOGGER.warn("gm_final_validation_failed violations={}", details);
+            throw new IllegalStateException("GM final validation failed: " + details);
         }
         return result;
     }

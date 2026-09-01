@@ -53,6 +53,9 @@ public final class CodexAppServerClient implements AutoCloseable {
     }
 
     public synchronized String complete(String operationId, String prompt, String requestedModel, String reasoning) {
+        return complete(operationId, prompt, requestedModel, reasoning, null);
+    }
+    public synchronized String complete(String operationId, String prompt, String requestedModel, String reasoning, JsonNode outputSchema) {
         if (operationId == null || operationId.isBlank() || prompt == null || prompt.isBlank()) {
             throw new IllegalArgumentException("operation id and prompt required");
         }
@@ -84,6 +87,7 @@ public final class CodexAppServerClient implements AutoCloseable {
             putModel(turnParams, requestedModel);
             turnParams.put("approvalPolicy", "never");
             turnParams.putObject("sandboxPolicy").put("type", "readOnly");
+            if (outputSchema != null) turnParams.set("outputSchema", outputSchema);
             request("turn/start", turnParams, deadlineNanos);
 
             StringBuilder response = new StringBuilder();
