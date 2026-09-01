@@ -238,7 +238,11 @@ public class RuntimeTurnApplicationService {
         this.narrativeStateService = Objects.requireNonNull(narrativeStateService, "narrative state service must not be null");
     }
 
-    @Transactional
+    /**
+     * Orchestrates external work without holding a database transaction. Each
+     * lifecycle write commits independently so failure persistence cannot block
+     * behind this request's turn row lock.
+     */
     public RuntimeTurnResult submitTurn(SubmitRuntimeTurnCommand command) {
         Objects.requireNonNull(command, "command must not be null");
         Adventure adventure = adventureRepository.findById(command.adventureId())
@@ -271,14 +275,8 @@ public class RuntimeTurnApplicationService {
         if (command.expectedVersion() >= 0 && adventure.version() != command.expectedVersion()) {
             throw new IllegalStateException("ADVENTURE_VERSION_CONFLICT expected=" + command.expectedVersion() + " actual=" + adventure.version());
         }
-        if (turnLockService != null && command.advancesState()) {
-            turnLockService.acquire(adventure.sessionId().value(), command.turnId());
-            if (TransactionSynchronizationManager.isSynchronizationActive()) {
-                TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
-                    @Override public void afterCompletion(int status) { turnLockService.release(adventure.sessionId().value()); }
-                });
-            }
-        }
+        // Optimistic adventure-version CAS is the concurrency boundary. Do not
+        // acquire a second persistent turn lock around the long provider flow.
         RuntimeBinding binding = bindingRepository.findCurrentByAdventureId(command.adventureId())
                 .orElseThrow(() -> new IllegalStateException("runtime binding not found"));
         if (!binding.ownerPlayerId().equals(command.ownerPlayerId())) {
