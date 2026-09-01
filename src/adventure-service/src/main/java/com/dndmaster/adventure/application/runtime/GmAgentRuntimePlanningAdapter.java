@@ -37,13 +37,18 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
 
     @Override
     public RuntimePlan plan(RuntimePlanningRequest request) {
+        return planWithOutcomes(request).plan();
+    }
+
+    @Override
+    public RuntimePlanningResult planWithOutcomes(RuntimePlanningRequest request) {
         return planInternal(request, true);
     }
 
     /** Gate A candidate-generation path. It preserves tool intents but performs no authorization or execution. */
     public RuntimePlan planWithoutTools(RuntimePlanningRequest request) {
         CandidateGeneration generated = generateCandidate(request, false);
-        RuntimePlan candidatePlan = planInternal(request, false, generated);
+        RuntimePlan candidatePlan = planInternal(request, false, generated).plan();
         java.util.List<CandidateGeneration> existing = pendingCandidates.computeIfAbsent(request.turnId(), ignored -> new java.util.concurrent.CopyOnWriteArrayList<>());
         UUID candidateId = UUID.nameUUIDFromBytes((request.turnId() + ":candidate:" + existing.size()).getBytes(StandardCharsets.UTF_8));
         CandidateGeneration validated = new CandidateGeneration(candidateId, generated.context(), generated.hiddenData(), generated.capability(),
@@ -59,6 +64,10 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
     }
 
     public RuntimePlan executeSelected(RuntimePlanningRequest request, RuntimePlan selected, int candidateIndex) {
+        return executeSelectedWithOutcomes(request, selected, candidateIndex).plan();
+    }
+
+    public RuntimePlanningResult executeSelectedWithOutcomes(RuntimePlanningRequest request, RuntimePlan selected, int candidateIndex) {
         java.util.List<CandidateGeneration> candidates = pendingCandidates.remove(request.turnId());
         if (candidates != null) {
             if (candidateIndex >= 0 && candidateIndex < candidates.size()) {
@@ -71,11 +80,11 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         throw new IllegalStateException("selected candidate is no longer available for materialization");
     }
 
-    private RuntimePlan planInternal(RuntimePlanningRequest request, boolean executeTools) {
+    private RuntimePlanningResult planInternal(RuntimePlanningRequest request, boolean executeTools) {
         return planInternal(request, executeTools, null);
     }
 
-    private RuntimePlan planInternal(RuntimePlanningRequest request, boolean executeTools, CandidateGeneration supplied) {
+    private RuntimePlanningResult planInternal(RuntimePlanningRequest request, boolean executeTools, CandidateGeneration supplied) {
         CandidateGeneration generated = supplied == null ? generateCandidate(request) : supplied;
         GmContextEnvelope context = generated.context();
         java.util.Set<String> hiddenData = generated.hiddenData();
@@ -107,11 +116,11 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
             }
             ToolMaterialization materialization = executeToolSaga(request, context, executionCapability, calls, saggedGateway, result);
             result = materialization.result();
-            return finalizeCandidate(request, result, hiddenData, materialization.outcomes());
+            return new RuntimePlanningResult(finalizeCandidate(request, result, hiddenData, materialization.outcomes()), materialization.outcomes());
         } else if (capability != null) {
             gateway.revoke(capability);
         }
-        return finalizeCandidate(request, result, hiddenData, List.of());
+        return new RuntimePlanningResult(finalizeCandidate(request, result, hiddenData, List.of()), List.of());
     }
 
     /** Gate 0 seam: provider candidate generation and semantic validation are isolated from execution. */

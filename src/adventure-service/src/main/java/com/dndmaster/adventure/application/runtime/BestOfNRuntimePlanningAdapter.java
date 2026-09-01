@@ -22,6 +22,11 @@ public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort 
 
     @Override
     public RuntimePlan plan(RuntimePlanningRequest request) {
+        return planWithOutcomes(request).plan();
+    }
+
+    @Override
+    public RuntimePlanningResult planWithOutcomes(RuntimePlanningRequest request) {
         int count = PlanningContext.boundedCandidateCount(requestedCount, simpleTurn);
         List<RuntimePlan> plans = new ArrayList<>();
         boolean decomposed = legacy instanceof GmAgentRuntimePlanningAdapter;
@@ -75,8 +80,8 @@ public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort 
         // currently regenerates the selected plan during materialization; this is a
         // transitional seam until ToolMaterializationPort is introduced.
         return decomposed
-                ? ((GmAgentRuntimePlanningAdapter) legacy).executeSelected(request, selectedPlan, selectedIndex)
-                : selectedPlan;
+                ? ((GmAgentRuntimePlanningAdapter) legacy).executeSelectedWithOutcomes(request, selectedPlan, selectedIndex)
+                : new RuntimePlanningResult(selectedPlan, List.of());
     }
 
     private static boolean hasWarning(RuntimePlan plan, String... markers) {

@@ -315,10 +315,12 @@ public class RuntimeTurnApplicationService {
                 providerSelection(adventure.sessionId().value(), "model"),
                 providerSelection(adventure.sessionId().value(), "reasoning"), narrativeContext, adventure.ruleSetId().value());
         RuntimePlan plan;
+        RuntimePlanningResult planningResult;
         stageEnter(command.turnId(), "PLANNING");
         long planningStarted = System.nanoTime();
         try {
-            plan = planningPort.plan(planningRequest);
+            planningResult = planningPort.planWithOutcomes(planningRequest);
+            plan = planningResult.plan();
             stageExit(command.turnId(), "PLANNING", planningStarted);
         } catch (RuntimeException failure) {
             stageExitFailure(command.turnId(), "PLANNING", planningStarted, failure);
@@ -327,7 +329,13 @@ public class RuntimeTurnApplicationService {
             throw failure;
         }
         plan = preservePendingSkillAdjudication(plan, command.action(), scenarioPackage, evidencePack);
-        ResolvedTurnPlan resolvedPlan = ResolvedTurnPlan.of(TurnPlan.from(plan), List.of(plan.judgment()));
+        List<String> settledOutcomes = planningResult.toolOutcomes().stream()
+                .filter(java.util.Objects::nonNull)
+                .map(RuntimeTurnApplicationService::renderOutcome)
+                .toList();
+        ResolvedTurnPlan resolvedPlan = ResolvedTurnPlan.of(
+                TurnPlan.from(plan),
+                settledOutcomes.isEmpty() ? List.of(plan.judgment()) : settledOutcomes);
         resolvedPlan = captureApprovedPromptLineage(resolvedPlan);
         final RuntimePlan planned = plan;
         final ResolvedTurnPlan resolvedForStage = resolvedPlan;
@@ -881,5 +889,10 @@ public class RuntimeTurnApplicationService {
     private static String safeMessage(Throwable failure) {
         String message = failure.getMessage();
         return message == null ? "" : message.replaceAll("[\\r\\n]", " ");
+    }
+
+    private static String renderOutcome(RuntimeCommandOutcome outcome) {
+        String value = outcome.value() == null ? "" : outcome.value().trim();
+        return value.isBlank() ? outcome.status().name() : outcome.status().name() + ": " + value;
     }
 }
