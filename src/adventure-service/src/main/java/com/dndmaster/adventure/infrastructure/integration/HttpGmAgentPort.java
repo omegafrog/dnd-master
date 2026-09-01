@@ -39,7 +39,12 @@ public final class HttpGmAgentPort implements GmAgentPort {
 
     @Override
     public GmPlanResult plan(GmContextEnvelope context) {
-        return plan(context, null);
+        return plan(context, (com.dndmaster.adventure.application.runtime.TurnCapability) null);
+    }
+
+    @Override
+    public GmPlanResult plan(GmContextEnvelope context, List<com.dndmaster.adventure.application.runtime.GmToolSpec> tools) {
+        return plan(context, null, tools);
     }
 
     @Override

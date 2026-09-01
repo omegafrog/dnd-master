@@ -128,7 +128,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
         TurnCapability capability = issueCapability ? issueCapability(request) : null;
         List<GmToolSpec> modelTools = gateway == null ? List.of() : gateway.modelTools().stream()
                 .filter(spec -> capability == null || capability.allowedTools().contains(spec.name())).toList();
-        GmPlanResult result = capability == null ? agentPort.plan(context) : agentPort.plan(context, capability, modelTools);
+        GmPlanResult result = capability == null ? agentPort.plan(context, modelTools) : agentPort.plan(context, capability, modelTools);
         LOGGER.info("gm_tool_plan_received turnId={} toolCount={} tools={}", request.turnId(), result.toolCalls().size(),
                 result.toolCalls().stream().map(call -> call.toolName()).toList());
         return new CandidateGeneration(UUID.nameUUIDFromBytes((request.turnId() + ":candidate:direct").getBytes(StandardCharsets.UTF_8)), context, hiddenData, capability, result);
