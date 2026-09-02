@@ -3,6 +3,11 @@ package com.dndmaster.adventure.domain.scenario;
 import java.util.List;
 
 public record ScenarioResolutionDetail(
+        TriggerContract trigger,
+        CheckContract check,
+        StateEffect stateEffect,
+        RevealContract reveal,
+        PriorKnowledge priorKnowledge,
         String triggerCondition,
         String actor,
         String roller,
@@ -22,12 +27,26 @@ public record ScenarioResolutionDetail(
         randomTable = randomTable == null ? List.of() : List.copyOf(randomTable);
     }
 
+    public ScenarioResolutionDetail(String triggerCondition, String actor, String roller,
+            String instructionVisibility, String resultVisibility, List<String> modifiers,
+            String advantageState, String reroll, List<Step> steps, List<Outcome> outcomes,
+            List<TableEntry> randomTable, String tableCoverage) {
+        this(null, null, null, null, null, triggerCondition, actor, roller, instructionVisibility,
+                resultVisibility, modifiers, advantageState, reroll, steps, outcomes, randomTable, tableCoverage);
+    }
+
     public static ScenarioResolutionDetail empty() {
-        return new ScenarioResolutionDetail(null, null, null, null, null, List.of(), null, null, List.of(), List.of(), List.of(), null);
+        return new ScenarioResolutionDetail(null, null, null, null, null, null, null, null, null, null,
+                List.of(), null, null, List.of(), List.of(), List.of(), null);
     }
 
     public boolean isEmpty() {
-        return triggerCondition == null
+        return trigger == null
+                && check == null
+                && stateEffect == null
+                && reveal == null
+                && priorKnowledge == null
+                && triggerCondition == null
                 && actor == null
                 && roller == null
                 && instructionVisibility == null
@@ -39,6 +58,21 @@ public record ScenarioResolutionDetail(
                 && outcomes.isEmpty()
                 && randomTable.isEmpty()
                 && tableCoverage == null;
+    }
+
+    public enum TriggerType { WORLD_EVENT, PLAYER_ACTION }
+    public enum RollMethod { SYSTEM, PLAYER }
+    public enum RevealCondition { ON_SUCCESS, ON_FAILURE, ALWAYS }
+    public enum RevealLevel { NONE, CLUE, FACT, FULL }
+
+    public record TriggerContract(TriggerType type, String condition) { }
+    public record CheckContract(RollMethod rollMethod, String method) { }
+    public record StateEffect(String stateKey, String successEffect, String failureEffect) { }
+    public record RevealContract(RevealCondition condition, RevealLevel level, String hiddenFact) { }
+    public record PriorKnowledge(boolean alreadyPublic, List<String> knownFacts) {
+        public PriorKnowledge {
+            knownFacts = knownFacts == null ? List.of() : List.copyOf(knownFacts);
+        }
     }
 
     public record Step(

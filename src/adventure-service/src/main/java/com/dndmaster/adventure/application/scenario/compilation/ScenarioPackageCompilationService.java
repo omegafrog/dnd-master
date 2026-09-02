@@ -39,7 +39,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class ScenarioPackageCompilationService {
-    private static final String COMPILER_VERSION = "resolution-compiler-v2";
+    private static final String COMPILER_VERSION = "resolution-compiler-v3";
     private static final String DICE_PATTERN = "(?i)\\d+d\\d+(?:\\s*[+-]\\s*\\d+)?";
     private static final String RECHARGE_PATTERN = "\\d+\\s*-\\s*\\d+";
     private static final Pattern CHARACTER_LIMIT_PATTERN = Pattern.compile(
@@ -381,6 +381,7 @@ public final class ScenarioPackageCompilationService {
         if (candidate.provenance() == null || candidate.provenance().isBlank()) incomplete.add("provenance is missing");
         if (candidate.sourceQuote() == null || candidate.sourceQuote().isBlank()) incomplete.add("source quote is missing");
         ScenarioResolutionDetail detail = candidate.detail() == null ? ScenarioResolutionDetail.empty() : candidate.detail();
+        validateCanonicalContract(detail, invalid);
         if (candidate.sourceRefs() == null || candidate.sourceRefs().isEmpty()) {
             invalid.add("source reference is missing");
         } else {
@@ -485,6 +486,53 @@ public final class ScenarioPackageCompilationService {
             }
             case SPECIAL_ROLL -> incomplete.add("special roll requires manual runtime support");
         }
+    }
+
+    private static void validateCanonicalContract(ScenarioResolutionDetail detail, List<String> invalid) {
+        if (detail.trigger() == null) {
+            invalid.add("trigger contract is missing");
+        } else {
+            if (detail.trigger().type() == null) invalid.add("trigger type is missing");
+            if (blank(detail.trigger().condition())) invalid.add("trigger condition is missing");
+        }
+        if (detail.check() == null) {
+            invalid.add("check contract is missing");
+        } else {
+            if (detail.check().rollMethod() == null) invalid.add("roll method is missing");
+            if (blank(detail.check().method())) invalid.add("check method is missing");
+        }
+        if (detail.stateEffect() == null) {
+            invalid.add("state effect contract is missing");
+        } else {
+            if (blank(detail.stateEffect().stateKey())) invalid.add("state effect target is missing");
+            if (blank(detail.stateEffect().successEffect())) invalid.add("success state effect is missing");
+            if (blank(detail.stateEffect().failureEffect())) invalid.add("failure state effect is missing");
+        }
+        if (detail.reveal() == null) {
+            invalid.add("reveal contract is missing");
+        } else {
+            if (detail.reveal().condition() == null) invalid.add("reveal condition is missing");
+            if (detail.reveal().level() == null) invalid.add("reveal level is missing");
+            if (blank(detail.reveal().hiddenFact())) invalid.add("hidden fact is missing");
+            if (detail.reveal().level() == ScenarioResolutionDetail.RevealLevel.NONE) {
+                invalid.add("reveal level contradicts hidden fact");
+            }
+        }
+        if (detail.priorKnowledge() == null) invalid.add("prior knowledge contract is missing");
+        if (detail.trigger() != null && detail.check() != null
+                && detail.trigger().type() == ScenarioResolutionDetail.TriggerType.PLAYER_ACTION
+                && detail.check().rollMethod() == ScenarioResolutionDetail.RollMethod.SYSTEM) {
+            invalid.add("roll method contradicts player-action trigger");
+        }
+        if (detail.trigger() != null && detail.check() != null
+                && detail.trigger().type() == ScenarioResolutionDetail.TriggerType.WORLD_EVENT
+                && detail.check().rollMethod() == ScenarioResolutionDetail.RollMethod.PLAYER) {
+            invalid.add("roll method contradicts world-event trigger");
+        }
+    }
+
+    private static boolean blank(String value) {
+        return value == null || value.isBlank();
     }
 
     private static void validateDetail(ScenarioResolutionDetail detail, List<String> invalid, List<String> incomplete) {

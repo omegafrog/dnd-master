@@ -29,6 +29,50 @@ import org.junit.jupiter.api.Test;
 
 class ScenarioPackageCompilationServiceTest {
     @Test
+    void rejectsResolutionWithoutCanonicalRevealContract() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ResolutionCandidate candidate = ResolutionCandidate.skillCheck(
+                documentId, 1, "page:1", "Perception", 13, "A loose stone triggers the trap.");
+
+        var unit = new ScenarioPackageCompilationService(new InMemoryPackageRepository())
+                .compile(bundle(documentId, 1), List.of(candidate)).units().getFirst();
+
+        assertEquals("INVALID", unit.status().name());
+        assertTrue(unit.validationMessages().stream().anyMatch(message -> message.contains("trigger contract")));
+        assertTrue(unit.validationMessages().stream().anyMatch(message -> message.contains("reveal contract")));
+    }
+
+    @Test
+    void rejectsContradictoryPlayerActionAndSystemRollContract() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        var contract = new ScenarioResolutionDetail(
+                new ScenarioResolutionDetail.TriggerContract(
+                        ScenarioResolutionDetail.TriggerType.PLAYER_ACTION, "The player searches the altar."),
+                new ScenarioResolutionDetail.CheckContract(
+                        ScenarioResolutionDetail.RollMethod.SYSTEM, "Perception check"),
+                new ScenarioResolutionDetail.StateEffect("trap", "armed", "disarmed"),
+                new ScenarioResolutionDetail.RevealContract(
+                        ScenarioResolutionDetail.RevealCondition.ON_SUCCESS,
+                        ScenarioResolutionDetail.RevealLevel.CLUE,
+                        "an unusual gap in the altar"),
+                new ScenarioResolutionDetail.PriorKnowledge(false, List.of()),
+                null, null, null, null, null, null, null, null, null, null, null, null);
+        ResolutionCandidate candidate = new ResolutionCandidate(
+                com.dndmaster.adventure.domain.scenario.ResolutionKind.SKILL_ABILITY_CHECK,
+                "Perception", 13, null,
+                com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
+                "The altar hides a trap.",
+                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 1, "page:1")),
+                "schema-v2", contract);
+
+        var unit = new ScenarioPackageCompilationService(new InMemoryPackageRepository())
+                .compile(bundle(documentId, 1), List.of(candidate)).units().getFirst();
+
+        assertEquals("INVALID", unit.status().name());
+        assertTrue(unit.validationMessages().stream().anyMatch(message -> message.contains("roll method")));
+    }
+
+    @Test
     void completesSavingThrowWhoseDcComesFromTheCastersSpellSaveDc() {
         KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
         ResolutionCandidate web = new ResolutionCandidate(

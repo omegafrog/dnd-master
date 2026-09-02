@@ -140,7 +140,7 @@ public final class ScenarioCompilationWorker {
                                     .filter(excerpt -> bundleSources.contains(excerpt.documentId().value() + ":" + excerpt.extractionVersion()))
                                     .filter(excerpt -> resolutionExcerpts.contains(excerpt))
                                     .toList(),
-                            "resolution-candidate-v1", "resolution-prompt-v1"));
+                            "resolution-candidate-v2", "resolution-prompt-v2"));
             List<ResolutionCandidate> extractedCandidates = candidates == null ? List.of() : List.copyOf(candidates);
             List<ScenarioResolutionUnit> rawResolutionUnits = compiler.validateResolutionCandidates(bundle,
                     extractedCandidates, resolutionExcerpts);
@@ -226,7 +226,7 @@ public final class ScenarioCompilationWorker {
                     .filter(excerpt -> references(failed, excerpt)).distinct().toList();
             ResolutionCandidate replacement = extractionPort.retryCandidate(new ResolutionExtractionPort.CandidateRetryRequest(
                     operationId + ":candidate-repair-" + index, failed, targets,
-                    "resolution-candidate-v1", "resolution-repair-prompt-v1", 1, unit.validationMessages()));
+                    "resolution-candidate-v2", "resolution-repair-prompt-v2", 1, unit.validationMessages()));
             if (replacement != null && compiler.validateResolutionCandidates(bundle, List.of(replacement), excerpts).getFirst().status()
                     == com.dndmaster.adventure.domain.scenario.ResolutionStatus.COMPLETE) {
                 recovered.set(index, replacement);

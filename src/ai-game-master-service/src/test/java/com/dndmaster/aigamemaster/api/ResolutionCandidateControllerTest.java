@@ -3,6 +3,7 @@ package com.dndmaster.aigamemaster.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
@@ -11,6 +12,15 @@ import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
 
 class ResolutionCandidateControllerTest {
+    @Test
+    void llmContractValidatorRejectsMissingAndContradictoryCanonicalContracts() throws Exception {
+        var mapper = new ObjectMapper();
+        assertThrows(IllegalArgumentException.class,
+                () -> ResolutionCandidateController.validateCanonicalContract(mapper.readTree("{}")));
+        assertThrows(IllegalArgumentException.class,
+                () -> ResolutionCandidateController.validateCanonicalContract(mapper.readTree("{\"trigger\":{\"type\":\"PLAYER_ACTION\",\"condition\":\"search\"},\"check\":{\"rollMethod\":\"SYSTEM\",\"method\":\"Perception\"},\"stateEffect\":{\"stateKey\":\"trap\",\"successEffect\":\"safe\",\"failureEffect\":\"hurt\"},\"reveal\":{\"condition\":\"ON_SUCCESS\",\"level\":\"CLUE\",\"hiddenFact\":\"trap\"},\"priorKnowledge\":{\"alreadyPublic\":false}}")));
+    }
+
     @Test
     void preservesCasterSpellSaveDcAsASymbolicStrategy() {
         var controller = new ResolutionCandidateController(null, new ObjectMapper());

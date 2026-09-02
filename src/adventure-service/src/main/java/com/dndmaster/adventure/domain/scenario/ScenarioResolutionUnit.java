@@ -60,4 +60,11 @@ public record ScenarioResolutionUnit(
         }
         return List.copyOf(capabilities);
     }
+
+    /** Canonical runtime contract projections; callers do not need to unpack the detail record. */
+    public ScenarioResolutionDetail.TriggerContract trigger() { return detail.trigger(); }
+    public ScenarioResolutionDetail.CheckContract check() { return detail.check(); }
+    public ScenarioResolutionDetail.StateEffect stateEffect() { return detail.stateEffect(); }
+    public ScenarioResolutionDetail.RevealContract reveal() { return detail.reveal(); }
+    public ScenarioResolutionDetail.PriorKnowledge priorKnowledge() { return detail.priorKnowledge(); }
 }
