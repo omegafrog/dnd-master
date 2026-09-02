@@ -1258,9 +1258,8 @@ public class AdventureApiConfiguration {
 
     @Bean
     AppliedRuleSetApplicationService ruleSetApplicationService(
-            AppliedRuleSetRepository repository,
-            RulebookOwnershipHttpPort ownershipPort) {
-        return new AppliedRuleSetApplicationService(repository, ownershipPort);
+            AppliedRuleSetRepository repository) {
+        return new AppliedRuleSetApplicationService(repository);
     }
 
     @Bean

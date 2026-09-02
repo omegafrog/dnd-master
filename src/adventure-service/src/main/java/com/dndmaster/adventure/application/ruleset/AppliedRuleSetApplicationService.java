@@ -10,12 +10,8 @@ import java.util.Objects;
 
 public final class AppliedRuleSetApplicationService {
     private final AppliedRuleSetRepository repository;
-    private final RulebookOwnershipHttpPort ownershipHttpPort;
-
-    public AppliedRuleSetApplicationService(
-            AppliedRuleSetRepository repository, RulebookOwnershipHttpPort ownershipHttpPort) {
+    public AppliedRuleSetApplicationService(AppliedRuleSetRepository repository) {
         this.repository = Objects.requireNonNull(repository, "repository must not be null");
-        this.ownershipHttpPort = Objects.requireNonNull(ownershipHttpPort, "ownership HTTP port must not be null");
     }
 
     public AppliedRuleSet saveRuleSet(CreateAppliedRuleSetCommand command) {
