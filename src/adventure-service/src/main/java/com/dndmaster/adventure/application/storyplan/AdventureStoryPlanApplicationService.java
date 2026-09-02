@@ -186,10 +186,11 @@ public final class AdventureStoryPlanApplicationService {
                     // deterministic scope, but the provider response remains
                     // untrusted. Apply the allowlist again in this boundary before
                     // parsing and validating the merged candidate.
+                    parseRepairedCandidate(repaired.serializedCandidate());
                     JsonNode mergedCandidate;
                     try {
                         mergedCandidate = scopedMerger.merge(rejectedCandidate, repaired.serializedCandidate(), repairScope);
-                    } catch (IllegalArgumentException failure) {
+                    } catch (RuntimeException failure) {
                         throw new ScopedMergeException(failure);
                     }
                     candidateForValidation = mergedCandidate.toString();
@@ -391,6 +392,17 @@ public final class AdventureStoryPlanApplicationService {
         try {
             JsonNode stagesNode = projectionMapper.readTree(serializedCandidate).get("stages");
             return projectionMapper.readValue(stagesNode.toString(), new TypeReference<List<AdventureStoryPlanStage>>() { });
+        } catch (Exception failure) {
+            throw new RepairedCandidateParseException(failure);
+        }
+    }
+
+    private void parseRepairedCandidate(String serializedCandidate) {
+        try {
+            JsonNode root = projectionMapper.readTree(serializedCandidate);
+            if (root == null || !root.isObject() || !root.path("stages").isArray()) {
+                throw new IllegalArgumentException("repaired candidate must contain stages");
+            }
         } catch (Exception failure) {
             throw new RepairedCandidateParseException(failure);
         }
