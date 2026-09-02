@@ -188,6 +188,9 @@ public final class AdventureStoryPlanController {
                     .append("- Boss: ").append(stage.boss()).append("\n")
                     .append("- Rewards: ").append(String.join(", ", stage.rewards())).append("\n")
                     .append("- Ending IDs: ").append(String.join(", ", stage.endingIds())).append("\n")
+                    .append("- Combat trigger: ").append(stage.combatSkeleton().startTrigger()).append("\n")
+                    .append("- Combat success outcome: ").append(stage.combatSkeleton().successOutcome()).append("\n")
+                    .append("- Combat failure/fail-forward outcome: ").append(stage.combatSkeleton().failureOutcome()).append("\n")
                     .append("- Source citations: ").append(stage.evidence().stream()
                             .map(CitationProjection::citationKey).sorted().collect(java.util.stream.Collectors.joining(", ")))
                     .append("\n\n");
@@ -287,6 +290,12 @@ public final class AdventureStoryPlanController {
     }
 
     private String repairPrompt(RepairRequest request, Configuration configuration) {
+        boolean outcomeOnlyRepair = request.violations().stream()
+                .allMatch(violation -> "MISSING_RULE_OUTCOME".equals(violation.code()));
+        String sourceDocuments = outcomeOnlyRepair ? "(not needed for this local failure-condition repair)" : request.sourceDocuments().toString();
+        String resolutionEvidence = outcomeOnlyRepair ? "(not needed for this local failure-condition repair)" : request.resolutionEvidence().toString();
+        String maps = outcomeOnlyRepair ? "(not needed for this local failure-condition repair)" : request.maps().toString();
+        String citations = outcomeOnlyRepair ? "(not needed for this local failure-condition repair)" : request.citations().toString();
         return """
                 You are repairing one rejected execution projection. Return the COMPLETE projection JSON object, never a patch.
                 Preserve every field exactly unless its JSON path is listed in STRUCTURED VIOLATIONS. Do not add, remove, rename, or
@@ -307,8 +316,8 @@ public final class AdventureStoryPlanController {
                 authoritativeMaps=%s
                 authoritativeCitations=%s
                 previousFullCandidate=%s
-                """.formatted(configuration, request.violations(), request.repairScope(), request.sourceDocuments(), request.resolutionEvidence(),
-                request.maps(), request.citations(), request.previousCandidate());
+                """.formatted(configuration, request.violations(), request.repairScope(), sourceDocuments, resolutionEvidence,
+                maps, citations, request.previousCandidate());
     }
 
     private String verificationDecisionPrompt(Request request, Configuration configuration, String generatedMarkdown) {
@@ -318,6 +327,7 @@ public final class AdventureStoryPlanController {
                 Do not rewrite, summarize, extract, or normalize the plan. Do not return stages or any other plan data.
                 Return ONLY one JSON object with exactly these fields: {"status":"PASS"|"FAIL","violations":["..."]}.
                 Use PASS when the plan has a goal, start situation, playable progression, transition or completion conditions, and at least one ending.
+                In this contract, endingIds are the canonical ending references. Do not require a separate ending prose section when valid endingIds and a completion condition are present.
                 Check map usage per stage. A stage marked REQUIRED must contain an exact supplied mapDefinitionId, assetId, and assetLocator from the same map entry. OPTIONAL and NONE stages may omit map references. Do not infer that every dungeon or exploration stage requires a map.
                 For triggers and checks, first decide whether a stage actually needs one. A stage without hidden information, a conditional event, or a rules check may have no trigger and still PASS.
                 When a trigger or check is needed, verify only that its activation condition, check (if any), and resulting outcome are usable, and that explicitly evidenced core triggers or checks were not omitted.
@@ -351,6 +361,7 @@ public final class AdventureStoryPlanController {
                 Do not rewrite, summarize, extract, or normalize the plan. Do not return stages or any other plan data.
                 Return ONLY one JSON object with exactly these fields: {"status":"PASS"|"FAIL","violations":["..."]}.
                 Use PASS when the plan has a goal, start situation, playable progression, transition or completion conditions, and at least one ending.
+                In this contract, endingIds are the canonical ending references. Do not require a separate ending prose section when valid endingIds and a completion condition are present.
                 Check map usage per stage. A stage marked REQUIRED must have an exact supplied map reference; OPTIONAL and NONE may omit one. Do not require maps solely because a stage is a dungeon or exploration scene.
                 A stage without hidden information, a conditional event, or a rules check may have no trigger and still PASS.
                 When a trigger or check is needed, verify only that its activation condition, check (if any), and outcome are usable.

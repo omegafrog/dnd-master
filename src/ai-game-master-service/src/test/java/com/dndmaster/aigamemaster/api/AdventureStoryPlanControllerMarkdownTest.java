@@ -138,6 +138,7 @@ class AdventureStoryPlanControllerMarkdownTest {
         assertTrue(prompt.contains("A stage without hidden information, a conditional event, or a rules check may have no trigger"));
         assertTrue(prompt.contains("Every hidden-information trigger, secret, clue reveal, conditional event, or rules check"));
         assertTrue(prompt.contains("explicit failure or fail-forward consequence"));
+        assertTrue(prompt.contains("endingIds are the canonical ending references"));
         assertTrue(prompt.contains("heading names, Markdown formatting"));
     }
 
@@ -194,6 +195,30 @@ class AdventureStoryPlanControllerMarkdownTest {
         assertTrue(prompt.contains("stages[0].transitionCondition"));
         assertTrue(prompt.contains("previousFullCandidate"));
         assertTrue(prompt.contains("authoritativeCitations"));
+    }
+
+    @Test
+    void local_failure_condition_repair_does_not_send_unused_source_registries() throws Exception {
+        var controller = new AdventureStoryPlanController(
+                null, new ObjectMapper(), null, "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
+                new ApiRequestGuard("test-internal-token"));
+        var violation = new AdventureStoryPlanController.ProjectionViolation(
+                "MISSING_RULE_OUTCOME", 4, "stages[3].failureCondition", "", "",
+                AdventureStoryPlanController.ProjectionViolation.Repairability.REPAIRABLE,
+                "stage 4 failure consequence is missing");
+        var request = new AdventureStoryPlanController.RepairRequest("op", 1, 1,
+                new AdventureStoryPlanController.Configuration(1, "SHORT"),
+                new ObjectMapper().readTree("{\"stages\":[{\"position\":1}]}"), List.of(violation),
+                List.of("large source document"), List.of("large resolution evidence"), List.of(), List.of());
+        var promptMethod = AdventureStoryPlanController.class.getDeclaredMethod(
+                "repairPrompt", AdventureStoryPlanController.RepairRequest.class,
+                AdventureStoryPlanController.Configuration.class);
+        promptMethod.setAccessible(true);
+
+        String prompt = (String) promptMethod.invoke(controller, request, request.configuration());
+
+        assertTrue(prompt.contains("not needed for this local failure-condition repair"));
+        assertTrue(prompt.contains("previousFullCandidate"));
     }
 
     @Test
@@ -535,7 +560,7 @@ class AdventureStoryPlanControllerMarkdownTest {
                 "단서를 찾는다", "쥐가 길을 막는다", "쥐를 물리친다", List.of(), List.of("ending-1"),
                 "", "", "", List.of("거대 쥐"), "", "단서를 확보한다", "후퇴한다", List.of("열쇠"),
                 List.of("ending-1"), Map.of(), List.of(new AdventureStoryPlanController.CitationProjection("citation-1")),
-                "REQUIRED", new AdventureStoryPlanController.CombatSkeletonProjection("", "", List.of(), "", "", List.of()),
+                "REQUIRED", new AdventureStoryPlanController.CombatSkeletonProjection("쥐를 몰아낸다", "저장고 진입", List.of(), "쥐가 도망친다", "후퇴한다", List.of()),
                 List.of(), "REQUIRED", 2);
 
         String first = AdventureStoryPlanController.renderMarkdown(List.of(stage));
@@ -544,6 +569,8 @@ class AdventureStoryPlanControllerMarkdownTest {
         assertEquals(first, second);
         assertTrue(first.contains("## Stage 1: 저장고"));
         assertTrue(first.contains("- Failure condition: 후퇴한다"));
+        assertTrue(first.contains("- Combat success outcome: 쥐가 도망친다"));
+        assertTrue(first.contains("- Combat failure/fail-forward outcome: 후퇴한다"));
         assertTrue(first.contains("- Source citations: citation-1"));
     }
 
