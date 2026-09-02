@@ -35,6 +35,9 @@ import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
 import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
 import com.dndmaster.adventure.domain.adventure.RetrievalScope;
 import com.dndmaster.adventure.domain.adventure.SemanticVerdict;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.core.type.TypeReference;
 
 public final class AdventureStoryPlanApplicationService {
     private static final Logger LOGGER = LoggerFactory.getLogger(AdventureStoryPlanApplicationService.class);
@@ -47,7 +50,9 @@ public final class AdventureStoryPlanApplicationService {
     private final AdventureStoryPlanStageSourceValidator stageSourceValidator = new AdventureStoryPlanStageSourceValidator();
     private final AdventureStoryPlanCombatValidator combatValidator = new AdventureStoryPlanCombatValidator();
     private final StoryPlanStructuralGuard structuralGuard = new StoryPlanStructuralGuard();
+    private final ObjectMapper projectionMapper = new ObjectMapper();
     private final StoryPlanSemanticConsistencyJudge semanticJudge;
+    private final StoryPlanScopedMerger scopedMerger = new StoryPlanScopedMerger(projectionMapper);
     private final RepairScopeResolver repairScopeResolver = new RepairScopeResolver();
 
     public AdventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions) {
@@ -178,10 +183,17 @@ public final class AdventureStoryPlanApplicationService {
                             List.of("repair returned no full story plan candidate"), rejectedCandidate);
                     candidateForValidation = repaired.serializedCandidate();
                     // Repair gateways return a complete candidate after applying the
-                    // deterministic scope. The gateway already parsed and validated
-                    // these stages; re-parsing a separately serialized copy risks
-                    // losing domain-only evidence details.
-                    stages = repaired.stages();
+                    // deterministic scope, but the provider response remains
+                    // untrusted. Apply the allowlist again in this boundary before
+                    // parsing and validating the merged candidate.
+                    JsonNode mergedCandidate;
+                    try {
+                        mergedCandidate = scopedMerger.merge(rejectedCandidate, repaired.serializedCandidate(), repairScope);
+                    } catch (IllegalArgumentException failure) {
+                        throw new ScopedMergeException(failure);
+                    }
+                    candidateForValidation = mergedCandidate.toString();
+                    stages = readMergedStages(candidateForValidation);
                     repairNext = false;
                 } else {
                     boolean initialGeneration = totalAttempts == 1 && regenerationCount == 0;
@@ -239,6 +251,20 @@ public final class AdventureStoryPlanApplicationService {
                 outlineViolations = List.of(new AdventureStoryPlanProjectionViolation(
                         "REPAIR_SCOPE_UNRESOLVABLE", null, "stages", "", "", Repairability.REGENERATE_REQUIRED,
                         "story plan repair scope could not be resolved"));
+                accumulatedViolations = appendStructuredViolations(accumulatedViolations, outlineViolations);
+            } catch (ScopedMergeException invalidMerge) {
+                LOGGER.warn("story plan scoped repair merge failed message={}",
+                        invalidMerge.getCause().getMessage(), invalidMerge.getCause());
+                outlineViolations = List.of(new AdventureStoryPlanProjectionViolation(
+                        "SCOPED_MERGE_FAILED", null, "stages", "", "", Repairability.REGENERATE_REQUIRED,
+                        "story plan scoped repair merge failed"));
+                accumulatedViolations = appendStructuredViolations(accumulatedViolations, outlineViolations);
+            } catch (RepairedCandidateParseException invalidRepairCandidate) {
+                LOGGER.warn("story plan repaired candidate parse failed message={}",
+                        invalidRepairCandidate.getCause().getMessage(), invalidRepairCandidate.getCause());
+                outlineViolations = List.of(new AdventureStoryPlanProjectionViolation(
+                        "REPAIRED_CANDIDATE_PARSE_FAILED", null, "stages", "", "", Repairability.REGENERATE_REQUIRED,
+                        "repaired story plan candidate could not be parsed"));
                 accumulatedViolations = appendStructuredViolations(accumulatedViolations, outlineViolations);
             } catch (RuntimeException providerFailure) {
                 LOGGER.error("story plan generation failed; no fallback will be persisted providerFailureType={}",
@@ -359,6 +385,23 @@ public final class AdventureStoryPlanApplicationService {
 
     private static final class RepairScopeResolutionException extends RuntimeException {
         private RepairScopeResolutionException(Throwable cause) { super(cause); }
+    }
+
+    private List<AdventureStoryPlanStage> readMergedStages(String serializedCandidate) {
+        try {
+            JsonNode stagesNode = projectionMapper.readTree(serializedCandidate).get("stages");
+            return projectionMapper.readValue(stagesNode.toString(), new TypeReference<List<AdventureStoryPlanStage>>() { });
+        } catch (Exception failure) {
+            throw new RepairedCandidateParseException(failure);
+        }
+    }
+
+    private static final class ScopedMergeException extends RuntimeException {
+        private ScopedMergeException(Throwable cause) { super(cause); }
+    }
+
+    private static final class RepairedCandidateParseException extends RuntimeException {
+        private RepairedCandidateParseException(Throwable cause) { super(cause); }
     }
 
     private static AdventureStoryPlanProjectionViolation semanticViolation(SemanticVerdict verdict) {
