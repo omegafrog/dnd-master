@@ -1,5 +1,6 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
 import type { AdventureApi } from './AdventureApi'
+import type { PlayerRollRequest } from './AdventureApi'
 
 type ChatMessageEntry = { speaker: string; text: string }
 type LocalTurn = { action: ChatMessageEntry; response: ChatMessageEntry[]; expectedVersion: number; committedVersion?: number }
@@ -11,6 +12,8 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
   const [agentVersion, setAgentVersion] = useState(expectedVersion ?? 0)
   const [activeControlMode, setActiveControlMode] = useState(controlMode)
   const [projectionStatus, setProjectionStatus] = useState<'idle' | 'processing' | 'failed'>('idle')
+  const [rollRequest, setRollRequest] = useState<PlayerRollRequest | null>(null)
+  const [rollValue, setRollValue] = useState('')
   const [conversationHydrated, setConversationHydrated] = useState(() => !api.readConversation)
   const hydrationPending = Boolean(api.readConversation) && !conversationHydrated
   const projectionVersion = useRef<number | null>(expectedVersion ?? (api.readConversation ? null : 0))
@@ -36,7 +39,8 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
       setConversationHydrated(true)
     }).catch(() => {
       if (cancelled) return
-      setConversationHydrated(false)
+      projectionVersion.current = knownVersion
+      setConversationHydrated(true)
       setNotice('대화 기록을 불러오지 못했습니다.')
     })
     return () => { cancelled = true }
@@ -140,11 +144,16 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
     setMessages(current => [...current, action])
     try {
       const response = await api.sendMessage(adventureId, text, command, currentVersion)
-      const responseEntries = responseMessages(response.narration, '')
+      if (response.rollRequest) {
+        setRollRequest(response.rollRequest)
+        setProjectionStatus('idle')
+        return
+      }
+      const responseEntries = responseMessages(response.narration, (response as AdventureMessageResponse & { judgment?: string }).judgment ?? '')
       localTurn.current = { action, response: responseEntries, expectedVersion: localTurn.current?.expectedVersion ?? projectionVersion.current, committedVersion: response.version }
       projectionVersion.current = Math.max(projectionVersion.current ?? 0, response.version)
       committedVersion.current = Math.max(committedVersion.current, response.version)
-      setProjectionStatus('idle')
+      if (!api.subscribeEvents) setProjectionStatus('idle')
       setMessages(current => [...current, ...responseEntries])
       onTurnCommitted?.()
     } catch {
@@ -153,6 +162,28 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
     } finally {
       setSending(false)
     }
+  }
+
+  async function submitRoll(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    if (!rollRequest || !api.submitPlayerRoll) return
+    const result = Number(rollValue)
+    if (!Number.isInteger(result) || result < 1 || result > 20) {
+      setNotice('d20 결과는 1에서 20 사이여야 합니다.')
+      return
+    }
+    setSending(true); setProjectionStatus('processing'); setNotice('')
+    try {
+      const response = await api.submitPlayerRoll(adventureId, rollRequest.pendingTurnId, result, rollRequest.expectedVersion)
+      setRollRequest(null); setRollValue('')
+      const responseEntries = responseMessages(response.narration, '')
+      setMessages(current => [...current, ...responseEntries])
+      projectionVersion.current = Math.max(projectionVersion.current ?? 0, response.version)
+      committedVersion.current = Math.max(committedVersion.current, response.version)
+      setProjectionStatus('idle'); onTurnCommitted?.()
+    } catch {
+      setProjectionStatus('failed'); setNotice('주사위 결과를 제출하지 못했습니다.')
+    } finally { setSending(false) }
   }
 
   return (
@@ -169,9 +200,14 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
         ))}
       </ol>
       <p role="alert">{notice}</p>
-      <form onSubmit={send} aria-disabled={hydrationPending || projectionVersion.current == null || activeControlMode === 'AGENT'} aria-busy={hydrationPending}>
-        <label>무엇을 하시겠어요?<input name="message" required disabled={hydrationPending || projectionVersion.current == null || sending || activeControlMode === 'AGENT'} /></label>
-        <button type="submit" disabled={hydrationPending || projectionVersion.current == null || sending || activeControlMode === 'AGENT'}>행동 보내기</button>
+      {rollRequest && <form onSubmit={submitRoll} aria-label="주사위 굴림 요청">
+        <p><strong>{rollRequest.label}</strong>: {rollRequest.prompt}</p>
+        <label>d20 결과<input type="number" min="1" max="20" step="1" value={rollValue} onChange={event => setRollValue(event.target.value)} disabled={sending} required /></label>
+        <button type="submit" disabled={sending}>결과 제출</button>
+      </form>}
+      <form onSubmit={send} aria-disabled={hydrationPending || projectionVersion.current == null || activeControlMode === 'AGENT' || rollRequest !== null} aria-busy={hydrationPending}>
+        <label>무엇을 하시겠어요?<input name="message" required disabled={hydrationPending || projectionVersion.current == null || sending || activeControlMode === 'AGENT' || rollRequest !== null} /></label>
+        <button type="submit" disabled={hydrationPending || projectionVersion.current == null || sending || activeControlMode === 'AGENT' || rollRequest !== null}>행동 보내기</button>
       </form>
     </section>
   )

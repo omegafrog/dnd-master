@@ -270,6 +270,9 @@ public class RuntimeTurnApplicationService {
             if (existing.lifecycle() == RuntimeTurnLifecycle.PRESENTATION_FAILED_RETRYABLE) {
                 throw new IllegalStateException("runtime turn presentation is not committed; retry presentation explicitly");
             }
+            if (existing.lifecycle() == RuntimeTurnLifecycle.PENDING_ROLL) {
+                throw new IllegalStateException("PENDING_ROLL_GATE");
+            }
             if (!existing.lifecycle().isCommitted()) {
                 RuntimeTurn resumed = resumeCommittedTurn(command, adventure, existing);
                 return new RuntimeTurnResult(resumed, resumed.context(), resumed.conversation(), resumed.version());
@@ -279,6 +282,10 @@ public class RuntimeTurnApplicationService {
         }
         if (command.expectedVersion() >= 0 && adventure.version() != command.expectedVersion()) {
             throw new IllegalStateException("ADVENTURE_VERSION_CONFLICT expected=" + command.expectedVersion() + " actual=" + adventure.version());
+        }
+        if (runtimeTurnRepository.findAllByAdventureId(command.adventureId()).stream()
+                .anyMatch(turn -> turn.lifecycle() == RuntimeTurnLifecycle.PENDING_ROLL)) {
+            throw new IllegalStateException("PENDING_ROLL_GATE");
         }
         // Optimistic adventure-version CAS is the concurrency boundary. Do not
         // acquire a second persistent turn lock around the long provider flow.
@@ -344,6 +351,22 @@ public class RuntimeTurnApplicationService {
         resolvedPlan = captureApprovedPromptLineage(resolvedPlan);
         final RuntimePlan planned = plan;
         final ResolvedTurnPlan resolvedForStage = resolvedPlan;
+        CheckSelection selectedCheck = checkSelectionPort.select(triggerDetectionPort.detect(
+                new TriggerInput(command.action(), command.gmOnly()), scenarioPackage));
+        if (!command.gmOnly() && selectedCheck.decision() == CheckSelection.Decision.PLAYER_ROLL) {
+            RuntimeTurn pending = new RuntimeTurn(command.turnId(), command.commandId(), adventure.id(), adventure.sessionId().value(),
+                    binding.scenarioPackageId(), binding.bindingVersion(), command.action(), evidencePack, plan,
+                    binding.activeSourceContext(), adventure.currentContext(), adventure.conversation(), adventure.version(),
+                    plan.citedEvidence().stream().map(evidence -> evidence.evidenceType() + ":" + evidence.locator()).toList(),
+                    plan.warnings(), false, true, origin(command), command.advancesState(), command.turnCharacterSheetId(),
+                    command.turnIndex() < 0 ? null : command.turnIndex(), command.expectedVersion(), command.gmOnly(), command.agentOrigin(),
+                    RuntimeTurnLifecycle.PENDING_ROLL, ResolvedTurnPlan.pending(TurnPlan.from(plan), settledOutcomes));
+            runtimeTurnRepository.save(pending);
+            PlayerRollRequest request = new PlayerRollRequest(pending.turnId(), selectedCheck.label(), "d20",
+                    "d20을 굴려 결과를 제출하세요.", adventure.version());
+            PlayerVisibleTurn visible = new PlayerVisibleTurn("", plan.scene(), List.of(), null, narrativeContext, request);
+            return new RuntimeTurnResult(pending, adventure.currentContext(), adventure.conversation(), adventure.version(), visible);
+        }
         PlayerVisibleTurn visibleTurn = publicProjection(command, adventure, scenarioPackage, narrativeState, plan);
         RuntimeTurn resolvedTurn = new RuntimeTurn(command.turnId(), command.commandId(), adventure.id(), adventure.sessionId().value(),
                 binding.scenarioPackageId(), binding.bindingVersion(), command.action(), evidencePack, plan,
@@ -599,6 +622,31 @@ public class RuntimeTurnApplicationService {
         return new IllegalStateException("narrative verification failed after bounded rewrite: " + codes);
     }
 
+    public RuntimeTurnResult submitPlayerRoll(SubmitPlayerRollCommand command) {
+        Objects.requireNonNull(command, "command must not be null");
+        if (command.result() < 1 || command.result() > 20) throw new IllegalArgumentException("d20 result must be between 1 and 20");
+        RuntimeTurn pending = runtimeTurnRepository.findByTurnId(command.pendingTurnId())
+                .orElseThrow(() -> new IllegalStateException("pending runtime turn not found"));
+        if (!pending.adventureId().equals(command.adventureId()) || pending.origin() != RuntimeTurnOrigin.PLAYER) {
+            throw new IllegalStateException("pending turn does not belong to adventure");
+        }
+        Adventure adventure = adventureRepository.findById(command.adventureId())
+                .orElseThrow(() -> new IllegalStateException("adventure not found"));
+        if (!adventure.ownerPlayerId().equals(command.ownerPlayerId())) throw new IllegalStateException("pending turn owner mismatch");
+        if (pending.lifecycle() != RuntimeTurnLifecycle.PENDING_ROLL) throw new IllegalStateException("pending roll is no longer open");
+        if (adventure.version() != command.expectedVersion()) throw new IllegalStateException("ADVENTURE_VERSION_CONFLICT");
+        List<String> outcomes = new ArrayList<>(pending.resolvedArtifact().outcomes());
+        outcomes.add("PLAYER_ROLL=" + command.result());
+        RuntimeTurn resolving = new RuntimeTurn(pending.turnId(), pending.commandId(), pending.adventureId(), pending.sessionId(),
+                pending.scenarioPackageId(), pending.bindingVersion(), pending.action(), pending.evidencePack(), pending.plan(),
+                pending.activeSourceContext(), pending.context(), pending.conversation(), pending.version(), pending.citations(), pending.warnings(),
+                false, true, RuntimeTurnOrigin.PLAYER, pending.advancesState(), pending.turnCharacterSheetId(), pending.turnIndex(),
+                pending.expectedVersion(), pending.gmOnly(), pending.agentOrigin(), RuntimeTurnLifecycle.RESOLVING,
+                new ResolvedTurnPlan(pending.resolvedArtifact().plan(), outcomes, RuntimeTurnLifecycle.RESOLVED_UNCOMMITTED));
+        runtimeTurnRepository.save(resolving);
+        return retryPresentation(resolving.commandId());
+    }
+
     @Transactional
     public RuntimeTurnResult retryPresentation(UUID commandId) {
         RuntimeTurn turn = runtimeTurnRepository.findByCommandId(commandId)
@@ -616,6 +664,17 @@ public class RuntimeTurnApplicationService {
         PlayerVisibleTurn visibleTurn = new PlayerVisibleTurn(turn.plan().narration(), turn.plan().scene(),
                 narrativeContext.worldFacts().stream().map(com.dndmaster.adventure.domain.runtime.narrative.WorldFact::value).toList(),
                 deltaFor(state, turn), narrativeContext);
+        Integer playerRoll = turn.resolvedArtifact().outcomes().stream()
+                .filter(value -> value.startsWith("PLAYER_ROLL="))
+                .map(value -> Integer.valueOf(value.substring("PLAYER_ROLL=".length())))
+                .findFirst().orElse(null);
+        if (playerRoll != null) {
+            ScenarioPackage scenario = scenarioPackageRepository.findById(turn.scenarioPackageId()).orElseThrow();
+            CheckSelection selection = checkSelectionPort.select(triggerDetectionPort.detect(new TriggerInput(turn.action(), false), scenario));
+            ResolutionResult resolution = resolutionPort.resolve(selection, playerRoll);
+            visibleTurn = revealFilter.reveal(state, resolution, adventure.ownerPlayerId().value().toString(),
+                    adventure.version(), turn.plan().scene(), turn.plan().narration());
+        }
         WriterProse prose = writePresentationWithRetry(turn, turn.resolvedArtifact(), visibleTurn, state, narrativeContext,
                 turn.evidencePack(), exemplars);
         try {

@@ -210,6 +210,15 @@ public class AdventureController {
         return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
     }
 
+    @PostMapping("/api/v1/adventures/{adventureId}/turns/{pendingTurnId}/roll")
+    RuntimeTurnResponse submitPlayerRoll(@PathVariable UUID adventureId, @PathVariable UUID pendingTurnId,
+            @RequestBody PlayerRollRequest request) {
+        RuntimeTurnResult result = runtimeTurnService.submitPlayerRoll(new com.dndmaster.adventure.application.runtime.SubmitPlayerRollCommand(
+                new AdventureId(adventureId), new OwnerPlayerId(playerResolver.playerId()), pendingTurnId,
+                request.result(), request.expectedVersion()));
+        return RuntimeTurnResponse.from(result);
+    }
+
     @PostMapping("/api/v1/adventures/{adventureId}/rule-inquiries")
     RuleInquiryResponse answerRuleInquiry(
             @PathVariable UUID adventureId, @RequestBody RuleInquiryRequest request) {
@@ -365,6 +374,8 @@ public class AdventureController {
 
     public record GmTurnRequest(UUID turnId, GmInputRequest input) {}
 
+    public record PlayerRollRequest(int result, long expectedVersion) {}
+
     public record GmInputRequest(String type, String text, UUID mapId, Long mapVersion, String action, String question) {
         com.dndmaster.adventure.domain.runtime.GmInput toDomain() {
             if (type == null) throw new IllegalArgumentException("input type is required");
@@ -386,7 +397,8 @@ public class AdventureController {
             String narration,
             String currentScene,
             List<String> visibleFacts,
-            long version) {
+            long version,
+            com.dndmaster.adventure.application.runtime.PlayerRollRequest rollRequest) {
         static RuntimeTurnResponse from(RuntimeTurnResult result) {
             return new RuntimeTurnResponse(
                     result.turn().turnId(),
@@ -396,7 +408,7 @@ public class AdventureController {
                     result.turn().plan().narration(),
                     result.context().currentScene(),
                     result.visibleTurn() == null ? List.of() : result.visibleTurn().visibleFacts(),
-                    result.version());
+                    result.version(), result.visibleTurn() == null ? null : result.visibleTurn().rollRequest());
         }
     }
     public record RuleInquiryRequest(UUID inquiryId, UUID ruleSetId, UUID playerId, String situation) {}

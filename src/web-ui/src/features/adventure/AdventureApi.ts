@@ -8,6 +8,7 @@ export interface AdventureApi {
     expectedVersion?: number,
   ): Promise<AdventureMessageResponse>
   runAgentTurn?(adventureId: string, expectedVersion: number): Promise<AdventureMessageResponse>
+  submitPlayerRoll?(adventureId: string, pendingTurnId: string, result: number, expectedVersion: number): Promise<AdventureMessageResponse>
 }
 
 export type AdventureSessionEvent = { version: number; type: string; payload: string }
@@ -22,7 +23,10 @@ export interface AdventureMessageResponse {
   version: number
   nextTurnIndex?: number
   nextControlMode?: 'DIRECT' | 'AGENT'
+  rollRequest?: PlayerRollRequest | null
 }
+
+export type PlayerRollRequest = { pendingTurnId: string; label: string; diceExpression: string; prompt: string; expectedVersion: number }
 
 export class HttpAdventureApi implements AdventureApi {
   private readonly getToken: () => string
@@ -99,6 +103,16 @@ export class HttpAdventureApi implements AdventureApi {
       body: JSON.stringify({ playerId: this.getPlayerId(), expectedVersion }),
     })
     if (!response.ok) throw new Error('에이전트 턴을 실행하지 못했습니다.')
+    return response.json() as Promise<AdventureMessageResponse>
+  }
+
+  async submitPlayerRoll(adventureId: string, pendingTurnId: string, result: number, expectedVersion: number): Promise<AdventureMessageResponse> {
+    const response = await fetch(`/api/v1/adventures/${adventureId}/turns/${pendingTurnId}/roll`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.getToken()}` },
+      body: JSON.stringify({ result, expectedVersion }),
+    })
+    if (!response.ok) throw new Error('주사위 결과를 제출하지 못했습니다.')
     return response.json() as Promise<AdventureMessageResponse>
   }
 }

@@ -13,7 +13,7 @@ public record ResolvedTurnPlan(TurnPlan plan, List<String> outcomes, RuntimeTurn
         outcomes = List.copyOf(Objects.requireNonNull(outcomes, "outcomes must not be null"));
         lifecycle = lifecycle == null ? RuntimeTurnLifecycle.RESOLVED_UNCOMMITTED : lifecycle;
         promptLineages = Map.copyOf(promptLineages == null ? Map.of() : promptLineages);
-        if (lifecycle != RuntimeTurnLifecycle.RESOLVED_UNCOMMITTED && lifecycle != RuntimeTurnLifecycle.PRESENTED) {
+        if (lifecycle != RuntimeTurnLifecycle.PENDING_ROLL && lifecycle != RuntimeTurnLifecycle.RESOLVED_UNCOMMITTED && lifecycle != RuntimeTurnLifecycle.PRESENTED) {
             throw new IllegalArgumentException("resolved artifact must be uncommitted or presented");
         }
     }
@@ -30,6 +30,10 @@ public record ResolvedTurnPlan(TurnPlan plan, List<String> outcomes, RuntimeTurn
 
     public static ResolvedTurnPlan of(TurnPlan plan, List<String> outcomes) {
         return new ResolvedTurnPlan(plan, outcomes, RuntimeTurnLifecycle.RESOLVED_UNCOMMITTED, null, Map.of());
+    }
+
+    public static ResolvedTurnPlan pending(TurnPlan plan, List<String> outcomes) {
+        return new ResolvedTurnPlan(plan, outcomes, RuntimeTurnLifecycle.PENDING_ROLL, null, Map.of());
     }
 
     public RuntimeTurnLifecycle lifecycle() { return lifecycle; }
