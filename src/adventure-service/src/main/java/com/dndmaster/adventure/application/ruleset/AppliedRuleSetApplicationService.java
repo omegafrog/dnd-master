@@ -26,11 +26,11 @@ public final class AppliedRuleSetApplicationService {
         Objects.requireNonNull(command, "command must not be null");
         var existing = repository.findById(Objects.requireNonNull(ruleSetId, "rule set id must not be null"));
         if (existing.isPresent()) {
-            AppliedRuleSet value = existing.get();
-            if (!value.ownerPlayerId().equals(command.ownerPlayerId()) || !value.adventureId().equals(command.adventureId())) {
-                throw new IllegalArgumentException("rule set id is already bound to another adventure");
-            }
-            return value;
+            // Rule sets are shared reference data.  Reusing an existing id must
+            // not make it exclusive to the adventure that first applied it.
+            // Keep the original immutable snapshot and let normal authorization
+            // checks govern who may use it.
+            return existing.get();
         }
         var references = command.rulebookIds().stream()
                 .map(rulebookId -> {

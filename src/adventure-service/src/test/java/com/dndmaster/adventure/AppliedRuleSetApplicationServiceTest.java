@@ -64,6 +64,23 @@ class AppliedRuleSetApplicationServiceTest {
     }
 
     @Test
+    void allowsTheSameRuleSetToBeAppliedToMultipleAdventures() {
+        OwnerPlayerId owner = owner();
+        RulebookId rulebook = rulebook();
+        InMemoryRuleSetRepository repository = new InMemoryRuleSetRepository();
+        AppliedRuleSetApplicationService service = service(repository, new OwnershipMock(owner, Set.of(rulebook)));
+        RuleSetId sharedRuleSetId = RuleSetId.generate();
+
+        AppliedRuleSet first = service.saveRuleSet(
+                sharedRuleSetId, command(owner, List.of(rulebook)));
+        AppliedRuleSet second = service.saveRuleSet(
+                sharedRuleSetId, command(owner, List.of(rulebook)));
+
+        assertEquals(first.id(), second.id());
+        assertEquals(first, second);
+    }
+
+    @Test
     void rejectsRuleApplicationOutsideSelectedRulebookOrEdition() {
         OwnerPlayerId owner = owner();
         RulebookId selected = rulebook();
