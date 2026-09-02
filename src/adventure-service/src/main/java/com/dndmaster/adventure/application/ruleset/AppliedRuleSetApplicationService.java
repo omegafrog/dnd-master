@@ -33,12 +33,10 @@ public final class AppliedRuleSetApplicationService {
             return existing.get();
         }
         var references = command.rulebookIds().stream()
-                .map(rulebookId -> new RegisteredRulebookReference(rulebookId, command.ownerPlayerId()))
+                .map(rulebookId -> new RegisteredRulebookReference(rulebookId))
                 .toList();
         var ruleSet = new AppliedRuleSet(
                 ruleSetId,
-                command.adventureId(),
-                command.ownerPlayerId(),
                 command.edition(),
                 new SelectedRulebooks(references));
         repository.save(ruleSet);
