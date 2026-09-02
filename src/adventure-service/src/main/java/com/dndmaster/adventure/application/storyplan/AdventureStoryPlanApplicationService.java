@@ -567,6 +567,11 @@ public final class AdventureStoryPlanApplicationService {
                     "STRUCTURAL_CONTRACT_VIOLATION", null, "stages", "", "", Repairability.REGENERATE_REQUIRED, structural));
         }
         violations.addAll(validateMaps(stages, request.maps()));
+        violations.addAll(stageSourceValidator.validateCitationCoverage(stages, request.citations()).stream()
+                .map(message -> new AdventureStoryPlanProjectionViolation(
+                        "CITATION_COVERAGE_MISSING", null, "stages[*].evidence", "", "authoritative source evidence",
+                        Repairability.SOURCE_EVIDENCE_INSUFFICIENT, sanitizeValidationMessage(message, "citation coverage is incomplete")))
+                .toList());
         violations.addAll(validateStageSources(stages, request.citations(), scenarioPackage));
         for (AdventureStoryPlanStage stage : stages) {
             violations.addAll(combatValidator.validate(stage, request.citations()));

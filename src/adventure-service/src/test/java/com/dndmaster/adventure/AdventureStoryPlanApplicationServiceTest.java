@@ -573,7 +573,7 @@ class AdventureStoryPlanApplicationServiceTest {
         assertTrue(violations.stream().anyMatch(item -> item.code().equals("MISSING_STAGE_EVIDENCE")
                 && item.fieldPath().equals("stages[2].evidence")));
         assertTrue(violations.stream().anyMatch(item -> item.code().equals("CITATION_COVERAGE_MISSING")));
-        assertTrue(violations.stream().anyMatch(item -> item.code().equals("GRAPH_VALIDATION_FAILED")));
+        assertTrue(violations.stream().noneMatch(item -> item.code().equals("GRAPH_VALIDATION_FAILED")));
     }
 
     @Test

@@ -72,10 +72,12 @@ public final class AdventureStoryPlanGenerationJobService implements AutoCloseab
         job.update(Status.RUNNING, 10, "요청 검증", null);
         try {
             AdventureStoryPlan plan = plans.generate(sessionId, owner, configuration, (progress, stage) -> job.update(Status.RUNNING, progress, stage, null));
-            job.update(plan.status().name().equals("READY") ? Status.COMPLETE : Status.FAILED, 100,
-                    plan.status().name().equals("READY") ? "플레이 준비 완료" : "계획 검증 실패", plan.failureReason());
+            boolean ready = plan.status() == com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStatus.READY;
+            boolean blocked = plan.status() == com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStatus.BLOCKED;
+            job.update(ready ? Status.COMPLETE : blocked ? Status.BLOCKED : Status.FAILED, 100,
+                    ready ? "플레이 준비 완료" : blocked ? "계획 검증 차단" : "계획 검증 실패", safeMessage(plan.failureReason()));
         } catch (Throwable failure) {
-            job.update(Status.FAILED, 100, "계획 생성 실패", rootMessage(failure));
+            job.update(Status.FAILED, 100, "계획 생성 실패", safeMessage(rootMessage(failure)));
         } finally {
             activeBySession.remove(sessionId.value(), job.jobId);
         }
@@ -87,9 +89,15 @@ public final class AdventureStoryPlanGenerationJobService implements AutoCloseab
         return root.getMessage() == null || root.getMessage().isBlank() ? root.getClass().getSimpleName() : root.getMessage();
     }
 
+    private static String safeMessage(String message) {
+        if (message == null || message.isBlank()) return null;
+        String normalized = message.replaceAll("[\\r\\n\\t]+", " ").trim();
+        return normalized.length() <= 256 ? normalized : normalized.substring(0, 256) + "...";
+    }
+
     @Override public void close() { watchdog.shutdownNow(); executor.close(); }
 
-    public enum Status { QUEUED, RUNNING, COMPLETE, FAILED }
+    public enum Status { QUEUED, RUNNING, COMPLETE, BLOCKED, FAILED }
 
     public record JobView(UUID jobId, UUID sessionId, Status status, int progress, String stage, String message,
                           Instant updatedAt, Phase phase) {
@@ -99,11 +107,12 @@ public final class AdventureStoryPlanGenerationJobService implements AutoCloseab
     }
 
     public enum Phase {
-        QUEUED, VALIDATING, GENERATING_STORY_PLAN, REPAIRING_STORY_PLAN, COMPLETE, FAILED;
+        QUEUED, VALIDATING, GENERATING_STORY_PLAN, REPAIRING_STORY_PLAN, COMPLETE, BLOCKED, FAILED;
 
         public static Phase from(String stage) {
             if (stage == null) return VALIDATING;
             if (stage.contains("완료")) return COMPLETE;
+            if (stage.contains("차단")) return BLOCKED;
             if (stage.contains("재생성") || stage.contains("재시도")) return REPAIRING_STORY_PLAN;
             if (stage.contains("실패")) return FAILED;
             if (stage.contains("생성") || stage.contains("개요")) return GENERATING_STORY_PLAN;
@@ -123,7 +132,7 @@ public final class AdventureStoryPlanGenerationJobService implements AutoCloseab
         private volatile Future<?> task;
         private Job(UUID jobId, UUID sessionId, UUID ownerId) { this.jobId = jobId; this.sessionId = sessionId; this.ownerId = ownerId.toString(); }
         private synchronized void update(Status status, int progress, String stage, String message) {
-            if (this.status == Status.COMPLETE || this.status == Status.FAILED) return;
+            if (this.status == Status.COMPLETE || this.status == Status.BLOCKED || this.status == Status.FAILED) return;
             this.status = status;
             this.progress = progress;
             this.stage = stage;
@@ -131,7 +140,7 @@ public final class AdventureStoryPlanGenerationJobService implements AutoCloseab
             this.updatedAt = Instant.now();
         }
         private synchronized boolean failIfRunning(String reason) {
-            if (status == Status.COMPLETE || status == Status.FAILED) return false;
+            if (status == Status.COMPLETE || status == Status.BLOCKED || status == Status.FAILED) return false;
             update(Status.FAILED, 100, "계획 생성 시간 초과", reason);
             return true;
         }
