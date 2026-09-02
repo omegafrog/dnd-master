@@ -46,9 +46,13 @@ final class AdventureStoryPlanProjectionCandidateConsistency {
         ArrayNode serializedStages = root.putArray("stages");
         stages.forEach(stage -> {
             ObjectNode serialized = canonicalDomain(stage);
-            int evidenceCount = serialized.remove("evidenceCount").asInt(0);
+            serialized.remove("evidenceCount");
+            // Evidence is part of the domain projection, not just metadata. Repair
+            // candidates are parsed again by the application service, so replacing
+            // citations with empty placeholders makes an otherwise valid repair
+            // impossible to deserialize.
             ArrayNode evidence = serialized.putArray("evidence");
-            for (int index = 0; index < evidenceCount; index++) evidence.addObject();
+            stage.evidence().forEach(item -> evidence.add(MAPPER.valueToTree(item)));
             serializedStages.add(serialized);
         });
         return root.toString();
