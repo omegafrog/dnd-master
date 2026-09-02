@@ -47,6 +47,13 @@
 - **Progressive Scenario Compilation**: Source Span을 정본으로 유지하면서 안전하게 해석할 수 있는 판정과 굴림만 Resolution Unit으로 투영하는 방식. 구조화하지 못한 내용은 버리거나 추측하지 않고 원문 조회로 강등한다.
 - **Resolution Unit**: 시나리오 원문에 명시된 판정 또는 굴림 절차를 실행 가능한 형태로 투영한 단위. 능력치·기술 판정, 내성, 공격, 피해, 회복, 대항, 우선권, 충전, 랜덤 테이블, 특수 굴림, 수동 수치 기준을 포함한다. 원문에 없는 절차나 결과는 생성하지 않는다.
 - **GM Turn**: Solo Player의 텍스트 입력 또는 확정된 맵 상호작용 하나를 AI Game Master가 해석하고, 판정·서술·상태 변화·다음 상황을 하나의 원자적 결과로 확정하는 진행 단위. 게임 시스템의 전투 턴이나 시간 단위와 구분한다.
+- **Roll Ownership**: 플레이어 행동 요청에서 선택된 판정은 Solo Player가 굴림을 제출한다. 세계/이벤트 트리거 판정은 시스템이 해결한다. 판정 소유권이 애매하면 Solo Player가 굴림을 제출한다.
+- **Player-visible Outcome**: 플레이어에게는 제출한 주사위 값과 세계에서 관찰 가능한 행동 결과만 보인다. 내부 성공/실패 판정, DC, 비교값, 미발견 정보는 보이지 않는다.
+- **Pending Roll Gate**: Solo Player 굴림 요청이 생성되면 제출 전에는 해당 GM Turn을 해결하거나 다음 진행으로 넘어갈 수 없다. 취소해도 이 게이트를 우회하지 않는다.
+- **Player Roll Submission**: Solo Player는 UI 또는 물리 주사위 d20 결과를 GM Runtime에 제출한다. GM Runtime은 `pendingTurnId`, 턴 소유권, d20 범위, 중복 제출을 검증한 뒤 Resolution에 사용한다.
+- **Runtime Reveal Pipeline**: Trigger Detection, Check Selection, Resolution, Reveal, Narration은 `adventure-service` Adventure Runtime 내부의 동기 순차 capability다. AI Game Master는 각 단계의 후보를 만들 수 있지만, Runtime만 검증·상태 저장·공개를 확정한다.
+- **Conditional Check Pipeline**: 모든 GM Turn은 기존 Runtime 흐름을 유지한다. Trigger/Check Selection 결과가 `NO_CHECK`면 기존 명령 해결로 이어지고, 판정이 필요할 때만 Resolution을 끼운다. Narration 실패와 Runtime Command Saga 복구는 판정 pipeline이 아닌 기존 턴 책임이다.
+- **Reveal State Ownership**: Reveal Filter의 정본 출력은 새 Player Knowledge 저장소가 아닌 기존 세션 `NarrativeState`의 `revealedFacts`와 `CharacterKnowledge`다. Writer에는 이 공개 projection만 전달한다.
 - **Meaningful Progress**: GM Turn이 플레이어 의도를 해결하면서 세계 상태 변경, 정보 공개, 결과를 수반한 행동 실패, 구체적 결정 요구, 진행 달성 중 하나 이상을 만든 상태. 어느 것도 없으면 `NO_MEANINGFUL_PROGRESS`다.
 - **Tactical Map**: Scenario Bundle에서 감지되어 Adventure Story Plan의 장면·장소·진입 조건에 연결되는 격자형 플레이 공간. 탐험, 잠입, 추격, 전투에 사용한다.
 - **Map Interaction Candidate**: Solo Player가 토큰 드래그, 문·오브젝트 클릭, 대상 또는 위치 선택을 완료했지만 확인 팝오버에서 아직 확정하지 않은 맵 행동. 확인 전에는 모험 상태를 바꾸지 않는다.
