@@ -31,10 +31,18 @@ public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort 
         List<RuntimePlan> plans = new ArrayList<>();
         boolean decomposed = legacy instanceof GmAgentRuntimePlanningAdapter;
         for (int i = 0; i < count; i++) {
-            plans.add(decomposed
-                    ? ((GmAgentRuntimePlanningAdapter) legacy).planWithoutTools(request)
-                    : legacy.plan(request));
+            try {
+                plans.add(decomposed
+                        ? ((GmAgentRuntimePlanningAdapter) legacy).planWithoutTools(request)
+                        : legacy.plan(request));
+            } catch (IllegalStateException invalidCandidate) {
+                // Candidate generation is best-effort. A single model response
+                // that fails the final safety/grounding gate must not discard
+                // earlier valid candidates from the same bounded selection.
+                if (!decomposed || !isCandidateValidationFailure(invalidCandidate)) throw invalidCandidate;
+            }
         }
+        if (plans.isEmpty()) throw new IllegalStateException("no valid turn plan candidates");
         Set<String> knownFacts = request.narrativeContext() == null
                 ? Set.of() : request.narrativeContext().factsKnownBy();
         Set<String> allFacts = request.narrativeContext() == null ? Set.of()
@@ -87,5 +95,10 @@ public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort 
     private static boolean hasWarning(RuntimePlan plan, String... markers) {
         return plan.warnings().stream().filter(java.util.Objects::nonNull).map(value -> value.toLowerCase(java.util.Locale.ROOT))
                 .anyMatch(warning -> java.util.Arrays.stream(markers).anyMatch(warning::contains));
+    }
+
+    private static boolean isCandidateValidationFailure(IllegalStateException failure) {
+        String message = failure.getMessage();
+        return message != null && message.startsWith("GM final validation failed:");
     }
 }

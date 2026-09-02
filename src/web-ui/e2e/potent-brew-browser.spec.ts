@@ -279,6 +279,10 @@ test('continues the prepared adventure for five browser conversation turns', asy
     }).not.toBe('')
     await expect(conversation.getByRole('status')).not.toContainText(/턴 처리 실패|실패|오류|error/i)
     await expect(conversation.getByRole('alert')).not.toContainText(/실패|오류|error/i)
+    // A prior SSE commit can arrive while the next request is being prepared.
+    // Do not treat that event as the completion of this player action: the
+    // direct-input state is the authoritative browser-visible completion.
+    await expect(conversation.getByRole('status')).toContainText(/직접 플레이 입력 대기 중/, { timeout: 180_000 })
   }
 
   await expect.poll(() => conversation.locator('li.adventure-chat-message.gm').count()).toBeGreaterThanOrEqual(initialGmCount + turns.length)

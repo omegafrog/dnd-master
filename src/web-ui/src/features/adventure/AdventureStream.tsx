@@ -15,6 +15,7 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
   const [rollRequest, setRollRequest] = useState<PlayerRollRequest | null>(null)
   const [rollValue, setRollValue] = useState('')
   const [conversationHydrated, setConversationHydrated] = useState(() => !api.readConversation)
+  const [eventSubscriptionReady, setEventSubscriptionReady] = useState(() => !api.readConversation)
   const hydrationPending = Boolean(api.readConversation) && !conversationHydrated
   const projectionVersion = useRef<number | null>(expectedVersion ?? (api.readConversation ? null : 0))
   const committedVersion = useRef(-1)
@@ -22,9 +23,11 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
   useEffect(() => {
     if (!api.readConversation) {
       setConversationHydrated(true)
+      setEventSubscriptionReady(true)
       return
     }
     setConversationHydrated(false)
+    setEventSubscriptionReady(false)
     let cancelled = false
     const knownVersion = projectionVersion.current ?? 0
     void api.readConversation(adventureId).then(response => {
@@ -37,10 +40,12 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
         localTurn.current,
       ))
       setConversationHydrated(true)
+      setEventSubscriptionReady(true)
     }).catch(() => {
       if (cancelled) return
       projectionVersion.current = knownVersion
       setConversationHydrated(true)
+      setEventSubscriptionReady(true)
       setNotice('대화 기록을 불러오지 못했습니다.')
     })
     return () => { cancelled = true }
@@ -52,7 +57,7 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
   const historyMessages = messages
 
   useEffect(() => {
-    if (!api.subscribeEvents) return
+    if (!api.subscribeEvents || !eventSubscriptionReady) return
     if (projectionVersion.current == null) return
     const subscribedVersion = projectionVersion.current
     return api.subscribeEvents(adventureId, subscribedVersion, event => {
@@ -87,7 +92,7 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
         setConversationHydrated(true)
       }).catch(() => undefined)
     })
-  }, [adventureId, api])
+  }, [adventureId, api, eventSubscriptionReady])
   const previousControlMode = useRef(controlMode)
 
   useEffect(() => {
@@ -153,7 +158,10 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
       localTurn.current = { action, response: responseEntries, expectedVersion: localTurn.current?.expectedVersion ?? projectionVersion.current, committedVersion: response.version }
       projectionVersion.current = Math.max(projectionVersion.current ?? 0, response.version)
       committedVersion.current = Math.max(committedVersion.current, response.version)
-      if (!api.subscribeEvents) setProjectionStatus('idle')
+      // sendMessage resolves only after the synchronous command endpoint has
+      // committed the turn. SSE may race with, or be missed after, that commit;
+      // it must not keep the direct-input surface disabled indefinitely.
+      setProjectionStatus('idle')
       setMessages(current => [...current, ...responseEntries])
       onTurnCommitted?.()
     } catch {

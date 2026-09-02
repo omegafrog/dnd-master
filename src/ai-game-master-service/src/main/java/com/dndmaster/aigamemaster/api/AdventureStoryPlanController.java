@@ -188,14 +188,24 @@ public final class AdventureStoryPlanController {
                     .append("- Boss: ").append(stage.boss()).append("\n")
                     .append("- Rewards: ").append(String.join(", ", stage.rewards())).append("\n")
                     .append("- Ending IDs: ").append(String.join(", ", stage.endingIds())).append("\n")
-                    .append("- Combat trigger: ").append(stage.combatSkeleton().startTrigger()).append("\n")
-                    .append("- Combat success outcome: ").append(stage.combatSkeleton().successOutcome()).append("\n")
-                    .append("- Combat failure/fail-forward outcome: ").append(stage.combatSkeleton().failureOutcome()).append("\n")
+                    ;
+            if (completeCombatSkeleton(stage.combatSkeleton())) {
+                markdown.append("- Combat trigger: ").append(stage.combatSkeleton().startTrigger()).append("\n")
+                        .append("- Combat success outcome: ").append(stage.combatSkeleton().successOutcome()).append("\n")
+                        .append("- Combat failure/fail-forward outcome: ").append(stage.combatSkeleton().failureOutcome()).append("\n");
+            }
+            markdown
                     .append("- Source citations: ").append(stage.evidence().stream()
                             .map(CitationProjection::citationKey).sorted().collect(java.util.stream.Collectors.joining(", ")))
                     .append("\n\n");
         }
         return markdown.toString();
+    }
+
+    private static boolean completeCombatSkeleton(CombatSkeletonProjection skeleton) {
+        return skeleton != null && !skeleton.objective().isBlank() && !skeleton.startTrigger().isBlank()
+                && !skeleton.participants().isEmpty() && !skeleton.successOutcome().isBlank()
+                && !skeleton.failureOutcome().isBlank();
     }
 
     private String complete(AgentEndpoint endpoint, String operationId, String prompt, Configuration configuration) throws IOException, InterruptedException {
@@ -328,6 +338,7 @@ public final class AdventureStoryPlanController {
                 Return ONLY one JSON object with exactly these fields: {"status":"PASS"|"FAIL","violations":["..."]}.
                 Use PASS when the plan has a goal, start situation, playable progression, transition or completion conditions, and at least one ending.
                 In this contract, endingIds are the canonical ending references. Do not require a separate ending prose section when valid endingIds and a completion condition are present.
+                This is a Story Plan outline, not a tactical-scene or resolution-plan contract. Do not infer a missing trigger, DC, check, success result, or failure result from narrative prose in goal, conflict, transitionCondition, clearCondition, or failureCondition. Those details are created and validated later by the runtime tactical-scene and resolution pipelines. Only assess a trigger or check when the plan explicitly supplies a complete structured combat skeleton.
                 Check map usage per stage. A stage marked REQUIRED must contain an exact supplied mapDefinitionId, assetId, and assetLocator from the same map entry. OPTIONAL and NONE stages may omit map references. Do not infer that every dungeon or exploration stage requires a map.
                 For triggers and checks, first decide whether a stage actually needs one. A stage without hidden information, a conditional event, or a rules check may have no trigger and still PASS.
                 When a trigger or check is needed, verify only that its activation condition, check (if any), and resulting outcome are usable, and that explicitly evidenced core triggers or checks were not omitted.
@@ -362,6 +373,7 @@ public final class AdventureStoryPlanController {
                 Return ONLY one JSON object with exactly these fields: {"status":"PASS"|"FAIL","violations":["..."]}.
                 Use PASS when the plan has a goal, start situation, playable progression, transition or completion conditions, and at least one ending.
                 In this contract, endingIds are the canonical ending references. Do not require a separate ending prose section when valid endingIds and a completion condition are present.
+                This is a Story Plan outline, not a tactical-scene or resolution-plan contract. Do not infer a missing trigger, DC, check, success result, or failure result from narrative prose in goal, conflict, transitionCondition, clearCondition, or failureCondition. Those details are created and validated later by the runtime tactical-scene and resolution pipelines. Only assess a trigger or check when the plan explicitly supplies a complete structured combat skeleton.
                 Check map usage per stage. A stage marked REQUIRED must have an exact supplied map reference; OPTIONAL and NONE may omit one. Do not require maps solely because a stage is a dungeon or exploration scene.
                 A stage without hidden information, a conditional event, or a rules check may have no trigger and still PASS.
                 When a trigger or check is needed, verify only that its activation condition, check (if any), and outcome are usable.

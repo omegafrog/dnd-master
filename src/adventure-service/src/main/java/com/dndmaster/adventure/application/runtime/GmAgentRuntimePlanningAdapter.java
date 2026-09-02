@@ -151,7 +151,17 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
     }
 
     private GmPlanResult validateCandidate(RuntimePlanningRequest request, GmPlanResult candidate, java.util.Set<String> hiddenData) {
-        return validator.validate(candidate, request.evidencePack(), request.currentContext(), hiddenData);
+        return validator.validate(withRequiredStorybookCitation(candidate, request.evidencePack()),
+                request.evidencePack(), request.currentContext(), hiddenData);
+    }
+
+    private static GmPlanResult withRequiredStorybookCitation(GmPlanResult candidate, EvidencePack evidencePack) {
+        if (candidate.plan().citedEvidence().stream().anyMatch(evidence -> evidence.evidenceType() == RuntimeEvidenceType.STORYBOOK)
+                || evidencePack.storybook().isEmpty()) return candidate;
+        RuntimePlan normalized = candidate.plan().withCitedEvidence(java.util.stream.Stream.concat(
+                candidate.plan().citedEvidence().stream(), evidencePack.storybook().stream().limit(1)).toList());
+        return new GmPlanResult(normalized, candidate.provider(), candidate.model(), candidate.reasoning(),
+                candidate.stateDelta(), candidate.toolCalls());
     }
 
     /** Gate 0-E/F: final semantic validation and RuntimePlan/state-delta assembly. */

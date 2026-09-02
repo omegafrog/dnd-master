@@ -139,6 +139,8 @@ class AdventureStoryPlanControllerMarkdownTest {
         assertTrue(prompt.contains("Every hidden-information trigger, secret, clue reveal, conditional event, or rules check"));
         assertTrue(prompt.contains("explicit failure or fail-forward consequence"));
         assertTrue(prompt.contains("endingIds are the canonical ending references"));
+        assertTrue(prompt.contains("not a tactical-scene or resolution-plan contract"));
+        assertTrue(prompt.contains("Do not infer a missing trigger, DC, check"));
         assertTrue(prompt.contains("heading names, Markdown formatting"));
     }
 
@@ -560,7 +562,9 @@ class AdventureStoryPlanControllerMarkdownTest {
                 "단서를 찾는다", "쥐가 길을 막는다", "쥐를 물리친다", List.of(), List.of("ending-1"),
                 "", "", "", List.of("거대 쥐"), "", "단서를 확보한다", "후퇴한다", List.of("열쇠"),
                 List.of("ending-1"), Map.of(), List.of(new AdventureStoryPlanController.CitationProjection("citation-1")),
-                "REQUIRED", new AdventureStoryPlanController.CombatSkeletonProjection("쥐를 몰아낸다", "저장고 진입", List.of(), "쥐가 도망친다", "후퇴한다", List.of()),
+                "REQUIRED", new AdventureStoryPlanController.CombatSkeletonProjection("쥐를 몰아낸다", "저장고 진입",
+                List.of(new AdventureStoryPlanController.CombatParticipantProjection("rat-1", "ENEMY", "거대 쥐", 1, 1, List.of("citation-1"))),
+                "쥐가 도망친다", "후퇴한다", List.of()),
                 List.of(), "REQUIRED", 2);
 
         String first = AdventureStoryPlanController.renderMarkdown(List.of(stage));
@@ -572,6 +576,22 @@ class AdventureStoryPlanControllerMarkdownTest {
         assertTrue(first.contains("- Combat success outcome: 쥐가 도망친다"));
         assertTrue(first.contains("- Combat failure/fail-forward outcome: 후퇴한다"));
         assertTrue(first.contains("- Source citations: citation-1"));
+    }
+
+    @Test
+    void does_not_render_empty_combat_skeleton_as_an_incomplete_check() {
+        var stage = new AdventureStoryPlanController.Stage(1, "시작", "EVENT", "마을",
+                "조사한다", "위험이 있다", "다음 장소로 간다", List.of(), List.of("ending-1"),
+                "", "", "", List.of(), "", "계속 진행한다", "경계하며 후퇴한다", List.of(),
+                List.of("ending-1"), Map.of(), List.of(), "NONE",
+                new AdventureStoryPlanController.CombatSkeletonProjection("", "", List.of(), "", "", List.of()),
+                List.of(), "NOT_REQUIRED", 2);
+
+        String markdown = AdventureStoryPlanController.renderMarkdown(List.of(stage));
+
+        assertFalse(markdown.contains("- Combat trigger:"));
+        assertFalse(markdown.contains("- Combat success outcome:"));
+        assertFalse(markdown.contains("- Combat failure/fail-forward outcome:"));
     }
 
     private static String deepestMessage(Throwable failure) {

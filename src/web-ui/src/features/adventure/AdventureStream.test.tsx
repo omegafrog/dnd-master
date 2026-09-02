@@ -171,7 +171,7 @@ it('waits for direct input while agent turns progress automatically', () => {
   expect(screen.getByRole('button', { name: '행동 보내기' })).toBeDisabled()
 })
 
-it('shows processing and failed projection states from the event stream', async () => {
+it('returns to direct input after a committed response and still shows a later event failure', async () => {
   let publish: ((event: { version: number; type: string; payload: string }) => void) | undefined
   const api: AdventureApi = {
     subscribeEvents(_id, _version, onEvent) { publish = onEvent; return () => {} },
@@ -181,8 +181,8 @@ it('shows processing and failed projection states from the event stream', async 
   render(<AdventureStream adventureId="a1" api={api} />)
   await user.type(screen.getByLabelText('무엇을 하시겠어요?'), 'Open')
   await user.click(screen.getByRole('button', { name: '행동 보내기' }))
-  expect(screen.getByRole('status')).toHaveTextContent('턴 처리 중')
-  await act(async () => { publish?.({ version: 2, type: 'GM_TURN_FAILED', payload: 'failure' }) })
+  await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('직접 플레이 입력 대기'))
+  await act(async () => { publish?.({ version: 3, type: 'GM_TURN_FAILED', payload: 'failure' }) })
   expect(await screen.findByRole('status')).toHaveTextContent('턴 처리 실패')
 })
 
@@ -223,6 +223,7 @@ it('refreshes persisted conversation when a GM turn commit arrives', async () =>
   }
   render(<AdventureStream adventureId="a1" api={api} />)
   expect(await screen.findByText('초기 프롤로그')).toBeInTheDocument()
+  await waitFor(() => expect(publish).toBeDefined())
 
   await act(async () => { publish?.({ version: 3, type: 'GM_TURN_COMMITTED', payload: 'prologue' }) })
 
@@ -239,7 +240,7 @@ it('reconciles an optimistic response without duplicating persisted entries', as
     subscribeEvents(_id, _version, onEvent) { publish = onEvent; return () => {} },
     async readConversation() {
       reads += 1
-      if (reads === 1) return { adventureId: 'a1', version: 0, entries: [] }
+      if (reads <= 2) return { adventureId: 'a1', version: 0, entries: [] }
       return new Promise(resolve => { resolveRefresh = resolve })
     },
     async sendMessage() { return { narration: '저장된 응답', judgment: '판정', currentScene: '', sourceRefs: [], warnings: [], version: 2 } },
@@ -247,6 +248,7 @@ it('reconciles an optimistic response without duplicating persisted entries', as
   const user = userEvent.setup()
   render(<AdventureStream adventureId="a1" api={api} />)
   const input = await screen.findByRole('textbox', { name: '무엇을 하시겠어요?' })
+  await waitFor(() => expect(publish).toBeDefined())
   await user.type(input, '문을 연다')
   await user.click(screen.getByRole('button', { name: '행동 보내기' }))
   expect(await screen.findByText('저장된 응답')).toBeInTheDocument()

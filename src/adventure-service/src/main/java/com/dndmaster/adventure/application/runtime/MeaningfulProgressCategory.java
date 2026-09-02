@@ -6,5 +6,6 @@ public enum MeaningfulProgressCategory {
     INFORMATION,
     OUTCOME,
     DECISION,
+    CHECK,
     PROGRESS
 }

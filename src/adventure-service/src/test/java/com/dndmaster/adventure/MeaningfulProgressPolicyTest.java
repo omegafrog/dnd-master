@@ -25,6 +25,8 @@ class MeaningfulProgressPolicyTest {
                 .contains(MeaningfulProgressCategory.OUTCOME));
         assertTrue(policy.evaluate("choose", plan("scene", "npc", "DECISION_REQUIRED: A) fight or B) flee", List.of()), previous, List.of("old outcome"))
                 .contains(MeaningfulProgressCategory.DECISION));
+        assertTrue(policy.evaluate("search", plan("scene", "npc", "숨은 위험을 확인하려면 지혜(감지) 판정이 필요합니다.", List.of()), previous, List.of("old outcome"))
+                .contains(MeaningfulProgressCategory.CHECK));
         assertTrue(policy.evaluate("advance", plan("scene", "npc", "same", List.of()), previous, List.of("old outcome"), true)
                 .contains(MeaningfulProgressCategory.PROGRESS));
     }

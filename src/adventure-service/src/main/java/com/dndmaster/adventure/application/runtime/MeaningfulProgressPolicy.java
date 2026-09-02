@@ -39,6 +39,10 @@ public final class MeaningfulProgressPolicy {
         if (isDecisionRequired(judgment) && hasConcreteChoice(judgment)) {
             categories.add(MeaningfulProgressCategory.DECISION);
         }
+        // A grounded check request deliberately leaves its result unresolved.
+        // It still advances the interaction by handing the player a distinct
+        // next decision, and must not be rejected as a repeated narration.
+        if (isCheckRequired(judgment)) categories.add(MeaningfulProgressCategory.CHECK);
         if (advancesStoryPlan) categories.add(MeaningfulProgressCategory.PROGRESS);
         if (categories.isEmpty()) reject("NO_MEANINGFUL_PROGRESS");
         return MeaningfulProgress.of(categories);
@@ -54,6 +58,14 @@ public final class MeaningfulProgressPolicy {
         String normalized = judgment.toLowerCase(Locale.ROOT);
         return normalized.matches("(?s).*([a-z][).:]|\\b[12][).:]|\\bchoose\\b|\\boption\\b|\\bchoice\\b|선택지|고르|선택).*.*")
                 || normalized.contains(" 또는 ") || normalized.contains(" vs ");
+    }
+
+    private static boolean isCheckRequired(String judgment) {
+        String normalized = judgment.toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+        return normalized.contains("판정이 필요")
+                || normalized.contains("판정 필요")
+                || normalized.contains("굴림이 필요")
+                || normalized.contains("check required");
     }
 
     private static boolean sameMeaning(String left, String right) {
