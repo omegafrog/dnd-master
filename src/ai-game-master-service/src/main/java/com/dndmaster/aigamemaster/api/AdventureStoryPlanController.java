@@ -535,47 +535,10 @@ public final class AdventureStoryPlanController {
             JsonNode stage = stages.get(stageIndex);
             if (stage.isObject()) canonicalizeStage((ObjectNode) stage, stageIndex, registry, violations);
         }
-        ensureCitationTypeCoverage(stages, registry);
         if (!violations.isEmpty()) {
             throw new CandidateResponseValidationException(violations, null, rejectedCandidate);
         }
         return root;
-    }
-
-    private void ensureCitationTypeCoverage(JsonNode stages, Map<String, SourceCitation> registry) {
-        if (registry.isEmpty() || stages == null || !stages.isArray() || stages.isEmpty()) return;
-        Set<String> presentTypes = new java.util.LinkedHashSet<>();
-        for (JsonNode stage : stages) {
-            if (!stage.isObject() || !stage.path("evidence").isArray()) continue;
-            stage.path("evidence").forEach(item -> {
-                SourceCitation citation = registry.get(item.path("citationKey").asText(""));
-                if (citation != null) presentTypes.add(citation.documentType().toUpperCase(java.util.Locale.ROOT));
-            });
-        }
-        Set<String> suppliedTypes = registry.values().stream()
-                .map(SourceCitation::documentType)
-                .filter(java.util.Objects::nonNull)
-                .map(value -> value.toUpperCase(java.util.Locale.ROOT))
-                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
-        for (String type : suppliedTypes) {
-            if (presentTypes.contains(type)) continue;
-            String key = registry.entrySet().stream()
-                    .filter(entry -> type.equalsIgnoreCase(entry.getValue().documentType()))
-                    .map(Map.Entry::getKey).findFirst().orElse(null);
-            if (key == null) continue;
-            ObjectNode firstStage = (ObjectNode) stages.get(0);
-            ArrayNode evidence = firstStage.withArray("evidence");
-            boolean alreadyPresent = false;
-            for (JsonNode item : evidence) {
-                if (key.equals(item.path("citationKey").asText(""))) {
-                    alreadyPresent = true;
-                    break;
-                }
-            }
-            if (!alreadyPresent) evidence.addObject().put("citationKey", key);
-            LOGGER.info("story_plan_citation_type_coverage_repaired type={} citationKey={} stage={}",
-                    type, key, stagePosition(firstStage, 0));
-        }
     }
 
     private void copyCanonicalEndingIds(ObjectNode root, Configuration configuration) {
@@ -635,6 +598,17 @@ public final class AdventureStoryPlanController {
                 JsonNode item = rawParticipants.get(participantIndex);
                 if (!item.isObject()) continue;
                 String name = text(item, "name", "");
+                String participantId = text(item, "participantId", "");
+                String role = text(item, "role", "").toUpperCase(java.util.Locale.ROOT);
+                if (participantId.isBlank() || (!role.equals("ENEMY") && !role.equals("BOSS"))) {
+                    violations.add(new ProjectionViolation(
+                            "INVALID_COMBAT_PARTICIPANT", stagePosition(stage, stageIndex),
+                            "stages[" + stageIndex + "].combatSkeleton.participants[" + participantIndex + "]",
+                            name, "participantId and role", ProjectionViolation.Repairability.REPAIRABLE,
+                            "stage " + stagePosition(stage, stageIndex)
+                                    + " combat participant requires participantId and role ENEMY or BOSS"));
+                    continue;
+                }
                 List<String> keys = supportedKeys(item.get("citationKeys"), registry, evidenceKeys, name);
                 if (keys.isEmpty() && stringsOrEmpty(item.get("citationKeys")).isEmpty()) {
                     keys = supportedKeys(evidenceKeys, registry, name);
@@ -660,9 +634,6 @@ public final class AdventureStoryPlanController {
                 if (text(participant, "participantId", "").isBlank()) {
                     participant.put("participantId", "participant-" + name);
                 }
-                if (text(participant, "role", "").isBlank()) {
-                    participant.put("role", "ENEMY");
-                }
                 participant.set("citationKeys", textArray(keys));
                 int minimum = positiveInt(item, "minimumCount", 1);
                 int maximum = positiveInt(item, "maximumCount", minimum);
@@ -686,6 +657,17 @@ public final class AdventureStoryPlanController {
             canonicalizeRewards(skeleton, registry, evidenceKeys);
         }
         stage.set("combatSkeleton", skeleton);
+
+        String tacticalRequirement = text(stage, "tacticalPreparationRequirement", "NOT_REQUIRED")
+                .toUpperCase(java.util.Locale.ROOT);
+        if (!tacticalRequirement.equals("NOT_REQUIRED") && !tacticalRequirement.equals("REQUIRED")) {
+            violations.add(new ProjectionViolation(
+                    "INVALID_TACTICAL_PREPARATION_REQUIREMENT", stagePosition(stage, stageIndex),
+                    "stages[" + stageIndex + "].tacticalPreparationRequirement", tacticalRequirement,
+                    "NOT_REQUIRED or REQUIRED", ProjectionViolation.Repairability.REPAIRABLE,
+                    "stage " + stagePosition(stage, stageIndex)
+                            + " tacticalPreparationRequirement must be NOT_REQUIRED or REQUIRED"));
+        }
 
         filterSupportedCombatHints(stage, registry);
         canonicalizeClaims(stage, registry, evidenceKeys, participants.size(), skeleton.path("rewards").size());

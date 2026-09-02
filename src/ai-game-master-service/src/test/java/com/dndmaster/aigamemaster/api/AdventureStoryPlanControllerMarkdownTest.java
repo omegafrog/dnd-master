@@ -436,7 +436,7 @@ class AdventureStoryPlanControllerMarkdownTest {
                 {"position":2,"combatRequirement":"REQUIRED",
                  "evidence":[{"citationKey":"citation-1"}],
                  "combatSkeleton":{"participants":[
-                   {"name":"Eight Giant Rats","minimumCount":1,"maximumCount":1}
+                   {"participantId":"giant-rats","role":"ENEMY","name":"Eight Giant Rats","minimumCount":1,"maximumCount":1}
                  ]}}
                 """);
         var citation = new AdventureStoryPlanController.SourceCitation("STORYBOOK", "doc", 1,
@@ -448,7 +448,7 @@ class AdventureStoryPlanControllerMarkdownTest {
         assertTrue(violations.isEmpty());
         var participant = stage.path("combatSkeleton").path("participants").get(0);
         assertEquals("ENEMY", participant.path("role").asText());
-        assertEquals("participant-Eight Giant Rats", participant.path("participantId").asText());
+        assertEquals("giant-rats", participant.path("participantId").asText());
         assertEquals("[\"citation-1\"]", participant.path("citationKeys").toString());
     }
 
