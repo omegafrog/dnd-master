@@ -535,10 +535,43 @@ public final class AdventureStoryPlanController {
             JsonNode stage = stages.get(stageIndex);
             if (stage.isObject()) canonicalizeStage((ObjectNode) stage, stageIndex, registry, violations);
         }
+        enforcePlanCitationCoverage(stages, registry);
         if (!violations.isEmpty()) {
             throw new CandidateResponseValidationException(violations, null, rejectedCandidate);
         }
         return root;
+    }
+
+    /** Global coverage is a plan contract, so attach an authoritative fallback without inventing provenance. */
+    private void enforcePlanCitationCoverage(JsonNode stages, Map<String, SourceCitation> registry) {
+        if (stages == null || !stages.isArray() || stages.isEmpty()) return;
+        Set<String> presentTypes = new java.util.LinkedHashSet<>();
+        for (JsonNode stage : stages) {
+            stage.path("evidence").forEach(item -> {
+                SourceCitation citation = registry.get(item.path("citationKey").asText(""));
+                if (citation != null && citation.documentType() != null) {
+                    presentTypes.add(citation.documentType().toUpperCase(java.util.Locale.ROOT));
+                }
+            });
+        }
+        Set<String> requiredTypes = registry.values().stream()
+                .map(SourceCitation::documentType)
+                .filter(java.util.Objects::nonNull)
+                .map(value -> value.toUpperCase(java.util.Locale.ROOT))
+                .filter(type -> type.equals("STORYBOOK") || type.equals("RULEBOOK"))
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        ObjectNode firstStage = (ObjectNode) stages.get(0);
+        ArrayNode evidence = firstStage.withArray("evidence");
+        for (String type : requiredTypes) {
+            if (presentTypes.contains(type)) continue;
+            registry.entrySet().stream()
+                    .filter(entry -> type.equalsIgnoreCase(entry.getValue().documentType()))
+                    .findFirst().ifPresent(entry -> {
+                        evidence.addObject().put("citationKey", entry.getKey());
+                        LOGGER.info("story_plan_plan_level_citation_coverage_attached type={} citationKey={} stage={}",
+                                type, entry.getKey(), stagePosition(firstStage, 0));
+                    });
+        }
     }
 
     private void copyCanonicalEndingIds(ObjectNode root, Configuration configuration) {
@@ -631,9 +664,6 @@ public final class AdventureStoryPlanController {
                 }
                 ObjectNode participant = ((ObjectNode) item).deepCopy();
                 participant.put("name", name);
-                if (text(participant, "participantId", "").isBlank()) {
-                    participant.put("participantId", "participant-" + name);
-                }
                 participant.set("citationKeys", textArray(keys));
                 int minimum = positiveInt(item, "minimumCount", 1);
                 int maximum = positiveInt(item, "maximumCount", minimum);
@@ -658,16 +688,14 @@ public final class AdventureStoryPlanController {
         }
         stage.set("combatSkeleton", skeleton);
 
-        String tacticalRequirement = text(stage, "tacticalPreparationRequirement", "NOT_REQUIRED")
-                .toUpperCase(java.util.Locale.ROOT);
-        if (!tacticalRequirement.equals("NOT_REQUIRED") && !tacticalRequirement.equals("REQUIRED")) {
-            violations.add(new ProjectionViolation(
-                    "INVALID_TACTICAL_PREPARATION_REQUIREMENT", stagePosition(stage, stageIndex),
-                    "stages[" + stageIndex + "].tacticalPreparationRequirement", tacticalRequirement,
-                    "NOT_REQUIRED or REQUIRED", ProjectionViolation.Repairability.REPAIRABLE,
-                    "stage " + stagePosition(stage, stageIndex)
-                            + " tacticalPreparationRequirement must be NOT_REQUIRED or REQUIRED"));
+        String tacticalRequirement = "REQUIRED".equalsIgnoreCase(text(stage, "combatRequirement", "NONE"))
+                && !text(stage, "mapDefinitionId", "").isBlank() ? "REQUIRED" : "NOT_REQUIRED";
+        String suppliedTacticalRequirement = text(stage, "tacticalPreparationRequirement", "NOT_REQUIRED");
+        if (!suppliedTacticalRequirement.equalsIgnoreCase(tacticalRequirement)) {
+            LOGGER.info("story_plan_tactical_requirement_normalized stage={} supplied={} normalized={}",
+                    stagePosition(stage, stageIndex), suppliedTacticalRequirement, tacticalRequirement);
         }
+        stage.put("tacticalPreparationRequirement", tacticalRequirement);
 
         filterSupportedCombatHints(stage, registry);
         canonicalizeClaims(stage, registry, evidenceKeys, participants.size(), skeleton.path("rewards").size());
