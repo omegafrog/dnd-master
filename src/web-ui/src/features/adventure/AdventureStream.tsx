@@ -140,7 +140,7 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
     setMessages(current => [...current, action])
     try {
       const response = await api.sendMessage(adventureId, text, command, currentVersion)
-      const responseEntries = responseMessages(response.narration, response.judgment)
+      const responseEntries = responseMessages(response.narration, '')
       localTurn.current = { action, response: responseEntries, expectedVersion: localTurn.current?.expectedVersion ?? projectionVersion.current, committedVersion: response.version }
       projectionVersion.current = Math.max(projectionVersion.current ?? 0, response.version)
       committedVersion.current = Math.max(committedVersion.current, response.version)

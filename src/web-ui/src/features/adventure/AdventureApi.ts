@@ -17,10 +17,8 @@ export type AdventureConversationResponse = { adventureId: string; version: numb
 
 export interface AdventureMessageResponse {
   narration: string
-  judgment: string
   currentScene: string
-  sourceRefs: string[]
-  warnings: string[]
+  visibleFacts?: string[]
   version: number
   nextTurnIndex?: number
   nextControlMode?: 'DIRECT' | 'AGENT'

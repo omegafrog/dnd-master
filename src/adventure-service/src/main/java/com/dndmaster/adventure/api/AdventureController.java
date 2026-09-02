@@ -384,14 +384,8 @@ public class AdventureController {
             UUID scenarioPackageId,
             long bindingVersion,
             String narration,
-            String judgment,
             String currentScene,
-            List<String> sourceRefs,
-            List<String> warnings,
-            String provider,
-            String model,
-            String reasoning,
-            String resolutionStatus,
+            List<String> visibleFacts,
             long version) {
         static RuntimeTurnResponse from(RuntimeTurnResult result) {
             return new RuntimeTurnResponse(
@@ -400,14 +394,8 @@ public class AdventureController {
                     result.turn().scenarioPackageId(),
                     result.turn().bindingVersion(),
                     result.turn().plan().narration(),
-                    result.turn().plan().judgment(),
                     result.context().currentScene(),
-                    result.turn().citations(),
-                    result.turn().warnings(),
-                    result.turn().plan().provider(),
-                    result.turn().plan().model(),
-                    result.turn().plan().reasoning(),
-                    result.turn().plan().resolutionStatus(),
+                    result.visibleTurn() == null ? List.of() : result.visibleTurn().visibleFacts(),
                     result.version());
         }
     }
