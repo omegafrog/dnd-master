@@ -104,7 +104,7 @@ class GmAgentControllerProviderIdentityTest {
         assertEquals(2, prompts.size());
         assertTrue(prompts.get(1).contains("storybook=[]"));
         assertTrue(prompts.get(1).contains("initialCandidate"));
-        assertTrue(prompts.get(1).contains("GM_CANDIDATE_MALFORMED"));
+        assertTrue(prompts.get(1).contains("GM_REQUIRED_FIELD_MISSING"));
     }
 
     @Test

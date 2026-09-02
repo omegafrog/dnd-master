@@ -392,7 +392,13 @@ public final class ScenarioPackageCompilationService {
         if (candidate.provenance() == null || candidate.provenance().isBlank()) incomplete.add("provenance is missing");
         if (candidate.sourceQuote() == null || candidate.sourceQuote().isBlank()) incomplete.add("source quote is missing");
         ScenarioResolutionDetail detail = candidate.detail() == null ? ScenarioResolutionDetail.empty() : candidate.detail();
-        validateCanonicalContract(detail, invalid);
+        // schema-v1 candidates are still accepted for previously indexed bundles.
+        // The typed contract is mandatory for the current schema only; otherwise
+        // re-compiling an unchanged legacy bundle would turn a valid package into
+        // INVALID merely because the compiler learned a richer representation.
+        if (isCanonicalCandidate(candidate)) {
+            validateCanonicalContract(detail, invalid);
+        }
         if (candidate.sourceRefs() == null || candidate.sourceRefs().isEmpty()) {
             invalid.add("source reference is missing");
         } else {
@@ -544,6 +550,10 @@ public final class ScenarioPackageCompilationService {
 
     private static boolean blank(String value) {
         return value == null || value.isBlank();
+    }
+
+    private static boolean isCanonicalCandidate(ResolutionCandidate candidate) {
+        return candidate.provenance() != null && candidate.provenance().equals("schema-v2");
     }
 
     private static void validateDetail(ScenarioResolutionDetail detail, List<String> invalid, List<String> incomplete) {

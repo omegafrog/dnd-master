@@ -9,7 +9,9 @@ import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanCandidateValidationException;
@@ -174,7 +176,10 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
                 "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT), previous,
                 List.of(violation), List.of("storybook.pdf"), List.of("source excerpt"), List.of(), List.of(citation)));
 
-        assertEquals(repaired, candidate.serializedCandidate());
+        // The gateway returns the validated canonical projection, which includes
+        // server-owned defaults and typed contracts rather than echoing provider JSON.
+        assertTrue(candidate.serializedCandidate().contains("\"schemaVersion\":2"));
+        assertNotEquals(repaired, candidate.serializedCandidate());
         assertEquals("Closed", candidate.stages().getFirst().transitionCondition());
         server.verify(postRequestedFor(urlEqualTo("/internal/v1/gm/adventure-story-plan/repair"))
                 .withRequestBody(matchingJsonPath("$.previousCandidate.stages[0].transitionCondition", equalTo("Open")))
@@ -183,7 +188,7 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
     }
 
     @Test
-    void repair_accepts_partial_stage_patch_and_preserves_omitted_npc_or_clues() {
+    void repair_rejects_partial_stage_patch_without_a_full_candidate() {
         server = new WireMockServer(0);
         server.start();
         UUID documentId = UUID.randomUUID();
@@ -198,13 +203,10 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
         var violation = new AdventureStoryPlanProjectionViolation("ENDING_IDS_MISSING", 1,
                 "stages[0].endingIds", "", "", Repairability.REPAIRABLE, "endingIds must be explicit");
 
-        var candidate = gateway.repair(new AdventureStoryPlanGenerationPort.RepairRequest(
-                "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT), previous,
-                List.of(violation), List.of("storybook.pdf"), List.of("source excerpt"), List.of(), List.of(citation)));
-
-        assertEquals("ending-1", candidate.stages().getFirst().endingIds().getFirst());
-        assertEquals(List.of("Keeper"), candidate.stages().getFirst().npcOrClues());
-        assertEquals("Open", candidate.stages().getFirst().transitionCondition());
+        assertThrows(AdventureStoryPlanCandidateValidationException.class, () -> gateway.repair(
+                new AdventureStoryPlanGenerationPort.RepairRequest(
+                        "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT), previous,
+                        List.of(violation), List.of("storybook.pdf"), List.of("source excerpt"), List.of(), List.of(citation))));
     }
 
     @Test

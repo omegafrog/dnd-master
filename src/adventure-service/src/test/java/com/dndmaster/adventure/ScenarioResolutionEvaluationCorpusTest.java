@@ -113,7 +113,8 @@ class ScenarioResolutionEvaluationCorpusTest {
         return new ResolutionCandidate(
                 evaluation.kind(),
                 evaluation.abilityOrSkill(),
-                evaluation.dc(),
+                evaluation.dc() == null ? (com.dndmaster.adventure.domain.scenario.SaveDc) null
+                        : com.dndmaster.adventure.domain.scenario.SaveDc.fixed(evaluation.dc()),
                 evaluation.diceExpression(),
                 ResolutionVisibility.GM_REFERENCE,
                 evaluation.quote(),

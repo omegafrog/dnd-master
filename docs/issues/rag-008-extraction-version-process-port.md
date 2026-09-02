@@ -2,7 +2,6 @@
 
 별도 Python 전처리 모듈을 다른 서비스가 표준 CPython 프로세스로 호출할 수 있도록 JSON stdin/stdout 포트와 `ExtractionVersion` walking skeleton을 구현한다.
 
-Plan: `docs/plans/rag-008-extraction-version-process-port.md`
 
 GitHub: https://github.com/omegafrog/dnd-master/issues/181
 

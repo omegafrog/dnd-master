@@ -2,7 +2,6 @@
 
 제목과 표를 prose로 평탄화하지 않고 시각적 위계, 영역 관계, 헤더·행·셀 및 좌표를 가진 구조로 보존한다.
 
-Plan: `docs/plans/rag-010-heading-table-structure.md`
 
 GitHub: https://github.com/omegafrog/dnd-master/issues/183
 

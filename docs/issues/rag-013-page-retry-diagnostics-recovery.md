@@ -2,7 +2,6 @@
 
 실패 페이지·영역만 최대 2회 추가 시도하고 atomic checkpoint, 상태 조회, 명시적 재시도, 오버레이와 중단 복구를 제공한다.
 
-Plan: `docs/plans/rag-013-page-retry-diagnostics-recovery.md`
 
 GitHub: https://github.com/omegafrog/dnd-master/issues/186
 

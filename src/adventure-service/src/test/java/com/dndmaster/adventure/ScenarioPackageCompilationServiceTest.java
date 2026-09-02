@@ -31,8 +31,13 @@ class ScenarioPackageCompilationServiceTest {
     @Test
     void rejectsResolutionWithoutCanonicalRevealContract() {
         KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
-        ResolutionCandidate candidate = ResolutionCandidate.skillCheck(
-                documentId, 1, "page:1", "Perception", 13, "A loose stone triggers the trap.");
+        ResolutionCandidate candidate = new ResolutionCandidate(
+                com.dndmaster.adventure.domain.scenario.ResolutionKind.SKILL_ABILITY_CHECK,
+                "Perception", 13, null,
+                com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
+                "A loose stone triggers the trap.",
+                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 1, "page:1")),
+                "schema-v2", null);
 
         var unit = new ScenarioPackageCompilationService(new InMemoryPackageRepository())
                 .compile(bundle(documentId, 1), List.of(candidate)).units().getFirst();
@@ -158,7 +163,7 @@ class ScenarioPackageCompilationServiceTest {
                 com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
                 "Dexterity saving throw DC 15, taking 4d6 fire damage on a failed save, or half as much on a success.",
                 List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 4, "page:2:span:7")),
-                "schema-v2",
+                "schema-v1",
                 new ScenarioResolutionDetail(
                         "When the trapped idol is touched.",
                         "TRAP",
