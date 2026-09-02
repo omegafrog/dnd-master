@@ -425,6 +425,34 @@ class AdventureStoryPlanControllerMarkdownTest {
     }
 
     @Test
+    void projection_boundary_recovers_missing_participant_binding_from_same_stage_evidence() throws Exception {
+        var controller = new AdventureStoryPlanController(null, new ObjectMapper(), null,
+                "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
+                new ApiRequestGuard("test-internal-token"));
+        var canonicalize = AdventureStoryPlanController.class.getDeclaredMethod("canonicalizeStage",
+                ObjectNode.class, int.class, Map.class, List.class);
+        canonicalize.setAccessible(true);
+        ObjectNode stage = (ObjectNode) new ObjectMapper().readTree("""
+                {"position":2,"combatRequirement":"REQUIRED",
+                 "evidence":[{"citationKey":"citation-1"}],
+                 "combatSkeleton":{"participants":[
+                   {"name":"Eight Giant Rats","minimumCount":1,"maximumCount":1}
+                 ]}}
+                """);
+        var citation = new AdventureStoryPlanController.SourceCitation("STORYBOOK", "doc", 1,
+                "page=1", "Eight Giant Rats guard the room.", 1.0);
+        var violations = new java.util.ArrayList<AdventureStoryPlanController.ProjectionViolation>();
+
+        canonicalize.invoke(controller, stage, 1, Map.of("citation-1", citation), violations);
+
+        assertTrue(violations.isEmpty());
+        var participant = stage.path("combatSkeleton").path("participants").get(0);
+        assertEquals("ENEMY", participant.path("role").asText());
+        assertEquals("participant-Eight Giant Rats", participant.path("participantId").asText());
+        assertEquals("[\"citation-1\"]", participant.path("citationKeys").toString());
+    }
+
+    @Test
     void request_citation_key_is_preserved_for_the_model_registry_prompt() throws Exception {
         var mapper = new ObjectMapper();
         var request = mapper.readValue("""

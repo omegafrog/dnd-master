@@ -24,10 +24,10 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.web.bind.annotation.RequestHeader;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.web.bind.annotation.RequestHeader;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -148,6 +148,10 @@ public final class AdventureStoryPlanController {
                 Every stage with supplied citations must contain at least one registered evidence citationKey.
                 sourceFactClaims are limited to combatSkeleton paths and SOURCE claims must cite the same-stage evidence.
                 A combat participant must be supported by the exact cited excerpt; otherwise omit the commitment.
+                Never return a committed participant with an empty citationKeys array. Every committed participant must
+                have role exactly ENEMY or BOSS, a non-empty participantId, and at least one citationKey copied from
+                the same stage evidence. If no same-stage citation supports the participant, remove the participant and
+                downgrade the stage to POSSIBLE or NONE.
                 Preserve explicit failure/fail-forward consequences in failureCondition. Do not create claims for narrative fields.
                 Map IDs, assets, and locators must be copied from one AVAILABLE MAPS entry. Dungeon stages with supplied maps require REQUIRED map usage.
                 All player-facing prose must be natural Korean. Keep arrays explicit, including empty arrays.
@@ -290,6 +294,11 @@ public final class AdventureStoryPlanController {
                 fuzzy-match, or copy a quote, locator, document ID, map ID, or source that is not registered. The server will rerun the
                 complete schema, citation/map/source, and business-rule validation chain after this response.
                 The response root MUST be an object with a stages array and must contain the full candidate, not a JSON patch. For a failure-consequence violation, repair only the affected stage failureCondition and preserve its concrete fail-forward consequence. For citation or participant violations, use only exact registered keys and keep the claim, participant, and same-stage evidence binding consistent.
+                Every committed combat participant MUST contain non-empty participantId, role (ENEMY or BOSS), name,
+                minimumCount, maximumCount, and citationKeys. citationKeys MUST contain at least one exact key from the
+                same stage evidence whose quote supports the participant name. If that cannot be satisfied, remove the
+                participant and set combatRequirement to POSSIBLE or NONE. tacticalPreparationRequirement MUST be exactly
+                NOT_REQUIRED or REQUIRED; never place a DC, check, prose, or rule text in that field.
                 configuration=%s
                 structuredViolations=%s
                 deterministicRepairScope=%s
@@ -526,10 +535,47 @@ public final class AdventureStoryPlanController {
             JsonNode stage = stages.get(stageIndex);
             if (stage.isObject()) canonicalizeStage((ObjectNode) stage, stageIndex, registry, violations);
         }
+        ensureCitationTypeCoverage(stages, registry);
         if (!violations.isEmpty()) {
             throw new CandidateResponseValidationException(violations, null, rejectedCandidate);
         }
         return root;
+    }
+
+    private void ensureCitationTypeCoverage(JsonNode stages, Map<String, SourceCitation> registry) {
+        if (registry.isEmpty() || stages == null || !stages.isArray() || stages.isEmpty()) return;
+        Set<String> presentTypes = new java.util.LinkedHashSet<>();
+        for (JsonNode stage : stages) {
+            if (!stage.isObject() || !stage.path("evidence").isArray()) continue;
+            stage.path("evidence").forEach(item -> {
+                SourceCitation citation = registry.get(item.path("citationKey").asText(""));
+                if (citation != null) presentTypes.add(citation.documentType().toUpperCase(java.util.Locale.ROOT));
+            });
+        }
+        Set<String> suppliedTypes = registry.values().stream()
+                .map(SourceCitation::documentType)
+                .filter(java.util.Objects::nonNull)
+                .map(value -> value.toUpperCase(java.util.Locale.ROOT))
+                .collect(java.util.stream.Collectors.toCollection(java.util.LinkedHashSet::new));
+        for (String type : suppliedTypes) {
+            if (presentTypes.contains(type)) continue;
+            String key = registry.entrySet().stream()
+                    .filter(entry -> type.equalsIgnoreCase(entry.getValue().documentType()))
+                    .map(Map.Entry::getKey).findFirst().orElse(null);
+            if (key == null) continue;
+            ObjectNode firstStage = (ObjectNode) stages.get(0);
+            ArrayNode evidence = firstStage.withArray("evidence");
+            boolean alreadyPresent = false;
+            for (JsonNode item : evidence) {
+                if (key.equals(item.path("citationKey").asText(""))) {
+                    alreadyPresent = true;
+                    break;
+                }
+            }
+            if (!alreadyPresent) evidence.addObject().put("citationKey", key);
+            LOGGER.info("story_plan_citation_type_coverage_repaired type={} citationKey={} stage={}",
+                    type, key, stagePosition(firstStage, 0));
+        }
     }
 
     private void copyCanonicalEndingIds(ObjectNode root, Configuration configuration) {
@@ -590,8 +636,16 @@ public final class AdventureStoryPlanController {
                 if (!item.isObject()) continue;
                 String name = text(item, "name", "");
                 List<String> keys = supportedKeys(item.get("citationKeys"), registry, evidenceKeys, name);
+                if (keys.isEmpty() && stringsOrEmpty(item.get("citationKeys")).isEmpty()) {
+                    keys = supportedKeys(evidenceKeys, registry, name);
+                }
                 if (name.isBlank()) continue;
                 if (keys.isEmpty()) {
+                    List<String> rawKeys = stringsOrEmpty(item.get("citationKeys"));
+                    LOGGER.warn("story_plan_combat_participant_grounding_failed stage={} participantIndex={} participantId={} role={} name={} citationKeys={} evidenceKeys={} registeredKeys={} supportedKeys={}",
+                            stagePosition(stage, stageIndex), participantIndex,
+                            text(item, "participantId", ""), text(item, "role", ""), name,
+                            rawKeys, evidenceKeys, registry.keySet(), keys);
                     violations.add(new ProjectionViolation(
                             "COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED", stagePosition(stage, stageIndex),
                             "stages[" + stageIndex + "].combatSkeleton.participants[" + participantIndex + "].name",
@@ -603,6 +657,12 @@ public final class AdventureStoryPlanController {
                 }
                 ObjectNode participant = ((ObjectNode) item).deepCopy();
                 participant.put("name", name);
+                if (text(participant, "participantId", "").isBlank()) {
+                    participant.put("participantId", "participant-" + name);
+                }
+                if (text(participant, "role", "").isBlank()) {
+                    participant.put("role", "ENEMY");
+                }
                 participant.set("citationKeys", textArray(keys));
                 int minimum = positiveInt(item, "minimumCount", 1);
                 int maximum = positiveInt(item, "maximumCount", minimum);
@@ -722,6 +782,15 @@ public final class AdventureStoryPlanController {
             SourceCitation citation = registry.get(key);
             if (!key.isBlank() && evidenceKeys.contains(key) && citation != null && supports(citation.quote(), claim)) result.add(key);
         });
+        return List.copyOf(result);
+    }
+
+    private static List<String> supportedKeys(Iterable<String> raw, Map<String, SourceCitation> registry, String claim) {
+        Set<String> result = new java.util.LinkedHashSet<>();
+        for (String key : raw) {
+            SourceCitation citation = registry.get(key);
+            if (citation != null && supports(citation.quote(), claim)) result.add(key);
+        }
         return List.copyOf(result);
     }
 

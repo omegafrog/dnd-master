@@ -12,9 +12,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Validates the source-grounded, non-tactical combat outline of one stage. */
 public final class AdventureStoryPlanCombatValidator {
+    private static final Logger LOGGER = LoggerFactory.getLogger(AdventureStoryPlanCombatValidator.class);
+
     public List<AdventureStoryPlanProjectionViolation> validate(AdventureStoryPlanStage stage,
             List<AdventureStoryPlanGenerationPort.SourceCitation> authoritative) {
         if (stage == null) throw new IllegalArgumentException("stage must not be null");
@@ -101,8 +105,13 @@ public final class AdventureStoryPlanCombatValidator {
                             "combat participant must carry field-specific source keys"));
                 }
                 for (String key : participant.citationKeys()) {
-                    if (!evidence.containsKey(key) || !sources.containsKey(key)
-                            || !supports(sources.get(key).quote(), participant.name())) {
+                    boolean evidencePresent = evidence.containsKey(key);
+                    boolean sourcePresent = sources.containsKey(key);
+                    boolean nameSupported = sourcePresent && supports(sources.get(key).quote(), participant.name());
+                    if (!evidencePresent || !sourcePresent || !nameSupported) {
+                        LOGGER.warn("story_plan_combat_participant_grounding_failed stage={} participantId={} role={} name={} citationKeys={} failedCitationKey={} evidencePresent={} sourcePresent={} nameSupported={}",
+                                stage.position(), participant.participantId(), participant.role(), participant.name(),
+                                participant.citationKeys(), key, evidencePresent, sourcePresent, nameSupported);
                         violations.add(repairableViolation(stage, "COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED",
                                 "combatSkeleton.participants[" + index + "].name", participant.name(),
                                 "combat participant is not supported by its field-specific source"));

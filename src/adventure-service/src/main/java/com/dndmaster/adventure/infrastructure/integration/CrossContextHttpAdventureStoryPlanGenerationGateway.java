@@ -331,7 +331,7 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         return domainStage.withCombat(parseCombatRequirement(stage.combatRequirement(), stage),
                 parseCombatSkeleton(stage.combatSkeleton()), stage.sourceFactClaims().stream()
                         .map(CrossContextHttpAdventureStoryPlanGenerationGateway::toDomain).toList(),
-                parseTacticalPreparationRequirement(stage.tacticalPreparationRequirement(), mapId))
+                parseTacticalPreparationRequirement(stage.tacticalPreparationRequirement(), mapId, stage))
                 .withSchemaVersion(stage.schemaVersion());
     }
     private static CombatRequirement parseCombatRequirement(String value, Stage stage) {
@@ -346,9 +346,18 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                 || !projection.participants().isEmpty() || !projection.rewards().isEmpty()
                 || !projection.successOutcome().isBlank() || !projection.failureOutcome().isBlank());
     }
-    private static TacticalPreparationRequirement parseTacticalPreparationRequirement(String value, UUID mapId) {
+    static TacticalPreparationRequirement parseTacticalPreparationRequirement(String value, UUID mapId, Stage stage) {
         if (value == null || value.isBlank()) return TacticalPreparationRequirement.NOT_REQUIRED;
-        return TacticalPreparationRequirement.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
+        try {
+            return TacticalPreparationRequirement.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException invalidEnumValue) {
+            if (mapId != null && "REQUIRED".equalsIgnoreCase(stage.combatRequirement())) {
+                LOGGER.warn("story_plan_tactical_requirement_normalized value={} stage={} normalized={}",
+                        value, stage.position(), TacticalPreparationRequirement.REQUIRED);
+                return TacticalPreparationRequirement.REQUIRED;
+            }
+            throw invalidEnumValue;
+        }
     }
     private static CombatSkeleton parseCombatSkeleton(CombatSkeletonProjection projection) {
         if (projection == null) return CombatSkeleton.empty();
