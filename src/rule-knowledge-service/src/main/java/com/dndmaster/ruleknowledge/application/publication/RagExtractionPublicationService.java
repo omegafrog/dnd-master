@@ -5,6 +5,7 @@ import com.dndmaster.ruleknowledge.application.indexing.EmbeddingPort;
 import com.dndmaster.ruleknowledge.domain.index.ChunkId;
 import com.dndmaster.ruleknowledge.domain.index.ExtractedContentRange;
 import com.dndmaster.ruleknowledge.domain.index.RulebookChunk;
+import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -14,6 +15,7 @@ import java.util.function.Function;
 import java.util.stream.Collectors;
 
 public final class RagExtractionPublicationService {
+    private static final int EMBEDDING_BATCH_SIZE = 32;
     private final RagExtractionPublicationRepository repository;
     private final EmbeddingPort embeddingPort;
     private final String embeddingModel;
@@ -40,7 +42,12 @@ public final class RagExtractionPublicationService {
             List<RulebookChunk> embeddingInputs = effectiveRequest.chunks().stream()
                     .map(chunk -> toRulebookChunk(effectiveRequest.documentId(), chunk))
                     .toList();
-            List<ChunkEmbedding> embeddings = embeddingPort.embed(embeddingInputs, embeddingModel, embeddingDimension);
+            List<ChunkEmbedding> embeddings = new ArrayList<>(embeddingInputs.size());
+            for (int start = 0; start < embeddingInputs.size(); start += EMBEDDING_BATCH_SIZE) {
+                int end = Math.min(start + EMBEDDING_BATCH_SIZE, embeddingInputs.size());
+                embeddings.addAll(embeddingPort.embed(
+                        embeddingInputs.subList(start, end), embeddingModel, embeddingDimension));
+            }
             if (embeddings == null || embeddings.size() != effectiveRequest.chunks().size()) {
                 throw new IllegalStateException("embedding result count does not match chunks");
             }
