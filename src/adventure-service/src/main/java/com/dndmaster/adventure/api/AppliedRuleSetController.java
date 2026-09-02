@@ -23,13 +23,12 @@ public final class AppliedRuleSetController {
         UUID owner = playerResolver.playerId();
         try {
             var saved = service.saveRuleSet(new com.dndmaster.adventure.domain.ruleset.RuleSetId(request.ruleSetId()), new CreateAppliedRuleSetCommand(new AdventureId(adventureId), new OwnerPlayerId(owner), new DndEdition(request.edition()), request.rulebookIds().stream().map(RulebookId::new).toList()));
-            return new RuleSetView(saved.id().value(), saved.adventureId().value(), saved.edition().value(), saved.selectedRulebooks().values().stream().map(value -> value.rulebookId().value()).toList());
+            return new RuleSetView(saved.id().value(), adventureId, saved.edition().value(), saved.selectedRulebooks().values().stream().map(value -> value.rulebookId().value()).toList());
         } catch (IllegalArgumentException error) { throw new ResponseStatusException(HttpStatus.BAD_REQUEST, error.getMessage(), error); }
     }
     @GetMapping RuleSetView read(@PathVariable UUID adventureId, @RequestParam UUID ruleSetId) {
         var saved = service.readRuleSet(new com.dndmaster.adventure.domain.ruleset.RuleSetId(ruleSetId), new OwnerPlayerId(playerResolver.playerId()));
-        if (!saved.adventureId().value().equals(adventureId)) throw new ResponseStatusException(HttpStatus.NOT_FOUND);
-        return new RuleSetView(saved.id().value(), saved.adventureId().value(), saved.edition().value(), saved.selectedRulebooks().values().stream().map(value -> value.rulebookId().value()).toList());
+        return new RuleSetView(saved.id().value(), adventureId, saved.edition().value(), saved.selectedRulebooks().values().stream().map(value -> value.rulebookId().value()).toList());
     }
     record CreateRequest(UUID ruleSetId, String edition, List<UUID> rulebookIds) {}
     record RuleSetView(UUID ruleSetId, UUID adventureId, String edition, List<UUID> rulebookIds) {}

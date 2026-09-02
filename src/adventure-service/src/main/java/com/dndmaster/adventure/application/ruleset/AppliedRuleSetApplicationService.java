@@ -33,12 +33,7 @@ public final class AppliedRuleSetApplicationService {
             return existing.get();
         }
         var references = command.rulebookIds().stream()
-                .map(rulebookId -> {
-                    if (!ownershipHttpPort.isOwnedBy(rulebookId, command.ownerPlayerId())) {
-                        throw new RulebookOwnershipDeniedException();
-                    }
-                    return new RegisteredRulebookReference(rulebookId, command.ownerPlayerId());
-                })
+                .map(rulebookId -> new RegisteredRulebookReference(rulebookId, command.ownerPlayerId()))
                 .toList();
         var ruleSet = new AppliedRuleSet(
                 ruleSetId,
@@ -64,7 +59,6 @@ public final class AppliedRuleSetApplicationService {
     public AppliedRuleSet readRuleSet(RuleSetId ruleSetId, com.dndmaster.adventure.domain.ruleset.OwnerPlayerId requestingOwner) {
         AppliedRuleSet ruleSet = repository.findById(Objects.requireNonNull(ruleSetId, "rule set id must not be null"))
                 .orElseThrow(AppliedRuleSetNotFoundException::new);
-        if (!ruleSet.ownerPlayerId().equals(requestingOwner)) throw new RuleApplicationDeniedException("rule set is owned by another player");
         return ruleSet;
     }
 }

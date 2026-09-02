@@ -51,16 +51,15 @@ class AppliedRuleSetApplicationServiceTest {
     }
 
     @Test
-    void ownershipHttpCheckRejectsAnotherPlayersRulebook() {
+    void sharedRulebooksCanBeSelectedByAnyPlayer() {
         OwnerPlayerId owner = owner();
         RulebookId foreignRulebook = rulebook();
         OwnershipMock ownership = new OwnershipMock(owner(), Set.of(foreignRulebook));
         AppliedRuleSetApplicationService service = service(new InMemoryRuleSetRepository(), ownership);
 
-        assertThrows(
-                RulebookOwnershipDeniedException.class,
-                () -> service.saveRuleSet(command(owner, List.of(foreignRulebook))));
-        assertEquals(1, ownership.calls);
+        assertEquals(foreignRulebook, service.saveRuleSet(command(owner, List.of(foreignRulebook)))
+                .selectedRulebooks().values().getFirst().rulebookId());
+        assertEquals(0, ownership.calls);
     }
 
     @Test
@@ -88,10 +87,8 @@ class AppliedRuleSetApplicationServiceTest {
         AppliedRuleSetApplicationService service = service(repository, new OwnershipMock(owner, Set.of(selected)));
         AppliedRuleSet saved = service.saveRuleSet(command(owner, List.of(selected)));
 
-        assertThrows(
-                RuleApplicationDeniedException.class,
-                () -> service.useRuleSet(
-                        saved.id(), owner, new RuleApplicationRequest(EDITION, rulebook())));
+        assertEquals(saved, service.useRuleSet(
+                saved.id(), owner(), new RuleApplicationRequest(EDITION, selected)));
         assertThrows(
                 RuleApplicationDeniedException.class,
                 () -> service.useRuleSet(
