@@ -179,8 +179,10 @@ public final class ProcessCliPreprocessingAdapter implements PreprocessingProces
             String expectedSourceHash,
             String expectedPolicyVersion,
             String expectedVersionId) {
+        String operation = response.path("operation").asText();
+        boolean cachedPreprocessStatus = "preprocess".equals(expectedOperation) && "status".equals(operation);
         if (!"1".equals(response.path("schema_version").asText())
-                || !expectedOperation.equals(response.path("operation").asText())
+                || (!expectedOperation.equals(operation) && !cachedPreprocessStatus)
                 || !expectedRequestId.equals(response.path("request_id").asText())) {
             throw new PreprocessingProcessException("PROCESS_CORRELATION_MISMATCH");
         }

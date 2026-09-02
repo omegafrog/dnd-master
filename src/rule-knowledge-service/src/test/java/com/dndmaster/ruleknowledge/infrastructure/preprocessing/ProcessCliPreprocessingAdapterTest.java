@@ -55,6 +55,25 @@ class ProcessCliPreprocessingAdapterTest {
     }
 
     @Test
+    void acceptsCachedPreprocessResponseReportedAsStatus() throws Exception {
+        Path work = Files.createTempDirectory("rag-014-adapter-cached-preprocess-");
+        Path source = work.resolve("rules.md");
+        Files.writeString(source, "# Heading\nA native page", StandardCharsets.UTF_8);
+        String hash = sha256(source);
+        Map<String, Object> cachedFixture = fixture(work, hash, "candidate-cached", "adapter-cached", "status");
+        Path script = writeScript(work.resolve("fake-python-cached-preprocess"),
+                new ObjectMapper().writeValueAsString(cachedFixture));
+        ProcessCliPreprocessingAdapter adapter = new ProcessCliPreprocessingAdapter(
+                script.toString(), work, Duration.ofMinutes(2), new ObjectMapper());
+
+        PreprocessingRunResult result = adapter.preprocess(
+                new PreprocessingRunRequest("adapter-cached", source, hash, "p1", work.resolve("out"), null));
+
+        assertEquals("candidate-cached", result.versionId());
+        assertEquals("READY", result.status());
+    }
+
+    @Test
     void rejectsSourceHashMismatchWithoutExposingProcessDetails() throws Exception {
         Path work = Files.createTempDirectory("rag-014-adapter-");
         Path source = work.resolve("rules.txt");
