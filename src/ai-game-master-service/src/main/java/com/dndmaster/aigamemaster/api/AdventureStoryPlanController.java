@@ -507,6 +507,7 @@ public final class AdventureStoryPlanController {
 
     private JsonNode canonicalizeProjection(JsonNode input, List<SourceCitation> authoritativeCitations, Configuration configuration) {
         if (input == null || !input.isObject()) return input;
+        ObjectNode rejectedCandidate = ((ObjectNode) input).deepCopy();
         ObjectNode root = ((ObjectNode) input).deepCopy();
         JsonNode stages = root.get("stages");
         // endingIds are canonical plan data, not a projection decision. Preserve
@@ -520,29 +521,15 @@ public final class AdventureStoryPlanController {
             }
         }
         if (stages == null || !stages.isArray()) return root;
-        for (JsonNode stage : stages) {
-            if (stage.isObject()) canonicalizeStage((ObjectNode) stage, registry);
+        List<ProjectionViolation> violations = new ArrayList<>();
+        for (int stageIndex = 0; stageIndex < stages.size(); stageIndex++) {
+            JsonNode stage = stages.get(stageIndex);
+            if (stage.isObject()) canonicalizeStage((ObjectNode) stage, stageIndex, registry, violations);
         }
-        ensureCitationCoverage(stages, registry);
+        if (!violations.isEmpty()) {
+            throw new CandidateResponseValidationException(violations, null, rejectedCandidate);
+        }
         return root;
-    }
-
-    private void ensureCitationCoverage(JsonNode stages, Map<String, SourceCitation> registry) {
-        if (stages == null || !stages.isArray() || stages.isEmpty()) return;
-        List<String> required = registry.entrySet().stream()
-                .filter(entry -> entry.getValue().documentType() != null)
-                .collect(java.util.stream.Collectors.groupingBy(entry -> entry.getValue().documentType().toUpperCase(java.util.Locale.ROOT),
-                        java.util.LinkedHashMap::new, java.util.stream.Collectors.mapping(Map.Entry::getKey, java.util.stream.Collectors.toList())))
-                .values().stream().map(list -> list.getFirst()).toList();
-        for (int index = 0; index < required.size() && index < stages.size(); index++) {
-            JsonNode stage = stages.get(index);
-            if (!stage.isObject()) continue;
-            ArrayNode evidence = stage.withArray("evidence");
-            String key = required.get(index);
-            boolean present = java.util.stream.StreamSupport.stream(evidence.spliterator(), false)
-                    .anyMatch(item -> key.equals(item.path("citationKey").asText("")));
-            if (!present) evidence.addObject().put("citationKey", key);
-        }
     }
 
     private void copyCanonicalEndingIds(ObjectNode root, Configuration configuration) {
@@ -572,23 +559,24 @@ public final class AdventureStoryPlanController {
         });
     }
 
-    private void canonicalizeStage(ObjectNode stage, Map<String, SourceCitation> registry) {
+    private void canonicalizeStage(ObjectNode stage, int stageIndex, Map<String, SourceCitation> registry,
+            List<ProjectionViolation> violations) {
         Set<String> evidenceKeys = new java.util.LinkedHashSet<>();
         ArrayNode evidence = mapper.createArrayNode();
         JsonNode rawEvidence = stage.get("evidence");
         if (rawEvidence != null && rawEvidence.isArray()) {
-            rawEvidence.forEach(item -> {
+            for (JsonNode item : rawEvidence) {
                 String key = item.path("citationKey").asText("").trim();
-                if (!key.isBlank() && registry.containsKey(key) && evidenceKeys.add(key)) {
+                if (key.isBlank() || !registry.containsKey(key)) {
+                    violations.add(new ProjectionViolation(
+                            "UNKNOWN_CITATION", stagePosition(stage, stageIndex),
+                            "stages[" + stageIndex + "].evidence[*].citationKey", key,
+                            "authoritative citation registry", ProjectionViolation.Repairability.REPAIRABLE,
+                            "stage " + stagePosition(stage, stageIndex) + " uses an unknown citation key"));
+                } else if (evidenceKeys.add(key)) {
                     evidence.addObject().put("citationKey", key);
                 }
-            });
-        }
-        // A stage still needs authoritative evidence; use a deterministic registered
-        // citation when the provider supplied only invented/repeated keys.
-        if (evidence.isEmpty() && !registry.isEmpty()) {
-            evidence.addObject().put("citationKey", registry.keySet().iterator().next());
-            evidenceKeys.add(registry.keySet().iterator().next());
+            }
         }
         stage.set("evidence", evidence);
 
@@ -597,11 +585,22 @@ public final class AdventureStoryPlanController {
         ArrayNode participants = mapper.createArrayNode();
         JsonNode rawParticipants = skeleton.get("participants");
         if (rawParticipants != null && rawParticipants.isArray()) {
-            rawParticipants.forEach(item -> {
-                if (!item.isObject()) return;
+            for (int participantIndex = 0; participantIndex < rawParticipants.size(); participantIndex++) {
+                JsonNode item = rawParticipants.get(participantIndex);
+                if (!item.isObject()) continue;
                 String name = text(item, "name", "");
                 List<String> keys = supportedKeys(item.get("citationKeys"), registry, evidenceKeys, name);
-                if (name.isBlank() || keys.isEmpty()) return;
+                if (name.isBlank()) continue;
+                if (keys.isEmpty()) {
+                    violations.add(new ProjectionViolation(
+                            "COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED", stagePosition(stage, stageIndex),
+                            "stages[" + stageIndex + "].combatSkeleton.participants[" + participantIndex + "].name",
+                            name, item.path("citationKeys").toString(),
+                            ProjectionViolation.Repairability.REPAIRABLE,
+                            "stage " + stagePosition(stage, stageIndex)
+                                    + " combat participant is not supported by its field-specific source"));
+                    continue;
+                }
                 ObjectNode participant = ((ObjectNode) item).deepCopy();
                 participant.put("name", name);
                 participant.set("citationKeys", textArray(keys));
@@ -614,7 +613,7 @@ public final class AdventureStoryPlanController {
                 participant.put("minimumCount", minimum);
                 participant.put("maximumCount", Math.max(minimum, maximum));
                 participants.add(participant);
-            });
+            }
         }
         skeleton.set("participants", participants);
         if (participants.isEmpty()) {
@@ -643,6 +642,10 @@ public final class AdventureStoryPlanController {
             stage.put("combatRequirement", "POSSIBLE");
             stage.put("tacticalPreparationRequirement", "NOT_REQUIRED");
         }
+    }
+
+    private static int stagePosition(ObjectNode stage, int stageIndex) {
+        return stage.path("position").isIntegralNumber() ? stage.path("position").asInt() : stageIndex + 1;
     }
 
     private static boolean hasCombatHint(ObjectNode stage) {

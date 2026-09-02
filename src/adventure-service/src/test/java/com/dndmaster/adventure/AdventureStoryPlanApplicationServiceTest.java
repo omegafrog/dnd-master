@@ -82,8 +82,49 @@ class AdventureStoryPlanApplicationServiceTest {
         verify(plans).save(eq(result), contains("STORY_PLAN_SEMANTIC_VERDICTS:"));
     }
 
+    @Test
+    void repairs_semantic_failure_consequence_on_its_stage_without_full_regeneration() {
+        var session = draftSession();
+        var sessions = mock(AdventureSessionRepository.class);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        var generator = mock(AdventureStoryPlanGenerationPort.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        when(plans.findBySessionId(session.id())).thenReturn(Optional.empty());
+        String rejected = shortCandidate("bad");
+        String repaired = shortCandidate("good");
+        when(generator.generate(any())).thenReturn(new AdventureStoryPlanGenerationPort.ProjectionCandidate(
+                rejected, shortStages("bad")));
+        when(generator.repair(any())).thenReturn(new AdventureStoryPlanGenerationPort.ProjectionCandidate(
+                repaired, shortStages("good")));
+        var provider = mock(SemanticJudgeProvider.class);
+        when(provider.judge(any())).thenReturn(
+                new SemanticJudgeProvider.Response(SemanticVerdict.contradictory(.99, "storyPlan",
+                        "Stage 3: Mosaic-panel trap has no usable failure or fail-forward consequence.",
+                        java.util.Set.of(), java.util.Set.of())),
+                new SemanticJudgeProvider.Response(SemanticVerdict.compatible(.99, "storyPlan",
+                        "repaired candidate is consistent", java.util.Set.of(), java.util.Set.of())));
+
+        var result = new AdventureStoryPlanApplicationService(plans, sessions, null, generator,
+                null, null, semanticJudge(provider)).generate(session.id(), session.ownerPlayerId(),
+                        new AdventurePlanConfiguration(2, AdventureLength.SHORT));
+
+        assertEquals(AdventureStoryPlanStatus.READY, result.status());
+        verify(generator, times(1)).generate(any());
+        var repair = org.mockito.ArgumentCaptor.forClass(AdventureStoryPlanGenerationPort.RepairRequest.class);
+        verify(generator, times(1)).repair(repair.capture());
+        var violation = repair.getValue().violations().getFirst();
+        assertEquals("MISSING_RULE_OUTCOME", violation.code());
+        assertEquals(3, violation.stagePosition());
+        assertEquals("stages[2].failureCondition", violation.fieldPath());
+        assertTrue(repair.getValue().repairScope().allows("stages[2].failureCondition"));
+    }
+
     private static StoryPlanSemanticConsistencyJudge semanticJudge(SemanticVerdict verdict) {
         SemanticJudgeProvider provider = request -> new SemanticJudgeProvider.Response(verdict);
+        return semanticJudge(provider);
+    }
+
+    private static StoryPlanSemanticConsistencyJudge semanticJudge(SemanticJudgeProvider provider) {
         ScopedEvidenceReadPort rag = (scope, query) -> new ScopedEvidenceReadPort.Result(List.of(), java.util.Set.of());
         return new StoryPlanSemanticConsistencyJudge(provider, rag,
                 new RetrievalScope(java.util.Set.of(), java.util.Set.of(), 3));

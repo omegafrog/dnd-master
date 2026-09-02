@@ -324,7 +324,7 @@ class AdventureStoryPlanControllerMarkdownTest {
                 "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
                 new ApiRequestGuard("test-internal-token"));
         var parse = AdventureStoryPlanController.class.getDeclaredMethod(
-                "parseJson", String.class, AdventureStoryPlanController.Configuration.class);
+                "parseJson", String.class, AdventureStoryPlanController.Configuration.class, List.class);
         parse.setAccessible(true);
         String response = """
                 {"stages":[
@@ -335,7 +335,9 @@ class AdventureStoryPlanControllerMarkdownTest {
                 """;
 
         var stages = (List<AdventureStoryPlanController.Stage>) parse.invoke(controller, response,
-                new AdventureStoryPlanController.Configuration(1, "SHORT"));
+                new AdventureStoryPlanController.Configuration(1, "SHORT"), List.of(
+                        new AdventureStoryPlanController.SourceCitation("RULEBOOK", "doc", 1,
+                                "page=1", "authoritative source", 1.0, "citation-1")));
 
         assertEquals("citation-1", stages.getFirst().evidence().getFirst().citationKey());
     }
@@ -360,11 +362,16 @@ class AdventureStoryPlanControllerMarkdownTest {
         InvocationTargetException failure = assertThrows(InvocationTargetException.class,
                 () -> parse.invoke(controller, response, new AdventureStoryPlanController.Configuration(1, "SHORT")));
 
-        assertEquals("citationKey missing", deepestMessage(failure));
+        var violation = ((AdventureStoryPlanController.CandidateResponseValidationException) failure.getCause())
+                .structuredViolations().getFirst();
+        assertEquals("UNKNOWN_CITATION", violation.code());
+        assertEquals("stages[0].evidence[*].citationKey", violation.fieldPath());
+        assertEquals(AdventureStoryPlanController.ProjectionViolation.Repairability.REPAIRABLE,
+                violation.repairability());
     }
 
     @Test
-    void projection_boundary_drops_hallucinated_grounding_and_downgrades_unsupported_combat() throws Exception {
+    void projection_boundary_rejects_ungrounded_combat_participant_for_scoped_repair() throws Exception {
         var controller = new AdventureStoryPlanController(null, new ObjectMapper(), null,
                 "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
                 new ApiRequestGuard("test-internal-token"));
@@ -397,20 +404,24 @@ class AdventureStoryPlanControllerMarkdownTest {
         response = responseRoot.toString();
         var citation = new AdventureStoryPlanController.SourceCitation("STORYBOOK", "doc", 1,
                 "page=1", "Two goblins guard the gate.", 1.0, "citation-1");
+        String rejectedResponse = response;
 
-        var stages = (List<AdventureStoryPlanController.Stage>) parse.invoke(controller, response,
-                new AdventureStoryPlanController.Configuration(1, "SHORT"), List.of(citation));
-        var stage = stages.getFirst();
-        assertEquals(List.of("citation-1"), stage.evidence().stream().map(AdventureStoryPlanController.CitationProjection::citationKey).toList());
-        assertEquals(List.of("goblin"), stage.combatSkeleton().participants().stream()
-                .map(AdventureStoryPlanController.CombatParticipantProjection::name).toList());
-        assertEquals(1, stage.combatSkeleton().participants().getFirst().minimumCount());
-        assertEquals(List.of("goblin"), stage.enemies());
-        assertEquals("", stage.boss());
-        assertEquals("REQUIRED", stage.combatRequirement());
-        assertEquals(List.of("combatSkeleton.participants[0].name"), stage.sourceFactClaims().stream()
-                .map(AdventureStoryPlanController.SourceFactClaimProjection::fieldPath).toList());
-        assertFalse(stage.sourceFactClaims().getFirst().citationKeys().contains("citation-999"));
+        InvocationTargetException failure = assertThrows(InvocationTargetException.class,
+                () -> parse.invoke(controller, rejectedResponse,
+                        new AdventureStoryPlanController.Configuration(1, "SHORT"), List.of(citation)));
+        var invalid = (AdventureStoryPlanController.CandidateResponseValidationException) failure.getCause();
+        assertTrue(invalid.structuredViolations().stream().anyMatch(violation ->
+                violation.code().equals("UNKNOWN_CITATION")
+                        && violation.fieldPath().equals("stages[0].evidence[*].citationKey")));
+        var participantViolation = invalid.structuredViolations().stream()
+                .filter(violation -> violation.code().equals("COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED"))
+                .findFirst().orElseThrow();
+        assertEquals("stages[0].combatSkeleton.participants[1].name", participantViolation.fieldPath());
+        assertEquals("dragon", participantViolation.rejectedValue());
+        assertEquals(AdventureStoryPlanController.ProjectionViolation.Repairability.REPAIRABLE,
+                participantViolation.repairability());
+        assertEquals("dragon", invalid.rejectedCandidate().path("stages").get(0)
+                .path("combatSkeleton").path("participants").get(1).path("name").asText());
     }
 
     @Test

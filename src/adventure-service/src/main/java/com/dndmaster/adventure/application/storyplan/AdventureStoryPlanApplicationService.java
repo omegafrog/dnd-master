@@ -364,9 +364,20 @@ public final class AdventureStoryPlanApplicationService {
     }
 
     private static AdventureStoryPlanProjectionViolation semanticViolation(SemanticVerdict verdict) {
-        String code = "JUDGE_UNAVAILABLE".equals(verdict.failureCode()) ? "JUDGE_UNAVAILABLE" : "SOURCE_CONTRADICTION";
         String message = verdict.summary().replaceAll("[\\r\\n\\t]+", " ").trim();
         if (message.length() > 256) message = message.substring(0, 256) + "...";
+        String normalized = message.toLowerCase(java.util.Locale.ROOT);
+        boolean missingFailureConsequence = normalized.contains("failure consequence")
+                || normalized.contains("fail-forward consequence")
+                || normalized.contains("failure outcome");
+        if (missingFailureConsequence) {
+            Integer stagePosition = stagePosition(message);
+            String fieldPath = stagePosition == null ? "stages[*].failureCondition"
+                    : "stages[" + (stagePosition - 1) + "].failureCondition";
+            return new AdventureStoryPlanProjectionViolation("MISSING_RULE_OUTCOME", stagePosition, fieldPath, "", "",
+                    Repairability.REPAIRABLE, message);
+        }
+        String code = "JUDGE_UNAVAILABLE".equals(verdict.failureCode()) ? "JUDGE_UNAVAILABLE" : "SOURCE_CONTRADICTION";
         return new AdventureStoryPlanProjectionViolation(code, null, verdict.claimPath(), "", "",
                 Repairability.REGENERATE_REQUIRED, message);
     }
