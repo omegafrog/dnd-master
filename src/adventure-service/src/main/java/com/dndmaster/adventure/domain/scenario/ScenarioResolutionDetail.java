@@ -40,6 +40,26 @@ public record ScenarioResolutionDetail(
                 List.of(), null, null, List.of(), List.of(), List.of(), null);
     }
 
+    /**
+     * Projects canonical fields into the fields retained by the pre-canonical API.
+     * Only facts represented by the typed contract or candidate visibility are copied;
+     * missing canonical data is never synthesized.
+     */
+    public ScenarioResolutionDetail withLegacyProjection(ResolutionVisibility candidateVisibility) {
+        return new ScenarioResolutionDetail(
+                trigger, check, stateEffect, reveal, priorKnowledge,
+                present(triggerCondition) ? triggerCondition : trigger == null ? null : trigger.condition(),
+                present(actor) ? actor : trigger == null || trigger.type() == null ? null : trigger.type().name(),
+                present(roller) ? roller : check == null || check.rollMethod() == null ? null : check.rollMethod().name(),
+                present(instructionVisibility) ? instructionVisibility
+                        : candidateVisibility == null ? null : candidateVisibility.name(),
+                resultVisibility, modifiers, advantageState, reroll, steps, outcomes, randomTable, tableCoverage);
+    }
+
+    private static boolean present(String value) {
+        return value != null && !value.isBlank();
+    }
+
     public boolean isEmpty() {
         return trigger == null
                 && check == null

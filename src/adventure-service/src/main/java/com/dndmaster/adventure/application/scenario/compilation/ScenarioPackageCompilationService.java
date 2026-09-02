@@ -87,7 +87,8 @@ public final class ScenarioPackageCompilationService {
             documents.put(key(document.knowledgeDocumentId(), document.extractionVersion()), document);
         }
         return List.copyOf(Objects.requireNonNull(candidates, "candidates must not be null").stream()
-                .map(candidate -> validate(normalizeVisibility(candidate, documents), documents, List.copyOf(excerpts), true))
+                .map(candidate -> normalizeLegacyDetail(normalizeVisibility(candidate, documents)))
+                .map(candidate -> validate(candidate, documents, List.copyOf(excerpts), true))
                 .toList());
     }
 
@@ -148,6 +149,7 @@ public final class ScenarioPackageCompilationService {
         }
         List<ResolutionCandidate> effectiveCandidates = overrideResult.effectiveCandidates().stream()
                 .map(candidate -> normalizeVisibility(candidate, documents))
+                .map(ScenarioPackageCompilationService::normalizeLegacyDetail)
                 .toList();
         List<ScenarioResolutionUnit> units = effectiveCandidates.stream()
                 .map(candidate -> validate(candidate, documents, availableExcerpts, verifyEvidence))
@@ -364,6 +366,15 @@ public final class ScenarioPackageCompilationService {
                 candidate.kind(), candidate.abilityOrSkill(), candidate.dc(), candidate.diceExpression(),
                 ResolutionVisibility.GM_REFERENCE, candidate.sourceQuote(), candidate.sourceRefs(),
                 candidate.provenance(), candidate.detail());
+    }
+
+    private static ResolutionCandidate normalizeLegacyDetail(ResolutionCandidate candidate) {
+        if (candidate == null || candidate.detail() == null) return candidate;
+        ScenarioResolutionDetail projected = candidate.detail().withLegacyProjection(candidate.visibility());
+        if (projected.equals(candidate.detail())) return candidate;
+        return new ResolutionCandidate(
+                candidate.kind(), candidate.abilityOrSkill(), candidate.dc(), candidate.diceExpression(),
+                candidate.visibility(), candidate.sourceQuote(), candidate.sourceRefs(), candidate.provenance(), projected);
     }
 
     private static ScenarioResolutionUnit validate(

@@ -43,6 +43,40 @@ class ScenarioPackageCompilationServiceTest {
     }
 
     @Test
+    void canonicalContractIsCompleteWithoutLegacyDetailFields() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioResolutionDetail canonical = new ScenarioResolutionDetail(
+                new ScenarioResolutionDetail.TriggerContract(
+                        ScenarioResolutionDetail.TriggerType.WORLD_EVENT, "entering the room"),
+                new ScenarioResolutionDetail.CheckContract(
+                        ScenarioResolutionDetail.RollMethod.SYSTEM, "Perception check"),
+                new ScenarioResolutionDetail.StateEffect("trap", "avoided", "triggered"),
+                new ScenarioResolutionDetail.RevealContract(
+                        ScenarioResolutionDetail.RevealCondition.ON_SUCCESS,
+                        ScenarioResolutionDetail.RevealLevel.CLUE, "a concealed trap"),
+                new ScenarioResolutionDetail.PriorKnowledge(false, List.of()),
+                null, null, null, null, null, null, null, null, null, null, null, null);
+        ResolutionCandidate candidate = new ResolutionCandidate(
+                com.dndmaster.adventure.domain.scenario.ResolutionKind.SKILL_ABILITY_CHECK,
+                "Perception", 13, null,
+                com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
+                "A concealed trap is in the room.",
+                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(
+                        documentId, 1, "page:1")),
+                "schema-v2", canonical);
+
+        var unit = new ScenarioPackageCompilationService(new InMemoryPackageRepository())
+                .compile(bundle(documentId, 1), List.of(candidate)).units().getFirst();
+
+        assertEquals("COMPLETE", unit.status().name());
+        assertTrue(unit.validationMessages().isEmpty());
+        assertEquals("entering the room", unit.detail().triggerCondition());
+        assertEquals("WORLD_EVENT", unit.detail().actor());
+        assertEquals("SYSTEM", unit.detail().roller());
+        assertEquals("GM_REFERENCE", unit.detail().instructionVisibility());
+    }
+
+    @Test
     void rejectsContradictoryPlayerActionAndSystemRollContract() {
         KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
         var contract = new ScenarioResolutionDetail(
@@ -181,7 +215,7 @@ class ScenarioPackageCompilationServiceTest {
     }
 
     @Test
-    void marksUnknownActorVisibilityAndPartialRandomTableCoverageAsPartialWithoutSynthesis() {
+    void rejectsRandomTableWithoutCanonicalContract() {
         KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(documentId, 2);
         ScenarioPackageCompilationService service = new ScenarioPackageCompilationService(new InMemoryPackageRepository());
@@ -212,11 +246,12 @@ class ScenarioPackageCompilationServiceTest {
 
         var unit = service.compile(bundle, List.of(randomTable)).units().get(0);
 
-        assertEquals("PARTIAL", unit.status().name());
+        assertEquals("INVALID", unit.status().name());
         assertEquals(List.of("RANDOM_TABLE"), unit.runtimeCapabilities());
         assertEquals("PARTIAL", unit.detail().tableCoverage());
         org.assertj.core.api.Assertions.assertThat(unit.validationMessages())
-                .contains("actor is missing", "roller is missing", "instruction visibility is missing", "random table coverage is PARTIAL");
+                .contains("trigger contract is missing", "check contract is missing", "state effect contract is missing",
+                        "reveal contract is missing", "prior knowledge contract is missing", "random table coverage is PARTIAL");
     }
 
     @Test
