@@ -16,6 +16,12 @@ import com.dndmaster.adventure.application.runtime.BestOfNRuntimePlanningAdapter
 import com.dndmaster.adventure.application.runtime.RuntimePlanningRequest;
 import com.dndmaster.adventure.application.runtime.RuntimePlan;
 import com.dndmaster.adventure.application.runtime.EvidencePack;
+import com.dndmaster.adventure.application.runtime.GmAgentPort;
+import com.dndmaster.adventure.application.runtime.GmAgentRuntimePlanningAdapter;
+import com.dndmaster.adventure.application.runtime.GmFinalValidator;
+import com.dndmaster.adventure.application.runtime.GmPlanResult;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidence;
+import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
@@ -168,6 +174,30 @@ class BestOfNTurnPlanningTest {
         assertEquals(Set.of("UNSUPPORTED_ENTITY", "PLAYER_AGENCY_VIOLATION", "CONTINUITY_VIOLATION", "RULE_VIOLATION"),
                 audits.getFirst().rejected().stream().flatMap(rejection -> rejection.violations().stream())
                         .map(Enum::name).collect(java.util.stream.Collectors.toSet()));
+    }
+
+    @Test
+    void decomposed_runtime_selection_keeps_valid_candidates_when_one_model_output_fails_validation() {
+        RuntimeEvidence story = new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK, new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(UUID.randomUUID()),
+                1, "page:1", "A supported cellar scene.");
+        RuntimeEvidence outsidePack = new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
+                new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(UUID.randomUUID()), 1, "page:2", "Outside evidence.");
+        var calls = new int[1];
+        GmAgentPort agent = context -> {
+            calls[0]++;
+            List<RuntimeEvidence> citations = calls[0] == 1 ? List.of(outsidePack) : List.of(story);
+            return new GmPlanResult(new RuntimePlan("scene", "npc", "judgment", "narration", null, citations, List.of(), "p", "m", "r"),
+                    "p", "m", "r", List.of());
+        };
+        var adapter = new BestOfNRuntimePlanningAdapter(new GmAgentRuntimePlanningAdapter(agent, new GmFinalValidator()), 3, false, audit -> { });
+        RuntimePlan selected = adapter.plan(new RuntimePlanningRequest(AdventureId.generate(), new OwnerPlayerId(UUID.randomUUID()),
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 1,
+                new AdventureContext("scene", "npc", "open", "judgment"), null, "open", new EvidencePack(List.of(story), List.of(), List.of()),
+                List.of(), List.of(), "stage", null, "provider", "model", "reasoning", new NarrativeContext("player", "scene", 0,
+                        Set.of(), List.of(), java.util.Map.of(), List.of(), List.of(), List.of())));
+
+        assertEquals(List.of(story), selected.citedEvidence());
+        assertEquals(3, calls[0]);
     }
 
     private static PlanningContext context() {

@@ -3,6 +3,7 @@ package com.dndmaster.aigamemaster.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -15,6 +16,8 @@ import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointStore;
 import com.dndmaster.aigamemaster.infrastructure.ai.SafeAiAuditLogger;
 import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import java.time.Duration;
 import java.time.Instant;
 import java.lang.reflect.InvocationTargetException;
@@ -135,6 +138,9 @@ class AdventureStoryPlanControllerMarkdownTest {
         assertTrue(prompt.contains("A stage without hidden information, a conditional event, or a rules check may have no trigger"));
         assertTrue(prompt.contains("Every hidden-information trigger, secret, clue reveal, conditional event, or rules check"));
         assertTrue(prompt.contains("explicit failure or fail-forward consequence"));
+        assertTrue(prompt.contains("endingIds are the canonical ending references"));
+        assertTrue(prompt.contains("not a tactical-scene or resolution-plan contract"));
+        assertTrue(prompt.contains("Do not infer a missing trigger, DC, check"));
         assertTrue(prompt.contains("heading names, Markdown formatting"));
     }
 
@@ -191,6 +197,30 @@ class AdventureStoryPlanControllerMarkdownTest {
         assertTrue(prompt.contains("stages[0].transitionCondition"));
         assertTrue(prompt.contains("previousFullCandidate"));
         assertTrue(prompt.contains("authoritativeCitations"));
+    }
+
+    @Test
+    void local_failure_condition_repair_does_not_send_unused_source_registries() throws Exception {
+        var controller = new AdventureStoryPlanController(
+                null, new ObjectMapper(), null, "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
+                new ApiRequestGuard("test-internal-token"));
+        var violation = new AdventureStoryPlanController.ProjectionViolation(
+                "MISSING_RULE_OUTCOME", 4, "stages[3].failureCondition", "", "",
+                AdventureStoryPlanController.ProjectionViolation.Repairability.REPAIRABLE,
+                "stage 4 failure consequence is missing");
+        var request = new AdventureStoryPlanController.RepairRequest("op", 1, 1,
+                new AdventureStoryPlanController.Configuration(1, "SHORT"),
+                new ObjectMapper().readTree("{\"stages\":[{\"position\":1}]}"), List.of(violation),
+                List.of("large source document"), List.of("large resolution evidence"), List.of(), List.of());
+        var promptMethod = AdventureStoryPlanController.class.getDeclaredMethod(
+                "repairPrompt", AdventureStoryPlanController.RepairRequest.class,
+                AdventureStoryPlanController.Configuration.class);
+        promptMethod.setAccessible(true);
+
+        String prompt = (String) promptMethod.invoke(controller, request, request.configuration());
+
+        assertTrue(prompt.contains("not needed for this local failure-condition repair"));
+        assertTrue(prompt.contains("previousFullCandidate"));
     }
 
     @Test
@@ -307,8 +337,10 @@ class AdventureStoryPlanControllerMarkdownTest {
         assertTrue(prompt.contains("JSON shape constraint"));
         assertTrue(prompt.contains("non-empty array of strings"));
         assertTrue(prompt.contains("citationKey"));
-        assertTrue(prompt.contains("Every sourceFactClaims item MUST be an object with non-empty fieldPath, normalizedClaim, and citationKeys"));
+        assertTrue(prompt.contains("Every sourceFactClaims item MUST be an object with non-empty fieldPath, normalizedClaim, citationKeys, and origin"));
         assertTrue(prompt.contains("combatSkeleton.rewards MUST be an array of the same claim objects"));
+        assertTrue(prompt.contains("burning-web"));
+        assertTrue(prompt.contains("do not turn them into sourceFactClaims"));
         assertTrue(prompt.contains("previousViolations"));
     }
 
@@ -319,7 +351,7 @@ class AdventureStoryPlanControllerMarkdownTest {
                 "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
                 new ApiRequestGuard("test-internal-token"));
         var parse = AdventureStoryPlanController.class.getDeclaredMethod(
-                "parseJson", String.class, AdventureStoryPlanController.Configuration.class);
+                "parseJson", String.class, AdventureStoryPlanController.Configuration.class, List.class);
         parse.setAccessible(true);
         String response = """
                 {"stages":[
@@ -330,7 +362,9 @@ class AdventureStoryPlanControllerMarkdownTest {
                 """;
 
         var stages = (List<AdventureStoryPlanController.Stage>) parse.invoke(controller, response,
-                new AdventureStoryPlanController.Configuration(1, "SHORT"));
+                new AdventureStoryPlanController.Configuration(1, "SHORT"), List.of(
+                        new AdventureStoryPlanController.SourceCitation("RULEBOOK", "doc", 1,
+                                "page=1", "authoritative source", 1.0, "citation-1")));
 
         assertEquals("citation-1", stages.getFirst().evidence().getFirst().citationKey());
     }
@@ -355,7 +389,94 @@ class AdventureStoryPlanControllerMarkdownTest {
         InvocationTargetException failure = assertThrows(InvocationTargetException.class,
                 () -> parse.invoke(controller, response, new AdventureStoryPlanController.Configuration(1, "SHORT")));
 
-        assertEquals("citationKey missing", deepestMessage(failure));
+        var violation = ((AdventureStoryPlanController.CandidateResponseValidationException) failure.getCause())
+                .structuredViolations().getFirst();
+        assertEquals("UNKNOWN_CITATION", violation.code());
+        assertEquals("stages[0].evidence[*].citationKey", violation.fieldPath());
+        assertEquals(AdventureStoryPlanController.ProjectionViolation.Repairability.REPAIRABLE,
+                violation.repairability());
+    }
+
+    @Test
+    void projection_boundary_rejects_ungrounded_combat_participant_for_scoped_repair() throws Exception {
+        var controller = new AdventureStoryPlanController(null, new ObjectMapper(), null,
+                "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
+                new ApiRequestGuard("test-internal-token"));
+        var parse = AdventureStoryPlanController.class.getDeclaredMethod("parseJson", String.class,
+                AdventureStoryPlanController.Configuration.class, List.class);
+        parse.setAccessible(true);
+        String response = """
+                {"stages":[
+                  {"position":1,"title":"Start","goal":"Begin","conflict":"Choice","transitionCondition":"Continue","endingIds":["ending-1"],
+                   "evidence":[{"citationKey":"citation-999"},{"citationKey":"citation-1"},{"citationKey":"citation-1"}],
+                   "enemies":["goblin","dragon"],"boss":"invented lich","combatRequirement":"REQUIRED",
+                   "combatSkeleton":{"objective":"Defeat the goblins","startTrigger":"When entering","participants":[
+                     {"participantId":"goblin","role":"ENEMY","name":"goblin","minimumCount":4,"maximumCount":4,"citationKeys":["citation-999","citation-1","citation-1"]},
+                     {"participantId":"dragon","role":"BOSS","name":"dragon","minimumCount":1,"maximumCount":1,"citationKeys":["citation-1"]}],
+                   "successOutcome":"Win","failureOutcome":"Retreat","rewards":[]},
+                   "sourceFactClaims":[
+                     {"fieldPath":"goal","normalizedClaim":"invented fact","citationKeys":["citation-1"],"origin":"SOURCE"},
+                     {"fieldPath":"combatSkeleton.participants[0].name","normalizedClaim":"goblin","citationKeys":["citation-1","citation-999"],"origin":"SOURCE"},
+                     {"fieldPath":"combatSkeleton.participants[1].name","normalizedClaim":"dragon","citationKeys":["citation-1"],"origin":"SOURCE"}
+                   ]}
+                ]}
+                """;
+        var responseRoot = new ObjectMapper().readTree(response);
+        var responseStages = (ArrayNode) responseRoot.get("stages");
+        for (int position = 2; position <= 3; position++) {
+            var copy = (ObjectNode) responseStages.get(0).deepCopy();
+            copy.put("position", position);
+            responseStages.add(copy);
+        }
+        response = responseRoot.toString();
+        var citation = new AdventureStoryPlanController.SourceCitation("STORYBOOK", "doc", 1,
+                "page=1", "Two goblins guard the gate.", 1.0, "citation-1");
+        String rejectedResponse = response;
+
+        InvocationTargetException failure = assertThrows(InvocationTargetException.class,
+                () -> parse.invoke(controller, rejectedResponse,
+                        new AdventureStoryPlanController.Configuration(1, "SHORT"), List.of(citation)));
+        var invalid = (AdventureStoryPlanController.CandidateResponseValidationException) failure.getCause();
+        assertTrue(invalid.structuredViolations().stream().anyMatch(violation ->
+                violation.code().equals("UNKNOWN_CITATION")
+                        && violation.fieldPath().equals("stages[0].evidence[*].citationKey")));
+        var participantViolation = invalid.structuredViolations().stream()
+                .filter(violation -> violation.code().equals("COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED"))
+                .findFirst().orElseThrow();
+        assertEquals("stages[0].combatSkeleton.participants[1].name", participantViolation.fieldPath());
+        assertEquals("dragon", participantViolation.rejectedValue());
+        assertEquals(AdventureStoryPlanController.ProjectionViolation.Repairability.REPAIRABLE,
+                participantViolation.repairability());
+        assertEquals("dragon", invalid.rejectedCandidate().path("stages").get(0)
+                .path("combatSkeleton").path("participants").get(1).path("name").asText());
+    }
+
+    @Test
+    void projection_boundary_recovers_missing_participant_binding_from_same_stage_evidence() throws Exception {
+        var controller = new AdventureStoryPlanController(null, new ObjectMapper(), null,
+                "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
+                new ApiRequestGuard("test-internal-token"));
+        var canonicalize = AdventureStoryPlanController.class.getDeclaredMethod("canonicalizeStage",
+                ObjectNode.class, int.class, Map.class, List.class);
+        canonicalize.setAccessible(true);
+        ObjectNode stage = (ObjectNode) new ObjectMapper().readTree("""
+                {"position":2,"combatRequirement":"REQUIRED",
+                 "evidence":[{"citationKey":"citation-1"}],
+                 "combatSkeleton":{"participants":[
+                   {"participantId":"giant-rats","role":"ENEMY","name":"Eight Giant Rats","minimumCount":1,"maximumCount":1}
+                 ]}}
+                """);
+        var citation = new AdventureStoryPlanController.SourceCitation("STORYBOOK", "doc", 1,
+                "page=1", "Eight Giant Rats guard the room.", 1.0);
+        var violations = new java.util.ArrayList<AdventureStoryPlanController.ProjectionViolation>();
+
+        canonicalize.invoke(controller, stage, 1, Map.of("citation-1", citation), violations);
+
+        assertTrue(violations.isEmpty());
+        var participant = stage.path("combatSkeleton").path("participants").get(0);
+        assertEquals("ENEMY", participant.path("role").asText());
+        assertEquals("giant-rats", participant.path("participantId").asText());
+        assertEquals("[\"citation-1\"]", participant.path("citationKeys").toString());
     }
 
     @Test
@@ -404,18 +525,6 @@ class AdventureStoryPlanControllerMarkdownTest {
         server.start();
         try {
             server.stubFor(post(urlEqualTo("/api/generate"))
-                    .inScenario("story-plan")
-                    .whenScenarioStateIs(STARTED)
-                    .willReturn(okJson(new ObjectMapper().writeValueAsString(Map.of("response", "x".repeat(600)))))
-                    .willSetStateTo("verification"));
-            server.stubFor(post(urlEqualTo("/api/generate"))
-                    .inScenario("story-plan")
-                    .whenScenarioStateIs("verification")
-                    .willReturn(okJson(new ObjectMapper().writeValueAsString(Map.of("response", "{\"status\":\"PASS\",\"violations\":[]}"))))
-                    .willSetStateTo("projection"));
-            server.stubFor(post(urlEqualTo("/api/generate"))
-                    .inScenario("story-plan")
-                    .whenScenarioStateIs("projection")
                     .willReturn(okJson(new ObjectMapper().writeValueAsString(Map.of("response", "{\"stages\":[]}")))));
 
             var endpoint = new AgentEndpoint(UUID.randomUUID(), "wiremock", AgentEndpoint.Provider.OLLAMA,
@@ -441,9 +550,48 @@ class AdventureStoryPlanControllerMarkdownTest {
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.violations[0]").value("invalid stage count"))
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.rejectedCandidate.stages").isArray())
                     .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath("$.structuredViolations[0].repairability").value("REGENERATE_REQUIRED"));
+            server.verify(1, postRequestedFor(urlEqualTo("/api/generate")));
         } finally {
             server.stop();
         }
+    }
+
+    @Test
+    void renders_markdown_deterministically_from_structured_stages() {
+        var stage = new AdventureStoryPlanController.Stage(1, "저장고", "DUNGEON", "지하 저장고",
+                "단서를 찾는다", "쥐가 길을 막는다", "쥐를 물리친다", List.of(), List.of("ending-1"),
+                "", "", "", List.of("거대 쥐"), "", "단서를 확보한다", "후퇴한다", List.of("열쇠"),
+                List.of("ending-1"), Map.of(), List.of(new AdventureStoryPlanController.CitationProjection("citation-1")),
+                "REQUIRED", new AdventureStoryPlanController.CombatSkeletonProjection("쥐를 몰아낸다", "저장고 진입",
+                List.of(new AdventureStoryPlanController.CombatParticipantProjection("rat-1", "ENEMY", "거대 쥐", 1, 1, List.of("citation-1"))),
+                "쥐가 도망친다", "후퇴한다", List.of()),
+                List.of(), "REQUIRED", 2);
+
+        String first = AdventureStoryPlanController.renderMarkdown(List.of(stage));
+        String second = AdventureStoryPlanController.renderMarkdown(List.of(stage));
+
+        assertEquals(first, second);
+        assertTrue(first.contains("## Stage 1: 저장고"));
+        assertTrue(first.contains("- Failure condition: 후퇴한다"));
+        assertTrue(first.contains("- Combat success outcome: 쥐가 도망친다"));
+        assertTrue(first.contains("- Combat failure/fail-forward outcome: 후퇴한다"));
+        assertTrue(first.contains("- Source citations: citation-1"));
+    }
+
+    @Test
+    void does_not_render_empty_combat_skeleton_as_an_incomplete_check() {
+        var stage = new AdventureStoryPlanController.Stage(1, "시작", "EVENT", "마을",
+                "조사한다", "위험이 있다", "다음 장소로 간다", List.of(), List.of("ending-1"),
+                "", "", "", List.of(), "", "계속 진행한다", "경계하며 후퇴한다", List.of(),
+                List.of("ending-1"), Map.of(), List.of(), "NONE",
+                new AdventureStoryPlanController.CombatSkeletonProjection("", "", List.of(), "", "", List.of()),
+                List.of(), "NOT_REQUIRED", 2);
+
+        String markdown = AdventureStoryPlanController.renderMarkdown(List.of(stage));
+
+        assertFalse(markdown.contains("- Combat trigger:"));
+        assertFalse(markdown.contains("- Combat success outcome:"));
+        assertFalse(markdown.contains("- Combat failure/fail-forward outcome:"));
     }
 
     private static String deepestMessage(Throwable failure) {

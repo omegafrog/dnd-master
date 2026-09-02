@@ -30,9 +30,15 @@ public record TurnCapability(String token, UUID sessionId, UUID turnId, UUID own
     }
 
     void authorize(GmToolInvocation invocation, Instant now) {
-        if (!sessionId.equals(invocation.sessionId()) || !turnId.equals(invocation.turnId())
-                || !ownerPlayerId.equals(invocation.ownerPlayerId()) || !allowedTools.contains(invocation.toolName())
-                || !expiresAt.isAfter(now)) throw new ToolAuthorizationException();
+        if (!allowedTools.contains(invocation.toolName())) throw denied(ToolCapabilityDenialReason.TOOL_NOT_ALLOWED, invocation);
+        if (!sessionId.equals(invocation.sessionId())) throw denied(ToolCapabilityDenialReason.SESSION_MISMATCH, invocation);
+        if (!turnId.equals(invocation.turnId())) throw denied(ToolCapabilityDenialReason.TURN_MISMATCH, invocation);
+        if (!ownerPlayerId.equals(invocation.ownerPlayerId())) throw denied(ToolCapabilityDenialReason.OWNER_MISMATCH, invocation);
+        if (!expiresAt.isAfter(now)) throw denied(ToolCapabilityDenialReason.EXPIRED, invocation);
+    }
+
+    private static ToolAuthorizationException denied(ToolCapabilityDenialReason reason, GmToolInvocation invocation) {
+        return new ToolAuthorizationException(reason, invocation.toolName());
     }
 
     private static String required(String value, String name) {

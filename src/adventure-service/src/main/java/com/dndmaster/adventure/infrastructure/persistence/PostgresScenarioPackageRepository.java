@@ -3,12 +3,15 @@ package com.dndmaster.adventure.infrastructure.persistence;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.scenario.ResolutionKind;
+import com.dndmaster.adventure.domain.scenario.SaveDc;
+import com.dndmaster.adventure.domain.scenario.FixedSaveDc;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
+import com.dndmaster.adventure.domain.scenario.CompilationOutcome;
 import com.dndmaster.adventure.domain.scenario.CharacterLimit;
 import com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprint;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
@@ -70,7 +73,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     private Optional<ScenarioPackage> find(String column, Object value) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(
-                        "SELECT package_id, bundle_id, bundle_revision, input_fingerprint, report_status, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json, map_definitions_json, story_map_bindings_json FROM scenario_package WHERE " + column + " = ?")) {
+                        "SELECT package_id, bundle_id, bundle_revision, input_fingerprint, report_status, compilation_outcome, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json, map_definitions_json, story_map_bindings_json FROM scenario_package WHERE " + column + " = ?")) {
             statement.setObject(1, value);
             try (ResultSet row = statement.executeQuery()) {
                 if (!row.next()) return Optional.empty();
@@ -84,7 +87,10 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
                         readUnits(connection, packageId),
                         new ScenarioCompilationReport(
                                 ResolutionStatus.valueOf(row.getString("report_status")),
-                                readArray(row.getArray("report_warnings"))),
+                                readArray(row.getArray("report_warnings")),
+                                row.getString("compilation_outcome") == null
+                                        ? null
+                                        : CompilationOutcome.valueOf(row.getString("compilation_outcome"))),
                         readCharacterLimit(row), readBlueprint(row.getString("character_creation_blueprint_json")),
                         readJson(row.getString("map_definitions_json"), new com.fasterxml.jackson.core.type.TypeReference<List<MapDefinition>>() {}),
                         readJson(row.getString("story_map_bindings_json"), new com.fasterxml.jackson.core.type.TypeReference<List<StoryMapBinding>>() {})));
@@ -139,24 +145,25 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
 
     private static void insertHeader(Connection connection, ScenarioPackage packageVersion) throws SQLException {
         try (PreparedStatement insert = connection.prepareStatement(
-                "INSERT INTO scenario_package(package_id, bundle_id, bundle_revision, input_fingerprint, report_status, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json, map_definitions_json, story_map_bindings_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
+                "INSERT INTO scenario_package(package_id, bundle_id, bundle_revision, input_fingerprint, report_status, compilation_outcome, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json, map_definitions_json, story_map_bindings_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
             insert.setObject(1, packageVersion.packageId());
             insert.setObject(2, packageVersion.bundleId().value());
             insert.setLong(3, packageVersion.bundleRevision());
             insert.setString(4, packageVersion.inputFingerprint());
             insert.setString(5, packageVersion.report().status().name());
-            insert.setArray(6, connection.createArrayOf("text", packageVersion.report().warnings().toArray()));
-            insert.setInt(7, packageVersion.characterLimit().maximumCharacters());
+            insert.setString(6, packageVersion.report().outcome().name());
+            insert.setArray(7, connection.createArrayOf("text", packageVersion.report().warnings().toArray()));
+            insert.setInt(8, packageVersion.characterLimit().maximumCharacters());
             var source = packageVersion.characterLimit().source().orElse(null);
             if (source == null) {
-                insert.setNull(8, java.sql.Types.OTHER); insert.setNull(9, java.sql.Types.BIGINT); insert.setNull(10, java.sql.Types.VARCHAR);
+                insert.setNull(9, java.sql.Types.OTHER); insert.setNull(10, java.sql.Types.BIGINT); insert.setNull(11, java.sql.Types.VARCHAR);
             } else {
-                insert.setObject(8, source.knowledgeDocumentId().value()); insert.setLong(9, source.extractionVersion()); insert.setString(10, source.locator());
+                insert.setObject(9, source.knowledgeDocumentId().value()); insert.setLong(10, source.extractionVersion()); insert.setString(11, source.locator());
             }
-            insert.setString(11, packageVersion.characterLimit().sourceQuote());
-            insert.setString(12, writeBlueprint(packageVersion.characterCreationBlueprint()));
-            insert.setString(13, writeJson(packageVersion.mapDefinitions()));
-            insert.setString(14, writeJson(packageVersion.storyMapBindings()));
+            insert.setString(12, packageVersion.characterLimit().sourceQuote());
+            insert.setString(13, writeBlueprint(packageVersion.characterCreationBlueprint()));
+            insert.setString(14, writeJson(packageVersion.mapDefinitions()));
+            insert.setString(15, writeJson(packageVersion.storyMapBindings()));
             insert.executeUpdate();
         }
     }
@@ -189,7 +196,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
 
     private static void insertUnits(Connection connection, ScenarioPackage packageVersion) throws SQLException {
         try (PreparedStatement unit = connection.prepareStatement(
-                "INSERT INTO scenario_package_resolution_unit(package_id, unit_order, resolution_kind, ability_or_skill, dc, dice_expression, visibility, source_quote, provenance, detail_json, status, validation_messages) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
+                "INSERT INTO scenario_package_resolution_unit(package_id, unit_order, resolution_kind, ability_or_skill, dc, dc_resolution_json, dice_expression, visibility, source_quote, provenance, detail_json, status, validation_messages) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)");
                 PreparedStatement ref = connection.prepareStatement(
                         "INSERT INTO scenario_package_resolution_source_ref(package_id, unit_order, ref_order, knowledge_document_id, extraction_version, locator) VALUES (?, ?, ?, ?, ?, ?)")) {
             for (int index = 0; index < packageVersion.units().size(); index++) {
@@ -197,12 +204,13 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
                 unit.setObject(1, packageVersion.packageId()); unit.setInt(2, index);
                 if (resolution.kind() == null) unit.setNull(3, java.sql.Types.VARCHAR); else unit.setString(3, resolution.kind().name());
                 unit.setString(4, resolution.abilityOrSkill());
-                if (resolution.dc() == null) unit.setNull(5, java.sql.Types.INTEGER); else unit.setInt(5, resolution.dc());
-                unit.setString(6, resolution.diceExpression()); unit.setString(7, resolution.visibility().name());
-                unit.setString(8, resolution.sourceQuote()); unit.setString(9, resolution.provenance());
-                unit.setString(10, writeDetail(resolution.detail()));
-                unit.setString(11, resolution.status().name());
-                unit.setArray(12, connection.createArrayOf("text", resolution.validationMessages().toArray()));
+                if (resolution.dc() instanceof FixedSaveDc fixed) unit.setInt(5, fixed.value()); else unit.setNull(5, java.sql.Types.INTEGER);
+                unit.setString(6, writeJson(resolution.dc()));
+                unit.setString(7, resolution.diceExpression()); unit.setString(8, resolution.visibility().name());
+                unit.setString(9, resolution.sourceQuote()); unit.setString(10, resolution.provenance());
+                unit.setString(11, writeDetail(resolution.detail()));
+                unit.setString(12, resolution.status().name());
+                unit.setArray(13, connection.createArrayOf("text", resolution.validationMessages().toArray()));
                 unit.addBatch();
                 for (int refIndex = 0; refIndex < resolution.sourceRefs().size(); refIndex++) {
                     ScenarioSourceReference source = resolution.sourceRefs().get(refIndex);
@@ -234,7 +242,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     private static List<ScenarioResolutionUnit> readUnits(Connection connection, UUID packageId) throws SQLException {
         List<ScenarioResolutionUnit> units = new ArrayList<>();
         try (PreparedStatement statement = connection.prepareStatement(
-                "SELECT unit_order, resolution_kind, ability_or_skill, dc, dice_expression, visibility, source_quote, provenance, detail_json, status, validation_messages FROM scenario_package_resolution_unit WHERE package_id = ? ORDER BY unit_order")) {
+                "SELECT unit_order, resolution_kind, ability_or_skill, dc, dc_resolution_json, dice_expression, visibility, source_quote, provenance, detail_json, status, validation_messages FROM scenario_package_resolution_unit WHERE package_id = ? ORDER BY unit_order")) {
             statement.setObject(1, packageId);
             try (ResultSet rows = statement.executeQuery()) {
                 while (rows.next()) {
@@ -242,7 +250,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
                     String kind = rows.getString("resolution_kind");
                     units.add(new ScenarioResolutionUnit(
                             kind == null ? null : ResolutionKind.valueOf(kind), rows.getString("ability_or_skill"),
-                            (Integer) rows.getObject("dc"), rows.getString("dice_expression"),
+                            readSaveDc(rows.getString("dc_resolution_json"), (Integer) rows.getObject("dc")), rows.getString("dice_expression"),
                             ResolutionVisibility.valueOf(rows.getString("visibility")), rows.getString("source_quote"),
                             readRefs(connection, packageId, order), rows.getString("provenance"),
                             readDetail(rows.getString("detail_json")),
@@ -265,6 +273,12 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
             }
         }
         return refs;
+    }
+
+    private static SaveDc readSaveDc(String json, Integer legacy) {
+        if (json == null || json.isBlank()) return SaveDc.fixed(legacy);
+        try { return JSON.readValue(json, SaveDc.class); }
+        catch (JsonProcessingException exception) { throw new ScenarioPackagePersistenceException("could not deserialize save DC", exception); }
     }
 
     private static List<String> readArray(java.sql.Array array) throws SQLException {

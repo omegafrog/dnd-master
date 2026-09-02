@@ -8,7 +8,11 @@ import java.util.Objects;
 import java.util.UUID;
 
 public record RuntimeCommandRequest(UUID commandId, UUID sessionId, UUID turnId, UUID ownerPlayerId,
-                                    String toolName, String argumentsJson) {
+                                    String toolName, String argumentsJson, UUID candidateId, Integer toolIndex) {
+    public RuntimeCommandRequest(UUID commandId, UUID sessionId, UUID turnId, UUID ownerPlayerId,
+                                 String toolName, String argumentsJson) {
+        this(commandId, sessionId, turnId, ownerPlayerId, toolName, argumentsJson, null, null);
+    }
     public RuntimeCommandRequest {
         Objects.requireNonNull(commandId); Objects.requireNonNull(sessionId); Objects.requireNonNull(turnId);
         Objects.requireNonNull(ownerPlayerId); if (toolName == null || toolName.isBlank()) throw new IllegalArgumentException("tool name required");

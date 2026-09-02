@@ -37,6 +37,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 @RestController
 @RequestMapping
 public class AdventureController {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(AdventureController.class);
     private static final String LEGACY_SCENARIO_UPLOAD_SUNSET = "Fri, 31 Dec 2027 00:00:00 GMT";
     private final SavedAdventureApplicationService savedAdventureService;
     private final RuntimeTurnApplicationService runtimeTurnService;
@@ -182,10 +183,19 @@ public class AdventureController {
                     input.actionText(), expectedVersion,
                     null, -1, !(input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput), false, false));
         } catch (RuntimeException exception) {
-            gmTurnFailureRecorder.record(turn, adventureId, adventure.sessionId().value(), exception.getMessage(), expectedVersion);
+            LOGGER.error("gm_turn_request_failed stage=GM_TURN_CONTROLLER turnId={} commandId={} adventureId={} exceptionClass={} exceptionMessage={}",
+                    request.turnId(), commandId, adventureId, exception.getClass().getName(), exception.getMessage(), exception);
+            gmTurnFailureRecorder.record(turn, adventureId, adventure.sessionId().value(), exception, expectedVersion);
             if (exception instanceof RuntimeCombatRejectionException
                     || exception instanceof ApiRequestGuard.ApiContractException) {
                 throw exception;
+            }
+            String message = exception.getMessage() == null ? "" : exception.getMessage();
+            if (message.contains("ADVENTURE_VERSION_CONFLICT")) {
+                return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).build();
+            }
+            if (message.contains("GM_TURN_ALREADY_IN_PROGRESS")) {
+                return ResponseEntity.status(org.springframework.http.HttpStatus.CONFLICT).build();
             }
             return ResponseEntity.status(org.springframework.http.HttpStatus.BAD_GATEWAY).build();
         }
@@ -198,6 +208,15 @@ public class AdventureController {
         sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
                 result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
         return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
+    }
+
+    @PostMapping("/api/v1/adventures/{adventureId}/turns/{pendingTurnId}/roll")
+    RuntimeTurnResponse submitPlayerRoll(@PathVariable UUID adventureId, @PathVariable UUID pendingTurnId,
+            @RequestBody PlayerRollRequest request) {
+        RuntimeTurnResult result = runtimeTurnService.submitPlayerRoll(new com.dndmaster.adventure.application.runtime.SubmitPlayerRollCommand(
+                new AdventureId(adventureId), new OwnerPlayerId(playerResolver.playerId()), pendingTurnId,
+                request.result(), request.expectedVersion()));
+        return RuntimeTurnResponse.from(result);
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/rule-inquiries")
@@ -355,6 +374,8 @@ public class AdventureController {
 
     public record GmTurnRequest(UUID turnId, GmInputRequest input) {}
 
+    public record PlayerRollRequest(int result, long expectedVersion) {}
+
     public record GmInputRequest(String type, String text, UUID mapId, Long mapVersion, String action, String question) {
         com.dndmaster.adventure.domain.runtime.GmInput toDomain() {
             if (type == null) throw new IllegalArgumentException("input type is required");
@@ -374,15 +395,10 @@ public class AdventureController {
             UUID scenarioPackageId,
             long bindingVersion,
             String narration,
-            String judgment,
             String currentScene,
-            List<String> sourceRefs,
-            List<String> warnings,
-            String provider,
-            String model,
-            String reasoning,
-            String resolutionStatus,
-            long version) {
+            List<String> visibleFacts,
+            long version,
+            com.dndmaster.adventure.application.runtime.PlayerRollRequest rollRequest) {
         static RuntimeTurnResponse from(RuntimeTurnResult result) {
             return new RuntimeTurnResponse(
                     result.turn().turnId(),
@@ -390,15 +406,9 @@ public class AdventureController {
                     result.turn().scenarioPackageId(),
                     result.turn().bindingVersion(),
                     result.turn().plan().narration(),
-                    result.turn().plan().judgment(),
                     result.context().currentScene(),
-                    result.turn().citations(),
-                    result.turn().warnings(),
-                    result.turn().plan().provider(),
-                    result.turn().plan().model(),
-                    result.turn().plan().reasoning(),
-                    result.turn().plan().resolutionStatus(),
-                    result.version());
+                    result.visibleTurn() == null ? List.of() : result.visibleTurn().visibleFacts(),
+                    result.version(), result.visibleTurn() == null ? null : result.visibleTurn().rollRequest());
         }
     }
     public record RuleInquiryRequest(UUID inquiryId, UUID ruleSetId, UUID playerId, String situation) {}

@@ -101,11 +101,14 @@ public final class AdventurePrologueApplicationService {
                 narration = generator.generate(fallbackRequest);
             }
         }
-        if (narrationSafety != null && selectedEvidence != null
-                && !narrationSafety.assess(new NarrationSafetyRequest(narration, selectedEvidence,
-                        adventure.currentContext(), "prologue")).approved()) {
-            LOGGER.warn("adventure_prologue_narration_rejected fallback=deterministic");
+        if (narrationSafety != null && selectedEvidence != null) {
+            var safety = narrationSafety.assess(new NarrationSafetyRequest(narration, selectedEvidence,
+                    adventure.currentContext(), "prologue"));
+            if (!safety.approved()) {
+                LOGGER.warn("adventure_prologue_narration_rejected fallback=deterministic reason={} narrationLength={}",
+                        safety.reason(), narration == null ? 0 : narration.length());
             narration = generator.generate(fallbackRequest);
+            }
         }
         try {
             if (narration == null || narration.isBlank()) {
@@ -143,7 +146,9 @@ public final class AdventurePrologueApplicationService {
         var rulebook = withPlanEvidence(search(adventure, owner, rulebookIds, action, RuntimeEvidenceType.RULEBOOK, extractionVersions), stage, RuntimeEvidenceType.RULEBOOK);
         org.slf4j.LoggerFactory.getLogger(AdventurePrologueApplicationService.class).info(
                 "adventure_prologue_evidence storybook={} rulebook={} stage={}", storybook.size(), rulebook.size(), stage.position());
-        return new EvidencePack(storybook, rulebook, java.util.List.of());
+        List<RuntimeEvidence> boundedStorybook = storybook.stream().limit(8).toList();
+        int remaining = Math.max(0, 8 - boundedStorybook.size());
+        return new EvidencePack(boundedStorybook, rulebook.stream().limit(remaining).toList(), java.util.List.of());
     }
 
     private static List<RuntimeEvidence> withPlanEvidence(List<RuntimeEvidence> searched,

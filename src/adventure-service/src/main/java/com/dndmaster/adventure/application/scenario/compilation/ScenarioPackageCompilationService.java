@@ -14,6 +14,8 @@ import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
 import com.dndmaster.adventure.domain.scenario.CharacterLimit;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
+import com.dndmaster.adventure.domain.scenario.FixedSaveDc;
+import com.dndmaster.adventure.domain.scenario.SaveDc;
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterCreationBlueprintCompiler;
 import com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort.CharacterInputTagCandidate;
 import com.dndmaster.adventure.application.scenario.blueprint.DndCharacterCreationTemplate;
@@ -37,7 +39,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class ScenarioPackageCompilationService {
-    private static final String COMPILER_VERSION = "resolution-compiler-v2";
+    private static final String COMPILER_VERSION = "resolution-compiler-v3";
     private static final String DICE_PATTERN = "(?i)\\d+d\\d+(?:\\s*[+-]\\s*\\d+)?";
     private static final String RECHARGE_PATTERN = "\\d+\\s*-\\s*\\d+";
     private static final Pattern CHARACTER_LIMIT_PATTERN = Pattern.compile(
@@ -85,6 +87,7 @@ public final class ScenarioPackageCompilationService {
             documents.put(key(document.knowledgeDocumentId(), document.extractionVersion()), document);
         }
         return List.copyOf(Objects.requireNonNull(candidates, "candidates must not be null").stream()
+                .map(candidate -> normalizeLegacyDetail(normalizeVisibility(candidate, documents)))
                 .map(candidate -> validate(candidate, documents, List.copyOf(excerpts), true))
                 .toList());
     }
@@ -144,7 +147,11 @@ public final class ScenarioPackageCompilationService {
         for (ScenarioBundleDocumentSelection document : bundle.currentRevision().documents()) {
             documents.put(key(document.knowledgeDocumentId(), document.extractionVersion()), document);
         }
-        List<ScenarioResolutionUnit> units = overrideResult.effectiveCandidates().stream()
+        List<ResolutionCandidate> effectiveCandidates = overrideResult.effectiveCandidates().stream()
+                .map(candidate -> normalizeVisibility(candidate, documents))
+                .map(ScenarioPackageCompilationService::normalizeLegacyDetail)
+                .toList();
+        List<ScenarioResolutionUnit> units = effectiveCandidates.stream()
                 .map(candidate -> validate(candidate, documents, availableExcerpts, verifyEvidence))
                 .toList();
         List<String> warnings = units.stream()
@@ -157,11 +164,29 @@ public final class ScenarioPackageCompilationService {
             warnings.add("no resolution candidates were produced");
             warnings.addAll(overrideResult.warnings());
         }
+        boolean requiredIncomplete = false;
+        boolean optionalIncomplete = false;
+        for (int index = 0; index < units.size(); index++) {
+            boolean required = effectiveCandidates.get(index) == null
+                    || effectiveCandidates.get(index).required();
+            if (units.get(index).status() != ResolutionStatus.COMPLETE) {
+                if (required) requiredIncomplete = true;
+                else optionalIncomplete = true;
+            }
+        }
+        com.dndmaster.adventure.domain.scenario.CompilationOutcome outcome = requiredIncomplete
+                ? com.dndmaster.adventure.domain.scenario.CompilationOutcome.FAILED
+                : optionalIncomplete
+                        ? com.dndmaster.adventure.domain.scenario.CompilationOutcome.COMPLETE_WITH_WARNINGS
+                        : com.dndmaster.adventure.domain.scenario.CompilationOutcome.COMPLETE;
+        // Preserve the historical report status for old readers. The explicit outcome above
+        // carries the required/optional policy that the legacy enum cannot express.
         boolean hasUnsafeInvalid = units.stream().filter(unit -> unit.status() == ResolutionStatus.INVALID)
                 .anyMatch(unit -> !unit.validationMessages().equals(List.of("dice expression is invalid")));
         boolean hasRecoverableDiceFailure = units.stream().anyMatch(unit -> unit.status() == ResolutionStatus.INVALID
                 && unit.validationMessages().equals(List.of("dice expression is invalid")));
-        ResolutionStatus reportStatus = hasUnsafeInvalid || (!units.isEmpty() && units.stream().allMatch(unit -> unit.status() == ResolutionStatus.INVALID))
+        ResolutionStatus reportStatus = hasUnsafeInvalid
+                || (!units.isEmpty() && units.stream().allMatch(unit -> unit.status() == ResolutionStatus.INVALID))
                 ? ResolutionStatus.INVALID
                 : units.stream().anyMatch(unit -> unit.status() == ResolutionStatus.PARTIAL)
                         || hasRecoverableDiceFailure ? ResolutionStatus.PARTIAL : ResolutionStatus.COMPLETE;
@@ -177,11 +202,11 @@ public final class ScenarioPackageCompilationService {
         ScenarioPackage scenarioPackage = ScenarioPackage.publishWithMaps(
                 bundle.id(), bundle.currentRevision().revision(), fingerprint,
                 bundle.currentRevision().documents(), units,
-                new ScenarioCompilationReport(reportStatus, warnings),
+                new ScenarioCompilationReport(reportStatus, warnings, outcome),
                 characterLimit(bundle, availableExcerpts),
                 characterBlueprint,
                 mapCompilation.maps(), mapCompilation.bindings());
-        if (reportStatus == ResolutionStatus.COMPLETE) {
+        if (outcome != com.dndmaster.adventure.domain.scenario.CompilationOutcome.FAILED) {
             repository.save(scenarioPackage);
         }
         return scenarioPackage;
@@ -321,6 +346,37 @@ public final class ScenarioPackageCompilationService {
         return value == null ? "" : value.strip().replaceAll("(?U)\\s+", " ").toLowerCase(Locale.ROOT);
     }
 
+    private static ResolutionCandidate normalizeVisibility(
+            ResolutionCandidate candidate,
+            Map<String, ScenarioBundleDocumentSelection> documents) {
+        if (candidate == null || candidate.visibility() != ResolutionVisibility.PLAYER_SAFE
+                || candidate.sourceRefs() == null || candidate.sourceRefs().isEmpty()) {
+            return candidate;
+        }
+        boolean referencesNonPlayerSafeSource = candidate.sourceRefs().stream()
+                .filter(Objects::nonNull)
+                .map(ref -> documents.get(key(ref.knowledgeDocumentId(), ref.extractionVersion())))
+                .anyMatch(document -> document == null
+                        || (document.role() != ScenarioBundleDocumentRole.HANDOUT
+                        && document.role() != ScenarioBundleDocumentRole.CHARACTER_SHEET));
+        if (!referencesNonPlayerSafeSource) {
+            return candidate;
+        }
+        return new ResolutionCandidate(
+                candidate.kind(), candidate.abilityOrSkill(), candidate.dc(), candidate.diceExpression(),
+                ResolutionVisibility.GM_REFERENCE, candidate.sourceQuote(), candidate.sourceRefs(),
+                candidate.provenance(), candidate.detail());
+    }
+
+    private static ResolutionCandidate normalizeLegacyDetail(ResolutionCandidate candidate) {
+        if (candidate == null || candidate.detail() == null) return candidate;
+        ScenarioResolutionDetail projected = candidate.detail().withLegacyProjection(candidate.visibility());
+        if (projected.equals(candidate.detail())) return candidate;
+        return new ResolutionCandidate(
+                candidate.kind(), candidate.abilityOrSkill(), candidate.dc(), candidate.diceExpression(),
+                candidate.visibility(), candidate.sourceQuote(), candidate.sourceRefs(), candidate.provenance(), projected);
+    }
+
     private static ScenarioResolutionUnit validate(
             ResolutionCandidate candidate, Map<String, ScenarioBundleDocumentSelection> documents,
             List<ResolutionExtractionPort.SourceExcerpt> excerpts, boolean verifyEvidence) {
@@ -328,7 +384,7 @@ public final class ScenarioPackageCompilationService {
         List<String> incomplete = new ArrayList<>();
         if (candidate == null) {
             return new ScenarioResolutionUnit(
-                    null, null, null, null, ResolutionVisibility.GM_REFERENCE,
+                    null, null, (SaveDc) null, null, ResolutionVisibility.GM_REFERENCE,
                     "", List.of(), "", ScenarioResolutionDetail.empty(), ResolutionStatus.INVALID, List.of("candidate is null"));
         }
         if (candidate.kind() == null) invalid.add("resolution kind is missing");
@@ -336,6 +392,13 @@ public final class ScenarioPackageCompilationService {
         if (candidate.provenance() == null || candidate.provenance().isBlank()) incomplete.add("provenance is missing");
         if (candidate.sourceQuote() == null || candidate.sourceQuote().isBlank()) incomplete.add("source quote is missing");
         ScenarioResolutionDetail detail = candidate.detail() == null ? ScenarioResolutionDetail.empty() : candidate.detail();
+        // schema-v1 candidates are still accepted for previously indexed bundles.
+        // The typed contract is mandatory for the current schema only; otherwise
+        // re-compiling an unchanged legacy bundle would turn a valid package into
+        // INVALID merely because the compiler learned a richer representation.
+        if (isCanonicalCandidate(candidate)) {
+            validateCanonicalContract(detail, invalid);
+        }
         if (candidate.sourceRefs() == null || candidate.sourceRefs().isEmpty()) {
             invalid.add("source reference is missing");
         } else {
@@ -417,16 +480,13 @@ public final class ScenarioPackageCompilationService {
                 validateDc(candidate.dc(), invalid, incomplete);
             }
             case ATTACK_ROLL -> {
-                if (candidate.abilityOrSkill() == null || candidate.abilityOrSkill().isBlank()) {
-                    incomplete.add("ability or skill is missing");
-                }
                 if (!validDice(candidate.diceExpression())) invalid.add("dice expression is invalid");
             }
             case OPPOSED_CHECK -> {
                 if (candidate.abilityOrSkill() == null || candidate.abilityOrSkill().isBlank()) {
                     incomplete.add("ability or skill is missing");
                 }
-                if (candidate.dc() != null && (candidate.dc() < 0 || candidate.dc() > 100)) {
+                if (candidate.dc() instanceof FixedSaveDc fixed && (fixed.value() < 0 || fixed.value() > 100)) {
                     invalid.add("DC is outside supported range");
                 }
             }
@@ -443,6 +503,57 @@ public final class ScenarioPackageCompilationService {
             }
             case SPECIAL_ROLL -> incomplete.add("special roll requires manual runtime support");
         }
+    }
+
+    private static void validateCanonicalContract(ScenarioResolutionDetail detail, List<String> invalid) {
+        if (detail.trigger() == null) {
+            invalid.add("trigger contract is missing");
+        } else {
+            if (detail.trigger().type() == null) invalid.add("trigger type is missing");
+            if (blank(detail.trigger().condition())) invalid.add("trigger condition is missing");
+        }
+        if (detail.check() == null) {
+            invalid.add("check contract is missing");
+        } else {
+            if (detail.check().rollMethod() == null) invalid.add("roll method is missing");
+            if (blank(detail.check().method())) invalid.add("check method is missing");
+        }
+        if (detail.stateEffect() == null) {
+            invalid.add("state effect contract is missing");
+        } else {
+            if (blank(detail.stateEffect().stateKey())) invalid.add("state effect target is missing");
+            if (blank(detail.stateEffect().successEffect())) invalid.add("success state effect is missing");
+            if (blank(detail.stateEffect().failureEffect())) invalid.add("failure state effect is missing");
+        }
+        if (detail.reveal() == null) {
+            invalid.add("reveal contract is missing");
+        } else {
+            if (detail.reveal().condition() == null) invalid.add("reveal condition is missing");
+            if (detail.reveal().level() == null) invalid.add("reveal level is missing");
+            if (blank(detail.reveal().hiddenFact())) invalid.add("hidden fact is missing");
+            if (detail.reveal().level() == ScenarioResolutionDetail.RevealLevel.NONE) {
+                invalid.add("reveal level contradicts hidden fact");
+            }
+        }
+        if (detail.priorKnowledge() == null) invalid.add("prior knowledge contract is missing");
+        if (detail.trigger() != null && detail.check() != null
+                && detail.trigger().type() == ScenarioResolutionDetail.TriggerType.PLAYER_ACTION
+                && detail.check().rollMethod() == ScenarioResolutionDetail.RollMethod.SYSTEM) {
+            invalid.add("roll method contradicts player-action trigger");
+        }
+        if (detail.trigger() != null && detail.check() != null
+                && detail.trigger().type() == ScenarioResolutionDetail.TriggerType.WORLD_EVENT
+                && detail.check().rollMethod() == ScenarioResolutionDetail.RollMethod.PLAYER) {
+            invalid.add("roll method contradicts world-event trigger");
+        }
+    }
+
+    private static boolean blank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private static boolean isCanonicalCandidate(ResolutionCandidate candidate) {
+        return candidate.provenance() != null && candidate.provenance().equals("schema-v2");
     }
 
     private static void validateDetail(ScenarioResolutionDetail detail, List<String> invalid, List<String> incomplete) {
@@ -463,10 +574,10 @@ public final class ScenarioPackageCompilationService {
         }
     }
 
-    private static void validateDc(Integer dc, List<String> invalid, List<String> incomplete) {
+    private static void validateDc(SaveDc dc, List<String> invalid, List<String> incomplete) {
         if (dc == null) {
-            incomplete.add("DC is missing");
-        } else if (dc < 0 || dc > 100) {
+            incomplete.add("DC resolution is missing");
+        } else if (dc instanceof FixedSaveDc fixed && (fixed.value() <= 0 || fixed.value() > 100)) {
             invalid.add("DC is outside supported range");
         }
     }

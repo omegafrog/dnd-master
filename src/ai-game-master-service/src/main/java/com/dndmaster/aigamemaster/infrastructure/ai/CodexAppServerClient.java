@@ -49,13 +49,23 @@ public final class CodexAppServerClient implements AutoCloseable {
     }
 
     public synchronized String complete(String operationId, String prompt, String requestedModel) {
+        return complete(operationId, prompt, requestedModel, "unknown");
+    }
+
+    public synchronized String complete(String operationId, String prompt, String requestedModel, String reasoning) {
+        return complete(operationId, prompt, requestedModel, reasoning, null);
+    }
+    public synchronized String complete(String operationId, String prompt, String requestedModel, String reasoning, JsonNode outputSchema) {
         if (operationId == null || operationId.isBlank() || prompt == null || prompt.isBlank()) {
             throw new IllegalArgumentException("operation id and prompt required");
         }
         long startedAt = System.nanoTime();
         long deadlineNanos = System.nanoTime() + timeout.toNanos();
-        LOGGER.info("ai_agent_call_started provider=codex operationId={} model={} promptLength={}", operationId,
-                requestedModel == null || requestedModel.isBlank() ? "default" : requestedModel, prompt.length());
+        String model = requestedModel == null || requestedModel.isBlank() ? "default" : requestedModel;
+        LOGGER.info("ai_agent_call_started provider=codex operationId={} stage={} model={} reasoning={} promptChars={} estimatedPromptTokens={} turnId={} turnCompletedReceived={} timeout={}",
+                safe(operationId), stage(operationId), safe(model), safe(reasoning), prompt.length(), AiCallObservability.estimatedTokens(prompt.length()), "unknown", false, false);
+        String threadId = "unknown";
+        boolean turnCompletedReceived = false;
         try {
             ensureStarted(deadlineNanos);
             ObjectNode threadParams = mapper.createObjectNode();
@@ -65,7 +75,7 @@ public final class CodexAppServerClient implements AutoCloseable {
             threadParams.put("ephemeral", true);
             putModel(threadParams, requestedModel);
             JsonNode thread = request("thread/start", threadParams, deadlineNanos).path("thread");
-            String threadId = thread.path("id").asText("");
+            threadId = thread.path("id").asText("");
             if (threadId.isBlank()) throw new IllegalStateException("Codex app-server did not return a thread id");
 
             ObjectNode turnParams = mapper.createObjectNode();
@@ -77,6 +87,7 @@ public final class CodexAppServerClient implements AutoCloseable {
             putModel(turnParams, requestedModel);
             turnParams.put("approvalPolicy", "never");
             turnParams.putObject("sandboxPolicy").put("type", "readOnly");
+            if (outputSchema != null) turnParams.set("outputSchema", outputSchema);
             request("turn/start", turnParams, deadlineNanos);
 
             StringBuilder response = new StringBuilder();
@@ -86,39 +97,43 @@ public final class CodexAppServerClient implements AutoCloseable {
                 try {
                     message = readMessageUntil(deadlineNanos);
                 } catch (ProviderTimeoutException exception) {
-                    LOGGER.error("ai_agent_call_timeout provider=codex operationId={} phase=turn-events lastMethod={} timeoutMs={}",
-                            operationId, lastMethod, timeout.toMillis());
-                    closeProcess();
-                    throw exception;
+                    CodexTurnTimeoutException timeoutFailure = exception instanceof CodexTurnTimeoutException structured
+                            ? structured
+                            : timeoutFailure(operationId, threadId, model, reasoning, startedAt, lastMethod, exception);
+                    LOGGER.error("ai_agent_call_timeout provider=codex operationId={} stage={} model={} reasoning={} promptChars={} estimatedPromptTokens={} responseChars={} turnId={} turnCompletedReceived={} timeout=true lastMethod={} timeoutMs={}",
+                            safe(operationId), stage(operationId), safe(model), safe(reasoning), prompt.length(), AiCallObservability.estimatedTokens(prompt.length()), response.length(), safe(threadId), turnCompletedReceived, safe(lastMethod), timeout.toMillis());
+                    cancelTurnAsync(threadId, operationId);
+                    throw timeoutFailure;
                 }
                 String method = message.path("method").asText("");
                 if (!method.isBlank()) lastMethod = method;
                 JsonNode params = message.path("params");
                 if (!method.isBlank() && !"item/agentMessage/delta".equals(method)) {
-                    LOGGER.info("ai_agent_event provider=codex operationId={} method={} params={}", operationId, method, compact(params));
+                    LOGGER.info("ai_agent_event provider=codex operationId={} stage={} method={} turnId={}", safe(operationId), stage(operationId), safe(method), safe(threadId));
                 }
                 if ("item/agentMessage/delta".equals(method)) response.append(params.path("delta").asText(""));
                 if ("item/completed".equals(method)) appendCompletedAgentMessage(response, params.path("item"));
                 if ("turn/completed".equals(method)) {
+                    turnCompletedReceived = true;
                     JsonNode turnError = params.path("turn").path("error");
                     if (!turnError.isMissingNode() && !turnError.isNull()) {
-                        throw new IllegalStateException("Codex turn failed: " + compact(turnError));
+                        throw new CodexTurnFailedException(threadId, method, "Codex turn failed: " + compact(turnError));
                     }
                     break;
                 }
                 if ("turn/failed".equals(method) || "turn/aborted".equals(method)) {
-                    throw new IllegalStateException("Codex turn terminated: " + compact(params));
+                    throw new CodexTurnFailedException(threadId, method, "Codex turn terminated: " + compact(params));
                 }
                 if (message.has("error")) throw rpcError(message);
             }
             if (response.isEmpty()) throw new ProviderMalformedResponseException("Codex app-server response missing text");
             String result = response.toString().trim();
-            LOGGER.info("ai_agent_call_completed provider=codex operationId={} durationMs={} responseLength={}", operationId,
-                    elapsedMillis(startedAt), result.length());
+            LOGGER.info("ai_agent_call_completed provider=codex operationId={} stage={} durationMs={} promptChars={} estimatedPromptTokens={} responseChars={} model={} reasoning={} turnId={} turnCompletedReceived=true timeout=false",
+                    safe(operationId), stage(operationId), elapsedMillis(startedAt), prompt.length(), AiCallObservability.estimatedTokens(prompt.length()), result.length(), safe(model), safe(reasoning), safe(threadId));
             return result;
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
-            LOGGER.warn("ai_agent_call_interrupted provider=codex operationId={} durationMs={}", operationId, elapsedMillis(startedAt));
+            LOGGER.warn("ai_agent_call_interrupted provider=codex operationId={} stage={} durationMs={} turnId={} turnCompletedReceived={} timeout=true", safe(operationId), stage(operationId), elapsedMillis(startedAt), safe(threadId), turnCompletedReceived);
             throw new ProviderTimeoutException(exception);
         } catch (IOException exception) {
             closeProcess();
@@ -126,10 +141,13 @@ public final class CodexAppServerClient implements AutoCloseable {
                     elapsedMillis(startedAt), exception.getClass().getSimpleName(), safeMessage(exception));
             throw new ProviderTimeoutException(exception);
         } catch (ProviderTimeoutException exception) {
-            closeProcess();
-            LOGGER.error("ai_agent_call_timeout provider=codex operationId={} phase=app-server-request timeoutMs={}",
-                    operationId, timeout.toMillis());
-            throw exception;
+            CodexTurnTimeoutException timeoutFailure = exception instanceof CodexTurnTimeoutException structured
+                    ? structured
+                    : timeoutFailure(operationId, threadId, model, reasoning, startedAt, "request", exception);
+            cancelTurnAsync(threadId, operationId);
+            LOGGER.error("ai_agent_call_timeout provider=codex operationId={} stage={} model={} reasoning={} promptChars={} estimatedPromptTokens={} responseChars={} turnId={} turnCompletedReceived={} timeout=true phase=app-server-request timeoutMs={}",
+                    safe(operationId), stage(operationId), safe(model), safe(reasoning), prompt.length(), AiCallObservability.estimatedTokens(prompt.length()), 0, safe(threadId), turnCompletedReceived, timeout.toMillis());
+            throw timeoutFailure;
         } catch (RuntimeException exception) {
             LOGGER.error("ai_agent_call_failed provider=codex operationId={} durationMs={} errorType={} message={}", operationId,
                     elapsedMillis(startedAt), exception.getClass().getSimpleName(), safeMessage(exception));
@@ -140,6 +158,46 @@ public final class CodexAppServerClient implements AutoCloseable {
     private static long elapsedMillis(long startedAt) {
         return TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt);
     }
+
+    private CodexTurnTimeoutException timeoutFailure(String operationId, String turnId, String model,
+            String reasoning, long startedAt, String lastEvent, Throwable cause) {
+        return new CodexTurnTimeoutException(operationId, turnId, stage(operationId), model, reasoning,
+                elapsedMillis(startedAt), timeout.toMillis(), lastEvent, cause);
+    }
+
+    /** Sends cancellation best-effort and never makes the caller wait for the app-server acknowledgement. */
+    private void cancelTurnAsync(String turnId, String operationId) {
+        if (turnId == null || turnId.isBlank() || "unknown".equals(turnId)) return;
+        CompletableFuture.runAsync(() -> {
+            try {
+                synchronized (CodexAppServerClient.this) {
+                    if (process == null || !process.isAlive() || input == null) return;
+                    ObjectNode params = mapper.createObjectNode().put("turnId", turnId);
+                    ObjectNode cancel = mapper.createObjectNode().put("method", "turn/cancel");
+                    cancel.set("params", params);
+                    send(cancel);
+                    LOGGER.info("ai_agent_turn_cancel_sent provider=codex operationId={} turnId={}", safe(operationId), safe(turnId));
+                }
+            } catch (Exception cancellationFailure) {
+                LOGGER.warn("ai_agent_turn_cancel_failed provider=codex operationId={} turnId={} error={}",
+                        safe(operationId), safe(turnId), safeMessage(cancellationFailure));
+            } finally {
+                synchronized (CodexAppServerClient.this) { closeProcess(); }
+            }
+        });
+    }
+
+    static String stage(String operationId) {
+        if (operationId == null) return "unknown";
+        if (operationId.contains(":resolution-candidate-repair")) return "resolution-candidate-repair";
+        if (operationId.contains(":resolution-candidates")) return "resolution-candidate-extraction";
+        if (operationId.endsWith("-verification")) return "story-plan-verification";
+        if (operationId.endsWith("-execution-projection")) return "story-plan-projection";
+        if (operationId.endsWith("-projection-repair")) return "story-plan-projection-repair";
+        return "story-plan-generation";
+    }
+
+    private static String safe(String value) { return AiCallObservability.safe(value); }
 
     private static String safeMessage(Throwable failure) {
         String message = failure.getMessage();

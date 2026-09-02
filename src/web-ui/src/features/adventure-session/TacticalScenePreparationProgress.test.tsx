@@ -9,4 +9,11 @@ describe('Tactical scene preparation progress', () => {
     expect(screen.getByRole('alert').textContent).toContain('적 배치 근거')
     expect(screen.getByRole('button', { name: '전술 장면 다시 준비' })).toBeTruthy()
   })
+
+  it('renders unknown totals as accessible indeterminate progress', () => {
+    render(<Progress value={null} aria-label="전술 장면 준비 진행률" />)
+    const progress = screen.getByLabelText('전술 장면 준비 진행률')
+    expect(progress.getAttribute('aria-valuenow')).toBeNull()
+    expect(progress.getAttribute('data-state')).toBe('indeterminate')
+  })
 })

@@ -24,9 +24,21 @@ require_env() {
 export INTERNAL_SERVICE_TOKEN="${INTERNAL_SERVICE_TOKEN:-local-development-internal-token}"
 export RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS="${RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS:-local-catalog-admin}"
 export CODEX_EXECUTABLE="${CODEX_EXECUTABLE:-/home/jiwoo/.nvm/versions/node/v24.12.0/bin/codex}"
+export RULE_KNOWLEDGE_PREPROCESSING_PYTHON_EXECUTABLE="${RULE_KNOWLEDGE_PREPROCESSING_PYTHON_EXECUTABLE:-/home/jiwoo/workspace/dnd-master/.venv-docling/bin/python}"
+export BACKEND_E2E_URL="${BACKEND_E2E_URL:-http://localhost:8080}"
+export BACKEND_E2E_EMAIL="${BACKEND_E2E_EMAIL:-demo-player@example.com}"
+export BACKEND_E2E_PASSWORD="${BACKEND_E2E_PASSWORD:-secret-password}"
+if [ -z "${BACKEND_E2E_STORYBOOKS_JSON:-}" ]; then
+    export BACKEND_E2E_STORYBOOKS_JSON='[{"path":"/home/jiwoo/workspace/dnd-master/docs/assets/892902-A_Most_Potent_Brew.pdf","role":"MAIN_SCENARIO"},{"path":"/home/jiwoo/workspace/dnd-master/docs/assets/892902-A_Potent_Brew_Map.pdf","role":"MAP"},{"path":"/home/jiwoo/workspace/dnd-master/docs/assets/892902-A_Most_Potent_Brew_Player_Handout.pdf","role":"HANDOUT"}]'
+fi
 require_env INTERNAL_SERVICE_TOKEN
 require_env RULE_KNOWLEDGE_BACKOFFICE_ADMIN_PLAYER_IDS
 require_env CODEX_EXECUTABLE
+require_env RULE_KNOWLEDGE_PREPROCESSING_PYTHON_EXECUTABLE
+require_env BACKEND_E2E_URL
+require_env BACKEND_E2E_EMAIL
+require_env BACKEND_E2E_PASSWORD
+require_env BACKEND_E2E_STORYBOOKS_JSON
 
 NVM_BIN="/home/jiwoo/.nvm/versions/node/v24.12.0/bin"
 SDKMAN_JAVA_HOME="/home/jiwoo/.sdkman/candidates/java/current"
@@ -49,6 +61,7 @@ require_linux_path() {
     fi
 }
 require_linux_path CODEX_EXECUTABLE "$CODEX_EXECUTABLE"
+require_linux_path RULE_KNOWLEDGE_PREPROCESSING_PYTHON_EXECUTABLE "$RULE_KNOWLEDGE_PREPROCESSING_PYTHON_EXECUTABLE"
 require_linux_path node "$NODE_BIN"
 require_linux_path npm "$NPM_CLI"
 require_linux_path java "$JAVA_BIN"
@@ -63,9 +76,8 @@ for tool in node npm java graphify; do
     fi
 done
 
-# Live Playwright separately requires BACKEND_E2E_URL, BACKEND_E2E_EMAIL,
-# BACKEND_E2E_PASSWORD, and BACKEND_E2E_STORYBOOKS_JSON. Rulebooks come from
-# the published shared catalog, not user uploads.
+# Live Playwright inherits the local values above when launched from this
+# development environment. Rulebooks come from the published shared catalog.
 
 run_node() { "$NODE_BIN" "$@"; }
 run_npm() {

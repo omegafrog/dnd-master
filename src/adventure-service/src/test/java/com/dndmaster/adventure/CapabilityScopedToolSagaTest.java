@@ -27,13 +27,17 @@ class CapabilityScopedToolSagaTest {
                 Set.of(GmToolDefinition.of("dice.roll", "{}", invocation -> GmToolOutcome.completed("rolled"))),
                 Clock.fixed(NOW, ZoneOffset.UTC));
 
-        assertThrows(ToolAuthorizationException.class, () -> gateway.invoke(capability,
+        ToolAuthorizationException unauthorized = assertThrows(ToolAuthorizationException.class, () -> gateway.invoke(capability,
                 new GmToolInvocation(UUID.randomUUID(), SESSION, TURN, OWNER, "character.update", "{}")));
-        assertThrows(ToolAuthorizationException.class, () -> gateway.invoke(capability,
+        assertEquals(ToolCapabilityDenialReason.TOOL_NOT_ALLOWED, unauthorized.reason());
+        assertEquals("character.update", unauthorized.toolName());
+        ToolAuthorizationException scope = assertThrows(ToolAuthorizationException.class, () -> gateway.invoke(capability,
                 new GmToolInvocation(UUID.randomUUID(), UUID.randomUUID(), TURN, OWNER, "dice.roll", "{}")));
-        assertThrows(ToolAuthorizationException.class, () -> gateway.invoke(
+        assertEquals(ToolCapabilityDenialReason.SESSION_MISMATCH, scope.reason());
+        ToolAuthorizationException expired = assertThrows(ToolAuthorizationException.class, () -> gateway.invoke(
                 capability.withExpiry(NOW.minusSeconds(1)),
                 new GmToolInvocation(UUID.randomUUID(), SESSION, TURN, OWNER, "dice.roll", "{}")));
+        assertEquals(ToolCapabilityDenialReason.EXPIRED, expired.reason());
     }
 
     @Test
@@ -132,10 +136,24 @@ class CapabilityScopedToolSagaTest {
                 OfficialGmToolRegistry.definitions(invocation -> { dice.incrementAndGet(); return GmToolOutcome.completed("rolled"); },
                         invocation -> { character.incrementAndGet(); return GmToolOutcome.completed("updated"); }), Clock.fixed(NOW, ZoneOffset.UTC));
         TurnCapability capability = TurnCapability.issue(SESSION, TURN, OWNER, Set.of("dice.roll", "character.update"), NOW.plusSeconds(60), UUID.randomUUID());
-        String diceArguments = "{\"adventureId\":\"" + UUID.randomUUID() + "\",\"ruleSetId\":\"" + UUID.randomUUID() + "\",\"scope\":\"PLAYER_ACTION\",\"count\":1,\"sides\":20,\"modifier\":0,\"sessionId\":\"" + SESSION + "\",\"turnId\":\"" + TURN + "\",\"commandId\":\"" + UUID.randomUUID() + "\",\"expectedVersion\":0}";
+        String diceArguments = "{\"scope\":\"SECRET_CHECK\",\"count\":1,\"sides\":20,\"modifier\":0}";
         String characterArguments = "{\"characterSheetId\":\"" + UUID.randomUUID() + "\",\"expectedVersion\":0,\"edition\":\"DND_5E_2024\",\"characterName\":\"Aria\",\"level\":1,\"inspiration\":false,\"race\":\"Elf\",\"characterClass\":\"Wizard\",\"background\":\"Sage\"}";
         gateway.invoke(capability, new GmToolInvocation(UUID.randomUUID(), SESSION, TURN, OWNER, "dice.roll", diceArguments));
         gateway.invoke(capability, new GmToolInvocation(UUID.randomUUID(), SESSION, TURN, OWNER, "character.update", characterArguments));
         assertEquals(1, dice.get()); assertEquals(1, character.get());
+    }
+
+    @Test
+    void gatewayPreflightRejectsTheWholeBatchBeforeAnyToolDispatch() {
+        AtomicInteger dispatched = new AtomicInteger();
+        GmToolGatewayService gateway = new GmToolGatewayService(Set.of(
+                GmToolDefinition.of("dice.roll", "{\"type\":\"object\",\"required\":[\"scope\"],\"properties\":{\"scope\":{\"type\":\"string\"}}}", invocation -> { dispatched.incrementAndGet(); return GmToolOutcome.completed("ok"); }),
+                GmToolDefinition.of("character.update", "{\"type\":\"object\",\"required\":[\"characterSheetId\"],\"properties\":{\"characterSheetId\":{\"type\":\"string\"}}}", invocation -> { dispatched.incrementAndGet(); return GmToolOutcome.completed("ok"); })),
+                Clock.fixed(NOW, ZoneOffset.UTC));
+        TurnCapability capability = TurnCapability.issue(SESSION, TURN, OWNER, Set.of("dice.roll", "character.update"), NOW.plusSeconds(60), UUID.randomUUID());
+        var first = new GmToolExecutionLoop.PlannedToolCall(new GmToolInvocation(UUID.randomUUID(), SESSION, TURN, OWNER, "dice.roll", "{\"scope\":\"NPC\"}"), true);
+        var invalid = new GmToolExecutionLoop.PlannedToolCall(new GmToolInvocation(UUID.randomUUID(), SESSION, TURN, OWNER, "character.update", "{}"), true);
+        assertThrows(ToolArgumentInvalidException.class, () -> gateway.preflight(capability, invalid.invocation()));
+        assertEquals(0, dispatched.get());
     }
 }

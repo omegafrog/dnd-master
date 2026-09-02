@@ -98,6 +98,12 @@ public record RuntimePlan(
                 effectiveSelection, attemptCount, citationBindings, delta);
     }
 
+    public RuntimePlan withCitedEvidence(List<RuntimeEvidence> evidence) {
+        return new RuntimePlan(scene, npcState, judgment, narration, proposedActiveSourceContext, evidence,
+                warnings, provider, model, reasoning, advanceStoryPlan, selectedBranchId, requestedSelection,
+                effectiveSelection, attemptCount, citationBindings, stateDelta);
+    }
+
     private static String required(String value, String name) {
         if (value == null || value.isBlank()) throw new IllegalArgumentException(name + " must not be blank");
         return value.trim();

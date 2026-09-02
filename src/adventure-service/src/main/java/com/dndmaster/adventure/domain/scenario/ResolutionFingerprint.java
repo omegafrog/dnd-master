@@ -25,7 +25,7 @@ public final class ResolutionFingerprint {
     public static String candidateAnchorFingerprint(
             ResolutionKind kind,
             String abilityOrSkill,
-            Integer dc,
+            SaveDc dc,
             String diceExpression,
             ResolutionVisibility visibility,
             String sourceQuote,
@@ -70,7 +70,7 @@ public final class ResolutionFingerprint {
     public static String candidateUnitFingerprint(
             ResolutionKind kind,
             String abilityOrSkill,
-            Integer dc,
+            SaveDc dc,
             String diceExpression,
             ResolutionVisibility visibility,
             ScenarioResolutionDetail detail) {

@@ -29,6 +29,128 @@ import org.junit.jupiter.api.Test;
 
 class ScenarioPackageCompilationServiceTest {
     @Test
+    void rejectsResolutionWithoutCanonicalRevealContract() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ResolutionCandidate candidate = new ResolutionCandidate(
+                com.dndmaster.adventure.domain.scenario.ResolutionKind.SKILL_ABILITY_CHECK,
+                "Perception", 13, null,
+                com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
+                "A loose stone triggers the trap.",
+                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 1, "page:1")),
+                "schema-v2", null);
+
+        var unit = new ScenarioPackageCompilationService(new InMemoryPackageRepository())
+                .compile(bundle(documentId, 1), List.of(candidate)).units().getFirst();
+
+        assertEquals("INVALID", unit.status().name());
+        assertTrue(unit.validationMessages().stream().anyMatch(message -> message.contains("trigger contract")));
+        assertTrue(unit.validationMessages().stream().anyMatch(message -> message.contains("reveal contract")));
+    }
+
+    @Test
+    void canonicalContractIsCompleteWithoutLegacyDetailFields() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioResolutionDetail canonical = new ScenarioResolutionDetail(
+                new ScenarioResolutionDetail.TriggerContract(
+                        ScenarioResolutionDetail.TriggerType.WORLD_EVENT, "entering the room"),
+                new ScenarioResolutionDetail.CheckContract(
+                        ScenarioResolutionDetail.RollMethod.SYSTEM, "Perception check"),
+                new ScenarioResolutionDetail.StateEffect("trap", "avoided", "triggered"),
+                new ScenarioResolutionDetail.RevealContract(
+                        ScenarioResolutionDetail.RevealCondition.ON_SUCCESS,
+                        ScenarioResolutionDetail.RevealLevel.CLUE, "a concealed trap"),
+                new ScenarioResolutionDetail.PriorKnowledge(false, List.of()),
+                null, null, null, null, null, null, null, null, null, null, null, null);
+        ResolutionCandidate candidate = new ResolutionCandidate(
+                com.dndmaster.adventure.domain.scenario.ResolutionKind.SKILL_ABILITY_CHECK,
+                "Perception", 13, null,
+                com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
+                "A concealed trap is in the room.",
+                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(
+                        documentId, 1, "page:1")),
+                "schema-v2", canonical);
+
+        var unit = new ScenarioPackageCompilationService(new InMemoryPackageRepository())
+                .compile(bundle(documentId, 1), List.of(candidate)).units().getFirst();
+
+        assertEquals("COMPLETE", unit.status().name());
+        assertTrue(unit.validationMessages().isEmpty());
+        assertEquals("entering the room", unit.detail().triggerCondition());
+        assertEquals("WORLD_EVENT", unit.detail().actor());
+        assertEquals("SYSTEM", unit.detail().roller());
+        assertEquals("GM_REFERENCE", unit.detail().instructionVisibility());
+    }
+
+    @Test
+    void rejectsContradictoryPlayerActionAndSystemRollContract() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        var contract = new ScenarioResolutionDetail(
+                new ScenarioResolutionDetail.TriggerContract(
+                        ScenarioResolutionDetail.TriggerType.PLAYER_ACTION, "The player searches the altar."),
+                new ScenarioResolutionDetail.CheckContract(
+                        ScenarioResolutionDetail.RollMethod.SYSTEM, "Perception check"),
+                new ScenarioResolutionDetail.StateEffect("trap", "armed", "disarmed"),
+                new ScenarioResolutionDetail.RevealContract(
+                        ScenarioResolutionDetail.RevealCondition.ON_SUCCESS,
+                        ScenarioResolutionDetail.RevealLevel.CLUE,
+                        "an unusual gap in the altar"),
+                new ScenarioResolutionDetail.PriorKnowledge(false, List.of()),
+                null, null, null, null, null, null, null, null, null, null, null, null);
+        ResolutionCandidate candidate = new ResolutionCandidate(
+                com.dndmaster.adventure.domain.scenario.ResolutionKind.SKILL_ABILITY_CHECK,
+                "Perception", 13, null,
+                com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
+                "The altar hides a trap.",
+                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 1, "page:1")),
+                "schema-v2", contract);
+
+        var unit = new ScenarioPackageCompilationService(new InMemoryPackageRepository())
+                .compile(bundle(documentId, 1), List.of(candidate)).units().getFirst();
+
+        assertEquals("INVALID", unit.status().name());
+        assertTrue(unit.validationMessages().stream().anyMatch(message -> message.contains("roll method")));
+    }
+
+    @Test
+    void completesSavingThrowWhoseDcComesFromTheCastersSpellSaveDc() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ResolutionCandidate web = new ResolutionCandidate(
+                com.dndmaster.adventure.domain.scenario.ResolutionKind.SAVING_THROW,
+                "Dexterity", new com.dndmaster.adventure.domain.scenario.CasterSpellSaveDc(), null,
+                com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
+                "make a Dexterity saving throw against your spell save DC",
+                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 2, "page=86:web")),
+                "web-rulebook-fixture", null);
+        var unit = new ScenarioPackageCompilationService(new InMemoryPackageRepository())
+                .compile(bundle(documentId, 2), List.of(web), List.of(new ResolutionExtractionPort.SourceExcerpt(
+                        documentId, 2, "page=86:web", "make a Dexterity saving throw against your spell save DC")))
+                .units().getFirst();
+        assertEquals("COMPLETE", unit.status().name());
+        assertTrue(unit.dc() instanceof com.dndmaster.adventure.domain.scenario.CasterSpellSaveDc);
+    }
+
+    @Test
+    void allowsAttackRollWithoutAbilityOrSkillWhenAttackFormulaIsPresent() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackageCompilationService service = new ScenarioPackageCompilationService(new InMemoryPackageRepository());
+        ResolutionCandidate candidate = new ResolutionCandidate(
+                com.dndmaster.adventure.domain.scenario.ResolutionKind.ATTACK_ROLL,
+                null,
+                null,
+                "1d20+5",
+                com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
+                "Ranged Weapon Attack: +5 to hit",
+                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 4, "page:4")),
+                "source text",
+                null);
+
+        var unit = service.compile(bundle(documentId, 4), List.of(candidate)).units().getFirst();
+
+        assertEquals("COMPLETE", unit.status().name());
+        assertTrue(unit.validationMessages().isEmpty());
+    }
+
+    @Test
     void preservesOrderedStepsAndOutcomesForCompoundSavingThrowProcedure() {
         KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(documentId, 4);
@@ -41,7 +163,7 @@ class ScenarioPackageCompilationServiceTest {
                 com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE,
                 "Dexterity saving throw DC 15, taking 4d6 fire damage on a failed save, or half as much on a success.",
                 List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 4, "page:2:span:7")),
-                "schema-v2",
+                "schema-v1",
                 new ScenarioResolutionDetail(
                         "When the trapped idol is touched.",
                         "TRAP",
@@ -98,7 +220,7 @@ class ScenarioPackageCompilationServiceTest {
     }
 
     @Test
-    void marksUnknownActorVisibilityAndPartialRandomTableCoverageAsPartialWithoutSynthesis() {
+    void rejectsRandomTableWithoutCanonicalContract() {
         KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(documentId, 2);
         ScenarioPackageCompilationService service = new ScenarioPackageCompilationService(new InMemoryPackageRepository());
@@ -129,11 +251,12 @@ class ScenarioPackageCompilationServiceTest {
 
         var unit = service.compile(bundle, List.of(randomTable)).units().get(0);
 
-        assertEquals("PARTIAL", unit.status().name());
+        assertEquals("INVALID", unit.status().name());
         assertEquals(List.of("RANDOM_TABLE"), unit.runtimeCapabilities());
         assertEquals("PARTIAL", unit.detail().tableCoverage());
         org.assertj.core.api.Assertions.assertThat(unit.validationMessages())
-                .contains("actor is missing", "roller is missing", "instruction visibility is missing", "random table coverage is PARTIAL");
+                .contains("trigger contract is missing", "check contract is missing", "state effect contract is missing",
+                        "reveal contract is missing", "prior knowledge contract is missing", "random table coverage is PARTIAL");
     }
 
     @Test
@@ -228,7 +351,7 @@ class ScenarioPackageCompilationServiceTest {
     }
 
     @Test
-    void rejectsPlayerSafeOutputForMainScenarioAndPreservesProvenance() {
+    void downgradesPlayerSafeOutputForMainScenarioWithoutChangingEvidence() {
         KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
         ScenarioSourceBundle bundle = bundle(documentId, 1);
         ResolutionCandidate candidate = new ResolutionCandidate(
@@ -245,8 +368,32 @@ class ScenarioPackageCompilationServiceTest {
         var unit = new ScenarioPackageCompilationService(new InMemoryPackageRepository())
                 .compile(bundle, List.of(candidate)).units().get(0);
 
-        assertEquals("INVALID", unit.status().name());
+        assertEquals("COMPLETE", unit.status().name());
+        assertEquals(com.dndmaster.adventure.domain.scenario.ResolutionVisibility.GM_REFERENCE, unit.visibility());
         assertEquals("model-v2/prompt-v4/schema-v1", unit.provenance());
+        assertEquals(candidate.sourceQuote(), unit.sourceQuote());
+        assertEquals(candidate.sourceRefs(), unit.sourceRefs());
+    }
+
+    @Test
+    void preservesPlayerSafeOutputForHandout() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(documentId, 1, ScenarioBundleDocumentRole.HANDOUT);
+        ResolutionCandidate candidate = new ResolutionCandidate(
+                com.dndmaster.adventure.domain.scenario.ResolutionKind.DICE_ROLL,
+                null, null, "1d6",
+                com.dndmaster.adventure.domain.scenario.ResolutionVisibility.PLAYER_SAFE,
+                "A visible clue.",
+                List.of(new com.dndmaster.adventure.domain.scenario.ScenarioSourceReference(documentId, 1, "page:1:span:9")),
+                "model-v2/prompt-v4/schema-v1", null);
+
+        var unit = new ScenarioPackageCompilationService(new InMemoryPackageRepository())
+                .compile(bundle, List.of(candidate)).units().get(0);
+
+        assertEquals("COMPLETE", unit.status().name());
+        assertEquals(com.dndmaster.adventure.domain.scenario.ResolutionVisibility.PLAYER_SAFE, unit.visibility());
+        assertEquals(candidate.sourceQuote(), unit.sourceQuote());
+        assertEquals(candidate.sourceRefs(), unit.sourceRefs());
     }
 
     @Test
@@ -358,7 +505,7 @@ class ScenarioPackageCompilationServiceTest {
         var unit = new ScenarioPackageCompilationService(new InMemoryPackageRepository(), overrides)
                 .compile(bundle, List.of(revised), List.of(excerpt)).units().get(0);
 
-        assertEquals(15, unit.dc());
+        assertEquals(15, ((com.dndmaster.adventure.domain.scenario.FixedSaveDc) unit.dc()).value());
         assertEquals("COMPLETE", unit.status().name());
     }
 
@@ -390,19 +537,24 @@ class ScenarioPackageCompilationServiceTest {
         var packageVersion = new ScenarioPackageCompilationService(new InMemoryPackageRepository(), overrides)
                 .compile(bundle, List.of(candidate, candidate), List.of(excerpt));
 
-        assertEquals(13, packageVersion.units().get(0).dc());
-        assertEquals(13, packageVersion.units().get(1).dc());
+        assertEquals(13, ((com.dndmaster.adventure.domain.scenario.FixedSaveDc) packageVersion.units().get(0).dc()).value());
+        assertEquals(13, ((com.dndmaster.adventure.domain.scenario.FixedSaveDc) packageVersion.units().get(1).dc()).value());
         assertTrue(packageVersion.report().warnings().stream().anyMatch(message -> message.contains("multiple candidates")));
     }
 
     private static ScenarioSourceBundle bundle(KnowledgeDocumentId documentId, long extractionVersion) {
+        return bundle(documentId, extractionVersion, ScenarioBundleDocumentRole.MAIN_SCENARIO);
+    }
+
+    private static ScenarioSourceBundle bundle(
+            KnowledgeDocumentId documentId, long extractionVersion, ScenarioBundleDocumentRole role) {
         return ScenarioSourceBundle.create(
                 ScenarioBundleId.generate(),
                 new OwnerPlayerId(UUID.randomUUID()),
                 new ScenarioSourceBundleRevision(1, List.of(
                         new com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection(
                                 documentId,
-                                ScenarioBundleDocumentRole.MAIN_SCENARIO,
+                                role,
                                 KnowledgeDocumentStatus.INDEXED,
                                 "scenario.pdf",
                                 "STORYBOOK",

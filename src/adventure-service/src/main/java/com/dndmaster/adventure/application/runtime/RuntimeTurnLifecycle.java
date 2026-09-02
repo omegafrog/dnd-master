@@ -4,6 +4,7 @@ package com.dndmaster.adventure.application.runtime;
 public enum RuntimeTurnLifecycle {
     REQUESTED,
     PLANNING,
+    PENDING_ROLL,
     RESOLVING,
     RESOLVED_UNCOMMITTED,
     WRITING,
@@ -19,6 +20,7 @@ public enum RuntimeTurnLifecycle {
         return switch (this) {
             case REQUESTED -> next == PLANNING;
             case PLANNING -> next == RESOLVING;
+            case PENDING_ROLL -> next == RESOLVING;
             case RESOLVING -> next == RESOLVED_UNCOMMITTED;
             case RESOLVED_UNCOMMITTED -> next == WRITING || next == PRESENTED;
             case WRITING -> next == PRESENTED || next == PRESENTATION_FAILED_RETRYABLE;

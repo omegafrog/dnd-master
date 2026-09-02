@@ -12,6 +12,7 @@ import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
+import com.dndmaster.adventure.domain.scenario.SaveDc;
 import java.util.List;
 import java.util.UUID;
 import java.time.Instant;
@@ -95,8 +96,9 @@ public class ScenarioCompilationController {
             @PathVariable UUID compilationId) {
         OwnerPlayerId owner = new OwnerPlayerId(playerResolver.playerId());
         var compilation = service.readCompilation(compilationId, owner);
-        log.info("scenario compilation poll compilationId={} owner={} status={} attempt={} packageId={}",
-                compilationId, owner.value(), compilation.status(), compilation.attempt(), compilation.packageId());
+        log.info("scenario compilation poll compilationId={} owner={} status={} phase={} progress={} attempt={} packageId={}",
+                compilationId, owner.value(), compilation.status(), CompilationResponse.phaseFor(compilation.status().name()),
+                CompilationResponse.progressFor(compilation.status().name()), compilation.attempt(), compilation.packageId());
         return CompilationResponse.from(compilation);
     }
 
@@ -160,14 +162,36 @@ public class ScenarioCompilationController {
     public record CompilationRequest(UUID playerId, List<CandidateRequest> candidates, List<OverrideRequest> overrides) {}
     public record CompilationJobRequest(UUID playerId, String inputFingerprint) {}
     public record CompilationResponse(UUID compilationId, UUID bundleId, long bundleRevision, String idempotencyKey, String status, int attempt,
-                                      UUID packageId, String failureReason) {
-            static CompilationResponse from(com.dndmaster.adventure.domain.scenario.ScenarioCompilation compilation) {
-                return new CompilationResponse(compilation.id(), compilation.bundleId().value(), compilation.bundleRevision(),
-                        compilation.idempotencyKey(), compilation.status().name(), compilation.attempt(), compilation.packageId(), compilation.failureReason());
+                                      UUID packageId, String failureReason, String phase, int progress) {
+        public CompilationResponse(UUID compilationId, UUID bundleId, long bundleRevision, String idempotencyKey, String status, int attempt,
+                                   UUID packageId, String failureReason) {
+            this(compilationId, bundleId, bundleRevision, idempotencyKey, status, attempt, packageId, failureReason,
+                    phaseFor(status), progressFor(status));
+        }
+        static CompilationResponse from(com.dndmaster.adventure.domain.scenario.ScenarioCompilation compilation) {
+            return new CompilationResponse(compilation.id(), compilation.bundleId().value(), compilation.bundleRevision(),
+                        compilation.idempotencyKey(), compilation.status().name(), compilation.attempt(), compilation.packageId(), compilation.failureReason(),
+                        phaseFor(compilation.status().name()), progressFor(compilation.status().name()));
+        }
+        private static String phaseFor(String status) {
+            return switch (status == null ? "" : status) {
+                case "REQUESTED", "WAITING_RETRY" -> "QUEUED";
+                case "RUNNING" -> "SCENARIO_COMPILATION";
+                case "PUBLISHED" -> "COMPLETE";
+                case "FAILED" -> "FAILED";
+                default -> "UNKNOWN";
+            };
+        }
+        private static int progressFor(String status) {
+            return switch (status == null ? "" : status) {
+                case "PUBLISHED", "FAILED" -> 100;
+                case "RUNNING" -> 50;
+                default -> 0;
+            };
         }
     }
     public record CandidateRequest(
-            ResolutionKind kind, String abilityOrSkill, Integer dc, String diceExpression,
+            ResolutionKind kind, String abilityOrSkill, SaveDc dc, String diceExpression,
             ResolutionVisibility visibility, String sourceQuote,
             List<SourceReferenceRequest> sourceRefs, String provenance, DetailRequest detail) {}
     public record DetailRequest(
@@ -244,7 +268,7 @@ public class ScenarioCompilationController {
                         entry.sourceRefs().stream().map(ScenarioCompilationController::sourceRef).toList())).toList(),
                 detail.tableCoverage());
     }
-    public record UnitResponse(String kind, String status, String abilityOrSkill, Integer dc, String diceExpression,
+    public record UnitResponse(String kind, String status, String abilityOrSkill, SaveDc dc, String diceExpression,
                                String visibility, String sourceQuote, String provenance, List<String> validationMessages,
                                List<String> runtimeCapabilities, DetailRequest detail,
                                List<SourceReferenceRequest> sourceRefs) {}

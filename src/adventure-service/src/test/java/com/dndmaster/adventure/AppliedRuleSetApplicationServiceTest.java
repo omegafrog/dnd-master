@@ -32,7 +32,7 @@ class AppliedRuleSetApplicationServiceTest {
         OwnerPlayerId owner = owner();
         RulebookId rulebook = rulebook();
         InMemoryRuleSetRepository repository = new InMemoryRuleSetRepository();
-        AppliedRuleSetApplicationService service = service(repository, new OwnershipMock(owner, Set.of(rulebook)));
+        AppliedRuleSetApplicationService service = service(repository);
 
         AppliedRuleSet saved = service.saveRuleSet(command(owner, List.of(rulebook)));
 
@@ -45,22 +45,36 @@ class AppliedRuleSetApplicationServiceTest {
     void rejectsEmptyRulebookSelection() {
         OwnerPlayerId owner = owner();
         AppliedRuleSetApplicationService service =
-                service(new InMemoryRuleSetRepository(), new OwnershipMock(owner, Set.of()));
+                service(new InMemoryRuleSetRepository());
 
         assertThrows(IllegalArgumentException.class, () -> service.saveRuleSet(command(owner, List.of())));
     }
 
     @Test
-    void ownershipHttpCheckRejectsAnotherPlayersRulebook() {
+    void sharedRulebooksCanBeSelectedByAnyPlayer() {
         OwnerPlayerId owner = owner();
         RulebookId foreignRulebook = rulebook();
-        OwnershipMock ownership = new OwnershipMock(owner(), Set.of(foreignRulebook));
-        AppliedRuleSetApplicationService service = service(new InMemoryRuleSetRepository(), ownership);
+        AppliedRuleSetApplicationService service = service(new InMemoryRuleSetRepository());
 
-        assertThrows(
-                RulebookOwnershipDeniedException.class,
-                () -> service.saveRuleSet(command(owner, List.of(foreignRulebook))));
-        assertEquals(1, ownership.calls);
+        assertEquals(foreignRulebook, service.saveRuleSet(command(owner, List.of(foreignRulebook)))
+                .selectedRulebooks().values().getFirst().rulebookId());
+    }
+
+    @Test
+    void allowsTheSameRuleSetToBeAppliedToMultipleAdventures() {
+        OwnerPlayerId owner = owner();
+        RulebookId rulebook = rulebook();
+        InMemoryRuleSetRepository repository = new InMemoryRuleSetRepository();
+        AppliedRuleSetApplicationService service = service(repository);
+        RuleSetId sharedRuleSetId = RuleSetId.generate();
+
+        AppliedRuleSet first = service.saveRuleSet(
+                sharedRuleSetId, command(owner, List.of(rulebook)));
+        AppliedRuleSet second = service.saveRuleSet(
+                sharedRuleSetId, command(owner, List.of(rulebook)));
+
+        assertEquals(first.id(), second.id());
+        assertEquals(first, second);
     }
 
     @Test
@@ -68,22 +82,19 @@ class AppliedRuleSetApplicationServiceTest {
         OwnerPlayerId owner = owner();
         RulebookId selected = rulebook();
         InMemoryRuleSetRepository repository = new InMemoryRuleSetRepository();
-        AppliedRuleSetApplicationService service = service(repository, new OwnershipMock(owner, Set.of(selected)));
+        AppliedRuleSetApplicationService service = service(repository);
         AppliedRuleSet saved = service.saveRuleSet(command(owner, List.of(selected)));
 
-        assertThrows(
-                RuleApplicationDeniedException.class,
-                () -> service.useRuleSet(
-                        saved.id(), owner, new RuleApplicationRequest(EDITION, rulebook())));
+        assertEquals(saved, service.useRuleSet(
+                saved.id(), owner(), new RuleApplicationRequest(EDITION, selected)));
         assertThrows(
                 RuleApplicationDeniedException.class,
                 () -> service.useRuleSet(
                         saved.id(), owner, new RuleApplicationRequest(new DndEdition("D&D 3.5E"), selected)));
     }
 
-    private static AppliedRuleSetApplicationService service(
-            AppliedRuleSetRepository repository, RulebookOwnershipHttpPort ownership) {
-        return new AppliedRuleSetApplicationService(repository, ownership);
+    private static AppliedRuleSetApplicationService service(AppliedRuleSetRepository repository) {
+        return new AppliedRuleSetApplicationService(repository);
     }
 
     private static CreateAppliedRuleSetCommand command(OwnerPlayerId owner, List<RulebookId> rulebooks) {

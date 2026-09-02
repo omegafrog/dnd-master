@@ -7,6 +7,8 @@ import com.dndmaster.adventure.domain.scenario.ResolutionKind;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionDetail;
 import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
+import com.dndmaster.adventure.domain.scenario.SaveDc;
+import com.dndmaster.adventure.domain.scenario.CasterSpellSaveDc;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.io.IOException;
@@ -19,6 +21,7 @@ import java.util.List;
 import java.util.Objects;
 
 public final class CrossContextHttpResolutionExtractionGateway implements ResolutionExtractionPort {
+    private static final String SCENARIO_COMPILATION_OPERATION_PREFIX = "scenario-compilation:";
     private final HttpClient client;
     private final URI baseUri;
     private final Duration timeout;
@@ -35,8 +38,9 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
     @Override
     public List<ResolutionCandidate> extract(ResolutionExtractionRequest request) {
         try {
+            String operationId = operationId(request.operationId(), request.attempt() > 0);
             String body = objectMapper.writeValueAsString(new ResolutionExtractionWireRequest(
-                    request.operationId(),
+                    operationId,
                     request.excerpts().stream()
                             .map(excerpt -> new ResolutionExcerpt(
                                     excerpt.documentId().value(), excerpt.extractionVersion(), excerpt.locator(), excerpt.text()))
@@ -68,9 +72,23 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
         }
     }
 
+    /** Makes the non-Story-Plan authoring responsibility explicit in provider diagnostics. */
+    static String operationId(String operationId, boolean repair) {
+        String base = Objects.requireNonNull(operationId, "operation id must not be null");
+        String prefixed = base.startsWith(SCENARIO_COMPILATION_OPERATION_PREFIX)
+                ? base : SCENARIO_COMPILATION_OPERATION_PREFIX + base;
+        return repair ? prefixed + ":resolution-candidate-repair" : prefixed + ":resolution-candidates";
+    }
+
     private static ResolutionCandidate toCandidate(CandidateResponse candidate) {
+        SaveDc dc = candidate.dc();
+        if (dc == null && candidate.kind() == ResolutionKind.SAVING_THROW
+                && candidate.sourceQuote() != null
+                && candidate.sourceQuote().matches("(?is).*\\bspell\\s+save\\s+DC\\b.*")) {
+            dc = new CasterSpellSaveDc();
+        }
         return new ResolutionCandidate(
-                candidate.kind(), candidate.abilityOrSkill(), candidate.dc(), candidate.diceExpression(),
+                candidate.kind(), candidate.abilityOrSkill(), dc, candidate.diceExpression(),
                 candidate.visibility(), candidate.sourceQuote(),
                 (candidate.sourceRefs() == null ? List.<SourceReferenceResponse>of() : candidate.sourceRefs()).stream()
                         .map(ref -> new ScenarioSourceReference(
@@ -87,7 +105,7 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
     record CandidateResponse(
             ResolutionKind kind,
             String abilityOrSkill,
-            Integer dc,
+            SaveDc dc,
             String diceExpression,
             ResolutionVisibility visibility,
             String sourceQuote,

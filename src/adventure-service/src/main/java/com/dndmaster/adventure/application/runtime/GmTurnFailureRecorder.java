@@ -16,18 +16,36 @@ public class GmTurnFailureRecorder {
 
     @Transactional(propagation = Propagation.REQUIRES_NEW)
     public void record(GmTurn turn, UUID adventureId, UUID sessionId, String message, long version) {
-        String safeFailure = safeFailure(message);
+        record(turn, adventureId, sessionId, new RuntimeException(message), version);
+    }
+
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public void record(GmTurn turn, UUID adventureId, UUID sessionId, Throwable failure, long version) {
+        String safeFailure = safeFailure(failure);
         turns.save(turn.process().failRetryable(safeFailure), adventureId);
         events.append(new SessionEvent(sessionId, UUID.randomUUID(), version + 1, "GM_TURN_FAILED", safeFailure));
     }
 
-    private static String safeFailure(String message) {
+    private static String safeFailure(Throwable failure) {
+        if (failure instanceof ToolAuthorizationException || hasCause(failure, ToolAuthorizationException.class)) {
+            return "GM_TOOL_CAPABILITY_DENIED";
+        }
+        String message = failure == null ? null : failure.getMessage();
         if (message == null || message.isBlank()) return "GM_TURN_FAILED_RETRYABLE";
         String normalized = message.toLowerCase(java.util.Locale.ROOT);
         if (normalized.contains("provider") || normalized.contains("timeout")) return "GM_PROVIDER_UNAVAILABLE";
         if (normalized.contains("candidate") || normalized.contains("citation")
                 || normalized.contains("narration") || normalized.contains("judgment")) return "GM_CANDIDATE_INVALID";
+        if (normalized.contains("already_in_progress")) return "GM_TURN_ALREADY_IN_PROGRESS";
+        if (normalized.contains("adventure_version_conflict")) return "ADVENTURE_VERSION_CONFLICT";
         if (normalized.contains("version") || normalized.contains("conflict")) return "GM_TURN_CONFLICT";
         return "GM_TURN_FAILED_RETRYABLE";
+    }
+
+    private static boolean hasCause(Throwable failure, Class<? extends Throwable> type) {
+        for (Throwable current = failure; current != null; current = current.getCause()) {
+            if (type.isInstance(current)) return true;
+        }
+        return false;
     }
 }

@@ -9,7 +9,9 @@ import static com.github.tomakehurst.wiremock.client.WireMock.postRequestedFor;
 import static com.github.tomakehurst.wiremock.client.WireMock.urlEqualTo;
 import static com.github.tomakehurst.wiremock.client.WireMock.matchingJsonPath;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanCandidateValidationException;
@@ -147,7 +149,7 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
         server.verify(postRequestedFor(urlEqualTo("/internal/v1/gm/adventure-story-plan/repair"))
                 .withRequestBody(matchingJsonPath("$.previousCandidate.stages[0].position", equalTo("1")))
                 .withRequestBody(matchingJsonPath("$.repairScope.allowedPaths",
-                        containing("stages[0].combatSkeleton.objective")))
+                        containing("stages[0].combatSkeleton.participants[0].citationKeys")))
                 .withRequestBody(matchingJsonPath("$.citations[0].citationKey", equalTo("rat-fact")))
                 .withRequestBody(matchingJsonPath("$.sourceDocuments[0]", equalTo("storybook.pdf")))
                 .withRequestBody(matchingJsonPath("$.resolutionEvidence[0]", equalTo("authoritative excerpt"))));
@@ -174,12 +176,37 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
                 "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT), previous,
                 List.of(violation), List.of("storybook.pdf"), List.of("source excerpt"), List.of(), List.of(citation)));
 
-        assertEquals(repaired, candidate.serializedCandidate());
+        // The gateway returns the validated canonical projection, which includes
+        // server-owned defaults and typed contracts rather than echoing provider JSON.
+        assertTrue(candidate.serializedCandidate().contains("\"schemaVersion\":2"));
+        assertNotEquals(repaired, candidate.serializedCandidate());
         assertEquals("Closed", candidate.stages().getFirst().transitionCondition());
         server.verify(postRequestedFor(urlEqualTo("/internal/v1/gm/adventure-story-plan/repair"))
                 .withRequestBody(matchingJsonPath("$.previousCandidate.stages[0].transitionCondition", equalTo("Open")))
                 .withRequestBody(matchingJsonPath("$.violations[0].fieldPath", equalTo("stages[0].transitionCondition")))
                 .withRequestBody(matchingJsonPath("$.citations[0].citationKey", equalTo("citation-1"))));
+    }
+
+    @Test
+    void repair_rejects_partial_stage_patch_without_a_full_candidate() {
+        server = new WireMockServer(0);
+        server.start();
+        UUID documentId = UUID.randomUUID();
+        String previous = projectionCandidate("Open").replace("\"npcOrClues\":[]", "\"npcOrClues\":[\"Keeper\"]");
+        String partial = "{\"stages\":[{\"endingIds\":[\"ending-1\"]}]}";
+        server.stubFor(post(urlEqualTo("/internal/v1/gm/adventure-story-plan/repair"))
+                .willReturn(aResponse().withHeader("Content-Type", "application/json").withBody(partial)));
+        var gateway = new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(),
+                URI.create(server.baseUrl() + "/"), Duration.ofSeconds(2), new ObjectMapper(), "test-internal-token");
+        var citation = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "STORYBOOK", documentId, 1, "page:1", "authoritative", .9).withCitationKey("citation-1");
+        var violation = new AdventureStoryPlanProjectionViolation("ENDING_IDS_MISSING", 1,
+                "stages[0].endingIds", "", "", Repairability.REPAIRABLE, "endingIds must be explicit");
+
+        assertThrows(AdventureStoryPlanCandidateValidationException.class, () -> gateway.repair(
+                new AdventureStoryPlanGenerationPort.RepairRequest(
+                        "operation", 1, 1, new AdventurePlanConfiguration(1, AdventureLength.SHORT), previous,
+                        List.of(violation), List.of("storybook.pdf"), List.of("source excerpt"), List.of(), List.of(citation))));
     }
 
     @Test
@@ -430,6 +457,9 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
                         List.of(), List.of(), List.of(), List.of())));
 
         assertEquals(List.of("endingIds must be explicit"), failure.violations());
+        assertEquals(AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE,
+                failure.structuredViolations().getFirst().repairability());
+        assertEquals("stages[0].endingIds", failure.structuredViolations().getFirst().fieldPath());
     }
 
     @Test
@@ -451,6 +481,9 @@ class CrossContextHttpAdventureStoryPlanGenerationGatewayTest {
                         List.of(), List.of(), List.of(), List.of())));
 
         assertEquals(List.of("endingIds must not be empty"), failure.violations());
+        assertEquals(AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE,
+                failure.structuredViolations().getFirst().repairability());
+        assertEquals("stages[0].endingIds", failure.structuredViolations().getFirst().fieldPath());
     }
 
     @Test

@@ -12,9 +12,13 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Validates the source-grounded, non-tactical combat outline of one stage. */
 public final class AdventureStoryPlanCombatValidator {
+    private static final Logger LOGGER = LoggerFactory.getLogger(AdventureStoryPlanCombatValidator.class);
+
     public List<AdventureStoryPlanProjectionViolation> validate(AdventureStoryPlanStage stage,
             List<AdventureStoryPlanGenerationPort.SourceCitation> authoritative) {
         if (stage == null) throw new IllegalArgumentException("stage must not be null");
@@ -84,7 +88,7 @@ public final class AdventureStoryPlanCombatValidator {
                 }
                 var source = sources.get(key);
                 if (source == null) {
-                    violations.add(violation(stage, "SOURCE_FACT_CLAIM_UNKNOWN_CITATION", path, claim.normalizedClaim(),
+                    violations.add(repairableViolation(stage, "SOURCE_FACT_CLAIM_UNKNOWN_CITATION", path, claim.normalizedClaim(),
                             "source fact citation key is not registered: " + key));
                 } else if (!supports(source.quote(), claim.normalizedClaim())) {
                     violations.add(violation(stage, "SOURCE_FACT_CLAIM_UNSUPPORTED", path, claim.normalizedClaim(),
@@ -101,9 +105,14 @@ public final class AdventureStoryPlanCombatValidator {
                             "combat participant must carry field-specific source keys"));
                 }
                 for (String key : participant.citationKeys()) {
-                    if (!evidence.containsKey(key) || !sources.containsKey(key)
-                            || !supports(sources.get(key).quote(), participant.name())) {
-                        violations.add(violation(stage, "COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED",
+                    boolean evidencePresent = evidence.containsKey(key);
+                    boolean sourcePresent = sources.containsKey(key);
+                    boolean nameSupported = sourcePresent && supports(sources.get(key).quote(), participant.name());
+                    if (!evidencePresent || !sourcePresent || !nameSupported) {
+                        LOGGER.warn("story_plan_combat_participant_grounding_failed stage={} participantId={} role={} name={} citationKeys={} failedCitationKey={} evidencePresent={} sourcePresent={} nameSupported={}",
+                                stage.position(), participant.participantId(), participant.role(), participant.name(),
+                                participant.citationKeys(), key, evidencePresent, sourcePresent, nameSupported);
+                        violations.add(repairableViolation(stage, "COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED",
                                 "combatSkeleton.participants[" + index + "].name", participant.name(),
                                 "combat participant is not supported by its field-specific source"));
                     } else if (!supportsCount(sources.get(key).quote(), participant.minimumCount(), participant.maximumCount())) {
@@ -115,6 +124,14 @@ public final class AdventureStoryPlanCombatValidator {
                 }
             }
         }
+    }
+
+    private static AdventureStoryPlanProjectionViolation repairableViolation(AdventureStoryPlanStage stage,
+            String code, String path, String rejectedValue, String message) {
+        return new AdventureStoryPlanProjectionViolation(code, stage.position(),
+                path.startsWith("stages[") ? path : "stages[" + Math.max(0, stage.position() - 1) + "]." + path,
+                rejectedValue, "authoritative source evidence",
+                AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE, message);
     }
 
     private static List<SourceFactClaim> allClaims(AdventureStoryPlanStage stage) {
@@ -141,11 +158,9 @@ public final class AdventureStoryPlanCombatValidator {
 
     private static boolean hasCombatHint(AdventureStoryPlanStage stage) {
         if (!stage.enemies().isEmpty() || !stage.boss().isBlank() || !stage.combatSkeleton().participants().isEmpty()) return true;
-        if (stage.stageType() == com.dndmaster.adventure.domain.adventure.AdventureStageType.ENCOUNTER
-                || stage.stageType() == com.dndmaster.adventure.domain.adventure.AdventureStageType.FINALE) return true;
-        String text = String.join(" ", stage.title(), stage.goal(), stage.conflict(), stage.transitionCondition(),
-                stage.clearCondition(), stage.failureCondition(), String.join(" ", stage.npcOrClues())).toLowerCase(Locale.ROOT);
-        return text.matches(".*(combat|battle|fight|encounter|ambush|enemy|boss|monster|attack|전투|전투|적|보스|괴물|습격|싸움|거미|쥐).*" );
+        // Narrative tension alone is not a committed combat requirement. Only
+        // structured enemy/boss/participant data should force combat metadata.
+        return false;
     }
 
     private static boolean supports(String source, String claim) {
@@ -190,11 +205,9 @@ public final class AdventureStoryPlanCombatValidator {
     private static boolean requiresRegeneration(String code) {
         return code.equals("SOURCE_FACT_CLAIM_FIELD_INVALID")
                 || code.equals("SOURCE_FACT_CLAIM_UNBOUND")
-                || code.equals("SOURCE_FACT_CLAIM_UNKNOWN_CITATION")
                 || code.equals("SOURCE_FACT_CLAIM_UNSUPPORTED")
                 || code.equals("COMBAT_REQUIREMENT_MISMATCH")
                 || code.equals("COMBAT_PARTICIPANT_SOURCE_REQUIRED")
-                || code.equals("COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED")
                 || code.equals("COMBAT_PARTICIPANT_COUNT_UNSUPPORTED");
     }
 }

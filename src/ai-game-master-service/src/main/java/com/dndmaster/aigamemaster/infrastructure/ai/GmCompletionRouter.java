@@ -7,6 +7,7 @@ import java.net.http.HttpClient;
 import java.util.Objects;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -85,7 +86,7 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
 
     @Override
     public <T> GmCandidateLifecycleResult<T> completeWithOneRepair(
-            String operationId, String prompt, java.util.function.Function<String, String> repairPrompt,
+            String operationId, String prompt, java.util.function.Function<GmRepairContext, String> repairPrompt,
             StructuredResponseParser<T> parser, RequestedGmProviderSelection requested) {
         if (selectionResolver == null) throw new GmProviderSelectionUnresolvedException(requested);
         GmProviderSelectionResolver.EndpointResolution resolution = selectionResolver.resolveEndpoint(requested);
@@ -99,8 +100,32 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
             T response = completeResolved(operationId, prompt, capturingParser, resolution.endpoint(), effective);
             return new GmCandidateLifecycleResult<>(new GmCompletionResult<>(response, effective), 1);
         } catch (ProviderMalformedResponseException malformed) {
-            T repaired = completeResolved(operationId + ":repair", repairPrompt.apply(raw.get()),
+            LOGGER.warn("gm_candidate_validation_failed stage=INITIAL_CANDIDATE_VALIDATION code=MALFORMED_JSON message={}", malformed.getMessage());
+            T repaired = completeResolved(operationId + ":repair", repairPrompt.apply(new GmRepairContext(raw.get(), List.of(
+                            new GmCandidateViolation("MALFORMED_JSON", "candidate", malformed.getMessage())))),
                     capturingParser, resolution.endpoint(), effective);
+            return new GmCandidateLifecycleResult<>(new GmCompletionResult<>(repaired, effective), 2);
+        } catch (GmCandidateValidationException invalid) {
+            LOGGER.warn("gm_candidate_validation_failed stage=INITIAL_CANDIDATE_VALIDATION violations={}", invalid.violations());
+            T repaired = completeResolved(operationId + ":repair", repairPrompt.apply(new GmRepairContext(raw.get(), invalid.violations())),
+                    capturingParser, resolution.endpoint(), effective);
+            return new GmCandidateLifecycleResult<>(new GmCompletionResult<>(repaired, effective), 2);
+        }
+    }
+
+    @Override
+    public <T> GmCandidateLifecycleResult<T> completeWithOneRepair(String operationId, String prompt,
+            java.util.function.Function<GmRepairContext, String> repairPrompt,
+            StructuredResponseContract<T> contract, RequestedGmProviderSelection requested) {
+        if (selectionResolver == null) throw new GmProviderSelectionUnresolvedException(requested);
+        var resolution = selectionResolver.resolveEndpoint(requested);
+        var effective = resolution.effectiveSelection();
+        java.util.concurrent.atomic.AtomicReference<String> raw = new java.util.concurrent.atomic.AtomicReference<>("");
+        StructuredResponseParser<T> parser = json -> { raw.set(json == null ? "" : json); return contract.parser().parse(json); };
+        try { return new GmCandidateLifecycleResult<>(new GmCompletionResult<>(completeResolved(operationId, prompt, parser, resolution.endpoint(), effective, contract.outputSchema()), effective), 1); }
+        catch (ProviderMalformedResponseException | GmCandidateValidationException failure) {
+            var violations = failure instanceof GmCandidateValidationException v ? v.violations() : java.util.List.of(new GmCandidateViolation("MALFORMED_JSON", "candidate", failure.getMessage()));
+            T repaired = completeResolved(operationId + ":repair", repairPrompt.apply(new GmRepairContext(raw.get(), violations)), parser, resolution.endpoint(), effective, contract.outputSchema());
             return new GmCandidateLifecycleResult<>(new GmCompletionResult<>(repaired, effective), 2);
         }
     }
@@ -116,6 +141,11 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
             case "codex-cli" -> parser.parse(codexAppServer.complete(operationId + ":codex-cli:" + effective.model(), prompt, effective.model()));
             default -> throw new IllegalArgumentException("unsupported GM provider: " + effective.provider());
         };
+    }
+    private <T> T completeResolved(String operationId, String prompt, StructuredResponseParser<T> parser,
+                                   AgentEndpoint endpoint, EffectiveGmProviderSelection effective, com.fasterxml.jackson.databind.JsonNode schema) {
+        if ("codex-cli".equals(effective.provider())) return parser.parse(codexAppServer.complete(operationId + ":codex-cli:" + effective.model(), prompt, effective.model(), effective.reasoning(), schema));
+        return completeResolved(operationId, prompt, parser, endpoint, effective);
     }
 
     private static String safe(String value) { return value == null ? "" : value.replaceAll("[^A-Za-z0-9._:-]", "_"); }

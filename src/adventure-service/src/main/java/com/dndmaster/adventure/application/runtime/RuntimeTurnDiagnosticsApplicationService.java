@@ -2,6 +2,7 @@ package com.dndmaster.adventure.application.runtime;
 
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
@@ -9,27 +10,34 @@ import java.util.UUID;
 /** Read-only, deliberately whitelisted diagnostics projection for development support. */
 public final class RuntimeTurnDiagnosticsApplicationService {
     private final RuntimeTurnRepository turns;
+    private final RuntimeTurnFailureRepository failures;
 
     public RuntimeTurnDiagnosticsApplicationService(RuntimeTurnRepository turns) {
+        this(turns, new NoopRuntimeTurnFailureRepository());
+    }
+
+    public RuntimeTurnDiagnosticsApplicationService(RuntimeTurnRepository turns, RuntimeTurnFailureRepository failures) {
         this.turns = Objects.requireNonNull(turns, "runtime turn repository must not be null");
+        this.failures = Objects.requireNonNull(failures, "failure repository must not be null");
     }
 
     public Optional<RuntimeTurnDiagnosticsView> readByTurnId(UUID turnId) {
         return turns.findByTurnId(Objects.requireNonNull(turnId, "turn id must not be null"))
-                .map(RuntimeTurnDiagnosticsView::from);
+                .map(turn -> RuntimeTurnDiagnosticsView.from(turn, failures.findByTurnId(turn.turnId())));
     }
 
     public Optional<RuntimeTurnDiagnosticsView> readByCommandId(UUID commandId) {
         return turns.findByCommandId(Objects.requireNonNull(commandId, "command id must not be null"))
-                .map(RuntimeTurnDiagnosticsView::from);
+                .map(turn -> RuntimeTurnDiagnosticsView.from(turn, failures.findByTurnId(turn.turnId())));
     }
 
     /** Safe diagnostic view: forbidden facts, reasoning, raw evidence, and mutable context are excluded. */
     public record RuntimeTurnDiagnosticsView(
             UUID turnId, UUID commandId, AdventureId adventureId, UUID sessionId,
             RuntimeTurnLifecycle lifecycle, boolean committed, RuntimeTurnOrigin origin,
-            PlannerArtifact planner, ResolvedArtifact resolved, WriterArtifact writer) {
-        static RuntimeTurnDiagnosticsView from(RuntimeTurn turn) {
+            PlannerArtifact planner, ResolvedArtifact resolved, WriterArtifact writer,
+            List<RuntimeTurnFailureArtifact> failures) {
+        static RuntimeTurnDiagnosticsView from(RuntimeTurn turn, List<RuntimeTurnFailureArtifact> failures) {
             Objects.requireNonNull(turn, "turn must not be null");
             TurnPlan plannerPlan = turn.resolvedArtifact() == null
                     ? TurnPlan.from(turn.plan()) : turn.resolvedArtifact().plan();
@@ -40,7 +48,7 @@ public final class RuntimeTurnDiagnosticsApplicationService {
             }
             return new RuntimeTurnDiagnosticsView(turn.turnId(), turn.commandId(), turn.adventureId(), turn.sessionId(),
                     turn.lifecycle(), turn.committed(), turn.origin(), PlannerArtifact.from(plannerPlan),
-                    ResolvedArtifact.from(resolvedPlan), WriterArtifact.from(turn, resolvedPlan));
+                    ResolvedArtifact.from(resolvedPlan), WriterArtifact.from(turn, resolvedPlan), List.copyOf(failures));
         }
     }
 
@@ -52,10 +60,17 @@ public final class RuntimeTurnDiagnosticsApplicationService {
 
     public record ResolvedArtifact(String scene, String npcState, String judgment,
                                    List<String> revealableFacts, List<String> outcomes,
-                                   RuntimeTurnLifecycle lifecycle, EffectivePromptLineage promptLineage) {
+                                   RuntimeTurnLifecycle lifecycle, EffectivePromptLineage promptLineage,
+                                   Map<String, EffectivePromptLineage> promptLineages) {
+        public ResolvedArtifact(String scene, String npcState, String judgment,
+                                List<String> revealableFacts, List<String> outcomes,
+                                RuntimeTurnLifecycle lifecycle, EffectivePromptLineage promptLineage) {
+            this(scene, npcState, judgment, revealableFacts, outcomes, lifecycle, promptLineage,
+                    promptLineage == null ? Map.of() : Map.of(promptLineage.role(), promptLineage));
+        }
         static ResolvedArtifact from(ResolvedTurnPlan plan) {
             return new ResolvedArtifact(plan.plan().scene(), plan.plan().npcState(), plan.plan().judgment(),
-                    plan.plan().revealableFacts(), plan.outcomes(), plan.lifecycle(), plan.promptLineage());
+                    plan.plan().revealableFacts(), plan.outcomes(), plan.lifecycle(), plan.promptLineage(), plan.promptLineages());
         }
     }
 

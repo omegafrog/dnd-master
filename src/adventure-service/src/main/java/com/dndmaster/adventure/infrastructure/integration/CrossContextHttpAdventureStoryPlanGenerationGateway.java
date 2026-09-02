@@ -2,8 +2,9 @@ package com.dndmaster.adventure.infrastructure.integration;
 
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanCandidateValidationException;
-import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionRepairPolicy;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionViolation;
+import com.dndmaster.adventure.application.storyplan.StoryPlanScopedMerger;
+import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanProjectionRepairPolicy;
 import com.dndmaster.adventure.application.storyplan.TacticalScenePlanCandidate;
 import com.dndmaster.adventure.application.storyplan.TacticalSceneRequest;
 import com.dndmaster.adventure.application.storyplan.TacticalScenePlanValidator;
@@ -17,6 +18,7 @@ import com.dndmaster.adventure.domain.adventure.CombatParticipant;
 import com.dndmaster.adventure.domain.adventure.CombatRequirement;
 import com.dndmaster.adventure.domain.adventure.CombatSkeleton;
 import com.dndmaster.adventure.domain.adventure.SourceFactClaim;
+import com.dndmaster.adventure.domain.adventure.ClaimOrigin;
 import com.dndmaster.adventure.domain.adventure.TacticalPreparationRequirement;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -98,10 +100,12 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
                 throw new IllegalStateException("story plan AI repair failed: " + response.statusCode());
             }
-            var candidate = parseOutlineCandidate(response.body(), keyedRequest);
-            AdventureStoryPlanProjectionRepairPolicy.assertOnlyListedFieldsChanged(
-                    previousCandidate, mapper.readTree(candidate.serializedCandidate()), request.repairScope());
-            return candidate;
+            // The provider returns a full candidate and may rewrite unrelated fields while
+            // repairing. Treat that response as untrusted input: apply only the explicit
+            // repair scope, then run all normal validation against the merged candidate.
+            // The repair endpoint applies the requested scope and returns a full
+            // candidate; parse that canonical response directly.
+            return parseOutlineCandidate(candidateJson(response.body()), keyedRequest);
         } catch (AdventureStoryPlanCandidateValidationException e) {
             throw e;
         } catch (HttpTimeoutException e) { throw new IllegalStateException("story plan AI repair timed out after " + timeout, e); }
@@ -121,7 +125,7 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             List<Stage> stages = parsed.stages();
             List<List<AdventureStoryPlanGenerationPort.SourceCitation>> resolvedEvidence = stages.stream()
                     .map(stage -> resolveCitationKeys(stage.evidence(), request.citations())).toList();
-            validateEndingIdProjection(stages);
+            validateEndingIdProjection(stages, candidateJson);
             if (!request.citations().isEmpty() && stages.stream().anyMatch(stage -> stage.evidence().isEmpty())) {
                 throw new IllegalStateException("every story stage must include at least one supplied source citation");
             }
@@ -130,8 +134,6 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                     || stages.size() > configuration.adventureLength().maximumStages()) {
                 throw new IllegalStateException("AI returned an invalid stage count for adventure length");
             }
-            long endingCount = stages.stream().flatMap(stage -> stage.endingIds().stream()).distinct().count();
-            if (endingCount != configuration.endingCount()) throw new IllegalStateException("AI returned an invalid ending count");
             Map<UUID, AdventureStoryPlanGenerationPort.MapContext> maps = request.maps().stream().collect(
                     Collectors.toMap(AdventureStoryPlanGenerationPort.MapContext::mapDefinitionId, item -> item));
             if (!maps.isEmpty() && stages.stream().anyMatch(stage ->
@@ -142,7 +144,9 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             List<AdventureStoryPlanStage> domainStages = java.util.stream.IntStream.range(0, stages.size())
                     .mapToObj(index -> toDomain(stages.get(index), resolvedEvidence.get(index), maps)).toList();
             AdventureStoryPlanGraphValidator.validate(domainStages, configuration);
-            return new AdventureStoryPlanGenerationPort.ProjectionCandidate(candidateJson, domainStages);
+            // Re-serialize the validated domain projection so provider-only defaults
+            // cannot make the full candidate diverge from the runtime model.
+            return AdventureStoryPlanGenerationPort.ProjectionCandidate.fromStages(domainStages);
         } catch (AdventureStoryPlanCandidateValidationException invalidCandidate) {
             throw invalidCandidate;
         } catch (RuntimeException | IOException invalidCandidate) {
@@ -153,20 +157,29 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         }
     }
 
-    private static void validateEndingIdProjection(List<Stage> stages) {
-        for (Stage stage : stages) {
+    private static void validateEndingIdProjection(List<Stage> stages, String candidateJson) {
+        for (int index = 0; index < stages.size(); index++) {
+            Stage stage = stages.get(index);
             if (stage.endingIds() == null) {
-                throw new IllegalStateException("endingIds must be explicit");
+                throw endingIdsViolation(index, "", candidateJson, "endingIds must be explicit");
             }
             if (stage.endingIds().stream().anyMatch(item -> item == null || item.isBlank())) {
                 throw new IllegalStateException("endingIds must not contain blank values");
             }
             if (stage.endingIds().isEmpty()) {
-                throw new IllegalStateException("endingIds must not be empty");
+                throw endingIdsViolation(index, "[]", candidateJson, "endingIds must not be empty");
             }
         }
     }
 
+    private static AdventureStoryPlanCandidateValidationException endingIdsViolation(
+            int index, String rejectedValue, String candidateJson, String message) {
+        return new AdventureStoryPlanCandidateValidationException(List.of(
+                new AdventureStoryPlanProjectionViolation("ENDING_IDS_MISSING", index + 1,
+                        "stages[" + index + "].endingIds", rejectedValue, "",
+                        AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE, message)),
+                candidateJson, true);
+    }
     @Override public TacticalScenePlanCandidate generateTacticalScene(TacticalSceneRequest request) {
         try {
             var response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/tactical-scene-plan"))
@@ -318,7 +331,7 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         return domainStage.withCombat(parseCombatRequirement(stage.combatRequirement(), stage),
                 parseCombatSkeleton(stage.combatSkeleton()), stage.sourceFactClaims().stream()
                         .map(CrossContextHttpAdventureStoryPlanGenerationGateway::toDomain).toList(),
-                parseTacticalPreparationRequirement(stage.tacticalPreparationRequirement(), mapId))
+                parseTacticalPreparationRequirement(stage.tacticalPreparationRequirement(), mapId, stage))
                 .withSchemaVersion(stage.schemaVersion());
     }
     private static CombatRequirement parseCombatRequirement(String value, Stage stage) {
@@ -333,7 +346,7 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                 || !projection.participants().isEmpty() || !projection.rewards().isEmpty()
                 || !projection.successOutcome().isBlank() || !projection.failureOutcome().isBlank());
     }
-    private static TacticalPreparationRequirement parseTacticalPreparationRequirement(String value, UUID mapId) {
+    private static TacticalPreparationRequirement parseTacticalPreparationRequirement(String value, UUID mapId, Stage stage) {
         if (value == null || value.isBlank()) return TacticalPreparationRequirement.NOT_REQUIRED;
         return TacticalPreparationRequirement.valueOf(value.trim().toUpperCase(java.util.Locale.ROOT));
     }
@@ -354,7 +367,8 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
                 projection.citationKeys());
     }
     private static SourceFactClaim toDomain(SourceFactClaimProjection projection) {
-        return new SourceFactClaim(projection.fieldPath(), projection.normalizedClaim(), projection.citationKeys());
+        return new SourceFactClaim(projection.fieldPath(), projection.normalizedClaim(), projection.citationKeys(),
+                projection.origin() == null ? ClaimOrigin.SOURCE : ClaimOrigin.valueOf(projection.origin().trim().toUpperCase(java.util.Locale.ROOT)));
     }
     static UUID parseMapDefinitionId(String value) {
         if (value == null || value.isBlank()) return null;
@@ -416,7 +430,9 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             List<SourceFactClaimProjection> sourceFactClaims, String tacticalPreparationRequirement, Integer schemaVersion) {
         Stage {
             npcOrClues = List.copyOf(Objects.requireNonNull(npcOrClues, "npcOrClues must be explicit"));
-            endingIds = List.copyOf(Objects.requireNonNull(endingIds, "endingIds must be explicit"));
+            // Keep null long enough for the typed projection validator to report the
+            // exact repairable stages[n].endingIds path. Domain conversion rejects it later.
+            endingIds = endingIds == null ? null : List.copyOf(endingIds);
             enemies = List.copyOf(Objects.requireNonNull(enemies, "enemies must be explicit"));
             rewards = List.copyOf(Objects.requireNonNull(rewards, "rewards must be explicit"));
             branchIds = List.copyOf(Objects.requireNonNull(branchIds, "branchIds must be explicit"));
@@ -449,9 +465,10 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
         }
     }
     @JsonIgnoreProperties(ignoreUnknown = true) record SourceFactClaimProjection(String fieldPath, String normalizedClaim,
-            List<String> citationKeys) {
+            List<String> citationKeys, String origin) {
         SourceFactClaimProjection {
             citationKeys = citationKeys == null ? List.of() : List.copyOf(citationKeys);
+            origin = origin == null || origin.isBlank() ? "SOURCE" : origin;
         }
     }
     @JsonIgnoreProperties(ignoreUnknown = true) record CitationProjection(String citationKey) {}

@@ -2,7 +2,6 @@
 
 native PDF extraction, page rendering and OCR을 port 뒤에 격리하고 페이지·영역별 native/OCR/hybrid 선택과 provenance를 제공한다.
 
-Plan: `docs/plans/rag-011-native-ocr-hybrid-extraction.md`
 
 GitHub: https://github.com/omegafrog/dnd-master/issues/184
 

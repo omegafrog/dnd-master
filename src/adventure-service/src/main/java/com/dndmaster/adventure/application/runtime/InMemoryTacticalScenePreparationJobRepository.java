@@ -24,10 +24,11 @@ final class InMemoryTacticalScenePreparationJobRepository implements TacticalSce
     @Override public synchronized boolean claim(UUID jobId) {
         Job job = jobs.get(jobId);
         if (job == null || job.status() != Status.QUEUED) return false;
-        jobs.put(jobId, copy(job, Status.RUNNING, job.progress(), job.attempts(), "전술 장면 준비 중", job.failureReason()));
+        jobs.put(jobId, copy(job, Status.RUNNING, job.preparationProgress(), job.attempts(), "전술 장면 준비 중", job.failureReason()));
         return true;
     }
-    @Override public void update(UUID jobId, Status status, int progress, int attempts, String message, String failureReason) { jobs.computeIfPresent(jobId, (id, job) -> copy(job, status, progress, attempts, message, failureReason)); }
-    @Override public void resetForRetry(UUID jobId) { jobs.computeIfPresent(jobId, (id, job) -> copy(job, Status.QUEUED, 0, 0, "대기 중", null)); }
-    private static Job copy(Job job, Status status, int progress, int attempts, String message, String reason) { return new Job(job.jobId(), job.sessionId(), job.ownerId(), job.stagePosition(), job.stageName(), status, progress, attempts, job.mapRequired(), message, reason, Instant.now()); }
+    @Override public void update(UUID jobId, Status status, int progress, int attempts, String message, String failureReason) { updateProgress(jobId, status, PreparationProgress.legacy(progress), attempts, message, failureReason); }
+    @Override public void updateProgress(UUID jobId, Status status, PreparationProgress progress, int attempts, String message, String failureReason) { jobs.computeIfPresent(jobId, (id, job) -> copy(job, status, progress, attempts, message, failureReason)); }
+    @Override public void resetForRetry(UUID jobId) { jobs.computeIfPresent(jobId, (id, job) -> copy(job, Status.QUEUED, PreparationProgress.legacy(0), 0, "대기 중", null)); }
+    private static Job copy(Job job, Status status, PreparationProgress progress, int attempts, String message, String reason) { return new Job(job.jobId(), job.sessionId(), job.ownerId(), job.stagePosition(), job.stageName(), status, progress, attempts, job.mapRequired(), message, reason, Instant.now()); }
 }

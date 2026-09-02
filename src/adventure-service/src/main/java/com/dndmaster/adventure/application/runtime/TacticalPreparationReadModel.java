@@ -25,7 +25,13 @@ public record TacticalPreparationReadModel(UUID sessionId, int stagePosition, St
     }
 
     public record PlayerSafeProjection(TacticalPreparationState state, String message, int progress, int attempts,
-            boolean mapRequired, boolean mapActivationAllowed, Instant updatedAt) {}
+            boolean mapRequired, boolean mapActivationAllowed, Instant updatedAt, PreparationProgress preparationProgress) {
+        public PlayerSafeProjection(TacticalPreparationState state, String message, int progress, int attempts,
+                boolean mapRequired, boolean mapActivationAllowed, Instant updatedAt) {
+            this(state, message, progress, attempts, mapRequired, mapActivationAllowed, updatedAt,
+                    PreparationProgress.legacy(progress));
+        }
+    }
 
     public record InternalDiagnostics(String jobStatus, String failureReason, String sceneStatus,
             boolean mapActivationAllowed, Instant updatedAt) {}

@@ -66,7 +66,11 @@ class AdventureStoryPlanCombatValidatorTest {
     @Test
     void combat_hint_cannot_be_classified_as_none() {
         var stage = stage().withCombat(CombatRequirement.NONE, CombatSkeleton.empty(), List.of(), TacticalPreparationRequirement.NOT_REQUIRED)
-                .withConflict("A goblin ambush blocks the road");
+                .withConflict("A goblin ambush blocks the road")
+                .withCombat(CombatRequirement.NONE,
+                        new CombatSkeleton("", "", List.of(new CombatParticipant("goblin", CombatParticipant.Role.ENEMY,
+                                "goblin", 1, 1, List.of())), "", "", List.of()),
+                        List.of(), TacticalPreparationRequirement.NOT_REQUIRED);
 
         var violations = new AdventureStoryPlanCombatValidator().validate(stage, List.of());
 
@@ -95,7 +99,7 @@ class AdventureStoryPlanCombatValidatorTest {
 
         assertTrue(violations.stream().anyMatch(v ->
                 v.code().equals("COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED")
-                        && v.repairability() == AdventureStoryPlanProjectionViolation.Repairability.REGENERATE_REQUIRED));
+                        && v.repairability() == AdventureStoryPlanProjectionViolation.Repairability.REPAIRABLE));
     }
 
     @Test

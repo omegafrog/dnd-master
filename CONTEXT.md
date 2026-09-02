@@ -1,9 +1,16 @@
 # Ubiquitous Language
 
+# Execution Preconditions
+
+- **Rulebook Administration Precondition**: 모험 실행 여정을 시작하기 전에 관리자가 Shared Rulebook Catalog에 룰북을 등록하고, 추출·색인·검증을 완료한 뒤 공개 상태로 게시해야 한다.
+- **End-User Rulebook Selection**: 엔드유저(Solo Player)는 관리자에 의해 공개된 룰북 중 하나를 선택만 한다. 엔드유저가 룰북을 업로드·등록·색인·검증·게시하거나 그 처리를 기다리는 흐름은 지원하지 않는다.
+- **Adventure Start Gate**: 공개된 룰북이 하나 이상 없으면 번들 구성과 모험 시작을 허용하지 않고, 관리자 사전 준비가 필요하다는 상태를 표시한다.
+
 - **Solo Player**: 자료 준비, 시나리오 구성, 캐릭터 생성, 세션 실행을 혼자 수행하는 유일한 인간 사용자. 별도 인간 GM 역할은 없다.
 - **AI Game Master**: Solo Player의 모험 진행 중 장면 서술, 행동 판정, 규칙 근거 활용을 담당하는 AI 역할. 사용자 권한이나 별도 관리 화면을 갖는 인간 GM과 구분한다.
 - **Player Dashboard**: 로그인 후 Solo Player가 처음 도착하는 상태 기반 시작 화면. 진행 중 모험, 작성 중 세션, 준비된 번들, 최초 자료 준비 순서로 다음 행동을 제시한다.
 - **Game System Definition**: AI가 룰북 근거에서 추출하고 백엔드가 검증·버전 관리·게시하는 선언형 게임 규칙 계약. 캐릭터 필드, 자원, 판정, 공식, 이벤트 조건, 상태 변경을 정의하며 실행 코드나 임의 HTML은 포함하지 않는다. 사용자가 파일을 직접 편집하지 않으므로 검증된 버전형 JSON을 정본으로 사용한다.
+- **Shared Rulebook Catalog**: 관리자가 플레이어 사용 전에 업로드·색인·검증·공개한 공용 Rulebook 목록. Solo Player는 이 목록에서 공개된 Rulebook만 선택하며, 업로드·seed·색인·공개를 수행하거나 기다리지 않는다. 새 로컬 DB도 사용자 여정을 시작하기 전에 필요한 공개 Rulebook을 관리자 운영 단계에서 준비해야 한다.
 - **Bundle Rulebook Cardinality**: 하나의 Scenario Bundle Revision은 정확히 하나의 Rulebook만 포함한다. Game System Definition은 이 Rulebook 하나에서 생성하며 여러 룰북의 병합이나 우선순위 규칙은 두지 않는다.
 - **Rulebook-Only Bundle**: Rulebook 하나만 포함하고 Main Scenario나 다른 시나리오 자료가 없는 유효한 Scenario Bundle. 캐릭터·판정 규칙은 제공하지만 모험 서사 시작점은 별도로 정해야 한다.
 - **Adventure Story Plan**: 모험 시작부터 결말까지의 대략적인 진행 절차를 메인 줄기, 조건부 분기, 복수 결말, 단계별 목표·갈등·핵심 인물·단서·전환 조건으로 표현한 백엔드 전용 계획. 시나리오 자료가 있으면 자료에서 컴파일하고, Rulebook-Only Bundle이면 AI가 전체 골격을 생성한다. Solo Player에게 내용·검토 화면·요약을 노출하지 않는다.
@@ -17,7 +24,7 @@
 - **Rule Support Severity**: `UNSUPPORTED` Runtime Rule의 승인 영향도. 캐릭터 생성 필수 스탯, 핵심 판정·자원 변화, 사망·전투·진행 규칙은 `BLOCKING`이며 Game System Review 승인을 막는다. 희귀 선택·부가 규칙은 `WARNING`이며 명시적 경고 확인 후 승인할 수 있다.
 - **Bundle Lock**: 캐릭터 생성에 진입하기 전에 선택된 Scenario Bundle Revision·Scenario Package·Knowledge Document 집합·Game System Definition·캐릭터 생성 스키마의 정확한 버전을 모험 준비 흐름에 고정하는 규칙. 캐릭터 생성을 시작한 뒤에는 해당 흐름이 참조하는 리비전을 바꾸지 않는다. 원본 번들의 후속 변경은 새 리비전으로 만들며 미래 모험에서 사용할 수 있다.
 - **Adventure Start Lock**: 모험 시작 전환 시 파티 구성과 런타임 구성을 고정하는 규칙. 시작 후에는 캐릭터 구성이나 실행 설정을 변경하지 않는다.
-- **Knowledge Document**: 소유자가 업로드하는 RAG 원본 파일. 하나의 통합 업로드·처리 흐름을 사용한다.
+- **Knowledge Document**: RAG 원본 파일. Solo Player는 Storybook과 Handout 등 자신의 모험 자료만 업로드한다. Rulebook은 Shared Rulebook Catalog 관리자가 사전에 등록·공개하며 Solo Player가 업로드하는 자료가 아니다.
 - **Document Type**: Knowledge Document의 의미 메타데이터. 초기 값은 `RULEBOOK`과 `STORYBOOK`이다. 저장·검색·근거 표시에 사용한다.
 - **Batch Upload**: 여러 Knowledge Document를 한 요청으로 접수하는 행위. 각 파일은 별도 처리 상태·실패 사유·재시도 단위를 가진다.
 - **Session Knowledge Set**: 특정 모험 세션에 고정하는 Knowledge Document 목록. 해당 세션 RAG 검색은 이 목록만 대상으로 한다.
@@ -30,12 +37,24 @@
 - **Scenario Package**: Scenario Source Bundle을 분석하고 컴파일해 만든 버전형 산출물. Source Span 검색 자료, Resolution Unit, 원문 참조, 추출 경고, 사용자 수정, 컴파일 보고서를 포함한다. 자체로 실제 플레이 가능성을 보증하지 않는다.
 - **Runtime Binding**: 특정 Scenario Package 버전을 실제 GM agent, 게임 엔진, 룰북 지식 집합, 캐릭터, 도구와 결합한 세션 실행 구성.
 - **Compilation Status**: 원본 자료의 추출, 구조화, 근거 연결, 컴파일 완전성을 나타내는 상태. 실제 플레이 가능성과 구분한다.
+- **Compilation Candidate**: Scenario Package 컴파일 중 개별 판정·근거·서술 요소에 대해 추출하고 검증하는 후보. 각 후보는 전체 컴파일 결과와 독립된 완전성 상태와 진단을 가진다.
+- **Candidate Completeness**: Compilation Candidate의 검증 결과. 요구 정보를 충족한 `COMPLETE`, 일부 정보가 부족한 `PARTIAL`, 사용할 수 없는 `INVALID`로 구분한다.
+- **Candidate Recoverability**: 불완전한 Compilation Candidate를 동일 근거 안에서 보완할 가능성. `REPAIRABLE`, `MAYBE_REPAIRABLE`, `NON_REPAIRABLE`로 구분하며 자동 반복 재시도 가능성과는 별개다.
+- **Compilation Outcome**: 모든 Compilation Candidate 처리 후 required/optional 정책을 적용한 Scenario Package 컴파일 결과. `COMPLETE`, `COMPLETE_WITH_WARNINGS`, `FAILED`로 구분한다.
 - **Playability Status**: Runtime Binding을 대상으로 프리플라이트한 결과. 현재 GM agent와 게임 엔진 구성으로 핵심 흐름을 실행할 수 있는지를 나타낸다.
 - **Runtime Health**: 실제 세션 중 검색 실패, 상태 충돌, 시나리오 이탈 등 실행 품질을 나타내는 상태.
 - **Source Span**: 원본 문서의 텍스트나 시각 요소와 그 위치를 보존하는 추적 단위. PDF와 이미지는 페이지·좌표·읽기 순서, DOCX와 TXT는 구조·문자 범위를 사용한다. 시나리오 컴파일 전 과정의 정본이다.
 - **Progressive Scenario Compilation**: Source Span을 정본으로 유지하면서 안전하게 해석할 수 있는 판정과 굴림만 Resolution Unit으로 투영하는 방식. 구조화하지 못한 내용은 버리거나 추측하지 않고 원문 조회로 강등한다.
 - **Resolution Unit**: 시나리오 원문에 명시된 판정 또는 굴림 절차를 실행 가능한 형태로 투영한 단위. 능력치·기술 판정, 내성, 공격, 피해, 회복, 대항, 우선권, 충전, 랜덤 테이블, 특수 굴림, 수동 수치 기준을 포함한다. 원문에 없는 절차나 결과는 생성하지 않는다.
 - **GM Turn**: Solo Player의 텍스트 입력 또는 확정된 맵 상호작용 하나를 AI Game Master가 해석하고, 판정·서술·상태 변화·다음 상황을 하나의 원자적 결과로 확정하는 진행 단위. 게임 시스템의 전투 턴이나 시간 단위와 구분한다.
+- **Roll Ownership**: 플레이어 행동 요청에서 선택된 판정은 Solo Player가 굴림을 제출한다. 세계/이벤트 트리거 판정은 시스템이 해결한다. 판정 소유권이 애매하면 Solo Player가 굴림을 제출한다.
+- **Player-visible Outcome**: 플레이어에게는 제출한 주사위 값과 세계에서 관찰 가능한 행동 결과만 보인다. 내부 성공/실패 판정, DC, 비교값, 미발견 정보는 보이지 않는다.
+- **Pending Roll Gate**: Solo Player 굴림 요청이 생성되면 제출 전에는 해당 GM Turn을 해결하거나 다음 진행으로 넘어갈 수 없다. 취소해도 이 게이트를 우회하지 않는다.
+- **Player Roll Submission**: Solo Player는 UI 또는 물리 주사위 d20 결과를 GM Runtime에 제출한다. GM Runtime은 `pendingTurnId`, 턴 소유권, d20 범위, 중복 제출을 검증한 뒤 Resolution에 사용한다.
+- **Runtime Reveal Pipeline**: Trigger Detection, Check Selection, Resolution, Reveal, Narration은 `adventure-service` Adventure Runtime 내부의 동기 순차 capability다. AI Game Master는 각 단계의 후보를 만들 수 있지만, Runtime만 검증·상태 저장·공개를 확정한다.
+- **Conditional Check Pipeline**: 모든 GM Turn은 기존 Runtime 흐름을 유지한다. Trigger/Check Selection 결과가 `NO_CHECK`면 기존 명령 해결로 이어지고, 판정이 필요할 때만 Resolution을 끼운다. Narration 실패와 Runtime Command Saga 복구는 판정 pipeline이 아닌 기존 턴 책임이다.
+- **Reveal State Ownership**: Reveal Filter의 정본 출력은 새 Player Knowledge 저장소가 아닌 기존 세션 `NarrativeState`의 `revealedFacts`와 `CharacterKnowledge`다. Writer에는 이 공개 projection만 전달한다.
+- **Meaningful Progress**: GM Turn이 플레이어 의도를 해결하면서 세계 상태 변경, 정보 공개, 결과를 수반한 행동 실패, 구체적 결정 요구, 진행 달성 중 하나 이상을 만든 상태. 어느 것도 없으면 `NO_MEANINGFUL_PROGRESS`다.
 - **Tactical Map**: Scenario Bundle에서 감지되어 Adventure Story Plan의 장면·장소·진입 조건에 연결되는 격자형 플레이 공간. 탐험, 잠입, 추격, 전투에 사용한다.
 - **Map Interaction Candidate**: Solo Player가 토큰 드래그, 문·오브젝트 클릭, 대상 또는 위치 선택을 완료했지만 확인 팝오버에서 아직 확정하지 않은 맵 행동. 확인 전에는 모험 상태를 바꾸지 않는다.
 - **Fog of War**: 플레이어 토큰의 시야, 벽, 문, 장애물, 발견 판정을 바탕으로 Tactical Map의 현재 가시 영역, 과거 탐험 영역, 미탐험 영역을 구분하는 공개 규칙.

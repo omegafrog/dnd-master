@@ -2,7 +2,6 @@
 
 모든 페이지를 렌더링 evidence와 검증하고 다차원 confidence 및 고위험 2차 검증으로 페이지와 Extraction Version 게시를 안전하게 차단한다.
 
-Plan: `docs/plans/rag-012-layout-validation-publication-gate.md`
 
 GitHub: https://github.com/omegafrog/dnd-master/issues/185
 

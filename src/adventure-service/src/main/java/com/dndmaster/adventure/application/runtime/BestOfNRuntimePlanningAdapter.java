@@ -22,16 +22,34 @@ public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort 
 
     @Override
     public RuntimePlan plan(RuntimePlanningRequest request) {
+        return planWithOutcomes(request).plan();
+    }
+
+    @Override
+    public RuntimePlanningResult planWithOutcomes(RuntimePlanningRequest request) {
         int count = PlanningContext.boundedCandidateCount(requestedCount, simpleTurn);
         List<RuntimePlan> plans = new ArrayList<>();
-        for (int i = 0; i < count; i++) plans.add(legacy.plan(request));
+        boolean decomposed = legacy instanceof GmAgentRuntimePlanningAdapter;
+        for (int i = 0; i < count; i++) {
+            try {
+                plans.add(decomposed
+                        ? ((GmAgentRuntimePlanningAdapter) legacy).planWithoutTools(request)
+                        : legacy.plan(request));
+            } catch (IllegalStateException invalidCandidate) {
+                // Candidate generation is best-effort. A single model response
+                // that fails the final safety/grounding gate must not discard
+                // earlier valid candidates from the same bounded selection.
+                if (!decomposed || !isCandidateValidationFailure(invalidCandidate)) throw invalidCandidate;
+            }
+        }
+        if (plans.isEmpty()) throw new IllegalStateException("no valid turn plan candidates");
         Set<String> knownFacts = request.narrativeContext() == null
                 ? Set.of() : request.narrativeContext().factsKnownBy();
         Set<String> allFacts = request.narrativeContext() == null ? Set.of()
                 : request.narrativeContext().worldFacts().stream().map(fact -> fact.id()).collect(java.util.stream.Collectors.toSet());
         Set<String> supportedEntities = new java.util.HashSet<>(knownFacts);
         supportedEntities.add(request.currentContext().currentScene());
-        if (!request.currentContext().npcState().isBlank()) supportedEntities.add(request.currentContext().npcState());
+        request.currentContext().npcStateValue().filter(value -> !value.isBlank()).ifPresent(supportedEntities::add);
         PlanningContext context = new PlanningContext(request.action(),
                 request.currentContext().currentScene() + "|" + request.currentContext().latestJudgmentValue().orElse(""),
                 request.storyPlanContext().isBlank() ? "current" : request.storyPlanContext(),
@@ -43,7 +61,10 @@ public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort 
             String candidateId = plan.selectedBranchId().isBlank() ? "runtime-" + i : plan.selectedBranchId();
             TurnPlan turnPlan = new TurnPlan(plan.scene(), plan.npcState(), plan.judgment(),
                     plan.stateDelta() == null ? List.of() : new ArrayList<>(plan.stateDelta().revealedFactIds()), List.of());
-            Set<String> referencedEntities = java.util.stream.Stream.of(plan.scene(), plan.npcState())
+            // npcState is narrative state, not an entity identifier. Treating the
+            // whole generated sentence as an entity rejects otherwise grounded
+            // candidates (for example, a newly introduced NPC description).
+            Set<String> referencedEntities = java.util.stream.Stream.of(plan.scene())
                     .filter(value -> value != null && !value.isBlank()).collect(java.util.stream.Collectors.toSet());
             candidates.add(new PlanCandidate(candidateId, turnPlan, request.action(),
                     context.stateFingerprint(), context.storyStage(), context.informationBoundary(), referencedEntities,
@@ -57,15 +78,27 @@ public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort 
                 (valid, ignored) -> valid.stream().map(candidate -> PlanSelection.score(candidate.candidateId(),
                         0, 0, 0, 0, -candidate.complexity(), List.of())).toList(), audit)
                 .plan(context, count, simpleTurn);
-        return candidates.stream()
+        int selectedIndex = candidates.stream()
                 .filter(candidate -> candidate.candidateId().equals(selection.selected().candidateId()))
                 .findFirst()
-                .map(selected -> plans.get(candidates.indexOf(selected)))
+                .map(candidates::indexOf)
                 .orElseThrow(() -> new IllegalStateException("selected runtime candidate is not available"));
+        RuntimePlan selectedPlan = plans.get(selectedIndex);
+        // Gate A: materialize tools only after winner selection. The legacy adapter
+        // currently regenerates the selected plan during materialization; this is a
+        // transitional seam until ToolMaterializationPort is introduced.
+        return decomposed
+                ? ((GmAgentRuntimePlanningAdapter) legacy).executeSelectedWithOutcomes(request, selectedPlan, selectedIndex)
+                : new RuntimePlanningResult(selectedPlan, List.of());
     }
 
     private static boolean hasWarning(RuntimePlan plan, String... markers) {
         return plan.warnings().stream().filter(java.util.Objects::nonNull).map(value -> value.toLowerCase(java.util.Locale.ROOT))
                 .anyMatch(warning -> java.util.Arrays.stream(markers).anyMatch(warning::contains));
+    }
+
+    private static boolean isCandidateValidationFailure(IllegalStateException failure) {
+        String message = failure.getMessage();
+        return message != null && message.startsWith("GM final validation failed:");
     }
 }

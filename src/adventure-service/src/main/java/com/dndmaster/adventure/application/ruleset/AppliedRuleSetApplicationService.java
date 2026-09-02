@@ -10,12 +10,8 @@ import java.util.Objects;
 
 public final class AppliedRuleSetApplicationService {
     private final AppliedRuleSetRepository repository;
-    private final RulebookOwnershipHttpPort ownershipHttpPort;
-
-    public AppliedRuleSetApplicationService(
-            AppliedRuleSetRepository repository, RulebookOwnershipHttpPort ownershipHttpPort) {
+    public AppliedRuleSetApplicationService(AppliedRuleSetRepository repository) {
         this.repository = Objects.requireNonNull(repository, "repository must not be null");
-        this.ownershipHttpPort = Objects.requireNonNull(ownershipHttpPort, "ownership HTTP port must not be null");
     }
 
     public AppliedRuleSet saveRuleSet(CreateAppliedRuleSetCommand command) {
@@ -26,24 +22,17 @@ public final class AppliedRuleSetApplicationService {
         Objects.requireNonNull(command, "command must not be null");
         var existing = repository.findById(Objects.requireNonNull(ruleSetId, "rule set id must not be null"));
         if (existing.isPresent()) {
-            AppliedRuleSet value = existing.get();
-            if (!value.ownerPlayerId().equals(command.ownerPlayerId()) || !value.adventureId().equals(command.adventureId())) {
-                throw new IllegalArgumentException("rule set id is already bound to another adventure");
-            }
-            return value;
+            // Rule sets are shared reference data.  Reusing an existing id must
+            // not make it exclusive to the adventure that first applied it.
+            // Keep the original immutable snapshot and let normal authorization
+            // checks govern who may use it.
+            return existing.get();
         }
         var references = command.rulebookIds().stream()
-                .map(rulebookId -> {
-                    if (!ownershipHttpPort.isOwnedBy(rulebookId, command.ownerPlayerId())) {
-                        throw new RulebookOwnershipDeniedException();
-                    }
-                    return new RegisteredRulebookReference(rulebookId, command.ownerPlayerId());
-                })
+                .map(rulebookId -> new RegisteredRulebookReference(rulebookId))
                 .toList();
         var ruleSet = new AppliedRuleSet(
                 ruleSetId,
-                command.adventureId(),
-                command.ownerPlayerId(),
                 command.edition(),
                 new SelectedRulebooks(references));
         repository.save(ruleSet);
@@ -64,7 +53,6 @@ public final class AppliedRuleSetApplicationService {
     public AppliedRuleSet readRuleSet(RuleSetId ruleSetId, com.dndmaster.adventure.domain.ruleset.OwnerPlayerId requestingOwner) {
         AppliedRuleSet ruleSet = repository.findById(Objects.requireNonNull(ruleSetId, "rule set id must not be null"))
                 .orElseThrow(AppliedRuleSetNotFoundException::new);
-        if (!ruleSet.ownerPlayerId().equals(requestingOwner)) throw new RuleApplicationDeniedException("rule set is owned by another player");
         return ruleSet;
     }
 }

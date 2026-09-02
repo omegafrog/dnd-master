@@ -35,7 +35,7 @@ if (storybooks.length === 3 && new Set(storybooks.map(asset => asset.role)).size
   throw new Error('BACKEND_E2E_STORYBOOKS_JSON must contain exactly MAIN_SCENARIO, MAP, and HANDOUT roles')
 }
 const hasEnvironment = Boolean(backend && email && password && internalToken && storybooks.length === 3)
-const journeyStatePath = '/tmp/dnd-master-potent-brew-browser-state.json'
+const journeyStatePath = process.env.BACKEND_E2E_STATE_PATH ?? '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/potent-brew-browser-state.json'
 
 type BrowserJourneyState = { sessionId: string; authSession: string; adventureId?: string }
 
@@ -47,7 +47,10 @@ async function createDirectCompanion(
   const responseTimeout = 120_000
   await page.getByRole('button', { name: '새 캐릭터 만들기', exact: true }).click()
   await expect(page).toHaveURL(new RegExp(`#\\/sessions\\/${sessionId}\\/character`), { timeout: responseTimeout })
-  await page.getByLabel('캐릭터 이름').fill(name)
+  await page.getByRole('button', { name: '기본 정보', exact: true }).click()
+  const characterName = page.getByPlaceholder('이름을 입력하세요')
+  await expect(characterName).toBeVisible({ timeout: responseTimeout })
+  await characterName.fill(name)
   await page.getByLabel('직업', { exact: true }).selectOption({ label: '파이터' })
   await page.getByLabel('종족', { exact: true }).selectOption({ label: '인간' })
   await page.getByLabel('배경', { exact: true }).selectOption({ label: '학자' })
@@ -126,11 +129,26 @@ test('prepares the story package, characters, and party', async ({ page }) => {
   const scenario = page.getByRole('region', { name: '모험 자료 구성' })
   await expect(scenario).toBeVisible()
   for (const asset of storybooks) {
-    await scenario.getByLabel(`${basename(asset.path)} 역할`).selectOption(asset.role)
+    const roleSelect = scenario.getByLabel(`${basename(asset.path)} 역할`)
+    await roleSelect.selectOption(asset.role)
+    await expect(roleSelect).toHaveValue(asset.role)
+    await page.waitForTimeout(100)
   }
+  await page.waitForTimeout(250)
+  const bundleSaveResponse = page.waitForResponse(
+    response => response.request().method() === 'POST' && response.url().endsWith('/api/v1/adventures/scenario-bundles'),
+  )
   await scenario.getByRole('button', { name: '모험 자료 저장', exact: true }).click()
+  const savedBundleResponse = await bundleSaveResponse
+  if (!savedBundleResponse.ok()) throw new Error(`자료 역할 저장 API 실패 (${savedBundleResponse.status()}): ${await savedBundleResponse.text()}`)
+  console.log(`[potent-brew] bundle save request=${savedBundleResponse.request().postData()}`)
+  console.log(`[potent-brew] bundle save response=${await savedBundleResponse.text()}`)
   await expect(scenario.getByRole('button', { name: '모험 자료 다시 저장', exact: true })).toBeVisible({ timeout: 30_000 })
-  await expect(page.getByRole('list', { name: '저장된 모험 자료 목록' }).getByText(/자료 4개/).first()).toBeVisible()
+  const savedDocuments = page.getByRole('list', { name: '저장된 모험 자료 목록' })
+  await expect(savedDocuments.getByText(/자료 4개/).first()).toBeVisible()
+  for (const asset of storybooks) {
+    await expect(scenario.getByLabel(`${basename(asset.path)} 역할`)).toHaveValue(asset.role)
+  }
 
   // Continue through the real browser preparation surface. The package action
   // must remain gated by COMPLETE; the API-only acceptance covers the later
@@ -142,7 +160,16 @@ test('prepares the story package, characters, and party', async ({ page }) => {
   const preparation = page.getByRole('dialog', { name: '게임 준비' })
   await expect(preparation).toBeVisible()
   await preparation.getByRole('button', { name: '게임 준비 시작', exact: true }).click()
-  await expect(preparation.getByText(/게임 준비 완료|모험 준비 결과 .* · COMPLETE/)).toBeVisible({ timeout: 180_000 })
+  const preparationSucceeded = preparation.getByText(/게임 준비 완료|모험 준비 결과 .* · COMPLETE/)
+  const preparationFailed = preparation.getByText('게임 준비 실패', { exact: true })
+  await expect.poll(async () => {
+    if (await preparationFailed.isVisible()) return `FAILED: ${await preparationFailed.innerText()}`
+    if (await preparationSucceeded.isVisible()) return 'PUBLISHED'
+    return 'WAITING'
+  }, {
+    timeout: 180_000,
+    message: '게임 준비가 PUBLISHED 또는 FAILED 상태에 도달하지 않았습니다.',
+  }).toBe('PUBLISHED')
   const characterSetup = preparation.getByRole('button', { name: '캐릭터 생성 시작', exact: true })
   await expect(characterSetup).toBeVisible()
   await characterSetup.click()
@@ -157,6 +184,8 @@ test('prepares the story package, characters, and party', async ({ page }) => {
   await expect(page).toHaveURL(/#\/sessions\/[^/]+\/character-blueprint/)
   const sessionId = page.url().match(/#\/sessions\/([^/]+)\/character-blueprint/)?.[1]
   expect(sessionId).toBeTruthy()
+  const authSession = await page.evaluate(() => window.localStorage.getItem('dnd-master.auth-session') ?? '')
+  await writeFile(journeyStatePath, JSON.stringify({ sessionId, authSession }), 'utf8')
   await page.goto(`/#/sessions/${sessionId}/party`)
   await expect(page.getByRole('heading', { name: '모험을 함께할 파티' })).toBeVisible({ timeout: 60_000 })
   await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/09-party-ready-for-plan.png', fullPage: true })
@@ -168,7 +197,6 @@ test('prepares the story package, characters, and party', async ({ page }) => {
   for (const name of ['Aria', 'Borin', 'Celia', 'Darin']) {
     await expect(page.locator('.party-slot-grid').getByText(name, { exact: true })).toBeVisible()
   }
-  const authSession = await page.evaluate(() => window.localStorage.getItem('dnd-master.auth-session') ?? '')
   await writeFile(journeyStatePath, JSON.stringify({ sessionId, authSession }), 'utf8')
 })
 
@@ -183,7 +211,15 @@ test('generates the story plan until play preparation is complete', async ({ pag
   await expect(page.getByRole('heading', { name: '모험 계획 설정' })).toBeVisible({ timeout: 60_000 })
   await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/10-adventure-plan-settings.png', fullPage: true })
   await page.getByRole('button', { name: '모험 계획 생성', exact: true }).click()
-  await expect(page.locator('.preparation-progress[role="status"]').getByText('플레이 준비 완료', { exact: true })).toBeVisible({ timeout: 600_000 })
+  const storyPlanStatus = page.locator('.story-plan-page .status-chip')
+  await expect.poll(async () => (await storyPlanStatus.isVisible()) ? await storyPlanStatus.innerText() : 'GENERATING', {
+    timeout: 600_000,
+    message: '스토리 계획이 READY, BLOCKED 또는 FAILED terminal 상태에 도달하지 않았습니다.',
+  }).toMatch(/^(READY|BLOCKED|FAILED)$/)
+  const terminalStatus = await storyPlanStatus.innerText()
+  if (terminalStatus === 'BLOCKED' || terminalStatus === 'FAILED') {
+    await expect(page.getByRole('alert')).toBeVisible()
+  }
   await page.screenshot({ path: '/home/jiwoo/workspace/dnd-master/docs/evidence/product-plan-journey/11-adventure-plan-generated.png', fullPage: true })
 })
 
@@ -243,6 +279,10 @@ test('continues the prepared adventure for five browser conversation turns', asy
     }).not.toBe('')
     await expect(conversation.getByRole('status')).not.toContainText(/턴 처리 실패|실패|오류|error/i)
     await expect(conversation.getByRole('alert')).not.toContainText(/실패|오류|error/i)
+    // A prior SSE commit can arrive while the next request is being prepared.
+    // Do not treat that event as the completion of this player action: the
+    // direct-input state is the authoritative browser-visible completion.
+    await expect(conversation.getByRole('status')).toContainText(/직접 플레이 입력 대기 중/, { timeout: 180_000 })
   }
 
   await expect.poll(() => conversation.locator('li.adventure-chat-message.gm').count()).toBeGreaterThanOrEqual(initialGmCount + turns.length)

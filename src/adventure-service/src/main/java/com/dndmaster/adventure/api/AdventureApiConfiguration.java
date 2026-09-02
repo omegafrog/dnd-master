@@ -14,6 +14,8 @@ import com.dndmaster.adventure.application.session.*;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanApplicationService;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationJobService;
+import com.dndmaster.adventure.application.storyplan.ScopedEvidenceReadPort;
+import com.dndmaster.adventure.application.storyplan.StoryPlanSemanticConsistencyJudge;
 import com.dndmaster.adventure.application.scenario.*;
 import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
@@ -24,8 +26,10 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioBundle
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioPackageRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresResolutionOverrideRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioCompilationRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresCompilationCandidateRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeBindingRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnFailureRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresNarrativeStateRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeCommandJournal;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresGmTurnRepository;
@@ -333,22 +337,36 @@ public class AdventureApiConfiguration {
     AdventureStoryPlanApplicationService adventureStoryPlanApplicationService(AdventureStoryPlanRepository plans, AdventureSessionRepository sessions,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packages, AdventureStoryPlanGenerationPort generator,
             ScenarioBundleRepository bundles,
-            com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort sourceExcerptPort) {
-        return new AdventureStoryPlanApplicationService(plans, sessions, packages, generator, bundles, sourceExcerptPort);
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioSourceExcerptPort sourceExcerptPort,
+            StoryPlanSemanticConsistencyJudge semanticJudge) {
+        return new AdventureStoryPlanApplicationService(plans, sessions, packages, generator, bundles, sourceExcerptPort, semanticJudge);
+    }
+
+    @Bean
+    StoryPlanSemanticConsistencyJudge storyPlanSemanticConsistencyJudge(ObjectMapper mapper,
+            @Value("${adventure.integration.ai-adventure.base-url:${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}}") String baseUrl,
+            @Value("${adventure.integration.ai-adventure.story-plan-timeout:${adventure.integration.ai-game-master.story-plan-timeout:450s}}") Duration timeout,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        var provider = new com.dndmaster.adventure.infrastructure.integration.CrossContextHttpStoryPlanSemanticJudgeGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), timeout, mapper, internalToken);
+        var scope = new com.dndmaster.adventure.domain.adventure.RetrievalScope(java.util.Set.of(), java.util.Set.of(), 3);
+        return new StoryPlanSemanticConsistencyJudge(provider, (requestedScope, query) ->
+                new ScopedEvidenceReadPort.Result(java.util.List.of(), java.util.Set.of()), scope);
     }
 
     @Bean
     AdventureStoryPlanGenerationPort adventureStoryPlanGenerationPort(ObjectMapper mapper,
-            @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
-            @Value("${adventure.integration.ai-game-master.story-plan-timeout:1800s}") Duration timeout,
+            @Value("${adventure.integration.ai-adventure.base-url:${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}}") String baseUrl,
+            @Value("${adventure.integration.ai-adventure.story-plan-timeout:${adventure.integration.ai-game-master.story-plan-timeout:450s}}") Duration timeout,
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         return new CrossContextHttpAdventureStoryPlanGenerationGateway(HttpClient.newHttpClient(), URI.create(baseUrl), timeout, mapper, internalToken);
     }
 
     @Bean(destroyMethod = "close")
     AdventureStoryPlanGenerationJobService adventureStoryPlanGenerationJobService(
-            AdventureStoryPlanApplicationService plans, AdventureSessionRepository sessions) {
-        return new AdventureStoryPlanGenerationJobService(plans, sessions);
+            AdventureStoryPlanApplicationService plans, AdventureSessionRepository sessions,
+            @Value("${adventure.integration.ai-adventure.story-plan-job-timeout:${adventure.integration.ai-game-master.story-plan-job-timeout:450s}}") Duration timeout) {
+        return new AdventureStoryPlanGenerationJobService(plans, sessions, timeout);
     }
 
     @Bean
@@ -464,6 +482,12 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.scenario.compilation.CompilationCandidateRepository compilationCandidateRepository(
+            DataSource dataSource) {
+        return new PostgresCompilationCandidateRepository(dataSource);
+    }
+
+    @Bean
     RuntimeBindingRepository runtimeBindingRepository(DataSource dataSource, ObjectMapper objectMapper) {
         return new PostgresRuntimeBindingRepository(dataSource, objectMapper);
     }
@@ -485,13 +509,38 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
-    RuntimeTurnFailurePersistence runtimeTurnFailurePersistence(RuntimeTurnRepository runtimeTurnRepository) {
-        return new RuntimeTurnFailurePersistence(runtimeTurnRepository);
+    RuntimeTurnFailureRepository runtimeTurnFailureRepository(DataSource dataSource) {
+        return new PostgresRuntimeTurnFailureRepository(dataSource);
     }
 
     @Bean
-    RuntimeTurnDiagnosticsApplicationService runtimeTurnDiagnosticsApplicationService(RuntimeTurnRepository turns) {
-        return new RuntimeTurnDiagnosticsApplicationService(turns);
+    ApprovedPromptConfigurationReadPort approvedPromptConfigurationReadPort(
+            org.springframework.core.env.Environment environment) {
+        java.util.Map<String, com.dndmaster.adventure.application.runtime.ApprovedPromptConfiguration> configurations = new java.util.LinkedHashMap<>();
+        for (String role : java.util.List.of("PLANNER", "JUDGE", "WRITER", "VERIFIER")) {
+            String prefix = "adventure.runtime.prompt." + role.toLowerCase(java.util.Locale.ROOT) + ".";
+            String promptVersion = environment.getProperty(prefix + "version");
+            String modelVersion = environment.getProperty(prefix + "model");
+            if (promptVersion == null || promptVersion.isBlank() || modelVersion == null || modelVersion.isBlank()) continue;
+            long activationVersion = Long.parseLong(environment.getProperty(prefix + "activation-version", "1"));
+            configurations.put(role, new com.dndmaster.adventure.application.runtime.ApprovedPromptConfiguration(
+                    role, promptVersion, modelVersion, environment.getProperty(prefix + "optimization-run"),
+                    environment.getProperty(prefix + "parent-version"), environment.getProperty(prefix + "dataset"),
+                    environment.getProperty(prefix + "eval"), activationVersion));
+        }
+        return new com.dndmaster.adventure.application.runtime.EnvironmentApprovedPromptConfigurationReadPort(configurations);
+    }
+
+    @Bean
+    RuntimeTurnFailurePersistence runtimeTurnFailurePersistence(RuntimeTurnRepository runtimeTurnRepository,
+            RuntimeTurnFailureRepository failureRepository) {
+        return new RuntimeTurnFailurePersistence(runtimeTurnRepository, failureRepository);
+    }
+
+    @Bean
+    RuntimeTurnDiagnosticsApplicationService runtimeTurnDiagnosticsApplicationService(RuntimeTurnRepository turns,
+            RuntimeTurnFailureRepository failures) {
+        return new RuntimeTurnDiagnosticsApplicationService(turns, failures);
     }
 
     @Bean
@@ -683,11 +732,12 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.application.scenario.blueprint.CharacterInputTagExtractionPort characterInputTagExtractionPort,
             com.dndmaster.adventure.application.scenario.compilation.CharacterContextSearchPort characterContextSearchPort,
             com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageCompilationService compiler,
-            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository) {
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
+            com.dndmaster.adventure.application.scenario.compilation.CompilationCandidateRepository candidateRepository) {
         return new com.dndmaster.adventure.application.scenario.compilation.ScenarioCompilationWorker(
                 processManager, compilationRepository, queue, bundleRepository, extractionPort, excerptPort,
                 characterInputTagExtractionPort, characterContextSearchPort, compiler,
-                packageRepository);
+                packageRepository, candidateRepository);
     }
 
     @Bean
@@ -893,15 +943,20 @@ public class AdventureApiConfiguration {
     @Bean
     NarrationSafetyPort narrationSafetyPort() {
         return request -> {
-            boolean approved = request.narration() != null
-                    && !request.narration().isBlank()
-                    && !request.narration().contains("\"")
-                    && !request.narration().contains("“")
-                    && !request.narration().contains("”")
-                    && !com.dndmaster.adventure.application.runtime.NarrationLeakDetector
-                            .isLikelySourceLeak(request.narration(), request.evidencePack());
-            return new NarrationSafetyAssessment(approved, approved ? "approved" : "narration failed safety check");
+            String narration = request.narration();
+            String reason = "approved";
+            if (narration == null || narration.isBlank()) reason = "blank narration";
+            else if (narration.contains("\"") || narration.contains("“") || narration.contains("”")) reason = "quotation mark detected";
+            else if (com.dndmaster.adventure.application.runtime.NarrationLeakDetector
+                    .isLikelySourceLeak(narration, request.evidencePack())) reason = "source leak or prohibited reference detected";
+            boolean approved = "approved".equals(reason);
+            return new NarrationSafetyAssessment(approved, reason);
         };
+    }
+
+    @Bean
+    RuntimeTurnLockService runtimeTurnLockService(GmProviderBindingRepository repository) {
+        return new RuntimeTurnLockService(repository);
     }
 
     @Bean
@@ -923,11 +978,13 @@ public class AdventureApiConfiguration {
             TacticalScenePreparationApplicationService tacticalPreparation,
             RuntimeTurnFailurePersistence failurePersistence,
             RuntimeNarrativeStateApplicationService narrativeStateService,
+            ApprovedPromptConfigurationReadPort approvedPromptConfigurationReadPort,
             NarrativeVerifierPort narrativeVerifier,
             RewritePort narrativeRewritePort,
             NarrativeVerificationAuditPort narrativeVerificationAuditPort,
             ExemplarRetrieverPort exemplarRetriever,
-            ExemplarRetrievalAuditPort exemplarRetrievalAuditPort) {
+            ExemplarRetrievalAuditPort exemplarRetrievalAuditPort,
+            RuntimeTurnLockService runtimeTurnLockService) {
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
@@ -935,6 +992,8 @@ public class AdventureApiConfiguration {
                 new LegacyTurnWriterAdapter(), narrativeVerifier, narrativeRewritePort, narrativeVerificationAuditPort,
                 exemplarRetriever, exemplarRetrievalAuditPort, narrativeStateService);
         service.setFailurePersistence(failurePersistence);
+        service.setApprovedPromptConfigurationReadPort(approvedPromptConfigurationReadPort);
+        service.setTurnLockService(runtimeTurnLockService);
         return service;
     }
 
@@ -1101,6 +1160,12 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.runtime.TacticalScenePreparationWorker tacticalScenePreparationWorker(
+            com.dndmaster.adventure.application.runtime.TacticalScenePreparationApplicationService preparation) {
+        return new com.dndmaster.adventure.application.runtime.TacticalScenePreparationWorker(preparation);
+    }
+
+    @Bean
     AiCombatPort aiCombatPort(
             @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
@@ -1193,9 +1258,8 @@ public class AdventureApiConfiguration {
 
     @Bean
     AppliedRuleSetApplicationService ruleSetApplicationService(
-            AppliedRuleSetRepository repository,
-            RulebookOwnershipHttpPort ownershipPort) {
-        return new AppliedRuleSetApplicationService(repository, ownershipPort);
+            AppliedRuleSetRepository repository) {
+        return new AppliedRuleSetApplicationService(repository);
     }
 
     @Bean

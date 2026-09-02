@@ -18,10 +18,13 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /** Provider-neutral read-only GM loop. No tool calls or state mutations are exposed. */
 @RestController
 public final class GmAgentController {
+    private static final Logger LOGGER = LoggerFactory.getLogger(GmAgentController.class);
     private final GmCompletionAdapter adapter;
     private final ObjectMapper mapper;
     private final ApiRequestGuard requestGuard;
@@ -43,21 +46,65 @@ public final class GmAgentController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "requestedSelection required");
         }
         try {
+            CitationCatalog catalog = citationCatalog(request);
             GmCandidateLifecycleResult<Response> lifecycle = adapter.completeWithOneRepair(
-                    request.operationKey(), prompt(request.toLegacyRequest()),
-                    initialCandidate -> repairPrompt(request, initialCandidate),
-                    json -> validateCandidate(request, parseStrictCompleteResponse(json)),
+                    request.operationKey(), prompt(request, catalog),
+                    repairContext -> repairPrompt(request, repairContext, catalog),
+                    new com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseContract<>(gmOutputSchema(request, catalog), json -> validateCandidate(request, parseStrictCompleteResponse(request, catalog, json))),
                     request.requestedSelection());
             GmCompletionResult<Response> completion = lifecycle.completion();
             return new V2Response(completion.response(), RequestedSelection.from(request.requestedSelection()),
                     EffectiveSelection.from(completion.effectiveSelection()), lifecycle.attemptCount(), List.of());
         } catch (GmProviderSelectionUnresolvedException unresolved) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, unresolved.code());
+        } catch (com.dndmaster.aigamemaster.infrastructure.ai.GmCandidateValidationException invalid) {
+            LOGGER.warn("gm_candidate_validation_failed stage=REPAIR violations={}", invalid.violations());
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "GM provider unavailable", invalid);
         } catch (ProviderMalformedResponseException malformed) {
+            LOGGER.warn("gm_provider_malformed_response message={}", malformed.getMessage());
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "GM provider unavailable", malformed);
         } catch (RuntimeException providerFailure) {
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "GM provider unavailable", providerFailure);
         }
+    }
+
+    private com.fasterxml.jackson.databind.JsonNode gmOutputSchema(V2Request request, CitationCatalog catalog) {
+        try {
+            com.fasterxml.jackson.databind.node.ObjectNode schema = (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree("{\"type\":\"object\",\"required\":[\"scene\",\"judgment\",\"narration\",\"npcState\",\"proposedActiveSourceContext\",\"citedEvidence\",\"warnings\",\"toolCalls\",\"advanceStoryPlan\",\"selectedBranchId\"],\"properties\":{\"scene\":{\"type\":\"string\"},\"judgment\":{\"type\":\"string\"},\"narration\":{\"type\":\"string\"},\"npcState\":{\"type\":\"string\"},\"proposedActiveSourceContext\":{\"anyOf\":[{\"type\":\"object\",\"properties\":{\"knowledgeDocumentId\":{\"type\":\"string\"},\"extractionVersion\":{\"type\":\"integer\"},\"locator\":{\"type\":\"string\"},\"excerpt\":{\"type\":\"string\"}},\"required\":[\"knowledgeDocumentId\",\"extractionVersion\",\"locator\",\"excerpt\"],\"additionalProperties\":false},{\"type\":\"null\"}]},\"citedEvidence\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"type\":{\"type\":\"string\"},\"knowledgeDocumentId\":{\"type\":\"string\"},\"extractionVersion\":{\"type\":\"integer\"},\"locator\":{\"type\":\"string\"},\"excerpt\":{\"type\":\"string\"}},\"required\":[\"type\",\"knowledgeDocumentId\",\"extractionVersion\",\"locator\",\"excerpt\"],\"additionalProperties\":false}},\"warnings\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"toolCalls\":{\"type\":\"array\",\"items\":{\"type\":\"object\",\"properties\":{\"toolName\":{\"type\":\"string\"},\"arguments\":{\"type\":\"object\",\"properties\":{\"scope\":{\"type\":\"string\"},\"count\":{\"type\":\"integer\"},\"sides\":{\"type\":\"integer\"},\"modifier\":{\"type\":\"integer\"}},\"required\":[\"scope\",\"count\",\"sides\",\"modifier\"],\"additionalProperties\":false},\"required\":{\"type\":\"boolean\"}},\"required\":[\"toolName\",\"arguments\",\"required\"],\"additionalProperties\":false}},\"advanceStoryPlan\":{\"type\":\"boolean\"},\"selectedBranchId\":{\"type\":\"string\"}},\"additionalProperties\":false}");
+            com.fasterxml.jackson.databind.node.ObjectNode properties = (com.fasterxml.jackson.databind.node.ObjectNode) schema.path("properties");
+            for (String field : java.util.List.of("scene", "judgment", "narration")) {
+                ((com.fasterxml.jackson.databind.node.ObjectNode) properties.path(field)).put("minLength", 1);
+            }
+            com.fasterxml.jackson.databind.node.ArrayNode requiredFields = (com.fasterxml.jackson.databind.node.ArrayNode) schema.path("required");
+            for (int i = requiredFields.size() - 1; i >= 0; i--) {
+                if ("citedEvidence".equals(requiredFields.get(i).asText())) requiredFields.remove(i);
+            }
+            requiredFields.add("citationIds");
+            com.fasterxml.jackson.databind.node.ObjectNode props = (com.fasterxml.jackson.databind.node.ObjectNode) schema.path("properties");
+            props.remove("citedEvidence");
+            com.fasterxml.jackson.databind.node.ObjectNode citationIds = props.putObject("citationIds");
+            citationIds.put("type", "array");
+            com.fasterxml.jackson.databind.node.ObjectNode items = citationIds.putObject("items");
+            items.put("type", "string");
+            if (!catalog.aliases().isEmpty()) {
+                com.fasterxml.jackson.databind.node.ArrayNode aliases = items.putArray("enum");
+                catalog.aliases().forEach(aliases::add);
+            }
+            if (request.storybook() != null && !request.storybook().isEmpty()) citationIds.put("minItems", 1);
+            com.fasterxml.jackson.databind.node.ObjectNode toolCalls = (com.fasterxml.jackson.databind.node.ObjectNode) props.path("toolCalls");
+            java.util.List<String> allowedTools = toolNames(request.tools());
+            if (allowedTools.isEmpty()) {
+                toolCalls.put("maxItems", 0);
+            } else {
+                com.fasterxml.jackson.databind.node.ObjectNode toolItem = (com.fasterxml.jackson.databind.node.ObjectNode) toolCalls.path("items");
+                com.fasterxml.jackson.databind.node.ObjectNode toolProperties = (com.fasterxml.jackson.databind.node.ObjectNode) toolItem.path("properties");
+                com.fasterxml.jackson.databind.node.ObjectNode toolName = (com.fasterxml.jackson.databind.node.ObjectNode) toolProperties.path("toolName");
+                com.fasterxml.jackson.databind.node.ArrayNode toolEnum = toolName.putArray("enum");
+                allowedTools.forEach(toolEnum::add);
+            }
+            return schema;
+        }
+        catch (Exception e) { throw new IllegalStateException(e); }
     }
 
     @PostMapping("/internal/v1/gm/agent-turns")
@@ -150,7 +197,7 @@ public final class GmAgentController {
                             response.provider(), response.model(), response.reasoning(), response.stateDelta(),
                             response.toolCalls(), response.advanceStoryPlan(), response.selectedBranchId(), response.citationBindings());
                 }
-                return requireComplete(response);
+                return requireComplete(response, toolNames(request.tools()));
             } catch (Exception exception) {
                 throw new com.dndmaster.aigamemaster.infrastructure.ai.ProviderMalformedResponseException(
                         "GM structured response invalid: " + exception.getMessage());
@@ -179,50 +226,135 @@ public final class GmAgentController {
                 .anyMatch(selectedBranchId::equals);
     }
 
-    private Response parseStrictCompleteResponse(String json) {
+    private Response parseStrictCompleteResponse(V2Request request, CitationCatalog catalog, String json) {
+        com.fasterxml.jackson.databind.JsonNode node;
         try {
-            com.fasterxml.jackson.databind.JsonNode node = mapper.readTree(json);
-            if (node == null || !node.isObject()) throw new IllegalArgumentException("candidate must be a JSON object");
-            return requireComplete(mapper.treeToValue(node, Response.class));
-        } catch (Exception exception) {
+            node = mapper.readTree(json);
+            if (node == null || !node.isObject()) {
+                throw new ProviderMalformedResponseException("GM candidate malformed: candidate must be a JSON object");
+            }
+        } catch (com.fasterxml.jackson.core.JsonProcessingException exception) {
             throw new ProviderMalformedResponseException("GM candidate malformed: " + safeMessage(exception));
         }
-    }
-
-    private Response validateCandidate(V2Request request, Response response) {
-        if (!request.storybook().isEmpty() && response.citedEvidence().isEmpty()) {
-            throw new ProviderMalformedResponseException("GM candidate violation: storybook citation required");
+        if (node instanceof com.fasterxml.jackson.databind.node.ObjectNode objectNode) {
+            com.fasterxml.jackson.databind.JsonNode ids = objectNode.get("citationIds");
+            if (ids != null && !ids.isNull()) {
+                if (!ids.isArray()) throw unknownCitation("citationIds", "citationIds must be an array");
+                com.fasterxml.jackson.databind.node.ArrayNode hydrated = objectNode.putArray("citedEvidence");
+                for (com.fasterxml.jackson.databind.JsonNode id : ids) {
+                    if (!id.isTextual() || catalog.resolve(id.asText()) == null) {
+                        throw unknownCitation(id.isTextual() ? id.asText() : String.valueOf(id), "unknown citation alias");
+                    }
+                    hydrated.add(mapper.valueToTree(catalog.resolve(id.asText())));
+                }
+            }
+            objectNode.remove("citationIds");
+            if (!objectNode.has("citedEvidence") || objectNode.get("citedEvidence").isNull()) objectNode.putArray("citedEvidence");
+            if (!objectNode.has("warnings") || objectNode.get("warnings").isNull()) objectNode.putArray("warnings");
+            if (!objectNode.has("toolCalls") || objectNode.get("toolCalls").isNull()) objectNode.putArray("toolCalls");
+            if (!objectNode.has("stateDelta") || objectNode.get("stateDelta").isNull()) objectNode.putArray("stateDelta");
+            com.fasterxml.jackson.databind.JsonNode active = objectNode.get("proposedActiveSourceContext");
+            if (active != null && !active.isNull()
+                    && (!active.isObject()
+                    || active.path("knowledgeDocumentId").isMissingNode()
+                    || active.path("knowledgeDocumentId").isNull()
+                    || !validUuid(active.path("knowledgeDocumentId").asText())
+                    || active.path("extractionVersion").isMissingNode()
+                    || !active.path("extractionVersion").canConvertToLong()
+                    || !active.path("locator").isTextual() || active.path("locator").asText().isBlank()
+                    || !active.path("excerpt").isTextual() || active.path("excerpt").asText().isBlank())) {
+                objectNode.putNull("proposedActiveSourceContext");
+            }
         }
-        List<?> allowed = java.util.stream.Stream.of(request.storybook(), request.rulebook(), request.resolution())
-                .flatMap(List::stream).toList();
-        if (response.citedEvidence().stream().anyMatch(citation -> !citationMatchesPack(citation, allowed))) {
-            throw new ProviderMalformedResponseException("GM candidate violation: citation is outside the Evidence Pack");
+        final Response response;
+        try {
+            response = requireComplete(mapper.treeToValue(node, Response.class), toolNames(request.tools()));
+        } catch (Exception exception) {
+            java.util.List<String> missing = new java.util.ArrayList<>();
+            for (String field : java.util.List.of("scene", "judgment", "narration")) {
+                if (!node.has(field) || node.get(field).isNull()) missing.add(field);
+            }
+            String detail = missing.isEmpty() ? safeMessage(exception) : "missing required GM fields: " + String.join(", ", missing);
+            String code = detail.contains("malformed GM tool call") ? "GM_TOOL_CALL_MALFORMED"
+                    : (detail.contains("unsupported GM tool call") ? "GM_TOOL_UNKNOWN" : "GM_REQUIRED_FIELD_MISSING");
+            String field = code.startsWith("GM_TOOL_") ? "toolCalls" : (missing.isEmpty() ? "candidate" : missing.get(0));
+            LOGGER.warn("gm_tool_call_contract_failed stage=PARSE toolCallShape={} allowedTools={}",
+                    node.path("toolCalls").toString(), toolNames(request.tools()));
+            throw new com.dndmaster.aigamemaster.infrastructure.ai.GmCandidateValidationException(List.of(
+                    new com.dndmaster.aigamemaster.infrastructure.ai.GmCandidateViolation(
+                            code, field, detail)));
         }
         return response;
     }
 
-    private boolean citationMatchesPack(Object citation, List<?> allowed) {
-        if (allowed.contains(citation)) return true;
-        if (citation instanceof java.util.Map<?, ?> candidate) {
-            return allowed.stream().anyMatch(item -> item instanceof java.util.Map<?, ?> evidence
-                    && sameValue(candidate, evidence, "type")
-                    && sameValue(candidate, evidence, "knowledgeDocumentId")
-                    && sameValue(candidate, evidence, "extractionVersion")
-                    && sameValue(candidate, evidence, "locator")
-                    && sameValue(candidate, evidence, "excerpt"));
+    private static com.dndmaster.aigamemaster.infrastructure.ai.GmCandidateValidationException unknownCitation(String alias, String message) {
+        return new com.dndmaster.aigamemaster.infrastructure.ai.GmCandidateValidationException(List.of(
+                new com.dndmaster.aigamemaster.infrastructure.ai.GmCandidateViolation(
+                        "UNKNOWN_CITATION_ID", "citationIds", message + ": " + alias)));
+    }
+
+    private static CitationCatalog citationCatalog(V2Request request) {
+        return CitationCatalog.from(request.storybook(), request.rulebook(), request.resolution());
+    }
+
+    private static boolean validUuid(String value) {
+        try { UUID.fromString(value); return true; }
+        catch (IllegalArgumentException ignored) { return false; }
+    }
+
+    private Response validateCandidate(V2Request request, Response response) {
+        if (!request.storybook().isEmpty() && response.citedEvidence().isEmpty()) {
+            throw new com.dndmaster.aigamemaster.infrastructure.ai.GmCandidateValidationException(List.of(
+                    new com.dndmaster.aigamemaster.infrastructure.ai.GmCandidateViolation(
+                            "STORYBOOK_CITATION_REQUIRED", "citedEvidence", "Storybook citation required")));
         }
-        try {
-            String serialized = mapper.writeValueAsString(citation);
-            return allowed.stream().anyMatch(item -> {
-                try {
-                    return serialized.equals(mapper.writeValueAsString(item));
-                } catch (Exception ignored) {
-                    return false;
-                }
-            });
-        } catch (Exception ignored) {
-            return false;
+        List<?> allowed = java.util.stream.Stream.of(request.storybook(), request.rulebook(), request.resolution())
+                .flatMap(List::stream).toList();
+        List<Object> canonicalCitations = new java.util.ArrayList<>();
+        for (Object citation : response.citedEvidence()) {
+            Object canonical = canonicalCitation(citation, allowed);
+            if (canonical == null) {
+                throw new com.dndmaster.aigamemaster.infrastructure.ai.GmCandidateValidationException(List.of(
+                        new com.dndmaster.aigamemaster.infrastructure.ai.GmCandidateViolation(
+                                "CITATION_OUTSIDE_EVIDENCE_PACK", "citedEvidence",
+                                "Citation identity is outside the Evidence Pack: " + citationIdentity(citation))));
+            }
+            canonicalCitations.add(canonical);
         }
+        return new Response(response.scene(), response.npcState(), response.judgment(), response.narration(),
+                response.proposedActiveSourceContext(), canonicalCitations, response.warnings(), response.provider(),
+                response.model(), response.reasoning(), response.stateDelta(), response.toolCalls(),
+                response.advanceStoryPlan(), response.selectedBranchId(), response.citationBindings());
+    }
+
+    private Object canonicalCitation(Object citation, List<?> allowed) {
+        if (allowed.contains(citation)) return citation;
+        java.util.Map<?, ?> candidate = asMap(citation);
+        if (candidate == null) return null;
+        List<?> matches = allowed.stream().filter(item -> {
+            java.util.Map<?, ?> evidence = asMap(item);
+            return evidence != null && sameReference(candidate, evidence);
+        }).toList();
+        return matches.size() == 1 ? matches.getFirst() : null;
+    }
+
+    private java.util.Map<?, ?> asMap(Object value) {
+        if (value instanceof java.util.Map<?, ?> map) return map;
+        try { return mapper.convertValue(value, java.util.Map.class); }
+        catch (IllegalArgumentException ignored) { return null; }
+    }
+
+    private static boolean sameReference(java.util.Map<?, ?> left, java.util.Map<?, ?> right) {
+        return sameValue(left, right, "knowledgeDocumentId")
+                && sameValue(left, right, "extractionVersion")
+                && sameValue(left, right, "locator")
+                && (left.get("type") == null || sameValue(left, right, "type"));
+    }
+
+    private static String citationIdentity(Object citation) {
+        if (!(citation instanceof java.util.Map<?, ?> map)) return String.valueOf(citation);
+        return "type=" + map.get("type") + ", knowledgeDocumentId=" + map.get("knowledgeDocumentId")
+                + ", extractionVersion=" + map.get("extractionVersion") + ", locator=" + map.get("locator");
     }
 
     private static boolean sameValue(java.util.Map<?, ?> left, java.util.Map<?, ?> right, String key) {
@@ -253,6 +385,19 @@ public final class GmAgentController {
         return "STORYBOOK".equals(value) || "RULEBOOK".equals(value) || "RESOLUTION".equals(value);
     }
 
+    private static List<String> toolNames(List<?> tools) {
+        if (tools == null) return List.of();
+        return tools.stream().map(value -> {
+            if (value instanceof String name) return name;
+            if (value instanceof java.util.Map<?, ?> map) {
+                Object name = map.get("name");
+                if (name == null) name = map.get("toolName");
+                return name == null ? "" : String.valueOf(name);
+            }
+            return "";
+        }).filter(name -> !name.isBlank()).distinct().toList();
+    }
+
     private static String repairPrompt(Request r) {
         return """
                 Return exactly one JSON object and no markdown.
@@ -263,21 +408,24 @@ public final class GmAgentController {
                 """.formatted(r.action(), r.currentScene());
     }
 
-    private static String repairPrompt(V2Request request, String initialCandidate) {
-        GmCandidateViolation violation = GmCandidateViolation.malformed(
-                "initial candidate failed the required GM candidate envelope");
+    private static String repairPrompt(V2Request request, com.dndmaster.aigamemaster.infrastructure.ai.GmRepairContext repair, CitationCatalog catalog) {
         return """
                 Return exactly one repaired JSON object and no markdown.
-                Required keys: scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings, provider, model, reasoning, stateDelta, toolCalls, advanceStoryPlan, selectedBranchId.
+                Required keys: scene, npcState, judgment, narration, proposedActiveSourceContext, citationIds, warnings, toolCalls, advanceStoryPlan, selectedBranchId.
                 Do not add semantic defaults, neutral narration, neutral judgment, or guessed citations.
+                Only change fields implicated by the supplied violations. Preserve every other valid field from initialCandidate exactly.
+                Never add a tool call unless a supplied violation explicitly targets toolCalls. Any tool call must use an allowed tool name and its exact supplied schema.
+                citationIds must contain only aliases from the supplied catalog. Never invent or rewrite evidence identity;
+                the server resolves aliases to canonical Evidence Pack objects.
                 Preserve the same requested provider selection and the same Evidence Pack below.
                 initialCandidate=%s
-                violations=[{"code":"%s","fieldPath":"%s","repairable":%s,"safeMessage":"%s"}]
+                violations=%s
                 storybook=%s rulebook=%s resolution=%s
                 playerAction=%s currentScene=%s
-                """.formatted(initialCandidate == null ? "" : initialCandidate, violation.code(), violation.fieldPath(),
-                violation.repairable(), violation.safeMessage(), request.storybook(), request.rulebook(), request.resolution(),
-                request.action(), request.currentScene());
+                allowedTools=%s
+                %s
+                """.formatted(repair.rawResponse(), repair.violations(), request.storybook(), request.rulebook(), request.resolution(),
+                request.action(), request.currentScene(), request.tools(), catalog.promptDescription());
     }
 
     @PostMapping("/internal/v1/gm/context-compactions")
@@ -368,11 +516,11 @@ public final class GmAgentController {
                 You are a read-only game master. Use only supplied locked evidence and context.
                 Never reveal hidden data. Never invent rules, rolls, or state changes.
                 Return JSON only with fields scene,npcState,judgment,narration,proposedActiveSourceContext,
-                citedEvidence,warnings,provider,model,reasoning,stateDelta,toolCalls,advanceStoryPlan,selectedBranchId. stateDelta MUST be [] .
+                citationIds,warnings,toolCalls,advanceStoryPlan,selectedBranchId. citationIds must use only aliases from the supplied catalog.
                 toolCalls may contain only dice.roll or character.update; each call has toolName,argumentsJson,required.
                 Every rule claim needs a citation from supplied evidence.
-                Ground the turn in at least one supplied storybook item: copy its exact knowledgeDocumentId,
-                extractionVersion and locator into citedEvidence. Do not emit an empty citedEvidence when storybook is non-empty.
+                Ground the turn in at least one supplied storybook item by selecting at least one STORYBOOK citation alias.
+                The server resolves citationIds to canonical evidence; never emit opaque document IDs, locators, or excerpts.
                 Preserve currentScene and unresolved facts across turns. Change scene only when the supplied storybook
                 or resolution evidence establishes the transition. Do not end narration with a single player-facing
                 recommendation; use multiple choices in a separate ordered list or simply leave the scene open
@@ -387,31 +535,91 @@ public final class GmAgentController {
                 For story-plan advancement, advanceStoryPlan MUST be false unless the player explicitly completed a
                 transition condition. If it is true, selectedBranchId MUST be copied exactly from a branch ID present
                 in the supplied storyPlan; never invent branch IDs. If no valid branch ID is visible, keep it false.
+                Available tools for this turn are listed below. For every tool call, argumentsJson MUST be a JSON
+                object matching the exact inputSchema for that tool. Do not include server-owned identifiers such
+                as adventureId, ruleSetId, sessionId, turnId, commandId, or expectedVersion.
                 adventureId=%s packageId=%s bindingVersion=%s action=%s
                 currentScene=%s npcState=%s pendingAction=%s latestJudgment=%s
-                storybook=%s rulebook=%s resolution=%s recentTurns=%s characters=%s storyPlan=%s
+                storybook=%s rulebook=%s resolution=%s recentTurns=%s characters=%s storyPlan=%s tools=%s
                 """.formatted(r.adventureId(), r.scenarioPackageId(), r.bindingVersion(), r.action(), r.currentScene(),
                 r.npcState(), r.pendingAction(), r.latestJudgment(), r.storybook(), r.rulebook(), r.resolution(), r.recentTurns(),
-                r.characterSnapshots(), r.storyPlanContext());
+                r.characterSnapshots(), r.storyPlanContext(), r.tools());
+    }
+
+    private static String prompt(V2Request request, CitationCatalog catalog) {
+        return prompt(request.toLegacyRequest()) + "\n" + catalog.promptDescription();
+    }
+
+    /** Request-scoped opaque citation aliases. The model selects aliases; the server owns evidence identity. */
+    private static final class CitationCatalog {
+        private final java.util.LinkedHashMap<String, Object> byAlias;
+
+        private CitationCatalog(java.util.LinkedHashMap<String, Object> byAlias) {
+            this.byAlias = byAlias;
+        }
+
+        static CitationCatalog from(List<?> storybook, List<?> rulebook, List<?> resolution) {
+            java.util.LinkedHashMap<String, Object> values = new java.util.LinkedHashMap<>();
+            add(values, "S", storybook);
+            add(values, "R", rulebook);
+            add(values, "X", resolution);
+            return new CitationCatalog(values);
+        }
+
+        private static void add(java.util.Map<String, Object> values, String prefix, List<?> entries) {
+            if (entries == null) return;
+            for (int i = 0; i < entries.size(); i++) values.put(prefix + (i + 1), entries.get(i));
+        }
+
+        Object resolve(String alias) { return byAlias.get(alias); }
+        List<String> aliases() { return List.copyOf(byAlias.keySet()); }
+        String promptDescription() {
+            String entries = byAlias.entrySet().stream().map(entry -> {
+                String alias = entry.getKey();
+                String category = alias.startsWith("S") ? "STORYBOOK" : alias.startsWith("R") ? "RULEBOOK" : "RESOLUTION";
+                return alias + " (" + category + ")";
+            }).collect(java.util.stream.Collectors.joining(", "));
+            return "Citation catalog (select IDs only; do not output evidence objects): " + entries;
+        }
     }
 
     public record Request(String operationKey, UUID adventureId, UUID ownerPlayerId, UUID sessionId, UUID turnId, UUID scenarioPackageId, long bindingVersion, String turnCapability, String action,
                           String currentScene, String npcState, String pendingAction, String latestJudgment,
                           List<?> storybook, List<?> rulebook, List<?> resolution, List<String> recentTurns,
                           List<String> characterSnapshots, String storyPlanContext, String provider, String model,
-                          String reasoning) {}
+                          String reasoning, List<?> tools) {
+        public Request(String operationKey, UUID adventureId, UUID ownerPlayerId, UUID sessionId, UUID turnId, UUID scenarioPackageId,
+                       long bindingVersion, String turnCapability, String action, String currentScene, String npcState,
+                       String pendingAction, String latestJudgment, List<?> storybook, List<?> rulebook, List<?> resolution,
+                       List<String> recentTurns, List<String> characterSnapshots, String storyPlanContext,
+                       String provider, String model, String reasoning) {
+            this(operationKey, adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, turnCapability,
+                    action, currentScene, npcState, pendingAction, latestJudgment, storybook, rulebook, resolution,
+                    recentTurns, characterSnapshots, storyPlanContext, provider, model, reasoning, List.of());
+        }
+    }
 
     public record V2Request(String operationKey, UUID adventureId, UUID ownerPlayerId, UUID sessionId, UUID turnId,
                             UUID scenarioPackageId, long bindingVersion, String turnCapability, String action,
                             String currentScene, String npcState, String pendingAction, String latestJudgment,
                             List<?> storybook, List<?> rulebook, List<?> resolution, List<String> recentTurns,
                             List<String> characterSnapshots, String storyPlanContext,
-                            RequestedGmProviderSelection requestedSelection) {
+                            RequestedGmProviderSelection requestedSelection, List<?> tools) {
+        public V2Request(String operationKey, UUID adventureId, UUID ownerPlayerId, UUID sessionId, UUID turnId,
+                         UUID scenarioPackageId, long bindingVersion, String turnCapability, String action,
+                         String currentScene, String npcState, String pendingAction, String latestJudgment,
+                         List<?> storybook, List<?> rulebook, List<?> resolution, List<String> recentTurns,
+                         List<String> characterSnapshots, String storyPlanContext,
+                         RequestedGmProviderSelection requestedSelection) {
+            this(operationKey, adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion,
+                    turnCapability, action, currentScene, npcState, pendingAction, latestJudgment, storybook,
+                    rulebook, resolution, recentTurns, characterSnapshots, storyPlanContext, requestedSelection, List.of());
+        }
         Request toLegacyRequest() {
             return new Request(operationKey, adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId,
                     bindingVersion, turnCapability, action, currentScene, npcState, pendingAction, latestJudgment,
                     storybook, rulebook, resolution, recentTurns, characterSnapshots, storyPlanContext,
-                    requestedSelection.provider(), requestedSelection.model(), requestedSelection.reasoning());
+                    requestedSelection.provider(), requestedSelection.model(), requestedSelection.reasoning(), tools);
         }
     }
 
@@ -444,23 +652,28 @@ public final class GmAgentController {
     public record CompactionResponse(String summary, List<String> unresolvedThreats, UUID planRevisionId, long planVersion) {}
 
     static Response requireComplete(Response response) {
+        return requireComplete(response, java.util.List.of("dice.roll", "character.update"));
+    }
+
+    static Response requireComplete(Response response, java.util.Collection<String> allowedTools) {
         if (response == null || response.scene() == null || response.judgment() == null || response.narration() == null
-                || response.citedEvidence() == null || response.warnings() == null || response.provider() == null
-                || response.model() == null || response.reasoning() == null || response.stateDelta() == null
-                || response.toolCalls() == null) {
-            throw new IllegalArgumentException("all structured GM fields are required");
+                || response.citedEvidence() == null || response.warnings() == null) {
+            throw new IllegalArgumentException("missing required GM fields: scene, judgment, narration, citedEvidence, warnings");
         }
         requireText(response.scene(), "scene");
         requireText(response.judgment(), "judgment");
         requireText(response.narration(), "narration");
-        requireText(response.provider(), "provider");
-        requireText(response.model(), "model");
-        requireText(response.reasoning(), "reasoning");
-        if (!response.stateDelta().isEmpty()) throw new IllegalArgumentException("read-only GM state delta must be empty");
-        if (response.toolCalls() != null && response.toolCalls().stream().anyMatch(call -> call == null
-                || (!"dice.roll".equals(call.toolName()) && !"character.update".equals(call.toolName())
-                || call.argumentsJson() == null))) {
-            throw new IllegalArgumentException("unsupported GM tool call");
+        if (response.stateDelta() != null && !response.stateDelta().isEmpty()) throw new IllegalArgumentException("read-only GM state delta must be empty");
+        if (response.toolCalls() != null) {
+            for (int index = 0; index < response.toolCalls().size(); index++) {
+                Response.ToolCall call = response.toolCalls().get(index);
+                if (call == null || call.toolName() == null || call.toolName().isBlank() || call.argumentsJson() == null) {
+                    throw new IllegalArgumentException("malformed GM tool call at toolCalls[" + index + "]");
+                }
+                if (!allowedTools.contains(call.toolName())) {
+                    throw new IllegalArgumentException("unsupported GM tool call: " + call.toolName() + " allowed=" + allowedTools);
+                }
+            }
         }
         return response;
     }
@@ -483,6 +696,8 @@ public final class GmAgentController {
             this(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence, warnings, provider, model, reasoning,
                     stateDelta, List.of(), false, "", List.of());
         }
-        public record ToolCall(String toolName, String argumentsJson, boolean required) {}
+        public record ToolCall(String toolName,
+                               @com.fasterxml.jackson.annotation.JsonAlias("arguments") Object argumentsJson,
+                               boolean required) {}
     }
 }

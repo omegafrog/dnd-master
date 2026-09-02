@@ -202,12 +202,12 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
       const selectable = availableDocuments.filter(document => selectableStatuses.has(document.status))
       setDocuments(availableDocuments)
       setSelectedIds(new Set(selectable.map(document => document.knowledgeDocumentId)))
-      setRoles(selectable.reduce<Record<string, ScenarioBundleRole>>((acc, document, index) => {
-        acc[document.knowledgeDocumentId] = document.documentType === 'RULEBOOK'
+      setRoles(current => selectable.reduce<Record<string, ScenarioBundleRole>>((acc, document, index) => {
+        acc[document.knowledgeDocumentId] = current[document.knowledgeDocumentId] ?? (document.documentType === 'RULEBOOK'
           ? 'RULEBOOK'
-          : index === 0 ? 'MAIN_SCENARIO' : 'HANDOUT'
+          : index === 0 ? 'MAIN_SCENARIO' : 'HANDOUT')
         return acc
-      }, {}))
+      }, { ...current }))
       return
     }
     let active = true
@@ -217,12 +217,12 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
         const selectable = items.filter(document => selectableStatuses.has(document.status))
         setDocuments(items)
         setSelectedIds(new Set(selectable.map(document => document.knowledgeDocumentId)))
-        setRoles(selectable.reduce<Record<string, ScenarioBundleRole>>((acc, document, index) => {
-          acc[document.knowledgeDocumentId] = document.documentType === 'RULEBOOK'
+        setRoles(current => selectable.reduce<Record<string, ScenarioBundleRole>>((acc, document, index) => {
+          acc[document.knowledgeDocumentId] = current[document.knowledgeDocumentId] ?? (document.documentType === 'RULEBOOK'
             ? 'RULEBOOK'
-            : index === 0 ? 'MAIN_SCENARIO' : 'HANDOUT'
+            : index === 0 ? 'MAIN_SCENARIO' : 'HANDOUT')
           return acc
-        }, {}))
+        }, { ...current }))
       })
       .catch(error => {
         if (!active) return

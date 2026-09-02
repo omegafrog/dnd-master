@@ -64,9 +64,11 @@ public final class ResolutionCandidateController {
                 + (request.attempt() > 0 ? "This is retry attempt " + request.attempt() + ". Failed candidate: " + request.failedCandidate()
                         + ". Diagnostics: " + request.diagnostics() + ". Correct the diagnosed failure and return a replacement candidate. " : "")
                 + "Return exactly a JSON array, never an object wrapper. Use these exact enum values and field types. "
-                + "Template: [{\"kind\":\"SAVING_THROW\",\"abilityOrSkill\":\"Dexterity\",\"dc\":12,\"diceExpression\":\"1d10\",\"visibility\":\"GM_REFERENCE\",\"sourceQuote\":\"exact quote\",\"sourceRefs\":[{\"documentId\":\"uuid\",\"extractionVersion\":2,\"locator\":\"offset 0-10\"}],\"detail\":null,\"provenance\":\"source text\"}]. "
+                + "Template: [{\"kind\":\"SAVING_THROW\",\"abilityOrSkill\":\"Dexterity\",\"dc\":{\"type\":\"FIXED\",\"value\":12},\"diceExpression\":\"1d10\",\"visibility\":\"GM_REFERENCE\",\"sourceQuote\":\"exact quote\",\"sourceRefs\":[{\"documentId\":\"uuid\",\"extractionVersion\":2,\"locator\":\"offset 0-10\"}],\"detail\":{\"trigger\":{\"type\":\"WORLD_EVENT\",\"condition\":\"entering the room\"},\"check\":{\"rollMethod\":\"SYSTEM\",\"method\":\"Dexterity saving throw\"},\"stateEffect\":{\"stateKey\":\"trap\",\"successEffect\":\"avoided\",\"failureEffect\":\"damaged\"},\"reveal\":{\"condition\":\"ON_SUCCESS\",\"level\":\"CLUE\",\"hiddenFact\":\"a concealed trap\"},\"priorKnowledge\":{\"alreadyPublic\":false,\"knownFacts\":[]}},\"provenance\":\"source text\"}]. "
                 + "kind must be one of SKILL_ABILITY_CHECK,SAVING_THROW,PASSIVE_THRESHOLD,DICE_ROLL,ATTACK_ROLL,DAMAGE_ROLL,HEALING_ROLL,OPPOSED_CHECK,INITIATIVE_ROLL,RECHARGE_ROLL,RANDOM_TABLE,SPECIAL_ROLL. "
+                + "Field rules: for ATTACK_ROLL, abilityOrSkill is optional because source text may provide only an attack bonus; provide a valid d20 attack expression such as 1d20+5. For RECHARGE_ROLL, encode 'Recharge 5-6' as diceExpression exactly '5-6'; use only an inclusive numeric N-M range, never 'Recharge 5-6', '5 to 6', or null when the range is present. "
                 + "visibility must be GM_REFERENCE or PLAYER_SAFE. Keep sourceRefs only when the excerpt supplies an exact object reference. "
+                + "For SAVING_THROW dc, use {\"type\":\"FIXED\",\"value\":N} only for explicit numeric DCs; for the caster's or user's spell save DC use {\"type\":\"CASTER_SPELL_SAVE_DC\"}. Never invent a number. "
                 + "Do not invent values or references. Output JSON only. Excerpts: " + request.excerpts();
         if (request.promptVersion() != null && request.promptVersion().startsWith("resolution-recovery")) {
             prompt += " This is a recovery pass for previously invalid candidates. Re-read the exact source text and repair only the invalid resolution. For RECHARGE_ROLL, extract a numeric inclusive range such as Recharge 5-6 into diceExpression as exactly 5-6; never leave diceExpression null when the source contains a recharge range. Preserve the source quote and source reference.";
@@ -81,12 +83,15 @@ public final class ResolutionCandidateController {
             candidates = adapter.complete(request.operationId(), prompt, this::parseModel);
         }
         if (!candidates.isEmpty()) {
-            List<Candidate> verified = candidates.stream().filter(candidate -> verifiedAgainstExcerpts(candidate, request.excerpts())).toList();
+            List<Candidate> verified = candidates.stream().filter(candidate -> canonicalContractValid(candidate.detail()))
+                    .filter(candidate -> verifiedAgainstExcerpts(candidate, request.excerpts()))
+                    .map(candidate -> enrichSymbolicDc(candidate, request.excerpts())).toList();
             List<Candidate> deduplicated = deduplicate(verified);
             log.info("resolution_candidate_ai_result operationId={} aiCandidates={} deduplicated={} excerpts={}", request.operationId(), candidates.size(), deduplicated.size(), request.excerpts().size());
             return new Response(deduplicated);
         }
-        List<Candidate> fallback = deduplicate(fallbackCandidates(request.excerpts()));
+        List<Candidate> fallback = deduplicate(fallbackCandidates(request.excerpts()).stream()
+                .filter(candidate -> canonicalContractValid(candidate.detail())).toList());
         log.warn("resolution_candidate_ai_empty operationId={} fallbackCandidates={} excerpts={} excerptSummaries={}", request.operationId(), fallback.size(), request.excerpts().size(), request.excerpts().stream().map(e -> e.locator() + ":" + (e.text() == null ? 0 : e.text().length()) + ":" + (e.text() == null ? "" : e.text().substring(0, Math.min(100, e.text().length())).replaceAll("\\s+", " "))).toList());
         return new Response(fallback);
     }
@@ -123,7 +128,7 @@ public final class ResolutionCandidateController {
                     if (!List.of("GM_REFERENCE", "PLAYER_SAFE").contains(visibility)) {
                         throw new IllegalArgumentException("unsupported visibility");
                     }
-                    candidates.add(new Candidate(kind, nullableText(node, "abilityOrSkill"), nullableInt(node, "dc"),
+                    candidates.add(new Candidate(kind, nullableText(node, "abilityOrSkill"), saveDc(node.get("dc")),
                             nullableText(node, "diceExpression"), visibility, text(node, "sourceQuote"),
                             parseRefs(node.get("sourceRefs")), objectOrNull(node.get("detail")), text(node, "provenance")));
                 } catch (RuntimeException ignored) {
@@ -134,6 +139,45 @@ public final class ResolutionCandidateController {
         } catch (Exception malformed) {
             throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, "AI resolution response was malformed", malformed);
         }
+    }
+
+    private static boolean canonicalContractValid(JsonNode detail) {
+        try {
+            validateCanonicalContract(detail);
+            return true;
+        } catch (IllegalArgumentException ignored) {
+            return false;
+        }
+    }
+
+    static void validateCanonicalContract(JsonNode detail) {
+        if (detail == null || !detail.isObject()) throw new IllegalArgumentException("canonical resolution contract is missing");
+        JsonNode trigger = detail.get("trigger");
+        JsonNode check = detail.get("check");
+        JsonNode effect = detail.get("stateEffect");
+        JsonNode reveal = detail.get("reveal");
+        JsonNode prior = detail.get("priorKnowledge");
+        if (!present(trigger, "type") || !present(trigger, "condition")
+                || !present(check, "rollMethod") || !present(check, "method")
+                || !present(effect, "stateKey") || !present(effect, "successEffect")
+                || !present(effect, "failureEffect") || !present(reveal, "condition")
+                || !present(reveal, "level") || !present(reveal, "hiddenFact") || prior == null) {
+            throw new IllegalArgumentException("canonical resolution contract is incomplete");
+        }
+        String triggerType = trigger.get("type").asText();
+        String rollMethod = check.get("rollMethod").asText();
+        if (("PLAYER_ACTION".equals(triggerType) && "SYSTEM".equals(rollMethod))
+                || ("WORLD_EVENT".equals(triggerType) && "PLAYER".equals(rollMethod))) {
+            throw new IllegalArgumentException("canonical resolution contract is contradictory");
+        }
+        if ("NONE".equals(reveal.get("level").asText())) {
+            throw new IllegalArgumentException("canonical reveal level contradicts hidden fact");
+        }
+    }
+
+    private static boolean present(JsonNode parent, String field) {
+        return parent != null && parent.isObject() && parent.hasNonNull(field)
+                && !parent.get(field).asText().isBlank();
     }
 
     static List<Candidate> fallbackCandidates(List<Excerpt> excerpts) {
@@ -147,7 +191,7 @@ public final class ResolutionCandidateController {
                 String expression = diceExpression(excerpt.text(), matcher.end());
                 String kind = matcher.group(3).replaceAll("\\s+", "").toLowerCase().startsWith("saving")
                         ? "SAVING_THROW" : "SKILL_ABILITY_CHECK";
-                candidates.add(new Candidate(kind, normalizeWhitespace(matcher.group(2)), Integer.valueOf(matcher.group(1)), expression,
+                candidates.add(new Candidate(kind, normalizeWhitespace(matcher.group(2)), fixedDc(Integer.parseInt(matcher.group(1))), expression,
                         "GM_REFERENCE", quote,
                         List.of(new SourceRef(excerpt.documentId(), excerpt.extractionVersion(), excerpt.locator())),
                         null, "deterministic-source-pattern-v1"));
@@ -161,7 +205,7 @@ public final class ResolutionCandidateController {
                     String quote = excerpt.text().substring(start, end + (end < excerpt.text().length() && excerpt.text().charAt(end) == '.' ? 1 : 0)).strip();
                     if (EXPLICIT_DC.matcher(quote).find()) {
                         String kind = quote.toLowerCase(Locale.ROOT).contains("saving throw") ? "SAVING_THROW" : "SKILL_ABILITY_CHECK";
-                        candidates.add(new Candidate(kind, null, Integer.valueOf(dc.group(1)), diceExpression(excerpt.text(), dc.end()), "GM_REFERENCE", quote,
+                        candidates.add(new Candidate(kind, null, fixedDc(Integer.parseInt(dc.group(1))), diceExpression(excerpt.text(), dc.end()), "GM_REFERENCE", quote,
                                 List.of(new SourceRef(excerpt.documentId(), excerpt.extractionVersion(), excerpt.locator())), null, "deterministic-source-pattern-v2"));
                     }
                 }
@@ -177,6 +221,38 @@ public final class ResolutionCandidateController {
             unique.putIfAbsent(candidateKey(candidate), candidate);
         }
         return List.copyOf(unique.values());
+    }
+
+    private static JsonNode fixedDc(int value) {
+        return com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode().put("type", "FIXED").put("value", value);
+    }
+
+    private static JsonNode casterSpellSaveDc() {
+        return com.fasterxml.jackson.databind.node.JsonNodeFactory.instance.objectNode().put("type", "CASTER_SPELL_SAVE_DC");
+    }
+
+    private static JsonNode saveDc(JsonNode value) {
+        if (value != null && value.isInt()) return fixedDc(value.intValue());
+        if (value != null && value.isTextual() && isSpellSaveDc(value.textValue())) return casterSpellSaveDc();
+        return value;
+    }
+
+    private static Candidate enrichSymbolicDc(Candidate candidate, List<Excerpt> excerpts) {
+        if (candidate == null || !"SAVING_THROW".equals(candidate.kind()) || candidate.dc() != null) return candidate;
+        boolean referencedSpellSaveDc = candidate.sourceRefs() != null && candidate.sourceRefs().stream().anyMatch(ref ->
+                excerpts.stream().anyMatch(excerpt -> ref != null && excerpt != null
+                        && ref.documentId().equals(excerpt.documentId())
+                        && ref.extractionVersion() == excerpt.extractionVersion()
+                        && ref.locator().equals(excerpt.locator())
+                        && isSpellSaveDc(excerpt.text())));
+        return referencedSpellSaveDc
+                ? new Candidate(candidate.kind(), candidate.abilityOrSkill(), casterSpellSaveDc(), candidate.diceExpression(),
+                        candidate.visibility(), candidate.sourceQuote(), candidate.sourceRefs(), candidate.detail(), candidate.provenance())
+                : candidate;
+    }
+
+    private static boolean isSpellSaveDc(String value) {
+        return value != null && value.matches("(?is).*\\bspell\\s+save\\s+DC\\b.*");
     }
 
     private static String candidateKey(Candidate candidate) {
@@ -286,7 +362,7 @@ public final class ResolutionCandidateController {
     }
     public record Excerpt(UUID documentId, long extractionVersion, String locator, String text) {}
     public record Response(List<Candidate> candidates) {}
-    public record Candidate(String kind, String abilityOrSkill, Integer dc, String diceExpression,
+    public record Candidate(String kind, String abilityOrSkill, JsonNode dc, String diceExpression,
                             String visibility, String sourceQuote, List<SourceRef> sourceRefs, JsonNode detail, String provenance) {}
     public record SourceRef(UUID documentId, long extractionVersion, String locator) {}
 }
