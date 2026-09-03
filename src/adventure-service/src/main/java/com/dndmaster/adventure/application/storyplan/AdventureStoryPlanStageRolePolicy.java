@@ -36,7 +36,8 @@ public final class AdventureStoryPlanStageRolePolicy {
                 List.of(entry.sourceAnchor()), List.of(), List.of(), AdventureStageType.EVENT,
                 entry.sourceAnchor(), null, "", "", List.of(), "", "Reach " + entry.entryPoint(), "",
                 List.of(), List.of(), List.of(), AdventureGroundingStatus.GROUNDED, List.of(), "UNAVAILABLE", null)
-                .withStageRole(StageRole.PROLOGUE);
+                .withStageRole(StageRole.PROLOGUE)
+                .withSchemaVersion(AdventureStoryPlanStage.CURRENT_SCHEMA_VERSION);
     }
 
     public static List<String> validatePrologue(AdventureStoryPlanStage stage, String sourceAnchor) {

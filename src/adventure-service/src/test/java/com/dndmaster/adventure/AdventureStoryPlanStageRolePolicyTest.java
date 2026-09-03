@@ -30,6 +30,7 @@ class AdventureStoryPlanStageRolePolicyTest {
         assertEquals(2, materialized.size());
         assertEquals(StageRole.PROLOGUE, materialized.getFirst().stageRole());
         assertEquals(AdventureStageType.EVENT, materialized.getFirst().stageType());
+        assertEquals(AdventureStoryPlanStage.CURRENT_SCHEMA_VERSION, materialized.getFirst().schemaVersion());
         assertTrue(materialized.getFirst().location().contains("Sword Coast"));
         assertEquals(2, materialized.get(1).position());
         assertEquals(AdventureStageType.DUNGEON, materialized.get(1).stageType());

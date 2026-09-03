@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.Test;
 
@@ -52,6 +53,37 @@ class CodexAppServerClientTest {
                         assertThat(timeout.lastEvent()).isEqualTo("request");
                     });
             assertThat(elapsedMillis(started)).isLessThan(1_000L);
+        } finally {
+            client.close();
+        }
+    }
+
+    @Test
+    void servesDynamicToolCallsBackToTheAppServer() throws Exception {
+        Path executable = appServerScript("""
+                #!/usr/bin/env bash
+                while IFS= read -r line; do
+                  case "$line" in
+                    *'\"method\":\"initialize\"'*) echo '{\"id\":1,\"result\":{}}';;
+                    *'\"method\":\"thread/start\"'*) echo '{\"id\":2,\"result\":{\"thread\":{\"id\":\"thread-1\"}}}';;
+                    *'\"method\":\"turn/start\"'*)
+                      echo '{\"id\":3,\"result\":{\"turn\":{\"id\":\"turn-1\"}}}';
+                      echo '{\"id\":4,\"method\":\"item/tool/call\",\"params\":{\"threadId\":\"thread-1\",\"turnId\":\"turn-1\",\"callId\":\"call-1\",\"tool\":\"lookup\",\"arguments\":{\"query\":\"rat\"}}}';;
+                    *'\"id\":4,\"result\"'*)
+                      echo '{\"method\":\"item/agentMessage/delta\",\"params\":{\"delta\":\"done\"}}';
+                      echo '{\"method\":\"turn/completed\",\"params\":{\"turn\":{\"status\":\"completed\"}}}';;
+                  esac
+                done
+                """);
+        CodexAppServerClient client = CodexAppServerClient.shared(
+                executable.toString(), executable.getParent(), Duration.ofSeconds(2), new ObjectMapper());
+        ObjectMapper mapper = new ObjectMapper();
+        var schema = mapper.createObjectNode().put("type", "object");
+        try {
+            String result = client.complete("dynamic-tool", "use lookup", "gpt-5.6-luna", "medium", null,
+                    List.of(new CodexAppServerClient.DynamicTool(
+                            "lookup", "Look up a fact", schema, arguments -> "found:" + arguments.path("query").asText())));
+            assertThat(result).isEqualTo("done");
         } finally {
             client.close();
         }

@@ -42,13 +42,25 @@ public final class CrossContextHttpStoryPlanSemanticJudgeGateway implements Sema
                     "documentType", evidence.evidenceType().name(),
                     "documentId", evidence.knowledgeDocumentId().value().toString(),
                     "extractionVersion", evidence.extractionVersion(), "locator", evidence.locator(),
-                    "quote", evidence.excerpt(), "confidence", 1.0,
+                    "confidence", 1.0,
                     "citationKey", evidence.citationKey() == null ? "" : evidence.citationKey())).toList();
-            Map<String, Object> body = Map.of(
-                    "operationId", "semantic-" + System.nanoTime(),
-                    "configuration", Map.of("endingCount", 2, "adventureLength", "STANDARD"),
-                    "sourceDocuments", List.of(), "resolutionEvidence", List.of(), "maps", List.of(),
-                    "citations", citations, "generatedMarkdown", request.candidate());
+            Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("operationId", "semantic-" + System.nanoTime());
+            body.put("configuration", Map.of("endingCount", 2, "adventureLength", "STANDARD"));
+            body.put("sourceDocuments", List.of());
+            body.put("resolutionEvidence", List.of());
+            body.put("maps", List.of());
+            body.put("citations", citations);
+            body.put("generatedMarkdown", request.candidate());
+            if (request.ownerId() != null) {
+                List<Map<String, Object>> documents = pack.all().stream()
+                        .map(evidence -> Map.<String, Object>of(
+                                "documentType", evidence.evidenceType().name(),
+                                "documentId", evidence.knowledgeDocumentId().value(),
+                                "extractionVersion", evidence.extractionVersion()))
+                        .distinct().toList();
+                body.put("retrievalContext", Map.of("ownerId", request.ownerId(), "documents", documents));
+            }
             HttpResponse<String> response = client.send(HttpRequest.newBuilder(
                     baseUri.resolve("internal/v1/gm/adventure-story-plan/verify"))
                     .timeout(timeout).header("Content-Type", "application/json")

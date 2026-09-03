@@ -82,7 +82,7 @@ export type AdventureStoryPlanView = {
 export type AdventureStoryPlanGenerationJobView = {
   jobId: string
   sessionId: string
-  status: 'QUEUED' | 'RUNNING' | 'COMPLETE' | 'FAILED'
+  status: 'QUEUED' | 'RUNNING' | 'COMPLETE' | 'BLOCKED' | 'FAILED'
   progress: number
   stage: string
   message: string | null
@@ -109,7 +109,9 @@ export function normalizeAdventureStoryPlanGenerationJob(job: AdventureStoryPlan
     ? 'FAILED'
     : value === 'COMPLETE' || value.includes('완료')
     ? 'COMPLETE'
-    : value === 'FAILED' || value.includes('실패') || value.includes('TIMEOUT') || value.includes('검증')
+    : value === 'BLOCKED' || value.includes('차단')
+      ? 'BLOCKED'
+      : value === 'FAILED' || value.includes('실패') || value.includes('TIMEOUT') || value.includes('검증')
       ? 'FAILED'
       : value === 'RUNNING' ? 'RUNNING' : 'QUEUED'
   return { ...job, status }

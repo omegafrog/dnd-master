@@ -119,6 +119,40 @@ class AdventureStoryPlanApplicationServiceTest {
         assertTrue(repair.getValue().repairScope().allows("stages[2].failureCondition"));
     }
 
+    @Test
+    void repairs_semantic_missing_success_outcome_on_its_stage_without_full_regeneration() {
+        var session = draftSession();
+        var sessions = mock(AdventureSessionRepository.class);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        var generator = mock(AdventureStoryPlanGenerationPort.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        when(plans.findBySessionId(session.id())).thenReturn(Optional.empty());
+        when(generator.generate(any())).thenReturn(new AdventureStoryPlanGenerationPort.ProjectionCandidate(
+                shortCandidate("bad"), shortStages("bad")));
+        when(generator.repair(any())).thenReturn(new AdventureStoryPlanGenerationPort.ProjectionCandidate(
+                shortCandidate("good"), shortStages("good")));
+        var provider = mock(SemanticJudgeProvider.class);
+        when(provider.judge(any())).thenReturn(
+                new SemanticJudgeProvider.Response(SemanticVerdict.contradictory(.99, "stages[3].failureCondition",
+                        "Stage 4 conditional rat-transformation event lacks an explicit success result.",
+                        java.util.Set.of(), java.util.Set.of())),
+                new SemanticJudgeProvider.Response(SemanticVerdict.compatible(.99, "storyPlan",
+                        "repaired candidate is consistent", java.util.Set.of(), java.util.Set.of())));
+
+        var result = new AdventureStoryPlanApplicationService(plans, sessions, null, generator,
+                null, null, semanticJudge(provider)).generate(session.id(), session.ownerPlayerId(),
+                        new AdventurePlanConfiguration(2, AdventureLength.SHORT));
+
+        assertEquals(AdventureStoryPlanStatus.READY, result.status());
+        verify(generator, times(1)).generate(any());
+        var repair = org.mockito.ArgumentCaptor.forClass(AdventureStoryPlanGenerationPort.RepairRequest.class);
+        verify(generator, times(1)).repair(repair.capture());
+        var violation = repair.getValue().violations().getFirst();
+        assertEquals("MISSING_RULE_OUTCOME", violation.code());
+        assertEquals(4, violation.stagePosition());
+        assertEquals("stages[3].failureCondition", violation.fieldPath());
+    }
+
     private static StoryPlanSemanticConsistencyJudge semanticJudge(SemanticVerdict verdict) {
         SemanticJudgeProvider provider = request -> new SemanticJudgeProvider.Response(verdict);
         return semanticJudge(provider);
@@ -323,6 +357,48 @@ class AdventureStoryPlanApplicationServiceTest {
         verify(generator).repair(repair.capture());
         assertEquals(rejected, repair.getValue().previousCandidate());
         assertEquals(List.of(violation, clearViolation), repair.getValue().violations());
+        verify(plans).save(result);
+    }
+
+    @Test
+    void passes_only_current_violations_to_repair_after_regeneration() {
+        var session = draftSession();
+        var sessions = mock(AdventureSessionRepository.class);
+        var plans = mock(AdventureStoryPlanRepository.class);
+        var generator = mock(AdventureStoryPlanGenerationPort.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        when(plans.findBySessionId(session.id())).thenReturn(Optional.empty());
+
+        String firstRejected = shortCandidate("bad");
+        String secondRejected = shortCandidate("still-bad");
+        var firstViolation = new AdventureStoryPlanProjectionViolation(
+                "INVALID_EVIDENCE", 1, "stages[0].evidence", "", "", Repairability.REPAIRABLE,
+                "evidence is not usable");
+        var secondViolation = new AdventureStoryPlanProjectionViolation(
+                "INVALID_TRANSITION_CONDITION", 1, "stages[0].transitionCondition", "bad", "",
+                Repairability.REPAIRABLE, "transition condition is not usable");
+
+        when(generator.generate(any())).thenThrow(
+                new AdventureStoryPlanCandidateValidationException(List.of(firstViolation), firstRejected, true),
+                new AdventureStoryPlanCandidateValidationException(List.of(secondViolation), secondRejected, true));
+        String malformedRepair = firstRejected.replace("\"evidence\":[]", "\"evidence\":[{}]");
+        var validEvidence = new AdventurePlanEvidence("STORYBOOK", UUID.randomUUID(), 1,
+                "page:1", "A cellar", .9);
+        var malformedRepairStages = shortStages("bad").stream()
+                .map(stage -> stage.withEvidence(List.of(validEvidence)))
+                .toList();
+        when(generator.repair(any())).thenReturn(
+                new AdventureStoryPlanGenerationPort.ProjectionCandidate(malformedRepair, malformedRepairStages),
+                new AdventureStoryPlanGenerationPort.ProjectionCandidate(shortCandidate("fixed"), shortStages("fixed")));
+
+        var result = new AdventureStoryPlanApplicationService(plans, sessions, null, generator)
+                .generate(session.id(), session.ownerPlayerId(), new AdventurePlanConfiguration(2, AdventureLength.SHORT));
+
+        assertEquals(AdventureStoryPlanStatus.READY, result.status());
+        var requests = org.mockito.ArgumentCaptor.forClass(AdventureStoryPlanGenerationPort.RepairRequest.class);
+        verify(generator, times(2)).repair(requests.capture());
+        assertEquals(List.of(firstViolation), requests.getAllValues().get(0).violations());
+        assertEquals(List.of(secondViolation), requests.getAllValues().get(1).violations());
         verify(plans).save(result);
     }
 

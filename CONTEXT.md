@@ -1,5 +1,12 @@
 # Ubiquitous Language
 
+## Cross-cutting Terms
+
+- **Provenance**: 어떤 컨텍스트·규칙·근거가 어디서 왔고 어떤 목적·버전에 속하는지 추적하는 메타데이터. Evidence나 인용문 자체가 아니며, 출처가 있는 내용과 AI가 생성한 내용을 구분하고 검증·감사·재현성을 보장하는 데 사용한다. 런타임 컨텍스트의 `sourceId`·`purpose`·`version`과 RAG 근거의 문서·추출 버전·페이지·좌표·locator를 포함할 수 있다.
+- **Nonce**: `TurnCapability`에 부여하는 opaque 일회성 식별자. 토큰·세션 ID·턴 ID와 별개이며, GM tool gateway가 capability 폐기(revoke)를 추적하는 키다. 의미를 해석하거나 사용자에게 노출하지 않는다.
+- **Narrative**: 세션에서 확정된 세계 사실·인물 지식·관계·활성 스레드·최근 사건을 포함하는 canonical narrative reality. 플레이어별 `NarrativeContext`로 투영되며, AI가 생성한 prose/narration이나 RAG evidence와 동일하지 않다. 상태 변경의 정본은 `NarrativeState`다.
+- **Premise**: Rulebook-Only Bundle의 `Adventure Brief`에서 선택적으로 받는 모험의 핵심 출발 전제. 모험이 어떤 상황·갈등에서 시작하는지 정하지만, 전체 진행 절차인 `Adventure Story Plan`이나 장면별 서술을 대신하지 않는다.
+
 # Execution Preconditions
 
 - **Rulebook Administration Precondition**: 모험 실행 여정을 시작하기 전에 관리자가 Shared Rulebook Catalog에 룰북을 등록하고, 추출·색인·검증을 완료한 뒤 공개 상태로 게시해야 한다.

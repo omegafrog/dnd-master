@@ -103,6 +103,27 @@ class AdventureStoryPlanCombatValidatorTest {
     }
 
     @Test
+    void localized_participant_name_grounds_through_stable_participant_id() {
+        UUID storybook = UUID.randomUUID();
+        var citation = new AdventureStoryPlanGenerationPort.SourceCitation(
+                "STORYBOOK", storybook, 1, "page:3", "The cellar contains two giant rats.", .9)
+                .withCitationKey("rat-fact");
+        var participant = new CombatParticipant("giant-rat", CombatParticipant.Role.ENEMY,
+                "거대 쥐", 2, 2, List.of("rat-fact"));
+        var skeleton = new CombatSkeleton("Drive the rats from the cellar", "When the party enters",
+                List.of(participant), "The rats are defeated", "The party retreats", List.of());
+        var stage = stage().withCombat(CombatRequirement.REQUIRED, skeleton, List.of(),
+                TacticalPreparationRequirement.NOT_REQUIRED).withEvidence(List.of(
+                        new com.dndmaster.adventure.domain.adventure.AdventurePlanEvidence(
+                                "STORYBOOK", storybook, 1, "page:3", citation.quote(), .9,
+                                citation.provenance(), "rat-fact")));
+
+        var violations = new AdventureStoryPlanCombatValidator().validate(stage, List.of(citation));
+
+        assertTrue(violations.stream().noneMatch(v -> v.code().equals("COMBAT_PARTICIPANT_SOURCE_UNSUPPORTED")));
+    }
+
+    @Test
     void mapped_required_combat_must_retain_required_tactical_intent() {
         var stage = new AdventureStoryPlanStage(1, "Cellar", "Explore", "Threat", "Continue", List.of(), List.of("ending-1"),
                 List.of(), AdventureStageType.DUNGEON, "Cellar", UUID.randomUUID(), "map", "map.png", List.of(), "",

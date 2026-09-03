@@ -3,6 +3,7 @@ package com.dndmaster.aigamemaster.api;
 import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.CodexCliStoryPlanAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.AiCallObservability;
+import com.dndmaster.aigamemaster.infrastructure.ai.CodexAppServerClient;
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint;
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointRegistry;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -42,11 +43,13 @@ import java.util.regex.Pattern;
 @RestController("aiAdventureStoryPlanController")
 public final class AdventureStoryPlanController {
     private static final Logger LOGGER = LoggerFactory.getLogger(AdventureStoryPlanController.class);
+    private static final int STORY_PLAN_SCHEMA_VERSION = 2;
     private static final Pattern RESOLUTION_FIELD = Pattern.compile("(?im)^(\\s*-\\s*DC\\s+or\\s+dice:\\s*)(.*)$");
     private static final Pattern DC_VALUE = Pattern.compile("(?i)\\bDC\\s*(\\d+)\\b");
     private final SpringAiChatAdapter adapter; private final ObjectMapper mapper; private final AgentEndpointRegistry endpointRegistry;
     private final HttpClient httpClient = HttpClient.newHttpClient();
     private final URI ollamaBaseUrl; private final String ollamaModel;
+    private final URI ruleKnowledgeBaseUrl;
     private final String codexExecutable; private final java.nio.file.Path codexWorkDirectory; private final Duration codexTimeout;
     private final String codexReasoning;
     private final ApiRequestGuard requestGuard;
@@ -57,9 +60,10 @@ public final class AdventureStoryPlanController {
             @Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
             @Value("${ai.codex.timeout:PT5M}") Duration codexTimeout,
             @Value("${ai.codex.reasoning:${GM_REASONING:medium}}") String codexReasoning,
-            @Value("${ai-game-master.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+            @Value("${ai-game-master.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
+            @Value("${rule-knowledge.base-url:${RULE_KNOWLEDGE_BASE_URL:http://127.0.0.1:8080/}}") String ruleKnowledgeBaseUrl) {
         this(adapter, mapper, endpointRegistry, ollamaBaseUrl, ollamaModel, codexExecutable, codexWorkDirectory, codexTimeout,
-                codexReasoning, new ApiRequestGuard(internalToken));
+                codexReasoning, new ApiRequestGuard(internalToken), ruleKnowledgeBaseUrl);
     }
     public AdventureStoryPlanController(SpringAiChatAdapter adapter, ObjectMapper mapper, AgentEndpointRegistry endpointRegistry,
             String ollamaBaseUrl, String ollamaModel, String codexExecutable, String codexWorkDirectory, Duration codexTimeout,
@@ -69,7 +73,14 @@ public final class AdventureStoryPlanController {
     public AdventureStoryPlanController(SpringAiChatAdapter adapter, ObjectMapper mapper, AgentEndpointRegistry endpointRegistry,
             String ollamaBaseUrl, String ollamaModel, String codexExecutable, String codexWorkDirectory, Duration codexTimeout,
             String codexReasoning, ApiRequestGuard requestGuard) {
+        this(adapter, mapper, endpointRegistry, ollamaBaseUrl, ollamaModel, codexExecutable, codexWorkDirectory, codexTimeout,
+                codexReasoning, requestGuard, "http://127.0.0.1:8080/");
+    }
+    public AdventureStoryPlanController(SpringAiChatAdapter adapter, ObjectMapper mapper, AgentEndpointRegistry endpointRegistry,
+            String ollamaBaseUrl, String ollamaModel, String codexExecutable, String codexWorkDirectory, Duration codexTimeout,
+            String codexReasoning, ApiRequestGuard requestGuard, String ruleKnowledgeBaseUrl) {
         this.adapter = adapter; this.mapper = mapper; this.endpointRegistry = endpointRegistry; this.ollamaBaseUrl = URI.create(ollamaBaseUrl); this.ollamaModel = ollamaModel;
+        this.ruleKnowledgeBaseUrl = URI.create(ruleKnowledgeBaseUrl);
         this.codexExecutable = codexExecutable; this.codexWorkDirectory = java.nio.file.Path.of(codexWorkDirectory); this.codexTimeout = codexTimeout; this.codexReasoning = codexReasoning;
         this.requestGuard = requestGuard;
     }
@@ -83,11 +94,12 @@ public final class AdventureStoryPlanController {
                 .map(map -> "- mapDefinitionId=" + map.mapDefinitionId() + ", assetId=" + map.assetId()
                         + ", assetLocator=" + map.assetLocator() + ", sourceLocator=" + map.sourceLocator()
                         + ", confidence=" + map.confidence() + ", safetyStatus=" + map.safetyStatus()
-                        + ", relatedStoryEvidence=" + map.relatedEvidence() + ", mapContext=" + map.context())
+                        + ", mapContext=" + map.context())
                 .collect(java.util.stream.Collectors.joining("\n"));
         String prompt = structuredStoryPlanPrompt(request, configuration, availableMaps);
         try {
-            String canonicalJson = complete(endpoint, request.operationId(), prompt, configuration);
+            String canonicalJson = complete(endpoint, request.operationId(), prompt, configuration,
+                    retrievalTools(request.retrievalContext(), request.citations()));
             List<Stage> stages = parseJson(canonicalJson, configuration, request.citations());
             return new Response(stages, renderMarkdown(stages));
         } catch (CandidateResponseValidationException invalidCandidate) {
@@ -124,7 +136,8 @@ public final class AdventureStoryPlanController {
         Configuration configuration = request.configuration() == null ? Configuration.defaults() : request.configuration();
         try {
             String repaired = complete(endpoint, request.operationId() + "-projection-repair",
-                    repairPrompt(request, configuration), configuration);
+                    repairPrompt(request, configuration), configuration,
+                    retrievalTools(request.retrievalContext(), request.citations()));
             return new Response(parseJson(repaired, configuration, request.citations()));
         } catch (CandidateResponseValidationException invalidCandidate) {
             throw invalidCandidate;
@@ -147,19 +160,23 @@ public final class AdventureStoryPlanController {
                 Use schemaVersion 2. Evidence items contain only citationKey copied verbatim from the supplied registry.
                 Every stage with supplied citations must contain at least one registered evidence citationKey.
                 sourceFactClaims are limited to combatSkeleton paths and SOURCE claims must cite the same-stage evidence.
-                A combat participant must be supported by the exact cited excerpt; otherwise omit the commitment.
+                A combat participant must be supported by an excerpt returned by RAG; otherwise omit the commitment.
                 Never return a committed participant with an empty citationKeys array. Every committed participant must
                 have role exactly ENEMY or BOSS, a non-empty participantId, and at least one citationKey copied from
                 the same stage evidence. If no same-stage citation supports the participant, remove the participant and
                 downgrade the stage to POSSIBLE or NONE.
                 Preserve explicit failure/fail-forward consequences in failureCondition. Do not create claims for narrative fields.
+                Every conditional event, hidden-information trigger, secret, clue reveal, or rules check MUST state an explicit
+                success outcome and an explicit failure or fail-forward consequence in the same stage prose. Do not encode a
+                one-sided conditional branch; use source-grounded outcomes and do not invent an outcome absent from the evidence.
                 Map IDs, assets, and locators must be copied from one AVAILABLE MAPS entry. Dungeon stages with supplied maps require REQUIRED map usage.
                 All player-facing prose must be natural Korean. Keep arrays explicit, including empty arrays.
                 configuration=%s
-                sourceDocuments=%s
-                resolutionEvidence=%s
-                sourceConstraintPack=%s
-                citations=%s
+                RAG_RETRIEVAL:
+                Use the dynamic tools search_story_sources and search_rule_evidence to retrieve authoritative excerpts.
+                Query the tools before making any source-grounded claim. The tools return citationKey and excerpt values;
+                use only citationKey values returned by those tools. Do not rely on preloaded source text.
+                Registered citation metadata (keys only)=%s
                 maps=%s
                 previousViolations=%s
                 previousCandidate=%s
@@ -167,8 +184,7 @@ public final class AdventureStoryPlanController {
                 AVAILABLE MAPS (authoritative):
                 %s
                 """.formatted(configuration.minimumStages(), configuration.maximumStages(), configuration.endingCount(),
-                configuration.endingCount(), configuration, request.sourceDocuments(), request.resolutionEvidence(),
-                request.sourceConstraintPack(), request.citations(), request.maps(), request.violations(),
+                configuration.endingCount(), configuration, citationMetadata(request.citations()), promptMaps(request.maps()), request.violations(),
                 request.previousCandidate(), availableMaps);
     }
 
@@ -209,6 +225,11 @@ public final class AdventureStoryPlanController {
     }
 
     private String complete(AgentEndpoint endpoint, String operationId, String prompt, Configuration configuration) throws IOException, InterruptedException {
+        return complete(endpoint, operationId, prompt, configuration, List.of());
+    }
+
+    private String complete(AgentEndpoint endpoint, String operationId, String prompt, Configuration configuration,
+            List<CodexAppServerClient.DynamicTool> dynamicTools) throws IOException, InterruptedException {
         long startedAt = System.nanoTime();
         String phase = phase(operationId);
         String model = endpoint.model().isBlank() ? ollamaModel : endpoint.model();
@@ -218,7 +239,8 @@ public final class AdventureStoryPlanController {
         boolean timeout = false;
         try {
             if (endpoint.provider() == AgentEndpoint.Provider.CODEX_CLI) {
-                result = new CodexCliStoryPlanAdapter(codexExecutable, model, codexWorkDirectory, codexTimeout, codexReasoning).complete(operationId, prompt);
+                result = new CodexCliStoryPlanAdapter(codexExecutable, model, codexWorkDirectory, codexTimeout, codexReasoning)
+                        .complete(operationId, prompt, dynamicTools);
                 return result;
             }
             URI baseUrl = endpoint.provider() == AgentEndpoint.Provider.OLLAMA ? endpoint.baseUrl() : ollamaBaseUrl;
@@ -237,6 +259,147 @@ public final class AdventureStoryPlanController {
         } finally {
             turnCompletedReceived = result != null;
             LOGGER.info("story_plan_stage_completed stage={} operationId={} provider={} model={} reasoning={} durationMs={} promptChars={} estimatedPromptTokens={} responseChars={} turnId={} turnCompletedReceived={} timeout={}", phase, AiCallObservability.safe(operationId), endpoint.provider(), AiCallObservability.safe(model), AiCallObservability.safe(codexReasoning), java.time.Duration.ofNanos(System.nanoTime() - startedAt).toMillis(), prompt.length(), AiCallObservability.estimatedTokens(prompt.length()), result == null ? 0 : result.length(), "provider-managed", turnCompletedReceived, timeout);
+            LOGGER.info("story_plan_trace operationId={} phase={} promptChars={} responseChars={} dynamicTools={}",
+                    AiCallObservability.safe(operationId), phase, prompt.length(), result == null ? 0 : result.length(), dynamicTools.stream().map(CodexAppServerClient.DynamicTool::name).toList());
+        }
+    }
+
+    private List<CodexAppServerClient.DynamicTool> retrievalTools(
+            RetrievalContext context, List<SourceCitation> citations) {
+        if (context == null || context.ownerId() == null || context.documents().isEmpty()) return List.of();
+        return List.of(
+                new CodexAppServerClient.DynamicTool(
+                        "search_story_sources",
+                        "Search the indexed published STORYBOOK evidence for a focused adventure fact.",
+                        retrievalInputSchema(), arguments -> searchStorySources(context, citations, arguments)),
+                new CodexAppServerClient.DynamicTool(
+                        "search_rule_evidence",
+                        "Search the indexed published RULEBOOK evidence for a focused game-rule fact.",
+                        retrievalInputSchema(), arguments -> searchRuleEvidence(context, citations, arguments)));
+    }
+
+    private ObjectNode retrievalInputSchema() {
+        ObjectNode schema = mapper.createObjectNode();
+        schema.put("type", "object");
+        schema.putObject("properties").putObject("query").put("type", "string");
+        schema.with("properties").putObject("limit").put("type", "integer").put("minimum", 1).put("maximum", 8);
+        schema.putArray("required").add("query");
+        schema.put("additionalProperties", false);
+        return schema;
+    }
+
+    private String searchStorySources(RetrievalContext context, List<SourceCitation> citations, JsonNode arguments) {
+        ObjectNode body = mapper.createObjectNode();
+        body.put("ownerId", context.ownerId().toString());
+        ArrayNode documents = body.putArray("documents");
+        context.documents().stream().filter(document -> "STORYBOOK".equalsIgnoreCase(document.documentType()))
+                .distinct().forEach(document -> documents.addObject()
+                        .put("documentId", document.documentId().toString())
+                        .put("extractionVersion", document.extractionVersion()));
+        body.putArray("activeLocators");
+        body.put("situation", query(arguments));
+        body.put("limit", limit(arguments));
+        return searchEvidence("internal/v1/story-sources/search", body, citations, "STORYBOOK", "knowledgeDocumentId");
+    }
+
+    private String searchRuleEvidence(RetrievalContext context, List<SourceCitation> citations, JsonNode arguments) {
+        ObjectNode body = mapper.createObjectNode();
+        body.put("ownerId", context.ownerId().toString());
+        ArrayNode rulebooks = body.putArray("rulebookIds");
+        context.documents().stream().filter(document -> "RULEBOOK".equalsIgnoreCase(document.documentType()))
+                .map(RetrievalDocument::documentId).distinct().forEach(id -> rulebooks.add(id.toString()));
+        body.put("situation", query(arguments));
+        body.put("queryIntent", "MIXED");
+        body.put("limit", limit(arguments));
+        return searchEvidence("internal/v1/rule-evidence/search", body, citations, "RULEBOOK", "rulebookId");
+    }
+
+    private String searchEvidence(String path, ObjectNode body, List<SourceCitation> citations,
+            String documentType, String documentIdField) {
+        try {
+            HttpResponse<String> response = httpClient.send(HttpRequest.newBuilder(ruleKnowledgeBaseUrl.resolve(path))
+                    .timeout(Duration.ofSeconds(30)).header("Content-Type", "application/json")
+                    .header("Authorization", "Bearer " + body.path("ownerId").asText())
+                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body))).build(),
+                    HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new IllegalStateException("RAG search failed with HTTP " + response.statusCode());
+            }
+            JsonNode root = mapper.readTree(response.body());
+            ArrayNode result = mapper.createArrayNode();
+            root.path("evidence").forEach(item -> {
+                String documentId = item.path(documentIdField).asText("");
+                long extractionVersion = item.path("extractionVersion").asLong(0);
+                String locator = item.path("locator").asText("");
+                String citationKey = citations.stream()
+                        .filter(citation -> documentType.equalsIgnoreCase(citation.documentType()))
+                        .filter(citation -> documentId.equals(citation.documentId()))
+                        .filter(citation -> extractionVersion == citation.extractionVersion())
+                        .filter(citation -> locator.equals(citation.locator()))
+                        .map(SourceCitation::citationKey).filter(key -> key != null && !key.isBlank()).findFirst().orElse("");
+                if (citationKey.isBlank()) return;
+                result.addObject().put("citationKey", citationKey)
+                        .put("documentType", documentType)
+                        .put("documentId", documentId)
+                        .put("extractionVersion", extractionVersion)
+                        .put("locator", locator)
+                        .put("excerpt", item.path("excerpt").asText(""));
+            });
+            ObjectNode output = mapper.createObjectNode();
+            output.set("evidence", result);
+            return output.toString();
+        } catch (IOException exception) {
+            throw new IllegalStateException("RAG search response could not be read", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("RAG search interrupted", exception);
+        }
+    }
+
+    private static String query(JsonNode arguments) {
+        String query = arguments == null ? "" : arguments.path("query").asText("").trim();
+        if (query.isBlank()) throw new IllegalArgumentException("RAG query must not be blank");
+        return query;
+    }
+
+    private static int limit(JsonNode arguments) {
+        return Math.max(1, Math.min(8, arguments == null ? 5 : arguments.path("limit").asInt(5)));
+    }
+
+    private String citationMetadata(List<SourceCitation> citations) {
+        return (citations == null ? List.<SourceCitation>of() : citations).stream()
+                .map(citation -> "citationKey=" + citation.citationKey() + ", documentType=" + citation.documentType()
+                        + ", documentId=" + citation.documentId() + ", extractionVersion=" + citation.extractionVersion()
+                        + ", locator=" + citation.locator())
+                .collect(java.util.stream.Collectors.joining("\n"));
+    }
+
+    private String promptMaps(List<MapContext> maps) {
+        return (maps == null ? List.<MapContext>of() : maps).stream()
+                .map(map -> "mapDefinitionId=" + map.mapDefinitionId() + ", assetId=" + map.assetId()
+                        + ", assetLocator=" + map.assetLocator() + ", sourceLocator=" + map.sourceLocator()
+                        + ", confidence=" + map.confidence() + ", safetyStatus=" + map.safetyStatus()
+                        + ", mapContext=" + map.context())
+                .collect(java.util.stream.Collectors.joining("\n"));
+    }
+
+    private String compactCandidateForPrompt(String candidate) {
+        if (candidate == null || candidate.isBlank()) return "";
+        try {
+            JsonNode root = mapper.readTree(candidate);
+            root.path("stages").forEach(stage -> {
+                if (!stage.isObject() || !stage.path("evidence").isArray()) return;
+                ArrayNode evidence = mapper.createArrayNode();
+                stage.path("evidence").forEach(item -> {
+                    ObjectNode keyOnly = mapper.createObjectNode();
+                    keyOnly.put("citationKey", item.path("citationKey").asText(""));
+                    evidence.add(keyOnly);
+                });
+                ((ObjectNode) stage).set("evidence", evidence);
+            });
+            return root.toString();
+        } catch (IOException exception) {
+            return "[previous candidate unavailable for prompt]";
         }
     }
 
@@ -283,34 +446,31 @@ public final class AdventureStoryPlanController {
                 The plan configuration requires exactly %s distinct ending IDs. Preserve the explicit ending-1 through ending-%s IDs from the plan; do not omit, merge, rename, or invent ending IDs.
                 Include stageType, location, and mapUsage (REQUIRED, OPTIONAL, or NONE) when present. Include mapDefinitionId, mapAssetId, and mapAssetLocator only when mapUsage is REQUIRED; copy all three from the same AVAILABLE MAPS entry. OPTIONAL and NONE may omit them.
                 Set combatRequirement to REQUIRED only when the stage has a concrete combat skeleton with at least one sourced participant; use POSSIBLE for a source-supported possibility that is not committed, and NONE for a non-combat stage. For every stage, emit combatSkeleton with objective, startTrigger, participants, successOutcome, failureOutcome, and rewards arrays (empty strings for scalar fields and empty arrays for NONE or POSSIBLE). Every participant must include participantId, role (ENEMY or BOSS), name, minimumCount, maximumCount, and citationKeys. Use sourceFactClaims with exact fieldPath values such as combatSkeleton.participants[0].name or combatSkeleton.rewards[0]. Every sourceFactClaims item MUST be an object with non-empty fieldPath, normalizedClaim, citationKeys, and origin (SOURCE, GENERATED, or UNKNOWN). SOURCE claims require citationKeys; GENERATED and UNKNOWN detail may have an empty citationKeys array. normalizedClaim is the exact short claim supported by the cited excerpt for SOURCE claims, never omit it. combatSkeleton.rewards MUST be an array of the same claim objects (fieldPath, normalizedClaim, citationKeys, origin), never an array of strings. Bind every SOURCE claim to exact citation keys, and every citationKey used by a claim MUST also appear in that same stage's evidence array. Set tacticalPreparationRequirement to REQUIRED only when a REQUIRED combat stage is mapped to an available map; otherwise use NOT_REQUIRED.
-                Use only citationKey values copied verbatim from the supplied citation registry; never invent numeric, document-derived, or stage-local citation keys. Do not create sourceFactClaims for goal, conflict, transitionCondition, clearCondition, or any other narrative field: sourceFactClaims are exclusively combat skeleton claims. A combat participant name must match the cited excerpt exactly enough to be supported, and its citationKeys must point to that same registered excerpt. Keep combatRequirement consistent with the stage: NONE has no combat hints, POSSIBLE has no committed participant, and REQUIRED has a complete sourced skeleton. If a combat claim cannot be grounded by an exact supplied citation, omit the combat commitment or regenerate the complete projection rather than guessing.
-                Optional fields may be omitted or empty: npcOrClues, enemies, boss, clearCondition, failureCondition, rewards, branchIds, branchTargets, and player spawn fields. When citations are supplied, evidence is REQUIRED for every stage: copy at least one exact citationKey from the supplied citation registry. Do not copy document IDs, extraction versions, locators, quotes, or confidence into evidence. When both STORYBOOK and RULEBOOK citations are supplied, the complete plan MUST include at least one exact citationKey for each type across its stages. A trigger is represented only by a short reference or lookup key; never copy the full trigger or rule text.
+                Use only citationKey values returned by RAG; never invent numeric, document-derived, or stage-local citation keys. Do not create sourceFactClaims for goal, conflict, transitionCondition, clearCondition, or any other narrative field: sourceFactClaims are exclusively combat skeleton claims. A combat participant must be grounded by an excerpt returned by RAG, and its citationKeys must point to that same returned result. Keep combatRequirement consistent with the stage: NONE has no combat hints, POSSIBLE has no committed participant, and REQUIRED has a complete sourced skeleton. If a combat claim cannot be grounded by an exact RAG result, omit the combat commitment or regenerate the complete projection rather than guessing.
+                Optional fields may be omitted or empty: npcOrClues, enemies, boss, clearCondition, failureCondition, rewards, branchIds, branchTargets, and player spawn fields. When citations are registered, evidence is REQUIRED for every stage: copy at least one exact citationKey returned by RAG. Do not copy document IDs, extraction versions, locators, quotes, or confidence into evidence. When both STORYBOOK and RULEBOOK citations are registered, the complete plan MUST include at least one exact citationKey for each type across its stages. A trigger is represented only by a short reference or lookup key; never copy the full trigger or rule text. Every conditional event, hidden-information trigger, secret, clue reveal, or rules check MUST preserve both an explicit success outcome and an explicit failure or fail-forward consequence from the verified Markdown. Do not encode a one-sided conditional branch, and do not invent either outcome when the source does not support it.
                 Arrays may be empty arrays and branchTargets may be an empty object. Never invent a map, trigger, citation, enemy, reward, or ending. Use the ending IDs stated in the plan, or a stable structural ending ID when necessary.
                 If the plan is invalid, return the best faithful projection so the application can report the violation. Preserve required burning-web or other hazard failure consequences from the verified Markdown as stage failureCondition text; do not turn them into sourceFactClaims or drop them.
                 configuration=%s
-                sourceDocuments=%s
-                resolutionEvidence=%s
+                RAG_RETRIEVAL:
+                Use the dynamic tools search_story_sources and search_rule_evidence to retrieve authoritative excerpts.
+                Query the tools before making any source-grounded claim. The tools return citationKey and excerpt values;
+                use only citationKey values returned by those tools. Do not rely on preloaded source text.
+                registeredCitationMetadata=%s
                 maps=%s
-                citations=%s
                 previousViolations=%s
 
                 GENERATED MARKDOWN:
                 %s
-                """.formatted(configuration.endingCount(), configuration.endingCount(), configuration, request.sourceDocuments(), request.resolutionEvidence(), request.maps(), request.citations(), request.violations(), generatedMarkdown);
+                """.formatted(configuration.endingCount(), configuration.endingCount(), configuration,
+                citationMetadata(request.citations()), promptMaps(request.maps()), request.violations(), generatedMarkdown);
     }
 
     private String repairPrompt(RepairRequest request, Configuration configuration) {
-        boolean outcomeOnlyRepair = request.violations().stream()
-                .allMatch(violation -> "MISSING_RULE_OUTCOME".equals(violation.code()));
-        String sourceDocuments = outcomeOnlyRepair ? "(not needed for this local failure-condition repair)" : request.sourceDocuments().toString();
-        String resolutionEvidence = outcomeOnlyRepair ? "(not needed for this local failure-condition repair)" : request.resolutionEvidence().toString();
-        String maps = outcomeOnlyRepair ? "(not needed for this local failure-condition repair)" : request.maps().toString();
-        String citations = outcomeOnlyRepair ? "(not needed for this local failure-condition repair)" : request.citations().toString();
         return """
                 You are repairing one rejected execution projection. Return the COMPLETE projection JSON object, never a patch.
                 Preserve every field exactly unless its JSON path is listed in STRUCTURED VIOLATIONS. Do not add, remove, rename, or
-                mutate any unlisted field. Use only the authoritative citation, map, and source registries supplied below; never invent,
-                fuzzy-match, or copy a quote, locator, document ID, map ID, or source that is not registered. The server will rerun the
+                mutate any unlisted field. Use only citation keys returned by the dynamic RAG tools and the registered map metadata; never invent,
+                fuzzy-match, or copy a quote, locator, document ID, map ID, or source that was not returned by RAG. The server will rerun the
                 complete schema, citation/map/source, and business-rule validation chain after this response.
                 The response root MUST be an object with a stages array and must contain the full candidate, not a JSON patch. For a failure-consequence violation, repair only the affected stage failureCondition and preserve its concrete fail-forward consequence. For citation or participant violations, use only exact registered keys and keep the claim, participant, and same-stage evidence binding consistent.
                 Every committed combat participant MUST contain non-empty participantId, role (ENEMY or BOSS), name,
@@ -321,19 +481,20 @@ public final class AdventureStoryPlanController {
                 configuration=%s
                 structuredViolations=%s
                 deterministicRepairScope=%s
-                authoritativeSourceDocuments=%s
-                authoritativeResolutionEvidence=%s
-                authoritativeMaps=%s
-                authoritativeCitations=%s
+                RAG_RETRIEVAL:
+                Use the dynamic tools search_story_sources and search_rule_evidence to retrieve only the authoritative
+                excerpts needed for the listed violations. The tools return citationKey and excerpt values; use only
+                citationKey values returned by those tools. Do not rely on preloaded source text.
+                registeredCitationMetadata=%s
                 previousFullCandidate=%s
-                """.formatted(configuration, request.violations(), request.repairScope(), sourceDocuments, resolutionEvidence,
-                maps, citations, request.previousCandidate());
+                """.formatted(configuration, request.violations(), request.repairScope(),
+                citationMetadata(request.citations()), compactCandidateForPrompt(request.previousCandidate().toString()));
     }
 
     private String verificationDecisionPrompt(Request request, Configuration configuration, String generatedMarkdown) {
         return """
                 You are an independent verifier for a generated tabletop adventure plan.
-                Inspect only whether essential information is present and usable against the supplied source evidence, citations, map contract, and configuration.
+                Inspect only whether essential information is present and usable against RAG results, registered map metadata, and configuration.
                 Do not rewrite, summarize, extract, or normalize the plan. Do not return stages or any other plan data.
                 Return ONLY one JSON object with exactly these fields: {"status":"PASS"|"FAIL","violations":["..."]}.
                 Use PASS when the plan has a goal, start situation, playable progression, transition or completion conditions, and at least one ending.
@@ -347,13 +508,14 @@ public final class AdventureStoryPlanController {
                 Fail only for missing essential information, an unusable required trigger/check, a missing required map reference, or a clear contradiction with supplied evidence.
                 violations must contain concise actionable descriptions. Return an empty array only for PASS.
                 configuration=%s
-                sourceDocuments=%s
-                resolutionEvidence=%s
+                RAG_RETRIEVAL:
+                Use the dynamic tools search_story_sources and search_rule_evidence to retrieve only the authoritative
+                excerpts needed to verify source-grounded claims. Do not rely on preloaded source text.
+                registeredCitationMetadata=%s
                 maps=%s
-                citations=%s
                 generatedMarkdown=
                 %s
-                """.formatted(configuration, request.sourceDocuments(), request.resolutionEvidence(), request.maps(), request.citations(), generatedMarkdown);
+                """.formatted(configuration, citationMetadata(request.citations()), promptMaps(request.maps()), generatedMarkdown);
     }
 
     /** Verifies an already generated plan without rewriting it into the execution model. */
@@ -368,7 +530,7 @@ public final class AdventureStoryPlanController {
         Configuration configuration = request.configuration() == null ? Configuration.defaults() : request.configuration();
         String prompt = """
                 You are an independent verifier for a generated tabletop adventure plan.
-                Inspect only whether essential information is present and usable against the supplied source evidence, citations, map contract, and configuration.
+                Inspect only whether essential information is present and usable against RAG results, registered map metadata, and configuration.
                 Do not rewrite, summarize, extract, or normalize the plan. Do not return stages or any other plan data.
                 Return ONLY one JSON object with exactly these fields: {"status":"PASS"|"FAIL","violations":["..."]}.
                 Use PASS when the plan has a goal, start situation, playable progression, transition or completion conditions, and at least one ending.
@@ -382,15 +544,17 @@ public final class AdventureStoryPlanController {
                 Fail only for missing essential information, an unusable required trigger/check, a missing required map reference, or a clear contradiction.
                 violations must contain concise, actionable Korean or English descriptions. Return an empty array only for PASS.
                 configuration=%s
-                sourceDocuments=%s
-                resolutionEvidence=%s
+                RAG_RETRIEVAL:
+                Use the dynamic tools search_story_sources and search_rule_evidence to retrieve only the authoritative
+                excerpts needed to verify source-grounded claims. Do not rely on preloaded source text.
+                registeredCitationMetadata=%s
                 maps=%s
-                citations=%s
                 generatedMarkdown=
                 %s
-                """.formatted(configuration, request.sourceDocuments(), request.resolutionEvidence(), request.maps(), request.citations(), request.generatedMarkdown());
+                """.formatted(configuration, citationMetadata(request.citations()), promptMaps(request.maps()), request.generatedMarkdown());
         try {
-            String response = complete(endpoint, request.operationId(), prompt, configuration);
+            String response = complete(endpoint, request.operationId(), prompt, configuration,
+                    retrievalTools(request.retrievalContext(), request.citations()));
             return parseVerificationResponse(response);
         } catch (CandidateResponseValidationException invalidCandidate) {
             throw invalidCandidate;
@@ -626,6 +790,10 @@ public final class AdventureStoryPlanController {
 
     private void canonicalizeStage(ObjectNode stage, int stageIndex, Map<String, SourceCitation> registry,
             List<ProjectionViolation> violations) {
+        // schemaVersion is a server-owned contract marker. Older providers may
+        // omit it even when they emit the current projection fields; do not let
+        // that omission downgrade an otherwise canonical v2 response.
+        stage.put("schemaVersion", STORY_PLAN_SCHEMA_VERSION);
         Set<String> evidenceKeys = new java.util.LinkedHashSet<>();
         ArrayNode evidence = mapper.createArrayNode();
         JsonNode rawEvidence = stage.get("evidence");
@@ -983,36 +1151,40 @@ public final class AdventureStoryPlanController {
     }
     public record Request(String operationId, long packageRevision, int partySize, Configuration configuration, List<String> sourceDocuments,
             List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations, List<String> violations,
-            String previousCandidate, String generationMode, JsonNode sourceConstraintPack) {
+            String previousCandidate, String generationMode, JsonNode sourceConstraintPack,
+            RetrievalContext retrievalContext) {
         public Request(String operationId, long packageRevision, int partySize, Configuration configuration, List<String> sourceDocuments,
                 List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations, List<String> violations,
                 String previousCandidate) {
             this(operationId, packageRevision, partySize, configuration, sourceDocuments, resolutionEvidence, maps, citations,
-                    violations, previousCandidate, "GENERATIVE", null);
+                    violations, previousCandidate, "GENERATIVE", null, RetrievalContext.empty());
         }
         public Request(String operationId, long packageRevision, int partySize, Configuration configuration,
                 List<String> sourceDocuments, List<String> resolutionEvidence,
                 List<MapContext> maps, List<SourceCitation> citations) {
             this(operationId, packageRevision, partySize, configuration, sourceDocuments,
-                    resolutionEvidence, maps, citations, List.of(), "");
+                    resolutionEvidence, maps, citations, List.of(), "", "GENERATIVE", null, RetrievalContext.empty());
         }
         public Request(String operationId, long packageRevision, int partySize, Configuration configuration, List<String> sourceDocuments, List<String> resolutionEvidence) {
             this(operationId, packageRevision, partySize, configuration, sourceDocuments,
-                    resolutionEvidence, List.of(), List.of(), List.of(), "");
+                    resolutionEvidence, List.of(), List.of(), List.of(), "", "GENERATIVE", null, RetrievalContext.empty());
         }
         public Request {
             violations = violations == null ? List.of() : List.copyOf(violations);
             previousCandidate = previousCandidate == null ? "" : previousCandidate;
             generationMode = generationMode == null || generationMode.isBlank() ? "GENERATIVE" : generationMode;
+            retrievalContext = retrievalContext == null ? RetrievalContext.empty() : retrievalContext;
         }
     }
     public record VerificationRequest(String operationId, Configuration configuration, List<String> sourceDocuments,
-            List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations, String generatedMarkdown) {
+            List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations, String generatedMarkdown,
+            RetrievalContext retrievalContext) {
         public VerificationRequest {
             sourceDocuments = sourceDocuments == null ? List.of() : List.copyOf(sourceDocuments);
             resolutionEvidence = resolutionEvidence == null ? List.of() : List.copyOf(resolutionEvidence);
             maps = maps == null ? List.of() : List.copyOf(maps);
             citations = citations == null ? List.of() : List.copyOf(citations);
+            retrievalContext = retrievalContext == null ? RetrievalContext.empty() : retrievalContext;
         }
     }
     public record VerificationResponse(String status, List<String> violations) {
@@ -1047,6 +1219,16 @@ public final class AdventureStoryPlanController {
             this(documentType, documentId, extractionVersion, locator, quote, confidence, "");
         }
     }
+    public record RetrievalContext(UUID ownerId, List<RetrievalDocument> documents) {
+        public RetrievalContext {
+            documents = documents == null ? List.of() : List.copyOf(documents);
+        }
+
+        public static RetrievalContext empty() {
+            return new RetrievalContext(null, List.of());
+        }
+    }
+    public record RetrievalDocument(String documentType, UUID documentId, long extractionVersion) {}
     public record CitationProjection(String citationKey) {}
     public record ProjectionViolation(String code, Integer stagePosition, String fieldPath, String rejectedValue,
             String citationContext, Repairability repairability, String sanitizedMessage) {
@@ -1060,12 +1242,12 @@ public final class AdventureStoryPlanController {
     public record RepairRequest(String operationId, long packageRevision, int partySize, Configuration configuration,
             JsonNode previousCandidate, List<ProjectionViolation> violations, List<String> sourceDocuments,
             List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations,
-            RepairScope repairScope) {
+            RepairScope repairScope, RetrievalContext retrievalContext) {
         public RepairRequest(String operationId, long packageRevision, int partySize, Configuration configuration,
                 JsonNode previousCandidate, List<ProjectionViolation> violations, List<String> sourceDocuments,
                 List<String> resolutionEvidence, List<MapContext> maps, List<SourceCitation> citations) {
             this(operationId, packageRevision, partySize, configuration, previousCandidate, violations, sourceDocuments,
-                    resolutionEvidence, maps, citations, RepairScope.from(violations));
+                    resolutionEvidence, maps, citations, RepairScope.from(violations), RetrievalContext.empty());
         }
         public RepairRequest {
             violations = violations == null ? List.of() : List.copyOf(violations);
@@ -1073,6 +1255,7 @@ public final class AdventureStoryPlanController {
             resolutionEvidence = resolutionEvidence == null ? List.of() : List.copyOf(resolutionEvidence);
             maps = maps == null ? List.of() : List.copyOf(maps);
             citations = citations == null ? List.of() : List.copyOf(citations);
+            retrievalContext = retrievalContext == null ? RetrievalContext.empty() : retrievalContext;
             if (repairScope == null) {
                 throw new IllegalArgumentException("deterministic repair scope must be explicit");
             }

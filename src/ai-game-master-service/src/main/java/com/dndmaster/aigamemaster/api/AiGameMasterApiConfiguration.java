@@ -116,9 +116,10 @@ public class AiGameMasterApiConfiguration {
             @org.springframework.beans.factory.annotation.Value("${ai.codex.executable:codex}") String codexExecutable,
             @org.springframework.beans.factory.annotation.Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
             @org.springframework.beans.factory.annotation.Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout,
-            @org.springframework.beans.factory.annotation.Value("${ai-game-master.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+            @org.springframework.beans.factory.annotation.Value("${ai-game-master.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
+            @org.springframework.beans.factory.annotation.Value("${rule-knowledge.base-url:${RULE_KNOWLEDGE_BASE_URL:http://127.0.0.1:8080/}}") String ruleKnowledgeBaseUrl) {
         return new AdventureStoryPlanController(adapter, objectMapper, endpointRegistry, ollamaBaseUrl, ollamaModel, codexExecutable, codexWorkDirectory, codexTimeout,
-                new ApiRequestGuard(internalToken));
+                "medium", new ApiRequestGuard(internalToken), ruleKnowledgeBaseUrl);
     }
 
     @Bean

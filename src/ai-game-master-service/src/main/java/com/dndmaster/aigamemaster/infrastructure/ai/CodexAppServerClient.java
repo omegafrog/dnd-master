@@ -18,6 +18,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,6 +41,16 @@ public final class CodexAppServerClient implements AutoCloseable {
     private BufferedReader output;
     private long requestId;
 
+    public record DynamicTool(String name, String description, JsonNode inputSchema,
+            Function<JsonNode, String> handler) {
+        public DynamicTool {
+            if (name == null || name.isBlank()) throw new IllegalArgumentException("dynamic tool name required");
+            if (description == null || description.isBlank()) throw new IllegalArgumentException("dynamic tool description required");
+            if (inputSchema == null || !inputSchema.isObject()) throw new IllegalArgumentException("dynamic tool input schema must be an object");
+            if (handler == null) throw new IllegalArgumentException("dynamic tool handler required");
+        }
+    }
+
     private CodexAppServerClient(String executable, Path workDirectory, Duration timeout, ObjectMapper mapper) {
         this.executable = require(executable, "Codex executable");
         this.workDirectory = workDirectory.toAbsolutePath().normalize();
@@ -53,12 +64,18 @@ public final class CodexAppServerClient implements AutoCloseable {
     }
 
     public synchronized String complete(String operationId, String prompt, String requestedModel, String reasoning) {
-        return complete(operationId, prompt, requestedModel, reasoning, null);
+        return complete(operationId, prompt, requestedModel, reasoning, null, List.of());
     }
     public synchronized String complete(String operationId, String prompt, String requestedModel, String reasoning, JsonNode outputSchema) {
+        return complete(operationId, prompt, requestedModel, reasoning, outputSchema, List.of());
+    }
+
+    public synchronized String complete(String operationId, String prompt, String requestedModel, String reasoning,
+            JsonNode outputSchema, List<DynamicTool> dynamicTools) {
         if (operationId == null || operationId.isBlank() || prompt == null || prompt.isBlank()) {
             throw new IllegalArgumentException("operation id and prompt required");
         }
+        dynamicTools = dynamicTools == null ? List.of() : List.copyOf(dynamicTools);
         long startedAt = System.nanoTime();
         long deadlineNanos = System.nanoTime() + timeout.toNanos();
         String model = requestedModel == null || requestedModel.isBlank() ? "default" : requestedModel;
@@ -74,6 +91,7 @@ public final class CodexAppServerClient implements AutoCloseable {
             threadParams.put("sandbox", "read-only");
             threadParams.put("ephemeral", true);
             putModel(threadParams, requestedModel);
+            if (!dynamicTools.isEmpty()) threadParams.set("dynamicTools", dynamicToolSpecs(dynamicTools));
             JsonNode thread = request("thread/start", threadParams, deadlineNanos).path("thread");
             threadId = thread.path("id").asText("");
             if (threadId.isBlank()) throw new IllegalStateException("Codex app-server did not return a thread id");
@@ -108,6 +126,10 @@ public final class CodexAppServerClient implements AutoCloseable {
                 String method = message.path("method").asText("");
                 if (!method.isBlank()) lastMethod = method;
                 JsonNode params = message.path("params");
+                if (message.has("id") && !message.has("result") && !message.has("error")) {
+                    handleServerRequest(message, dynamicTools, operationId);
+                    continue;
+                }
                 if (!method.isBlank() && !"item/agentMessage/delta".equals(method)) {
                     LOGGER.info("ai_agent_event provider=codex operationId={} stage={} method={} turnId={}", safe(operationId), stage(operationId), safe(method), safe(threadId));
                 }
@@ -283,7 +305,6 @@ public final class CodexAppServerClient implements AutoCloseable {
                 if (message.has("error")) throw rpcError(message);
                 return message.path("result");
             }
-            handleServerRequest(message);
         }
     }
 
@@ -322,12 +343,58 @@ public final class CodexAppServerClient implements AutoCloseable {
         input.flush();
     }
 
-    private void handleServerRequest(JsonNode message) throws IOException {
+    private void handleServerRequest(JsonNode message, List<DynamicTool> dynamicTools, String operationId) throws IOException {
         if (!message.has("id") || !message.has("method")) return;
+        if ("item/tool/call".equals(message.path("method").asText())) {
+            handleDynamicToolCall(message, dynamicTools, operationId);
+            return;
+        }
         ObjectNode response = mapper.createObjectNode();
-        response.put("id", message.path("id").asLong());
+        response.set("id", message.get("id"));
         response.putObject("error").put("code", -32000).put("message", "D&D Master does not support interactive app-server requests");
         send(response);
+    }
+
+    private void handleDynamicToolCall(JsonNode message, List<DynamicTool> dynamicTools, String operationId) throws IOException {
+        JsonNode params = message.path("params");
+        String toolName = params.path("tool").asText("");
+        DynamicTool tool = dynamicTools.stream().filter(candidate -> candidate.name().equals(toolName)).findFirst().orElse(null);
+        boolean success = tool != null;
+        String output;
+        if (tool == null) {
+            output = "Unknown dynamic tool: " + toolName;
+        } else {
+            try {
+                output = tool.handler().apply(params.path("arguments"));
+                if (output == null || output.isBlank()) {
+                    success = false;
+                    output = "Dynamic tool returned no result";
+                }
+            } catch (RuntimeException failure) {
+                success = false;
+                output = "Dynamic tool failed: " + safeMessage(failure);
+            }
+        }
+        LOGGER.info("ai_agent_dynamic_tool_call provider=codex operationId={} tool={} success={} resultChars={}",
+                safe(operationId), safe(toolName), success, output.length());
+        ObjectNode response = mapper.createObjectNode();
+        response.set("id", message.get("id"));
+        ObjectNode result = response.putObject("result");
+        result.put("success", success);
+        result.putArray("contentItems").addObject().put("type", "inputText").put("text", output);
+        send(response);
+    }
+
+    private ArrayNode dynamicToolSpecs(List<DynamicTool> dynamicTools) {
+        ArrayNode specs = mapper.createArrayNode();
+        for (DynamicTool tool : dynamicTools) {
+            ObjectNode spec = specs.addObject();
+            spec.put("type", "function");
+            spec.put("name", tool.name());
+            spec.put("description", tool.description());
+            spec.set("inputSchema", tool.inputSchema().deepCopy());
+        }
+        return specs;
     }
 
     private static void appendCompletedAgentMessage(StringBuilder response, JsonNode item) {

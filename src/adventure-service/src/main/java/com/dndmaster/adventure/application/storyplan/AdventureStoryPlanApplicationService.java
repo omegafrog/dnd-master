@@ -132,7 +132,7 @@ public final class AdventureStoryPlanApplicationService {
                 configuration, sourceDocuments(session), resolutionEvidence(session), mapContexts(scenarioPackage), authoritativeCitations,
                 List.of(), "", StoryPlanGenerationMode.fromDocumentTypes(authoritativeCitations.stream()
                         .map(AdventureStoryPlanGenerationPort.SourceCitation::documentType).toList()),
-                constraintPack(authoritativeCitations))
+                constraintPack(authoritativeCitations), retrievalContext(owner, scenarioPackage))
                 .withCitationKeys()
                 .withPreviousCandidate("");
         LOGGER.info("story_plan_generation_input packageId={} citations={} resolutionEvidence={} maps={} sourceDocuments={}",
@@ -166,21 +166,27 @@ public final class AdventureStoryPlanApplicationService {
                 if (repairNext) {
                     RepairScope repairScope;
                     try {
-                        repairScope = repairScopeResolver.resolve(rejectedCandidate, accumulatedViolations);
+                        repairScope = repairScopeResolver.resolve(rejectedCandidate, activeViolations);
                     } catch (IllegalArgumentException failure) {
                         throw new RepairScopeResolutionException(failure);
                     }
-                    logAttempt(request, AttemptType.REPAIR, totalAttempts, repairScope, accumulatedViolations, "STARTED");
+                    logAttempt(request, AttemptType.REPAIR, totalAttempts, repairScope, activeViolations, "STARTED");
                     LOGGER.info("story_plan_projection_repair_scope operationId={} attempt={} blockers={} dependents={} repairable={}",
                             request.operationId(), attempt,
                             repairScope.blockerPaths(), repairScope.dependentPaths(), repairScope.isRepairable());
+                    if (!repairScope.isRepairable()) {
+                        throw new RepairScopeResolutionException(
+                                new IllegalArgumentException("repair scope is not repairable"));
+                    }
                     AdventureStoryPlanGenerationPort.ProjectionCandidate repaired = generator.repair(
                             new AdventureStoryPlanGenerationPort.RepairRequest(
                                     request.operationId(), request.packageRevision(), request.partySize(), configuration,
-                                    rejectedCandidate, accumulatedViolations, repairScope, request.sourceDocuments(), request.resolutionEvidence(),
-                                    request.maps(), request.citations()));
+                                    rejectedCandidate, activeViolations, repairScope, request.sourceDocuments(), request.resolutionEvidence(),
+                                    request.maps(), request.citations(), request.retrievalContext()));
                     if (repaired == null) throw new AdventureStoryPlanCandidateValidationException(
                             List.of("repair returned no full story plan candidate"), rejectedCandidate);
+                    LOGGER.info("story_plan_candidate_trace operationId={} attemptType=REPAIR attempt={} inputCandidate<<{}>> outputCandidate<<{}>> violations={}",
+                            request.operationId(), totalAttempts, rejectedCandidate, repaired.serializedCandidate(), activeViolations);
                     candidateForValidation = repaired.serializedCandidate();
                     // Repair gateways return a complete candidate after applying the
                     // deterministic scope, but the provider response remains
@@ -211,6 +217,9 @@ public final class AdventureStoryPlanApplicationService {
                     if (generated == null) throw new AdventureStoryPlanCandidateValidationException(
                             List.of("AI returned no full story plan candidate"));
                     candidateForValidation = generated.serializedCandidate();
+                    LOGGER.info("story_plan_candidate_trace operationId={} attemptType={} attempt={} inputViolations={} outputCandidate<<{}>>",
+                            request.operationId(), initialGeneration ? AttemptType.INITIAL_GENERATION : AttemptType.FULL_REGENERATION,
+                            totalAttempts, request.violations(), generated.serializedCandidate());
                     stages = materializeEntryStages(generated.stages(), scenarioPackage);
                 }
                 List<AdventureStoryPlanProjectionViolation> deterministicViolations = validateCandidate(
@@ -221,7 +230,7 @@ public final class AdventureStoryPlanApplicationService {
                 }
                 if (semanticJudge != null) {
                     SemanticVerdict verdict = semanticJudge.judge(
-                            evidencePack(request), candidateForValidation);
+                            evidencePack(request), candidateForValidation, owner.value());
                     semanticVerdicts.add(verdict);
                     StoryPlanVerdictPolicy.Decision decision = StoryPlanVerdictPolicy.decide(
                             verdict, totalAttempts, 5);
@@ -423,7 +432,10 @@ public final class AdventureStoryPlanApplicationService {
         String normalized = message.toLowerCase(java.util.Locale.ROOT);
         boolean missingFailureConsequence = normalized.contains("failure consequence")
                 || normalized.contains("fail-forward consequence")
-                || normalized.contains("failure outcome");
+                || normalized.contains("failure outcome")
+                || normalized.contains("success result")
+                || normalized.contains("success outcome")
+                || normalized.contains("successful result");
         if (missingFailureConsequence) {
             Integer stagePosition = stagePosition(message);
             String fieldPath = stagePosition == null ? "stages[*].failureCondition"
@@ -597,6 +609,16 @@ public final class AdventureStoryPlanApplicationService {
         return new SourceConstraintPack(storybook, rulebook);
     }
 
+    private static AdventureStoryPlanGenerationPort.RetrievalContext retrievalContext(
+            OwnerPlayerId owner, ScenarioPackage scenarioPackage) {
+        if (scenarioPackage == null) return AdventureStoryPlanGenerationPort.RetrievalContext.empty();
+        List<AdventureStoryPlanGenerationPort.RetrievalDocument> documents = scenarioPackage.documents().stream()
+                .map(document -> new AdventureStoryPlanGenerationPort.RetrievalDocument(
+                        document.documentType(), document.knowledgeDocumentId().value(), document.extractionVersion()))
+                .distinct().toList();
+        return new AdventureStoryPlanGenerationPort.RetrievalContext(owner.value(), documents);
+    }
+
     private static String candidateValidationMessage(RuntimeException failure) {
         String message = failure.getMessage();
         return message == null || message.isBlank()
@@ -685,7 +707,10 @@ public final class AdventureStoryPlanApplicationService {
                 || normalized.contains("burning web")
                 || normalized.contains("failure consequence")
                 || normalized.contains("fail-forward consequence")
-                || normalized.contains("failure outcome");
+                || normalized.contains("failure outcome")
+                || normalized.contains("success result")
+                || normalized.contains("success outcome")
+                || normalized.contains("successful result");
         String fieldName = missingFailureConsequence ? "failureCondition"
                 : normalized.contains("transitioncondition") ? "transitionCondition"
                 : normalized.contains("clearcondition") ? "clearCondition"
