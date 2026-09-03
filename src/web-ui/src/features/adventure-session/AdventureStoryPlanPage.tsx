@@ -108,11 +108,27 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
   useEffect(() => {
     if (!generation || generation.status === 'COMPLETE' || generation.status === 'FAILED') return
     let active = true
+    const materializePersistedTerminalPlan = async () => {
+      const persistedPlan = await api.readStoryPlan(sessionId).catch(() => null)
+      if (!active || !persistedPlan) return false
+      const normalizedPlan = normalizeAdventureStoryPlan(persistedPlan)
+      if (!isTerminalStoryPlanStatus(normalizedPlan.status)) return false
+      window.sessionStorage.removeItem(generationMarker(sessionId))
+      setPlan(normalizedPlan)
+      return true
+    }
     const poll = async () => {
       try {
         const next = normalizeAdventureStoryPlanGenerationJob(await api.readStoryPlanGeneration(generation.jobId, sessionId))
         if (!active) return
         setGeneration(next)
+        // The plan projection is durable, while the generation job is an
+        // in-memory coordinator. A worker can persist READY and still leave
+        // the job at RUNNING/100% until its final callback returns.
+        // The durable projection can reach a terminal state before the
+        // in-memory coordinator updates its progress (including BLOCKED
+        // validation results). Always prefer that authoritative projection.
+        if (next.status === 'RUNNING' && await materializePersistedTerminalPlan()) return
         if (next.status === 'COMPLETE' || next.status === 'FAILED') {
           window.sessionStorage.removeItem(generationMarker(sessionId))
           const terminalPlan = await api.readStoryPlan(sessionId).catch(() => null)

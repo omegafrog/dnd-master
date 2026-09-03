@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useRef, useState } from 'react'
-import type { AdventureApi } from './AdventureApi'
+import type { AdventureApi, AdventureMessageResponse } from './AdventureApi'
 import type { PlayerRollRequest } from './AdventureApi'
 
 type ChatMessageEntry = { speaker: string; text: string }

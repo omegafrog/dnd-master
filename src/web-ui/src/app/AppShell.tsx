@@ -78,9 +78,9 @@ export function AppShell() {
 
   const token = auth.session?.accessToken ?? ''
   const playerId = auth.session?.playerId ?? ''
-  const getToken = () => token
-  const getPlayerId = () => playerId
-  const adventureApi = useMemo(() => new HttpAdventureApi(getToken, getPlayerId), [token, playerId])
+  const getToken = useCallback(() => token, [token])
+  const getPlayerId = useCallback(() => playerId, [playerId])
+  const adventureApi = useMemo(() => new HttpAdventureApi(getToken, getPlayerId), [getToken, getPlayerId])
   const [adventureVersion, setAdventureVersion] = useState<number | null>(null)
   useEffect(() => {
     if (!auth.session || route.page !== 'adventure') return

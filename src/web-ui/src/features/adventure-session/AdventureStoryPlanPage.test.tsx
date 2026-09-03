@@ -150,6 +150,24 @@ describe('AdventureStoryPlanPage configuration', () => {
     expect(api.readStoryPlanGeneration).toHaveBeenCalledTimes(generationReads)
   })
 
+  it('uses a persisted terminal plan while the generation job is still running', async () => {
+    const api = {
+      read: vi.fn().mockResolvedValue({ sessionId: 's', version: 1, status: 'DRAFT', party: [], runtimeConfiguration: null }),
+      readStoryPlan: vi.fn()
+        .mockRejectedValueOnce(new Error('not found'))
+        .mockResolvedValueOnce({ status: 'READY', currentStage: 0, planRevision: 1, endingCount: 2, adventureLength: 'STANDARD', stages: [], failureReason: null }),
+      startStoryPlanGeneration: vi.fn().mockResolvedValue({ jobId: 'job-1', sessionId: 's', status: 'QUEUED', progress: 0, stage: '대기 중', message: null, updatedAt: '' }),
+      readStoryPlanGeneration: vi.fn().mockResolvedValue({ jobId: 'job-1', sessionId: 's', status: 'RUNNING', progress: 42, stage: '주요 모험 단계 구성', message: null, updatedAt: '' }),
+      retryStoryPlan: vi.fn(), start: vi.fn(), recoverStart: vi.fn(), saveAppliedRuleSet: vi.fn(),
+    }
+
+    render(<AdventureStoryPlanPage api={api} sessionId="s" />)
+    await userEvent.click(await screen.findByRole('button', { name: '모험 계획 생성' }))
+
+    expect(await screen.findByText('READY')).toBeTruthy()
+    expect(api.readStoryPlan).toHaveBeenCalledTimes(2)
+  })
+
   it('converges a stale generating plan when a failed job carries the terminal diagnostic', async () => {
     const api = {
       read: vi.fn().mockResolvedValue({ sessionId: 's', version: 1, status: 'DRAFT', party: [], runtimeConfiguration: null }),
