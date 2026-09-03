@@ -195,6 +195,7 @@ public final class AdventureStoryPlanApplicationService {
                     }
                     candidateForValidation = mergedCandidate.toString();
                     stages = readMergedStages(candidateForValidation);
+                    stages = materializeEntryStages(stages, scenarioPackage);
                     repairNext = false;
                 } else {
                     boolean initialGeneration = totalAttempts == 1 && regenerationCount == 0;
@@ -210,7 +211,7 @@ public final class AdventureStoryPlanApplicationService {
                     if (generated == null) throw new AdventureStoryPlanCandidateValidationException(
                             List.of("AI returned no full story plan candidate"));
                     candidateForValidation = generated.serializedCandidate();
-                    stages = generated.stages();
+                    stages = materializeEntryStages(generated.stages(), scenarioPackage);
                 }
                 List<AdventureStoryPlanProjectionViolation> deterministicViolations = validateCandidate(
                         stages, request, scenarioPackage, configuration);
@@ -613,7 +614,8 @@ public final class AdventureStoryPlanApplicationService {
                 .map(document -> document.knowledgeDocumentId().value())
                 .collect(java.util.stream.Collectors.toSet());
         for (AdventureStoryPlanStage stage : stages) {
-            if (!citations.isEmpty()) {
+            if (!citations.isEmpty()
+                    && stage.stageRole() != com.dndmaster.adventure.domain.adventure.StageRole.PROLOGUE) {
                 violations.addAll(stageSourceValidator.validateStructured(stage, citations, mapDocumentIds));
             }
         }
@@ -637,6 +639,18 @@ public final class AdventureStoryPlanApplicationService {
                         Repairability.SOURCE_EVIDENCE_INSUFFICIENT, sanitizeValidationMessage(message, "citation coverage is incomplete")))
                 .toList());
         violations.addAll(validateStageSources(stages, request.citations(), scenarioPackage));
+        if (scenarioPackage != null) {
+            for (AdventureStoryPlanStage stage : stages) {
+                if (stage.stageRole() != com.dndmaster.adventure.domain.adventure.StageRole.PROLOGUE) continue;
+                for (String message : AdventureStoryPlanStageRolePolicy.validatePrologue(
+                        stage, scenarioPackage.entryResult().sourceAnchor())) {
+                    violations.add(new AdventureStoryPlanProjectionViolation(
+                            "PROLOGUE_VALIDATION_FAILED", stage.position(),
+                            "stages[" + Math.max(0, stage.position() - 1) + "]", "", "",
+                            Repairability.REGENERATE_REQUIRED, message));
+                }
+            }
+        }
         for (AdventureStoryPlanStage stage : stages) {
             violations.addAll(combatValidator.validate(stage, request.citations()));
             if (stage.schemaVersion() < AdventureStoryPlanStage.CURRENT_SCHEMA_VERSION) {
@@ -655,6 +669,12 @@ public final class AdventureStoryPlanApplicationService {
                     sanitizeValidationMessage(invalidGraph.getMessage(), "story plan graph validation failed")));
         }
         return List.copyOf(violations);
+    }
+
+    private static List<AdventureStoryPlanStage> materializeEntryStages(
+            List<AdventureStoryPlanStage> stages, ScenarioPackage scenarioPackage) {
+        return scenarioPackage == null ? stages : AdventureStoryPlanStageRolePolicy.materialize(
+                scenarioPackage.entryResult(), stages);
     }
 
     private static AdventureStoryPlanProjectionViolation structuredViolation(String raw) {

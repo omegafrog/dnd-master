@@ -16,6 +16,7 @@ public record AdventureStoryPlanStage(
         List<String> endingIds,
         List<StoryMapBinding> mapBindings,
         AdventureStageType stageType,
+        StageRole stageRole,
         String location,
         UUID mapDefinitionId,
         String mapAssetId,
@@ -49,7 +50,7 @@ public record AdventureStoryPlanStage(
     public AdventureStoryPlanStage(int position, String title, String goal, String conflict, String transitionCondition,
             List<String> npcOrClues, List<String> endingIds, List<StoryMapBinding> mapBindings) {
         this(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings,
-                AdventureStageType.EVENT, title, null, "", "", List.of(), "", transitionCondition, "", List.of(), endingIds, List.of(), AdventureGroundingStatus.AI_SUGGESTION, List.of(), "UNAVAILABLE", null, Map.of(), 0, 0, "UNAVAILABLE", "", TacticalScenePlan.absent(), CombatRequirement.NONE, CombatSkeleton.empty(), List.of(), TacticalPreparationRequirement.NOT_REQUIRED, CURRENT_SCHEMA_VERSION);
+                AdventureStageType.EVENT, StageRole.NORMAL, title, null, "", "", List.of(), "", transitionCondition, "", List.of(), endingIds, List.of(), AdventureGroundingStatus.AI_SUGGESTION, List.of(), "UNAVAILABLE", null, Map.of(), 0, 0, "UNAVAILABLE", "", TacticalScenePlan.absent(), CombatRequirement.NONE, CombatSkeleton.empty(), List.of(), TacticalPreparationRequirement.NOT_REQUIRED, CURRENT_SCHEMA_VERSION);
     }
     public AdventureStoryPlanStage {
         if (position < 1) throw new IllegalArgumentException("stage position must be positive");
@@ -61,6 +62,7 @@ public record AdventureStoryPlanStage(
         endingIds = List.copyOf(Objects.requireNonNull(endingIds));
         mapBindings = mapBindings == null ? List.of() : List.copyOf(mapBindings);
         stageType = stageType == null ? AdventureStageType.EVENT : stageType;
+        stageRole = stageRole == null ? StageRole.NORMAL : stageRole;
         location = location == null || location.isBlank() ? title : location.trim();
         mapAssetId = mapAssetId == null ? "" : mapAssetId.trim();
         mapAssetLocator = mapAssetLocator == null ? "" : mapAssetLocator.trim();
@@ -97,7 +99,7 @@ public record AdventureStoryPlanStage(
             AdventureGroundingStatus groundingStatus, List<String> aiSuggestions, String mapSafetyStatus, Double mapConfidence,
             Map<String, String> branchTargets, Integer playerSpawnX, Integer playerSpawnY, String playerSpawnConfidence,
             String playerSpawnRationale) {
-        this(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings, stageType, location, mapDefinitionId,
+        this(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings, stageType, StageRole.NORMAL, location, mapDefinitionId,
                 mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition, rewards, branchIds, evidence, groundingStatus,
                 aiSuggestions, mapSafetyStatus, mapConfidence, branchTargets, playerSpawnX, playerSpawnY, playerSpawnConfidence,
                 playerSpawnRationale, TacticalScenePlan.absent(), CombatRequirement.NONE, CombatSkeleton.empty(), List.of(), TacticalPreparationRequirement.NOT_REQUIRED, 1);
@@ -108,7 +110,7 @@ public record AdventureStoryPlanStage(
             String location, UUID mapDefinitionId, String mapAssetId, String mapAssetLocator, List<String> enemies, String boss,
             String clearCondition, String failureCondition, List<String> rewards, List<String> branchIds, List<AdventurePlanEvidence> evidence,
             AdventureGroundingStatus groundingStatus, List<String> aiSuggestions, String mapSafetyStatus, Double mapConfidence) {
-        this(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings, stageType, location, mapDefinitionId,
+        this(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings, stageType, StageRole.NORMAL, location, mapDefinitionId,
                 mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition, rewards, branchIds, evidence, groundingStatus,
                 aiSuggestions, mapSafetyStatus, mapConfidence, Map.of(), 0, 0, "UNAVAILABLE", "", TacticalScenePlan.absent(), CombatRequirement.NONE, CombatSkeleton.empty(), List.of(), TacticalPreparationRequirement.NOT_REQUIRED, 1);
     }
@@ -120,7 +122,7 @@ public record AdventureStoryPlanStage(
             String clearCondition, String failureCondition, List<String> rewards, List<String> branchIds, List<AdventurePlanEvidence> evidence,
             AdventureGroundingStatus groundingStatus, List<String> aiSuggestions, String mapSafetyStatus, Double mapConfidence,
             Map<String, String> branchTargets) {
-        this(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings, stageType, location,
+        this(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings, stageType, StageRole.NORMAL, location,
                 mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition, rewards, branchIds,
                 evidence, groundingStatus, aiSuggestions, mapSafetyStatus, mapConfidence, branchTargets, 0, 0, "UNAVAILABLE", "", TacticalScenePlan.absent(), CombatRequirement.NONE, CombatSkeleton.empty(), List.of(), TacticalPreparationRequirement.NOT_REQUIRED, 1);
     }
@@ -129,9 +131,25 @@ public record AdventureStoryPlanStage(
         return values == null ? List.of() : List.copyOf(values);
     }
 
+    public AdventureStoryPlanStage withStageRole(StageRole nextRole) {
+        return new AdventureStoryPlanStage(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings,
+                stageType, nextRole, location, mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition,
+                rewards, branchIds, evidence, groundingStatus, aiSuggestions, mapSafetyStatus, mapConfidence, branchTargets,
+                playerSpawnX, playerSpawnY, playerSpawnConfidence, playerSpawnRationale, tacticalScenePlan,
+                combatRequirement, combatSkeleton, sourceFactClaims, tacticalPreparationRequirement, schemaVersion);
+    }
+
+    public AdventureStoryPlanStage withPosition(int nextPosition) {
+        return new AdventureStoryPlanStage(nextPosition, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings,
+                stageType, stageRole, location, mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition,
+                rewards, branchIds, evidence, groundingStatus, aiSuggestions, mapSafetyStatus, mapConfidence, branchTargets,
+                playerSpawnX, playerSpawnY, playerSpawnConfidence, playerSpawnRationale, tacticalScenePlan,
+                combatRequirement, combatSkeleton, sourceFactClaims, tacticalPreparationRequirement, schemaVersion);
+    }
+
     public AdventureStoryPlanStage withTacticalScenePlan(TacticalScenePlan scene) {
         return new AdventureStoryPlanStage(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings,
-                stageType, location, mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition,
+                stageType, stageRole, location, mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition,
                 rewards, branchIds, evidence, groundingStatus, aiSuggestions, mapSafetyStatus, mapConfidence, branchTargets,
                 playerSpawnX, playerSpawnY, playerSpawnConfidence, playerSpawnRationale, scene,
                 combatRequirement, combatSkeleton, sourceFactClaims, tacticalPreparationRequirement, schemaVersion);
@@ -140,7 +158,7 @@ public record AdventureStoryPlanStage(
     public AdventureStoryPlanStage withCombat(CombatRequirement requirement, CombatSkeleton skeleton,
             List<SourceFactClaim> claims, TacticalPreparationRequirement preparationRequirement) {
         return new AdventureStoryPlanStage(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings,
-                stageType, location, mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition,
+                stageType, stageRole, location, mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition,
                 rewards, branchIds, evidence, groundingStatus, aiSuggestions, mapSafetyStatus, mapConfidence, branchTargets,
                 playerSpawnX, playerSpawnY, playerSpawnConfidence, playerSpawnRationale, tacticalScenePlan,
                 requirement, skeleton, claims, preparationRequirement, CURRENT_SCHEMA_VERSION);
@@ -148,7 +166,7 @@ public record AdventureStoryPlanStage(
 
     public AdventureStoryPlanStage withEvidence(List<AdventurePlanEvidence> nextEvidence) {
         return new AdventureStoryPlanStage(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings,
-                stageType, location, mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition,
+                stageType, stageRole, location, mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition,
                 rewards, branchIds, nextEvidence, groundingStatus, aiSuggestions, mapSafetyStatus, mapConfidence, branchTargets,
                 playerSpawnX, playerSpawnY, playerSpawnConfidence, playerSpawnRationale, tacticalScenePlan,
                 combatRequirement, combatSkeleton, sourceFactClaims, tacticalPreparationRequirement, schemaVersion);
@@ -156,7 +174,7 @@ public record AdventureStoryPlanStage(
 
     public AdventureStoryPlanStage withSourceFactClaims(List<SourceFactClaim> nextClaims) {
         return new AdventureStoryPlanStage(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings,
-                stageType, location, mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition,
+                stageType, stageRole, location, mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition,
                 rewards, branchIds, evidence, groundingStatus, aiSuggestions, mapSafetyStatus, mapConfidence, branchTargets,
                 playerSpawnX, playerSpawnY, playerSpawnConfidence, playerSpawnRationale, tacticalScenePlan,
                 combatRequirement, combatSkeleton, nextClaims, tacticalPreparationRequirement, schemaVersion);
@@ -164,7 +182,7 @@ public record AdventureStoryPlanStage(
 
     public AdventureStoryPlanStage withSchemaVersion(int nextSchemaVersion) {
         return new AdventureStoryPlanStage(position, title, goal, conflict, transitionCondition, npcOrClues, endingIds, mapBindings,
-                stageType, location, mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition,
+                stageType, stageRole, location, mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition,
                 rewards, branchIds, evidence, groundingStatus, aiSuggestions, mapSafetyStatus, mapConfidence, branchTargets,
                 playerSpawnX, playerSpawnY, playerSpawnConfidence, playerSpawnRationale, tacticalScenePlan,
                 combatRequirement, combatSkeleton, sourceFactClaims, tacticalPreparationRequirement, nextSchemaVersion);
@@ -172,7 +190,7 @@ public record AdventureStoryPlanStage(
 
     public AdventureStoryPlanStage withConflict(String nextConflict) {
         return new AdventureStoryPlanStage(position, title, goal, nextConflict, transitionCondition, npcOrClues, endingIds, mapBindings,
-                stageType, location, mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition,
+                stageType, stageRole, location, mapDefinitionId, mapAssetId, mapAssetLocator, enemies, boss, clearCondition, failureCondition,
                 rewards, branchIds, evidence, groundingStatus, aiSuggestions, mapSafetyStatus, mapConfidence, branchTargets,
                 playerSpawnX, playerSpawnY, playerSpawnConfidence, playerSpawnRationale, tacticalScenePlan,
                 combatRequirement, combatSkeleton, sourceFactClaims, tacticalPreparationRequirement, schemaVersion);
