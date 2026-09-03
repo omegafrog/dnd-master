@@ -284,6 +284,7 @@ public final class CodexAppServerClient implements AutoCloseable {
         input = new BufferedWriter(new OutputStreamWriter(process.getOutputStream(), StandardCharsets.UTF_8));
         output = new BufferedReader(new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8));
         ObjectNode capabilities = mapper.createObjectNode();
+        capabilities.put("experimentalApi", true);
         capabilities.putArray("optOutNotificationMethods").add("item/agentMessage/delta");
         ObjectNode initialize = mapper.createObjectNode();
         initialize.putObject("clientInfo").put("name", "dnd-master").put("title", "D&D Master").put("version", "0.1.0");

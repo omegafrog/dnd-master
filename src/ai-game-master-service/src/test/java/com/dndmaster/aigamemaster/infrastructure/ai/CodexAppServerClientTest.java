@@ -90,6 +90,38 @@ class CodexAppServerClientTest {
     }
 
     @Test
+    void optsIntoExperimentalApiWhenInitializingDynamicToolSupport() throws Exception {
+        Path executable = appServerScript("""
+                #!/usr/bin/env bash
+                while IFS= read -r line; do
+                  case "$line" in
+                    *'\"method\":\"initialize\"'*)
+                      case "$line" in *'\"experimentalApi\":true'*) touch experimental-api-enabled;; esac
+                      echo '{\"id\":1,\"result\":{}}';;
+                    *'\"method\":\"thread/start\"'*) echo '{\"id\":2,\"result\":{\"thread\":{\"id\":\"thread-1\"}}}';;
+                    *'\"method\":\"turn/start\"'*)
+                      echo '{\"id\":3,\"result\":{\"turn\":{\"id\":\"turn-1\"}}}';
+                      echo '{\"method\":\"item/agentMessage/delta\",\"params\":{\"delta\":\"done\"}}';
+                      echo '{\"method\":\"turn/completed\",\"params\":{\"turn\":{\"status\":\"completed\"}}}';;
+                  esac
+                done
+                """);
+        CodexAppServerClient client = CodexAppServerClient.shared(
+                executable.toString(), executable.getParent(), Duration.ofSeconds(2), new ObjectMapper());
+        ObjectMapper mapper = new ObjectMapper();
+        var schema = mapper.createObjectNode().put("type", "object");
+        try {
+            assertThat(client.complete("experimental-api", "use lookup", "gpt-5.6-luna", "medium", null,
+                    List.of(new CodexAppServerClient.DynamicTool(
+                            "lookup", "Look up a fact", schema, arguments -> "found"))))
+                    .isEqualTo("done");
+            assertThat(Files.exists(executable.getParent().resolve("experimental-api-enabled"))).isTrue();
+        } finally {
+            client.close();
+        }
+    }
+
+    @Test
     void mapsAppServerProcessExitToProviderFailure() throws Exception {
         Path executable = appServerScript("""
                 #!/usr/bin/env bash
