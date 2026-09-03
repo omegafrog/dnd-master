@@ -27,4 +27,9 @@ public final class RuntimeNarrativeStateApplicationService {
         repository.save(sessionId, committed);
         return committed;
     }
+    public NarrativeState commitProposal(UUID sessionId, StateDelta proposal) {
+        NarrativeState committed = validator.validateAndCommitProposal(load(sessionId), proposal);
+        repository.save(sessionId, committed);
+        return committed;
+    }
 }

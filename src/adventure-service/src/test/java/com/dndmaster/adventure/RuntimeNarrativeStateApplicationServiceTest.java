@@ -5,6 +5,7 @@ import com.dndmaster.adventure.application.runtime.RuntimeNarrativeStateApplicat
 import com.dndmaster.adventure.domain.runtime.narrative.NarrativeState;
 import com.dndmaster.adventure.domain.runtime.narrative.StateDelta;
 import com.dndmaster.adventure.domain.runtime.narrative.WorldFact;
+import com.dndmaster.adventure.domain.runtime.narrative.FactAuthority;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -25,5 +26,22 @@ class RuntimeNarrativeStateApplicationServiceTest {
         assertThat(service.project(sessionId, "player", "scene").worldFacts()).extracting(WorldFact::id).containsExactly("secret");
         assertThatThrownBy(() -> service.commit(sessionId, new StateDelta(0, Set.of(), Set.of(), List.of(), List.of(), List.of(), List.of(), List.of())))
                 .isInstanceOf(IllegalStateException.class).hasMessageContaining("version");
+    }
+
+    @Test
+    void aiProposalCannotSaveDirectlyButCommitsThroughRuntimeBoundary() {
+        UUID sessionId = UUID.randomUUID();
+        var repository = new InMemoryNarrativeStateRepository();
+        var service = new RuntimeNarrativeStateApplicationService(repository);
+
+        assertThatThrownBy(() -> service.commit(sessionId, StateDelta.proposing(0, List.of(
+                new WorldFact("rumor", "a bell rings", false, FactAuthority.GENERATED_UNEXPOSED)))))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("proposal");
+
+        service.commitProposal(sessionId, StateDelta.proposing(0, List.of(
+                new WorldFact("rumor", "a bell rings", false, FactAuthority.GENERATED_UNEXPOSED))));
+
+        assertThat(service.load(sessionId).worldFacts()).containsKey("rumor");
     }
 }
