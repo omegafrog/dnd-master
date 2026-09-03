@@ -58,7 +58,7 @@ public final class AdventureStoryPlanController {
             @Value("${local-ai.ollama.chat-model:qwen3:8b}") String ollamaModel,
             @Value("${ai.codex.executable:codex}") String codexExecutable,
             @Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
-            @Value("${ai.codex.timeout:PT5M}") Duration codexTimeout,
+            @Value("${ai.codex.timeout:PT10M}") Duration codexTimeout,
             @Value("${ai.codex.reasoning:${GM_REASONING:medium}}") String codexReasoning,
             @Value("${ai-game-master.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
             @Value("${rule-knowledge.base-url:${RULE_KNOWLEDGE_BASE_URL:http://127.0.0.1:8080/}}") String ruleKnowledgeBaseUrl) {

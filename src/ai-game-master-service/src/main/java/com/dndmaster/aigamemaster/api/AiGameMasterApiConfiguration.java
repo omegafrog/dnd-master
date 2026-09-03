@@ -53,7 +53,7 @@ public class AiGameMasterApiConfiguration {
     CodexAppServerClient codexAppServerClient(
             @Value("${ai.codex.executable:codex}") String codexExecutable,
             @Value("${ai.codex.work-directory:/tmp}") String codexWorkDirectory,
-            @Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout,
+            @Value("${ai.codex.timeout:PT10M}") java.time.Duration codexTimeout,
             com.fasterxml.jackson.databind.ObjectMapper objectMapper) {
         return CodexAppServerClient.shared(codexExecutable, java.nio.file.Path.of(codexWorkDirectory), codexTimeout, objectMapper);
     }
@@ -115,7 +115,7 @@ public class AiGameMasterApiConfiguration {
             @org.springframework.beans.factory.annotation.Value("${local-ai.ollama.chat-model:qwen3:8b}") String ollamaModel,
             @org.springframework.beans.factory.annotation.Value("${ai.codex.executable:codex}") String codexExecutable,
             @org.springframework.beans.factory.annotation.Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
-            @org.springframework.beans.factory.annotation.Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout,
+            @org.springframework.beans.factory.annotation.Value("${ai.codex.timeout:PT10M}") java.time.Duration codexTimeout,
             @org.springframework.beans.factory.annotation.Value("${ai-game-master.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
             @org.springframework.beans.factory.annotation.Value("${rule-knowledge.base-url:${RULE_KNOWLEDGE_BASE_URL:http://127.0.0.1:8080/}}") String ruleKnowledgeBaseUrl) {
         return new AdventureStoryPlanController(adapter, objectMapper, endpointRegistry, ollamaBaseUrl, ollamaModel, codexExecutable, codexWorkDirectory, codexTimeout,
@@ -140,7 +140,7 @@ public class AiGameMasterApiConfiguration {
             AgentEndpointRegistry endpointRegistry,
             @org.springframework.beans.factory.annotation.Value("${ai.codex.executable:codex}") String codexExecutable,
             @org.springframework.beans.factory.annotation.Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
-            @org.springframework.beans.factory.annotation.Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout) {
+            @org.springframework.beans.factory.annotation.Value("${ai.codex.timeout:PT10M}") java.time.Duration codexTimeout) {
         return new ResolutionCandidateController(adapter, objectMapper, endpointRegistry, codexExecutable, codexWorkDirectory, codexTimeout);
     }
 
@@ -164,7 +164,7 @@ public class AiGameMasterApiConfiguration {
     GmCompletionAdapter gmCompletionAdapter(SpringAiChatAdapter ollama, GmProviderProperties properties, AgentEndpointRegistry endpointRegistry,
                                              @Value("${ai.codex.executable:codex}") String codexExecutable,
                                              @Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
-                                             @Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout) {
+                                             @Value("${ai.codex.timeout:PT10M}") java.time.Duration codexTimeout) {
         properties.validate();
         return new GmCompletionRouter(ollama, properties, endpointRegistry, codexExecutable, java.nio.file.Path.of(codexWorkDirectory), codexTimeout);
     }
