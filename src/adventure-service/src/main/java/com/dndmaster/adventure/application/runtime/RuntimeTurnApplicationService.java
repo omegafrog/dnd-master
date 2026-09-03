@@ -6,6 +6,7 @@ import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageR
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.adventure.Adventure;
+import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.ConversationEntry;
@@ -22,6 +23,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.nio.charset.StandardCharsets;
 import java.util.function.Supplier;
 import com.dndmaster.adventure.domain.runtime.narrative.NarrativeContext;
 import com.dndmaster.adventure.domain.runtime.narrative.NarrativeState;
@@ -33,6 +35,7 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 
 // 근거 수집 -> 계획 -> 안전 검사 -> 세션 저장 순서로 런타임 턴을 처리한다.
 public class RuntimeTurnApplicationService {
+    private static final String SESSION_OPENING_ACTION = "SESSION_OPENING";
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger(RuntimeTurnApplicationService.class);
     private static final RuntimeTurnFailureClassifier FAILURE_CLASSIFIER = new RuntimeTurnFailureClassifier();
     private final AdventureRepository adventureRepository;
@@ -242,6 +245,18 @@ public class RuntimeTurnApplicationService {
         this.narrativeStateService = Objects.requireNonNull(narrativeStateService, "narrative state service must not be null");
     }
 
+    /** Opens the durable Turn 1 through the normal planner, writer, and validation pipeline. */
+    public RuntimeTurnResult openSessionTurn(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID requestId) {
+        Objects.requireNonNull(requestId, "opening request id must not be null");
+        RuntimeTurn existing = runtimeTurnRepository.findByCommandId(requestId).orElse(null);
+        if (existing != null && existing.lifecycle() == RuntimeTurnLifecycle.PRESENTATION_FAILED_RETRYABLE) {
+            return retryPresentation(requestId);
+        }
+        UUID turnId = UUID.nameUUIDFromBytes(("session-turn-1:" + adventureId.value()).getBytes(StandardCharsets.UTF_8));
+        return submitTurn(new SubmitRuntimeTurnCommand(adventureId, ownerPlayerId, turnId, requestId,
+                SESSION_OPENING_ACTION, -1, null, -1, true, true, false));
+    }
+
     /**
      * Orchestrates external work without holding a database transaction. Each
      * lifecycle write commits independently so failure persistence cannot block
@@ -252,6 +267,8 @@ public class RuntimeTurnApplicationService {
         Adventure adventure = adventureRepository.findById(command.adventureId())
                 .orElseThrow(() -> new IllegalStateException("adventure not found"));
         adventure.reopen(command.ownerPlayerId());
+        final SubmitRuntimeTurnCommand effectiveCommand = attachFirstActionToOpening(command, adventure);
+        command = effectiveCommand;
         RuntimeTurn existing = runtimeTurnRepository.findByCommandId(command.commandId()).orElse(null);
         if (existing != null) {
             RuntimeTurnOrigin requestedOrigin = origin(command);
@@ -387,7 +404,7 @@ public class RuntimeTurnApplicationService {
             }
         }
         List<ExemplarResult> exemplars = stage(command.turnId(), "EXEMPLAR_RETRIEVAL",
-                () -> retrieveExemplars(planned, command.action()));
+                () -> retrieveExemplars(planned, effectiveCommand.action()));
         WriterProse prose = stage(command.turnId(), "PRESENTATION_WRITE",
                 () -> writePresentationWithRetry(resolvedTurn, resolvedForStage, visibleTurn,
                         narrativeState, narrativeContext, evidencePack, exemplars));
@@ -407,7 +424,7 @@ public class RuntimeTurnApplicationService {
             throw failure;
         }
         stage(command.turnId(), "STORY_PLAN_ADVANCE", () -> {
-            advanceStoryPlanIfRequested(command.ownerPlayerId(), adventure.sessionId(), planned);
+            advanceStoryPlanIfRequested(effectiveCommand.ownerPlayerId(), adventure.sessionId(), planned);
             return null;
         });
 
@@ -469,6 +486,17 @@ public class RuntimeTurnApplicationService {
             }
         }
         return new RuntimeTurnResult(committed, progressed.currentContext(), progressed.conversation(), progressed.version(), visibleTurn);
+    }
+
+    private SubmitRuntimeTurnCommand attachFirstActionToOpening(SubmitRuntimeTurnCommand command, Adventure adventure) {
+        if (command.gmOnly() || !command.advancesState() || adventure.conversation().size() != 2) return command;
+        RuntimeTurn opening = runtimeTurnRepository.findAllByAdventureId(command.adventureId()).stream()
+                .filter(turn -> turn.origin() == RuntimeTurnOrigin.GM && SESSION_OPENING_ACTION.equals(turn.action()))
+                .findFirst().orElse(null);
+        if (opening == null) return command;
+        return new SubmitRuntimeTurnCommand(command.adventureId(), command.ownerPlayerId(), opening.turnId(),
+                command.commandId(), command.action(), command.expectedVersion(), command.turnCharacterSheetId(),
+                command.turnIndex(), command.advancesState(), command.gmOnly(), command.agentOrigin());
     }
 
     private <T> T stage(UUID turnId, String stage, Supplier<T> operation) {

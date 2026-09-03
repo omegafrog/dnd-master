@@ -24,6 +24,7 @@ import com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnResult;
 import com.dndmaster.adventure.application.runtime.RuntimeTurn;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnRepository;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnOrigin;
 import com.dndmaster.adventure.application.runtime.SubmitRuntimeTurnCommand;
 import com.dndmaster.adventure.application.runtime.RuntimeBindingRepository;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
@@ -73,6 +74,45 @@ import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class RuntimeTurnApplicationServiceTest {
+    @Test
+    void opens_turn_one_through_the_normal_pipeline_and_attaches_only_the_first_action() {
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId storyId = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(storyId, rulebookId);
+        InMemoryAdventureRepository adventures = new InMemoryAdventureRepository(adventure);
+        InMemoryRuntimeTurnRepository turns = new InMemoryRuntimeTurnRepository();
+        int[] planningCalls = {0};
+        RuntimePlanningPort planning = request -> {
+            planningCalls[0]++;
+            return new RuntimePlan(planningCalls[0] == 1 ? "opening scene" : "scene " + planningCalls[0],
+                    null, "판정 완료", "근거를 바탕으로 응답한다.", null, List.of(), List.of());
+        };
+        RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
+                adventures, new InMemoryBindingRepository(binding(adventure.id(), owner, scenarioPackage.packageId())),
+                new InMemoryPackageRepository(scenarioPackage), turns,
+                new RecordingEvidenceSearchPort(storyId, rulebookId), planning,
+                new AllowingSafetyPort(true), scope(adventure, storyId, rulebookId));
+        UUID startRequestId = UUID.randomUUID();
+
+        RuntimeTurnResult opening = service.openSessionTurn(adventure.id(), owner, startRequestId);
+        RuntimeTurnResult retriedOpening = service.openSessionTurn(adventure.id(), owner, startRequestId);
+        RuntimeTurnResult firstAction = service.submitTurn(new SubmitRuntimeTurnCommand(
+                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Look around", opening.version()));
+        RuntimeTurnResult nextAction = service.submitTurn(new SubmitRuntimeTurnCommand(
+                adventure.id(), owner, UUID.randomUUID(), UUID.randomUUID(), "Walk to the door", firstAction.version()));
+
+        assertEquals(RuntimeTurnOrigin.GM, opening.turn().origin());
+        assertEquals(opening.turn(), retriedOpening.turn());
+        assertEquals(opening.turn().turnId(), firstAction.turn().turnId());
+        assertEquals(RuntimeTurnOrigin.PLAYER, firstAction.turn().origin());
+        assertEquals(2, firstAction.version());
+        assertTrue(nextAction.turn().turnId() != opening.turn().turnId());
+        assertEquals(3, nextAction.version());
+        assertEquals(3, planningCalls[0]);
+    }
+
     @Test
     void missing_skill_check_dc_stays_pending_and_is_persisted_without_fabricating_a_dc() {
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());

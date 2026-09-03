@@ -75,8 +75,6 @@ import org.springframework.transaction.PlatformTransactionManager;
 import java.util.List;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanGenerationPort;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAdventureStoryPlanGenerationGateway;
-import com.dndmaster.adventure.application.prologue.AdventurePrologueApplicationService;
-import com.dndmaster.adventure.application.prologue.AdventurePrologueGenerationPort;
 
 @Configuration(proxyBeanMethods = false)
 public class AdventureApiConfiguration {
@@ -121,42 +119,10 @@ public class AdventureApiConfiguration {
             CharacterSheetOwnershipPort ownershipPort,
             AdventureStoryPlanRepository storyPlanRepository,
             SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
-            AdventurePrologueApplicationService prologueService,
+            RuntimeTurnApplicationService runtimeTurnService,
             com.dndmaster.adventure.application.session.AiCompanionGenerationPort aiCompanionGenerationPort,
             com.dndmaster.adventure.application.session.AiCompanionSheetCreationPort aiCompanionSheetCreationPort) {
-        return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository, runtimeBindingApplicationService, new AdventureSessionStartCoordinator(startOutboxRepository), ownershipPort, storyPlanRepository, sessionKnowledgeSetRepository, prologueService, aiCompanionGenerationPort, aiCompanionSheetCreationPort);
-    }
-
-    @Bean
-    AdventurePrologueApplicationService adventurePrologueApplicationService(AdventureRepository adventures,
-            AdventureStoryPlanRepository plans, CharacterSheetReadPort sheets, AdventurePrologueGenerationPort generator,
-            GmAgentPort gmAgentPort, com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
-            RuntimeEvidenceSearchPort runtimeEvidenceSearchPort) {
-        return new AdventurePrologueApplicationService(adventures, plans, sheets, generator, gmAgentPort,
-                packageRepository, runtimeEvidenceSearchPort, narrationSafetyPort());
-    }
-
-    @Bean
-    AdventurePrologueGenerationPort adventurePrologueGenerationPort() {
-        return request -> {
-            var stage = request.stage();
-            // Player-facing prose only. Stage type, checks, enemy/boss placement,
-            // branches, rewards and map metadata stay GM-internal. Grounded
-            // story clues are woven into natural table-talk instead of dumped.
-            var clues = stage.npcOrClues().stream().filter(value -> value != null && !value.isBlank())
-                    .limit(3).toList();
-            StringBuilder narration = new StringBuilder();
-            narration.append(stage.location()).append("에 도착했어요. ")
-                    .append(stage.goal()).append(" ");
-            if (!stage.conflict().isBlank()) {
-                narration.append(stage.conflict()).append(" ");
-            }
-            if (!clues.isEmpty()) {
-                narration.append("주변에서 ").append(String.join(", ", clues)).append(" 같은 단서가 눈에 들어옵니다. ");
-            }
-            narration.append("일행은 잠시 숨을 고르고 주변을 살펴봅니다. 어떻게 해볼까요?");
-            return narration.toString();
-        };
+        return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository, runtimeBindingApplicationService, new AdventureSessionStartCoordinator(startOutboxRepository), ownershipPort, storyPlanRepository, sessionKnowledgeSetRepository, runtimeTurnService, aiCompanionGenerationPort, aiCompanionSheetCreationPort);
     }
 
     @Bean
