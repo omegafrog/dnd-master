@@ -49,6 +49,7 @@ public final class ScenarioPackageCompilationService {
     private final GameSystemDefinitionPort gameSystemDefinitionPort;
     private final CharacterCreationBlueprintCompiler blueprintCompiler = new CharacterCreationBlueprintCompiler();
     private final MapDefinitionCompiler mapCompiler = new MapDefinitionCompiler();
+    private final ScenarioEntryPreparationPolicy entryPreparationPolicy = new ScenarioEntryPreparationPolicy();
 
     public ScenarioPackageCompilationService(ScenarioPackageRepository repository) {
         this(repository, new NoopResolutionOverrideRepository(), null);
@@ -205,7 +206,7 @@ public final class ScenarioPackageCompilationService {
                 new ScenarioCompilationReport(reportStatus, warnings, outcome),
                 characterLimit(bundle, availableExcerpts),
                 characterBlueprint,
-                mapCompilation.maps(), mapCompilation.bindings());
+                mapCompilation.maps(), mapCompilation.bindings(), entryPreparationPolicy.prepare(bundle, availableExcerpts));
         if (outcome != com.dndmaster.adventure.domain.scenario.CompilationOutcome.FAILED) {
             repository.save(scenarioPackage);
         }

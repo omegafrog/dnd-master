@@ -11,6 +11,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioResolutionDetail;
 import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
+import com.dndmaster.adventure.domain.scenario.ScenarioEntryResult;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import com.dndmaster.adventure.domain.scenario.SaveDc;
 import java.util.List;
@@ -234,7 +235,8 @@ public class ScenarioCompilationController {
             long revision) {}
     public record PackageResponse(
             UUID packageId, UUID bundleId, long bundleRevision, String inputFingerprint,
-            String reportStatus, List<String> warnings, CharacterLimitResponse characterLimit, List<UnitResponse> units) {
+            String reportStatus, List<String> warnings, CharacterLimitResponse characterLimit, List<UnitResponse> units,
+            EntryResultResponse entryResult) {
         static PackageResponse from(ScenarioPackage scenarioPackage) {
             return new PackageResponse(
                     scenarioPackage.packageId(), scenarioPackage.bundleId().value(), scenarioPackage.bundleRevision(),
@@ -244,7 +246,16 @@ public class ScenarioCompilationController {
                             unit.dc(), unit.diceExpression(), unit.visibility() == null ? null : unit.visibility().name(),
                             unit.sourceQuote(), unit.provenance(), unit.validationMessages(), unit.runtimeCapabilities(),
                             detailResponse(unit.detail()),
-                            unit.sourceRefs().stream().map(ScenarioCompilationController::sourceRef).toList())).toList());
+                            unit.sourceRefs().stream().map(ScenarioCompilationController::sourceRef).toList())).toList(),
+                    EntryResultResponse.from(scenarioPackage.entryResult()));
+        }
+    }
+    public record EntryResultResponse(String decision, String entryPoint, String startPremise,
+                                      List<SourceReferenceRequest> evidence, String sourceAnchor, boolean requiresPrologue) {
+        static EntryResultResponse from(ScenarioEntryResult result) {
+            return new EntryResultResponse(result.decision().name(), result.entryPoint(), result.startPremise(),
+                    result.evidence().stream().map(ScenarioCompilationController::sourceRef).toList(),
+                    result.sourceAnchor(), result.requiresPrologue());
         }
     }
     public record CharacterLimitResponse(int maximumCharacters, SourceReferenceRequest source, String sourceQuote) {

@@ -20,6 +20,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import com.dndmaster.adventure.domain.scenario.MapDefinition;
 import com.dndmaster.adventure.domain.scenario.StoryMapBinding;
+import com.dndmaster.adventure.domain.scenario.ScenarioEntryResult;
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -73,7 +74,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     private Optional<ScenarioPackage> find(String column, Object value) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(
-                        "SELECT package_id, bundle_id, bundle_revision, input_fingerprint, report_status, compilation_outcome, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json, map_definitions_json, story_map_bindings_json FROM scenario_package WHERE " + column + " = ?")) {
+                        "SELECT package_id, bundle_id, bundle_revision, input_fingerprint, report_status, compilation_outcome, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json, map_definitions_json, story_map_bindings_json, entry_result_json FROM scenario_package WHERE " + column + " = ?")) {
             statement.setObject(1, value);
             try (ResultSet row = statement.executeQuery()) {
                 if (!row.next()) return Optional.empty();
@@ -93,7 +94,8 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
                                         : CompilationOutcome.valueOf(row.getString("compilation_outcome"))),
                         readCharacterLimit(row), readBlueprint(row.getString("character_creation_blueprint_json")),
                         readJson(row.getString("map_definitions_json"), new com.fasterxml.jackson.core.type.TypeReference<List<MapDefinition>>() {}),
-                        readJson(row.getString("story_map_bindings_json"), new com.fasterxml.jackson.core.type.TypeReference<List<StoryMapBinding>>() {})));
+                        readJson(row.getString("story_map_bindings_json"), new com.fasterxml.jackson.core.type.TypeReference<List<StoryMapBinding>>() {}),
+                        readEntry(row.getString("entry_result_json"))));
             }
         } catch (SQLException exception) {
             throw new ScenarioPackagePersistenceException("could not load scenario package", exception);
@@ -145,7 +147,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
 
     private static void insertHeader(Connection connection, ScenarioPackage packageVersion) throws SQLException {
         try (PreparedStatement insert = connection.prepareStatement(
-                "INSERT INTO scenario_package(package_id, bundle_id, bundle_revision, input_fingerprint, report_status, compilation_outcome, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json, map_definitions_json, story_map_bindings_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
+                "INSERT INTO scenario_package(package_id, bundle_id, bundle_revision, input_fingerprint, report_status, compilation_outcome, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json, map_definitions_json, story_map_bindings_json, entry_result_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
             insert.setObject(1, packageVersion.packageId());
             insert.setObject(2, packageVersion.bundleId().value());
             insert.setLong(3, packageVersion.bundleRevision());
@@ -164,6 +166,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
             insert.setString(13, writeBlueprint(packageVersion.characterCreationBlueprint()));
             insert.setString(14, writeJson(packageVersion.mapDefinitions()));
             insert.setString(15, writeJson(packageVersion.storyMapBindings()));
+            insert.setString(16, writeJson(packageVersion.entryResult()));
             insert.executeUpdate();
         }
     }
@@ -289,9 +292,19 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     }
 
     private static String writeJson(Object value) { try { return JSON.writeValueAsString(value); } catch (JsonProcessingException e) { throw new ScenarioPackagePersistenceException("could not serialize map data", e); } }
+
+    private static ScenarioEntryResult readEntry(String value) {
+        if (value == null || value.isBlank()) return new ScenarioEntryResult(ScenarioEntryResult.Decision.MINIMAL_PROLOGUE,
+                "A safe first moment", "The source provides the starting context.", List.of(), "source context");
+        return readJson(value, ScenarioEntryResult.class);
+    }
     private static <T> List<T> readJson(String value, com.fasterxml.jackson.core.type.TypeReference<List<T>> type) {
         if (value == null || value.isBlank()) return List.of();
         try { return JSON.readValue(value, type); } catch (JsonProcessingException e) { throw new ScenarioPackagePersistenceException("could not deserialize map data", e); }
+    }
+
+    private static <T> T readJson(String value, Class<T> type) {
+        try { return JSON.readValue(value, type); } catch (JsonProcessingException e) { throw new ScenarioPackagePersistenceException("could not deserialize entry result", e); }
     }
 
     private static CharacterLimit readCharacterLimit(ResultSet row) throws SQLException {
