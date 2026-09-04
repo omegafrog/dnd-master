@@ -23,4 +23,11 @@ public final class DisclosureState {
     public static DisclosureState empty() { return new DisclosureState(Set.of()); }
     @JsonProperty("disclosedFactIds") public Set<String> disclosedFactIds() { return disclosedFactIds; }
     public boolean contains(String factId) { return disclosedFactIds.contains(factId); }
+
+    public DisclosureState merge(DisclosureState additions) {
+        Objects.requireNonNull(additions, "disclosure additions must not be null");
+        Set<String> merged = new LinkedHashSet<>(disclosedFactIds);
+        merged.addAll(additions.disclosedFactIds);
+        return new DisclosureState(merged);
+    }
 }

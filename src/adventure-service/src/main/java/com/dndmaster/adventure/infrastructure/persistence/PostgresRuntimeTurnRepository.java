@@ -81,8 +81,9 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
                 INSERT INTO adventure_runtime_turn (
                     turn_id, command_id, adventure_id, session_id, binding_version, scenario_package_id, action, runtime_turn_json,
                     requested_endpoint_id, requested_provider, requested_model, requested_reasoning,
-                    effective_endpoint_id, effective_endpoint_version, effective_provider, effective_model, effective_reasoning, attempt_count
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    effective_endpoint_id, effective_endpoint_version, effective_provider, effective_model, effective_reasoning, attempt_count,
+                    lifecycle, fixed_resolution_json, pending_state_json, completion_proposal_json, narration
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb, ?)
                 ON CONFLICT (command_id) DO UPDATE SET
                     turn_id = EXCLUDED.turn_id,
                     adventure_id = EXCLUDED.adventure_id,
@@ -100,7 +101,12 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
                     effective_provider = EXCLUDED.effective_provider,
                     effective_model = EXCLUDED.effective_model,
                     effective_reasoning = EXCLUDED.effective_reasoning,
-                    attempt_count = EXCLUDED.attempt_count
+                    attempt_count = EXCLUDED.attempt_count,
+                    lifecycle = EXCLUDED.lifecycle,
+                    fixed_resolution_json = EXCLUDED.fixed_resolution_json,
+                    pending_state_json = EXCLUDED.pending_state_json,
+                    completion_proposal_json = EXCLUDED.completion_proposal_json,
+                    narration = EXCLUDED.narration
                 """;
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setObject(1, turn.turnId());
@@ -122,6 +128,11 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
             statement.setString(16, turn.plan().effectiveSelection().model());
             statement.setString(17, turn.plan().effectiveSelection().reasoning());
             statement.setInt(18, 1);
+            statement.setString(19, turn.lifecycle().name());
+            statement.setString(20, writeJson(turn.fixedResolution()));
+            statement.setString(21, writeJson(turn.pendingState()));
+            statement.setString(22, writeJson(turn.completionProposal()));
+            statement.setString(23, turn.narration());
             statement.executeUpdate();
         } catch (SQLException exception) {
             throw new RuntimeTurnPersistenceException("could not save runtime turn", exception);
@@ -139,6 +150,15 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
             return objectMapper.writeValueAsString(turn);
         } catch (Exception exception) {
             throw new SQLException("could not write runtime turn", exception);
+        }
+    }
+
+    private String writeJson(Object value) throws SQLException {
+        if (value == null) return null;
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception exception) {
+            throw new SQLException("could not write runtime turn state", exception);
         }
     }
 }

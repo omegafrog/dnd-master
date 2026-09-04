@@ -8,6 +8,9 @@ import com.dndmaster.adventure.domain.runtime.CurrentSituation;
 import com.dndmaster.adventure.domain.runtime.DisclosureState;
 import com.dndmaster.adventure.domain.runtime.GameState;
 import com.dndmaster.adventure.domain.runtime.RuntimeAddedFact;
+import com.dndmaster.adventure.application.runtime.CompletionProposal;
+import com.dndmaster.adventure.application.runtime.PendingRuntimeState;
+import java.util.Locale;
 
 public final class Adventure {
     private final AdventureId id;
@@ -153,6 +156,28 @@ public final class Adventure {
         this.conversation = validateConversation(completeConversation);
         version++;
     }
+
+    /** Applies every local RuntimeTurn change under one Adventure aggregate version. */
+    public void commitRuntimeTurn(OwnerPlayerId requestingOwner, long expectedVersion,
+            PendingRuntimeState pending, AdventureContext playerContext,
+            List<ConversationEntry> completeConversation, CompletionProposal completion) {
+        authorizeRuntime(requestingOwner);
+        requireExpectedVersion(expectedVersion);
+        Objects.requireNonNull(pending, "pending runtime state must not be null");
+        Objects.requireNonNull(completion, "completion proposal must not be null");
+        gameState = pending.gameStateDelta().apply(gameState);
+        disclosureState = disclosureState.merge(pending.disclosureState());
+        currentSituation = Objects.requireNonNull(pending.situation(), "situation must not be null");
+        runtimeAddedFacts = mergeRuntimeFacts(pending.runtimeAddedFacts());
+        currentContext = Objects.requireNonNull(playerContext, "player context must not be null");
+        conversation = validateConversation(completeConversation);
+        if (completion.complete()) {
+            status = AdventureStatus.COMPLETED;
+            currentContext = new AdventureContext(completion.concludingScene(), currentContext.npcState(),
+                    currentContext.pendingAction(), currentContext.latestJudgment());
+        }
+        version++;
+    }
     public void preserveProgress(
             OwnerPlayerId requestingOwner, long expectedVersion,
             AdventureContext context, List<ConversationEntry> completeConversation) {
@@ -190,6 +215,15 @@ public final class Adventure {
         if (status == AdventureStatus.DELETED) throw new AdventureDeletedException();
     }
 
+    private void authorizeRuntime(OwnerPlayerId requestingOwner) {
+        if (!ownerPlayerId.equals(Objects.requireNonNull(requestingOwner, "requesting owner must not be null"))) {
+            throw new AdventureAccessDeniedException();
+        }
+        if (status == AdventureStatus.DELETED || status == AdventureStatus.COMPLETED) {
+            throw new IllegalStateException("adventure is not active");
+        }
+    }
+
     private void requireExpectedVersion(long expectedVersion) {
         if (version != expectedVersion) throw new IllegalStateException("adventure version does not match");
     }
@@ -212,6 +246,18 @@ public final class Adventure {
             throw new IllegalArgumentException("runtime fact ids must be unique");
         }
         return copy;
+    }
+
+    private List<RuntimeAddedFact> mergeRuntimeFacts(List<RuntimeAddedFact> additions) {
+        List<RuntimeAddedFact> merged = new java.util.ArrayList<>(runtimeAddedFacts);
+        for (RuntimeAddedFact addition : validateRuntimeFacts(additions)) {
+            RuntimeAddedFact existing = merged.stream().filter(fact -> fact.factId().equals(addition.factId())).findFirst().orElse(null);
+            if (existing != null) continue;
+            String normalized = addition.content().toLowerCase(Locale.ROOT);
+            if (merged.stream().anyMatch(fact -> fact.content().toLowerCase(Locale.ROOT).equals(normalized))) continue;
+            merged.add(addition);
+        }
+        return List.copyOf(merged);
     }
 
     public AdventureId id() { return id; }
