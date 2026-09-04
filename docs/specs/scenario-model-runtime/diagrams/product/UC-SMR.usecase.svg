@@ -1,0 +1,100 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="980" viewBox="0 0 1600 980">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#333"/>
+    </marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif; fill:#111; }
+      .title { font-size:30px; font-weight:700; }
+      .actor { font-size:22px; font-weight:600; }
+      .uc { fill:#fff; stroke:#222; stroke-width:2; }
+      .box { fill:#fafafa; stroke:#555; stroke-width:2; rx:18; }
+      .line { stroke:#333; stroke-width:2; fill:none; marker-end:url(#arrow); }
+      .dash { stroke:#555; stroke-width:1.8; fill:none; stroke-dasharray:8 6; marker-end:url(#arrow); }
+      .label { font-size:18px; }
+      .small { font-size:15px; fill:#444; }
+    </style>
+  </defs>
+  <text x="800" y="48" text-anchor="middle" class="title">Scenario Model Runtime — Product Use Cases</text>
+
+  <rect x="280" y="90" width="1040" height="800" class="box"/>
+  <text x="800" y="125" text-anchor="middle" class="actor">Scenario Model Runtime</text>
+
+  <circle cx="100" cy="250" r="24" fill="none" stroke="#222" stroke-width="3"/>
+  <line x1="100" y1="274" x2="100" y2="345" stroke="#222" stroke-width="3"/>
+  <line x1="62" y1="305" x2="138" y2="305" stroke="#222" stroke-width="3"/>
+  <line x1="100" y1="345" x2="66" y2="400" stroke="#222" stroke-width="3"/>
+  <line x1="100" y1="345" x2="134" y2="400" stroke="#222" stroke-width="3"/>
+  <text x="100" y="438" text-anchor="middle" class="actor">Solo Player</text>
+
+  <rect x="30" y="600" width="150" height="74" rx="10" fill="#fff" stroke="#222" stroke-width="2"/>
+  <text x="105" y="630" text-anchor="middle" class="actor">Storybook</text>
+  <text x="105" y="656" text-anchor="middle" class="label">Source / RAG</text>
+
+  <circle cx="1500" cy="310" r="24" fill="none" stroke="#222" stroke-width="3"/>
+  <line x1="1500" y1="334" x2="1500" y2="405" stroke="#222" stroke-width="3"/>
+  <line x1="1462" y1="365" x2="1538" y2="365" stroke="#222" stroke-width="3"/>
+  <line x1="1500" y1="405" x2="1466" y2="460" stroke="#222" stroke-width="3"/>
+  <line x1="1500" y1="405" x2="1534" y2="460" stroke="#222" stroke-width="3"/>
+  <text x="1500" y="500" text-anchor="middle" class="actor">AI Game Master</text>
+
+  <ellipse cx="530" cy="220" rx="185" ry="58" class="uc"/>
+  <text x="530" y="212" text-anchor="middle" class="actor">UC-1</text>
+  <text x="530" y="241" text-anchor="middle" class="label">시나리오 컴파일</text>
+
+  <ellipse cx="530" cy="360" rx="185" ry="58" class="uc"/>
+  <text x="530" y="352" text-anchor="middle" class="actor">UC-2</text>
+  <text x="530" y="381" text-anchor="middle" class="label">시작 전 재컴파일</text>
+
+  <ellipse cx="530" cy="500" rx="185" ry="64" class="uc"/>
+  <text x="530" y="489" text-anchor="middle" class="actor">UC-3</text>
+  <text x="530" y="518" text-anchor="middle" class="label">모험 시작 및</text>
+  <text x="530" y="542" text-anchor="middle" class="label">첫 Situation 생성</text>
+
+  <ellipse cx="830" cy="360" rx="185" ry="58" class="uc"/>
+  <text x="830" y="352" text-anchor="middle" class="actor">UC-4</text>
+  <text x="830" y="381" text-anchor="middle" class="label">GM Turn 진행</text>
+
+  <ellipse cx="830" cy="560" rx="205" ry="72" class="uc"/>
+  <text x="830" y="543" text-anchor="middle" class="actor">UC-5</text>
+  <text x="830" y="572" text-anchor="middle" class="label">RAG fallback으로</text>
+  <text x="830" y="598" text-anchor="middle" class="label">Runtime-added Fact 생성</text>
+
+  <ellipse cx="1100" cy="240" rx="170" ry="58" class="uc"/>
+  <text x="1100" y="232" text-anchor="middle" class="actor">UC-6</text>
+  <text x="1100" y="261" text-anchor="middle" class="label">Situation 전환</text>
+
+  <ellipse cx="1100" cy="420" rx="185" ry="64" class="uc"/>
+  <text x="1100" y="409" text-anchor="middle" class="actor">UC-7</text>
+  <text x="1100" y="438" text-anchor="middle" class="label">스포일러 안전 서술</text>
+
+  <ellipse cx="1100" cy="650" rx="185" ry="64" class="uc"/>
+  <text x="1100" y="639" text-anchor="middle" class="actor">UC-8</text>
+  <text x="1100" y="668" text-anchor="middle" class="label">해결 조건 충족 후 완료</text>
+
+  <path d="M140 270 L350 220" class="line"/>
+  <path d="M140 300 L350 360" class="line"/>
+  <path d="M140 335 L350 500" class="line"/>
+  <path d="M140 365 L645 360" class="line"/>
+  <path d="M180 625 L355 250" class="line"/>
+  <path d="M180 640 L640 560" class="line"/>
+  <path d="M1465 355 L1015 360" class="line"/>
+  <path d="M1465 385 L1285 420" class="line"/>
+
+  <path d="M715 360 L645 360" class="dash"/>
+  <text x="680" y="340" text-anchor="middle" class="small">include UC-1</text>
+  <path d="M715 500 L745 408" class="dash"/>
+  <text x="745" y="470" class="small">첫 Scene</text>
+  <path d="M905 410 L850 490" class="dash"/>
+  <text x="900" y="472" class="small">source 없음</text>
+  <path d="M990 340 L1035 285" class="dash"/>
+  <text x="985" y="305" class="small">문제 상태 변화</text>
+  <path d="M1010 385 L1018 405" class="dash"/>
+  <text x="980" y="395" text-anchor="end" class="small">player-visible output 전</text>
+  <path d="M955 405 L1045 590" class="dash"/>
+  <text x="960" y="535" class="small">resolution condition</text>
+
+  <text x="390" y="770" class="small">UC-1: Storybook 필수 · 다중 Storybook이면 Primary 지정 · Integration Prompt/Creativity 적용</text>
+  <text x="390" y="805" class="small">UC-5: source lookup 실패 시 최소 사실만 생성 · 기존 플레이 사실과 충돌하면 재생성</text>
+  <text x="390" y="840" class="small">UC-4/7: Turn Resolution은 고정하고 narration만 spoiler-safe하게 재생성 가능</text>
+</svg>
