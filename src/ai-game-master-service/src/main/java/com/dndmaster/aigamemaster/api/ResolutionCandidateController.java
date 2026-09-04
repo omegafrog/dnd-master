@@ -48,7 +48,7 @@ public final class ResolutionCandidateController {
             AgentEndpointRegistry endpointRegistry,
             @Value("${ai.codex.executable:codex}") String codexExecutable,
             @Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
-            @Value("${ai.codex.timeout:PT5M}") Duration codexTimeout) {
+            @Value("${ai.codex.timeout:PT10M}") Duration codexTimeout) {
         this.adapter = adapter;
         this.objectMapper = objectMapper;
         this.endpointRegistry = endpointRegistry;

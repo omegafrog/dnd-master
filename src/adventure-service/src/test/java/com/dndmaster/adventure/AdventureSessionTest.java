@@ -15,6 +15,7 @@ import com.dndmaster.adventure.domain.adventure.SessionId;
 import com.dndmaster.adventure.domain.adventure.ScenarioId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
 import com.dndmaster.adventure.application.runtime.RuntimeBindingApplicationService;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.application.session.AdventureSessionApplicationService;
@@ -229,14 +230,20 @@ class AdventureSessionTest {
                         List.of(new com.dndmaster.adventure.domain.adventure.AdventureStoryPlanStage(
                                 1, "Opening", "Start", "Threat", "Resolve", List.of(), List.of())))));
         var coordinator = mock(AdventureSessionStartCoordinator.class);
+        var runtimeTurns = mock(RuntimeTurnApplicationService.class);
         var service = new AdventureSessionApplicationService(sessions, packages, mock(AdventureRepository.class),
                 mock(RuntimeBindingApplicationService.class), coordinator,
                 mock(com.dndmaster.adventure.application.session.CharacterSheetOwnershipPort.class), plans,
-                mock(SessionKnowledgeSetRepository.class));
+                mock(SessionKnowledgeSetRepository.class), runtimeTurns,
+                mock(com.dndmaster.adventure.application.session.AiCompanionGenerationPort.class),
+                mock(com.dndmaster.adventure.application.session.AiCompanionSheetCreationPort.class));
 
-        service.start(session.id(), owner, session.version(), UUID.randomUUID(), AdventureId.generate());
+        UUID requestId = UUID.randomUUID();
+        AdventureId adventureId = AdventureId.generate();
+        service.start(session.id(), owner, session.version(), requestId, adventureId);
 
         verify(coordinator).prepare(any(), any(), any(), any());
+        verify(runtimeTurns).openSessionTurn(adventureId, owner, requestId);
     }
 
     @Test

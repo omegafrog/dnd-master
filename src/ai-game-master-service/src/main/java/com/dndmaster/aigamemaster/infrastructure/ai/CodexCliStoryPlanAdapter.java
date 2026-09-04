@@ -2,6 +2,7 @@ package com.dndmaster.aigamemaster.infrastructure.ai;
 
 import java.nio.file.Path;
 import java.time.Duration;
+import java.util.List;
 
 /** Codex OAuth adapter. Authentication is supplied by the local Codex CLI session. */
 public final class CodexCliStoryPlanAdapter implements StoryPlanCompletionPort {
@@ -25,5 +26,12 @@ public final class CodexCliStoryPlanAdapter implements StoryPlanCompletionPort {
             throw new IllegalArgumentException("operation id and prompt required");
         }
         return client.complete(operationId, prompt, model, reasoning);
+    }
+
+    public String complete(String operationId, String prompt, List<CodexAppServerClient.DynamicTool> dynamicTools) {
+        if (operationId == null || operationId.isBlank() || prompt == null || prompt.isBlank()) {
+            throw new IllegalArgumentException("operation id and prompt required");
+        }
+        return client.complete(operationId, prompt, model, reasoning, null, dynamicTools);
     }
 }

@@ -106,7 +106,7 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
   }
 
   useEffect(() => {
-    if (!generation || generation.status === 'COMPLETE' || generation.status === 'FAILED') return
+    if (!generation || generation.status === 'COMPLETE' || generation.status === 'BLOCKED' || generation.status === 'FAILED') return
     let active = true
     const materializePersistedTerminalPlan = async () => {
       const persistedPlan = await api.readStoryPlan(sessionId).catch(() => null)
@@ -121,15 +121,20 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
       try {
         const next = normalizeAdventureStoryPlanGenerationJob(await api.readStoryPlanGeneration(generation.jobId, sessionId))
         if (!active) return
-        setGeneration(next)
         // The plan projection is durable, while the generation job is an
         // in-memory coordinator. A worker can persist READY and still leave
         // the job at RUNNING/100% until its final callback returns.
         // The durable projection can reach a terminal state before the
         // in-memory coordinator updates its progress (including BLOCKED
         // validation results). Always prefer that authoritative projection.
-        if (next.status === 'RUNNING' && await materializePersistedTerminalPlan()) return
-        if (next.status === 'COMPLETE' || next.status === 'FAILED') {
+        if (next.status === 'RUNNING') {
+          const materialized = await materializePersistedTerminalPlan()
+          if (!active) return
+          setGeneration(next)
+          if (materialized) return
+          return
+        }
+        if (next.status === 'COMPLETE' || next.status === 'BLOCKED' || next.status === 'FAILED') {
           window.sessionStorage.removeItem(generationMarker(sessionId))
           const terminalPlan = await api.readStoryPlan(sessionId).catch(() => null)
           if (!active) return
@@ -138,18 +143,20 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
             const effectivePlan = isTerminalStoryPlanStatus(normalizedPlan.status)
               ? normalizedPlan
               : { ...normalizedPlan, status: next.status === 'COMPLETE' ? 'READY' as const : (next.message?.includes('검증') ? 'BLOCKED' as const : 'FAILED' as const), failureReason: normalizedPlan.failureReason || next.message }
+            setGeneration(next)
             setPlan(effectivePlan)
             if (effectivePlan.status === 'BLOCKED' || effectivePlan.status === 'FAILED') {
               setMessage(effectivePlan.failureReason || next.message || '모험 계획 생성에 실패했습니다.')
             }
-          } else if (next.status === 'FAILED' || next.status === 'COMPLETE') {
+          } else if (next.status === 'FAILED' || next.status === 'BLOCKED' || next.status === 'COMPLETE') {
             // A blocked plan may not be readable from the player endpoint (for
             // example, when the rejected candidate was never persisted). The
             // terminal job is still authoritative: materialize a minimal plan
             // so the page cannot fall back to the settings/GENERATING view.
             const terminalStatus = next.status === 'COMPLETE'
               ? 'READY' as const
-              : isBlockedStoryPlanDiagnostic(next.message) ? 'BLOCKED' as const : 'FAILED' as const
+              : next.status === 'BLOCKED' || isBlockedStoryPlanDiagnostic(next.message) ? 'BLOCKED' as const : 'FAILED' as const
+            setGeneration(next)
             setPlan(current => current && isTerminalStoryPlanStatus(current.status)
               ? current
               : {
@@ -167,7 +174,9 @@ export function AdventureStoryPlanPage({ api, sessionId }: { api: StoryPlanApi; 
                 })
             setMessage(next.message || '모험 계획 생성에 실패했습니다.')
           }
+          return
         }
+        setGeneration(next)
       } catch (error) {
         if (active) setMessage(error instanceof Error ? error.message : '모험 계획 상태를 확인하지 못했습니다.')
       }

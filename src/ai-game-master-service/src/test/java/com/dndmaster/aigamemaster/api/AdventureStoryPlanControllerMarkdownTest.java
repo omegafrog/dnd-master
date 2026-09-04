@@ -196,7 +196,7 @@ class AdventureStoryPlanControllerMarkdownTest {
         assertTrue(prompt.contains("COMPLETE projection JSON object"));
         assertTrue(prompt.contains("stages[0].transitionCondition"));
         assertTrue(prompt.contains("previousFullCandidate"));
-        assertTrue(prompt.contains("authoritativeCitations"));
+        assertTrue(prompt.contains("registeredCitationMetadata"));
     }
 
     @Test
@@ -219,7 +219,9 @@ class AdventureStoryPlanControllerMarkdownTest {
 
         String prompt = (String) promptMethod.invoke(controller, request, request.configuration());
 
-        assertTrue(prompt.contains("not needed for this local failure-condition repair"));
+        assertTrue(prompt.contains("search_story_sources"));
+        assertFalse(prompt.contains("large source document"));
+        assertFalse(prompt.contains("large resolution evidence"));
         assertTrue(prompt.contains("previousFullCandidate"));
     }
 
@@ -342,6 +344,77 @@ class AdventureStoryPlanControllerMarkdownTest {
         assertTrue(prompt.contains("burning-web"));
         assertTrue(prompt.contains("do not turn them into sourceFactClaims"));
         assertTrue(prompt.contains("previousViolations"));
+    }
+
+    @Test
+    void generation_and_projection_prompts_require_symmetric_conditional_outcomes() throws Exception {
+        var controller = new AdventureStoryPlanController(null, new ObjectMapper(), null,
+                "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
+                new ApiRequestGuard("test-internal-token"));
+        var request = new AdventureStoryPlanController.Request("op", 1L, 1,
+                new AdventureStoryPlanController.Configuration(1, "SHORT"), List.of(), List.of());
+        var configuration = request.configuration();
+        var generation = AdventureStoryPlanController.class.getDeclaredMethod("structuredStoryPlanPrompt",
+                AdventureStoryPlanController.Request.class, AdventureStoryPlanController.Configuration.class, String.class);
+        generation.setAccessible(true);
+        var projection = AdventureStoryPlanController.class.getDeclaredMethod("projectionPrompt",
+                AdventureStoryPlanController.Request.class, AdventureStoryPlanController.Configuration.class, String.class);
+        projection.setAccessible(true);
+
+        String generationPrompt = (String) generation.invoke(controller, request, configuration, "");
+        String projectionPrompt = (String) projection.invoke(controller, request, configuration, "계획");
+
+        for (String prompt : List.of(generationPrompt, projectionPrompt)) {
+            assertTrue(prompt.contains("success outcome"));
+            assertTrue(prompt.contains("failure or fail-forward consequence"));
+            assertTrue(prompt.contains("Do not encode a"));
+            assertTrue(prompt.contains("one-sided conditional branch"));
+        }
+    }
+
+    @Test
+    void generation_and_repair_prompts_do_not_embed_raw_source_text() throws Exception {
+        var controller = new AdventureStoryPlanController(null, new ObjectMapper(), null,
+                "http://127.0.0.1:11434", "unused", "codex", ".", Duration.ofMinutes(5),
+                new ApiRequestGuard("test-internal-token"));
+        String sentinel = "PRIVATE_RAW_SOURCE_SENTINEL";
+        UUID documentId = UUID.randomUUID();
+        var citation = new AdventureStoryPlanController.SourceCitation(
+                "STORYBOOK", documentId.toString(), 1, "page:1", sentinel, .9, "citation-1");
+        var retrieval = new AdventureStoryPlanController.RetrievalContext(
+                UUID.randomUUID(), List.of(new AdventureStoryPlanController.RetrievalDocument(
+                        "STORYBOOK", documentId, 1)));
+        var request = new AdventureStoryPlanController.Request("op", 1L, 1,
+                AdventureStoryPlanController.Configuration.defaults(), List.of(sentinel), List.of(sentinel),
+                List.of(), List.of(citation), List.of(), "", "GENERATIVE", null, retrieval);
+
+        var generation = AdventureStoryPlanController.class.getDeclaredMethod("structuredStoryPlanPrompt",
+                AdventureStoryPlanController.Request.class, AdventureStoryPlanController.Configuration.class, String.class);
+        generation.setAccessible(true);
+        var projection = AdventureStoryPlanController.class.getDeclaredMethod("projectionPrompt",
+                AdventureStoryPlanController.Request.class, AdventureStoryPlanController.Configuration.class, String.class);
+        projection.setAccessible(true);
+        var violation = new AdventureStoryPlanController.ProjectionViolation(
+                "INVALID_TRANSITION_CONDITION", 1, "stages[0].transitionCondition", "bad", "",
+                AdventureStoryPlanController.ProjectionViolation.Repairability.REPAIRABLE, "invalid transition");
+        var repair = new AdventureStoryPlanController.RepairRequest("op", 1, 1,
+                request.configuration(), new ObjectMapper().readTree(
+                        "{\"stages\":[{\"evidence\":[{\"citationKey\":\"citation-1\"}]}]}"),
+                List.of(violation), List.of(sentinel), List.of(sentinel), List.of(), List.of(citation),
+                AdventureStoryPlanController.RepairScope.from(List.of(violation)), retrieval);
+        var repairMethod = AdventureStoryPlanController.class.getDeclaredMethod("repairPrompt",
+                AdventureStoryPlanController.RepairRequest.class, AdventureStoryPlanController.Configuration.class);
+        repairMethod.setAccessible(true);
+
+        String generationPrompt = (String) generation.invoke(controller, request, request.configuration(), "");
+        String projectionPrompt = (String) projection.invoke(controller, request, request.configuration(), "");
+        String repairPrompt = (String) repairMethod.invoke(controller, repair, request.configuration());
+
+        for (String prompt : List.of(generationPrompt, projectionPrompt, repairPrompt)) {
+            assertTrue(prompt.contains("search_story_sources"));
+            assertTrue(prompt.contains("search_rule_evidence"));
+            assertFalse(prompt.contains(sentinel));
+        }
     }
 
     @Test
@@ -473,6 +546,7 @@ class AdventureStoryPlanControllerMarkdownTest {
         canonicalize.invoke(controller, stage, 1, Map.of("citation-1", citation), violations);
 
         assertTrue(violations.isEmpty());
+        assertEquals(2, stage.path("schemaVersion").asInt());
         var participant = stage.path("combatSkeleton").path("participants").get(0);
         assertEquals("ENEMY", participant.path("role").asText());
         assertEquals("giant-rats", participant.path("participantId").asText());

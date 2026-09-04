@@ -9,6 +9,7 @@ import com.dndmaster.adventure.domain.adventure.CombatRequirement;
 import com.dndmaster.adventure.domain.adventure.CombatSkeleton;
 import com.dndmaster.adventure.domain.adventure.SourceFactClaim;
 import com.dndmaster.adventure.domain.adventure.TacticalPreparationRequirement;
+import com.dndmaster.adventure.domain.adventure.StageRole;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
@@ -49,5 +50,6 @@ class AdventureStoryPlanPersistenceCompatibilityTest {
         assertEquals(CombatRequirement.NONE, restored.combatRequirement());
         assertTrue(restored.combatSkeleton().participants().isEmpty());
         assertEquals(TacticalPreparationRequirement.NOT_REQUIRED, restored.tacticalPreparationRequirement());
+        assertEquals(StageRole.NORMAL, restored.stageRole());
     }
 }

@@ -71,7 +71,10 @@ public final class AdventureStoryPlanCandidateValidationException extends Runtim
                 || normalized.contains("burning web")
                 || normalized.contains("failure consequence")
                 || normalized.contains("fail-forward consequence")
-                || normalized.contains("failure outcome");
+                || normalized.contains("failure outcome")
+                || normalized.contains("success result")
+                || normalized.contains("success outcome")
+                || normalized.contains("successful result");
         boolean missingEndingIds = normalized.contains("endingids")
                 && (normalized.contains("missing") || normalized.contains("empty")
                 || normalized.contains("explicit") || normalized.contains("required"));

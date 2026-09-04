@@ -86,7 +86,7 @@ local-ai:
 ai:
   codex:
     # OAuth-backed Codex CLI calls may take several minutes for grounded plans/turns.
-    timeout: ${CODEX_OAUTH_TIMEOUT:PT3M}
+    timeout: ${CODEX_OAUTH_TIMEOUT:PT10M}
     executable: ${CODEX_EXECUTABLE:codex}
     work-directory: ${CODEX_WORK_DIRECTORY:/tmp}
   character-tags:

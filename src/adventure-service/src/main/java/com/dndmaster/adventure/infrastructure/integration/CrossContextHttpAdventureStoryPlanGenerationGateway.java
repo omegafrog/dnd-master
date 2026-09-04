@@ -20,6 +20,8 @@ import com.dndmaster.adventure.domain.adventure.CombatSkeleton;
 import com.dndmaster.adventure.domain.adventure.SourceFactClaim;
 import com.dndmaster.adventure.domain.adventure.ClaimOrigin;
 import com.dndmaster.adventure.domain.adventure.TacticalPreparationRequirement;
+import com.dndmaster.adventure.domain.adventure.SourceConstraintPack;
+import com.dndmaster.adventure.domain.adventure.StoryPlanGenerationMode;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -81,13 +83,14 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             Request keyedRequest = new Request(request.operationId(), request.packageRevision(), request.partySize(),
                     request.configuration(), request.sourceDocuments(), request.resolutionEvidence(), request.maps(),
                     request.citations(), request.violations().stream()
-                            .map(AdventureStoryPlanProjectionViolation::sanitizedMessage).toList(), request.previousCandidate())
+                            .map(AdventureStoryPlanProjectionViolation::sanitizedMessage).toList(), request.previousCandidate(),
+                    StoryPlanGenerationMode.GENERATIVE, new SourceConstraintPack(List.of(), List.of()), request.retrievalContext())
                     .withCitationKeys();
             JsonNode previousCandidate = mapper.readTree(request.previousCandidate());
             RepairWireRequest wireRequest = new RepairWireRequest(keyedRequest.operationId(), keyedRequest.packageRevision(),
                     keyedRequest.partySize(), keyedRequest.configuration(), previousCandidate,
                     request.violations(), keyedRequest.sourceDocuments(), request.repairScope(), keyedRequest.resolutionEvidence(),
-                    keyedRequest.maps(), keyedRequest.citations());
+                    keyedRequest.maps(), keyedRequest.citations(), keyedRequest.retrievalContext());
             var response = client.send(HttpRequest.newBuilder(baseUri.resolve("internal/v1/gm/adventure-story-plan/repair"))
                     .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(wireRequest))).build(),
@@ -409,13 +412,16 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             List<AdventureStoryPlanProjectionViolation> violations, List<String> sourceDocuments,
             com.dndmaster.adventure.application.storyplan.RepairScope repairScope,
             List<String> resolutionEvidence, List<AdventureStoryPlanGenerationPort.MapContext> maps,
-            List<AdventureStoryPlanGenerationPort.SourceCitation> citations) {
+            List<AdventureStoryPlanGenerationPort.SourceCitation> citations,
+            AdventureStoryPlanGenerationPort.RetrievalContext retrievalContext) {
         public RepairWireRequest {
             violations = List.copyOf(violations);
             sourceDocuments = List.copyOf(sourceDocuments);
             resolutionEvidence = List.copyOf(resolutionEvidence);
             maps = List.copyOf(maps);
             citations = List.copyOf(citations);
+            retrievalContext = retrievalContext == null
+                    ? AdventureStoryPlanGenerationPort.RetrievalContext.empty() : retrievalContext;
         }
     }
     @JsonIgnoreProperties(ignoreUnknown = true) record TacticalResponse(int stagePosition, TacticalScenePlan scene, List<SourceCitation> citations) {
@@ -443,7 +449,10 @@ public final class CrossContextHttpAdventureStoryPlanGenerationGateway implement
             mapAssetId = mapAssetId == null ? "" : mapAssetId;
             mapAssetLocator = mapAssetLocator == null ? "" : mapAssetLocator;
             boss = boss == null ? "" : boss;
-            schemaVersion = schemaVersion == null || schemaVersion <= 0 ? 1 : schemaVersion;
+            // Story-plan projection v2 is the current service contract. A
+            // provider that omits this metadata must not downgrade a valid
+            // current projection to legacy v1.
+            schemaVersion = schemaVersion == null || schemaVersion <= 0 ? 2 : schemaVersion;
         }
     }
     @JsonIgnoreProperties(ignoreUnknown = true) record CombatSkeletonProjection(String objective, String startTrigger,

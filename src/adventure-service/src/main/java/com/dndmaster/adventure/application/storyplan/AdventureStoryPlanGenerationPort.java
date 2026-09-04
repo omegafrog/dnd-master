@@ -24,29 +24,33 @@ public interface AdventureStoryPlanGenerationPort {
     record Request(String operationId, long packageRevision, int partySize, AdventurePlanConfiguration configuration,
                    List<String> sourceDocuments, List<String> resolutionEvidence, List<MapContext> maps,
                    List<SourceCitation> citations, List<String> violations, String previousCandidate,
-                   StoryPlanGenerationMode generationMode, SourceConstraintPack sourceConstraintPack) {
+                   StoryPlanGenerationMode generationMode, SourceConstraintPack sourceConstraintPack,
+                   RetrievalContext retrievalContext) {
         public Request(String operationId, long packageRevision, int partySize, AdventurePlanConfiguration configuration,
                 List<String> sourceDocuments, List<String> resolutionEvidence, List<MapContext> maps,
                 List<SourceCitation> citations, List<String> violations, String previousCandidate) {
             this(operationId, packageRevision, partySize, configuration, sourceDocuments, resolutionEvidence, maps,
                     citations, violations, previousCandidate, StoryPlanGenerationMode.GENERATIVE,
-                    new SourceConstraintPack(List.of(), List.of()));
+                    new SourceConstraintPack(List.of(), List.of()), RetrievalContext.empty());
         }
         public Request(String operationId, long packageRevision, int partySize, AdventurePlanConfiguration configuration,
                 List<String> sourceDocuments, List<String> resolutionEvidence, List<MapContext> maps,
                 List<SourceCitation> citations) {
             this(operationId, packageRevision, partySize, configuration, sourceDocuments, resolutionEvidence,
-                    maps, citations, List.of(), "", StoryPlanGenerationMode.GENERATIVE, new SourceConstraintPack(List.of(), List.of()));
+                    maps, citations, List.of(), "", StoryPlanGenerationMode.GENERATIVE,
+                    new SourceConstraintPack(List.of(), List.of()), RetrievalContext.empty());
         }
         public Request(String operationId, long packageRevision, int partySize, AdventurePlanConfiguration configuration,
                 List<String> sourceDocuments, List<String> resolutionEvidence) {
             this(operationId, packageRevision, partySize, configuration, sourceDocuments, resolutionEvidence,
-                    List.of(), List.of(), List.of(), "", StoryPlanGenerationMode.GENERATIVE, new SourceConstraintPack(List.of(), List.of()));
+                    List.of(), List.of(), List.of(), "", StoryPlanGenerationMode.GENERATIVE,
+                    new SourceConstraintPack(List.of(), List.of()), RetrievalContext.empty());
         }
         public Request(String operationId, long packageRevision, int partySize, List<String> sourceDocuments,
                 List<String> resolutionEvidence) {
             this(operationId, packageRevision, partySize, AdventurePlanConfiguration.defaults(), sourceDocuments,
-                    resolutionEvidence, List.of(), List.of(), List.of(), "", StoryPlanGenerationMode.GENERATIVE, new SourceConstraintPack(List.of(), List.of()));
+                    resolutionEvidence, List.of(), List.of(), List.of(), "", StoryPlanGenerationMode.GENERATIVE,
+                    new SourceConstraintPack(List.of(), List.of()), RetrievalContext.empty());
         }
         public Request {
             citations = citations == null ? List.of() : List.copyOf(citations);
@@ -54,6 +58,7 @@ public interface AdventureStoryPlanGenerationPort {
             previousCandidate = previousCandidate == null ? "" : previousCandidate;
             generationMode = generationMode == null ? StoryPlanGenerationMode.GENERATIVE : generationMode;
             sourceConstraintPack = sourceConstraintPack == null ? new SourceConstraintPack(List.of(), List.of()) : sourceConstraintPack;
+            retrievalContext = retrievalContext == null ? RetrievalContext.empty() : retrievalContext;
         }
         public Request withCitationKeys() {
             java.util.Set<String> usedKeys = new java.util.HashSet<>();
@@ -77,15 +82,18 @@ public interface AdventureStoryPlanGenerationPort {
                 keyed.add(citation.withCitationKey(key));
             }
             return new Request(operationId, packageRevision, partySize, configuration, sourceDocuments,
-                    resolutionEvidence, maps, keyed, violations, previousCandidate, generationMode, sourceConstraintPack);
+                    resolutionEvidence, maps, keyed, violations, previousCandidate, generationMode, sourceConstraintPack,
+                    retrievalContext);
         }
         public Request withViolations(List<String> nextViolations) {
             return new Request(operationId, packageRevision, partySize, configuration, sourceDocuments,
-                    resolutionEvidence, maps, citations, nextViolations, previousCandidate, generationMode, sourceConstraintPack);
+                    resolutionEvidence, maps, citations, nextViolations, previousCandidate, generationMode, sourceConstraintPack,
+                    retrievalContext);
         }
         public Request withPreviousCandidate(String candidate) {
             return new Request(operationId, packageRevision, partySize, configuration, sourceDocuments,
-                    resolutionEvidence, maps, citations, violations, candidate, generationMode, sourceConstraintPack);
+                    resolutionEvidence, maps, citations, violations, candidate, generationMode, sourceConstraintPack,
+                    retrievalContext);
         }
     }
 
@@ -94,15 +102,36 @@ public interface AdventureStoryPlanGenerationPort {
                          List<AdventureStoryPlanProjectionViolation> violations,
                          RepairScope repairScope,
                          List<String> sourceDocuments, List<String> resolutionEvidence,
-                         List<MapContext> maps, List<SourceCitation> citations) {
+                         List<MapContext> maps, List<SourceCitation> citations,
+                         RetrievalContext retrievalContext) {
         public RepairRequest(String operationId, long packageRevision, int partySize,
                 AdventurePlanConfiguration configuration, String previousCandidate,
                 List<AdventureStoryPlanProjectionViolation> violations,
                 List<String> sourceDocuments, List<String> resolutionEvidence,
                 List<MapContext> maps, List<SourceCitation> citations) {
             this(operationId, packageRevision, partySize, configuration, previousCandidate, violations,
+                    sourceDocuments, resolutionEvidence, maps, citations, RetrievalContext.empty());
+        }
+
+        public RepairRequest(String operationId, long packageRevision, int partySize,
+                AdventurePlanConfiguration configuration, String previousCandidate,
+                List<AdventureStoryPlanProjectionViolation> violations,
+                RepairScope repairScope,
+                List<String> sourceDocuments, List<String> resolutionEvidence,
+                List<MapContext> maps, List<SourceCitation> citations) {
+            this(operationId, packageRevision, partySize, configuration, previousCandidate, violations,
+                    repairScope, sourceDocuments, resolutionEvidence, maps, citations, RetrievalContext.empty());
+        }
+
+        public RepairRequest(String operationId, long packageRevision, int partySize,
+                AdventurePlanConfiguration configuration, String previousCandidate,
+                List<AdventureStoryPlanProjectionViolation> violations,
+                List<String> sourceDocuments, List<String> resolutionEvidence,
+                List<MapContext> maps, List<SourceCitation> citations,
+                RetrievalContext retrievalContext) {
+            this(operationId, packageRevision, partySize, configuration, previousCandidate, violations,
                     AdventureStoryPlanProjectionDependencyPolicy.scope(previousCandidate, violations),
-                    sourceDocuments, resolutionEvidence, maps, citations);
+                    sourceDocuments, resolutionEvidence, maps, citations, retrievalContext);
         }
 
         public RepairRequest {
@@ -114,6 +143,7 @@ public interface AdventureStoryPlanGenerationPort {
             resolutionEvidence = resolutionEvidence == null ? List.of() : List.copyOf(resolutionEvidence);
             maps = maps == null ? List.of() : List.copyOf(maps);
             citations = citations == null ? List.of() : List.copyOf(citations);
+            retrievalContext = retrievalContext == null ? RetrievalContext.empty() : retrievalContext;
             if (repairScope == null) {
                 throw new IllegalArgumentException("deterministic repair scope must be explicit");
             }
@@ -126,9 +156,22 @@ public interface AdventureStoryPlanGenerationPort {
         public Request toGenerationRequest() {
             return new Request(operationId, packageRevision, partySize, configuration, sourceDocuments,
                     resolutionEvidence, maps, citations,
-                    violations.stream().map(AdventureStoryPlanProjectionViolation::sanitizedMessage).toList(), previousCandidate);
+                    violations.stream().map(AdventureStoryPlanProjectionViolation::sanitizedMessage).toList(), previousCandidate,
+                    StoryPlanGenerationMode.GENERATIVE, new SourceConstraintPack(List.of(), List.of()), retrievalContext);
         }
     }
+
+    record RetrievalContext(UUID ownerId, List<RetrievalDocument> documents) {
+        public RetrievalContext {
+            documents = documents == null ? List.of() : List.copyOf(documents);
+        }
+
+        public static RetrievalContext empty() {
+            return new RetrievalContext(null, List.of());
+        }
+    }
+
+    record RetrievalDocument(String documentType, UUID documentId, long extractionVersion) {}
 
     record ProjectionCandidate(String serializedCandidate, List<AdventureStoryPlanStage> stages) {
         public ProjectionCandidate {

@@ -57,7 +57,11 @@ public final class NarrativeState {
                 relationships, activeThreads, recentEvents);
     }
     public NarrativeState addWorldFact(WorldFact fact) {
-        Map<String, WorldFact> facts = new LinkedHashMap<>(worldFacts); facts.put(fact.id(), fact);
+        Map<String, WorldFact> facts = new LinkedHashMap<>(worldFacts);
+        WorldFact existing = facts.get(fact.id());
+        if (existing == null || fact.authority().outranks(existing.authority())
+                || (existing.authority() == FactAuthority.GENERATED_UNEXPOSED
+                && fact.authority() == FactAuthority.GENERATED_UNEXPOSED)) facts.put(fact.id(), fact);
         return copy(version, facts, revealedFacts, characterKnowledge, relationships, activeThreads, recentEvents);
     }
     public NarrativeState recordKnowledge(String actorId, String factId) {
@@ -81,6 +85,8 @@ public final class NarrativeState {
     }
     public NarrativeState hideFact(String factId) { if (revealedFacts.containsKey(factId)) throw new IllegalStateException("revealed facts are monotonic"); return this; }
     NarrativeState committed(StateDelta delta, Map<String, RevealedFact> reveals) {
+        NarrativeState withFacts = this;
+        for (WorldFact fact : delta.proposedFacts()) withFacts = withFacts.addWorldFact(fact);
         Map<String, RevealedFact> nextReveals = new LinkedHashMap<>(revealedFacts); nextReveals.putAll(reveals);
         Map<String, CharacterKnowledge> knowledge = new LinkedHashMap<>(characterKnowledge);
         for (CharacterKnowledge change : delta.knowledgeChanges()) knowledge.put(change.actorId(), change);
@@ -89,7 +95,8 @@ public final class NarrativeState {
             Set<Belief> beliefs = new LinkedHashSet<>(prior.beliefs()); beliefs.removeIf(b -> b.subjectId().equals(belief.subjectId())); beliefs.add(belief);
             knowledge.put(belief.actorId(), new CharacterKnowledge(belief.actorId(), prior.factIds(), beliefs));
         }
-        return copy(version + 1, worldFacts, nextReveals, knowledge, delta.relationshipChanges(), delta.threadChanges(), delta.events());
+        return withFacts.copy(version + 1, withFacts.worldFacts, nextReveals, knowledge,
+                delta.relationshipChanges(), delta.threadChanges(), delta.events());
     }
     private NarrativeState copy(long v, Map<String, WorldFact> f, Map<String, RevealedFact> r, Map<String, CharacterKnowledge> k,
             List<Relationship> rel, List<ActiveThread> threads, List<RecentEvent> events) { return new NarrativeState(v, f, r, k, rel, threads, events); }

@@ -83,7 +83,7 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
                     requested_endpoint_id, requested_provider, requested_model, requested_reasoning,
                     effective_endpoint_id, effective_endpoint_version, effective_provider, effective_model, effective_reasoning, attempt_count
                 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                ON CONFLICT (command_id) DO UPDATE SET
+                ON CONFLICT (turn_id) DO UPDATE SET
                     turn_id = EXCLUDED.turn_id,
                     adventure_id = EXCLUDED.adventure_id,
                     session_id = EXCLUDED.session_id,
