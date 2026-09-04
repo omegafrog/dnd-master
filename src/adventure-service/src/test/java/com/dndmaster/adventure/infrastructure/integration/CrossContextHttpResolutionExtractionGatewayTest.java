@@ -7,12 +7,12 @@ import org.junit.jupiter.api.Test;
 
 class CrossContextHttpResolutionExtractionGatewayTest {
     @Test
-    void marksScenarioCompilationResolutionExtractionWithoutCreatingStoryPlanAuthoringCall() {
+    void marksScenarioCompilationResolutionExtractionWithoutCreatingAuthoringCall() {
         String operationId = CrossContextHttpResolutionExtractionGateway.operationId("compilation-1", false);
 
         assertEquals("scenario-compilation:compilation-1:resolution-candidates", operationId);
         assertTrue(operationId.contains(":resolution-candidates"));
-        assertTrue(!operationId.contains("story-plan"));
+        assertTrue(!operationId.contains("authoring"));
     }
 
     @Test

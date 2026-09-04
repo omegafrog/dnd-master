@@ -21,14 +21,11 @@ class OpenApiSchemaTest {
     @Test
     void canonical_openapi_documents_contain_every_allowlisted_public_and_internal_path() throws IOException {
         assertPaths("identity-access", "/api/v1/identity/sessions", "/internal/v1/auth/introspections");
-        assertPaths("adventure", "/api/v1/adventures/{adventureId}/messages", "/api/v1/adventures/{adventureId}/rule-inquiries",
+        assertPaths("adventure", "/api/v1/adventures/{adventureId}/turns", "/api/v1/adventures/{adventureId}/rule-inquiries",
                 "/internal/v1/adventures", "/internal/v1/adventures/{adventureId}/edition",
                 "/internal/v1/adventures/{adventureId}/roll-conditions",
-                "/internal/v1/adventures/{adventureId}/movement-validations",
-                "/internal/v1/adventures/{adventureId}/gm-context");
-        assertTriggerQualification("adventure");
+                "/internal/v1/adventures/{adventureId}/movement-validations");
         assertCombatMapTriggerQualification();
-        assertGmStoryPlanHistoryContract("adventure");
         assertPaths("rule-knowledge", "/api/v1/rulebooks", "/api/v1/rulebooks/{rulebookId}/source-preview", "/api/v1/rulebooks/rule-set", "/internal/v1/rulebooks",
                 "/internal/v1/rulebook-indexes", "/internal/v1/rulebooks/{rulebookId}/ownership",
                 "/internal/v1/rule-evidence/search");
@@ -41,18 +38,6 @@ class OpenApiSchemaTest {
     }
 
     @SuppressWarnings("unchecked")
-    private static void assertTriggerQualification(String provider) throws IOException {
-        Map<String, Object> root = new Yaml().load(Files.readString(CONTRACTS.resolve(provider).resolve("openapi.yaml")));
-        Map<String, Object> paths = (Map<String, Object>) root.get("paths");
-        Map<String, Object> operation = (Map<String, Object>) ((Map<String, Object>) paths.get("/api/v1/adventure-sessions/{sessionId}/story-plan/stages/{position}/triggers/{triggerId}/apply")).get("post");
-        String body = operation.toString();
-        assertTrue(body.contains("qualifyingAction"), "player trigger contract must require qualifyingAction");
-        assertTrue(body.contains("400"), "player trigger contract must document validation failure");
-        assertTrue(body.contains("blank"), "player trigger contract must document blank action rejection");
-        assertTrue(body.contains("pattern=\\S") || body.contains("pattern=\\\\S"), "player trigger schema must reject whitespace-only actions");
-    }
-
-    @SuppressWarnings("unchecked")
     private static void assertCombatMapTriggerQualification() throws IOException {
         Map<String, Object> root = new Yaml().load(Files.readString(CONTRACTS.resolve("combat-map").resolve("openapi.yaml")));
         Map<String, Object> paths = (Map<String, Object>) root.get("paths");
@@ -62,30 +47,6 @@ class OpenApiSchemaTest {
         assertTrue(body.contains("400"), "combat-map trigger contract must document validation failure");
         assertTrue(body.contains("invalid tactical trigger kind"), "combat-map trigger contract must document kind validation");
         assertTrue(body.contains("pattern=\\S") || body.contains("pattern=\\\\S"), "combat-map trigger schema must reject whitespace-only actions");
-    }
-
-    @SuppressWarnings("unchecked")
-    private static void assertGmStoryPlanHistoryContract(String provider) throws IOException {
-        Map<String, Object> root = new Yaml().load(Files.readString(CONTRACTS.resolve(provider).resolve("openapi.yaml")));
-        Map<String, Object> paths = (Map<String, Object>) root.get("paths");
-        Map<String, Object> operation = (Map<String, Object>) ((Map<String, Object>) paths.get("/api/v1/adventure-sessions/{sessionId}/story-plan/history")).get("get");
-        String body = operation.toString();
-        assertTrue(body.contains("X-Internal-Token"), "GM history must require internal token");
-        assertTrue(body.contains("401"), "GM history must document invalid-token response");
-        assertTrue(body.contains("403"), "GM history must document owner denial response");
-        assertTrue(body.contains("append-only"), "GM history must describe revision audit semantics");
-        assertTrue(body.contains("auditId"), "GM history must expose durable audit identifier");
-        assertTrue(body.contains("recordedAt"), "GM history must expose durable recording time");
-        assertTrue(body.contains("predecessorHistoryId"), "GM history must expose the prior revision identifier");
-
-        Map<String, Object> revise = (Map<String, Object>) ((Map<String, Object>) paths
-                .get("/api/v1/adventure-sessions/{sessionId}/story-plan/stages/{position}/tactical-scene/revise")).get("post");
-        String reviseBody = revise.toString();
-        assertTrue(reviseBody.contains("causingGmTurnId"), "future revision must carry its causing GM turn provenance");
-        assertTrue(reviseBody.contains("causingGmCommandId"), "future revision must bind the causing GM command");
-        assertTrue(reviseBody.contains("X-Internal-Token"), "future revision must require internal authorization");
-        assertTrue(reviseBody.contains("401"), "future revision must document invalid-token response");
-        assertTrue(reviseBody.contains("403"), "future revision must document owner denial response");
     }
 
     @Test

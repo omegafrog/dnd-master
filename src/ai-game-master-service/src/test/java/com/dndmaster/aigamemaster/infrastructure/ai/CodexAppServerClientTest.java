@@ -12,13 +12,13 @@ import org.junit.jupiter.api.Test;
 
 class CodexAppServerClientTest {
     @Test
-    void classifiesScenarioCompilationResolutionCallsSeparatelyFromStoryPlanAuthoring() {
+    void classifiesScenarioCompilationResolutionCallsSeparatelyFromRuntimeCompletion() {
         assertThat(CodexAppServerClient.stage("scenario-compilation:abc:resolution-candidates"))
                 .isEqualTo("resolution-candidate-extraction");
         assertThat(CodexAppServerClient.stage("scenario-compilation:abc:resolution-candidate-repair"))
                 .isEqualTo("resolution-candidate-repair");
-        assertThat(CodexAppServerClient.stage("story-plan-123"))
-                .isEqualTo("story-plan-generation");
+        assertThat(CodexAppServerClient.stage("scenario-runtime-123"))
+                .isEqualTo("scenario-runtime-completion");
     }
 
     @Test
@@ -47,7 +47,7 @@ class CodexAppServerClientTest {
                     .satisfies(error -> {
                         var timeout = (CodexTurnTimeoutException) error;
                         assertThat(timeout.operationId()).isEqualTo("timeout");
-                        assertThat(timeout.phase()).isEqualTo("story-plan-generation");
+                        assertThat(timeout.phase()).isEqualTo("scenario-runtime-completion");
                         assertThat(timeout.timeoutMillis()).isEqualTo(150L);
                         assertThat(timeout.lastEvent()).isEqualTo("request");
                     });

@@ -23,8 +23,6 @@ class ConsumerProviderContractTest {
         assertProviderPath("combat-map", "/internal/v1/combat-maps/{mapId}/moves");
         assertProviderPath("ai-game-master", "/internal/v1/gm/judgments");
         assertProviderPath("ai-game-master", "/internal/v1/gm/intent-classifications");
-        assertProviderPath("ai-game-master", "/internal/v1/gm/agent-turns");
-        assertProviderPath("adventure", "/internal/v1/adventures/{adventureId}/gm-context");
     }
 
     @Test

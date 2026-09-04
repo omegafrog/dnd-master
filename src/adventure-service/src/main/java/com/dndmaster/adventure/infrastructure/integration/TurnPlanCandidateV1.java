@@ -8,7 +8,7 @@ import java.util.Set;
 /** Explicit AI GM v2 boundary DTO. Versioning stays at the adapter, not the domain model. */
 public record TurnPlanCandidateV1(String candidateId, String scene, String npcState, String judgment,
                                   List<String> revealableFacts, List<String> forbiddenFacts,
-                                  String playerIntent, String stateFingerprint, String storyStage,
+                                  String playerIntent, String stateFingerprint, String situationKey,
                                   String informationBoundary, Set<String> referencedEntities,
                                   boolean preservesAgency, boolean continuitySafe, boolean ruleCompliant,
                                   int complexity) {
@@ -16,13 +16,13 @@ public record TurnPlanCandidateV1(String candidateId, String scene, String npcSt
         TurnPlan plan = candidate.plan();
         return new TurnPlanCandidateV1(candidate.candidateId(), plan.scene(), plan.npcState(), plan.judgment(),
                 plan.revealableFacts(), plan.forbiddenFacts(), candidate.playerIntent(), candidate.stateFingerprint(),
-                candidate.storyStage(), candidate.informationBoundary(), candidate.referencedEntities(),
+                candidate.situationKey(), candidate.informationBoundary(), candidate.referencedEntities(),
                 candidate.preservesAgency(), candidate.continuitySafe(), candidate.ruleCompliant(), candidate.complexity());
     }
 
     public PlanCandidate toDomain() {
         return new PlanCandidate(candidateId, new TurnPlan(scene, npcState, judgment, revealableFacts, forbiddenFacts),
-                playerIntent, stateFingerprint, storyStage, informationBoundary, referencedEntities,
+                playerIntent, stateFingerprint, situationKey, informationBoundary, referencedEntities,
                 preservesAgency, continuitySafe, ruleCompliant, complexity);
     }
 }

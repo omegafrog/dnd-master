@@ -132,9 +132,9 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
     private CandidateGeneration generateCandidate(RuntimePlanningRequest request, boolean issueCapability) {
         GmContextEnvelope context = new GmContextEnvelope(request.adventureId(), request.ownerPlayerId(), request.sessionId(), request.turnId(), request.scenarioPackageId(),
                 request.bindingVersion(), request.currentContext(), request.activeSourceContext(), request.action(), request.evidencePack(),
-                request.recentTurns(), request.characterSnapshots(), request.storyPlanContext(), request.provider(), request.model(), request.reasoning(),
+                request.recentTurns(), request.characterSnapshots(), request.scenarioContext(), request.provider(), request.model(), request.reasoning(),
                 requestedSelection(request), request.narrativeContext());
-        java.util.Set<String> hiddenData = context.storyPlanContext().isBlank() ? java.util.Set.of() : java.util.Set.of(context.storyPlanContext());
+        java.util.Set<String> hiddenData = context.scenarioContext().isBlank() ? java.util.Set.of() : java.util.Set.of(context.scenarioContext());
         TurnCapability capability = issueCapability ? issueCapability(request) : null;
         List<GmToolSpec> modelTools = gateway == null ? List.of() : gateway.modelTools().stream()
                 .filter(spec -> capability == null || capability.allowedTools().contains(spec.name())).toList();
@@ -147,7 +147,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
     private TurnCapability issueCapability(RuntimePlanningRequest request) {
         if (gateway == null || saga == null) return null;
         return TurnCapability.issue(request.sessionId(), request.turnId(), request.ownerPlayerId().value(),
-                Set.of("dice.roll", "character.update", "revise_story_plan", "advance_game_time"),
+                Set.of("dice.roll", "character.update", "scenario_state_update"),
                 java.time.Instant.now().plusSeconds(300), UUID.randomUUID());
     }
 
@@ -241,7 +241,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
                 RuntimePlan safe = new RuntimePlan(result.plan().scene(), result.plan().npcState(), result.plan().judgment(),
                         "The requested action needs clarification before it can be completed.", result.plan().proposedActiveSourceContext(),
                         result.plan().citedEvidence(), result.plan().warnings(), result.plan().provider(), result.plan().model(), result.plan().reasoning(),
-                        result.plan().advanceStoryPlan(), result.plan().selectedBranchId(), result.plan().requestedSelection(), result.plan().effectiveSelection(),
+                        result.plan().stateTransitionRequested(), result.plan().requestedSelectionId(), result.plan().requestedSelection(), result.plan().effectiveSelection(),
                         result.plan().attemptCount(), result.plan().citationBindings(), result.plan().stateDelta());
                 return new ToolMaterialization(new GmPlanResult(safe, result.provider(), result.model(), result.reasoning(), result.stateDelta(), result.toolCalls()),
                         execution.outcomes().stream().map(GmAgentRuntimePlanningAdapter::toCommandOutcome).toList(),

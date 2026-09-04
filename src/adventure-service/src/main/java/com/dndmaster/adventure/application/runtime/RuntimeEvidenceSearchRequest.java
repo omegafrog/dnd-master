@@ -20,7 +20,7 @@ public record RuntimeEvidenceSearchRequest(
         RuntimeEvidenceType evidenceType,
         int limit,
         Map<UUID, Long> extractionVersions,
-        String stageKey,
+        String contextKey,
         String actionIntent) {
     public RuntimeEvidenceSearchRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, SessionId sessionId,
                                          UUID scenarioPackageId, List<UUID> knowledgeDocumentIds,
@@ -48,7 +48,7 @@ public record RuntimeEvidenceSearchRequest(
         extractionVersions = Map.copyOf(Objects.requireNonNull(extractionVersions, "extraction versions must not be null"));
         action = required(action, "action");
         evidenceType = Objects.requireNonNull(evidenceType, "evidence type must not be null");
-        stageKey = required(stageKey, "stage key");
+        contextKey = required(contextKey, "context key");
         actionIntent = required(actionIntent, "action intent");
         if (limit <= 0) throw new IllegalArgumentException("limit must be positive");
     }
@@ -56,13 +56,13 @@ public record RuntimeEvidenceSearchRequest(
     public RuntimeEvidenceSearchRequest forType(RuntimeEvidenceType type, int requestedLimit) {
         return new RuntimeEvidenceSearchRequest(adventureId, ownerPlayerId, sessionId, scenarioPackageId,
                 knowledgeDocumentIds, activeSourceContext, action, type, requestedLimit, extractionVersions,
-                stageKey, actionIntent);
+                contextKey, actionIntent);
     }
 
     public RuntimeEvidenceSearchRequest withDocumentIds(List<UUID> documentIds, RuntimeEvidenceType type, int requestedLimit) {
         return new RuntimeEvidenceSearchRequest(adventureId, ownerPlayerId, sessionId, scenarioPackageId,
                 documentIds, activeSourceContext, action, type, requestedLimit, extractionVersions,
-                stageKey, actionIntent);
+                contextKey, actionIntent);
     }
 
     private static String required(String value, String name) {

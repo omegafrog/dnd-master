@@ -6,7 +6,4 @@ describe('AppShell preparation routes', () => {
     expect(parseRoute('#/sessions/session-1/party')).toEqual({ page: 'party', sessionId: 'session-1' })
   })
 
-  it('routes story plan preparation to dedicated plan page', () => {
-    expect(parseRoute('#/sessions/session-1/story-plan')).toEqual({ page: 'story-plan', sessionId: 'session-1' })
-  })
 })

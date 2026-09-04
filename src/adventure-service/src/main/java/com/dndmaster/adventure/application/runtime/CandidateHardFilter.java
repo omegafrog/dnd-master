@@ -12,7 +12,7 @@ public final class CandidateHardFilter {
             List<Violation> violations = new ArrayList<>();
             if (!candidate.playerIntent().equals(context.playerIntent())) violations.add(Violation.PLAYER_INTENT_MISMATCH);
             if (!candidate.stateFingerprint().equals(context.stateFingerprint())) violations.add(Violation.STATE_MISMATCH);
-            if (!candidate.storyStage().equals(context.storyStage())) violations.add(Violation.STORY_STAGE_MISMATCH);
+            if (!candidate.situationKey().equals(context.situationKey())) violations.add(Violation.SITUATION_MISMATCH);
             if (!candidate.informationBoundary().equals(context.informationBoundary())) violations.add(Violation.INFORMATION_BOUNDARY_MISMATCH);
             if (!context.forbiddenFacts().stream().noneMatch(candidate.plan().revealableFacts()::contains)) violations.add(Violation.SECRET_LEAK);
             if (!context.supportedEntities().containsAll(candidate.referencedEntities())) violations.add(Violation.UNSUPPORTED_ENTITY);
@@ -25,7 +25,7 @@ public final class CandidateHardFilter {
     }
     public record FilterResult(List<PlanCandidate> valid, List<Rejection> rejected) {}
     public record Rejection(PlanCandidate candidate, List<Violation> violations) {}
-    public enum Violation { PLAYER_INTENT_MISMATCH, STATE_MISMATCH, STORY_STAGE_MISMATCH,
+    public enum Violation { PLAYER_INTENT_MISMATCH, STATE_MISMATCH, SITUATION_MISMATCH,
         INFORMATION_BOUNDARY_MISMATCH, SECRET_LEAK, UNSUPPORTED_ENTITY,
         PLAYER_AGENCY_VIOLATION, CONTINUITY_VIOLATION, RULE_VIOLATION }
 }

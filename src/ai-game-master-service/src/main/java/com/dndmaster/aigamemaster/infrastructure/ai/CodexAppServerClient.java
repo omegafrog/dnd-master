@@ -191,10 +191,10 @@ public final class CodexAppServerClient implements AutoCloseable {
         if (operationId == null) return "unknown";
         if (operationId.contains(":resolution-candidate-repair")) return "resolution-candidate-repair";
         if (operationId.contains(":resolution-candidates")) return "resolution-candidate-extraction";
-        if (operationId.endsWith("-verification")) return "story-plan-verification";
-        if (operationId.endsWith("-execution-projection")) return "story-plan-projection";
-        if (operationId.endsWith("-projection-repair")) return "story-plan-projection-repair";
-        return "story-plan-generation";
+        if (operationId.endsWith("-verification")) return "scenario-runtime-verification";
+        if (operationId.endsWith("-execution-projection")) return "scenario-runtime-projection";
+        if (operationId.endsWith("-projection-repair")) return "scenario-runtime-projection-repair";
+        return "scenario-runtime-completion";
     }
 
     private static String safe(String value) { return AiCallObservability.safe(value); }

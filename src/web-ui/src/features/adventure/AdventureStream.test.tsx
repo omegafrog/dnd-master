@@ -151,26 +151,6 @@ it('notifies after a successful text turn', async () => {
   await waitFor(() => expect(onTurnCommitted).toHaveBeenCalledTimes(1))
 })
 
-it('notifies after a successful agent turn', async () => {
-  const onTurnCommitted = vi.fn()
-  const api: AdventureApi = {
-    async sendMessage() { throw new Error('not used') },
-    async runAgentTurn() { return { narration: 'agent', judgment: '', currentScene: '', sourceRefs: [], warnings: [], version: 1, nextControlMode: 'DIRECT' } },
-  }
-  render(<AdventureStream adventureId="a1" api={api} controlMode="AGENT" onTurnCommitted={onTurnCommitted} />)
-  await waitFor(() => expect(onTurnCommitted).toHaveBeenCalledTimes(1))
-})
-
-it('waits for direct input while agent turns progress automatically', () => {
-  const api: AdventureApi = { async sendMessage() { throw new Error('must not send') } }
-  const { rerender } = render(<AdventureStream adventureId="a1" api={api} controlMode="DIRECT" />)
-  expect(screen.getByRole('status')).toHaveTextContent('직접 플레이 입력 대기')
-  expect(screen.getByRole('button', { name: '행동 보내기' })).toBeEnabled()
-  rerender(<AdventureStream adventureId="a1" api={api} controlMode="AGENT" />)
-  expect(screen.getByRole('status')).toHaveTextContent('에이전트 캐릭터 차례')
-  expect(screen.getByRole('button', { name: '행동 보내기' })).toBeDisabled()
-})
-
 it('returns to direct input after a committed response and still shows a later event failure', async () => {
   let publish: ((event: { version: number; type: string; payload: string }) => void) | undefined
   const api: AdventureApi = {

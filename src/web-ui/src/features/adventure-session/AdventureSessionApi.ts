@@ -59,81 +59,6 @@ export type CreateAdventureSessionRequest = {
   partySize?: number
 }
 
-export type AdventureStoryPlanStatus = 'GENERATING' | 'READY' | 'BLOCKED' | 'FAILED'
-export type AdventureStoryPlanTerminalStatus = Exclude<AdventureStoryPlanStatus, 'GENERATING'>
-
-export type AdventureStoryPlanView = {
-  status: AdventureStoryPlanStatus
-  currentStage: number
-  planRevision: number
-  endingCount: number
-  adventureLength: 'SHORT' | 'STANDARD' | 'LONG'
-  stages: Array<{
-    position: number
-    title: string
-    stageType: string
-    location: string
-    goal: string
-    mapDefinitionId?: string | null
-  }>
-  failureReason: string | null
-}
-
-export type AdventureStoryPlanGenerationJobView = {
-  jobId: string
-  sessionId: string
-  status: 'QUEUED' | 'RUNNING' | 'COMPLETE' | 'FAILED'
-  progress: number
-  stage: string
-  message: string | null
-  updatedAt: string
-}
-
-export function normalizeAdventureStoryPlanStatus(status: unknown, failureReason?: string | null): AdventureStoryPlanStatus {
-  const value = String(status ?? '').trim().toUpperCase()
-  if (value === 'READY' || value === 'COMPLETE' || value.includes('준비 완료')) return 'READY'
-  if (value === 'BLOCKED' || value.includes('검증 실패') || value.includes('근거')) return 'BLOCKED'
-  if (value === 'FAILED' || value.includes('TIMEOUT') || value.includes('실패') || value.includes('오류')) return 'FAILED'
-  if (failureReason && (failureReason.includes('검증') || failureReason.includes('근거'))) return 'BLOCKED'
-  return 'GENERATING'
-}
-
-export function normalizeAdventureStoryPlan(plan: AdventureStoryPlanView): AdventureStoryPlanView {
-  return { ...plan, status: normalizeAdventureStoryPlanStatus(plan.status, plan.failureReason) }
-}
-
-export function normalizeAdventureStoryPlanGenerationJob(job: AdventureStoryPlanGenerationJobView): AdventureStoryPlanGenerationJobView {
-  const value = String(job.status ?? '').trim().toUpperCase()
-  const diagnostic = `${job.message ?? ''} ${job.stage ?? ''}`
-  const status = diagnostic.includes('검증 실패') || diagnostic.includes('계획 생성 실패') || diagnostic.includes('시간 초과')
-    ? 'FAILED'
-    : value === 'COMPLETE' || value.includes('완료')
-    ? 'COMPLETE'
-    : value === 'FAILED' || value.includes('실패') || value.includes('TIMEOUT') || value.includes('검증')
-      ? 'FAILED'
-      : value === 'RUNNING' ? 'RUNNING' : 'QUEUED'
-  return { ...job, status }
-}
-
-export type StageMapActivation = { stagePosition: number; mapDefinitionId: string; assetId: string; assetLocator: string; combatMapId: string }
-export type TacticalScenePreparationView = {
-  jobId: string | null
-  sessionId: string
-  stagePosition: number
-  stageName: string
-  status: 'NOT_REQUIRED' | 'REQUIRED_PENDING' | 'PREPARING' | 'READY' | 'FAILED_RETRYABLE'
-  progress: number
-  attempts: number
-  mapRequired: boolean
-  message: string
-  failureReason: string | null
-  updatedAt: string
-  phase?: string
-  completedUnits?: number
-  totalUnits?: number | null
-  percentage?: number | null
-}
-
 export type GmProviderView = {
   sessionId: string
   provider: string
@@ -196,12 +121,4 @@ export class AdventureSessionApi {
   complete(sessionId: string, version: number) { return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/complete`, { method: 'POST', headers: { 'If-Match-Version': String(version) } }) }
   recoverStart(sessionId: string, version: number) { return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}/start/recover`, { method: 'POST', headers: { 'If-Match-Version': String(version) } }) }
   delete(sessionId: string, version: number) { return this.request<AdventureSessionView>(`/api/v1/adventure-sessions/${sessionId}`, { method: 'DELETE', headers: { 'If-Match-Version': String(version) } }) }
-  readStoryPlan(sessionId: string) { return this.request<AdventureStoryPlanView>(`/api/v1/adventure-sessions/${sessionId}/story-plan`).then(normalizeAdventureStoryPlan) }
-  startStoryPlanGeneration(sessionId: string, configuration: { endingCount: number; adventureLength: AdventureStoryPlanView['adventureLength'] }) { return this.request<AdventureStoryPlanGenerationJobView>(`/api/v1/adventure-sessions/${sessionId}/story-plan`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(configuration) }).then(normalizeAdventureStoryPlanGenerationJob) }
-  retryStoryPlan(sessionId: string, configuration: { endingCount: number; adventureLength: AdventureStoryPlanView['adventureLength'] }) { return this.request<AdventureStoryPlanGenerationJobView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/retry`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(configuration) }).then(normalizeAdventureStoryPlanGenerationJob) }
-  readStoryPlanGeneration(jobId: string, sessionId: string) { return this.request<AdventureStoryPlanGenerationJobView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/generation/${jobId}`).then(normalizeAdventureStoryPlanGenerationJob) }
-  activateStageMap(sessionId: string, position: number) { return this.request<StageMapActivation>(`/api/v1/adventure-sessions/${sessionId}/story-plan/stages/${position}/activate-map`, { method: 'POST' }) }
-  prepareTacticalScene(sessionId: string, position: number) { return this.request<TacticalScenePreparationView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/stages/${position}/tactical-scene/prepare`, { method: 'POST' }) }
-  readTacticalScenePreparation(sessionId: string, position: number) { return this.request<TacticalScenePreparationView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/stages/${position}/tactical-scene/prepare`) }
-  retryTacticalScene(sessionId: string, position: number) { return this.request<TacticalScenePreparationView>(`/api/v1/adventure-sessions/${sessionId}/story-plan/stages/${position}/tactical-scene/retry`, { method: 'POST' }) }
 }

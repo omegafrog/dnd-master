@@ -4,7 +4,6 @@ export type Route =
   | { page: 'adventures' }
   | { page: 'adventure'; adventureId: string }
   | { page: 'party'; sessionId: string }
-  | { page: 'story-plan'; sessionId: string }
   | { page: 'character'; sheetId: string }
   | { page: 'session'; sessionId: string }
   | { page: 'character-create'; sessionId: string }
@@ -22,7 +21,6 @@ export function parseRoute(hash: string): Route {
   if (segments[0] === 'adventures' && segments[1]) return { page: 'adventure', adventureId: segments[1] }
   if (segments[0] === 'adventures') return { page: 'adventures' }
   if (segments[0] === 'sessions' && segments[1] && segments[2] === 'party') return { page: 'party', sessionId: segments[1] }
-  if (segments[0] === 'sessions' && segments[1] && segments[2] === 'story-plan') return { page: 'story-plan', sessionId: segments[1] }
   if (segments[0] === 'character' && segments[1]) return { page: 'character', sheetId: segments[1] }
   if (segments[0] === 'scenario-packages' && segments[1] && segments[2] === 'character-blueprint') {
     return { page: 'package-blueprint', packageId: segments[1] }

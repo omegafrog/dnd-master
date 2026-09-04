@@ -22,7 +22,7 @@ public record RuntimePlanningRequest(
         EvidencePack evidencePack,
         java.util.List<String> recentTurns,
         java.util.List<String> characterSnapshots,
-        String storyPlanContext,
+        String scenarioContext,
         UUID providerEndpointId,
         String provider,
         String model,
@@ -38,7 +38,7 @@ public record RuntimePlanningRequest(
         evidencePack = Objects.requireNonNull(evidencePack, "evidence pack must not be null");
         recentTurns = java.util.List.copyOf(Objects.requireNonNull(recentTurns));
         characterSnapshots = java.util.List.copyOf(Objects.requireNonNull(characterSnapshots));
-        storyPlanContext = storyPlanContext == null ? "" : storyPlanContext.trim();
+        scenarioContext = scenarioContext == null ? "" : scenarioContext.trim();
         provider = provider == null ? "" : provider.trim();
         model = model == null ? "" : model.trim();
         reasoning = reasoning == null ? "" : reasoning.trim();
@@ -47,9 +47,9 @@ public record RuntimePlanningRequest(
     public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
             UUID scenarioPackageId, long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
             String action, EvidencePack evidencePack, java.util.List<String> recentTurns, java.util.List<String> characterSnapshots,
-            String storyPlanContext, UUID providerEndpointId, String provider, String model, String reasoning, NarrativeContext narrativeContext) {
+            String scenarioContext, UUID providerEndpointId, String provider, String model, String reasoning, NarrativeContext narrativeContext) {
         this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext, activeSourceContext,
-                action, evidencePack, recentTurns, characterSnapshots, storyPlanContext, providerEndpointId, provider, model,
+                action, evidencePack, recentTurns, characterSnapshots, scenarioContext, providerEndpointId, provider, model,
                 reasoning, narrativeContext, null);
     }
 
@@ -63,9 +63,9 @@ public record RuntimePlanningRequest(
     public RuntimePlanningRequest(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID scenarioPackageId,
                                   long bindingVersion, AdventureContext currentContext, ActiveSourceContext activeSourceContext,
                                   String action, EvidencePack evidencePack, java.util.List<String> recentTurns,
-                                  java.util.List<String> characterSnapshots, String storyPlanContext) {
+                                  java.util.List<String> characterSnapshots, String scenarioContext) {
         this(adventureId, ownerPlayerId, UUID.randomUUID(), UUID.randomUUID(), scenarioPackageId, bindingVersion,
-                currentContext, activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, storyPlanContext,
+                currentContext, activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, scenarioContext,
                 null, "", "", "", null, null);
     }
 
@@ -73,9 +73,9 @@ public record RuntimePlanningRequest(
                                   UUID scenarioPackageId, long bindingVersion, AdventureContext currentContext,
                                   ActiveSourceContext activeSourceContext, String action, EvidencePack evidencePack,
                                   java.util.List<String> recentTurns, java.util.List<String> characterSnapshots,
-                                  String storyPlanContext) {
+                                  String scenarioContext) {
         this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext,
-                activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, storyPlanContext,
+                activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, scenarioContext,
                 null, "", "", "", null, null);
     }
 

@@ -13,9 +13,9 @@ describe('AdventureSessionPanel lifecycle', () => {
       complete: vi.fn(), delete: vi.fn(),
     }
     render(<AdventureSessionPanel api={api} ownerPlayerId="p" sessionId="s" />)
-    const start = await screen.findByRole('button', { name: '모험 계획 만들기' })
+    const start = await screen.findByRole('button', { name: '시나리오 런타임 시작' })
     expect((start as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.getByText('파티 정원 2명에 맞춰야 합니다.')).toBeTruthy()
+    expect(screen.getByText('파티 정원 2명에 맞춰야 시작할 수 있습니다.')).toBeTruthy()
   })
 
   it('offers termination actions and submits completion', async () => {
@@ -42,9 +42,9 @@ describe('AdventureSessionPanel lifecycle', () => {
       complete: vi.fn(), delete: vi.fn(),
     }
     render(<AdventureSessionPanel api={api} ownerPlayerId="p" sessionId="s" />)
-    const start = await screen.findByRole('button', { name: '모험 계획 만들기' })
+    const start = await screen.findByRole('button', { name: '시나리오 런타임 시작' })
     expect((start as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.getByText('런타임 설정이 없어 계획을 만들 수 없습니다.')).toBeTruthy()
+    expect(screen.getByText('런타임 설정이 없어 시나리오를 시작할 수 없습니다.')).toBeTruthy()
   })
 
   it('presents the party assembly workspace with clear preparation stages', async () => {
@@ -58,6 +58,6 @@ describe('AdventureSessionPanel lifecycle', () => {
     expect(await screen.findByText('파티 조립 현황')).toBeTruthy()
     expect(screen.getByRole('heading', { name: '내 플레이 캐릭터' })).toBeTruthy()
     expect(screen.getByRole('heading', { name: 'AI 동료 제안' })).toBeTruthy()
-    expect(screen.getByRole('button', { name: /모험 계획 만들기/ })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /시나리오 런타임 시작/ })).toBeTruthy()
   })
 })

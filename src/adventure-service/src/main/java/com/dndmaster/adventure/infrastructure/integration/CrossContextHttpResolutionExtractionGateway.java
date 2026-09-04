@@ -72,7 +72,7 @@ public final class CrossContextHttpResolutionExtractionGateway implements Resolu
         }
     }
 
-    /** Makes the non-Story-Plan authoring responsibility explicit in provider diagnostics. */
+    /** Makes the scenario-compilation authoring responsibility explicit in provider diagnostics. */
     static String operationId(String operationId, boolean repair) {
         String base = Objects.requireNonNull(operationId, "operation id must not be null");
         String prefixed = base.startsWith(SCENARIO_COMPILATION_OPERATION_PREFIX)

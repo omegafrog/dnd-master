@@ -4,11 +4,6 @@ import com.dndmaster.adventure.application.session.AdventureSessionApplicationSe
 import com.dndmaster.adventure.application.runtime.GmProviderBindingService;
 import com.dndmaster.adventure.application.runtime.GmProviderSelection;
 import com.dndmaster.adventure.application.runtime.ProviderBinding;
-import com.dndmaster.adventure.application.runtime.TacticalMapActivationApplicationService;
-import com.dndmaster.adventure.application.runtime.TacticalPreparationState;
-import com.dndmaster.adventure.application.runtime.TacticalScenePreparationApplicationService;
-import com.dndmaster.adventure.application.runtime.TacticalTriggerRuntimeApplicationService;
-import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanApplicationService;
 import com.dndmaster.adventure.domain.adventure.*;
 import java.util.List;
 import java.util.UUID;
@@ -20,25 +15,15 @@ public final class AdventureSessionController {
     private final AdventureSessionApplicationService service;
     private final AuthenticatedPlayerResolver playerResolver;
     private final GmProviderBindingService providerBindings;
-    private final AdventureStoryPlanApplicationService storyPlans;
-    private final TacticalMapActivationApplicationService mapActivation;
-    private final TacticalTriggerRuntimeApplicationService triggerRuntime;
-    private final TacticalScenePreparationApplicationService tacticalPreparation;
 
     @org.springframework.beans.factory.annotation.Autowired
     public AdventureSessionController(AdventureSessionApplicationService service, AuthenticatedPlayerResolver playerResolver,
-            GmProviderBindingService providerBindings, AdventureStoryPlanApplicationService storyPlans,
-            TacticalMapActivationApplicationService mapActivation, TacticalTriggerRuntimeApplicationService triggerRuntime,
-            TacticalScenePreparationApplicationService tacticalPreparation) {
-        this.service = service; this.playerResolver = playerResolver; this.providerBindings = providerBindings; this.storyPlans = storyPlans;
-        this.mapActivation = mapActivation; this.triggerRuntime = triggerRuntime; this.tacticalPreparation = tacticalPreparation;
+            GmProviderBindingService providerBindings) {
+        this.service = service;
+        this.playerResolver = playerResolver;
+        this.providerBindings = providerBindings;
     }
 
-    public AdventureSessionController(AdventureSessionApplicationService service, AuthenticatedPlayerResolver playerResolver, GmProviderBindingService providerBindings,
-            AdventureStoryPlanApplicationService storyPlans, TacticalMapActivationApplicationService mapActivation,
-            TacticalTriggerRuntimeApplicationService triggerRuntime) {
-        this(service, playerResolver, providerBindings, storyPlans, mapActivation, triggerRuntime, null);
-    }
     @PostMapping SessionView create(@RequestBody CreateSessionRequest request) { return SessionView.from(service.create(owner(), request.scenarioPackageId(), request.blueprintId(), request.blueprintRevision(), request.runtimeConfiguration(), request.partySize())); }
     @GetMapping List<SessionView> list(@RequestParam UUID scenarioPackageId) { return service.listByScenarioPackageId(scenarioPackageId, owner()).stream().map(SessionView::from).toList(); }
     @GetMapping("/{sessionId}") SessionView read(@PathVariable UUID sessionId) { return SessionView.from(service.read(new SessionId(sessionId), owner())); }
@@ -60,10 +45,7 @@ public final class AdventureSessionController {
     @PutMapping("/{sessionId}/party/{characterSheetId}") SessionView replace(@PathVariable UUID sessionId, @PathVariable UUID characterSheetId, @RequestHeader("If-Match-Version") long version, @RequestBody PartyMemberRequest request) { return SessionView.from(service.replaceMember(new SessionId(sessionId), owner(), version, request.toDomain(characterSheetId))); }
     @DeleteMapping("/{sessionId}/party/{characterSheetId}") SessionView remove(@PathVariable UUID sessionId, @PathVariable UUID characterSheetId, @RequestHeader("If-Match-Version") long version) { return SessionView.from(service.removeMember(new SessionId(sessionId), owner(), version, new CharacterSheetId(characterSheetId))); }
     @PostMapping("/{sessionId}/start") SessionView start(@PathVariable UUID sessionId, @RequestHeader("If-Match-Version") long version, @RequestHeader("Idempotency-Key") UUID requestId, @RequestBody StartRequest request) {
-        AdventureSession started = service.start(new SessionId(sessionId), owner(), version, requestId, new AdventureId(request.adventureId()));
-        prepareCurrentStage(started);
-        activateCurrentStageMap(started);
-        return SessionView.from(started);
+        return SessionView.from(service.start(new SessionId(sessionId), owner(), version, requestId, new AdventureId(request.adventureId())));
     }
     @PostMapping("/{sessionId}/complete") SessionView complete(@PathVariable UUID sessionId, @RequestHeader("If-Match-Version") long version) { return SessionView.from(service.complete(new SessionId(sessionId), owner(), version)); }
     @PostMapping("/{sessionId}/start/recover") SessionView recoverStart(@PathVariable UUID sessionId, @RequestHeader("If-Match-Version") long version) { return SessionView.from(service.recoverFailedStart(new SessionId(sessionId), owner(), version)); }
@@ -79,23 +61,6 @@ public final class AdventureSessionController {
                 mutable || member.backgroundMutableAfterStart(), mutable || member.startingAbilitiesMutableAfterStart(), session.characterEdition(), session.status() == AdventureSession.Status.STARTED);
     }
     private OwnerPlayerId owner() { return new OwnerPlayerId(playerResolver.playerId()); }
-    private void prepareCurrentStage(AdventureSession session) {
-        if (tacticalPreparation == null || session.startedAdventureId() == null) return;
-        var plan = storyPlans.read(session.id(), owner());
-        var stage = plan.stages().stream().filter(item -> item.position() == plan.currentStage() + 1).findFirst().orElse(null);
-        if (stage == null || stage.tacticalPreparationRequirement() != com.dndmaster.adventure.domain.adventure.TacticalPreparationRequirement.REQUIRED) return;
-        var preparation = tacticalPreparation.prepare(session.id(), owner());
-        if (preparation.state() != TacticalPreparationState.READY) return;
-    }
-    private void activateCurrentStageMap(AdventureSession session) {
-        var plan = storyPlans.read(session.id(), owner());
-        var stage = plan.stages().stream().filter(item -> item.position() == plan.currentStage() + 1).findFirst().orElse(null);
-        if (stage == null || stage.mapDefinitionId() == null || !stage.tacticalScenePlan().readyForActivation()
-                || session.startedAdventureId() == null) return;
-        var activation = mapActivation.activateDefinition(session.scenarioPackageId(), session.startedAdventureId().value(), owner().value(),
-                session.runtimeConfiguration().ruleSetId().value(), stage.mapDefinitionId(), stage.tacticalScenePlan(), stage.playerSpawnX(), stage.playerSpawnY());
-        activation.combatMapId().ifPresent(id -> triggerRuntime.bindActiveMap(session.startedAdventureId().value(), stage.position(), owner().value(), id));
-    }
     private static GmProviderSelection defaultProvider() { return new GmProviderSelection("codex-cli", "gpt-5.6-luna", "medium"); }
     public record CreateSessionRequest(UUID scenarioPackageId, UUID blueprintId, long blueprintRevision, AdventureSessionRuntimeConfiguration runtimeConfiguration, Integer partySize) {}
     public record StartRequest(UUID adventureId) {}
@@ -104,15 +69,13 @@ public final class AdventureSessionController {
         GmProviderSelection toSelection() { return new GmProviderSelection(endpointId, provider, model, reasoning); }
     }
     public record GmProviderView(UUID sessionId, UUID endpointId, String provider, String model, String reasoning, long version, boolean turnInProgress) {
-        public GmProviderView(UUID sessionId, String provider, String model, String reasoning, long version, boolean turnInProgress) {
-            this(sessionId, null, provider, model, reasoning, version, turnInProgress);
-        }
+        public GmProviderView(UUID sessionId, String provider, String model, String reasoning, long version, boolean turnInProgress) { this(sessionId, null, provider, model, reasoning, version, turnInProgress); }
         static GmProviderView from(ProviderBinding binding) { return new GmProviderView(binding.sessionId(), binding.selection().endpointId(), binding.selection().provider(), binding.selection().model(), binding.selection().reasoning(), binding.stateVersion(), binding.turnInProgress()); }
     }
     public record CharacterPolicyView(boolean acceptingCharacterSheets, boolean nameMutable, boolean levelMutable,
             boolean raceMutable, boolean characterClassMutable, boolean backgroundMutable, boolean startingAbilitiesMutable,
             String characterEdition, boolean runtimeMutationsAllowed) {
-            static CharacterPolicyView draft(String characterEdition) { return new CharacterPolicyView(true, true, true, true, true, true, true, characterEdition, true); }
+        static CharacterPolicyView draft(String characterEdition) { return new CharacterPolicyView(true, true, true, true, true, true, true, characterEdition, true); }
         static CharacterPolicyView terminated(String characterEdition) { return new CharacterPolicyView(false, false, false, false, false, false, false, characterEdition, false); }
     }
     public record PartyMemberRequest(UUID characterSheetId, ControlMode controlMode, boolean nameMutableAfterStart, boolean raceMutableAfterStart, boolean characterClassMutableAfterStart, boolean backgroundMutableAfterStart, boolean startingAbilitiesMutableAfterStart, boolean levelMutableAfterStart) {
@@ -123,9 +86,7 @@ public final class AdventureSessionController {
         com.dndmaster.adventure.domain.adventure.AiCompanionCandidate toCandidate() { return new com.dndmaster.adventure.domain.adventure.AiCompanionCandidate(candidateId, name, race, characterClass, sheetSummary); }
     }
     public record AiCandidateView(UUID candidateId, String name, String race, String characterClass, String sheetSummary) {
-        static AiCandidateView from(com.dndmaster.adventure.domain.adventure.AiCompanionCandidate candidate) {
-            return new AiCandidateView(candidate.candidateId(), candidate.name(), candidate.race(), candidate.characterClass(), candidate.sheetSummary());
-        }
+        static AiCandidateView from(com.dndmaster.adventure.domain.adventure.AiCompanionCandidate candidate) { return new AiCandidateView(candidate.candidateId(), candidate.name(), candidate.race(), candidate.characterClass(), candidate.sheetSummary()); }
     }
     public record SessionView(UUID sessionId, UUID scenarioPackageId, long scenarioPackageRevision, UUID blueprintId, long blueprintRevision, String characterEdition, int characterLimit, long version, AdventureSession.Status status, UUID adventureId, AdventureSessionRuntimeConfiguration runtimeConfiguration, List<PartyMemberRequest> party) {
         static SessionView from(AdventureSession session) { return new SessionView(session.id().value(), session.scenarioPackageId(), session.scenarioPackageRevision(), session.blueprintId(), session.blueprintRevision(), session.characterEdition(), session.characterLimit(), session.version(), session.status(), session.startedAdventureId() == null ? null : session.startedAdventureId().value(), session.runtimeConfiguration(), session.party().stream().map(m -> new PartyMemberRequest(m.characterSheetId().value(), m.controlMode(), m.nameMutableAfterStart(), m.raceMutableAfterStart(), m.characterClassMutableAfterStart(), m.backgroundMutableAfterStart(), m.startingAbilitiesMutableAfterStart(), m.levelMutableAfterStart())).toList()); }

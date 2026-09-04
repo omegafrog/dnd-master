@@ -3,23 +3,22 @@ package com.dndmaster.aigamemaster.infrastructure.ai;
 import java.nio.file.Path;
 import java.time.Duration;
 
-/** Codex OAuth adapter. Authentication is supplied by the local Codex CLI session. */
-public final class CodexCliStoryPlanAdapter implements StoryPlanCompletionPort {
+/** Codex OAuth adapter for typed AI contracts. */
+public final class CodexCliCompletionAdapter {
     private final CodexAppServerClient client;
     private final String model;
     private final String reasoning;
 
-    public CodexCliStoryPlanAdapter(String executable, String model, Path workDirectory, Duration timeout) {
+    public CodexCliCompletionAdapter(String executable, String model, Path workDirectory, Duration timeout) {
         this(executable, model, workDirectory, timeout, "medium");
     }
 
-    public CodexCliStoryPlanAdapter(String executable, String model, Path workDirectory, Duration timeout, String reasoning) {
+    public CodexCliCompletionAdapter(String executable, String model, Path workDirectory, Duration timeout, String reasoning) {
         this.client = CodexAppServerClient.shared(executable, workDirectory, timeout, new com.fasterxml.jackson.databind.ObjectMapper());
         this.model = model;
         this.reasoning = reasoning;
     }
 
-    @Override
     public String complete(String operationId, String prompt) {
         if (operationId == null || operationId.isBlank() || prompt == null || prompt.isBlank()) {
             throw new IllegalArgumentException("operation id and prompt required");

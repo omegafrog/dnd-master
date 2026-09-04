@@ -121,7 +121,7 @@ class BestOfNTurnPlanningTest {
     }
 
     @Test
-    void runtime_adapter_passes_actor_scoped_fact_boundary_and_preserves_branch_identity() {
+    void runtime_adapter_passes_actor_scoped_fact_boundary_and_preserves_selection_identity() {
         var captured = new NarrativeContext[1];
         var audits = new java.util.ArrayList<com.dndmaster.adventure.application.runtime.PlanSelectionAudit>();
         var index = new int[1];
@@ -143,7 +143,7 @@ class BestOfNTurnPlanningTest {
                 new AdventureContext("scene", "npc", "open", "judgment"), null, "open", new EvidencePack(List.of(), List.of(), List.of()),
                 List.of(), List.of(), "stage", null, "provider", "model", "reasoning", actor));
 
-        assertEquals("branch-a", selected.selectedBranchId());
+        assertEquals("branch-a", selected.requestedSelectionId());
         assertEquals(Set.of("known"), captured[0].factsKnownBy());
         assertEquals("branch-a", audits.getFirst().selectedCandidateId());
     }
@@ -168,7 +168,7 @@ class BestOfNTurnPlanningTest {
                         java.util.Map.of(), List.of(), List.of(), List.of()));
         RuntimePlan selected = adapter.plan(request);
 
-        assertEquals("runtime-4", selected.selectedBranchId().isBlank() ? "runtime-4" : selected.selectedBranchId());
+        assertEquals("runtime-4", selected.requestedSelectionId().isBlank() ? "runtime-4" : selected.requestedSelectionId());
         assertEquals(1, audits.getFirst().evaluations().size());
         assertEquals(4, audits.getFirst().rejected().size());
         assertEquals(Set.of("UNSUPPORTED_ENTITY", "PLAYER_AGENCY_VIOLATION", "CONTINUITY_VIOLATION", "RULE_VIOLATION"),

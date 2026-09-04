@@ -1,7 +1,7 @@
 package com.dndmaster.adventure.application.runtime;
 
-/** Compatibility writer used while the existing planner adapter is migrated. */
-public final class LegacyTurnWriterAdapter implements TurnWriterPort {
+/** Local writer for the already-grounded, player-visible Scenario Runtime narration. */
+public final class ScenarioRuntimeWriterAdapter implements TurnWriterPort {
     @Override
     public WriterProse write(PlayerVisibleTurn turn) {
         String prose = turn.visibleFacts().stream()

@@ -11,14 +11,14 @@ public record PlannerContext(
         EvidencePack evidencePack,
         List<String> recentTurns,
         List<String> characterSnapshots,
-        String storyPlanContext) {
+        String scenarioContext) {
     public PlannerContext {
         currentContext = Objects.requireNonNull(currentContext, "current context must not be null");
         action = required(action, "action");
         evidencePack = Objects.requireNonNull(evidencePack, "evidence pack must not be null");
         recentTurns = List.copyOf(Objects.requireNonNull(recentTurns, "recent turns must not be null"));
         characterSnapshots = List.copyOf(Objects.requireNonNull(characterSnapshots, "character snapshots must not be null"));
-        storyPlanContext = storyPlanContext == null ? "" : storyPlanContext.trim();
+        scenarioContext = scenarioContext == null ? "" : scenarioContext.trim();
     }
 
     private static String required(String value, String name) {

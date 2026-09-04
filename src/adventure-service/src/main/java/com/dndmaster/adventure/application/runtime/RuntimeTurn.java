@@ -276,8 +276,8 @@ public record RuntimeTurn(
 
     private static RuntimePlan withNarration(RuntimePlan plan, String narration) {
         return new RuntimePlan(plan.scene(), plan.npcState(), plan.judgment(), narration, plan.proposedActiveSourceContext(),
-                plan.citedEvidence(), plan.warnings(), plan.provider(), plan.model(), plan.reasoning(), plan.advanceStoryPlan(),
-                plan.selectedBranchId(), plan.requestedSelection(), plan.effectiveSelection(), plan.attemptCount(),
+                plan.citedEvidence(), plan.warnings(), plan.provider(), plan.model(), plan.reasoning(), plan.stateTransitionRequested(),
+                plan.requestedSelectionId(), plan.requestedSelection(), plan.effectiveSelection(), plan.attemptCount(),
                 plan.citationBindings(), plan.stateDelta());
     }
 }

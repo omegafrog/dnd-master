@@ -36,7 +36,7 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
                 RuleSearchResponse response = post("internal/v1/rule-evidence/search",
                     new RuleSearchRequest(request.ownerPlayerId().value(), request.knowledgeDocumentIds(),
                                 request.action(), ruleQueryIntent(request.actionIntent()), request.limit(), request.sessionId().value(),
-                                request.scenarioPackageId(), request.stageKey(), request.actionIntent()), request.ownerPlayerId().value(), RuleSearchResponse.class);
+                                request.scenarioPackageId(), request.contextKey(), request.actionIntent()), request.ownerPlayerId().value(), RuleSearchResponse.class);
                 return response.evidence().stream()
                         .map(item -> new RuntimeEvidence(RuntimeEvidenceType.RULEBOOK,
                                 new KnowledgeDocumentId(item.rulebookId()), extractionVersion(item.provenance(), request, item.rulebookId(), item.locator()),
@@ -47,7 +47,7 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
                     new StorySearchRequest(request.ownerPlayerId().value(), request.knowledgeDocumentIds().stream()
                             .map(id -> new StoryDocument(id, extractionVersion(request, id))).toList(),
                             activeLocators(request), request.action(), request.limit(), request.sessionId().value(),
-                            request.scenarioPackageId(), request.stageKey(), request.actionIntent()),
+                            request.scenarioPackageId(), request.contextKey(), request.actionIntent()),
                     request.ownerPlayerId().value(), StorySearchResponse.class);
             return response.evidence().stream()
                     .map(item -> new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
@@ -101,9 +101,9 @@ public final class CrossContextHttpRuntimeEvidenceSearchGateway implements Runti
     }
 
     record RuleSearchRequest(UUID ownerId, List<UUID> rulebookIds, String situation, String queryIntent, int limit,
-                             UUID sessionId, UUID scenarioPackageId, String stageKey, String actionIntent) {}
+                             UUID sessionId, UUID scenarioPackageId, String contextKey, String actionIntent) {}
     record StorySearchRequest(UUID ownerId, List<StoryDocument> documents, List<String> activeLocators, String situation, int limit,
-                              UUID sessionId, UUID scenarioPackageId, String stageKey, String actionIntent) {}
+                              UUID sessionId, UUID scenarioPackageId, String contextKey, String actionIntent) {}
     record StoryDocument(UUID documentId, long extractionVersion) {}
     record RuleSearchResponse(UUID ownerId, List<RuleEvidenceItem> evidence) {}
     record RuleEvidenceItem(UUID rulebookId, UUID chunkId, String locator, String excerpt, double score, String chapter,
