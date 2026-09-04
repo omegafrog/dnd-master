@@ -1,0 +1,23 @@
+@startuml
+' Product use-case contract: UC-SMR-00, UC-SMR-01..05
+left to right direction
+actor "Solo Player" as Player
+actor "AI Game Master" as GM
+rectangle "Scenario Model-driven Adventure" {
+  usecase "UC-SMR-01\nPrepare & Compile Scenario" as UC1
+  usecase "UC-SMR-02\nStart Adventure & Derive Initial Situation" as UC2
+  usecase "UC-SMR-03\nRun Situation-based GM Turn" as UC3
+  usecase "UC-SMR-04\nProtect Hidden Information" as UC4
+  usecase "UC-SMR-05\nConclude Adventure" as UC5
+}
+Player --> UC1
+Player --> UC2
+Player --> UC3
+GM --> UC3
+GM --> UC4
+GM --> UC5
+UC1 ..> UC2 : <<enables>>
+UC2 ..> UC3 : <<enables>>
+UC3 ..> UC4 : <<includes>>
+UC3 ..> UC5 : <<may reach>>
+@enduml
