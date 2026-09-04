@@ -129,30 +129,39 @@ public final class AdventureSessionApplicationService {
         boolean resumingStart = session.status() == AdventureSession.Status.STARTING;
         if (!resumingStart) requireVersion(session, expectedVersion);
         var scenarioPackage = packageRepository.findById(session.scenarioPackageId()).orElseThrow(() -> new IllegalStateException("scenario package not found"));
+        boolean scenarioRuntimePackage = scenarioPackage.scenarioModel() != null;
+        if (scenarioRuntimePackage && !scenarioPackage.isReady()) {
+            throw new IllegalStateException("scenario package is not READY");
+        }
+        if (scenarioRuntimePackage && scenarioPackage.bundleRevision() != session.scenarioPackageRevision()) {
+            throw new IllegalStateException("scenario package revision does not match session draft");
+        }
         var blueprint = scenarioPackage.characterCreationBlueprint();
-        if (scenarioPackage.report().status() != ResolutionStatus.COMPLETE
+        if (!scenarioRuntimePackage && (scenarioPackage.report().status() != ResolutionStatus.COMPLETE
                 || scenarioPackage.bundleRevision() != session.scenarioPackageRevision()
                 || (scenarioPackage.characterLimit().isExactPartySize() && scenarioPackage.characterLimit().maximumCharacters() != session.characterLimit())
                 || blueprint == null
                 || !blueprint.status().equals(com.dndmaster.adventure.domain.scenario.CharacterCreationBlueprintStatus.PUBLISHED)
                 || !session.blueprintId().equals(session.scenarioPackageId())
-                || blueprint.revision() != session.blueprintRevision()) throw new IllegalStateException("scenario package or blueprint changed since session draft");
+                || blueprint.revision() != session.blueprintRevision())) throw new IllegalStateException("scenario package or blueprint changed since session draft");
         session.validateStart();
-        var storyPlan = storyPlanRepository.findBySessionId(session.id())
-                .orElseThrow(() -> new IllegalStateException("adventure story plan is required"));
-        boolean recoveredStart = session.status() == AdventureSession.Status.DRAFT
-                && session.startedAdventureId() != null
-                && session.startedAdventureId().equals(adventureId)
-                && session.startRequestId() != null;
-        boolean partyLockMatches = session.status() == AdventureSession.Status.STARTING
-                ? storyPlan.partyRevision() <= session.version()
-                : recoveredStart
-                ? storyPlan.partyRevision() == session.version() - 2
-                : storyPlan.partyRevision() == session.version();
-        if (storyPlan.status() != AdventureStoryPlanStatus.READY
-                || storyPlan.packageRevision() != session.scenarioPackageRevision()
-                || !partyLockMatches) {
-            throw new IllegalStateException("adventure story plan is not ready for current party");
+        if (!scenarioRuntimePackage) {
+            var storyPlan = storyPlanRepository.findBySessionId(session.id())
+                    .orElseThrow(() -> new IllegalStateException("adventure story plan is required"));
+            boolean recoveredStart = session.status() == AdventureSession.Status.DRAFT
+                    && session.startedAdventureId() != null
+                    && session.startedAdventureId().equals(adventureId)
+                    && session.startRequestId() != null;
+            boolean partyLockMatches = session.status() == AdventureSession.Status.STARTING
+                    ? storyPlan.partyRevision() <= session.version()
+                    : recoveredStart
+                    ? storyPlan.partyRevision() == session.version() - 2
+                    : storyPlan.partyRevision() == session.version();
+            if (storyPlan.status() != AdventureStoryPlanStatus.READY
+                    || storyPlan.packageRevision() != session.scenarioPackageRevision()
+                    || !partyLockMatches) {
+                throw new IllegalStateException("adventure story plan is not ready for current party");
+            }
         }
         var configuration = session.runtimeConfiguration();
         if (configuration == null) throw new IllegalStateException("adventure session runtime configuration is required");
@@ -163,10 +172,22 @@ public final class AdventureSessionApplicationService {
         }
         Adventure adventure = adventureRepository.findById(adventureId).orElse(null);
         if (adventure == null) {
-            adventure = Adventure.create(adventureId, session.id(), owner, configuration.scenarioId(), configuration.ruleSetId(), session.party(), new AdventureContext(configuration.initialScene(), null, null, null));
+            adventure = scenarioRuntimePackage
+                    ? Adventure.beginScenarioRuntime(adventureId, session.id(), owner, configuration.scenarioId(), configuration.ruleSetId(),
+                            session.scenarioPackageId(), scenarioPackage.bundleRevision(), session.party(), new AdventureContext(configuration.initialScene(), null, null, null))
+                    : Adventure.create(adventureId, session.id(), owner, configuration.scenarioId(), configuration.ruleSetId(), session.party(), new AdventureContext(configuration.initialScene(), null, null, null));
             adventureRepository.save(adventure);
         }
-        if (prologueService != null) prologueService.ensure(adventureId, owner);
+        if (scenarioRuntimePackage) {
+            if (adventure.currentSituation() == null) {
+                adventure.initializeScenarioRuntime(owner,
+                        com.dndmaster.adventure.domain.runtime.GameState.empty(),
+                        com.dndmaster.adventure.domain.runtime.DisclosureState.empty(),
+                        com.dndmaster.adventure.domain.runtime.CurrentSituation.initial(scenarioPackage.scenarioModel().startingSituation()),
+                        List.of(), new AdventureContext(scenarioPackage.scenarioModel().startingSituation(), null, null, null));
+                adventureRepository.save(adventure);
+            }
+        } else if (prologueService != null) prologueService.ensure(adventureId, owner);
         initializeSessionKnowledgeSetIfMissing(session, scenarioPackage);
         runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(adventureId, owner, session.scenarioPackageId(), configuration.rulebookIds(), configuration.engineId(), configuration.toolIds()));
         if (session.status() == AdventureSession.Status.STARTING) {

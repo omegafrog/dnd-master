@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.dndmaster.adventure.application.saved.CreateAdventureCommand;
 import com.dndmaster.adventure.application.saved.SavedAdventureApplicationService;
 import com.dndmaster.adventure.domain.adventure.Adventure;
+import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.AdventureAccessDeniedException;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
@@ -13,9 +14,14 @@ import com.dndmaster.adventure.domain.adventure.ConversationEntry;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
 import com.dndmaster.adventure.domain.adventure.ScenarioId;
+import com.dndmaster.adventure.domain.adventure.SessionId;
 import com.dndmaster.adventure.infrastructure.persistence.AdventurePersistenceException;
 import com.dndmaster.adventure.infrastructure.persistence.OptimisticAdventureLockException;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureRepository;
+import com.dndmaster.adventure.domain.runtime.CurrentSituation;
+import com.dndmaster.adventure.domain.runtime.DisclosureState;
+import com.dndmaster.adventure.domain.runtime.GameState;
+import com.dndmaster.adventure.domain.runtime.RuntimeAddedFact;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.SQLException;
@@ -131,6 +137,39 @@ class SavedAdventurePostgresIntegrationTest {
 
         assertThrows(OptimisticAdventureLockException.class, () -> repository.save(loser));
         assertEquals(0, service.listSavedAdventures(owner).size());
+    }
+
+    @Test
+    void persists_scenario_runtime_state_and_rejects_stale_canonical_update() {
+        OwnerPlayerId owner = owner();
+        UUID packageId = UUID.randomUUID();
+        Adventure adventure = Adventure.beginScenarioRuntime(AdventureId.generate(), SessionId.generate(), owner,
+                new ScenarioId(UUID.randomUUID()), new RuleSetId(UUID.randomUUID()), packageId, 7,
+                List.of(new com.dndmaster.adventure.domain.adventure.AdventurePartyMember(
+                        new CharacterSheetId(UUID.randomUUID()), com.dndmaster.adventure.domain.adventure.ControlMode.DIRECT,
+                        true, true, true, true, true, true)), context("opening"));
+        repository.save(adventure);
+        Adventure first = repository.findById(adventure.id()).orElseThrow();
+        Adventure stale = repository.findById(adventure.id()).orElseThrow();
+
+        first.initializeScenarioRuntime(owner, new GameState(java.util.Map.of("door", "broken"), 1),
+                new DisclosureState(List.of("door")),
+                new CurrentSituation(UUID.randomUUID(), 1, "crypt", "Find the key", "guarded", "escape"),
+                List.of(new RuntimeAddedFact(UUID.randomUUID(), "The keeper has a sister.", UUID.randomUUID())),
+                context("The broken door is open."));
+        repository.save(first);
+
+        Adventure restored = repository.findById(adventure.id()).orElseThrow();
+        assertEquals(packageId, restored.lockedScenarioPackageId());
+        assertEquals(7, restored.lockedScenarioPackageRevision());
+        assertEquals("broken", restored.gameState().values().get("door"));
+        assertEquals(List.of("door"), restored.disclosureState().disclosedFactIds().stream().toList());
+        assertEquals(first.currentSituation(), restored.currentSituation());
+        assertEquals(first.runtimeAddedFacts(), restored.runtimeAddedFacts());
+
+        stale.initializeScenarioRuntime(owner, GameState.empty(), DisclosureState.empty(),
+                CurrentSituation.initial("stale"), List.of(), context("stale"));
+        assertThrows(OptimisticAdventureLockException.class, () -> repository.save(stale));
     }
 
     private static CreateAdventureCommand command(OwnerPlayerId owner, AdventureContext context) {

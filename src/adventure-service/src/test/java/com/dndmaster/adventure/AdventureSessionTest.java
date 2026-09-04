@@ -6,6 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.adventure.domain.adventure.AdventurePartyMember;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
+import com.dndmaster.adventure.domain.adventure.Adventure;
+import com.dndmaster.adventure.domain.adventure.AdventureStatus;
 import com.dndmaster.adventure.domain.adventure.AdventureSessionRuntimeConfiguration;
 import com.dndmaster.adventure.domain.adventure.AdventureSession;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
@@ -30,13 +32,57 @@ import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentSelection;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
+import com.dndmaster.adventure.domain.scenario.ScenarioModel;
+import com.dndmaster.adventure.domain.scenario.ScenarioModelElement;
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
 import static org.mockito.Mockito.*;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 class AdventureSessionTest {
+    @Test
+    void starts_ready_scenario_runtime_package_without_story_plan_and_initializes_canonical_situation() {
+        var owner = new OwnerPlayerId(UUID.randomUUID());
+        var packages = mock(ScenarioPackageRepository.class);
+        var model = new ScenarioModel(1, List.of(), List.of(),
+                List.of(new ScenarioModelElement("objective", "objective", java.util.Map.of("value", "escape"), List.of())),
+                List.of(), List.of(), List.of(),
+                List.of(new ScenarioModelElement("resolution", "resolution", java.util.Map.of("value", "escape"), List.of())),
+                "The crypt door opens.");
+        var scenarioPackage = ScenarioPackage.publishWithScenarioModel(ScenarioBundleId.generate(), 7, "runtime-ready",
+                List.of(), List.of(), new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()),
+                CharacterLimit.defaultLimit(), null, List.of(), List.of(), model);
+        when(packages.findById(scenarioPackage.packageId())).thenReturn(Optional.of(scenarioPackage));
+        var session = AdventureSession.create(SessionId.generate(), owner, scenarioPackage.packageId(), 7,
+                scenarioPackage.packageId(), 1, 1,
+                new AdventureSessionRuntimeConfiguration(new ScenarioId(scenarioPackage.packageId()),
+                        new RuleSetId(scenarioPackage.bundleId().value()), List.of(), "engine", List.of(), "opening"));
+        session.addPartyMember(new AdventurePartyMember(new CharacterSheetId(UUID.randomUUID()), ControlMode.DIRECT,
+                true, true, true, true, true, true));
+        var sessions = mock(AdventureSessionRepository.class);
+        when(sessions.findById(session.id())).thenReturn(Optional.of(session));
+        var adventures = mock(AdventureRepository.class);
+        when(adventures.findById(any())).thenReturn(Optional.empty());
+        var saved = org.mockito.ArgumentCaptor.forClass(Adventure.class);
+
+        var service = new AdventureSessionApplicationService(sessions, packages, adventures,
+                mock(RuntimeBindingApplicationService.class), mock(AdventureSessionStartCoordinator.class),
+                mock(com.dndmaster.adventure.application.session.CharacterSheetOwnershipPort.class),
+                mock(com.dndmaster.adventure.application.storyplan.AdventureStoryPlanRepository.class),
+                mock(SessionKnowledgeSetRepository.class));
+
+        service.start(session.id(), owner, session.version(), UUID.randomUUID(), AdventureId.generate());
+
+        verify(adventures, atLeastOnce()).save(saved.capture());
+        Adventure finalAdventure = saved.getAllValues().getLast();
+        assertEquals(scenarioPackage.packageId(), finalAdventure.lockedScenarioPackageId());
+        assertEquals(AdventureStatus.ACTIVE, finalAdventure.status());
+        assertEquals(model.startingSituation(), finalAdventure.currentSituation().problem());
+        assertEquals(AdventureSession.Status.STARTED, session.status());
+    }
+
     @Test
     void retains_runtime_configuration_required_to_start_a_draft() {
         ScenarioId scenarioId = new ScenarioId(UUID.randomUUID());

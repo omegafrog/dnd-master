@@ -7,6 +7,7 @@ import com.dndmaster.adventure.application.guidance.AnswerRuleInquiryCommand;
 import com.dndmaster.adventure.application.guidance.RuleGuidanceApplicationService;
 import com.dndmaster.adventure.application.progress.AdventureProgressApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
+import com.dndmaster.adventure.application.runtime.AdventurePlayerProjection;
 import com.dndmaster.adventure.application.runtime.GmTurnRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnResult;
 import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanApplicationService;
@@ -93,6 +94,16 @@ public class AdventureController {
         });
         this.combatMapViewPort = combatMapViewPort.getIfAvailable(() -> (adventureId1, ownerId) -> java.util.Optional.empty());
         this.objectMapper = objectMapper;
+    }
+
+    /** Player read boundary; canonical runtime snapshots and ScenarioModel are intentionally absent. */
+    @GetMapping("/api/v1/adventures/{adventureId}")
+    AdventurePlayerProjection playerAdventure(@PathVariable UUID adventureId) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        if (!adventure.ownerPlayerId().value().equals(playerResolver.playerId())) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        }
+        return AdventurePlayerProjection.from(adventure);
     }
 
     @PostMapping("/api/v1/adventures/scenarios")
