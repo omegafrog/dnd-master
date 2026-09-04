@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1100" height="1800" viewBox="0 0 1100 1800">
+  <defs><marker id="a" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth"><path d="M0,0 L0,6 L9,3 z" fill="#222"/></marker></defs>
+  <rect width="1100" height="1800" fill="white"/>
+  <g font-family="Arial, sans-serif" fill="#111" stroke="#222" stroke-width="2">
+    <text x="550" y="40" text-anchor="middle" stroke="none" font-size="24" font-weight="bold">UC-SMR-00 — End-to-end Activity</text>
+    <circle cx="550" cy="75" r="14" fill="white"/>
+    <rect x="365" y="110" width="370" height="60" rx="14" fill="white"/><text x="550" y="145" text-anchor="middle" stroke="none" font-size="16">Select published Rulebook + Storybook(s)</text>
+    <polygon points="550,205 700,255 550,305 400,255" fill="white"/><text x="550" y="260" text-anchor="middle" stroke="none" font-size="16">Multiple Storybooks?</text>
+    <rect x="760" y="225" width="220" height="60" rx="14" fill="white"/><text x="870" y="260" text-anchor="middle" stroke="none" font-size="16">Choose Primary</text>
+    <rect x="345" y="345" width="410" height="78" rx="14" fill="white"/><text x="550" y="376" text-anchor="middle" stroke="none" font-size="16">Optional Integration Prompt</text><text x="550" y="400" text-anchor="middle" stroke="none" font-size="16">+ Compilation Creativity</text>
+    <rect x="410" y="465" width="280" height="60" rx="14" fill="white"/><text x="550" y="500" text-anchor="middle" stroke="none" font-size="16">Scenario Compilation</text>
+    <polygon points="550,565 650,605 550,645 450,605" fill="white"/><text x="550" y="611" text-anchor="middle" stroke="none" font-size="16">READY?</text>
+    <rect x="70" y="680" width="330" height="88" rx="14" fill="white"/><text x="235" y="712" text-anchor="middle" stroke="none" font-size="15">BLOCKED diagnostics</text><text x="235" y="735" text-anchor="middle" stroke="none" font-size="15">exact issue/source + suggested fix</text><text x="235" y="758" text-anchor="middle" stroke="none" font-size="15">user changes input and recompiles</text>
+    <rect x="410" y="685" width="280" height="70" rx="14" fill="white"/><text x="550" y="714" text-anchor="middle" stroke="none" font-size="16">Adventure Start</text><text x="550" y="739" text-anchor="middle" stroke="none" font-size="16">Lock model/source set</text>
+    <rect x="395" y="800" width="310" height="60" rx="14" fill="white"/><text x="550" y="835" text-anchor="middle" stroke="none" font-size="16">Derive initial Situation</text>
+    <rect x="375" y="905" width="350" height="60" rx="14" fill="white"/><text x="550" y="940" text-anchor="middle" stroke="none" font-size="16">Receive player action / map interaction</text>
+    <rect x="340" y="1010" width="420" height="74" rx="14" fill="white"/><text x="550" y="1042" text-anchor="middle" stroke="none" font-size="16">Resolve Turn from Game State / Runtime-added Facts</text><text x="550" y="1066" text-anchor="middle" stroke="none" font-size="16">Scenario Model + relevant Storybook/Rulebook RAG</text>
+    <polygon points="550,1125 730,1175 550,1225 370,1175" fill="white"/><text x="550" y="1181" text-anchor="middle" stroke="none" font-size="16">Required scenario fact found?</text>
+    <rect x="770" y="1140" width="260" height="70" rx="14" fill="white"/><text x="900" y="1170" text-anchor="middle" stroke="none" font-size="15">Generate minimum fallback</text><text x="900" y="1194" text-anchor="middle" stroke="none" font-size="15">Stage Runtime-added Fact</text>
+    <rect x="390" y="1270" width="320" height="60" rx="14" fill="white"/><text x="550" y="1305" text-anchor="middle" stroke="none" font-size="16">Generate player-visible Scene/result</text>
+    <polygon points="550,1365 700,1410 550,1455 400,1410" fill="white"/><text x="550" y="1416" text-anchor="middle" stroke="none" font-size="16">Hidden information leak?</text>
+    <rect x="760" y="1375" width="285" height="72" rx="14" fill="white"/><text x="902" y="1404" text-anchor="middle" stroke="none" font-size="15">Regenerate narration only</text><text x="902" y="1428" text-anchor="middle" stroke="none" font-size="15">same fixed Turn Resolution</text>
+    <rect x="365" y="1500" width="370" height="70" rx="14" fill="white"/><text x="550" y="1530" text-anchor="middle" stroke="none" font-size="16">Atomic commit</text><text x="550" y="1554" text-anchor="middle" stroke="none" font-size="16">output + Game State + Runtime-added Facts</text>
+    <polygon points="550,1605 730,1650 550,1695 370,1650" fill="white"/><text x="550" y="1656" text-anchor="middle" stroke="none" font-size="16">Resolution condition satisfied?</text>
+    <rect x="760" y="1620" width="260" height="66" rx="14" fill="white"/><text x="890" y="1648" text-anchor="middle" stroke="none" font-size="15">Concluding Scene</text><text x="890" y="1672" text-anchor="middle" stroke="none" font-size="15">COMPLETED</text>
+    <rect x="80" y="1620" width="270" height="66" rx="14" fill="white"/><text x="215" y="1648" text-anchor="middle" stroke="none" font-size="15">Keep or derive next Situation</text><text x="215" y="1672" text-anchor="middle" stroke="none" font-size="15">from latest effective state</text>
+  </g>
+  <g stroke="#222" stroke-width="2" fill="none" marker-end="url(#a)">
+    <line x1="550" y1="89" x2="550" y2="110"/><line x1="550" y1="170" x2="550" y2="205"/>
+    <line x1="700" y1="255" x2="760" y2="255"/><line x1="870" y1="285" x2="650" y2="345"/>
+    <line x1="550" y1="305" x2="550" y2="345"/><line x1="550" y1="423" x2="550" y2="465"/>
+    <line x1="550" y1="525" x2="550" y2="565"/><line x1="470" y1="625" x2="330" y2="680"/>
+    <line x1="550" y1="645" x2="550" y2="685"/><line x1="550" y1="755" x2="550" y2="800"/>
+    <line x1="550" y1="860" x2="550" y2="905"/><line x1="550" y1="965" x2="550" y2="1010"/>
+    <line x1="550" y1="1084" x2="550" y2="1125"/><line x1="730" y1="1175" x2="770" y2="1175"/>
+    <line x1="900" y1="1210" x2="650" y2="1270"/><line x1="550" y1="1225" x2="550" y2="1270"/>
+    <line x1="550" y1="1330" x2="550" y2="1365"/><line x1="700" y1="1410" x2="760" y2="1410"/>
+    <line x1="902" y1="1447" x2="690" y2="1500"/><line x1="550" y1="1455" x2="550" y2="1500"/>
+    <line x1="550" y1="1570" x2="550" y2="1605"/><line x1="730" y1="1650" x2="760" y2="1650"/>
+    <line x1="370" y1="1650" x2="350" y2="1650"/>
+    <path d="M215 1620 C80 1500, 80 1040, 375 935"/>
+    <path d="M235 768 C110 860, 120 450, 410 495"/>
+  </g>
+  <g font-family="Arial, sans-serif" font-size="14" fill="#111"><text x="715" y="246">yes</text><text x="565" y="330">no</text><text x="420" y="645">no</text><text x="570" y="670">yes</text><text x="742" y="1165">no</text><text x="565" y="1250">yes</text><text x="714" y="1402">yes</text><text x="565" y="1484">no / safe retry</text><text x="738" y="1640">yes</text><text x="335" y="1640">no</text></g>
+</svg>
