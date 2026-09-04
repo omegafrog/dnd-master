@@ -1,0 +1,56 @@
+@startuml
+' Product activity contract: UC-SMR-00, covers UC-SMR-01..05 and PR-SMR-001..021
+start
+:Select published Rulebook;
+:Select one or more Storybooks;
+if (Multiple Storybooks?) then (yes)
+  :Choose Primary Storybook;
+endif
+:Optionally enter Integration Prompt;
+:Choose Compilation Creativity\n(default CONSERVATIVE);
+:Run Scenario Compilation;
+if (Compilation READY?) then (yes)
+  :Adventure Start;
+  :Lock Scenario Model and source set;
+  :Create initial Game State;
+  :Derive first Situation from\nScenario Model + Game State + RAG;
+  repeat
+    :Receive one player action / confirmed map interaction;
+    :Resolve GM Turn using current state,\nRuntime-added Facts, Scenario Model,\nand relevant Storybook/Rulebook RAG;
+    if (Required scenario fact found?) then (yes)
+      :Use existing/source-backed fact;
+    else (no)
+      :Generate minimum fallback fact;
+      :Stage Runtime-added Fact for commit;
+    endif
+    :Generate player-visible Scene/result;
+    if (Hidden information leak detected?) then (yes)
+      :Discard narration only;
+      :Regenerate narration from same fixed Turn Resolution;
+      if (Safe narration produced?) then (yes)
+      else (no)
+        :Abort Turn; do not commit state/facts;
+        :Show generic retry result;
+        stop
+      endif
+    endif
+    :Atomically commit narration result,\nGame State changes, and Runtime-added Facts;
+    if (Core resolution condition satisfied?) then (yes)
+      :Generate concluding Scene;
+      :Mark Adventure COMPLETED;
+      stop
+    else (no)
+      if (Current Situation still represents\ncurrent problem state?) then (yes)
+        :Keep current Situation;
+      else (no)
+        :Derive next Situation from latest effective state;
+      endif
+    endif
+  repeat while (Adventure continues?) is (yes)
+else (no)
+  :Show BLOCKED diagnostics with exact\nconflicts/missing facts and source locations;
+  :Suggest concrete fixes / Integration Prompt examples;
+  :User changes inputs and recompiles;
+  stop
+endif
+@enduml
