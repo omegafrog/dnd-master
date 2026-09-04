@@ -6,6 +6,17 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilation;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilationStatus;
+import com.dndmaster.adventure.domain.scenario.ScenarioCompilationInputSnapshot;
+import com.dndmaster.adventure.domain.scenario.ScenarioCreativity;
+import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
+import com.dndmaster.adventure.domain.scenario.ScenarioModel;
+import com.dndmaster.adventure.domain.scenario.ScenarioModelElement;
+import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
+import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
+import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioPackageRepository;
+import java.util.List;
+import java.util.Map;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioCompilationRepository;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -66,6 +77,40 @@ class PostgresScenarioCompilationRepositoryIntegrationTest {
 
         assertTrue(repository.saveIfLeaseMatches(claimed, null));
         assertEquals(ScenarioCompilationStatus.RUNNING, repository.findById(claimed.id()).orElseThrow().status());
+    }
+
+    @Test
+    void publishesPackageModelJobAndOutboxAtomically() throws SQLException {
+        UUID primary = UUID.randomUUID();
+        ScenarioCompilationInputSnapshot input = new ScenarioCompilationInputSnapshot(bundleId, 1,
+                List.of(new ScenarioCompilationInputSnapshot.StorybookInput(primary, 1,
+                        ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK")), primary, "", ScenarioCreativity.NONE);
+        ScenarioCompilation requested = ScenarioCompilation.request(input, "atomic-fingerprint", "atomic-key");
+        repository.save(requested);
+        UUID lease = UUID.randomUUID();
+        ScenarioCompilation claimed = requested.claim(lease);
+        assertTrue(repository.saveIfLeaseMatches(claimed, null));
+
+        ScenarioModel model = new ScenarioModel(1, List.of(), List.of(),
+                List.of(element("objective", "goal")), List.of(), List.of(), List.of(),
+                List.of(element("resolution", "resolved")), "The adventure starts.");
+        ScenarioPackage scenarioPackage = ScenarioPackage.publishWithScenarioModel(bundleId, 1, "atomic-package",
+                List.of(), List.of(), new ScenarioCompilationReport(ResolutionStatus.COMPLETE, List.of()),
+                com.dndmaster.adventure.domain.scenario.CharacterLimit.defaultLimit(), null, List.of(), List.of(), model);
+        PostgresScenarioPackageRepository packages = new PostgresScenarioPackageRepository(dataSource);
+
+        assertTrue(packages.publishAtomically(scenarioPackage, claimed, List.of()));
+        assertTrue(packages.findById(scenarioPackage.packageId()).orElseThrow().scenarioModel() != null);
+        assertEquals(ScenarioCompilationStatus.COMPLETED, repository.findById(requested.id()).orElseThrow().status());
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(
+                "SELECT COUNT(*) FROM scenario_compilation_outbox WHERE compilation_id = ?")) {
+            statement.setObject(1, requested.id());
+            try (var rows = statement.executeQuery()) { rows.next(); assertEquals(1, rows.getInt(1)); }
+        }
+    }
+
+    private static ScenarioModelElement element(String type, String value) {
+        return new ScenarioModelElement(type, type, Map.of("value", value), List.of());
     }
 
     private record DriverManagerDataSource(String url, String username, String password) implements DataSource {

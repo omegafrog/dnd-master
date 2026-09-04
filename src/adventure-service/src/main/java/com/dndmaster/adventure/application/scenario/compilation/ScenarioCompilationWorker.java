@@ -35,6 +35,8 @@ public final class ScenarioCompilationWorker {
     private final CharacterInputTagExtractionPort characterTagPort;
     private final ScenarioPackageCompilationService compiler;
     private final CompilationCandidateRepository candidateRepository;
+    private final ScenarioModelCompilationService modelCompiler = new ScenarioModelCompilationService();
+    private final ScenarioPackageRepository packageRepository;
 
     public ScenarioCompilationWorker(
             ScenarioCompilationProcessManager processManager,
@@ -88,6 +90,7 @@ public final class ScenarioCompilationWorker {
         this.characterTagPort = Objects.requireNonNull(characterTagPort, "character tag port must not be null");
         this.compiler = Objects.requireNonNull(compiler, "compiler must not be null");
         Objects.requireNonNull(ignoredPackageRepository, "package repository must not be null");
+        this.packageRepository = ignoredPackageRepository;
         this.candidateRepository = Objects.requireNonNull(candidateRepository, "candidate repository must not be null");
     }
 
@@ -157,10 +160,28 @@ public final class ScenarioCompilationWorker {
                     : extractCharacterTags(claimed.id().toString(), tagExcerpts);
             characterCandidates = refineCharacterTags(claimed.id().toString(), bundle, characterCandidates);
 
-            ScenarioPackage scenarioPackage = compiler.compileWithCharacterCandidates(
-                    bundle, candidates == null ? List.of() : candidates,
-                    excerpts == null ? List.of() : excerpts,
-                    characterCandidates == null ? List.of() : characterCandidates);
+            ScenarioPackage scenarioPackage;
+            var inputSnapshot = claimed.inputSnapshot();
+            var modelDiagnostics = List.<com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic>of();
+            if (inputSnapshot == null) {
+                scenarioPackage = compiler.compileWithCharacterCandidates(
+                        bundle, candidates == null ? List.of() : candidates,
+                        excerpts == null ? List.of() : excerpts,
+                        characterCandidates == null ? List.of() : characterCandidates);
+            } else {
+                var modelEvaluation = modelCompiler.compile(inputSnapshot,
+                        compiler.validateResolutionCandidates(bundle, candidates == null ? List.of() : candidates, resolutionExcerpts),
+                        excerpts == null ? List.of() : excerpts);
+                if (modelEvaluation.status() == com.dndmaster.adventure.domain.scenario.ScenarioModelCompilationPolicy.Status.BLOCKED) {
+                    processManager.block(claimed, delivery, modelEvaluation.diagnostics());
+                    log.info("scenario compilation blocked compilationId={} diagnostics={}", claimed.id(), modelEvaluation.diagnostics());
+                    return Optional.empty();
+                }
+                modelDiagnostics = modelEvaluation.diagnostics();
+                scenarioPackage = compiler.compileWithScenarioModel(
+                        bundle, candidates == null ? List.of() : candidates,
+                        excerpts == null ? List.of() : excerpts, modelEvaluation.model());
+            }
             List<com.dndmaster.adventure.domain.scenario.CompilationCandidate> diagnostics =
                     CompilationCandidateFactory.from(claimed.id(), extractedCandidates, rawResolutionUnits, scenarioPackage.units());
             candidateRepository.saveAll(claimed.id(), diagnostics);
@@ -178,7 +199,16 @@ public final class ScenarioCompilationWorker {
                         "scenario package compilation report is " + scenarioPackage.report().status());
             }
 
-            processManager.publish(claimed, delivery, scenarioPackage.packageId());
+            if (inputSnapshot == null) {
+                processManager.publish(claimed, delivery, scenarioPackage.packageId());
+            } else {
+                boolean completedAtomically = packageRepository.publishAtomically(scenarioPackage, claimed, modelDiagnostics);
+                if (!completedAtomically) {
+                    processManager.complete(claimed, delivery, scenarioPackage.packageId(), modelDiagnostics);
+                } else {
+                    queue.acknowledge(delivery);
+                }
+            }
             log.info("scenario compilation worker published compilationId={} packageId={}",
                     claimed.id(), scenarioPackage.packageId());
             return Optional.of(scenarioPackage);

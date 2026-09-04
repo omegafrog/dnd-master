@@ -50,6 +50,10 @@ function preparationStorageKey(bundleId: string, revision: number) {
 
 function compilationProgress(status: ScenarioCompilationView['status']): number {
   switch (status) {
+    case 'QUEUED': return 10
+    case 'PROCESSING': return 70
+    case 'COMPLETED': return 100
+    case 'BLOCKED': return 100
     case 'REQUESTED': return 10
     case 'WAITING_RETRY': return 40
     case 'RUNNING': return 70
@@ -90,6 +94,9 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
   const [compilationFailure, setCompilationFailure] = useState<string | null>(null)
   const [partySize, setPartySize] = useState(4)
   const [compiling, setCompiling] = useState(false)
+  const [primaryStorybookId, setPrimaryStorybookId] = useState<string>('')
+  const [integrationPrompt, setIntegrationPrompt] = useState('')
+  const [creativity, setCreativity] = useState<'NONE' | 'CONSERVATIVE' | 'CREATIVE'>('CONSERVATIVE')
   const [saving, setSaving] = useState(false)
   const canCompile = Boolean(api.startScenarioCompilation && api.getScenarioCompilation && api.getScenarioPackage)
   const allDocumentsIndexed = documents.length > 0 && documents.every(isIndexingFinished)
@@ -102,7 +109,8 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
       setCompilationFailure(null)
       setBundle(initialBundle)
       setSelectedIds(new Set(initialBundle.documents.map(document => document.knowledgeDocumentId)))
-      setRoles(Object.fromEntries(initialBundle.documents.map(document => [document.knowledgeDocumentId, document.role])))
+        setRoles(Object.fromEntries(initialBundle.documents.map(document => [document.knowledgeDocumentId, document.role])))
+        setPrimaryStorybookId(initialBundle.documents.find(document => document.documentType === 'STORYBOOK' && document.role === 'MAIN_SCENARIO')?.knowledgeDocumentId ?? '')
     }
   }, [initialBundle])
 
@@ -173,21 +181,21 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
   }, [api, onError, scenarioPackage])
 
   useEffect(() => {
-    if (!compilation || !api.getScenarioCompilation || compilation.status === 'PUBLISHED' || compilation.status === 'FAILED') return
+    if (!compilation || !api.getScenarioCompilation || compilation.status === 'PUBLISHED' || compilation.status === 'COMPLETED' || compilation.status === 'BLOCKED' || compilation.status === 'FAILED') return
     let active = true
     const poll = async () => {
       let current = compilation
       try {
-        while (active && current.status !== 'PUBLISHED' && current.status !== 'FAILED') {
+        while (active && current.status !== 'PUBLISHED' && current.status !== 'COMPLETED' && current.status !== 'BLOCKED' && current.status !== 'FAILED') {
           await sleep(compilationPollIntervalMs)
           current = await api.getScenarioCompilation!(current.compilationId)
           if (!active) return
           setCompilation(current)
         }
-        if (current.status === 'PUBLISHED' && current.packageId && api.getScenarioPackage) {
+        if ((current.status === 'PUBLISHED' || current.status === 'COMPLETED') && current.packageId && api.getScenarioPackage) {
           setScenarioPackage(await api.getScenarioPackage(current.packageId))
         }
-        if (current.status === 'FAILED') setCompilationFailure(current.failureReason || '게임 준비에 실패했습니다.')
+        if (current.status === 'FAILED' || current.status === 'BLOCKED') setCompilationFailure(current.failureReason || current.diagnostics?.map(diagnostic => diagnostic.message).join(', ') || '입력 또는 정책 때문에 게임 준비가 차단되었습니다.')
       } catch (error) {
         if (active) setCompilationFailure(error instanceof Error ? error.message : '게임 준비 상태를 확인하지 못했습니다.')
       }
@@ -284,6 +292,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
           bundle.bundleId,
           playerId,
           inputFingerprint,
+          { primaryStorybookId: primaryStorybookId || null, integrationPrompt, creativity },
         )
         window.localStorage.setItem(preparationStorageKey(bundle.bundleId, bundle.currentRevision), started.compilationId)
         setCompilation(started)
@@ -369,12 +378,28 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
           {canCompile ? (
             <Button
               type="button"
-              disabled={compiling || compilation?.status === 'REQUESTED' || compilation?.status === 'RUNNING' || compilation?.status === 'WAITING_RETRY'}
+              disabled={compiling || compilation?.status === 'REQUESTED' || compilation?.status === 'QUEUED' || compilation?.status === 'RUNNING' || compilation?.status === 'PROCESSING' || compilation?.status === 'WAITING_RETRY'}
               onClick={() => void compile()}
             >
-            {compiling || compilation?.status === 'REQUESTED' || compilation?.status === 'RUNNING' || compilation?.status === 'WAITING_RETRY' ? '게임 준비 상태 확인 중…' : '게임 준비 시작'}
+            {compiling || compilation?.status === 'REQUESTED' || compilation?.status === 'QUEUED' || compilation?.status === 'RUNNING' || compilation?.status === 'PROCESSING' || compilation?.status === 'WAITING_RETRY' ? '게임 준비 상태 확인 중…' : '게임 준비 시작'}
             </Button>
           ) : null}
+          {canCompile ? <div className="scenario-compilation-policy">
+            <label>Primary Storybook
+              <Select aria-label="Primary Storybook" value={primaryStorybookId} onChange={event => setPrimaryStorybookId(event.currentTarget.value)}>
+                <option value="">자동 선택 또는 미정</option>
+                {bundle.documents.filter(document => document.documentType === 'STORYBOOK').map(document => <option key={document.knowledgeDocumentId} value={document.knowledgeDocumentId}>{document.originalFilename}</option>)}
+              </Select>
+            </label>
+            <label>Integration Prompt
+              <Input aria-label="Integration Prompt" value={integrationPrompt} onChange={event => setIntegrationPrompt(event.currentTarget.value)} />
+            </label>
+            <label>Creativity
+              <Select aria-label="Creativity" value={creativity} onChange={event => setCreativity(event.currentTarget.value as typeof creativity)}>
+                <option value="NONE">NONE</option><option value="CONSERVATIVE">CONSERVATIVE</option><option value="CREATIVE">CREATIVE</option>
+              </Select>
+            </label>
+          </div> : null}
           {compilation ? (
             <div className="preparation-progress" role="status" aria-live="polite">
               <div className="preparation-progress-heading">
@@ -382,7 +407,7 @@ export function ScenarioSetup({ api, playerId, onError, sessionApi, availableDoc
                 <strong>{compilationProgress(compilation.status)}%</strong>
               </div>
               <Progress value={compilationProgress(compilation.status)} aria-label="게임 준비 진행률" />
-              {compilation.status === 'REQUESTED' || compilation.status === 'RUNNING' || compilation.status === 'WAITING_RETRY' ? (
+              {compilation.status === 'REQUESTED' || compilation.status === 'QUEUED' || compilation.status === 'RUNNING' || compilation.status === 'PROCESSING' || compilation.status === 'WAITING_RETRY' ? (
                 <p>서버에서 준비 작업을 진행 중입니다. 이 창을 열어 둔 동안 상태를 자동으로 확인합니다.</p>
               ) : null}
             </div>

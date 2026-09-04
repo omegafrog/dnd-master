@@ -3,6 +3,7 @@ import { Button } from '../../components/ui/button'
 import type { AgentEndpointPreflightView, ScenarioCompilationView, SetupApi } from './SetupApi'
 
 const labels: Record<ScenarioCompilationView['status'], string> = {
+  QUEUED: '준비 대기 중', PROCESSING: '자료를 분석하는 중', COMPLETED: '게임 준비 완료', BLOCKED: '게임 준비 차단',
   REQUESTED: '준비 대기 중', RUNNING: '자료를 분석하는 중', WAITING_RETRY: '다시 시도 대기 중',
   PUBLISHED: '게임 준비 완료', FAILED: '게임 준비 실패',
 }
@@ -40,7 +41,7 @@ export function PreparationModal({ bundleId, revision, api, ownerId, onClose, on
   }, [api, storageKey])
 
   useEffect(() => {
-    if (!compilation || !api.getScenarioCompilation || compilation.status === 'PUBLISHED' || compilation.status === 'FAILED') return
+    if (!compilation || !api.getScenarioCompilation || compilation.status === 'PUBLISHED' || compilation.status === 'COMPLETED' || compilation.status === 'BLOCKED' || compilation.status === 'FAILED') return
     const timer = window.setTimeout(() => void api.getScenarioCompilation!(compilation.compilationId).then(setCompilation), 1000)
     return () => window.clearTimeout(timer)
   }, [api, compilation])
@@ -63,9 +64,9 @@ export function PreparationModal({ bundleId, revision, api, ownerId, onClose, on
     <div className="preparation-modal-card">
       <div className="bundle-card-heading"><div><p className="eyebrow">GAME PREPARATION</p><h2 id="preparation-modal-title">게임 준비</h2></div><Button type="button" variant="outline" onClick={onClose}>닫기</Button></div>
       {!preflight ? <p role="status">AI 연결 상태를 확인하는 중…</p> : preflight.connected ? <p role="status">AI 엔드포인트 연결됨</p> : <div role="alert"><p>{preflight.state === 'LOGIN_REQUIRED' ? 'Codex OAuth 로그인이 필요합니다.' : preflight.state === 'NOT_CONFIGURED' ? 'AI 엔드포인트를 설정해야 합니다.' : preflight.state === 'EXPIRED' ? 'AI 엔드포인트 연결이 만료되었습니다.' : 'AI 엔드포인트 연결에 실패했습니다.'}</p><a href="#/profile">AI 엔드포인트 설정 열기</a></div>}
-      {compilation && <div role="status"><p>{labels[compilation.status]}</p>{compilation.failureReason && <p role="alert">게임 준비에 실패했습니다. 다시 준비를 눌러 재시도해 주세요.</p>}{compilation.status === 'FAILED' && <Button type="button" onClick={() => void start(true)} disabled={busy}>다시 준비</Button>}{compilation.status === 'PUBLISHED' && <div><Button type="button" onClick={() => onCharacter(compilation.packageId!)}>캐릭터 생성 시작</Button><Button type="button" variant="outline" onClick={() => onAdventure(compilation.packageId!)}>이 자료로 모험 만들기</Button></div>}</div>}
+      {compilation && <div role="status"><p>{labels[compilation.status]}</p>{(compilation.failureReason || compilation.status === 'BLOCKED') && <><p role="alert">{compilation.failureReason || compilation.diagnostics?.map(diagnostic => diagnostic.message).join(', ') || '입력 또는 정책 때문에 게임 준비가 차단되었습니다.'}</p>{compilation.diagnostics?.map(diagnostic => <p key={diagnostic.code}>{diagnostic.code}</p>)}</>}{compilation.status === 'FAILED' && <Button type="button" onClick={() => void start(true)} disabled={busy}>다시 준비</Button>}{(compilation.status === 'PUBLISHED' || compilation.status === 'COMPLETED') && <div><Button type="button" onClick={() => onCharacter(compilation.packageId!)}>캐릭터 생성 시작</Button><Button type="button" variant="outline" onClick={() => onAdventure(compilation.packageId!)}>이 자료로 모험 만들기</Button></div>}</div>}
       {message && <p role="alert">{message}</p>}
-      {(!compilation || compilation.status === 'REQUESTED' || compilation.status === 'RUNNING' || compilation.status === 'WAITING_RETRY') && <Button type="button" onClick={() => void start()} disabled={busy || !preflight?.connected}>{busy ? '준비 요청 중…' : '게임 준비 시작'}</Button>}
+      {(!compilation || compilation.status === 'REQUESTED' || compilation.status === 'QUEUED' || compilation.status === 'RUNNING' || compilation.status === 'PROCESSING' || compilation.status === 'WAITING_RETRY' || compilation.status === 'BLOCKED') && <Button type="button" onClick={() => void start()} disabled={busy || !preflight?.connected}>{busy ? '준비 요청 중…' : compilation?.status === 'BLOCKED' ? '입력 수정 후 다시 준비' : '게임 준비 시작'}</Button>}
     </div>
   </section>
 }

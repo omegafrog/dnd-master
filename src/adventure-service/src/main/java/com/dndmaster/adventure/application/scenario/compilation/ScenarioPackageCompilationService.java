@@ -8,6 +8,7 @@ import com.dndmaster.adventure.domain.scenario.ResolutionKind;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
+import com.dndmaster.adventure.domain.scenario.ScenarioModel;
 import com.dndmaster.adventure.domain.scenario.ResolutionOverride;
 import com.dndmaster.adventure.domain.scenario.ResolutionOverrideStatus;
 import com.dndmaster.adventure.domain.scenario.ResolutionVisibility;
@@ -99,6 +100,12 @@ public final class ScenarioPackageCompilationService {
         return compileInternal(bundle, candidates, excerpts, true, List.of(), characterCandidates);
     }
 
+    public ScenarioPackage compileWithScenarioModel(
+            ScenarioSourceBundle bundle, List<ResolutionCandidate> candidates,
+            List<ResolutionExtractionPort.SourceExcerpt> excerpts, ScenarioModel scenarioModel) {
+        return compileInternal(bundle, candidates, excerpts, true, List.of(), null, scenarioModel, false);
+    }
+
     public ScenarioPackage compile(
             ScenarioSourceBundle bundle,
             List<ResolutionCandidate> candidates,
@@ -115,13 +122,29 @@ public final class ScenarioPackageCompilationService {
             ScenarioSourceBundle bundle, List<ResolutionCandidate> candidates,
             List<ResolutionExtractionPort.SourceExcerpt> excerpts, boolean verifyEvidence,
             List<ResolutionOverride> requestedOverrides) {
-        return compileInternal(bundle, candidates, excerpts, verifyEvidence, requestedOverrides, null);
+        return compileInternal(bundle, candidates, excerpts, verifyEvidence, requestedOverrides, null, null, true);
     }
 
     private ScenarioPackage compileInternal(
             ScenarioSourceBundle bundle, List<ResolutionCandidate> candidates,
             List<ResolutionExtractionPort.SourceExcerpt> excerpts, boolean verifyEvidence,
             List<ResolutionOverride> requestedOverrides, List<CharacterInputTagCandidate> characterCandidates) {
+        return compileInternal(bundle, candidates, excerpts, verifyEvidence, requestedOverrides, characterCandidates, null);
+    }
+
+    private ScenarioPackage compileInternal(
+            ScenarioSourceBundle bundle, List<ResolutionCandidate> candidates,
+            List<ResolutionExtractionPort.SourceExcerpt> excerpts, boolean verifyEvidence,
+            List<ResolutionOverride> requestedOverrides, List<CharacterInputTagCandidate> characterCandidates,
+            com.dndmaster.adventure.domain.scenario.ScenarioModel scenarioModel) {
+        return compileInternal(bundle, candidates, excerpts, verifyEvidence, requestedOverrides, characterCandidates, scenarioModel, true);
+    }
+
+    private ScenarioPackage compileInternal(
+            ScenarioSourceBundle bundle, List<ResolutionCandidate> candidates,
+            List<ResolutionExtractionPort.SourceExcerpt> excerpts, boolean verifyEvidence,
+            List<ResolutionOverride> requestedOverrides, List<CharacterInputTagCandidate> characterCandidates,
+            com.dndmaster.adventure.domain.scenario.ScenarioModel scenarioModel, boolean persist) {
         Objects.requireNonNull(bundle, "bundle must not be null");
         List<ResolutionCandidate> requested = new ArrayList<>(Objects.requireNonNull(candidates, "candidates must not be null"));
         List<ResolutionExtractionPort.SourceExcerpt> availableExcerpts =
@@ -139,7 +162,7 @@ public final class ScenarioPackageCompilationService {
                     .sorted().collect(java.util.stream.Collectors.joining(";"));
         }
         var existing = repository.findByInputFingerprint(fingerprint);
-        if (existing.isPresent()) {
+        if (existing.isPresent() && (scenarioModel == null || existing.get().scenarioModel() != null)) {
             return existing.get();
         }
 
@@ -199,14 +222,18 @@ public final class ScenarioPackageCompilationService {
                 : DndCharacterCreationTemplate.apply("DND_5E_2014",
                         blueprintCompiler.compileAgent(bundle.currentRevision().revision(), characterCandidates));
         characterBlueprint = attachDefinitionProvenance(bundle, characterBlueprint);
-        ScenarioPackage scenarioPackage = ScenarioPackage.publishWithMaps(
-                bundle.id(), bundle.currentRevision().revision(), fingerprint,
-                bundle.currentRevision().documents(), units,
-                new ScenarioCompilationReport(reportStatus, warnings, outcome),
-                characterLimit(bundle, availableExcerpts),
-                characterBlueprint,
-                mapCompilation.maps(), mapCompilation.bindings());
-        if (outcome != com.dndmaster.adventure.domain.scenario.CompilationOutcome.FAILED) {
+        ScenarioPackage scenarioPackage = scenarioModel == null
+                ? ScenarioPackage.publishWithMaps(bundle.id(), bundle.currentRevision().revision(), fingerprint,
+                        bundle.currentRevision().documents(), units,
+                        new ScenarioCompilationReport(reportStatus, warnings, outcome),
+                        characterLimit(bundle, availableExcerpts), characterBlueprint,
+                        mapCompilation.maps(), mapCompilation.bindings())
+                : ScenarioPackage.publishWithScenarioModel(bundle.id(), bundle.currentRevision().revision(), fingerprint,
+                        bundle.currentRevision().documents(), units,
+                        new ScenarioCompilationReport(reportStatus, warnings, outcome),
+                        characterLimit(bundle, availableExcerpts), characterBlueprint,
+                        mapCompilation.maps(), mapCompilation.bindings(), scenarioModel);
+        if (persist && outcome != com.dndmaster.adventure.domain.scenario.CompilationOutcome.FAILED) {
             repository.save(scenarioPackage);
         }
         return scenarioPackage;
