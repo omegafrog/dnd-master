@@ -1,0 +1,17 @@
+@startuml
+' Business-state contract: compilation/start/completion gates; PR-SMR-006..008, PR-SMR-020
+[*] --> UNCOMPILED
+UNCOMPILED --> COMPILING : compile requested
+COMPILING --> READY : startable model produced
+COMPILING --> BLOCKED : automatic correction cannot produce startable model
+BLOCKED --> COMPILING : source / Primary / prompt / creativity changed; retry
+READY --> COMPILING : pre-start inputs changed; recompile
+READY --> RUNNING : Adventure Start / lock current model
+RUNNING --> COMPLETED : resolution condition satisfied + concluding Scene committed
+COMPLETED --> [*]
+note right of RUNNING
+No Scenario Model recompilation or replacement
+within this adventure.
+Runtime continuity uses RAG and Runtime-added Facts.
+end note
+@enduml
