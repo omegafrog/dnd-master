@@ -2,6 +2,8 @@ package com.dndmaster.adventure.domain.scenario;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Stream;
 
 /** Lockable hidden scenario structure published as a child of ScenarioPackage. */
 public record ScenarioModel(
@@ -28,6 +30,18 @@ public record ScenarioModel(
 
     public boolean hasCoreResolutionInformation() {
         return !objectives.isEmpty() && !resolutionCriteria.isEmpty() && !startingSituation.isBlank();
+    }
+
+    /** Returns the immutable identity set used to validate agent citations. */
+    public Set<String> elementIds() {
+        return Stream.of(actors, locations, objectives, revelations, encounters, relationships, resolutionCriteria)
+                .flatMap(List::stream)
+                .map(ScenarioModelElement::elementId)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+    }
+
+    public boolean containsElement(String elementId) {
+        return elementId != null && elementIds().contains(elementId);
     }
 
     public ScenarioModel withGeneratedCore(ScenarioCreativity policy) {

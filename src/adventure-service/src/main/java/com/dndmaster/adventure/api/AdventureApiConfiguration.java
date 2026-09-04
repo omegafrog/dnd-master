@@ -53,7 +53,7 @@ import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharac
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetOwnershipGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterSheetDeletionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpAgentActionCandidateGateway;
-import com.dndmaster.adventure.infrastructure.integration.HttpGmAgentPort;
+import com.dndmaster.adventure.infrastructure.integration.HttpTypedRuntimeGmAgentPort;
 import com.dndmaster.adventure.infrastructure.integration.HttpDiceToolPort;
 import com.dndmaster.adventure.infrastructure.integration.HttpCharacterToolPort;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -867,7 +867,8 @@ public class AdventureApiConfiguration {
             @Value("${adventure.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.ai-game-master.timeout-seconds:180}") long timeoutSeconds,
             @Value("${adventure.integration.internal-token:}") String internalToken) {
-        return new HttpGmAgentPort(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken);
+        return new HttpTypedRuntimeGmAgentPort(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper, internalToken);
     }
 
     @Bean
