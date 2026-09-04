@@ -1,0 +1,61 @@
+@startuml
+' UC-1 through UC-6 — Scenario preparation and Adventure start
+title UC-1 — Storybook으로 Scenario를 준비하고 Adventure를 시작한다
+left to right direction
+
+actor "Solo Player" as Player
+actor "AI Game Master" as GM
+
+rectangle "Scenario Model Runtime" {
+  usecase "Storybook 선택" as Select
+  usecase "Primary Storybook 결정" as Primary
+  usecase "Integration Prompt 입력" as Prompt
+  usecase "Creativity 선택\n(기본: CONSERVATIVE)" as Creativity
+  usecase "Scenario Compilation 실행" as Compile
+  usecase "충돌 해석" as Resolve
+  usecase "핵심 정보 보완" as Supplement
+  usecase "BLOCKED 진단 제공" as Blocked
+  usecase "READY Scenario 생성" as Ready
+  usecase "Adventure Start" as Start
+  usecase "Scenario Model 및 source 구성 lock" as Lock
+  usecase "Situation 진행" as Situation
+  usecase "Storybook Fact 조회" as Lookup
+  usecase "Runtime-added Fact 생성" as RuntimeFact
+  usecase "GM Turn 해결" as Turn
+  usecase "Adventure 완료" as Complete
+}
+
+Player --> Select
+Player --> Primary
+Player --> Prompt
+Player --> Creativity
+Player --> Compile
+Player --> Start
+GM --> Compile
+GM --> Situation
+GM --> Lookup
+GM --> RuntimeFact
+GM --> Turn
+GM --> Complete
+
+Compile .> Resolve : <<include>>
+Compile .> Supplement : <<extend>>\n핵심 정보가 없을 때
+Compile .> Blocked : <<extend>>\n자동 해결 불가
+Compile .> Ready : <<include>>
+Start .> Ready : <<include>>
+Start .> Lock : <<include>>
+Situation .> Lookup : <<include>>
+Lookup .> RuntimeFact : <<extend>>\nsource 없음
+Situation .> Turn : <<include>>
+Turn .> Complete : <<extend>>\nresolution condition 충족
+
+note bottom of Resolve
+Integration Prompt > Primary > Supplement
+충돌 해석에만 적용
+end note
+
+note bottom of Supplement
+핵심 목표 진행·해결 불가 시에만 허용.
+Creativity 자동 승격 없음.
+end note
+@enduml

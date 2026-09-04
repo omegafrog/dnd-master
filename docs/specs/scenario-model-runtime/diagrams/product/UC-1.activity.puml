@@ -1,0 +1,57 @@
+@startuml
+' UC-1 through UC-17 — Scenario preparation, Runtime Situation, and GM Turn
+title UC-1 — Scenario 준비부터 Runtime Adventure 완료까지
+
+start
+:Storybook 준비;
+:Primary 선택, Integration Prompt 및\nCreativity 설정;
+:Scenario Compilation;
+if (READY인가?) then (yes)
+  :Adventure Start;
+  :Scenario Model과 source 구성 lock;
+  :초기 Game State와 locked Scenario Model로\nFirst Situation 구성;
+else (no)
+  :BLOCKED diagnostics 제공;
+  stop
+endif
+
+repeat
+  :Solo Player가 행동 선언;
+  :현재 Situation 및 관련 사실 확인;
+  note right
+  사실 조회 우선순위
+  1. Game State
+  2. Runtime-added Facts
+  3. Scenario Model
+  4. Storybook RAG
+  5. fallback 생성
+  end note
+  if (기존 사실로 충분한가?) then (yes)
+  else (no)
+    :Storybook RAG 조회;
+    if (source fact 발견?) then (yes)
+      :source fact 사용;
+    else (no)
+      :최소 Runtime-added Fact 후보 생성;
+      if (확정된 play와 충돌?) then (yes)
+        :후보 폐기 후\n호환 fallback 생성;
+      endif
+    endif
+  endif
+  :GM adjudication 및\nTurn Resolution 결정;
+  :Player-visible narration 생성;
+  while (Spoiler validation 통과?) is (unsafe)
+    :narration만 안전하게 재생성;
+  endwhile (safe)
+  :Game State, Runtime-added Facts,\nplayer 결과를 atomic commit;
+  if (resolution condition 충족?) then (yes)
+    :Concluding Scene 생성·전달;
+    :Adventure COMPLETED;
+    stop
+  endif
+  if (문제 상태가 의미 있게 변했나?) then (yes)
+    :새 Situation 구성;
+  endif
+repeat while (Adventure ACTIVE?) is (yes)
+stop
+@enduml

@@ -1,0 +1,33 @@
+@startuml
+' Architecture Spec 3.8.1 — RuntimeTurn lifecycle and recovery boundaries
+title RuntimeTurn State
+
+[*] --> REQUESTED
+REQUESTED --> RESOLVING
+
+RESOLVING --> PENDING_ROLL : roll required
+PENDING_ROLL --> RESOLVING : roll result
+
+RESOLVING --> RESOLUTION_FIXED : adjudication fixed
+
+RESOLUTION_FIXED --> NARRATING
+NARRATING --> SAFETY_CHECKING
+
+SAFETY_CHECKING --> NARRATING : unsafe / regenerate
+SAFETY_CHECKING --> READY_TO_COMMIT : safe
+
+NARRATING --> PRESENTATION_FAILED_RETRYABLE : retryable generation failure
+PRESENTATION_FAILED_RETRYABLE --> NARRATING
+
+READY_TO_COMMIT --> COMMITTING
+COMMITTING --> COMMITTING : retry failed/pending command
+COMMITTING --> COMMIT_REPAIR_REQUIRED : non-retryable command failure
+COMMITTING --> COMMITTED : all external commands done\n+ local Adventure commit
+
+RESOLUTION_FIXED --> DISCARDED : unrecoverable before commit phase
+PRESENTATION_FAILED_RETRYABLE --> DISCARDED : retry exhausted
+
+COMMITTED --> [*]
+DISCARDED --> [*]
+COMMIT_REPAIR_REQUIRED --> [*]
+@enduml
