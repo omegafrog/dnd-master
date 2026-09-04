@@ -186,13 +186,19 @@ public class AdventureController {
         RuntimeTurnResult result;
         try {
             gmTurnRepository.save(turn.process(), adventureId);
+            List<com.dndmaster.adventure.application.runtime.RuntimeTurnCommand> externalCommands = List.of();
             if (input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput mapAction) {
-                applyMapAction(adventure, owner, commandId, mapAction);
+                if (adventure.status() == AdventureStatus.ACTIVE && adventure.currentSituation() != null) {
+                    externalCommands = List.of(prepareMapCommand(adventure, owner, request.turnId(), commandId, mapAction));
+                } else {
+                    applyMapAction(adventure, owner, commandId, mapAction);
+                }
             }
             result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
                     new AdventureId(adventureId), new OwnerPlayerId(owner), request.turnId(), commandId,
                     input.actionText(), expectedVersion,
-                    null, -1, !(input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput), false, false));
+                    null, -1, !(input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput), false, false,
+                    externalCommands));
         } catch (RuntimeException exception) {
             LOGGER.error("gm_turn_request_failed stage=GM_TURN_CONTROLLER turnId={} commandId={} adventureId={} exceptionClass={} exceptionMessage={}",
                     request.turnId(), commandId, adventureId, exception.getClass().getName(), exception.getMessage(), exception);
@@ -424,7 +430,39 @@ public class AdventureController {
     }
     public record RuleInquiryRequest(UUID inquiryId, UUID ruleSetId, UUID playerId, String situation) {}
     public record RuleInquiryResponse(UUID inquiryId, String status) {}
+
+    /** Legacy, non-Scenario Runtime endpoint compatibility. Scenario Runtime uses the command below. */
     private void applyMapAction(Adventure adventure, UUID owner, UUID commandId,
+            com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput input) {
+        try {
+            MapActionPayload payload = objectMapper.readValue(input.action(), MapActionPayload.class);
+            if (!input.mapId().equals(payload.mapId()) || input.mapVersion() != payload.mapVersion()) {
+                throw new IllegalArgumentException("map action identity mismatch");
+            }
+            if (payload.action() == null || payload.action().isBlank()) {
+                throw new IllegalArgumentException("map action type required");
+            }
+            if (!"MOVE".equals(payload.action())) {
+                throw new ApiRequestGuard.ApiContractException(400, "UNSUPPORTED_MAP_ACTION");
+            }
+            var member = characterSheetForToken(adventure, payload.tokenId());
+            if (payload.path() == null || payload.path().size() < 2) {
+                throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PATH");
+            }
+            String path = payload.path().stream()
+                    .map(position -> position.x() + "," + position.y()).reduce((left, right) -> left + ";" + right).orElse(null);
+            CombatActionCommand command = new CombatActionCommand(commandId, adventure.id(), adventure.sessionId().value(),
+                    adventure.ruleSetId(), member.characterSheetId(), payload.mapId(), CombatActorRole.PLAYER,
+                    payload.action(), path, owner, payload.tokenId(), payload.mapVersion());
+            characterCombatPort.requireUsableCharacter(command);
+            combatMapPort.validateAndMove(command);
+        } catch (java.io.IOException exception) {
+            throw new IllegalArgumentException("invalid map action", exception);
+        }
+    }
+
+    private com.dndmaster.adventure.application.runtime.RuntimeTurnCommand prepareMapCommand(Adventure adventure, UUID owner,
+            UUID turnId, UUID commandId,
             com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput input) {
         try {
             MapActionPayload payload = objectMapper.readValue(input.action(), MapActionPayload.class);
@@ -447,7 +485,17 @@ public class AdventureController {
                     commandId, adventure.id(), adventure.sessionId().value(), adventure.ruleSetId(), member.characterSheetId(), payload.mapId(),
                     CombatActorRole.PLAYER, payload.action(), path, owner, payload.tokenId(), payload.mapVersion());
             characterCombatPort.requireUsableCharacter(command);
-            combatMapPort.validateAndMove(command);
+            UUID runtimeCommandId = UUID.nameUUIDFromBytes((commandId + ":combat-map").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            var targetContext = objectMapper.createObjectNode()
+                    .put("ruleSetId", adventure.ruleSetId().value().toString())
+                    .put("characterSheetId", member.characterSheetId().value().toString())
+                    .put("combatMapId", payload.mapId().toString())
+                    .put("tokenId", payload.tokenId().toString())
+                    .put("expectedVersion", payload.mapVersion())
+                    .toString();
+            return com.dndmaster.adventure.application.runtime.RuntimeTurnCommand.create(turnId, runtimeCommandId,
+                    adventure.id().value(), adventure.sessionId().value(), owner, targetContext,
+                    "combat-map.move", input.action(), 0);
         } catch (java.io.IOException exception) {
             throw new IllegalArgumentException("invalid map action", exception);
         }

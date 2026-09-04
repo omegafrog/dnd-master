@@ -1,6 +1,7 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 import com.dndmaster.adventure.application.runtime.EvidencePack;
 import com.dndmaster.adventure.application.runtime.NarrationSafetyAssessment;
@@ -9,6 +10,8 @@ import com.dndmaster.adventure.application.runtime.RuntimeEvidenceType;
 import com.dndmaster.adventure.application.runtime.RuntimePlan;
 import com.dndmaster.adventure.application.runtime.RuntimeTurn;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnRepository;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnCommand;
+import com.dndmaster.adventure.application.runtime.RuntimeTurnCommandRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnOrigin;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.adventure.Adventure;
@@ -23,6 +26,8 @@ import com.dndmaster.adventure.domain.adventure.SessionId;
 import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnCommandRepository;
+import com.dndmaster.adventure.infrastructure.persistence.RuntimeTurnPersistenceException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -46,6 +51,7 @@ class RuntimeTurnPostgresIntegrationTest {
 
     private static DataSource dataSource;
     private RuntimeTurnRepository repository;
+    private RuntimeTurnCommandRepository commandRepository;
 
     @BeforeAll
     static void startDatabase() {
@@ -68,6 +74,7 @@ class RuntimeTurnPostgresIntegrationTest {
             statement.execute("TRUNCATE adventure CASCADE");
         }
         repository = new PostgresRuntimeTurnRepository(dataSource, new ObjectMapper());
+        commandRepository = new PostgresRuntimeTurnCommandRepository(dataSource);
     }
 
     @Test
@@ -136,6 +143,34 @@ class RuntimeTurnPostgresIntegrationTest {
         assertEquals(RuntimeTurnOrigin.GM, legacyRestored.origin());
         assertEquals(false, legacyRestored.playerOrigin());
         assertEquals(false, legacyRestored.advancesState());
+    }
+
+    @Test
+    void persistsOrderedRuntimeTurnCommandsAndEnforcesOneActiveTurnPerAdventure() {
+        AdventureId adventureId = AdventureId.generate();
+        SessionId sessionId = SessionId.generate();
+        PostgresAdventureRepository adventureRepository = new PostgresAdventureRepository(dataSource);
+        var owner = new OwnerPlayerId(UUID.randomUUID());
+        adventureRepository.save(Adventure.create(adventureId, sessionId, owner, new ScenarioId(UUID.randomUUID()),
+                new RuleSetId(UUID.randomUUID()), new CharacterSheetId(UUID.randomUUID()),
+                new AdventureContext("start", null, null, null)));
+        RuntimeTurn base = new RuntimeTurn(UUID.randomUUID(), UUID.randomUUID(), adventureId, sessionId.value(), UUID.randomUUID(),
+                1, "open", new EvidencePack(List.of(), List.of(), List.of()),
+                new RuntimePlan("scene", null, "judgment", "narration", null, List.of(), List.of()), null,
+                new AdventureContext("scene", null, "open", "judgment"), List.of(), 0, List.of(), List.of());
+        RuntimeTurn active = base.asRequested();
+        repository.save(active);
+        RuntimeTurn second = new RuntimeTurn(UUID.randomUUID(), UUID.randomUUID(), adventureId, sessionId.value(),
+                base.scenarioPackageId(), base.bindingVersion(), base.action(), base.evidencePack(), base.plan(),
+                base.activeSourceContext(), base.context(), base.conversation(), 0, base.citations(), base.warnings(),
+                false, false, RuntimeTurnOrigin.GM, false).asRequested();
+        assertThrows(RuntimeTurnPersistenceException.class, () -> repository.save(second));
+
+        RuntimeTurnCommand command = RuntimeTurnCommand.create(active.turnId(), UUID.randomUUID(), adventureId.value(),
+                sessionId.value(), owner.value(), "combat-map", "combat-map.update", "{}", 1).done("map updated");
+        commandRepository.save(command);
+        assertEquals(command, commandRepository.findByCommandId(command.commandId()).orElseThrow());
+        assertEquals(List.of(command), commandRepository.findByTurnId(active.turnId()));
     }
 
     private record DriverManagerDataSource(String url, String username, String password) implements DataSource {

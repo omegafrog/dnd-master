@@ -62,6 +62,7 @@ public class RuntimeTurnApplicationService {
     private RewritePort rewritePort;
     private NarrativeVerificationAuditPort verificationAuditPort;
     private RuntimeNarrativeStateApplicationService narrativeStateService;
+    private RuntimeTurnCommitOrchestrator commitOrchestrator;
     private final TriggerDetectionPort triggerDetectionPort = new DefaultTriggerDetection();
     private final CheckSelectionPort checkSelectionPort = CheckSelection::from;
     private final ResolutionPort resolutionPort = new DefaultResolutionPort();
@@ -240,6 +241,35 @@ public class RuntimeTurnApplicationService {
     /** Optional during migration; configured production runtimes use the canonical narrative state. */
     public void setNarrativeStateService(RuntimeNarrativeStateApplicationService narrativeStateService) {
         this.narrativeStateService = Objects.requireNonNull(narrativeStateService, "narrative state service must not be null");
+    }
+
+    /** Enables the Scenario Runtime command saga without changing legacy turn wiring. */
+    public void setCommitOrchestrator(RuntimeTurnCommitOrchestrator commitOrchestrator) {
+        this.commitOrchestrator = Objects.requireNonNull(commitOrchestrator, "commit orchestrator must not be null");
+    }
+
+    /** Client/recovery entry point sharing the same forward-resume orchestrator. */
+    public RuntimeTurnCommitOrchestrator.Result resumeRuntimeTurn(UUID turnId) {
+        if (commitOrchestrator == null) throw new IllegalStateException("runtime turn commit orchestrator is not configured");
+        RuntimeTurn turn = runtimeTurnRepository.findByTurnId(Objects.requireNonNull(turnId, "turn id must not be null"))
+                .orElseThrow(() -> new IllegalStateException("runtime turn not found"));
+        Adventure adventure = adventureRepository.findById(turn.adventureId())
+                .orElseThrow(() -> new IllegalStateException("adventure not found"));
+        if (turn.pendingState() == null || turn.completionProposal() == null) {
+            throw new IllegalStateException("runtime turn has no pending local commit state");
+        }
+        return commitOrchestrator.resume(turn.turnId(), () -> {
+            if (adventure.version() == turn.version()) {
+                adventure.commitRuntimeTurn(adventure.ownerPlayerId(), turn.version(), turn.pendingState(), turn.context(),
+                        turn.conversation(), turn.completionProposal());
+                adventureRepository.save(adventure);
+                return;
+            }
+            if (adventure.version() == turn.version() + 1
+                    && adventure.currentContext().equals(turn.context())
+                    && adventure.conversation().equals(turn.conversation())) return;
+            throw new IllegalStateException("adventure local commit is stale or has unknown outcome");
+        });
     }
 
     /**
@@ -765,18 +795,38 @@ public class RuntimeTurnApplicationService {
             runtimeTurnRepository.save(ready);
             throw new IllegalStateException("runtime narration safety retries exhausted");
         }
-        RuntimeTurn committing = ready.beginCommit();
         AdventureContext nextContext = new AdventureContext(plan.scene(), plan.npcState(), command.action(), plan.judgment());
         List<ConversationEntry> conversation = new ArrayList<>(adventure.conversation());
         conversation.add(new ConversationEntry(conversation.size(), "PLAYER", command.action()));
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", ready.narration()));
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.judgment()));
-        adventure.commitRuntimeTurn(command.ownerPlayerId(), adventure.version(), pending, nextContext, conversation,
-                proposal.completionProposal());
-        adventureRepository.save(adventure);
-        RuntimeTurn committed = committing.markSafeCommitted();
-        runtimeTurnRepository.save(committed);
-        if (narrativeStateService != null) narrativeStateService.commit(adventure.sessionId().value(), visibleInput.stateDelta());
+        RuntimeTurnCommitOrchestrator.Result commitResult;
+        if (commitOrchestrator == null) {
+            RuntimeTurn committing = ready.beginCommit();
+            adventure.commitRuntimeTurn(command.ownerPlayerId(), adventure.version(), pending, nextContext, conversation,
+                    proposal.completionProposal());
+            adventureRepository.save(adventure);
+            RuntimeTurn committed = committing.markSafeCommitted();
+            runtimeTurnRepository.save(committed);
+            commitResult = new RuntimeTurnCommitOrchestrator.Result(
+                    RuntimeTurnCommitOrchestrator.Status.COMMITTED, committed, null);
+        } else {
+            java.util.concurrent.atomic.AtomicInteger commandOrder = new java.util.concurrent.atomic.AtomicInteger();
+            List<RuntimeTurnCommand> commands = java.util.stream.Stream.concat(
+                            command.externalCommands().stream(), planningResult.runtimeCommands().stream())
+                    .map(value -> value.withExecutionOrder(commandOrder.getAndIncrement()))
+                    .toList();
+            commitResult = commitOrchestrator.commit(ready, commands, () -> {
+                adventure.commitRuntimeTurn(command.ownerPlayerId(), adventure.version(), pending, nextContext, conversation,
+                        proposal.completionProposal());
+                adventureRepository.save(adventure);
+                if (narrativeStateService != null) narrativeStateService.commit(adventure.sessionId().value(), visibleInput.stateDelta());
+            });
+        }
+        if (commitResult.status() != RuntimeTurnCommitOrchestrator.Status.COMMITTED) {
+            throw new IllegalStateException("runtime turn commit requires recovery: " + commitResult.status());
+        }
+        RuntimeTurn committed = commitResult.turn();
         PlayerVisibleTurn visible = new PlayerVisibleTurn(ready.narration(), plan.scene(), List.of(), visibleInput.stateDelta(), narrativeContext);
         return new RuntimeTurnResult(committed, adventure.currentContext(), adventure.conversation(), adventure.version(), visible);
     }

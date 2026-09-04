@@ -249,6 +249,11 @@ public record RuntimeTurn(
                 RuntimeTurnLifecycle.COMMITTED, resolvedPlan, fixedResolution, pendingState, completionProposal, narration);
     }
 
+    public RuntimeTurn markCommitRepairRequired() {
+        requireLifecycle(RuntimeTurnLifecycle.COMMITTING);
+        return withLifecycle(RuntimeTurnLifecycle.COMMIT_REPAIR_REQUIRED);
+    }
+
     public RuntimeTurn discard() {
         if (lifecycle != RuntimeTurnLifecycle.RESOLUTION_FIXED && lifecycle != RuntimeTurnLifecycle.NARRATING
                 && lifecycle != RuntimeTurnLifecycle.SAFETY_CHECKING && lifecycle != RuntimeTurnLifecycle.PRESENTATION_FAILED_RETRYABLE) {

@@ -29,6 +29,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioCompil
 import com.dndmaster.adventure.infrastructure.persistence.PostgresCompilationCandidateRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeBindingRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnCommandRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeTurnFailureRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresNarrativeStateRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresRuntimeCommandJournal;
@@ -495,6 +496,25 @@ public class AdventureApiConfiguration {
     @Bean
     RuntimeTurnRepository runtimeTurnRepository(DataSource dataSource, ObjectMapper objectMapper) {
         return new PostgresRuntimeTurnRepository(dataSource, objectMapper);
+    }
+
+    @Bean
+    RuntimeTurnCommandRepository runtimeTurnCommandRepository(DataSource dataSource) {
+        return new PostgresRuntimeTurnCommandRepository(dataSource);
+    }
+
+    @Bean
+    RuntimeTurnCommandAdapter runtimeTurnCommandAdapter(GmToolGateway gateway, ObjectMapper objectMapper,
+            CombatMapPort combatMapPort) {
+        return new RuntimeTurnCommandAdapterRegistry(
+                Map.of("combat-map.move", new CombatMapRuntimeTurnCommandAdapter(combatMapPort, objectMapper)),
+                new GmToolRuntimeTurnCommandAdapter(gateway, objectMapper));
+    }
+
+    @Bean
+    RuntimeTurnCommitOrchestrator runtimeTurnCommitOrchestrator(RuntimeTurnRepository turnRepository,
+            RuntimeTurnCommandRepository commandRepository, RuntimeTurnCommandAdapter adapter) {
+        return new RuntimeTurnCommitOrchestrator(turnRepository, commandRepository, adapter);
     }
 
     @Bean
@@ -985,7 +1005,8 @@ public class AdventureApiConfiguration {
             NarrativeVerificationAuditPort narrativeVerificationAuditPort,
             ExemplarRetrieverPort exemplarRetriever,
             ExemplarRetrievalAuditPort exemplarRetrievalAuditPort,
-            RuntimeTurnLockService runtimeTurnLockService) {
+            RuntimeTurnLockService runtimeTurnLockService,
+            RuntimeTurnCommitOrchestrator commitOrchestrator) {
         RuntimeTurnApplicationService service = new RuntimeTurnApplicationService(
                 adventureRepository, runtimeBindingRepository, packageRepository, runtimeTurnRepository, runtimeEvidenceSearchPort,
                 runtimePlanningPort, narrationSafetyPort, sessionKnowledgeSetRepository, storyPlanRepository, continuityContextProvider,
@@ -995,6 +1016,7 @@ public class AdventureApiConfiguration {
         service.setFailurePersistence(failurePersistence);
         service.setApprovedPromptConfigurationReadPort(approvedPromptConfigurationReadPort);
         service.setTurnLockService(runtimeTurnLockService);
+        service.setCommitOrchestrator(commitOrchestrator);
         return service;
     }
 

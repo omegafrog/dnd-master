@@ -116,11 +116,12 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
             }
             ToolMaterialization materialization = executeToolSaga(request, context, executionCapability, calls, saggedGateway, result);
             result = materialization.result();
-            return new RuntimePlanningResult(finalizeCandidate(request, result, hiddenData, materialization.outcomes()), materialization.outcomes());
+            return new RuntimePlanningResult(finalizeCandidate(request, result, hiddenData, materialization.outcomes()),
+                    materialization.outcomes(), RuntimeResolutionProposal.unchanged(), materialization.commands());
         } else if (capability != null) {
             gateway.revoke(capability);
         }
-        return new RuntimePlanningResult(finalizeCandidate(request, result, hiddenData, List.of()), List.of());
+            return new RuntimePlanningResult(finalizeCandidate(request, result, hiddenData, List.of()), List.of());
     }
 
     /** Gate 0 seam: provider candidate generation and semantic validation are isolated from execution. */
@@ -243,15 +244,39 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
                         result.plan().advanceStoryPlan(), result.plan().selectedBranchId(), result.plan().requestedSelection(), result.plan().effectiveSelection(),
                         result.plan().attemptCount(), result.plan().citationBindings(), result.plan().stateDelta());
                 return new ToolMaterialization(new GmPlanResult(safe, result.provider(), result.model(), result.reasoning(), result.stateDelta(), result.toolCalls()),
-                        execution.outcomes().stream().map(GmAgentRuntimePlanningAdapter::toCommandOutcome).toList());
+                        execution.outcomes().stream().map(GmAgentRuntimePlanningAdapter::toCommandOutcome).toList(),
+                        runtimeCommands(request, calls, execution.outcomes()));
             }
-            return new ToolMaterialization(result, execution.outcomes().stream().map(GmAgentRuntimePlanningAdapter::toCommandOutcome).toList());
+            return new ToolMaterialization(result, execution.outcomes().stream().map(GmAgentRuntimePlanningAdapter::toCommandOutcome).toList(),
+                    runtimeCommands(request, calls, execution.outcomes()));
         } finally {
             gateway.revoke(capability);
         }
     }
 
-    private record ToolMaterialization(GmPlanResult result, List<RuntimeCommandOutcome> outcomes) { }
+    private static List<RuntimeTurnCommand> runtimeCommands(RuntimePlanningRequest request,
+            List<GmToolExecutionLoop.PlannedToolCall> calls, List<GmToolOutcome> outcomes) {
+        List<RuntimeTurnCommand> commands = new java.util.ArrayList<>();
+        for (int index = 0; index < calls.size(); index++) {
+            GmToolInvocation invocation = calls.get(index).invocation();
+            GmToolOutcome outcome = outcomes.get(index);
+            RuntimeTurnCommand command = RuntimeTurnCommand.create(request.turnId(), invocation.invocationId(),
+                    request.adventureId().value(), request.sessionId(), request.ownerPlayerId().value(),
+                    targetContext(invocation), invocation.toolName(), invocation.argumentsJson(), index);
+            commands.add(outcome.status() == GmToolOutcome.Status.COMPLETED
+                    ? command.done(outcome.value()) : command.failed(outcome.value()));
+        }
+        return List.copyOf(commands);
+    }
+
+    private static String targetContext(GmToolInvocation invocation) {
+        GmToolExecutionContext context = invocation.executionContext();
+        return context == null ? "external" : "adventureId=" + context.adventureId()
+                + ";ruleSetId=" + context.ruleSetId() + ";adventureVersion=" + context.adventureVersion();
+    }
+
+    private record ToolMaterialization(GmPlanResult result, List<RuntimeCommandOutcome> outcomes,
+                                       List<RuntimeTurnCommand> commands) { }
 
     private static RuntimeCommandOutcome toCommandOutcome(GmToolOutcome outcome) {
         return switch (outcome.status()) {

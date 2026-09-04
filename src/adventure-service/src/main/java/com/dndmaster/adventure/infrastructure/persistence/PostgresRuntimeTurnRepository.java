@@ -76,6 +76,17 @@ public final class PostgresRuntimeTurnRepository implements RuntimeTurnRepositor
     }
 
     @Override
+    public List<RuntimeTurn> findAllByLifecycle(com.dndmaster.adventure.application.runtime.RuntimeTurnLifecycle lifecycle) {
+        String sql = "SELECT runtime_turn_json, turn_id, command_id, session_id, scenario_package_id FROM adventure_runtime_turn WHERE lifecycle = ? ORDER BY created_at, turn_id";
+        List<RuntimeTurn> turns = new ArrayList<>();
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, lifecycle.name());
+            try (ResultSet rows = statement.executeQuery()) { while (rows.next()) turns.add(read(rows)); }
+            return turns;
+        } catch (SQLException exception) { throw new RuntimeTurnPersistenceException("could not list runtime turns by lifecycle", exception); }
+    }
+
+    @Override
     public void save(RuntimeTurn turn) {
         String sql = """
                 INSERT INTO adventure_runtime_turn (
