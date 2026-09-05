@@ -31,6 +31,7 @@ export type CombatActionRequest = {
   movementPath?: Array<{ x: number; y: number }>
   narrativePosition?: { subjectId: string; targetId: string; rangeBand: string; cover: string }
   movementDistance?: number
+  mapVersion?: number
 }
 
 export type CombatCommandResult = {
@@ -51,6 +52,8 @@ export interface CombatApi {
 }
 
 export class HttpCombatApi implements CombatApi {
+  private readonly idempotencyKeys = new Map<string, string>()
+
   constructor(private readonly getToken: () => string) {}
   async readSnapshot(adventureId: string): Promise<CombatSnapshot | null> {
     const response = await fetch(`/api/v1/adventures/${adventureId}/combat`, {
@@ -74,7 +77,9 @@ export class HttpCombatApi implements CombatApi {
   }
 
   private async postCommand(path: string, body: unknown, version: number): Promise<CombatCommandResult> {
-    const idempotencyKey = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`
+    const cacheKey = `${path}|${version}|${JSON.stringify(body)}`
+    const idempotencyKey = this.idempotencyKeys.get(cacheKey) ?? (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`)
+    this.idempotencyKeys.set(cacheKey, idempotencyKey)
     const response = await fetch(path, {
       method: 'POST',
       headers: {
