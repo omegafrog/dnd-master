@@ -17,6 +17,7 @@ import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.inquiry.RulebookId;
 import com.dndmaster.adventure.domain.scenario.ScenarioSource;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresCombatEncounterRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioBundleRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioPackageRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresResolutionOverrideRepository;
@@ -78,6 +79,17 @@ public class AdventureApiConfiguration {
     @Bean
     AdventureRepository adventureRepository(DataSource dataSource) {
         return new PostgresAdventureRepository(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.CombatEncounterRepository combatEncounterRepository(DataSource dataSource) {
+        return new PostgresCombatEncounterRepository(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleApplicationService(
+            com.dndmaster.adventure.application.combat.CombatEncounterRepository repository) {
+        return new com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService(repository);
     }
 
     @Bean
