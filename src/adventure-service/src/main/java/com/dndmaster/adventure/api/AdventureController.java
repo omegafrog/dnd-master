@@ -259,6 +259,9 @@ public class AdventureController {
     @Operation(deprecated = true, summary = "Legacy combat dice path", description = "Use POST combat/actions with Idempotency-Key and If-Match-Version.")
     ResponseEntity<DiceRollResponse> diceRoll(
             @PathVariable UUID adventureId, @RequestBody DiceRollRequest request) {
+        if (request.endCombat()) {
+            throw new ApiRequestGuard.ApiContractException(410, "LEGACY_COMBAT_END_UNSUPPORTED");
+        }
         UUID authenticatedOwner = playerResolver.playerId();
         if (!CombatActorRole.PLAYER.name().equals(request.role())) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_COMBAT_ROLE");

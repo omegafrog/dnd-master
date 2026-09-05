@@ -17,7 +17,7 @@ import { AdventureSessionApi } from '../features/adventure-session/AdventureSess
 import { AdventureSessionPanel } from '../features/adventure-session/AdventureSessionPanel'
 import { AiEndpointSettings } from '../features/profile/AiEndpointSettings'
 import { CombatScreen } from '../features/combat/CombatScreen'
-import { HttpCombatApi, type CombatSnapshot } from '../features/combat/CombatApi'
+import { HttpCombatApi, type CombatFinalSummary, type CombatSnapshot } from '../features/combat/CombatApi'
 import { parseRoute, type Route } from './route'
 
 export function AppShell() {
@@ -83,6 +83,7 @@ export function AppShell() {
   const adventureApi = useMemo(() => new HttpAdventureApi(getToken), [getToken])
   const combatApi = useMemo(() => new HttpCombatApi(getToken), [getToken])
   const [combatSnapshot, setCombatSnapshot] = useState<CombatSnapshot | null>(null)
+  const [combatFinalSummary, setCombatFinalSummary] = useState<CombatFinalSummary | null>(null)
   const [adventureVersion, setAdventureVersion] = useState<number | null>(null)
   useEffect(() => {
     if (!auth.session || route.page !== 'adventure') return
@@ -93,9 +94,25 @@ export function AppShell() {
     return () => { active = false }
   }, [auth.session, adventureApi, route])
   useEffect(() => {
-    if (!auth.session || route.page !== 'adventure') { setCombatSnapshot(null); return }
+    if (!auth.session || route.page !== 'adventure') {
+      setCombatSnapshot(null)
+      setCombatFinalSummary(null)
+      return
+    }
     let active = true
-    void combatApi.readSnapshot(route.adventureId).then(snapshot => { if (active) setCombatSnapshot(snapshot) }).catch(() => { if (active) setCombatSnapshot(null) })
+    setCombatFinalSummary(null)
+    const finalSummary = combatApi.readFinalSummary
+      ? combatApi.readFinalSummary(route.adventureId)
+      : Promise.resolve(null)
+    void Promise.all([combatApi.readSnapshot(route.adventureId), finalSummary])
+      .then(([snapshot, summary]) => {
+        if (!active) return
+        setCombatSnapshot(snapshot)
+        setCombatFinalSummary(snapshot ? null : summary)
+      })
+      .catch(() => {
+        if (active) { setCombatSnapshot(null); setCombatFinalSummary(null) }
+      })
     return () => { active = false }
   }, [auth.session, combatApi, route])
   useEffect(() => {
@@ -103,7 +120,20 @@ export function AppShell() {
     const adventureId = route.adventureId
     let active = true
     const cursor = combatSnapshot?.eventCursor ?? -1
-    const close = combatApi.subscribeEvents(adventureId, cursor, () => {
+    const close = combatApi.subscribeEvents(adventureId, cursor, event => {
+      if (event.type === 'COMBAT_ENDED') {
+        const summaryRequest = combatApi.readFinalSummary
+          ? combatApi.readFinalSummary(adventureId)
+          : Promise.resolve(null)
+        void summaryRequest.then(summary => {
+          if (!active) return
+          setCombatSnapshot(null)
+          setCombatFinalSummary(summary)
+        }).catch(() => {
+          if (active) { setCombatSnapshot(null); setCombatFinalSummary(null) }
+        })
+        return
+      }
       void combatApi.readSnapshot(adventureId).then(snapshot => { if (active) setCombatSnapshot(snapshot) }).catch(() => undefined)
     }, () => undefined)
     return () => { active = false; close() }
@@ -136,7 +166,15 @@ export function AppShell() {
       {route.page === 'setup' && <RulebookSetup api={setupApi} playerId={playerId} sessionApi={sessionApi} asMain={false} />}
       {route.page === 'bundle' && <BundleDetailPage bundleId={route.bundleId} api={setupApi} playerId={playerId} sessionApi={sessionApi} />}
       {route.page === 'adventures' && <SavedAdventurePanel playApi={playApi} setupApi={setupApi} playerId={playerId} onResumed={adventureId => { window.location.hash = `#/adventures/${adventureId}` }} />}
-      {route.page === 'adventure' && (combatSnapshot ? <CombatScreen snapshot={combatSnapshot} api={combatApi} /> : <><div className="page-heading"><div><p className="eyebrow">ACTIVE ADVENTURE</p><h1>모험 진행 중</h1></div><span className="page-id">{shortId(route.adventureId)}</span></div><div className="adventure-workspace"><section className="adventure-map-main" aria-label="현재 전장"><CombatMapView adventureId={route.adventureId} api={playApi} refreshToken={mapRefreshToken} /></section><aside className="adventure-side-panel" aria-label="모험 대화"><AdventureStream adventureId={route.adventureId} api={adventureApi} expectedVersion={adventureVersion} onTurnCommitted={refreshCombatMap} /></aside></div></>)}
+      {route.page === 'adventure' && (combatSnapshot && combatSnapshot.status !== 'ENDED' ? <CombatScreen snapshot={combatSnapshot} api={combatApi} /> : <>
+        {combatFinalSummary && <section className="combat-final-summary" aria-labelledby="combat-final-summary-title">
+          <p className="eyebrow">COMBAT COMPLETE</p>
+          <h2 id="combat-final-summary-title">전투 종료 요약</h2>
+          <p>{combatFinalSummary.summary}</p>
+          <p>상세 전투 기록은 종료 후 제공되지 않습니다.</p>
+        </section>}
+        <div className="page-heading"><div><p className="eyebrow">ACTIVE ADVENTURE</p><h1>모험 진행 중</h1></div><span className="page-id">{shortId(route.adventureId)}</span></div><div className="adventure-workspace"><section className="adventure-map-main" aria-label="현재 전장"><CombatMapView adventureId={route.adventureId} api={playApi} refreshToken={mapRefreshToken} /></section><aside className="adventure-side-panel" aria-label="모험 대화"><AdventureStream adventureId={route.adventureId} api={adventureApi} expectedVersion={adventureVersion} onTurnCommitted={refreshCombatMap} /></aside></div>
+      </>)}
       {route.page === 'character' && <CharacterSheetView sheetId={route.sheetId} api={playApi} />}
       {(route.page === 'session' || route.page === 'party') && <AdventureSessionPanel api={sessionApi} ownerPlayerId={playerId} sessionId={route.sessionId} />}
       {route.page === 'character-blueprint' && <CharacterCreationPage sessionId={route.sessionId} ownerPlayerId={playerId} setupApi={setupApi} sessionApi={sessionApi} />}

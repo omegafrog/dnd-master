@@ -14,6 +14,7 @@ import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.combat.PlayerCombatProjectionPolicy;
 import com.dndmaster.adventure.domain.combat.NarrativeCombatPosition;
 import com.dndmaster.adventure.domain.combat.FreeFormInterpretationPolicy;
+import com.dndmaster.adventure.domain.combat.PostCombatProjectionPolicy;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -138,6 +139,19 @@ public final class CombatController {
                                         item.operationId(), item.failure(), item.attemptCount())).orElse(null))))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
+
+    @GetMapping("/api/v1/adventures/{adventureId}/combat/final-summary")
+    public ResponseEntity<?> finalSummary(@PathVariable UUID adventureId) {
+        assertOwner(adventureId);
+        return repository.findLatestEndedByAdventure(adventureId)
+                .flatMap(encounter -> eventRepository.finalSummary(encounter.encounterId()))
+                .map(event -> {
+                    var summary = PostCombatProjectionPolicy.fromEndedEvent(event);
+                    return ResponseEntity.ok(new FinalSummaryResponse(summary.adventureId(), summary.encounterId(),
+                            summary.reason(), summary.summary(), summary.detailedReplayAvailable()));
+                })
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
     @GetMapping(value = "/api/v1/adventures/{adventureId}/combat/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter events(@PathVariable UUID adventureId,
                              @RequestParam(defaultValue = "-1") long afterSequence,
@@ -204,6 +218,8 @@ public final class CombatController {
     public record TurnEndRequest(UUID characterSheetId) {}
     public record RetryRequest(UUID operationId) {}
     public record FreeFormActionRequest(UUID characterSheetId, String declaration) {}
+    public record FinalSummaryResponse(UUID adventureId, UUID encounterId, String reason, String summary,
+                                       boolean detailedReplayAvailable) {}
     public record ReactionRequest(String choice, UUID actorId) {
         public ReactionRequest(String choice) { this(choice, null); }
     }

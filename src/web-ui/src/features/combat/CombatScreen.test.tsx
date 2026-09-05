@@ -5,6 +5,21 @@ import { describe, expect, it, vi } from 'vitest'
 import { CombatScreen } from './CombatScreen'
 
 describe('CombatScreen', () => {
+  it('shows only the final summary after combat and never exposes detailed replay', () => {
+    render(<CombatScreen snapshot={{ encounterId: 'e1', adventureId: 'a1', status: 'ENDED', round: 2,
+      currentParticipantId: 'p1', version: 9, eventCursor: 8,
+      resources: { movement: 0, actionAvailable: false, bonusActionAvailable: false, reactionAvailable: false },
+      finalSummary: { adventureId: 'a1', encounterId: 'e1', reason: 'ENEMIES_DEFEATED',
+        summary: '적을 물리쳤습니다.', detailedReplayAvailable: false },
+      initiative: [{ participantId: 'p1', displayName: '영웅', controller: 'PLAYER', initiative: 15, publicCondition: 'healthy' }] }} />)
+
+    expect(screen.getByRole('heading', { name: '전투 종료 요약' })).toBeInTheDocument()
+    expect(screen.getByText('적을 물리쳤습니다.')).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Combat Log' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'GM Narration' })).not.toBeInTheDocument()
+    expect(screen.getByText(/상세 전투 기록은 종료 후 제공되지 않습니다/)).toBeInTheDocument()
+  })
+
   it('shows round, current participant, initiative and resources without hidden enemy fields', () => {
     render(<CombatScreen snapshot={{ encounterId: 'e1', adventureId: 'a1', status: 'ACTIVE', round: 1, currentParticipantId: 'p1', version: 3, eventCursor: 2, resources: { movement: 30, actionAvailable: true, bonusActionAvailable: false, reactionAvailable: true }, initiative: [
       { participantId: 'p1', displayName: '영웅', controller: 'PLAYER', initiative: 15, publicCondition: 'healthy' },

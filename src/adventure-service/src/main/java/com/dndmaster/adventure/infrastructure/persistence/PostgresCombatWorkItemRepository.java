@@ -88,6 +88,12 @@ public final class PostgresCombatWorkItemRepository implements CombatWorkItemRep
                 (rs, row) -> read(rs), encounterId).stream().findFirst();
     }
 
+    @Override public boolean hasPendingForEncounter(UUID encounterId) {
+        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM combat_work_item WHERE encounter_id = ? AND status <> 'COMPLETED'",
+                Integer.class, encounterId);
+        return count != null && count > 0;
+    }
+
     private CombatWorkItem read(ResultSet rs) throws SQLException {
         try {
             List<String> constraints = objectMapper.readValue(rs.getString("tactical_constraints"), new TypeReference<>() {});

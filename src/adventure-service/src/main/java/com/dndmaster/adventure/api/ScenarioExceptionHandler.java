@@ -3,6 +3,7 @@ package com.dndmaster.adventure.api;
 import com.dndmaster.adventure.application.combat.RuntimeCombatRejectionException;
 import com.dndmaster.adventure.application.combat.CombatCommandRejectedException;
 import com.dndmaster.adventure.application.combat.CombatExternalFailureException;
+import com.dndmaster.adventure.domain.combat.CombatEndRejectedException;
 import com.dndmaster.adventure.domain.scenario.ScenarioAccessDeniedException;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleAccessDeniedException;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleNotFoundException;
@@ -39,6 +40,11 @@ public final class ScenarioExceptionHandler {
     public ResponseEntity<Map<String, String>> combatExternalFailure(CombatExternalFailureException exception) {
         return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of(
                 "error", "COMBAT_EXTERNAL_FAILURE", "message", exception.getMessage()));
+    }
+
+    @ExceptionHandler(CombatEndRejectedException.class)
+    public ResponseEntity<Map<String, String>> combatEndRejected(CombatEndRejectedException exception) {
+        return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of("error", exception.getMessage()));
     }
 
     @ExceptionHandler(com.dndmaster.adventure.application.combat.CombatIdempotencyConflictException.class)

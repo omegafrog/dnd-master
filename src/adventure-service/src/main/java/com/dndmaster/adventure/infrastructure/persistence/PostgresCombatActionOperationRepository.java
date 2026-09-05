@@ -53,6 +53,13 @@ public final class PostgresCombatActionOperationRepository implements CombatActi
         }
     }
 
+    @Override
+    public boolean hasPendingForEncounter(UUID encounterId) {
+        Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM combat_action_operation WHERE encounter_id = ? AND status <> 'COMMITTED'",
+                Integer.class, encounterId);
+        return count != null && count > 0;
+    }
+
     private static List<String> split(String value) {
         return value == null || value.isEmpty() ? List.of() : List.of(value.split("\\u001f", -1));
     }

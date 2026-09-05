@@ -7,6 +7,7 @@ export function CombatScreen({ snapshot, api }: { snapshot: CombatSnapshot; api?
   const [freeFormInput, setFreeFormInput] = useState('')
   const [combatLog, setCombatLog] = useState<string[]>([])
   const [gmNarration, setGmNarration] = useState<string[]>([])
+  const ended = snapshot.status === 'ENDED'
   const current = snapshot.initiative.find(item => item.participantId === snapshot.currentParticipantId)
   const humanTurn = current?.controller === 'PLAYER'
   const runAction = async () => {
@@ -87,7 +88,7 @@ export function CombatScreen({ snapshot, api }: { snapshot: CombatSnapshot; api?
   return <section className="combat-screen" aria-labelledby="combat-title">
     <header className="combat-header">
       <p className="eyebrow">COMBAT MODE</p>
-      <h1 id="combat-title">전투 · Round {snapshot.round}</h1>
+      <h1 id="combat-title">{ended ? '전투 종료' : `전투 · Round ${snapshot.round}`}</h1>
       <p role="status">현재 턴: {snapshot.initiative.find(item => item.participantId === snapshot.currentParticipantId)?.displayName ?? '알 수 없음'}</p>
     </header>
     <section aria-labelledby="initiative-title">
@@ -118,7 +119,7 @@ export function CombatScreen({ snapshot, api }: { snapshot: CombatSnapshot; api?
         상대적 위치: {position.rangeBand} · 엄폐: {position.cover}
       </p>)}
     </section>}
-    {humanTurn && <section aria-labelledby="actions-title">
+    {!ended && humanTurn && <section aria-labelledby="actions-title">
       <h2 id="actions-title">행동</h2>
       <button type="button" onClick={() => void runAction()} disabled={!snapshot.resources.actionAvailable}>공격 실행</button>
       <label>이동 경로 (x,y; x,y)
@@ -135,13 +136,20 @@ export function CombatScreen({ snapshot, api }: { snapshot: CombatSnapshot; api?
       <button type="button" onClick={() => void endTurn()}>턴 종료</button>
       {feedback && <p role="status">{feedback}</p>}
     </section>}
-    <section aria-labelledby="combat-log-title">
-      <h2 id="combat-log-title">Combat Log</h2>
-      <ol aria-label="Combat Log">{combatLog.map((entry, index) => <li key={`${index}-${entry}`}>{entry}</li>)}</ol>
-    </section>
-    <section aria-labelledby="gm-narration-title">
-      <h2 id="gm-narration-title">GM Narration</h2>
-      <ol aria-label="GM Narration">{gmNarration.map((entry, index) => <li key={`${index}-${entry}`}>{entry}</li>)}</ol>
-    </section>
+    {ended && snapshot.finalSummary && <section aria-labelledby="combat-summary-title">
+      <h2 id="combat-summary-title">전투 종료 요약</h2>
+      <p>{snapshot.finalSummary.summary}</p>
+      <p>상세 전투 기록은 종료 후 제공되지 않습니다.</p>
+    </section>}
+    {!ended && <>
+      <section aria-labelledby="combat-log-title">
+        <h2 id="combat-log-title">Combat Log</h2>
+        <ol aria-label="Combat Log">{combatLog.map((entry, index) => <li key={`${index}-${entry}`}>{entry}</li>)}</ol>
+      </section>
+      <section aria-labelledby="gm-narration-title">
+        <h2 id="gm-narration-title">GM Narration</h2>
+        <ol aria-label="GM Narration">{gmNarration.map((entry, index) => <li key={`${index}-${entry}`}>{entry}</li>)}</ol>
+      </section>
+    </>}
   </section>
 }

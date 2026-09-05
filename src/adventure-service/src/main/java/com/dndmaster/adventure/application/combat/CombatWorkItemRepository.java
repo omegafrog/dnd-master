@@ -12,6 +12,8 @@ public interface CombatWorkItemRepository {
     Optional<CombatWorkItem> findByOperationId(UUID operationId);
     default Optional<CombatWorkItem> findFailedByEncounterId(UUID encounterId) { return Optional.empty(); }
 
+    default boolean hasPendingForEncounter(UUID encounterId) { return false; }
+
     default Optional<CombatWorkItem> claim(String workerId, Duration lease) {
         return claim(workerId, lease, Instant.now());
     }

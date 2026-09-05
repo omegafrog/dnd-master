@@ -9,4 +9,7 @@ public interface CombatMapPort {
         validateAndMove(command.action());
         return new CombatMapMoveResult(command.action().expectedVersion() + 1);
     }
+
+    /** Terminal map-owner boundary; map state remains owned by Combat Map. */
+    default void commitFinalState(CombatFinalizationCommand command) {}
 }

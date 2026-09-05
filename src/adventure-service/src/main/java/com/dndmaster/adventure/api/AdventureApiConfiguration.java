@@ -90,8 +90,14 @@ public class AdventureApiConfiguration {
     @Bean
     com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleApplicationService(
             com.dndmaster.adventure.application.combat.CombatEncounterRepository repository,
-            com.dndmaster.adventure.application.combat.CombatEventRepository eventRepository) {
-        return new com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService(repository, eventRepository);
+            com.dndmaster.adventure.application.combat.CombatEventRepository eventRepository,
+            AdventureRepository adventureRepository,
+            @Qualifier("characterCombatPort") CharacterCombatPort characterPort,
+            @Qualifier("combatMapPort") CombatMapPort mapPort,
+            com.dndmaster.adventure.application.combat.CombatActionOperationRepository operationRepository,
+            com.dndmaster.adventure.application.combat.CombatWorkItemRepository workItemRepository) {
+        return new com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService(repository, eventRepository,
+                adventureRepository, characterPort, mapPort, operationRepository, workItemRepository);
     }
 
     @Bean

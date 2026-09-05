@@ -39,6 +39,16 @@ public final class CrossContextHttpCombatGateway
         this.internalToken = internalToken == null ? "" : internalToken;
     }
 
+    /**
+     * Character and map mutations are already committed by their idempotent
+     * action steps. The terminal hook is an owning-service acknowledgement
+     * boundary and deliberately does not copy foreign state locally.
+     */
+    @Override
+    public void commitFinalState(CombatFinalizationCommand command) {
+        Objects.requireNonNull(command, "combat finalization command must not be null");
+    }
+
     @Override
     public void requireUsableCharacter(CombatActionCommand command) {
         CharacterSheetView character = readCharacterSheet(command);

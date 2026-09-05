@@ -4,6 +4,13 @@ public interface CharacterCombatPort {
     void requireUsableCharacter(CombatActionCommand command);
 
     /**
+     * Gives the owning Character service a terminal, idempotent commit boundary.
+     * Existing action mutations remain the authoritative state; this hook must
+     * never copy character data into Adventure Runtime.
+     */
+    default void commitFinalState(CombatFinalizationCommand command) {}
+
+    /**
      * Applies only the structured mechanical effects returned by adjudication.
      *
      * The default keeps existing character adapters source compatible. Adapters

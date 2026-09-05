@@ -24,6 +24,12 @@ public final class PostgresCombatEncounterRepository implements CombatEncounterR
         return load("encounter_id = ?", encounterId);
     }
 
+    @Override public Optional<CombatEncounter> findLatestEndedByAdventure(UUID adventureId) {
+        var ids = jdbc.query("SELECT encounter_id FROM combat_encounter WHERE adventure_id = ? AND status = 'ENDED' ORDER BY version DESC LIMIT 1",
+                (rs, row) -> rs.getObject(1, UUID.class), adventureId);
+        return ids.isEmpty() ? Optional.empty() : load("encounter_id = ?", ids.getFirst());
+    }
+
     private Optional<CombatEncounter> load(String predicate, UUID id) {
         var encounters = jdbc.query("SELECT encounter_id, adventure_id, status, round, current_participant_id, version, event_cursor FROM combat_encounter WHERE " + predicate, (rs, n) ->
                 new EncounterRow(UUID.fromString(rs.getString(1)), UUID.fromString(rs.getString(2)),

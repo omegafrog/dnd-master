@@ -107,6 +107,14 @@ public record CombatEncounter(UUID encounterId, UUID adventureId, Status status,
                 resolved, version + 1, eventCursor + 1, narrativePositions, null);
     }
 
+    public CombatEncounter end(CombatEndProposal proposal) {
+        CombatEndProposalPolicy.requireValid(proposal, adventureId, encounterId);
+        if (status == Status.ENDED) throw new IllegalStateException("COMBAT_ALREADY_ENDED");
+        if (pendingReaction != null) throw new IllegalStateException("PENDING_REACTION");
+        return new CombatEncounter(encounterId, adventureId, Status.ENDED, round, currentParticipantId,
+                participants, version + 1, eventCursor + 1, narrativePositions, null);
+    }
+
     private void requireVersion(long expectedVersion) {
         if (version != expectedVersion) throw new IllegalStateException("COMBAT_VERSION_CONFLICT");
     }

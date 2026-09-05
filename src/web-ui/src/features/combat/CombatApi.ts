@@ -19,6 +19,15 @@ export type CombatSnapshot = {
   narrativePositions?: Array<{ subjectId: string; targetId: string; rangeBand: string; cover: string }>
   pendingReaction?: { reactionId: string; trigger: string; operationId: string; resumeStep: string; options: Array<{ id: string; label: string }> }
   processingFailure?: { operationId: string; failure: string; attempts: number } | null
+  finalSummary?: CombatFinalSummary | null
+}
+
+export type CombatFinalSummary = {
+  adventureId: string
+  encounterId: string
+  reason: string
+  summary: string
+  detailedReplayAvailable: false
 }
 
 export type CombatActionRequest = {
@@ -51,6 +60,7 @@ export type CombatEvent = { sequence: number; type: string; payload: string }
 export interface CombatApi {
   subscribeEvents?(adventureId: string, afterSequence: number, onEvent: (event: CombatEvent) => void, onError?: () => void): () => void
   readSnapshot(adventureId: string): Promise<CombatSnapshot | null>
+  readFinalSummary?(adventureId: string): Promise<CombatFinalSummary | null>
   submitAction(adventureId: string, request: CombatActionRequest, version: number): Promise<CombatCommandResult>
   submitMovement?(adventureId: string, request: CombatActionRequest, version: number): Promise<CombatCommandResult>
   submitFreeForm?(adventureId: string, characterSheetId: string, declaration: string, version: number): Promise<CombatCommandResult>
@@ -94,6 +104,15 @@ export class HttpCombatApi implements CombatApi {
     if (response.status === 404) return null
     if (!response.ok) throw new Error(`combat snapshot failed: ${response.status}`)
     return response.json() as Promise<CombatSnapshot | null>
+  }
+
+  async readFinalSummary(adventureId: string): Promise<CombatFinalSummary | null> {
+    const response = await fetch(`/api/v1/adventures/${adventureId}/combat/final-summary`, {
+      headers: { Authorization: `Bearer ${this.getToken()}` },
+    })
+    if (response.status === 404) return null
+    if (!response.ok) throw new Error(`combat final summary failed: ${response.status}`)
+    return response.json() as Promise<CombatFinalSummary | null>
   }
 
   async submitAction(adventureId: string, request: CombatActionRequest, version: number): Promise<CombatCommandResult> {
