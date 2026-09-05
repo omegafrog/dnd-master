@@ -25,6 +25,13 @@ paths:
                 assetLocator: { type: string }
                 playerSpawnX: { type: integer, minimum: 0 }
                 playerSpawnY: { type: integer, minimum: 0 }
+                playerTokenId: { type: string, format: uuid, description: stable player token identity supplied by Adventure Runtime }
+                situationId: { type: string, format: uuid }
+                situationRevision: { type: integer, minimum: 1 }
+                turnIndex: { type: integer, minimum: 0 }
+                currentScene: { type: string }
+                location: { type: string }
+                entrySide: { type: string, enum: [NORTH, EAST, SOUTH, WEST] }
                 stagePosition: { type: integer, minimum: 1 }
       responses:
         '200': { description: prepared tactical map }

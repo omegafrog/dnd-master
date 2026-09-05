@@ -14,7 +14,8 @@ public final class CombatMapViewService {
     }
     public CombatMap prepareUploaded(MapOwnerId owner, AdventureId adventure, RuleSetId rules, UploadedMapSource source) { return saveNew(owner, adventure, rules, filePort.prepare(source)); }
     public CombatMap prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules, String description) {
-        return prepareGenerated(owner, adventure, rules, description, 0, 0);
+        if (description == null || description.isBlank()) throw new IllegalArgumentException("description required");
+        return saveNew(owner, adventure, rules, aiPort.generate(description.trim()));
     }
     public CombatMap prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules, String description, int spawnX, int spawnY) {
         if (description == null || description.isBlank()) throw new IllegalArgumentException("description required");
@@ -35,10 +36,10 @@ public final class CombatMapViewService {
         return saveNew(owner, adventure, rules, new PreparedMapData(prepared.grid(), tactical.tokens(), tactical.obstacles(),
                 java.util.stream.Stream.concat(prepared.layers().stream(), tactical.layers().stream()).toList()));
     }
-    private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data) { return saveNew(owner, adventure, rules, data, 0, 0); }
-    private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data, int spawnX, int spawnY) {
+    private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data) { return saveNew(owner, adventure, rules, data, null, null); }
+    private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data, Integer spawnX, Integer spawnY) {
         List<CombatToken> tokens = new ArrayList<>(data.tokens());
-        if (tokens.stream().noneMatch(token -> token.type() == TokenType.PLAYER)) {
+        if (tokens.stream().noneMatch(token -> token.type() == TokenType.PLAYER) && spawnX != null && spawnY != null) {
             tokens.add(new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,
                     new GridPosition(spawnX, spawnY), TokenController.PLAYER, new PlayerId(owner.value())));
         }
@@ -75,9 +76,24 @@ public final class CombatMapViewService {
     public CombatMap displayForGm(MapId id, MapOwnerId owner) { return owned(id, owner).map(); }
     public Optional<PlayerCombatMapView> displayForAdventure(AdventureId adventureId, MapOwnerId owner) { return store.findByAdventureId(adventureId, owner).map(state -> projection(state.map(), state.version())); }
     public void activateForAdventure(MapId id, MapOwnerId owner, int stagePosition) {
-        if (stagePosition <= 0) throw new IllegalArgumentException("stage position must be positive");
+        activateForAdventure(id, owner, MapActivationContext.atStage(stagePosition));
+    }
+    public CombatMap activateForAdventure(MapId id, MapOwnerId owner, MapActivationContext context) {
         VersionedOwnedCombatMap state = owned(id, owner);
-        store.activate(state.map().adventureId(), owner, id, stagePosition);
+        List<CombatToken> nonPlayers = state.map().tokens().stream().filter(t -> t.type() != TokenType.PLAYER).toList();
+        Set<GridPosition> occupied = nonPlayers.stream().map(CombatToken::position).collect(Collectors.toSet());
+        Optional<GridPosition> tactical = state.map().tokens().stream().filter(t -> t.type() == TokenType.PLAYER).map(CombatToken::position).findFirst();
+        SpawnResolution resolution = new SpawnResolutionPolicy().resolve(state.map().grid(), state.map().obstacles(), state.map().doors(), occupied, context, tactical);
+        List<CombatToken> tokens = new ArrayList<>(nonPlayers);
+        tokens.add(new CombatToken(state.map().tokens().stream().filter(t -> t.type() == TokenType.PLAYER).findFirst().map(CombatToken::id)
+                .orElse(context.playerTokenId().map(TokenId::new).orElse(new TokenId(UUID.randomUUID()))),
+                TokenType.PLAYER, resolution.position(), TokenController.PLAYER, new PlayerId(owner.value())));
+        CombatMap activated = new CombatMap(state.map().id(), state.map().adventureId(), state.map().ruleSetId(), state.map().grid(), state.map().ownerPlayerId(), tokens, state.map().obstacles(), state.map().layers(), state.version() + 1, UUID.randomUUID(), "ACTIVATE|" + context + "|" + resolution);
+        activated.replaceDoors(state.map().doors());
+        activated.replaceRuntimeState(state.map().runtimeState());
+        activated.refreshVisibility(0);
+        store.activate(owner, activated, state.version(), context.stagePosition(), activated.operationKey(), activated.operationFingerprint());
+        return activated;
     }
     public CombatMap revealToken(MapId id, MapOwnerId owner, long expectedVersion, UUID commandId, TokenId tokenId) {
         VersionedOwnedCombatMap state=owned(id, owner);
@@ -116,7 +132,9 @@ public final class CombatMapViewService {
     }
     private PlayerCombatMapView projection(CombatMap map, long version) {
         VisibilitySnapshot visibility = map.visibilitySnapshot();
-        if (visibility == null) visibility = new VisibilityPolicy().calculate(map.grid(), playerOrigins(map), Set.of(), map.obstacles(), map.doors(), map.tokens(), Set.of(), 0);
+        if (visibility == null || (visibility.current().isEmpty() && !playerOrigins(map).isEmpty())) {
+            return failClosedProjection(map, version);
+        }
         Set<GridPosition> explored = PlayerSafeFogProjection.filter(visibility.explored(), map.layers());
         Set<GridPosition> current = PlayerSafeFogProjection.filter(visibility.current(), map.layers());
         Set<TokenId> visible = visibility.observedTokens(); Set<TokenId> lastSeenIds=new HashSet<>();
@@ -129,6 +147,13 @@ public final class CombatMapViewService {
                 lastSeenIds.add(last.tokenId());
             }
         return new PlayerCombatMapView(map.id(), map.grid(), exposed, map.obstacles().stream().filter(explored::contains).collect(Collectors.toSet()), map.doors().stream().filter(door->explored.contains(door.position())).toList(), map.layers().stream().filter(l -> l.visibility() == LayerVisibility.PLAYER_VISIBLE).toList(), current, explored, lastSeenIds, version);
+    }
+    private PlayerCombatMapView failClosedProjection(CombatMap map, long version) {
+        Set<GridPosition> origins = playerOrigins(map);
+        List<CombatToken> players = map.tokens().stream().filter(t -> t.type() == TokenType.PLAYER && origins.contains(t.position())).toList();
+        return new PlayerCombatMapView(map.id(), map.grid(), players, Set.of(), List.of(),
+                map.layers().stream().filter(l -> l.visibility() == LayerVisibility.PLAYER_VISIBLE).toList(),
+                origins, origins, Set.of(), version);
     }
     private CombatMap replay(MapId id,MapOwnerId owner,UUID commandId,String fingerprint){VersionedOwnedCombatMap replay=store.findByCommandId(commandId).orElse(null);if(replay==null)return null;if(!replay.map().id().equals(id)||!replay.owner().equals(owner)||!fingerprint.equals(replay.map().operationFingerprint()))throw new IllegalStateException("command id reused with different payload or owner");return replay.map();}
     private static Set<GridPosition> playerOrigins(CombatMap map) { return map.tokens().stream().filter(t -> t.type() == TokenType.PLAYER).map(CombatToken::position).collect(Collectors.toSet()); }

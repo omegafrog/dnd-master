@@ -15,6 +15,11 @@ public interface CombatMapViewStore {
         throw new UnsupportedOperationException("map activation is not supported by this store");
     }
 
+    default long activate(MapOwnerId owner, CombatMap map, long expectedVersion, int stagePosition,
+            UUID operationKey, String operationFingerprint) {
+        throw new UnsupportedOperationException("atomic map activation is not supported by this store");
+    }
+
     long update(MapOwnerId owner, CombatMap map, long expectedVersion);
 
     long update(MapOwnerId owner, CombatMap map, long expectedVersion, long persistedVersion, UUID operationKey, String operationFingerprint);

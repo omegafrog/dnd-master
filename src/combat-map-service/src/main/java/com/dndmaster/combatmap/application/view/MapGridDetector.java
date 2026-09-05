@@ -6,29 +6,20 @@ import java.util.List;
 
 /** Detects the regular printed grid without relying on map-specific labels. */
 public final class MapGridDetector implements MapGridDetectionPort {
+    private final PrintedGridAcceptancePolicy acceptance = new PrintedGridAcceptancePolicy();
     @Override
-    public DetectedMapGrid detect(BufferedImage image) {
+    public java.util.Optional<DetectedMapGrid> detect(BufferedImage image) {
         if (image == null) throw new IllegalArgumentException("map image required");
         List<Integer> vertical = peaks(image, true);
         List<Integer> horizontal = peaks(image, false);
-        int dx = period(vertical, image.getWidth());
-        int dy = period(horizontal, image.getHeight());
+        if (!acceptance.accepts(vertical, horizontal, image.getWidth(), image.getHeight())) return java.util.Optional.empty();
+        int dx = medianGap(vertical), dy = medianGap(horizontal);
         int cell = Math.max(1, Math.round((dx + dy) / 2f));
-        int ox = origin(vertical, dx, image.getWidth(), cell);
-        int oy = origin(horizontal, dy, image.getHeight(), cell);
-        int width = Math.max(1, spanCount(vertical, ox, cell, image.getWidth()));
-        int height = Math.max(1, spanCount(horizontal, oy, cell, image.getHeight()));
-        // Printed battle maps commonly contain a second, finer texture grid inside rooms.
-        // If that texture wins the peak vote, prefer the outer battle-map grid scale.
-        if (width > 32 || height > 32) {
-            int outerCellX = Math.max(1, Math.round((lastPeak(vertical, ox) - ox) / 20f));
-            int outerCellY = Math.max(1, Math.round((lastPeak(horizontal, oy) - oy) / 20f));
-            cell = Math.max(1, Math.round((outerCellX + outerCellY) / 2f));
-            width = 20;
-            height = 20;
-        }
+        int ox = vertical.get(0), oy = horizontal.get(0);
+        int width = Math.max(1, Math.round((vertical.get(vertical.size() - 1) - ox) / (float) cell));
+        int height = Math.max(1, Math.round((horizontal.get(horizontal.size() - 1) - oy) / (float) cell));
         double confidence = Math.min(1d, (vertical.size() + horizontal.size()) / 80d);
-        return new DetectedMapGrid(width, height, cell, ox, oy, confidence);
+        return java.util.Optional.of(new DetectedMapGrid(width, height, cell, ox, oy, confidence));
     }
 
     private static List<Integer> peaks(BufferedImage image, boolean vertical) {
@@ -55,33 +46,13 @@ public final class MapGridDetector implements MapGridDetectionPort {
         return result;
     }
 
-    private static int period(List<Integer> peaks, int dimension) {
-        if (peaks.size() < 2) return Math.max(1, dimension / 20);
+    private static int medianGap(List<Integer> peaks) {
         List<Integer> gaps = new ArrayList<>();
         for (int i = 1; i < peaks.size(); i++) {
             int gap = peaks.get(i) - peaks.get(i - 1);
-            if (gap >= 8 && gap <= dimension / 2) gaps.add(gap);
+            if (gap >= 2) gaps.add(gap);
         }
-        if (gaps.isEmpty()) return Math.max(1, dimension / 20);
         gaps.sort(Integer::compareTo);
         return gaps.get(gaps.size() / 2);
-    }
-
-    private static int origin(List<Integer> peaks, int period, int dimension, int fallback) {
-        if (peaks.isEmpty()) return 0;
-        return peaks.stream().filter(p -> p + period * 3 < dimension).findFirst().orElse(Math.max(0, dimension / 10));
-    }
-
-    private static int spanCount(List<Integer> peaks, int origin, int period, int dimension) {
-        // A rendered source may have no sufficiently dark grid lines.  Returning
-        // one cell makes every normalized tactical placement collide after
-        // materialization.  Preserve the estimated period and cover the image.
-        if (peaks.isEmpty()) return Math.max(1, Math.round(dimension / (float) period));
-        int last = lastPeak(peaks, origin);
-        return Math.max(1, Math.round((last - origin) / (float) period));
-    }
-
-    private static int lastPeak(List<Integer> peaks, int origin) {
-        return peaks.stream().filter(p -> p >= origin).reduce((a, b) -> b).orElse(origin + 1);
     }
 }

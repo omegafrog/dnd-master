@@ -13,6 +13,15 @@ class VisibilityPolicyTest {
     private final VisibilityPolicy policy = new VisibilityPolicy();
 
     @Test
+    void defaultProfileKeepsUnblockedVisibilityFinite() {
+        VisibilitySnapshot snapshot = policy.calculate(new GridSpec(20, 20, 50, 5),
+                Set.of(new GridPosition(0, 0)), Set.of(), Set.of(), List.of(), Set.of(), 0);
+
+        assertTrue(snapshot.current().contains(new GridPosition(6, 6)));
+        assertFalse(snapshot.current().contains(new GridPosition(7, 7)));
+    }
+
+    @Test
     void wallAndClosedDoorBlockLineOfSightAndOpeningRevealsCell() {
         GridPosition origin = new GridPosition(1, 1);
         GridPosition target = new GridPosition(5, 1);

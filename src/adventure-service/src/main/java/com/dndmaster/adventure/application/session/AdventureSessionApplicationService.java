@@ -148,8 +148,10 @@ public final class AdventureSessionApplicationService {
             adventureRepository.save(adventure);
         }
         initializeSessionKnowledgeSetIfMissing(session, scenarioPackage);
+        Adventure activeAdventure = adventure;
         scenarioPackage.initialMapDefinition(configuration.initialScene()).ifPresent(mapDefinition ->
-                combatMapPreparationPort.prepareInitial(adventureId, owner.value(), configuration.ruleSetId(), mapDefinition, 1));
+                combatMapPreparationPort.prepareInitial(adventureId, owner.value(), configuration.ruleSetId(), mapDefinition, 1,
+                        activationContext(activeAdventure, session)));
         runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(adventureId, owner, session.scenarioPackageId(), configuration.rulebookIds(), configuration.engineId(), configuration.toolIds()));
         if (session.status() == AdventureSession.Status.STARTING) {
             session.completeStart();
@@ -157,6 +159,32 @@ public final class AdventureSessionApplicationService {
             startCoordinator.commit(session.id(), requestId);
         }
         return session;
+    }
+
+    private static CombatMapPreparationPort.ActivationContext activationContext(Adventure adventure, AdventureSession session) {
+        var situation = adventure.currentSituation();
+        UUID playerTokenId = session.party().stream().findFirst()
+                .map(AdventurePartyMember::characterSheetId)
+                .map(sheet -> UUID.nameUUIDFromBytes(("player-" + sheet.value())
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .orElse(null);
+        return new CombatMapPreparationPort.ActivationContext(playerTokenId, situation.situationId(),
+                situation.revision(), adventure.turnIndex(), adventure.currentContext().currentScene(),
+                situation.location(), null, null, entrySide(adventure, situation));
+    }
+
+    private static String entrySide(Adventure adventure, com.dndmaster.adventure.domain.runtime.CurrentSituation situation) {
+        String context = (adventure.currentContext().currentScene() + " " + situation.location()).toLowerCase(java.util.Locale.ROOT);
+        if (contains(context, "north", "북", "upper")) return "NORTH";
+        if (contains(context, "east", "동", "right")) return "EAST";
+        if (contains(context, "south", "남", "lower")) return "SOUTH";
+        if (contains(context, "west", "서", "left")) return "WEST";
+        return null;
+    }
+
+    private static boolean contains(String value, String... signals) {
+        for (String signal : signals) if (value.contains(signal)) return true;
+        return false;
     }
     public AdventureSession complete(SessionId id, OwnerPlayerId owner, long expectedVersion) {
         AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion);

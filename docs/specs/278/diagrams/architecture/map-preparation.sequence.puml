@@ -1,0 +1,32 @@
+@startuml
+' Architecture Spec 4.3~4.4, 5.6~5.7; Product UC-1~UC-3, BR-1~BR-3, BR-12
+title Map Preparation Sequence
+
+actor "Upload caller" as Caller
+participant "CombatMapViewService" as Service
+participant "MapFilePreparationAdapter" as Adapter
+participant "BoundsDetector" as Bounds
+participant "GridDetector" as Detect
+participant "PrintedGridAcceptancePolicy" as Accept
+participant "FallbackGridPolicy" as Fallback
+participant "CombatMapViewStore" as Store
+
+Caller -> Service : prepareUploaded(source)
+Service -> Adapter : decode(source)
+Adapter -> Bounds : detect(raster)
+Bounds --> Adapter : bounds / confidence
+Adapter -> Adapter : conservatively normalize raster
+Adapter -> Detect : detect(normalized raster)
+Detect --> Adapter : optional Printed Grid candidate
+alt candidate accepted
+  Adapter -> Accept : accept(evidence)
+  Accept --> Adapter : PRINTED
+else no candidate or rejected
+  Adapter -> Fallback : create(dimensions)
+  Fallback --> Adapter : FALLBACK calibration
+end
+Adapter --> Service : PreparedMapData
+Service -> Store : insert prepared map
+Store --> Service : versioned map
+Service --> Caller : prepared result
+@enduml

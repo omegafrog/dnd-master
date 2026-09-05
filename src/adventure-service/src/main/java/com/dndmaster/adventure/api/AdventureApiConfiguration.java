@@ -678,10 +678,20 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    OfficialToolPort combatMapTacticalTriggerToolPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String token) {
+        return new com.dndmaster.adventure.infrastructure.integration.HttpCombatMapTacticalTriggerToolPort(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(15), objectMapper, token);
+    }
+
+    @Bean
     GmToolGateway gmToolGateway(@Qualifier("diceToolPort") OfficialToolPort diceToolPort,
                                 @Qualifier("characterToolPort") OfficialToolPort characterToolPort,
+                                @Qualifier("combatMapTacticalTriggerToolPort") OfficialToolPort combatMapTacticalTriggerToolPort,
                                 ObjectMapper objectMapper) {
-        var definitions = new java.util.HashSet<>(OfficialGmToolRegistry.definitions(diceToolPort, characterToolPort));
+        var definitions = new java.util.HashSet<>(OfficialGmToolRegistry.definitions(diceToolPort, characterToolPort, combatMapTacticalTriggerToolPort));
         return new GmToolGatewayService(definitions, java.time.Clock.systemUTC(), objectMapper);
     }
 

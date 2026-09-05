@@ -34,7 +34,7 @@ class CombatMapApiConfigurationTest {
         var image = new BufferedImage(32, 40, BufferedImage.TYPE_INT_RGB);
         var bytes = new ByteArrayOutputStream();
         ImageIO.write(image, "png", bytes);
-        MapGridDetectionPort detector = ignored -> new DetectedMapGrid(2, 3, 8, 4, 6, 1.0);
+        MapGridDetectionPort detector = ignored -> java.util.Optional.of(new DetectedMapGrid(2, 3, 8, 4, 6, 1.0));
 
         PreparedMapData prepared = new CombatMapApiConfiguration().mapFilePreparationPort(detector)
                 .prepare(new UploadedMapSource("map.png", bytes.toByteArray()));

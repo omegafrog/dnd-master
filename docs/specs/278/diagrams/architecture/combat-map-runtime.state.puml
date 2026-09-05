@@ -1,0 +1,16 @@
+@startuml
+' Architecture Spec 3.8.1, 6.1, 7.3~7.4; Product UC-4~UC-6, BR-6~BR-11
+title Combat Map Runtime State
+
+[*] --> PreparedInactive : map preparation committed
+state PreparedInactive
+state Active {
+  [*] --> Visible
+  Visible --> Visible : MoveToken / ChangeDoor\nrefresh visibility
+  Visible --> Visible : fail-closed projection\non visibility error
+}
+PreparedInactive --> Active : ActivateCombatMap\nspawn valid + atomic commit
+PreparedInactive --> PreparedInactive : activation rejected\nversion/owner/spawn guard
+Active --> PreparedInactive : activate another map\nnew activation succeeds
+Active --> [*] : map deactivated
+@enduml
