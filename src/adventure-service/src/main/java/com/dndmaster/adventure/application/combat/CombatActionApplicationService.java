@@ -122,14 +122,20 @@ public final class CombatActionApplicationService {
     private CombatActionResponse submitMovement(CombatActionCommand command, CombatEncounter encounter,
                                                  CombatActionOperation existing) {
         int distance = movementDistance(command);
+        if (command.role() != CombatActorRole.PLAYER) {
+            throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("PLAYER_MOVEMENT_REQUIRED"));
+        }
+        if (command.combatMapId() != null && command.movementPath() == null) {
+            throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("MOVEMENT_PATH_REQUIRED"));
+        }
+        if (command.combatMapId() != null && command.narrativePosition() != null) {
+            throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("MAPLESS_POSITION_NOT_ALLOWED"));
+        }
         CombatActionEvaluation evaluation = rulesEngine.validateAction(encounter,
                 new CombatActionIntent(command.characterSheetId().value(), command.action(),
                         TurnResourceCost.movementOnly(distance)));
         if (!evaluation.accepted()) throw new CombatCommandRejectedException("COMBAT_STATE_REJECTED", evaluation.violations());
-        if (command.narrativePosition() != null
-                && !command.characterSheetId().value().equals(command.narrativePosition().subjectId())) {
-            throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("NARRATIVE_SUBJECT_MISMATCH"));
-        }
+        validateNarrativePosition(command, encounter);
         TurnResources.Reservation reservation;
         try {
             reservation = encounter.reserveAction(command.characterSheetId().value(), evaluation.cost(), command.expectedVersion());
@@ -141,16 +147,19 @@ public final class CombatActionApplicationService {
         CombatActionOperation operation = existing == null
                 ? new CombatActionOperation(command.operationId(), command.fingerprint(), encounter.encounterId(),
                 command.characterSheetId().value(), evaluation.cost(), List.of(
-                new CombatActionStep("map", command.operationId() + ":map", CombatActionStep.Status.PENDING)))
+                new CombatActionStep(command.combatMapId() == null ? "narrative" : "map",
+                        command.operationId() + (command.combatMapId() == null ? ":narrative" : ":map"),
+                        CombatActionStep.Status.PENDING)))
                 : existing;
         operationRepository.save(operation);
         try {
             if (command.combatMapId() != null && !stepDone(operation, "map")) {
-                mapPort.move(new CombatMapMoveCommand(command, distance));
+                mapPort.move(new CombatMapMoveCommand(command, distance, expectedMapVersion(command)));
                 operation.completeStep("map");
                 operationRepository.save(operation);
-            } else if (command.combatMapId() == null && command.narrativePosition() == null) {
-                throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("NARRATIVE_POSITION_REQUIRED"));
+            } else if (command.combatMapId() == null) {
+                operation.completeStep("narrative");
+                operationRepository.save(operation);
             }
             CombatEncounter committed = encounter.commitMovement(command.characterSheetId().value(), reservation,
                     command.narrativePosition());
@@ -176,9 +185,32 @@ public final class CombatActionApplicationService {
     }
 
     private static int movementDistance(CombatActionCommand command) {
-        if (command.movementPath() != null) return CombatMovementPolicy.distanceOf(command.movementPath());
+        if (command.movementPath() != null) {
+            int pathDistance = CombatMovementPolicy.distanceOf(command.movementPath());
+            if (command.movementDistance() != null && command.movementDistance() != pathDistance) {
+                throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("MOVEMENT_DISTANCE_MISMATCH"));
+            }
+            return pathDistance;
+        }
         if (command.movementDistance() != null) return command.movementDistance();
         throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("MOVEMENT_DISTANCE_REQUIRED"));
+    }
+
+    private static long expectedMapVersion(CombatActionCommand command) {
+        return command.mapVersion() == null ? command.expectedVersion() : command.mapVersion();
+    }
+
+    private static void validateNarrativePosition(CombatActionCommand command, CombatEncounter encounter) {
+        NarrativeCombatPosition position = command.narrativePosition();
+        if (command.combatMapId() != null || position == null) return;
+        if (!command.characterSheetId().value().equals(position.subjectId())) {
+            throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("NARRATIVE_SUBJECT_MISMATCH"));
+        }
+        boolean targetExists = encounter.participants().stream()
+                .anyMatch(participant -> participant.participantId().equals(position.targetId()));
+        if (!targetExists || position.subjectId().equals(position.targetId())) {
+            throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("NARRATIVE_TARGET_INVALID"));
+        }
     }
 
     private static boolean stepDone(CombatActionOperation operation, String name) {
