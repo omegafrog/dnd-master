@@ -5,10 +5,12 @@ import com.dndmaster.adventure.application.combat.CombatActionApplicationService
 import com.dndmaster.adventure.application.combat.CombatActionCommand;
 import com.dndmaster.adventure.application.combat.CombatActionResponse;
 import com.dndmaster.adventure.application.combat.CombatActorRole;
+import com.dndmaster.adventure.application.combat.FreeFormCombatCommand;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.combat.PlayerCombatProjectionPolicy;
 import com.dndmaster.adventure.domain.combat.NarrativeCombatPosition;
+import com.dndmaster.adventure.domain.combat.FreeFormInterpretationPolicy;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executors;
@@ -48,6 +50,21 @@ public final class CombatController {
                 request.targetArmorClass(), request.attackModifier(), request.targetCharacterSheetId() == null
                         ? null : new CharacterSheetId(request.targetCharacterSheetId()), request.damageAmount(), false,
                 request.narrativePosition() == null ? null : request.narrativePosition().toDomain(), request.movementDistance(), request.mapVersion())));
+    }
+
+    @PostMapping("/api/v1/adventures/{adventureId}/combat/free-form")
+    public ResponseEntity<CombatActionResponse> freeForm(@PathVariable UUID adventureId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestHeader("If-Match-Version") long expectedVersion,
+            @RequestBody FreeFormActionRequest request) {
+        var adventure = assertOwnerAndLoad(adventureId);
+        UUID commandId = uuidHeader(idempotencyKey, "Idempotency-Key");
+        var actor = new CharacterSheetId(request.characterSheetId());
+        var base = new CombatActionCommand(commandId, adventure.id(), adventure.sessionId().value(), adventure.ruleSetId(),
+                actor, null, CombatActorRole.PLAYER, "FREE_FORM", null, playerResolver.playerId(), actor.value(),
+                expectedVersion, null, null, null, null, false);
+        return ResponseEntity.accepted().body(actionService.submitFreeForm(new FreeFormCombatCommand(base,
+                FreeFormInterpretationPolicy.accept(actor.value(), request.declaration()))));
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat/turn/end")
@@ -134,4 +151,5 @@ public final class CombatController {
     }
 
     public record TurnEndRequest(UUID characterSheetId) {}
+    public record FreeFormActionRequest(UUID characterSheetId, String declaration) {}
 }

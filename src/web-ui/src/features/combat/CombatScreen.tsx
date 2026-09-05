@@ -4,6 +4,9 @@ import type { CombatApi, CombatSnapshot } from './CombatApi'
 export function CombatScreen({ snapshot, api }: { snapshot: CombatSnapshot; api?: CombatApi }) {
   const [feedback, setFeedback] = useState<string | null>(null)
   const [movementPath, setMovementPath] = useState('')
+  const [freeFormInput, setFreeFormInput] = useState('')
+  const [combatLog, setCombatLog] = useState<string[]>([])
+  const [gmNarration, setGmNarration] = useState<string[]>([])
   const current = snapshot.initiative.find(item => item.participantId === snapshot.currentParticipantId)
   const humanTurn = current?.controller === 'PLAYER'
   const runAction = async () => {
@@ -55,6 +58,18 @@ export function CombatScreen({ snapshot, api }: { snapshot: CombatSnapshot; api?
       setFeedback(error instanceof Error ? error.message : '이동할 수 없습니다.')
     }
   }
+  const runFreeForm = async () => {
+    if (!api?.submitFreeForm || !freeFormInput.trim()) return
+    try {
+      const result = await api.submitFreeForm(snapshot.adventureId, snapshot.currentParticipantId, freeFormInput.trim(), snapshot.version)
+      setCombatLog(log => [...log, result.judgment ?? result.status])
+      if (result.narration) setGmNarration(narration => [...narration, result.narration!])
+      setFreeFormInput('')
+      setFeedback(result.judgment ?? result.status)
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : '자유 행동을 처리할 수 없습니다.')
+    }
+  }
   return <section className="combat-screen" aria-labelledby="combat-title">
     <header className="combat-header">
       <p className="eyebrow">COMBAT MODE</p>
@@ -85,8 +100,23 @@ export function CombatScreen({ snapshot, api }: { snapshot: CombatSnapshot; api?
         <input aria-label="이동 경로" value={movementPath} onChange={event => setMovementPath(event.target.value)} placeholder="0,0;1,0" />
       </label>
       <button type="button" onClick={() => void runMovement()} disabled={!snapshot.resources.movement || !movementPath}>이동 실행</button>
+      <section aria-labelledby="free-form-title">
+        <h3 id="free-form-title">자유 행동 선언</h3>
+        <label>정형 목록에 없는 행동
+          <textarea aria-label="자유 행동 선언" value={freeFormInput} onChange={event => setFreeFormInput(event.target.value)} />
+        </label>
+        <button type="button" onClick={() => void runFreeForm()} disabled={!api?.submitFreeForm || !freeFormInput.trim()}>자유 행동 보내기</button>
+      </section>
       <button type="button" onClick={() => void endTurn()}>턴 종료</button>
       {feedback && <p role="status">{feedback}</p>}
     </section>}
+    <section aria-labelledby="combat-log-title">
+      <h2 id="combat-log-title">Combat Log</h2>
+      <ol aria-label="Combat Log">{combatLog.map((entry, index) => <li key={`${index}-${entry}`}>{entry}</li>)}</ol>
+    </section>
+    <section aria-labelledby="gm-narration-title">
+      <h2 id="gm-narration-title">GM Narration</h2>
+      <ol aria-label="GM Narration">{gmNarration.map((entry, index) => <li key={`${index}-${entry}`}>{entry}</li>)}</ol>
+    </section>
   </section>
 }

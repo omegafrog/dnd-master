@@ -41,6 +41,7 @@ export type CombatCommandResult = {
   encounterVersion?: number
   diceTotal?: number
   judgment?: string
+  narration?: string
   violations?: string[]
 }
 
@@ -48,6 +49,7 @@ export interface CombatApi {
   readSnapshot(adventureId: string): Promise<CombatSnapshot | null>
   submitAction(adventureId: string, request: CombatActionRequest, version: number): Promise<CombatCommandResult>
   submitMovement?(adventureId: string, request: CombatActionRequest, version: number): Promise<CombatCommandResult>
+  submitFreeForm?(adventureId: string, characterSheetId: string, declaration: string, version: number): Promise<CombatCommandResult>
   endTurn(adventureId: string, characterSheetId: string, version: number): Promise<CombatCommandResult>
 }
 
@@ -70,6 +72,10 @@ export class HttpCombatApi implements CombatApi {
 
   async submitMovement(adventureId: string, request: CombatActionRequest, version: number): Promise<CombatCommandResult> {
     return this.submitAction(adventureId, { ...request, action: 'MOVE' }, version)
+  }
+
+  async submitFreeForm(adventureId: string, characterSheetId: string, declaration: string, version: number): Promise<CombatCommandResult> {
+    return this.postCommand(`/api/v1/adventures/${adventureId}/combat/free-form`, { characterSheetId, declaration }, version)
   }
 
   async endTurn(adventureId: string, characterSheetId: string, version: number): Promise<CombatCommandResult> {

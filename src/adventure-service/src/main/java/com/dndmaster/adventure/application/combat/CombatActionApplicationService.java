@@ -9,6 +9,10 @@ import com.dndmaster.adventure.domain.combat.TurnResourceCost;
 import com.dndmaster.adventure.domain.combat.TurnResources;
 import com.dndmaster.adventure.domain.combat.CombatMovementPolicy;
 import com.dndmaster.adventure.domain.combat.NarrativeCombatPosition;
+import com.dndmaster.adventure.domain.combat.CombatEffectProposal;
+import com.dndmaster.adventure.domain.combat.CombatMapEffect;
+import com.dndmaster.adventure.domain.combat.FreeFormActionPlan;
+import com.dndmaster.adventure.domain.combat.FreeFormInterpretationPolicy;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -22,6 +26,7 @@ public final class CombatActionApplicationService {
     private final DiceCombatPort dicePort;
     private final CharacterCombatPort characterPort;
     private final AiCombatPort aiPort;
+    private final AiCombatDecisionPort decisionPort;
     private final CombatMapPort mapPort;
 
     public CombatActionApplicationService(CombatEncounterRepository encounterRepository,
@@ -30,7 +35,9 @@ public final class CombatActionApplicationService {
                                           CombatRulesEngine rulesEngine, DiceCombatPort dicePort,
                                           CharacterCombatPort characterPort, AiCombatPort aiPort) {
         this(encounterRepository, operationRepository, eventRepository, rulesEngine, dicePort, characterPort, aiPort,
-                command -> { });
+                command -> { }, context -> FreeFormActionPlan.narrativeOnly(
+                        context.declaration().actorId(), TurnResourceCost.actionOnly(),
+                        "자유 행동을 해석할 수 없습니다.", "자유 행동을 처리할 수 없습니다."));
     }
 
     public CombatActionApplicationService(CombatEncounterRepository encounterRepository,
@@ -39,6 +46,18 @@ public final class CombatActionApplicationService {
                                           CombatRulesEngine rulesEngine, DiceCombatPort dicePort,
                                           CharacterCombatPort characterPort, AiCombatPort aiPort,
                                           CombatMapPort mapPort) {
+        this(encounterRepository, operationRepository, eventRepository, rulesEngine, dicePort, characterPort,
+                aiPort, mapPort, context -> FreeFormActionPlan.narrativeOnly(
+                        context.declaration().actorId(), TurnResourceCost.actionOnly(),
+                        "자유 행동을 해석할 수 없습니다.", "자유 행동을 처리할 수 없습니다."));
+    }
+
+    public CombatActionApplicationService(CombatEncounterRepository encounterRepository,
+                                          CombatActionOperationRepository operationRepository,
+                                          CombatEventRepository eventRepository,
+                                          CombatRulesEngine rulesEngine, DiceCombatPort dicePort,
+                                          CharacterCombatPort characterPort, AiCombatPort aiPort,
+                                          CombatMapPort mapPort, AiCombatDecisionPort decisionPort) {
         this.encounterRepository = Objects.requireNonNull(encounterRepository);
         this.operationRepository = Objects.requireNonNull(operationRepository);
         this.eventRepository = Objects.requireNonNull(eventRepository);
@@ -47,6 +66,116 @@ public final class CombatActionApplicationService {
         this.characterPort = Objects.requireNonNull(characterPort);
         this.aiPort = Objects.requireNonNull(aiPort);
         this.mapPort = Objects.requireNonNull(mapPort);
+        this.decisionPort = Objects.requireNonNull(decisionPort);
+    }
+
+    public CombatActionResponse submitFreeForm(FreeFormCombatCommand command) {
+        Objects.requireNonNull(command, "free-form combat command must not be null");
+        CombatActionOperation existing = operationRepository.findByCommandId(command.action().operationId()).orElse(null);
+        if (existing != null) {
+            existing.requireSame(command.fingerprint());
+            if (existing.status() == CombatActionOperation.Status.COMMITTED) return existing.response();
+        }
+
+        CombatEncounter encounter = activeEncounter(command.action());
+        FreeFormActionPlan plan = decisionPort.interpretFreeForm(new FreeFormCombatContext(encounter, command.declaration()));
+        CombatActionEvaluation evaluation = rulesEngine.validateFreeFormProposal(encounter, plan);
+        if (!evaluation.accepted()) throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", evaluation.violations());
+        if (!plan.actorId().equals(command.action().characterSheetId().value())) {
+            throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("PROPOSAL_ACTOR_MISMATCH"));
+        }
+
+        TurnResources.Reservation reservation;
+        try {
+            reservation = encounter.reserveAction(plan.actorId(), evaluation.cost(), command.action().expectedVersion());
+        } catch (RuntimeException exception) {
+            throw new CombatCommandRejectedException("COMBAT_VERSION_CONFLICT".equals(exception.getMessage())
+                    ? "COMBAT_VERSION_CONFLICT" : "ACTION_NOT_ALLOWED", List.of(exception.getMessage()));
+        }
+        CombatActionCommand resolved = resolvedCommand(command.action(), plan);
+        CombatActionOperation operation = existing == null
+                ? new CombatActionOperation(command.action().operationId(), command.fingerprint(), encounter.encounterId(),
+                plan.actorId(), evaluation.cost(), freeFormSteps(command.action().operationId(), plan)) : existing;
+        operationRepository.save(operation);
+        if (existing == null) {
+            eventRepository.append(new CombatEvent(encounter.encounterId(), encounter.eventCursor() + 1,
+                    "ACTION_RESERVED", "{\"operationId\":\"" + command.action().operationId() + "\",\"kind\":\"FREE_FORM\"}"));
+        }
+        try {
+            characterPort.requireUsableCharacter(resolved);
+            int diceTotal = 0;
+            if (plan.requiresRoll()) {
+                if (operation.diceTotal() != null && stepDone(operation, "dice")) {
+                    diceTotal = operation.diceTotal();
+                } else {
+                    diceTotal = dicePort.roll(resolved);
+                    operation.recordDiceTotal(diceTotal);
+                    operation.completeStep("dice");
+                    operationRepository.save(operation);
+                }
+            }
+            applyMapEffect(operation, resolved, plan.effects().mapEffect());
+            if (!stepDone(operation, "character")) {
+                characterPort.applyOutcome(resolved, toOutcome(plan));
+                operation.completeStep("character");
+                operationRepository.save(operation);
+            }
+            CombatEncounter committed = encounter.commitAction(plan.actorId(), reservation);
+            encounterRepository.save(committed, encounter.version());
+            CombatActionResponse response = new CombatActionResponse(committed.encounterId(), command.action().operationId(),
+                    committed.version(), "COMMITTED", plan.requiresRoll() ? diceTotal : null, plan.judgment(), List.of(), plan.narration());
+            operation.committed(response);
+            operationRepository.save(operation);
+            eventRepository.append(new CombatEvent(committed.encounterId(), committed.eventCursor(), "ACTION_RESOLVED",
+                    "{\"operationId\":\"" + command.action().operationId() + "\",\"kind\":\"FREE_FORM\",\"judgment\":\""
+                            + escape(plan.judgment()) + "\"}"));
+            eventRepository.append(new CombatEvent(committed.encounterId(), committed.eventCursor() + 1, "GM_NARRATION",
+                    "{\"operationId\":\"" + command.action().operationId() + "\",\"narration\":\""
+                            + escape(plan.narration()) + "\"}"));
+            return response;
+        } catch (RuntimeException exception) {
+            operation.failed(exception);
+            operationRepository.save(operation);
+            throw new CombatExternalFailureException(exception);
+        }
+    }
+
+    private static List<CombatActionStep> freeFormSteps(UUID operationId, FreeFormActionPlan plan) {
+        List<CombatActionStep> steps = new java.util.ArrayList<>();
+        if (plan.requiresRoll()) steps.add(new CombatActionStep("dice", operationId + ":dice", CombatActionStep.Status.PENDING));
+        if (plan.effects().mapEffect() != null) steps.add(new CombatActionStep("map", operationId + ":map", CombatActionStep.Status.PENDING));
+        steps.add(new CombatActionStep("character", operationId + ":character", CombatActionStep.Status.PENDING));
+        return steps;
+    }
+
+    private void applyMapEffect(CombatActionOperation operation, CombatActionCommand command, CombatMapEffect effect) {
+        if (effect == null || stepDone(operation, "map")) return;
+        mapPort.move(new CombatMapMoveCommand(command, effect.movementDistance(), effect.expectedVersion()));
+        operation.completeStep("map");
+        operationRepository.save(operation);
+    }
+
+    private static CombatOutcome toOutcome(FreeFormActionPlan plan) {
+        CombatEffectProposal effect = plan.effects();
+        return new CombatOutcome(plan.judgment(), new CombatCharacterMutation(effect.hitPointDelta(), effect.currencyDelta(),
+                effect.addItems(), effect.removeItems()));
+    }
+
+    private static CombatActionCommand resolvedCommand(CombatActionCommand original, FreeFormActionPlan plan) {
+        CombatMapEffect map = plan.effects().mapEffect();
+        String movementPath = map == null ? original.movementPath() : map.movementPath();
+        Integer movementDistance = original.movementDistance();
+        Long mapVersion = original.mapVersion();
+        if (map != null) {
+            movementDistance = map.movementDistance();
+            mapVersion = map.expectedVersion();
+        }
+        return new CombatActionCommand(original.operationId(), original.adventureId(), original.sessionId(), original.ruleSetId(),
+                original.characterSheetId(), map == null ? original.combatMapId() : map.mapId(), original.role(), "FREE_FORM",
+                movementPath, original.ownerPlayerId(),
+                map == null ? original.tokenId() : map.tokenId(), original.expectedVersion(), plan.targetArmorClass(),
+                plan.attackModifier(), plan.targetId() == null ? null : new com.dndmaster.adventure.domain.adventure.CharacterSheetId(plan.targetId()),
+                null, false, original.narrativePosition(), movementDistance, mapVersion);
     }
 
     public CombatActionResponse submit(CombatActionCommand command) {

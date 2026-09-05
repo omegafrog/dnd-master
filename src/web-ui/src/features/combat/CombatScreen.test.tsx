@@ -49,4 +49,23 @@ describe('CombatScreen', () => {
 
     expect(submitMovement).toHaveBeenCalledWith('a1', expect.objectContaining({ action: 'MOVE', movementPath: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }), 4)
   })
+
+  it('keeps free-form input, Combat Log, and GM narration in separate areas', async () => {
+    const user = userEvent.setup()
+    const submitFreeForm = vi.fn(async () => ({ status: 'COMMITTED', judgment: '햄이 명중했습니다.', narration: '고블린이 움찔합니다.' }))
+    const api = { readSnapshot: vi.fn(), submitAction: vi.fn(), submitFreeForm, endTurn: vi.fn() }
+    render(<CombatScreen api={api} snapshot={{ encounterId: 'e1', adventureId: 'a1', status: 'ACTIVE', round: 1,
+      currentParticipantId: 'p1', version: 4, eventCursor: 3,
+      resources: { movement: 30, actionAvailable: true, bonusActionAvailable: true, reactionAvailable: true },
+      initiative: [{ participantId: 'p1', displayName: '영웅', controller: 'PLAYER', initiative: 15, publicCondition: 'healthy' }] }} />)
+
+    await user.type(screen.getByRole('textbox', { name: '자유 행동 선언' }), 'throw ham at the goblin')
+    await user.click(screen.getByRole('button', { name: '자유 행동 보내기' }))
+
+    expect(submitFreeForm).toHaveBeenCalledWith('a1', 'p1', 'throw ham at the goblin', 4)
+    expect(screen.getByRole('heading', { name: 'Combat Log' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'GM Narration' })).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: 'Combat Log' })).toHaveTextContent('햄이 명중했습니다.')
+    expect(screen.getByRole('list', { name: 'GM Narration' })).toHaveTextContent('고블린이 움찔합니다.')
+  })
 })

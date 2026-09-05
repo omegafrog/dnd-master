@@ -17,4 +17,8 @@ public record CombatActionEvaluation(boolean accepted, TurnResourceCost cost, Li
     public static CombatActionEvaluation rejected(String violation) {
         return new CombatActionEvaluation(false, new TurnResourceCost(0, false, false, false), List.of(violation));
     }
+
+    public static CombatActionEvaluation rejected(List<String> violations) {
+        return new CombatActionEvaluation(false, new TurnResourceCost(0, false, false, false), violations);
+    }
 }

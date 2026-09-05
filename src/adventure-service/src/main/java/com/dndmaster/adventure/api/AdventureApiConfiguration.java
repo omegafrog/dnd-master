@@ -971,6 +971,15 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.combat.AiCombatDecisionPort aiCombatDecisionPort() {
+        return new com.dndmaster.adventure.application.combat.AiCombatDecisionPortAdapter(context ->
+                com.dndmaster.adventure.domain.combat.FreeFormActionPlan.narrativeOnly(
+                        context.declaration().actorId(),
+                        com.dndmaster.adventure.domain.combat.TurnResourceCost.actionOnly(),
+                        "자유 행동을 확인했습니다.", context.declaration().text()));
+    }
+
+    @Bean
     com.dndmaster.adventure.application.combat.CombatActionApplicationService combatActionApplicationService(
             com.dndmaster.adventure.application.combat.CombatEncounterRepository encounterRepository,
             com.dndmaster.adventure.application.combat.CombatActionOperationRepository operationRepository,
@@ -979,10 +988,11 @@ public class AdventureApiConfiguration {
             @Qualifier("diceCombatPort") DiceCombatPort dicePort,
             CharacterCombatPort characterPort,
             @Qualifier("aiCombatPort") AiCombatPort aiPort,
-            @Qualifier("combatMapPort") CombatMapPort mapPort) {
+            @Qualifier("combatMapPort") CombatMapPort mapPort,
+            com.dndmaster.adventure.application.combat.AiCombatDecisionPort decisionPort) {
         return new com.dndmaster.adventure.application.combat.CombatActionApplicationService(
                 encounterRepository, operationRepository, eventRepository, rulesEngine,
-                dicePort, characterPort, aiPort, mapPort);
+                dicePort, characterPort, aiPort, mapPort, decisionPort);
     }
 
     @Bean
