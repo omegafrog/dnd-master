@@ -12,9 +12,9 @@ public final class PostgresCombatEncounterRepository implements CombatEncounterR
     public PostgresCombatEncounterRepository(javax.sql.DataSource dataSource) { this.jdbc = new JdbcTemplate(dataSource); }
     @Override public Optional<CombatEncounter> findActive(UUID adventureId) {
         var encounters = jdbc.query("SELECT encounter_id, adventure_id, status, round, current_participant_id, version, event_cursor FROM combat_encounter WHERE adventure_id = ? AND status IN ('PREPARING','ACTIVE')", (rs, n) ->
-                new CombatEncounter(UUID.fromString(rs.getString(1)), UUID.fromString(rs.getString(2)),
+                new EncounterRow(UUID.fromString(rs.getString(1)), UUID.fromString(rs.getString(2)),
                         CombatEncounter.Status.valueOf(rs.getString(3)), rs.getInt(4), UUID.fromString(rs.getString(5)),
-                        List.of(), rs.getLong(6), rs.getLong(7)), adventureId);
+                        rs.getLong(6), rs.getLong(7)), adventureId);
         if (encounters.isEmpty()) return Optional.empty();
         var encounter = encounters.get(0);
         var participants = jdbc.query("SELECT participant_id, display_name, controller, initiative, public_condition FROM combat_participant WHERE encounter_id = ? ORDER BY initiative DESC, participant_id", (rs, n) ->
@@ -31,4 +31,7 @@ public final class PostgresCombatEncounterRepository implements CombatEncounterR
         }
         return encounter;
     }
+
+    private record EncounterRow(UUID encounterId, UUID adventureId, CombatEncounter.Status status, int round,
+                                UUID currentParticipantId, long version, long eventCursor) {}
 }
