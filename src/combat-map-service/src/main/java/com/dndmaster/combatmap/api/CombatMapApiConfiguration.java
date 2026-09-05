@@ -90,12 +90,17 @@ public class CombatMapApiConfiguration {
     }
 
     @Bean
-    MapFilePreparationPort mapFilePreparationPort() {
+    MapGridDetectionPort mapGridDetectionPort() {
+        return new MapGridDetector();
+    }
+
+    @Bean
+    MapFilePreparationPort mapFilePreparationPort(MapGridDetectionPort gridDetection) {
         return source -> {
             try {
                 var image = decodeImage(source);
                 if (image == null) throw new IllegalArgumentException("map image format is not supported");
-                var detected = new MapGridDetector().detect(image);
+                var detected = gridDetection.detect(image);
                 String contentType = source.filename().toLowerCase().endsWith(".jpg") || source.filename().toLowerCase().endsWith(".jpeg") ? "image/jpeg" : "image/png";
                 String dataUrl = "data:" + contentType + ";base64," + Base64.getEncoder().encodeToString(renderPng(source));
                 return new PreparedMapData(new GridSpec(detected.width(), detected.height(), detected.cellSize(), 5), List.of(), Set.of(),
@@ -135,9 +140,9 @@ public class CombatMapApiConfiguration {
                 scenarioDescription != null && (scenarioDescription.contains("A_Potent_Brew_Map")
                         || scenarioDescription.contains("page 1 image 1"))
                         ? List.of(new MapLayer("MAP_IMAGE", "/assets/maps/a-potent-brew-map.png", LayerVisibility.PLAYER_VISIBLE),
-                                // The bundled image includes a title/paper margin. Keep the
-                                // tactical grid aligned to its printed 20x20 play area.
-                                new MapLayer("GRID_BOUNDS", "311,105,800,800,1403,992", LayerVisibility.PLAYER_VISIBLE),
+                                // Generated asset references do not include image bytes, so they
+                                // cannot cross the preprocessing port yet. Do not invent bounds;
+                                // uploaded map bytes are the supported detection path.
                                 new MapLayer("INITIAL_FOG", initialFog(), LayerVisibility.AI_ONLY))
                         : List.of());
     }

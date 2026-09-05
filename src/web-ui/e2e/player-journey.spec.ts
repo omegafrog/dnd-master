@@ -139,6 +139,7 @@ test('tactical map aligns its grid and visibly renders fog, tokens, and legend',
       cellBorderColor: firstCellStyle.borderColor,
       cellBorderWidth: firstCellStyle.borderWidth,
       cellBackground: firstCellStyle.backgroundColor,
+      cellBackgroundImage: firstCellStyle.backgroundImage,
     }
   })
 
@@ -146,8 +147,10 @@ test('tactical map aligns its grid and visibly renders fog, tokens, and legend',
   expect(styles.cellBorderColor).toBe('rgba(0, 0, 0, 0.45)')
   expect(Number.parseFloat(styles.cellBorderWidth)).toBeLessThanOrEqual(1)
   expect(styles.cellBackground).toBe('rgba(29, 98, 87, 0.85)')
+  expect(styles.cellBackgroundImage).toBe('none')
   await expect(playerCell).toHaveCSS('background-color', 'rgba(29, 98, 87, 0.85)')
-  await expect(hiddenCell).toHaveCSS('background-color', 'rgba(24, 30, 34, 0.78)')
+  await expect(hiddenCell).toHaveCSS('background-color', 'rgb(24, 30, 34)')
+  await expect(hiddenCell).toHaveCSS('background-image', 'none')
   await expect(page.getByLabel('맵 범례')).toHaveCSS('display', 'grid')
 })
 
