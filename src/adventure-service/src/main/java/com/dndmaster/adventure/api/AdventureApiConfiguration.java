@@ -966,6 +966,32 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.combat.CombatWorkItemRepository combatWorkItemRepository(
+            DataSource dataSource, ObjectMapper objectMapper) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresCombatWorkItemRepository(dataSource, objectMapper);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.CombatWorkItemScheduler combatWorkItemScheduler(
+            com.dndmaster.adventure.application.combat.CombatWorkItemRepository workItems,
+            @Value("${adventure.combat.auto-progression.max-steps:10}") int maxSteps) {
+        return new com.dndmaster.adventure.application.combat.CombatWorkItemScheduler(workItems, maxSteps);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.CombatAutoProgressionWorker combatAutoProgressionWorker(
+            com.dndmaster.adventure.application.combat.CombatWorkItemRepository workItems,
+            com.dndmaster.adventure.application.combat.CombatEncounterRepository encounters,
+            com.dndmaster.adventure.application.combat.AiCombatDecisionPort decisions,
+            com.dndmaster.adventure.application.combat.CombatActionApplicationService actionService,
+            com.dndmaster.adventure.application.combat.CombatWorkItemScheduler scheduler,
+            @Value("${adventure.combat.auto-progression.max-steps:10}") int maxSteps) {
+        return new com.dndmaster.adventure.application.combat.CombatAutoProgressionWorker(
+                "adventure-service", workItems, encounters, decisions, actionService::submitAi,
+                actionService::endTurnAi, maxSteps, scheduler);
+    }
+
+    @Bean
     com.dndmaster.adventure.domain.combat.CombatRulesEngine combatRulesEngine() {
         return new com.dndmaster.adventure.domain.combat.CombatRulesEngine();
     }

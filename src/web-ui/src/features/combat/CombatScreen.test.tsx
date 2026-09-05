@@ -68,4 +68,22 @@ describe('CombatScreen', () => {
     expect(screen.getByRole('list', { name: 'Combat Log' })).toHaveTextContent('햄이 명중했습니다.')
     expect(screen.getByRole('list', { name: 'GM Narration' })).toHaveTextContent('고블린이 움찔합니다.')
   })
+
+  it('shows the failed operation and retries that same operation', async () => {
+    const user = userEvent.setup()
+    const retry = vi.fn(async () => ({ status: 'RETRY_SCHEDULED' as const, operationId: 'op-1' }))
+    const api = { readSnapshot: vi.fn(), submitAction: vi.fn(), endTurn: vi.fn(), retry }
+    render(<CombatScreen api={api} snapshot={{ encounterId: 'e1', adventureId: 'a1', status: 'ACTIVE', round: 1,
+      currentParticipantId: 'p1', version: 8, eventCursor: 6,
+      resources: { movement: 30, actionAvailable: true, bonusActionAvailable: true, reactionAvailable: true },
+      processingFailure: { operationId: 'op-1', failure: 'AI unavailable', attempts: 3 },
+      initiative: [{ participantId: 'p1', displayName: '영웅', controller: 'PLAYER', initiative: 15, publicCondition: 'healthy' }] }} />)
+
+    expect(screen.getByText(/operation: op-1/)).toBeInTheDocument()
+    expect(screen.getByText(/시도 3\/3/)).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: '다시 시도' }))
+
+    expect(retry).toHaveBeenCalledWith('a1', 'op-1', 8)
+    expect(screen.getAllByRole('status').at(-1)).toHaveTextContent('RETRY_SCHEDULED · operation op-1')
+  })
 })

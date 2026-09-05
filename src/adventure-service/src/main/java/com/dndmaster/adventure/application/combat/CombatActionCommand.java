@@ -6,6 +6,7 @@ import com.dndmaster.adventure.domain.adventure.RuleSetId;
 import com.dndmaster.adventure.domain.combat.NarrativeCombatPosition;
 import java.util.Objects;
 import java.util.UUID;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 
 public record CombatActionCommand(
         UUID operationId, AdventureId adventureId, UUID sessionId, RuleSetId ruleSetId, CharacterSheetId characterSheetId, UUID combatMapId,
@@ -70,6 +71,7 @@ public record CombatActionCommand(
                 + "|" + narrativePosition + "|" + movementDistance + "|" + mapVersion;
     }
 
+    @JsonIgnore
     public boolean isMovement() {
         return "MOVE".equalsIgnoreCase(action) || movementPath != null || narrativePosition != null;
     }

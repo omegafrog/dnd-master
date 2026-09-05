@@ -37,6 +37,13 @@ export function CombatScreen({ snapshot, api }: { snapshot: CombatSnapshot; api?
       setFeedback(result.status)
     } catch (error) { setFeedback(error instanceof Error ? error.message : 'Reaction을 처리할 수 없습니다.') }
   }
+  const retryFailedOperation = async () => {
+    if (!api?.retry || !snapshot.processingFailure) return
+    try {
+      const result = await api.retry(snapshot.adventureId, snapshot.processingFailure.operationId, snapshot.version)
+      setFeedback(`${result.status} · operation ${result.operationId ?? snapshot.processingFailure.operationId}`)
+    } catch (error) { setFeedback(error instanceof Error ? error.message : '실패한 전투 작업을 재시도할 수 없습니다.') }
+  }
   const runMovement = async () => {
     if (!api) return
     try {
@@ -98,6 +105,12 @@ export function CombatScreen({ snapshot, api }: { snapshot: CombatSnapshot; api?
       <h2 id="reaction-title">Reaction 대기</h2><p>{snapshot.pendingReaction.trigger}</p>
       <button type="button" onClick={() => void resolveReaction('USE')}>Use</button>
       <button type="button" onClick={() => void resolveReaction('PASS')}>Pass</button>
+    </section>}
+    {snapshot.processingFailure && <section aria-labelledby="processing-failure-title" role="alert">
+      <h2 id="processing-failure-title">AI 전투 처리 실패</h2>
+      <p>operation: {snapshot.processingFailure.operationId}</p>
+      <p>{snapshot.processingFailure.failure} · 시도 {snapshot.processingFailure.attempts}/3</p>
+      {api?.retry && <button type="button" onClick={() => void retryFailedOperation()}>다시 시도</button>}
     </section>}
     {snapshot.narrativePositions && snapshot.narrativePositions.length > 0 && <section aria-labelledby="narrative-position-title">
       <h2 id="narrative-position-title">서술 전장</h2>

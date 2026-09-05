@@ -6,4 +6,8 @@ import com.dndmaster.adventure.domain.combat.FreeFormActionPlan;
 @FunctionalInterface
 public interface AiCombatDecisionPort {
     FreeFormActionPlan interpretFreeForm(FreeFormCombatContext context);
+
+    default AiTurnPlan planTurn(AiCombatTurnContext context) {
+        return AiTurnPlan.endTurn(context.actor().participantId());
+    }
 }

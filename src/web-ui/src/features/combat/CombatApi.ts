@@ -18,6 +18,7 @@ export type CombatSnapshot = {
   eventCursor: number
   narrativePositions?: Array<{ subjectId: string; targetId: string; rangeBand: string; cover: string }>
   pendingReaction?: { reactionId: string; trigger: string; operationId: string; resumeStep: string; options: Array<{ id: string; label: string }> }
+  processingFailure?: { operationId: string; failure: string; attempts: number } | null
 }
 
 export type CombatActionRequest = {
@@ -55,6 +56,7 @@ export interface CombatApi {
   submitFreeForm?(adventureId: string, characterSheetId: string, declaration: string, version: number): Promise<CombatCommandResult>
   endTurn(adventureId: string, characterSheetId: string, version: number): Promise<CombatCommandResult>
   resolveReaction?(adventureId: string, reactionId: string, choice: 'USE' | 'PASS', version: number): Promise<CombatCommandResult>
+  retry?(adventureId: string, operationId: string, version: number): Promise<CombatCommandResult>
 }
 
 export class HttpCombatApi implements CombatApi {
@@ -112,6 +114,10 @@ export class HttpCombatApi implements CombatApi {
 
   async resolveReaction(adventureId: string, reactionId: string, choice: 'USE' | 'PASS', version: number): Promise<CombatCommandResult> {
     return this.postCommand(`/api/v1/adventures/${adventureId}/combat/reactions/${reactionId}`, { choice }, version)
+  }
+
+  async retry(adventureId: string, operationId: string, version: number): Promise<CombatCommandResult> {
+    return this.postCommand(`/api/v1/adventures/${adventureId}/combat/retry`, { operationId }, version)
   }
 
   private async postCommand(path: string, body: unknown, version: number): Promise<CombatCommandResult> {

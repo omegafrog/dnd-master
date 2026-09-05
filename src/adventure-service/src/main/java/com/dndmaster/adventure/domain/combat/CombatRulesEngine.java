@@ -22,6 +22,22 @@ public final class CombatRulesEngine {
         return CombatActionEvaluation.accepted(intent.cost());
     }
 
+    /** Same deterministic validation for an AI actor; human commands remain player-only. */
+    public CombatActionEvaluation validateAiAction(CombatEncounter encounter, CombatActionIntent intent) {
+        Objects.requireNonNull(encounter, "encounter must not be null");
+        Objects.requireNonNull(intent, "intent must not be null");
+        if (encounter.status() != CombatEncounter.Status.ACTIVE) {
+            return CombatActionEvaluation.rejected("COMBAT_NOT_ACTIVE");
+        }
+        if (!encounter.currentParticipantId().equals(intent.actorId())) {
+            return CombatActionEvaluation.rejected("NOT_CURRENT_ACTOR");
+        }
+        if (encounter.currentParticipant().controller() != CombatParticipant.Controller.AI) {
+            return CombatActionEvaluation.rejected("NOT_AI_TURN");
+        }
+        return CombatActionEvaluation.accepted(intent.cost());
+    }
+
     /** Validates the complete AI interpretation before any reservation or external effect. */
     public CombatActionEvaluation validateFreeFormProposal(CombatEncounter encounter, FreeFormActionPlan proposal) {
         Objects.requireNonNull(encounter, "encounter must not be null");

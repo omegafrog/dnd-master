@@ -18,6 +18,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.time.Instant;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -31,13 +32,17 @@ public final class CombatController {
     private final com.dndmaster.adventure.application.combat.CombatEventRepository eventRepository;
     private final CombatActionApplicationService actionService;
     private final CombatReactionApplicationService reactionService;
+    private final com.dndmaster.adventure.application.combat.CombatWorkItemRepository workItems;
+    private final com.dndmaster.adventure.application.combat.CombatWorkItemScheduler workItemScheduler;
     public CombatController(CombatEncounterRepository repository, AuthenticatedPlayerResolver playerResolver,
                             com.dndmaster.adventure.application.saved.AdventureRepository adventureRepository,
                             com.dndmaster.adventure.application.combat.CombatEventRepository eventRepository,
                             CombatActionApplicationService actionService,
-                            CombatReactionApplicationService reactionService) {
+                            CombatReactionApplicationService reactionService,
+                            com.dndmaster.adventure.application.combat.CombatWorkItemRepository workItems,
+                            com.dndmaster.adventure.application.combat.CombatWorkItemScheduler workItemScheduler) {
         this.repository = repository; this.playerResolver = playerResolver; this.adventureRepository = adventureRepository; this.eventRepository = eventRepository;
-        this.actionService = actionService; this.reactionService = reactionService;
+        this.actionService = actionService; this.reactionService = reactionService; this.workItems = workItems; this.workItemScheduler = workItemScheduler;
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat/reactions/{reactionId}")
@@ -99,17 +104,38 @@ public final class CombatController {
             @RequestBody TurnEndRequest request) {
         var adventure = assertOwnerAndLoad(adventureId);
         UUID commandId = uuidHeader(idempotencyKey, "Idempotency-Key");
-        return ResponseEntity.accepted().body(actionService.endTurn(new CombatActionCommand(commandId,
+        CombatActionCommand command = new CombatActionCommand(commandId,
                 adventure.id(), adventure.sessionId().value(), adventure.ruleSetId(),
                 new CharacterSheetId(request.characterSheetId()), null, CombatActorRole.PLAYER,
                 "END_TURN", null, playerResolver.playerId(), request.characterSheetId(), expectedVersion,
-                null, null, null, null, false)));
+                null, null, null, null, false);
+        CombatActionResponse response = actionService.endTurn(command);
+        repository.findActive(adventureId).ifPresent(encounter -> workItemScheduler.scheduleNext(command, encounter, 0,
+                com.dndmaster.adventure.application.combat.AiTacticalInstructionContext.none()));
+        return ResponseEntity.accepted().body(response);
+    }
+
+    @PostMapping("/api/v1/adventures/{adventureId}/combat/retry")
+    public ResponseEntity<CombatActionResponse> retry(@PathVariable UUID adventureId,
+            @RequestBody RetryRequest request) {
+        assertOwner(adventureId);
+        var failed = workItems.findByOperationId(request.operationId())
+                .filter(item -> item.encounterId() != null && item.status() == com.dndmaster.adventure.application.combat.CombatWorkItem.Status.FAILED)
+                .orElseThrow(() -> new org.springframework.web.server.ResponseStatusException(
+                        org.springframework.http.HttpStatus.CONFLICT, "COMBAT_RETRY_NOT_AVAILABLE"));
+        var resumed = failed.manualRetry(Instant.now());
+        workItems.save(resumed);
+        return ResponseEntity.accepted().body(new CombatActionResponse(failed.encounterId(), failed.operationId(),
+                failed.expectedEncounterVersion(), "RETRY_SCHEDULED", null, null, List.of()));
     }
     @GetMapping("/api/v1/adventures/{adventureId}/combat")
     public ResponseEntity<?> snapshot(@PathVariable UUID adventureId) {
         assertOwner(adventureId);
         return repository.findActive(adventureId)
-                .map(e -> ResponseEntity.ok(PlayerCombatProjectionPolicy.toSnapshot(e, playerResolver.playerId())))
+                .map(e -> ResponseEntity.ok(PlayerCombatProjectionPolicy.toSnapshot(e, playerResolver.playerId(),
+                        workItems.findFailedByEncounterId(e.encounterId()).map(item ->
+                                new com.dndmaster.adventure.domain.combat.PlayerCombatSnapshot.ProcessingFailure(
+                                        item.operationId(), item.failure(), item.attemptCount())).orElse(null))))
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
     @GetMapping(value = "/api/v1/adventures/{adventureId}/combat/events", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -176,6 +202,7 @@ public final class CombatController {
     }
 
     public record TurnEndRequest(UUID characterSheetId) {}
+    public record RetryRequest(UUID operationId) {}
     public record FreeFormActionRequest(UUID characterSheetId, String declaration) {}
     public record ReactionRequest(String choice, UUID actorId) {
         public ReactionRequest(String choice) { this(choice, null); }

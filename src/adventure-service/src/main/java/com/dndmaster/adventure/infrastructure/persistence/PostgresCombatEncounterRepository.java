@@ -17,10 +17,18 @@ public final class PostgresCombatEncounterRepository implements CombatEncounterR
         this.jdbc = new JdbcTemplate(dataSource); this.objectMapper = objectMapper;
     }
     @Override public Optional<CombatEncounter> findActive(UUID adventureId) {
-        var encounters = jdbc.query("SELECT encounter_id, adventure_id, status, round, current_participant_id, version, event_cursor FROM combat_encounter WHERE adventure_id = ? AND status IN ('PREPARING','ACTIVE','REACTION_PENDING')", (rs, n) ->
+        return load("adventure_id = ? AND status IN ('PREPARING','ACTIVE','REACTION_PENDING')", adventureId);
+    }
+
+    @Override public Optional<CombatEncounter> findByEncounterId(UUID encounterId) {
+        return load("encounter_id = ?", encounterId);
+    }
+
+    private Optional<CombatEncounter> load(String predicate, UUID id) {
+        var encounters = jdbc.query("SELECT encounter_id, adventure_id, status, round, current_participant_id, version, event_cursor FROM combat_encounter WHERE " + predicate, (rs, n) ->
                 new EncounterRow(UUID.fromString(rs.getString(1)), UUID.fromString(rs.getString(2)),
                         CombatEncounter.Status.valueOf(rs.getString(3)), rs.getInt(4), UUID.fromString(rs.getString(5)),
-                        rs.getLong(6), rs.getLong(7)), adventureId);
+                        rs.getLong(6), rs.getLong(7)), id);
         if (encounters.isEmpty()) return Optional.empty();
         var encounter = encounters.get(0);
         var participants = jdbc.query("SELECT participant_id, display_name, controller, initiative, public_condition, movement_remaining, action_available, bonus_action_available, reaction_available FROM combat_participant WHERE encounter_id = ? ORDER BY initiative DESC, participant_id", (rs, n) ->

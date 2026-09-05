@@ -179,6 +179,21 @@ public final class CombatActionApplicationService {
     }
 
     public CombatActionResponse submit(CombatActionCommand command) {
+        return submitStructured(command, TurnResourceCost.actionOnly(), false);
+    }
+
+    public CombatActionResponse submitAi(CombatActionCommand command, AiTurnPlan plan) {
+        Objects.requireNonNull(command, "AI combat command must not be null");
+        Objects.requireNonNull(plan, "AI turn plan must not be null");
+        if (!command.characterSheetId().value().equals(plan.actorId())) {
+            throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("AI_PLAN_ACTOR_MISMATCH"));
+        }
+        if (plan.endTurn()) return endTurnAi(command);
+        return submitStructured(command, plan.intent().cost(), true);
+    }
+
+    private CombatActionResponse submitStructured(CombatActionCommand command, TurnResourceCost cost,
+                                                  boolean aiActor) {
         Objects.requireNonNull(command, "combat command must not be null");
         CombatActionOperation existing = operationRepository.findByCommandId(command.operationId()).orElse(null);
         if (existing != null) {
@@ -188,8 +203,11 @@ public final class CombatActionApplicationService {
 
         CombatEncounter encounter = activeEncounter(command);
         if (command.isMovement()) return submitMovement(command, encounter, existing);
-        CombatActionEvaluation evaluation = rulesEngine.validateAction(encounter,
-                new CombatActionIntent(command.characterSheetId().value(), command.action(), TurnResourceCost.actionOnly()));
+        CombatActionEvaluation evaluation = aiActor
+                ? rulesEngine.validateAiAction(encounter,
+                new CombatActionIntent(command.characterSheetId().value(), command.action(), cost))
+                : rulesEngine.validateAction(encounter,
+                new CombatActionIntent(command.characterSheetId().value(), command.action(), cost));
         if (!evaluation.accepted()) throw new CombatCommandRejectedException("COMBAT_STATE_REJECTED", evaluation.violations());
 
         TurnResources.Reservation reservation;
@@ -348,6 +366,15 @@ public final class CombatActionApplicationService {
     }
 
     public CombatActionResponse endTurn(CombatActionCommand command) {
+        return endTurn(command, com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.PLAYER);
+    }
+
+    public CombatActionResponse endTurnAi(CombatActionCommand command) {
+        return endTurn(command, com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.AI);
+    }
+
+    private CombatActionResponse endTurn(CombatActionCommand command,
+                                         com.dndmaster.adventure.domain.combat.CombatParticipant.Controller controller) {
         Objects.requireNonNull(command, "turn end command must not be null");
         CombatActionOperation existing = operationRepository.findByCommandId(command.operationId()).orElse(null);
         if (existing != null) {
@@ -356,8 +383,10 @@ public final class CombatActionApplicationService {
         }
         CombatEncounter encounter = activeEncounter(command);
         if (!encounter.currentParticipantId().equals(command.characterSheetId().value())
-                || encounter.currentParticipant().controller() != com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.PLAYER) {
-            throw new CombatCommandRejectedException("COMBAT_STATE_REJECTED", List.of("NOT_PLAYER_TURN"));
+                || encounter.currentParticipant().controller() != controller) {
+            throw new CombatCommandRejectedException("COMBAT_STATE_REJECTED", List.of(
+                    controller == com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.PLAYER
+                            ? "NOT_PLAYER_TURN" : "NOT_AI_TURN"));
         }
         CombatEncounter ended = encounter.endCurrentTurn(command.expectedVersion());
         encounterRepository.save(ended, encounter.version());
