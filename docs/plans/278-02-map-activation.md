@@ -29,4 +29,4 @@
 
 ## 다이어그램
 
-해당 없음 — ticket-scoped SVG 없음. PlantUML renderer 누락으로 `.puml`만 존재.
+[Map Activation Activity SVG](../specs/278/diagrams/product/UC-4-map-activation.activity.svg) · [Runtime State SVG](../specs/278/diagrams/architecture/combat-map-runtime.state.svg) · [Activation/Visibility Sequence SVG](../specs/278/diagrams/architecture/map-activation-visibility.sequence.svg)

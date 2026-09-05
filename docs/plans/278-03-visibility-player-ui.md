@@ -30,4 +30,4 @@
 
 ## 다이어그램
 
-해당 없음 — ticket-scoped SVG 없음. PlantUML renderer 누락으로 `.puml`만 존재.
+[Fog/Visibility Activity SVG](../specs/278/diagrams/product/UC-5-fog-visibility.activity.svg) · [Runtime State SVG](../specs/278/diagrams/architecture/combat-map-runtime.state.svg) · [Program Structure SVG](../specs/278/diagrams/architecture/program-structure.svg)

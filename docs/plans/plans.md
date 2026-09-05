@@ -14,6 +14,6 @@
 
 ## 다이어그램
 
-해당 없음 — ticket-scoped SVG 없음. PlantUML renderer 누락으로 `.puml`만 존재.
+Spec 다이어그램은 렌더링 완료됐다: [Product SVG](../specs/278/diagrams/product/UC-278-combat-map.usecase.svg), [Architecture SVG](../specs/278/diagrams/architecture/combat-map.class.svg).
 
 GitHub Project 5가 상태 원본이며, 모든 Issue는 `Workflow Status=Planned`.

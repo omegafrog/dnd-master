@@ -218,11 +218,11 @@ Adventure Runtime이 새 전투 맵을 활성화하면 현재 시나리오 위�
 
 별도 호출에서 생성할 다이어그램 계약은 다음과 같다.
 
-| 대상 | 권장 원본 경로 | 목적 |
-|---|---|---|
-| UC-1~UC-3 | `docs/specs/278/diagrams/product/UC-1-map-preparation.activity.puml` | crop, Printed Grid 판별, fallback 선택 흐름 |
-| UC-4 | `docs/specs/278/diagrams/product/UC-4-map-activation.activity.puml` | 진입 맥락과 Spawn 선택 흐름 |
-| UC-5~UC-6 | `docs/specs/278/diagrams/product/UC-5-fog-visibility.activity.puml` | 활성화·이동에 따른 visibility/explored 변화 |
-| UC-1~UC-6 | `docs/specs/278/diagrams/product/UC-278-combat-map.usecase.puml` | Solo Player와 Combat Map 관련 유스케이스 범위 |
+| 대상 | 원본 경로 | 렌더링 SVG | 목적 |
+|---|---|---|---|
+| UC-1~UC-3 | `docs/specs/278/diagrams/product/UC-1-map-preparation.activity.puml` | [SVG](diagrams/product/UC-1-map-preparation.activity.svg) | crop, Printed Grid 판별, fallback 선택 흐름 |
+| UC-4 | `docs/specs/278/diagrams/product/UC-4-map-activation.activity.puml` | [SVG](diagrams/product/UC-4-map-activation.activity.svg) | 진입 맥락과 Spawn 선택 흐름 |
+| UC-5~UC-6 | `docs/specs/278/diagrams/product/UC-5-fog-visibility.activity.puml` | [SVG](diagrams/product/UC-5-fog-visibility.activity.svg) | 활성화·이동에 따른 visibility/explored 변화 |
+| UC-1~UC-6 | `docs/specs/278/diagrams/product/UC-278-combat-map.usecase.puml` | [SVG](diagrams/product/UC-278-combat-map.usecase.svg) | Solo Player와 Combat Map 관련 유스케이스 범위 |
 
-**상태:** BLOCKED — `.puml` 원본은 생성했으나 저장소에 `bin/plantuml-render.mjs`와 `bin/plantuml-bootstrap.mjs`가 없어 SVG 렌더·링크 검증을 완료할 수 없다.
+**상태:** READY — `.puml` 원본을 저장소의 고정 PlantUML renderer로 SVG에 렌더하고, 4개 SVG의 비어 있지 않음과 링크를 검증했다.

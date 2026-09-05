@@ -14,7 +14,10 @@ class CombatMap <<Aggregate Root>> {
   changeDoor()
 }
 class GridCalibration <<Value Object>>
-enum GridSource { PRINTED; FALLBACK }
+enum GridSource {
+  PRINTED
+  FALLBACK
+}
 class MapContentBounds <<Value Object>>
 class MapPreparationPipeline
 class MapContentBoundsDetector

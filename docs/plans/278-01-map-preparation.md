@@ -28,4 +28,4 @@
 
 ## 다이어그램
 
-해당 없음 — ticket-scoped SVG 없음. PlantUML renderer 누락으로 `.puml`만 존재.
+[Map Preparation Activity SVG](../specs/278/diagrams/product/UC-1-map-preparation.activity.svg) · [Preparation Sequence SVG](../specs/278/diagrams/architecture/map-preparation.sequence.svg)

@@ -167,7 +167,8 @@ Map Preparation은 PLAYER의 실제 런타임 Spawn을 확정하지 않는다. T
 
 변경 대상이 있으므로 class diagram 적용 대상이다.
 
-예정 원본: `docs/specs/278/diagrams/architecture/combat-map.class.puml`
+
+원본: `docs/specs/278/diagrams/architecture/combat-map.class.puml` · [렌더링 SVG](diagrams/architecture/combat-map.class.svg)
 
 ## 3.5 Value Objects
 
@@ -219,7 +220,7 @@ Map Preparation은 PLAYER의 실제 런타임 Spawn을 확정하지 않는다. T
 
 설계 상태 다이어그램 적용 대상이다.
 
-예정 원본: `docs/specs/278/diagrams/architecture/combat-map-runtime.state.puml`
+원본: `docs/specs/278/diagrams/architecture/combat-map-runtime.state.puml` · [렌더링 SVG](diagrams/architecture/combat-map-runtime.state.svg)
 
 ## 3.9 Repository Boundaries
 
@@ -844,14 +845,14 @@ Combat Map component tests에서:
 
 별도 호출의 다이어그램 계약:
 
-| Diagram | 예정 원본 경로 | 포함해야 할 계약 |
-|---|---|---|
-| Class | `docs/specs/278/diagrams/architecture/combat-map.class.puml` | CombatMap, preparation policies, SpawnResolutionPolicy, VisibilityPolicy, store dependency |
-| Design State | `docs/specs/278/diagrams/architecture/combat-map-runtime.state.puml` | prepared/inactive → active, move/door visibility refresh, activation failure guards |
-| Program Structure | `docs/specs/278/diagrams/architecture/program-structure.puml` | API → application → domain → store, web player projection |
-| Preparation Sequence | `docs/specs/278/diagrams/architecture/map-preparation.sequence.puml` | decode → crop → printed detect/accept → fallback → persist |
-| Activation/Visibility Sequence | `docs/specs/278/diagrams/architecture/map-activation-visibility.sequence.puml` | entry context → spawn resolution → visibility → atomic activation → player projection |
+| Diagram | 원본 경로 | 렌더링 SVG | 포함해야 할 계약 |
+|---|---|---|---|
+| Class | `docs/specs/278/diagrams/architecture/combat-map.class.puml` | [SVG](diagrams/architecture/combat-map.class.svg) | CombatMap, preparation policies, SpawnResolutionPolicy, VisibilityPolicy, store dependency |
+| Design State | `docs/specs/278/diagrams/architecture/combat-map-runtime.state.puml` | [SVG](diagrams/architecture/combat-map-runtime.state.svg) | prepared/inactive → active, move/door visibility refresh, activation failure guards |
+| Program Structure | `docs/specs/278/diagrams/architecture/program-structure.puml` | [SVG](diagrams/architecture/program-structure.svg) | API → application → domain → store, web player projection |
+| Preparation Sequence | `docs/specs/278/diagrams/architecture/map-preparation.sequence.puml` | [SVG](diagrams/architecture/map-preparation.sequence.svg) | decode → crop → printed detect/accept → fallback → persist |
+| Activation/Visibility Sequence | `docs/specs/278/diagrams/architecture/map-activation-visibility.sequence.puml` | [SVG](diagrams/architecture/map-activation-visibility.sequence.svg) | entry context → spawn resolution → visibility → atomic activation → player projection |
 
 Context Map의 Bounded Context 관계는 변경하지 않으므로 새로운 Context Map 다이어그램은 **해당 없음 — 기존 Combat Map 경계를 그대로 사용**한다.
 
-**상태:** BLOCKED — `.puml` 원본은 생성했으나 저장소에 `bin/plantuml-render.mjs`와 `bin/plantuml-bootstrap.mjs`가 없어 SVG 렌더·링크 검증을 완료할 수 없다.
+**상태:** READY — `.puml` 원본을 저장소의 고정 PlantUML renderer로 SVG에 렌더하고, 5개 SVG의 비어 있지 않음과 링크를 검증했다.

@@ -32,6 +32,9 @@ Thumbs.db
 .agents/
 .claude/
 **/bin/**
+!/bin/
+!/bin/plantuml-bootstrap.mjs
+!/bin/plantuml-render.mjs
 plans.md
 **/docs/plans/**
 **/specs/**
