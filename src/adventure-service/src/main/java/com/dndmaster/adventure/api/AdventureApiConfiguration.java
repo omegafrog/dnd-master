@@ -863,7 +863,17 @@ public class AdventureApiConfiguration {
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         CrossContextHttpCombatGateway gateway = new CrossContextHttpCombatGateway(
                 HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), internalToken);
-        return gateway;
+        return new CombatMapPort() {
+            @Override
+            public void validateAndMove(CombatActionCommand command) {
+                gateway.validateAndMove(command);
+            }
+
+            @Override
+            public CombatMapMoveResult move(CombatMapMoveCommand command) {
+                return gateway.move(command);
+            }
+        };
     }
 
     @Bean
