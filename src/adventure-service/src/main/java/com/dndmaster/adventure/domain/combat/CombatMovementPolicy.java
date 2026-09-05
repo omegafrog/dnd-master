@@ -12,6 +12,7 @@ public final class CombatMovementPolicy {
         Objects.requireNonNull(path, "movement path must not be null");
         String[] positions = path.split("[>;]");
         if (positions.length < 2) throw new IllegalArgumentException("movement path requires a destination");
+        if (positions.length - 1 > 256) throw new IllegalArgumentException("movement path exceeds 256 edges");
         for (String position : positions) parse(position);
         return Math.multiplyExact(positions.length - 1, GRID_DISTANCE_UNIT);
     }

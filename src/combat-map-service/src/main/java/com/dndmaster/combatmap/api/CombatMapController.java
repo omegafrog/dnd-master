@@ -122,6 +122,10 @@ public class CombatMapController {
         requestGuard.internal(token);
         requireRequest(request, "move request is required");
         requireIdempotencyKey(idempotencyKey, request.commandId());
+        if (request.positions() == null || request.positions().size() < 2) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "movement path requires a destination");
+        }
         MovementPath path = new MovementPath(
                 request.positions().stream().map(p -> new GridPosition(p.x(), p.y())).toList(),
                 request.distance());
