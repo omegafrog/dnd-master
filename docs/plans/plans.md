@@ -24,4 +24,4 @@ Parent: [#286](https://github.com/omegafrog/dnd-master/issues/286)
 6. [#284 — AI 자동 진행·Retry·Failure Recovery](https://github.com/omegafrog/dnd-master/issues/284) — #280, #283
 7. [#285 — 전투 종료·최종 상태·일반 세션 복귀](https://github.com/omegafrog/dnd-master/issues/285) — #280, #284
 
-각 child Issue가 해당 slice의 구현 목적, 범위, 수용 기준, 정책 단위 테스트, `ui ~ entity` E2E 계약의 정본이다. GitHub Project 5의 `Workflow Status`가 상태 정본이다.
+각 Sub-issue가 해당 slice의 구현 목적, 범위, 수용 기준, 정책 단위 테스트, `ui ~ entity` E2E 계약의 정본이다. GitHub Parent/Sub-issue 관계와 Project 5의 `Workflow Status`가 추적 정본이다.
