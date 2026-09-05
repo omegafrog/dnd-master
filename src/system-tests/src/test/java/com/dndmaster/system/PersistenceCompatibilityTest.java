@@ -43,6 +43,7 @@ class PersistenceCompatibilityTest {
         assertColumn("character_management", "character_sheet", "version");
         assertColumn("dice_roll_contract", "dice_roll", "version");
         assertColumn("combat_map_contract", "combat_map", "version");
+        assertColumn("combat_map_contract", "adventure_active_tactical_map", "active");
         assertColumn("ai_game_master_contract", "ai_operation", "version");
     }
 

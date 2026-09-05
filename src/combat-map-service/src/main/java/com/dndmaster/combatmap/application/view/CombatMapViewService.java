@@ -85,7 +85,9 @@ public final class CombatMapViewService {
         Optional<GridPosition> tactical = state.map().tokens().stream().filter(t -> t.type() == TokenType.PLAYER).map(CombatToken::position).findFirst();
         SpawnResolution resolution = new SpawnResolutionPolicy().resolve(state.map().grid(), state.map().obstacles(), state.map().doors(), occupied, context, tactical);
         List<CombatToken> tokens = new ArrayList<>(nonPlayers);
-        tokens.add(new CombatToken(state.map().tokens().stream().filter(t -> t.type() == TokenType.PLAYER).findFirst().map(CombatToken::id).orElse(new TokenId(UUID.randomUUID())), TokenType.PLAYER, resolution.position(), TokenController.PLAYER, new PlayerId(owner.value())));
+        tokens.add(new CombatToken(state.map().tokens().stream().filter(t -> t.type() == TokenType.PLAYER).findFirst().map(CombatToken::id)
+                .orElse(context.playerTokenId().map(TokenId::new).orElse(new TokenId(UUID.randomUUID()))),
+                TokenType.PLAYER, resolution.position(), TokenController.PLAYER, new PlayerId(owner.value())));
         CombatMap activated = new CombatMap(state.map().id(), state.map().adventureId(), state.map().ruleSetId(), state.map().grid(), state.map().ownerPlayerId(), tokens, state.map().obstacles(), state.map().layers(), state.version() + 1, UUID.randomUUID(), "ACTIVATE|" + context + "|" + resolution);
         activated.replaceDoors(state.map().doors());
         activated.replaceRuntimeState(state.map().runtimeState());

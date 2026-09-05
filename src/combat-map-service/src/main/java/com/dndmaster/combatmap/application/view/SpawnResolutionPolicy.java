@@ -26,10 +26,20 @@ public final class SpawnResolutionPolicy {
     }
     private static List<GridPosition> boundary(GridSpec g, MapActivationContext.EntrySide side) {
         List<GridPosition> result = new ArrayList<>();
-        if (side == null || side == MapActivationContext.EntrySide.NORTH) for (int x=0;x<g.width();x++) result.add(new GridPosition(x,0));
-        if (side == null || side == MapActivationContext.EntrySide.EAST) for (int y=0;y<g.height();y++) result.add(new GridPosition(g.width()-1,y));
-        if (side == null || side == MapActivationContext.EntrySide.SOUTH) for (int x=g.width()-1;x>=0;x--) result.add(new GridPosition(x,g.height()-1));
-        if (side == null || side == MapActivationContext.EntrySide.WEST) for (int y=g.height()-1;y>=0;y--) result.add(new GridPosition(0,y));
+        if (side == null || side == MapActivationContext.EntrySide.NORTH) for (int x : centered(g.width())) result.add(new GridPosition(x,0));
+        if (side == null || side == MapActivationContext.EntrySide.EAST) for (int y : centered(g.height())) result.add(new GridPosition(g.width()-1,y));
+        if (side == null || side == MapActivationContext.EntrySide.SOUTH) for (int x : centered(g.width())) result.add(new GridPosition(x,g.height()-1));
+        if (side == null || side == MapActivationContext.EntrySide.WEST) for (int y : centered(g.height())) result.add(new GridPosition(0,y));
+        return result;
+    }
+    private static List<Integer> centered(int length) {
+        List<Integer> result = new ArrayList<>();
+        int center = length / 2;
+        result.add(center);
+        for (int distance = 1; result.size() < length; distance++) {
+            if (center + distance < length) result.add(center + distance);
+            if (center - distance >= 0) result.add(center - distance);
+        }
         return result;
     }
 }

@@ -11,6 +11,7 @@
 1. [#289 — Map Preparation + Grid Calibration](278-01-map-preparation.md) — 선행 없음
 2. [#290 — Map Activation + Player Spawn](278-02-map-activation.md) — #289 blocking
 3. [#291 — Visibility, Player Projection + UI](278-03-visibility-player-ui.md) — #290 blocking
+4. [#294 — Runtime Context Spawn, Fog Trigger + Map Movement Repair](278-04-runtime-context-spawn-fog-movement.md) — #290, #291 후속 보완
 
 ## 다이어그램
 

@@ -147,7 +147,7 @@ public final class GmAgentRuntimePlanningAdapter implements RuntimePlanningPort 
     private TurnCapability issueCapability(RuntimePlanningRequest request) {
         if (gateway == null || saga == null) return null;
         return TurnCapability.issue(request.sessionId(), request.turnId(), request.ownerPlayerId().value(),
-                Set.of("dice.roll", "character.update", "scenario_state_update"),
+                Set.of("dice.roll", "character.update", "combat-map.tactical-trigger", "scenario_state_update"),
                 java.time.Instant.now().plusSeconds(300), UUID.randomUUID());
     }
 

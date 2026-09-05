@@ -32,8 +32,18 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
     @Override
     public UUID prepareInitial(AdventureId adventureId, UUID ownerPlayerId, RuleSetId ruleSetId,
             MapDefinition mapDefinition, int stagePosition) {
+        return prepareInitial(adventureId, ownerPlayerId, ruleSetId, mapDefinition, stagePosition,
+                new CombatMapPreparationPort.ActivationContext(null, UUID.randomUUID(), 1, 0,
+                        "unknown", "unknown", null, null, null));
+    }
+
+    @Override
+    public UUID prepareInitial(AdventureId adventureId, UUID ownerPlayerId, RuleSetId ruleSetId,
+            MapDefinition mapDefinition, int stagePosition, CombatMapPreparationPort.ActivationContext context) {
         Request payload = new Request(adventureId.value(), ownerPlayerId, ruleSetId.value(), mapDefinition.id(),
-                mapDefinition.assetId(), mapDefinition.assetLocator(), stagePosition, 0, 0);
+                mapDefinition.assetId(), mapDefinition.assetLocator(), stagePosition,
+                context.spawnCandidateX(), context.spawnCandidateY(), context.playerTokenId(), context.situationId(),
+                context.situationRevision(), context.turnIndex(), context.currentScene(), context.location(), context.entrySide());
         try {
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/prepare"))
                     .timeout(timeout)
@@ -55,6 +65,8 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
     }
 
     private record Request(UUID adventureId, UUID ownerId, UUID ruleSetId, UUID mapDefinitionId,
-            String assetId, String assetLocator, int stagePosition, int playerSpawnX, int playerSpawnY) {}
+            String assetId, String assetLocator, int stagePosition, Integer playerSpawnX, Integer playerSpawnY,
+            UUID playerTokenId, UUID situationId, long situationRevision, int turnIndex,
+            String currentScene, String location, String entrySide) {}
     private record Response(UUID mapId) {}
 }

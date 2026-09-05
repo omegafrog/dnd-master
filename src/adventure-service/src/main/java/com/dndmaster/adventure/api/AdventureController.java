@@ -32,6 +32,7 @@ import com.dndmaster.adventure.domain.runtime.GmTurn;
 import com.dndmaster.adventure.application.combat.CombatMapPort;
 import com.dndmaster.adventure.application.combat.CharacterCombatPort;
 import com.dndmaster.adventure.application.combat.RuntimeCombatRejectionException;
+import com.dndmaster.adventure.application.combat.CombatMapPlayerTokenResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @RestController
@@ -387,7 +388,7 @@ public class AdventureController {
             if (!"MOVE".equals(payload.action())) {
                 throw new ApiRequestGuard.ApiContractException(400, "UNSUPPORTED_MAP_ACTION");
             }
-            var member = characterSheetForToken(adventure, payload.tokenId());
+            var member = characterSheetForToken(adventure, owner, payload.tokenId());
             if (payload.path() == null || payload.path().size() < 2) {
                 throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PATH");
             }
@@ -417,7 +418,7 @@ public class AdventureController {
             if (!"MOVE".equals(payload.action())) {
                 throw new ApiRequestGuard.ApiContractException(400, "UNSUPPORTED_MAP_ACTION");
             }
-            var member = characterSheetForToken(adventure, payload.tokenId());
+            var member = characterSheetForToken(adventure, owner, payload.tokenId());
             if (payload.path() == null || payload.path().size() < 2) {
                 throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PATH");
             }
@@ -448,17 +449,9 @@ public class AdventureController {
                 .getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
-    private static com.dndmaster.adventure.domain.adventure.AdventurePartyMember characterSheetForToken(
-            Adventure adventure, UUID tokenId) {
-        if (tokenId == null) {
-            return adventure.party().stream().findFirst()
-                    .orElseThrow(() -> new IllegalStateException("map action requires a party member"));
-        }
-        return adventure.party().stream()
-                .filter(candidate -> candidate.characterSheetId().value().toString().equals(tokenId.toString())
-                        || canonicalPlayerTokenId(candidate.characterSheetId().value()).toString().equals(tokenId.toString()))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("map action token does not belong to the party"));
+    private com.dndmaster.adventure.domain.adventure.AdventurePartyMember characterSheetForToken(
+            Adventure adventure, UUID owner, UUID tokenId) {
+        return CombatMapPlayerTokenResolver.resolve(adventure, owner, tokenId, combatMapViewPort);
     }
 
     public record MapActionPayload(UUID mapId, long mapVersion, UUID tokenId, String action,

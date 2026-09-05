@@ -6,6 +6,7 @@ import com.dndmaster.combatmap.application.view.CombatMapViewService;
 import com.dndmaster.combatmap.application.view.MapOwnerId;
 import com.dndmaster.combatmap.application.view.PlayerCombatMapView;
 import com.dndmaster.combatmap.application.view.CombatMapAccessDeniedException;
+import com.dndmaster.combatmap.application.view.MapActivationContext;
 import com.dndmaster.combatmap.application.view.UploadedMapSource;
 import com.dndmaster.combatmap.application.view.TacticalSceneMaterialization;
 import com.dndmaster.combatmap.application.view.TacticalTriggerEffect;
@@ -77,7 +78,7 @@ public class CombatMapController {
         }
         CombatMap map = request.tacticalScene() == null
                 ? mapViewService.prepareGenerated(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
-                        new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(), request.playerSpawnX(), request.playerSpawnY())
+                        new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator())
                 : request.sourceImage() != null && !request.sourceImage().isBlank()
                 ? mapViewService.prepareTactical(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
                         new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(),
@@ -86,7 +87,21 @@ public class CombatMapController {
                 : mapViewService.prepareTactical(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
                         new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(), request.tacticalScene());
         if (request.stagePosition() != null) {
-            mapViewService.activateForAdventure(map.id(), new MapOwnerId(request.ownerId()), request.stagePosition());
+            java.util.Optional<GridPosition> candidate = request.playerSpawnX() == null || request.playerSpawnY() == null
+                    ? java.util.Optional.empty()
+                    : java.util.Optional.of(new GridPosition(request.playerSpawnX(), request.playerSpawnY()));
+            java.util.Optional<MapActivationContext.EntrySide> entrySide;
+            try {
+                entrySide = request.entrySide() == null || request.entrySide().isBlank()
+                        ? java.util.Optional.empty()
+                        : java.util.Optional.of(MapActivationContext.EntrySide.valueOf(request.entrySide().trim().toUpperCase(java.util.Locale.ROOT)));
+            } catch (IllegalArgumentException exception) {
+                throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "invalid entry side", exception);
+            }
+            mapViewService.activateForAdventure(map.id(), new MapOwnerId(request.ownerId()),
+                    MapActivationContext.from(request.stagePosition(), candidate, entrySide,
+                            java.util.Optional.ofNullable(request.playerTokenId()), request.situationId(), request.situationRevision(),
+                            request.turnIndex(), request.currentScene(), request.location()));
         }
         return new PrepareResponse(map.id().value());
     }
@@ -214,12 +229,31 @@ public class CombatMapController {
     public record PrepareRequest(UUID adventureId, UUID ownerId, UUID ruleSetId,
                                  UUID mapDefinitionId, String assetId, String assetLocator,
                                  Integer playerSpawnX, Integer playerSpawnY, String sourceImage, String sourceImageContentType,
-                                 TacticalSceneMaterialization tacticalScene, Integer stagePosition) {
+                                 TacticalSceneMaterialization tacticalScene, Integer stagePosition,
+                                 UUID playerTokenId, UUID situationId, Long situationRevision, Integer turnIndex,
+                                 String currentScene, String location, String entrySide) {
         public PrepareRequest(UUID adventureId, UUID ownerId, UUID ruleSetId, UUID mapDefinitionId, String assetId,
                 String assetLocator, Integer playerSpawnX, Integer playerSpawnY) {
-            this(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, playerSpawnX, playerSpawnY, null, null, null, null);
+            this(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, playerSpawnX, playerSpawnY,
+                    null, null, null, null, null, UUID.randomUUID(), 1L, 0, "unknown", "unknown", null);
         }
-        public PrepareRequest { playerSpawnX = playerSpawnX == null ? 0 : playerSpawnX; playerSpawnY = playerSpawnY == null ? 0 : playerSpawnY; if (stagePosition != null && stagePosition < 1) throw new IllegalArgumentException("stage position must be positive"); }
+        public PrepareRequest(UUID adventureId, UUID ownerId, UUID ruleSetId, UUID mapDefinitionId, String assetId,
+                String assetLocator, Integer playerSpawnX, Integer playerSpawnY, String sourceImage,
+                String sourceImageContentType, TacticalSceneMaterialization tacticalScene, Integer stagePosition) {
+            this(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, playerSpawnX, playerSpawnY,
+                    sourceImage, sourceImageContentType, tacticalScene, stagePosition, null, UUID.randomUUID(), 1L, 0,
+                    "unknown", "unknown", null);
+        }
+        public PrepareRequest {
+            if (stagePosition != null && stagePosition < 1) throw new IllegalArgumentException("stage position must be positive");
+            if (situationId == null) situationId = UUID.randomUUID();
+            if (situationRevision == null) situationRevision = 1L;
+            if (situationRevision < 1) throw new IllegalArgumentException("situation revision must be positive");
+            if (turnIndex == null) turnIndex = 0;
+            if (turnIndex < 0) throw new IllegalArgumentException("turn index must not be negative");
+            currentScene = currentScene == null || currentScene.isBlank() ? "unknown" : currentScene.trim();
+            location = location == null || location.isBlank() ? "unknown" : location.trim();
+        }
     }
     public record PrepareResponse(UUID mapId) {}
 }

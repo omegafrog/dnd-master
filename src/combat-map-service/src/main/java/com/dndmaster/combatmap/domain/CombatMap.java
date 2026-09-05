@@ -107,7 +107,31 @@ public final class CombatMap {
         if (!effect.transitionId().isBlank() && !state.transitionId().equals(effect.transitionId())) state = new TacticalRuntimeState(state.combatEntered(), state.alarmRaised(), state.reinforcementsActivated(), state.bossActivated(), state.rewardDiscovered(), state.outcome(), effect.transitionId());
         next.replaceRuntimeState(state);
         next.replaceDoors(doors); next.refreshVisibility(visibilitySnapshot == null ? 0 : visibilitySnapshot.ruleTurn());
+        if (effect.kind() == com.dndmaster.combatmap.application.view.TacticalTriggerEffect.Kind.FOG_REVEAL) {
+            next.revealCells(fogRevealPositions(effect.targetIds(), tokens));
+        }
         return next;
+    }
+
+    private void revealCells(Collection<GridPosition> cells) {
+        if (cells.isEmpty() || visibilitySnapshot == null) return;
+        Set<GridPosition> current = new HashSet<>(visibilitySnapshot.current());
+        Set<GridPosition> explored = new HashSet<>(visibilitySnapshot.explored());
+        cells.stream().filter(grid::contains).forEach(position -> { current.add(position); explored.add(position); });
+        visibilitySnapshot = new VisibilitySnapshot(current, explored, visibilitySnapshot.observedTokens(),
+                visibilitySnapshot.lastSeen(), visibilitySnapshot.ruleTurn());
+    }
+
+    private static Set<GridPosition> fogRevealPositions(List<String> requested, List<CombatToken> tokens) {
+        Set<GridPosition> positions = requested.stream().flatMap(value -> fogCellPosition(value).stream())
+                .collect(java.util.stream.Collectors.toSet());
+        for (String target : requested) {
+            UUID id;
+            try { id = canonicalTokenId(target); } catch (RuntimeException ignored) { continue; }
+            tokens.stream().filter(token -> token.id().value().equals(id)).findFirst()
+                    .ifPresent(token -> positions.add(token.position()));
+        }
+        return positions;
     }
 
     /**
@@ -142,5 +166,12 @@ public final class CombatMap {
     private static Optional<String> fogCell(String value) {
         if (value != null && value.matches("\\d+,\\d+")) return Optional.of(value.trim());
         return Optional.empty();
+    }
+
+    private static Optional<GridPosition> fogCellPosition(String value) {
+        return fogCell(value).map(cell -> {
+            String[] coordinates = cell.split(",");
+            return new GridPosition(Integer.parseInt(coordinates[0]), Integer.parseInt(coordinates[1]));
+        });
     }
 }
