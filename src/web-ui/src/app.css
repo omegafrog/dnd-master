@@ -1061,7 +1061,7 @@ body {
 .map-legend { display:grid; grid-template-columns:repeat(auto-fit,minmax(9rem,1fr)); gap:.4rem; margin-top:.7rem; padding:.6rem; border:1px solid #cdbda6; border-radius:6px; background:#f8f2e6; }
 .tactical-map-window { overflow:auto; }
 .tactical-map { display:grid; grid-template-columns:repeat(var(--grid-columns,1),minmax(0,1fr)); grid-template-rows:repeat(var(--grid-rows,1),minmax(0,1fr)); width:min(100%,70rem); aspect-ratio:var(--map-aspect,1 / 1); box-sizing:border-box; background-color:#d9cbb3; background-position:var(--map-background-position,center); background-repeat:no-repeat; background-size:var(--map-background-size,100% 100%); border:1px solid #9e8764; border-radius:6px; overflow:hidden; }
-.tactical-map > button { min-width:0; min-height:0; box-sizing:border-box; padding:0; border:1px solid rgb(0 0 0 / 45%) !important; border-radius:0 !important; background-color:transparent !important; color:transparent; font-size:0; opacity:1; }
+.tactical-map > button { min-width:0; min-height:0; box-sizing:border-box; padding:0; border:1px solid rgb(0 0 0 / 38%) !important; border-radius:0 !important; background-color:transparent !important; color:transparent; font-size:0; opacity:1; }
 .tactical-map > button:hover,.tactical-map > button:focus-visible { background-color:rgb(255 255 255 / 18%) !important; outline:2px solid #202428; outline-offset:-2px; }
 .tactical-map > button[data-visibility='hidden'] { background-color:rgb(24 30 34) !important; background-image:none !important; }
 .tactical-map > button[data-visibility='explored'] { background:rgb(30 35 38 / 28%) !important; }

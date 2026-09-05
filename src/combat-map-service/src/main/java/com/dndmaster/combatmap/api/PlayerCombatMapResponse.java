@@ -1,6 +1,7 @@
 package com.dndmaster.combatmap.api;
 
 import com.dndmaster.combatmap.application.view.PlayerCombatMapView;
+import com.dndmaster.combatmap.domain.LayerVisibility;
 import java.util.List;
 import java.util.UUID;
 
@@ -13,7 +14,7 @@ public record PlayerCombatMapResponse(UUID mapId, GridResponse grid, List<TokenR
                         .toList(),
                 v.obstacles().stream().map(p -> new ObstacleResponse(p.x(), p.y())).toList(),
                 v.doors().stream().map(d -> new DoorResponse(d.position().x(), d.position().y(), d.open())).toList(),
-                v.layers().stream().map(l -> new LayerResponse(l.type(), l.value())).toList(),
+                v.layers().stream().map(l -> new LayerResponse(l.type(), l.value(), LayerVisibility.PLAYER_VISIBLE.name())).toList(),
                 v.current().stream().map(p -> new PositionResponse(p.x(), p.y())).toList(),
                 v.explored().stream().map(p -> new PositionResponse(p.x(), p.y())).toList(),
                 v.version());
@@ -24,5 +25,5 @@ public record PlayerCombatMapResponse(UUID mapId, GridResponse grid, List<TokenR
     public record DoorResponse(int x, int y, boolean open) {}
     public record TokenResponse(UUID id, String type, int x, int y, boolean lastSeen) {}
     public record PositionResponse(int x, int y) {}
-    public record LayerResponse(String type, String value) {}
+    public record LayerResponse(String type, String value, String visibility) {}
 }
