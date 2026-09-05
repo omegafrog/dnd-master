@@ -4,7 +4,6 @@ import com.dndmaster.adventure.domain.combat.CombatEncounter;
 import com.dndmaster.adventure.domain.combat.CombatEvent;
 import java.util.List;
 import java.util.Objects;
-import org.springframework.transaction.annotation.Transactional;
 
 /** Resolves the interrupt only; the existing operation worker resumes its stored step. */
 public final class CombatReactionApplicationService {
@@ -16,7 +15,6 @@ public final class CombatReactionApplicationService {
         this.eventRepository = Objects.requireNonNull(eventRepository);
     }
 
-    @Transactional
     public ReactionResolutionResponse resolve(ResolveReactionCommand command) {
         CombatEncounter encounter = encounterRepository.findActive(command.adventureId())
                 .orElseThrow(() -> new CombatCommandRejectedException("COMBAT_NOT_ACTIVE", List.of("COMBAT_NOT_ACTIVE")));
