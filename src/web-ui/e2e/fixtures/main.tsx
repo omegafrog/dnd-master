@@ -255,7 +255,7 @@ const playApi: AdventurePlayApi = {
   async getCombatMap() {
     if (window.location.search.includes('full-journey')) {
       const position = JSON.parse(sessionStorage.getItem('dnd-master-e2e-map-position') ?? '{"x":0,"y":0}') as { x: number; y: number }
-      return { adventureId, status: 'authoritative-map', mapId: 'map-e2e', version: Number(sessionStorage.getItem('dnd-master-e2e-map-version') ?? '1'), sessionVersion: 4, grid: { width: 3, height: 3 }, tokens: [{ id: 'hero', type: 'PLAYER', x: position.x, y: position.y }, { id: 'hidden', type: 'ENEMY', x: 2, y: 2, lastSeen: true }], current: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }], explored: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: 2, y: 2 }] }
+      return { adventureId, status: 'authoritative-map', mapId: 'map-e2e', version: Number(sessionStorage.getItem('dnd-master-e2e-map-version') ?? '1'), sessionVersion: 4, grid: { width: 3, height: 3 }, tokens: [{ id: 'hero', type: 'PLAYER', x: position.x, y: position.y }, { id: 'hidden', type: 'ENEMY', x: 2, y: 2, lastSeen: true }], layers: [{ type: 'MAP_IMAGE', value: '/assets/maps/a-potent-brew-map.png' }, { type: 'GRID_BOUNDS', value: '311,105,800,800,1403,992' }], current: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }], explored: [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 0, y: 1 }, { x: 2, y: 2 }] }
     }
     return {
       adventureId,
@@ -398,7 +398,7 @@ function Journey() {
         <RuleEvidence adventureId={adventureId} api={guidanceApi} />
         <CharacterSheetView sheetId="sheet-e2e" api={playApi} />
         <RoleDiceRoller adventureId={adventureId} api={playApi} />
-        <CombatMapView adventureId={adventureId} api={playApi} />
+        <div className="app-content"><CombatMapView adventureId={adventureId} api={playApi} /></div>
         <SavedAdventurePanel playApi={playApi} setupApi={setupApi} playerId="player-e2e" />
       </div>
     </div>

@@ -5,7 +5,8 @@ import java.util.ArrayList;
 import java.util.List;
 
 /** Detects the regular printed grid without relying on map-specific labels. */
-public final class MapGridDetector {
+public final class MapGridDetector implements MapGridDetectionPort {
+    @Override
     public DetectedMapGrid detect(BufferedImage image) {
         if (image == null) throw new IllegalArgumentException("map image required");
         List<Integer> vertical = peaks(image, true);
