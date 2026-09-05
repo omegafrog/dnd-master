@@ -158,10 +158,12 @@ public class AdventureApiConfiguration {
             CharacterSheetOwnershipPort ownershipPort,
             SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
             AiCompanionGenerationPort aiCompanionGenerationPort,
-            AiCompanionSheetCreationPort aiCompanionSheetCreationPort) {
+            AiCompanionSheetCreationPort aiCompanionSheetCreationPort,
+            com.dndmaster.adventure.application.combat.CombatMapPreparationPort combatMapPreparationPort) {
         return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository,
                 runtimeBindingService, new AdventureSessionStartCoordinator(startOutboxRepository), ownershipPort,
-                sessionKnowledgeSetRepository, aiCompanionGenerationPort, aiCompanionSheetCreationPort);
+                sessionKnowledgeSetRepository, aiCompanionGenerationPort, aiCompanionSheetCreationPort,
+                combatMapPreparationPort);
     }
 
     @Bean
@@ -851,6 +853,15 @@ public class AdventureApiConfiguration {
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
             ObjectMapper objectMapper) {
         return new HttpCombatMapViewGateway(HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), objectMapper, internalToken);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.CombatMapPreparationPort combatMapPreparationPort(
+            @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
+            ObjectMapper objectMapper) {
+        return new com.dndmaster.adventure.application.combat.HttpCombatMapPreparationGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(30), objectMapper, internalToken);
     }
 
     @Bean

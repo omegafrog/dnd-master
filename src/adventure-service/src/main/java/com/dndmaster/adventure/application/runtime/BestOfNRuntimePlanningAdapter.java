@@ -61,11 +61,10 @@ public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort 
             String candidateId = plan.requestedSelectionId().isBlank() ? "runtime-" + i : plan.requestedSelectionId();
             TurnPlan turnPlan = new TurnPlan(plan.scene(), plan.npcState(), plan.judgment(),
                     plan.stateDelta() == null ? List.of() : new ArrayList<>(plan.stateDelta().revealedFactIds()), List.of());
-            // npcState is narrative state, not an entity identifier. Treating the
-            // whole generated sentence as an entity rejects otherwise grounded
-            // candidates (for example, a newly introduced NPC description).
-            Set<String> referencedEntities = java.util.stream.Stream.of(plan.scene())
-                    .filter(value -> value != null && !value.isBlank()).collect(java.util.stream.Collectors.toSet());
+            // Scene and NPC state are narrative prose, not entity identifiers.
+            // Treating either generated sentence as an entity rejects otherwise
+            // grounded candidates (for example, a newly introduced NPC description).
+            Set<String> referencedEntities = Set.of();
             candidates.add(new PlanCandidate(candidateId, turnPlan, request.action(),
                 context.stateFingerprint(), context.situationKey(), context.informationBoundary(), referencedEntities,
                     !hasWarning(plan, "agency", "player_agency", "player agency"),

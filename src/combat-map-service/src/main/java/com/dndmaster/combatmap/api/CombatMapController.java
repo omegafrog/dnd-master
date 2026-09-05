@@ -71,6 +71,10 @@ public class CombatMapController {
                             @RequestBody(required = false) PrepareRequest request) {
         requestGuard.internal(token);
         requireRequest(request, "prepare request is required");
+        if (request.stagePosition() != null) {
+            var existing = mapViewService.displayForAdventure(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()));
+            if (existing.isPresent()) return new PrepareResponse(existing.get().mapId().value());
+        }
         CombatMap map = request.tacticalScene() == null
                 ? mapViewService.prepareGenerated(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
                         new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(), request.playerSpawnX(), request.playerSpawnY())
@@ -81,6 +85,9 @@ public class CombatMapController {
                                 Base64.getDecoder().decode(request.sourceImage())), request.tacticalScene())
                 : mapViewService.prepareTactical(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
                         new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(), request.tacticalScene());
+        if (request.stagePosition() != null) {
+            mapViewService.activateForAdventure(map.id(), new MapOwnerId(request.ownerId()), request.stagePosition());
+        }
         return new PrepareResponse(map.id().value());
     }
 
@@ -207,12 +214,12 @@ public class CombatMapController {
     public record PrepareRequest(UUID adventureId, UUID ownerId, UUID ruleSetId,
                                  UUID mapDefinitionId, String assetId, String assetLocator,
                                  Integer playerSpawnX, Integer playerSpawnY, String sourceImage, String sourceImageContentType,
-                                 TacticalSceneMaterialization tacticalScene) {
+                                 TacticalSceneMaterialization tacticalScene, Integer stagePosition) {
         public PrepareRequest(UUID adventureId, UUID ownerId, UUID ruleSetId, UUID mapDefinitionId, String assetId,
                 String assetLocator, Integer playerSpawnX, Integer playerSpawnY) {
-            this(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, playerSpawnX, playerSpawnY, null, null, null);
+            this(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, playerSpawnX, playerSpawnY, null, null, null, null);
         }
-        public PrepareRequest { playerSpawnX = playerSpawnX == null ? 0 : playerSpawnX; playerSpawnY = playerSpawnY == null ? 0 : playerSpawnY; }
+        public PrepareRequest { playerSpawnX = playerSpawnX == null ? 0 : playerSpawnX; playerSpawnY = playerSpawnY == null ? 0 : playerSpawnY; if (stagePosition != null && stagePosition < 1) throw new IllegalArgumentException("stage position must be positive"); }
     }
     public record PrepareResponse(UUID mapId) {}
 }

@@ -67,7 +67,9 @@ public final class TypedAgentContractController {
         require(request);
         return adapter.complete(request.operationKey(),
                 "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=" + write(request.factLookupResults())
-                        + "\nACTION=" + request.action(),
+                        + "\nACTION=" + request.action()
+                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with three non-empty string fields: "
+                        + "scene, judgment, narration. Do not use markdown, code fences, or any other text.",
                 this::parseRuntimeTurn);
     }
 

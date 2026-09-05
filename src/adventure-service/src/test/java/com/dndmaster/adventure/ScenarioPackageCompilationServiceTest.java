@@ -16,6 +16,8 @@ import com.dndmaster.adventure.domain.scenario.ResolutionOverrideStatus;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioResolutionDetail;
+import com.dndmaster.adventure.domain.scenario.ScenarioModel;
+import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundleRevision;
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
@@ -28,6 +30,17 @@ import java.time.Instant;
 import org.junit.jupiter.api.Test;
 
 class ScenarioPackageCompilationServiceTest {
+    @Test
+    void modelCompilationIncludesTheDeterministicDndCharacterBlueprint() {
+        KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = new ScenarioPackageCompilationService(new InMemoryPackageRepository())
+                .compileWithScenarioModel(bundle(documentId, 1), List.of(), List.of(), ScenarioModel.empty());
+
+        assertTrue(scenarioPackage.characterCreationBlueprint().fields().size() > 1);
+        assertEquals(List.of("드워프", "엘프", "인간", "하플링"),
+                scenarioPackage.characterCreationBlueprint().field("race").options());
+    }
+
     @Test
     void rejectsResolutionWithoutCanonicalRevealContract() {
         KnowledgeDocumentId documentId = new KnowledgeDocumentId(UUID.randomUUID());

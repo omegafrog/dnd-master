@@ -6,6 +6,7 @@ import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class TypedAgentContractControllerTest {
@@ -31,6 +32,29 @@ class TypedAgentContractControllerTest {
 
         org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
                 () -> controller.scenarioLookup("service-secret", new TypedAgentContractController.ScenarioLookupRequest(" ", Map.of())));
+    }
+
+    @Test
+    void runtime_turn_prompt_declares_the_json_contract_required_by_its_parser() {
+        AtomicReference<String> prompt = new AtomicReference<>();
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override
+            public <T> T complete(String operation, String value,
+                    com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                prompt.set(value);
+                return parser.parse("{\"scene\":\"brewery\",\"judgment\":\"safe\",\"narration\":\"The room is quiet.\"}");
+            }
+        };
+
+        TypedAgentContractController controller = new TypedAgentContractController(
+                adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        controller.runtimeTurn("service-secret",
+                new TypedAgentContractController.RuntimeTurnRequest("op", "look around", List.of()));
+
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("OUTPUT_CONTRACT"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("scene, judgment, narration"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Do not use markdown"));
     }
 
     private static GmCompletionAdapter emptyAdapter() {

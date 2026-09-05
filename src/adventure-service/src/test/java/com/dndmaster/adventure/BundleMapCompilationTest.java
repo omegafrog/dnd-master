@@ -42,6 +42,7 @@ class BundleMapCompilationTest {
         assertEquals("map-1", map.assetId());
         assertEquals("SAFE", map.safetyStatus().name());
         assertFalse(map.source().locator().isBlank());
+        assertEquals(map, result.initialMapDefinition("opening").orElseThrow());
     }
 
     @Test

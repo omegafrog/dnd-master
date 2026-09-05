@@ -217,10 +217,11 @@ public final class ScenarioPackageCompilationService {
             overrideRepository.saveAll(overrideResult.overrides());
         }
         var mapCompilation = mapCompiler.compile(bundle, availableExcerpts);
-        CharacterCreationBlueprint characterBlueprint = characterCandidates == null
+        CharacterCreationBlueprint extractedCharacterBlueprint = characterCandidates == null
                 ? blueprintCompiler.compile(bundle.currentRevision().revision(), blueprintCandidates(bundle, availableExcerpts))
-                : DndCharacterCreationTemplate.apply("DND_5E_2014",
-                        blueprintCompiler.compileAgent(bundle.currentRevision().revision(), characterCandidates));
+                : blueprintCompiler.compileAgent(bundle.currentRevision().revision(), characterCandidates);
+        CharacterCreationBlueprint characterBlueprint = DndCharacterCreationTemplate.apply(
+                "DND_5E_2014", extractedCharacterBlueprint);
         characterBlueprint = attachDefinitionProvenance(bundle, characterBlueprint);
         ScenarioPackage scenarioPackage = scenarioModel == null
                 ? ScenarioPackage.publishWithMaps(bundle.id(), bundle.currentRevision().revision(), fingerprint,

@@ -153,10 +153,10 @@ class BestOfNTurnPlanningTest {
         var judged = new int[1];
         var audits = new java.util.ArrayList<com.dndmaster.adventure.application.runtime.PlanSelectionAudit>();
         List<RuntimePlan> plans = List.of(
-                new RuntimePlan("dragon-lair", "dragon", "judgment", "narration", null, List.of(), List.of("UNSUPPORTED_ENTITY"), "p", "m", "r"),
                 new RuntimePlan("scene", "npc", "player decides", "narration", null, List.of(), List.of("PLAYER_AGENCY_VIOLATION"), "p", "m", "r"),
                 new RuntimePlan("scene", "npc", "continuity", "narration", null, List.of(), List.of("CONTINUITY_VIOLATION"), "p", "m", "r"),
                 new RuntimePlan("scene", "npc", "rule", "narration", null, List.of(), List.of("RULE_VIOLATION"), "p", "m", "r"),
+                new RuntimePlan("scene", "npc", "agency", "narration", null, List.of(), List.of("agency"), "p", "m", "r"),
                 new RuntimePlan("scene", "npc", "valid", "narration", null, List.of(), List.of(), "p", "m", "r"));
         var index = new int[1];
         var adapter = new BestOfNRuntimePlanningAdapter(request -> plans.get(index[0]++), 5, false, audits::add);
@@ -171,9 +171,32 @@ class BestOfNTurnPlanningTest {
         assertEquals("runtime-4", selected.requestedSelectionId().isBlank() ? "runtime-4" : selected.requestedSelectionId());
         assertEquals(1, audits.getFirst().evaluations().size());
         assertEquals(4, audits.getFirst().rejected().size());
-        assertEquals(Set.of("UNSUPPORTED_ENTITY", "PLAYER_AGENCY_VIOLATION", "CONTINUITY_VIOLATION", "RULE_VIOLATION"),
+        assertEquals(Set.of("PLAYER_AGENCY_VIOLATION", "CONTINUITY_VIOLATION", "RULE_VIOLATION"),
                 audits.getFirst().rejected().stream().flatMap(rejection -> rejection.violations().stream())
                         .map(Enum::name).collect(java.util.stream.Collectors.toSet()));
+    }
+
+    @Test
+    void descriptive_scene_prose_is_not_rejected_as_an_unsupported_entity() {
+        RuntimePlan descriptive = new RuntimePlan(
+                "양조장 내부는 홉과 맥주 냄새로 가득하다.",
+                "발효통 사이에서 쥐 소리가 난다.",
+                "즉각적인 위협은 보이지 않는다.",
+                "너는 조심스럽게 주변을 살핀다.",
+                null, List.of(), List.of(), "p", "m", "r");
+        var adapter = new BestOfNRuntimePlanningAdapter(
+                request -> descriptive, 1, true, audit -> { });
+
+        RuntimePlan selected = adapter.plan(new RuntimePlanningRequest(
+                new AdventureId(UUID.randomUUID()), new OwnerPlayerId(UUID.randomUUID()), UUID.randomUUID(),
+                UUID.randomUUID(), UUID.randomUUID(), 1,
+                new AdventureContext("첫 장면", "", "look around", ""), null,
+                "look around", new EvidencePack(List.of(), List.of(), List.of()), List.of(), List.of(),
+                "stage", null, "provider", "model", "reasoning",
+                new NarrativeContext("player", "첫 장면", 0, Set.of(), List.of(),
+                        java.util.Map.of(), List.of(), List.of(), List.of())));
+
+        assertEquals(descriptive.scene(), selected.scene());
     }
 
     @Test

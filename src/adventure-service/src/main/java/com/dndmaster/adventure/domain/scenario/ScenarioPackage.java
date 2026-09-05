@@ -2,6 +2,7 @@ package com.dndmaster.adventure.domain.scenario;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.UUID;
 
 public final class ScenarioPackage {
@@ -148,6 +149,25 @@ public final class ScenarioPackage {
     public List<MapDefinition> mapDefinitions() { return mapDefinitions; }
     public List<StoryMapBinding> storyMapBindings() { return storyMapBindings; }
     public ScenarioModel scenarioModel() { return scenarioModel; }
+
+    /**
+     * Resolves the first safe map for the initial runtime stage. Explicit stage bindings
+     * win; older bundles that contain only extracted map assets use the deterministic first
+     * safe definition so they remain playable while compilation catches up with bindings.
+     */
+    public Optional<MapDefinition> initialMapDefinition(String initialStage) {
+        if (initialStage != null && !initialStage.isBlank()) {
+            for (StoryMapBinding binding : storyMapBindings) {
+                if (!binding.stage().equalsIgnoreCase(initialStage)) continue;
+                Optional<MapDefinition> bound = mapDefinitions.stream()
+                        .filter(map -> map.id().equals(binding.mapDefinitionId()))
+                        .filter(MapDefinition::autoActivatable)
+                        .findFirst();
+                if (bound.isPresent()) return bound;
+            }
+        }
+        return mapDefinitions.stream().filter(MapDefinition::autoActivatable).findFirst();
+    }
 
     public ScenarioPackage withScenarioModel(ScenarioModel model) {
         return new ScenarioPackage(packageId, bundleId, bundleRevision, inputFingerprint, documents, units, report,
