@@ -24,7 +24,32 @@ paths:
       requestBody:
         required: true
         content:
-          application/json: { schema: { type: object, required: [characterSheetId, action], properties: { characterSheetId: { type: string, format: uuid }, action: { type: string }, targetArmorClass: { type: integer }, attackModifier: { type: integer }, targetCharacterSheetId: { type: string, format: uuid }, damageAmount: { type: integer } } } }
+          application/json:
+            schema:
+              type: object
+              required: [characterSheetId, action]
+              properties:
+                characterSheetId: { type: string, format: uuid }
+                action: { type: string }
+                targetArmorClass: { type: integer }
+                attackModifier: { type: integer }
+                targetCharacterSheetId: { type: string, format: uuid }
+                damageAmount: { type: integer }
+                combatMapId: { type: string, format: uuid }
+                tokenId: { type: string, format: uuid }
+                movementPath:
+                  type: array
+                  minItems: 2
+                  items: { type: object, required: [x, y], properties: { x: { type: integer, minimum: 0 }, y: { type: integer, minimum: 0 } } }
+                movementDistance: { type: integer, minimum: 1 }
+                narrativePosition:
+                  type: object
+                  required: [subjectId, targetId, rangeBand, cover]
+                  properties:
+                    subjectId: { type: string, format: uuid }
+                    targetId: { type: string, format: uuid }
+                    rangeBand: { type: string, minLength: 1 }
+                    cover: { type: string, minLength: 1 }
       responses:
         '202': { description: accepted or committed idempotent result }
         '409': { description: stale version or idempotency conflict }

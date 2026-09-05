@@ -968,10 +968,11 @@ public class AdventureApiConfiguration {
             com.dndmaster.adventure.domain.combat.CombatRulesEngine rulesEngine,
             @Qualifier("diceCombatPort") DiceCombatPort dicePort,
             CharacterCombatPort characterPort,
-            @Qualifier("aiCombatPort") AiCombatPort aiPort) {
+            @Qualifier("aiCombatPort") AiCombatPort aiPort,
+            @Qualifier("combatMapPort") CombatMapPort mapPort) {
         return new com.dndmaster.adventure.application.combat.CombatActionApplicationService(
                 encounterRepository, operationRepository, eventRepository, rulesEngine,
-                dicePort, characterPort, aiPort);
+                dicePort, characterPort, aiPort, mapPort);
     }
 
     @Bean

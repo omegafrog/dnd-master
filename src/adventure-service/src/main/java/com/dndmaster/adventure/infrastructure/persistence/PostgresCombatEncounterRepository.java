@@ -20,8 +20,10 @@ public final class PostgresCombatEncounterRepository implements CombatEncounterR
         var participants = jdbc.query("SELECT participant_id, display_name, controller, initiative, public_condition, movement_remaining, action_available, bonus_action_available, reaction_available FROM combat_participant WHERE encounter_id = ? ORDER BY initiative DESC, participant_id", (rs, n) ->
                 new CombatParticipant(UUID.fromString(rs.getString(1)), rs.getString(2), CombatParticipant.Controller.valueOf(rs.getString(3)), rs.getInt(4), rs.getString(5),
                         new TurnResources(rs.getInt(6), rs.getBoolean(7), rs.getBoolean(8), rs.getBoolean(9))), encounter.encounterId());
+        var positions = jdbc.query("SELECT subject_id, target_id, range_band, cover FROM combat_narrative_position WHERE encounter_id = ? ORDER BY subject_id, target_id", (rs, n) ->
+                new NarrativeCombatPosition(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getString(3), rs.getString(4)), encounter.encounterId());
         return Optional.of(new CombatEncounter(encounter.encounterId(), encounter.adventureId(), encounter.status(), encounter.round(),
-                encounter.currentParticipantId(), participants, encounter.version(), encounter.eventCursor()));
+                encounter.currentParticipantId(), participants, encounter.version(), encounter.eventCursor(), positions));
     }
     @Override public CombatEncounter save(CombatEncounter encounter) {
         jdbc.update("INSERT INTO combat_encounter(encounter_id, adventure_id, status, round, current_participant_id, version, event_cursor) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -31,6 +33,7 @@ public final class PostgresCombatEncounterRepository implements CombatEncounterR
                     encounter.encounterId(), participant.participantId(), participant.displayName(), participant.controller().name(), participant.initiative(), participant.publicCondition(),
                     participant.resources().movement(), participant.resources().actionAvailable(), participant.resources().bonusActionAvailable(), participant.resources().reactionAvailable());
         }
+        saveNarrativePositions(encounter);
         return encounter;
     }
 
@@ -43,7 +46,16 @@ public final class PostgresCombatEncounterRepository implements CombatEncounterR
                     participant.resources().movement(), participant.resources().actionAvailable(), participant.resources().bonusActionAvailable(), participant.resources().reactionAvailable(),
                     encounter.encounterId(), participant.participantId());
         }
+        jdbc.update("DELETE FROM combat_narrative_position WHERE encounter_id = ?", encounter.encounterId());
+        saveNarrativePositions(encounter);
         return encounter;
+    }
+
+    private void saveNarrativePositions(CombatEncounter encounter) {
+        for (var position : encounter.narrativePositions()) {
+            jdbc.update("INSERT INTO combat_narrative_position(encounter_id, subject_id, target_id, range_band, cover) VALUES (?, ?, ?, ?, ?)",
+                    encounter.encounterId(), position.subjectId(), position.targetId(), position.rangeBand(), position.cover());
+        }
     }
 
     private record EncounterRow(UUID encounterId, UUID adventureId, CombatEncounter.Status status, int round,

@@ -11,6 +11,6 @@ public final class PlayerCombatProjectionPolicy {
                         ? p.publicCondition() : null)).toList();
         return new PlayerCombatSnapshot(encounter.encounterId(), encounter.adventureId(), encounter.status(),
                 encounter.round(), encounter.currentParticipantId(), entries, encounter.currentParticipant().resources(),
-                encounter.version(), encounter.eventCursor());
+                encounter.version(), encounter.eventCursor(), encounter.narrativePositions());
     }
 }

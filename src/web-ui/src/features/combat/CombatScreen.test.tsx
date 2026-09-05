@@ -32,4 +32,21 @@ describe('CombatScreen', () => {
     expect(submitAction).toHaveBeenCalledWith('a1', expect.objectContaining({ characterSheetId: 'p1', action: 'attack' }), 3)
     expect(endTurn).toHaveBeenCalledWith('a1', 'p1', 3)
   })
+
+  it('renders mapless range and cover and sends movement through Combat API', async () => {
+    const user = userEvent.setup()
+    const submitMovement = vi.fn(async () => ({ status: 'MOVE_COMMITTED' as const, judgment: 'NEAR range, HALF cover' }))
+    const api = { readSnapshot: vi.fn(), submitAction: vi.fn(), submitMovement, endTurn: vi.fn() }
+    render(<CombatScreen api={api} snapshot={{ encounterId: 'e1', adventureId: 'a1', status: 'ACTIVE', round: 1,
+      currentParticipantId: 'p1', version: 4, eventCursor: 3,
+      resources: { movement: 20, actionAvailable: true, bonusActionAvailable: true, reactionAvailable: true },
+      narrativePositions: [{ subjectId: 'p1', targetId: 'p2', rangeBand: 'NEAR', cover: 'HALF' }],
+      initiative: [{ participantId: 'p1', displayName: '영웅', controller: 'PLAYER', initiative: 15, publicCondition: 'healthy' }] }} />)
+
+    expect(screen.getByText('상대적 위치: NEAR · 엄폐: HALF')).toBeInTheDocument()
+    await user.type(screen.getByRole('textbox', { name: '이동 경로' }), '0,0;1,0')
+    await user.click(screen.getByRole('button', { name: '이동 실행' }))
+
+    expect(submitMovement).toHaveBeenCalledWith('a1', expect.objectContaining({ action: 'MOVE', movementPath: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }), 4)
+  })
 })

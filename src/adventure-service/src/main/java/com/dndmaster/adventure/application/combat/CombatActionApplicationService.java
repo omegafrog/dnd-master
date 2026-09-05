@@ -7,6 +7,8 @@ import com.dndmaster.adventure.domain.combat.CombatEvent;
 import com.dndmaster.adventure.domain.combat.CombatRulesEngine;
 import com.dndmaster.adventure.domain.combat.TurnResourceCost;
 import com.dndmaster.adventure.domain.combat.TurnResources;
+import com.dndmaster.adventure.domain.combat.CombatMovementPolicy;
+import com.dndmaster.adventure.domain.combat.NarrativeCombatPosition;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -20,12 +22,23 @@ public final class CombatActionApplicationService {
     private final DiceCombatPort dicePort;
     private final CharacterCombatPort characterPort;
     private final AiCombatPort aiPort;
+    private final CombatMapPort mapPort;
 
     public CombatActionApplicationService(CombatEncounterRepository encounterRepository,
                                           CombatActionOperationRepository operationRepository,
                                           CombatEventRepository eventRepository,
                                           CombatRulesEngine rulesEngine, DiceCombatPort dicePort,
                                           CharacterCombatPort characterPort, AiCombatPort aiPort) {
+        this(encounterRepository, operationRepository, eventRepository, rulesEngine, dicePort, characterPort, aiPort,
+                command -> { });
+    }
+
+    public CombatActionApplicationService(CombatEncounterRepository encounterRepository,
+                                          CombatActionOperationRepository operationRepository,
+                                          CombatEventRepository eventRepository,
+                                          CombatRulesEngine rulesEngine, DiceCombatPort dicePort,
+                                          CharacterCombatPort characterPort, AiCombatPort aiPort,
+                                          CombatMapPort mapPort) {
         this.encounterRepository = Objects.requireNonNull(encounterRepository);
         this.operationRepository = Objects.requireNonNull(operationRepository);
         this.eventRepository = Objects.requireNonNull(eventRepository);
@@ -33,6 +46,7 @@ public final class CombatActionApplicationService {
         this.dicePort = Objects.requireNonNull(dicePort);
         this.characterPort = Objects.requireNonNull(characterPort);
         this.aiPort = Objects.requireNonNull(aiPort);
+        this.mapPort = Objects.requireNonNull(mapPort);
     }
 
     public CombatActionResponse submit(CombatActionCommand command) {
@@ -44,6 +58,7 @@ public final class CombatActionApplicationService {
         }
 
         CombatEncounter encounter = activeEncounter(command);
+        if (command.isMovement()) return submitMovement(command, encounter, existing);
         CombatActionEvaluation evaluation = rulesEngine.validateAction(encounter,
                 new CombatActionIntent(command.characterSheetId().value(), command.action(), TurnResourceCost.actionOnly()));
         if (!evaluation.accepted()) throw new CombatCommandRejectedException("COMBAT_STATE_REJECTED", evaluation.violations());
@@ -102,6 +117,68 @@ public final class CombatActionApplicationService {
             operationRepository.save(operation);
             throw new CombatExternalFailureException(exception);
         }
+    }
+
+    private CombatActionResponse submitMovement(CombatActionCommand command, CombatEncounter encounter,
+                                                 CombatActionOperation existing) {
+        int distance = movementDistance(command);
+        CombatActionEvaluation evaluation = rulesEngine.validateAction(encounter,
+                new CombatActionIntent(command.characterSheetId().value(), command.action(),
+                        TurnResourceCost.movementOnly(distance)));
+        if (!evaluation.accepted()) throw new CombatCommandRejectedException("COMBAT_STATE_REJECTED", evaluation.violations());
+        if (command.narrativePosition() != null
+                && !command.characterSheetId().value().equals(command.narrativePosition().subjectId())) {
+            throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("NARRATIVE_SUBJECT_MISMATCH"));
+        }
+        TurnResources.Reservation reservation;
+        try {
+            reservation = encounter.reserveAction(command.characterSheetId().value(), evaluation.cost(), command.expectedVersion());
+        } catch (RuntimeException exception) {
+            throw new CombatCommandRejectedException("COMBAT_VERSION_CONFLICT".equals(exception.getMessage())
+                    ? "COMBAT_VERSION_CONFLICT" : "ACTION_NOT_ALLOWED", List.of(exception.getMessage()));
+        }
+
+        CombatActionOperation operation = existing == null
+                ? new CombatActionOperation(command.operationId(), command.fingerprint(), encounter.encounterId(),
+                command.characterSheetId().value(), evaluation.cost(), List.of(
+                new CombatActionStep("map", command.operationId() + ":map", CombatActionStep.Status.PENDING)))
+                : existing;
+        operationRepository.save(operation);
+        try {
+            if (command.combatMapId() != null && !stepDone(operation, "map")) {
+                mapPort.move(new CombatMapMoveCommand(command, distance));
+                operation.completeStep("map");
+                operationRepository.save(operation);
+            } else if (command.combatMapId() == null && command.narrativePosition() == null) {
+                throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("NARRATIVE_POSITION_REQUIRED"));
+            }
+            CombatEncounter committed = encounter.commitMovement(command.characterSheetId().value(), reservation,
+                    command.narrativePosition());
+            encounterRepository.save(committed, encounter.version());
+            String judgment = command.narrativePosition() == null
+                    ? "moved " + distance + "ft" : command.narrativePosition().rangeBand()
+                    + " range, " + command.narrativePosition().cover() + " cover";
+            CombatActionResponse response = new CombatActionResponse(committed.encounterId(), command.operationId(),
+                    committed.version(), "MOVE_COMMITTED", null, judgment, List.of());
+            operation.committed(response);
+            operationRepository.save(operation);
+            eventRepository.append(new CombatEvent(committed.encounterId(), committed.eventCursor(),
+                    "MOVEMENT_RESOLVED", "{\"operationId\":\"" + command.operationId()
+                    + "\",\"distance\":" + distance + "}"));
+            return response;
+        } catch (CombatCommandRejectedException exception) {
+            throw exception;
+        } catch (RuntimeException exception) {
+            operation.failed(exception);
+            operationRepository.save(operation);
+            throw new CombatExternalFailureException(exception);
+        }
+    }
+
+    private static int movementDistance(CombatActionCommand command) {
+        if (command.movementPath() != null) return CombatMovementPolicy.distanceOf(command.movementPath());
+        if (command.movementDistance() != null) return command.movementDistance();
+        throw new CombatCommandRejectedException("ACTION_NOT_ALLOWED", List.of("MOVEMENT_DISTANCE_REQUIRED"));
     }
 
     private static boolean stepDone(CombatActionOperation operation, String name) {

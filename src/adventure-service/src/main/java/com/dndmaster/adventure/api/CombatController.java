@@ -8,6 +8,8 @@ import com.dndmaster.adventure.application.combat.CombatActorRole;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.combat.PlayerCombatProjectionPolicy;
+import com.dndmaster.adventure.domain.combat.NarrativeCombatPosition;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -40,10 +42,12 @@ public final class CombatController {
         UUID commandId = uuidHeader(idempotencyKey, "Idempotency-Key");
         return ResponseEntity.accepted().body(actionService.submit(new CombatActionCommand(commandId,
                 adventure.id(), adventure.sessionId().value(), adventure.ruleSetId(),
-                new CharacterSheetId(request.characterSheetId()), null, CombatActorRole.PLAYER,
-                request.action(), null, playerResolver.playerId(), request.characterSheetId(), expectedVersion,
+                new CharacterSheetId(request.characterSheetId()), request.combatMapId(), CombatActorRole.PLAYER,
+                request.action(), path(request.movementPath()), playerResolver.playerId(), request.tokenId() == null
+                        ? request.characterSheetId() : request.tokenId(), expectedVersion,
                 request.targetArmorClass(), request.attackModifier(), request.targetCharacterSheetId() == null
-                        ? null : new CharacterSheetId(request.targetCharacterSheetId()), request.damageAmount(), false)));
+                        ? null : new CharacterSheetId(request.targetCharacterSheetId()), request.damageAmount(), false,
+                request.narrativePosition() == null ? null : request.narrativePosition().toDomain(), request.movementDistance())));
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat/turn/end")
@@ -106,7 +110,28 @@ public final class CombatController {
     }
 
     public record CombatActionRequest(UUID characterSheetId, String action, Integer targetArmorClass,
-                                      Integer attackModifier, UUID targetCharacterSheetId, Integer damageAmount) {}
+                                      Integer attackModifier, UUID targetCharacterSheetId, Integer damageAmount,
+                                      UUID combatMapId, UUID tokenId, List<PositionRequest> movementPath,
+                                      NarrativePositionRequest narrativePosition, Integer movementDistance) {
+        public CombatActionRequest(UUID characterSheetId, String action, Integer targetArmorClass,
+                                    Integer attackModifier, UUID targetCharacterSheetId, Integer damageAmount) {
+            this(characterSheetId, action, targetArmorClass, attackModifier, targetCharacterSheetId, damageAmount,
+                    null, null, null, null, null);
+        }
+    }
+
+    public record PositionRequest(int x, int y) {}
+    public record NarrativePositionRequest(UUID subjectId, UUID targetId, String rangeBand, String cover) {
+        NarrativeCombatPosition toDomain() {
+            return new NarrativeCombatPosition(subjectId, targetId, rangeBand, cover);
+        }
+    }
+
+    private static String path(List<PositionRequest> positions) {
+        if (positions == null || positions.isEmpty()) return null;
+        return positions.stream().map(position -> position.x() + "," + position.y())
+                .reduce((left, right) -> left + ";" + right).orElse(null);
+    }
 
     public record TurnEndRequest(UUID characterSheetId) {}
 }

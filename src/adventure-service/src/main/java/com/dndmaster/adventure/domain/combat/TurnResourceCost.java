@@ -9,4 +9,8 @@ public record TurnResourceCost(int movement, boolean action, boolean bonusAction
     public static TurnResourceCost actionOnly() {
         return new TurnResourceCost(0, true, false, false);
     }
+
+    public static TurnResourceCost movementOnly(int movement) {
+        return new TurnResourceCost(movement, false, false, false);
+    }
 }

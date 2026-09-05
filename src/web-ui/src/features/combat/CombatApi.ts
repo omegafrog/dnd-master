@@ -16,6 +16,7 @@ export type CombatSnapshot = {
   resources: { movement: number; actionAvailable: boolean; bonusActionAvailable: boolean; reactionAvailable: boolean }
   version: number
   eventCursor: number
+  narrativePositions?: Array<{ subjectId: string; targetId: string; rangeBand: string; cover: string }>
 }
 
 export type CombatActionRequest = {
@@ -25,6 +26,11 @@ export type CombatActionRequest = {
   attackModifier?: number
   targetCharacterSheetId?: string
   damageAmount?: number
+  combatMapId?: string
+  tokenId?: string
+  movementPath?: Array<{ x: number; y: number }>
+  narrativePosition?: { subjectId: string; targetId: string; rangeBand: string; cover: string }
+  movementDistance?: number
 }
 
 export type CombatCommandResult = {
@@ -40,6 +46,7 @@ export type CombatCommandResult = {
 export interface CombatApi {
   readSnapshot(adventureId: string): Promise<CombatSnapshot | null>
   submitAction(adventureId: string, request: CombatActionRequest, version: number): Promise<CombatCommandResult>
+  submitMovement?(adventureId: string, request: CombatActionRequest, version: number): Promise<CombatCommandResult>
   endTurn(adventureId: string, characterSheetId: string, version: number): Promise<CombatCommandResult>
 }
 
@@ -56,6 +63,10 @@ export class HttpCombatApi implements CombatApi {
 
   async submitAction(adventureId: string, request: CombatActionRequest, version: number): Promise<CombatCommandResult> {
     return this.postCommand(`/api/v1/adventures/${adventureId}/combat/actions`, request, version)
+  }
+
+  async submitMovement(adventureId: string, request: CombatActionRequest, version: number): Promise<CombatCommandResult> {
+    return this.submitAction(adventureId, { ...request, action: 'MOVE' }, version)
   }
 
   async endTurn(adventureId: string, characterSheetId: string, version: number): Promise<CombatCommandResult> {

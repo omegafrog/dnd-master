@@ -5,18 +5,24 @@ import java.util.UUID;
 
 public record CombatEncounter(UUID encounterId, UUID adventureId, Status status, int round,
                               UUID currentParticipantId, List<CombatParticipant> participants,
-                              long version, long eventCursor) {
+                              long version, long eventCursor, List<NarrativeCombatPosition> narrativePositions) {
     public enum Status { PREPARING, ACTIVE, ENDED }
     public CombatEncounter {
         participants = List.copyOf(participants);
+        narrativePositions = List.copyOf(narrativePositions == null ? List.of() : narrativePositions);
         if (encounterId == null || adventureId == null || participants.isEmpty() || round < 1 || version < 1) {
             throw new IllegalArgumentException("invalid combat encounter");
         }
     }
+    public CombatEncounter(UUID encounterId, UUID adventureId, Status status, int round,
+                           UUID currentParticipantId, List<CombatParticipant> participants,
+                           long version, long eventCursor) {
+        this(encounterId, adventureId, status, round, currentParticipantId, participants, version, eventCursor, List.of());
+    }
     public CombatEncounter withEventCursor(long cursor) {
         if (cursor < 0) throw new IllegalArgumentException("event cursor must be non-negative");
         return new CombatEncounter(encounterId, adventureId, status, round, currentParticipantId,
-                participants, version, cursor);
+                participants, version, cursor, narrativePositions);
     }
 
     public CombatParticipant currentParticipant() {
@@ -37,7 +43,22 @@ public record CombatEncounter(UUID encounterId, UUID adventureId, Status status,
         List<CombatParticipant> updatedParticipants = participants.stream()
                 .map(p -> p.participantId().equals(actorId) ? updated : p).toList();
         return new CombatEncounter(encounterId, adventureId, status, round, currentParticipantId,
-                updatedParticipants, version + 1, eventCursor + 2);
+                updatedParticipants, version + 1, eventCursor + 2, narrativePositions);
+    }
+
+    public CombatEncounter commitMovement(UUID actorId, TurnResources.Reservation reservation,
+                                          NarrativeCombatPosition position) {
+        if (!currentParticipantId.equals(actorId)) throw new IllegalStateException("NOT_CURRENT_ACTOR");
+        CombatParticipant actor = currentParticipant();
+        CombatParticipant updated = actor.withResources(actor.resources().commit(reservation));
+        List<CombatParticipant> updatedParticipants = participants.stream()
+                .map(p -> p.participantId().equals(actorId) ? updated : p).toList();
+        List<NarrativeCombatPosition> updatedPositions = position == null
+                ? narrativePositions : java.util.stream.Stream.concat(
+                        narrativePositions.stream().filter(existing -> !(existing.subjectId().equals(position.subjectId())
+                                && existing.targetId().equals(position.targetId()))), java.util.stream.Stream.of(position)).toList();
+        return new CombatEncounter(encounterId, adventureId, status, round, currentParticipantId,
+                updatedParticipants, version + 1, eventCursor + 1, updatedPositions);
     }
 
     public CombatEncounter endCurrentTurn(long expectedVersion) {
