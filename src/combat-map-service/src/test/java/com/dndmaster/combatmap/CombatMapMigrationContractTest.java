@@ -10,11 +10,20 @@ import org.junit.jupiter.api.Test;
 class CombatMapMigrationContractTest {
     @Test
     void restoresTheActiveMapReadModelAfterScenarioRuntimeCutover() throws IOException {
+        assertActiveMapReadModelMigration("V2_10__restore_active_tactical_map_read_model.sql");
+    }
+
+    @Test
+    void reassertsTheActiveMapReadModelAfterAdventureMigrationRunsLater() throws IOException {
+        assertActiveMapReadModelMigration("V2_11__ensure_active_tactical_map_read_model.sql");
+    }
+
+    private void assertActiveMapReadModelMigration(String migrationName) throws IOException {
         Path current = Path.of(".").toAbsolutePath().normalize();
         Path relativePath = null;
         while (current != null) {
             Path candidate = current.resolve(
-                    "src/combat-map-service/src/main/resources/db/migration/V2_10__restore_active_tactical_map_read_model.sql");
+                    "src/combat-map-service/src/main/resources/db/migration/" + migrationName);
             if (Files.exists(candidate)) {
                 relativePath = candidate;
                 break;
