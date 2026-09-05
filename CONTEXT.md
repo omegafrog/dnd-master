@@ -47,6 +47,12 @@
 - **Progressive Scenario Compilation**: Source Span을 정본으로 유지하면서 안전하게 해석할 수 있는 판정과 굴림만 Resolution Unit으로 투영하는 방식. 구조화하지 못한 내용은 버리거나 추측하지 않고 원문 조회로 강등한다.
 - **Resolution Unit**: 시나리오 원문에 명시된 판정 또는 굴림 절차를 실행 가능한 형태로 투영한 단위. 능력치·기술 판정, 내성, 공격, 피해, 회복, 대항, 우선권, 충전, 랜덤 테이블, 특수 굴림, 수동 수치 기준을 포함한다. 원문에 없는 절차나 결과는 생성하지 않는다.
 - **GM Turn**: Solo Player의 텍스트 입력 또는 확정된 맵 상호작용 하나를 AI Game Master가 해석하고, 판정·서술·상태 변화·다음 상황을 하나의 원자적 결과로 확정하는 진행 단위. 게임 시스템의 전투 턴이나 시간 단위와 구분한다.
+- **Combat Encounter (Adventure Runtime)**: AI Game Master가 전투 발생을 확정한 시점부터 전투 종료 결과가 일반 세션에 반영될 때까지의 전투 lifecycle 정본. `CombatEncounter` Aggregate가 참가자, Initiative 순서, Round, Combat Turn, 행동 자원, Reaction interrupt, Combat Log를 소유하며 Character Management, Dice Roll, Combat Map의 상태는 복제하지 않고 참조·조정한다.
+- **Combat Turn (Adventure Runtime)**: `CombatEncounter`의 Initiative 순서에 따라 한 참가자가 Movement, Action, Bonus Action을 사용하고 Trigger 발생 시 Reaction interrupt를 처리하는 전투 진행 단위. 플레이어 Combat Turn은 명시적 `턴 종료` 전까지 끝나지 않으며 GM Turn과 구분한다.
+- **Combat Auto-Progression (Adventure Runtime)**: Human Player의 선택이 필요하지 않은 AI Party Member와 Enemy/NPC의 Combat Turn을 서버의 durable state machine이 단계별로 확정하며 연속 실행하는 방식. 다음 Human Player Turn, Reaction 선택 대기, Combat End에서 멈추고 장애나 재접속 후 마지막 확정 단계부터 재개한다.
+- **Reaction Interrupt (Adventure Runtime)**: Game Engine이 확정한 Trigger와 사용 가능한 Reaction 선택지로 진행 중 Combat Turn을 중단하는 상태 전이. `CombatEncounter`는 중단 지점과 pending 선택을 보존하고 `REACTION_PENDING`에서 Human Player의 명시적 사용/넘김을 시간 제한 없이 기다리며, AI 소유 Reaction은 Combat Auto-Progression이 자동 결정한다.
+- **Combat Event (Adventure Runtime)**: `CombatEncounter`의 전투 전이와 판정 결과를 순서대로 보존하는 불변 기록. 현재 상태를 재구성하는 전체 event sourcing 정본은 아니며, Combat Log와 Combat UI SSE 갱신의 원천으로 사용한다. 플레이어 projection은 적 비공개 정보가 제거된 Event만 노출한다.
+- **Narrative Combat Position (Adventure Runtime)**: Tactical Map이 없는 `CombatEncounter`에서 참가자 간 거리와 엄폐 관계를 구조화해 보존하는 위치 정본. AI Game Master가 서술 맥락에서 관계 변경을 제안하고 Game Engine이 Runtime Rule과 남은 Movement로 검증한다.
 - **Roll Ownership**: 플레이어 행동 요청에서 선택된 판정은 Solo Player가 굴림을 제출한다. 세계/이벤트 트리거 판정은 시스템이 해결한다. 판정 소유권이 애매하면 Solo Player가 굴림을 제출한다.
 - **Player-visible Outcome**: 플레이어에게는 제출한 주사위 값과 세계에서 관찰 가능한 행동 결과만 보인다. 내부 성공/실패 판정, DC, 비교값, 미발견 정보는 보이지 않는다.
 - **Pending Roll Gate**: Solo Player 굴림 요청이 생성되면 제출 전에는 해당 GM Turn을 해결하거나 다음 진행으로 넘어갈 수 없다. 취소해도 이 게이트를 우회하지 않는다.
