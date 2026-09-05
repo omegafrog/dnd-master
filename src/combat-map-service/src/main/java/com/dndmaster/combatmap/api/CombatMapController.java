@@ -111,7 +111,7 @@ public class CombatMapController {
     }
 
     public CombatMapMoveResponse movePlayer(UUID mapId, String token, MoveRequest request) {
-        return movePlayer(mapId, token, request, request == null ? null : request.commandId().toString());
+        return movePlayer(mapId, token, request == null ? null : request.commandId().toString(), request);
     }
 
     @PostMapping("/internal/v1/combat-maps/{mapId}/moves")
@@ -119,6 +119,10 @@ public class CombatMapController {
             @PathVariable UUID mapId, @RequestHeader(value = "X-Internal-Token", required = false) String token,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @RequestBody(required = false) MoveRequest request) {
+        return movePlayer(mapId, token, idempotencyKey, request);
+    }
+
+    private CombatMapMoveResponse movePlayer(UUID mapId, String token, String idempotencyKey, MoveRequest request) {
         requestGuard.internal(token);
         requireRequest(request, "move request is required");
         requireIdempotencyKey(idempotencyKey, request.commandId());
