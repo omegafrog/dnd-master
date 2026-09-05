@@ -29,14 +29,23 @@ export function CombatScreen({ snapshot, api }: { snapshot: CombatSnapshot; api?
   }
   const runMovement = async () => {
     if (!api) return
-    const path = movementPath.split(';').map(value => value.trim()).filter(Boolean).map(value => {
-      const [x, y] = value.split(',').map(Number)
-      return { x, y }
-    })
     try {
+      const path = movementPath.split(';').map(value => value.trim()).filter(Boolean).map(value => {
+        const coordinates = value.split(',').map(Number)
+        if (coordinates.length !== 2 || coordinates.some(coordinate => !Number.isInteger(coordinate) || coordinate < 0)) {
+          throw new Error('이동 경로는 0 이상의 x,y 좌표여야 합니다.')
+        }
+        return { x: coordinates[0], y: coordinates[1] }
+      })
+      if (path.length < 2) {
+        setFeedback('이동 경로에 출발지와 목적지를 입력하세요.')
+        return
+      }
+      const narrativePosition = snapshot.narrativePositions?.find(position => position.subjectId === snapshot.currentParticipantId)
       const request = {
         characterSheetId: snapshot.currentParticipantId,
         action: 'MOVE' as const, movementPath: path,
+        ...(narrativePosition ? { narrativePosition, movementDistance: (path.length - 1) * 5 } : {}),
       }
       const result = api.submitMovement
         ? await api.submitMovement(snapshot.adventureId, request, snapshot.version)
