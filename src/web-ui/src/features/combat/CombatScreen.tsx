@@ -1,6 +1,31 @@
-import type { CombatSnapshot } from './CombatApi'
+import { useState } from 'react'
+import type { CombatApi, CombatSnapshot } from './CombatApi'
 
-export function CombatScreen({ snapshot }: { snapshot: CombatSnapshot }) {
+export function CombatScreen({ snapshot, api }: { snapshot: CombatSnapshot; api?: CombatApi }) {
+  const [feedback, setFeedback] = useState<string | null>(null)
+  const current = snapshot.initiative.find(item => item.participantId === snapshot.currentParticipantId)
+  const humanTurn = current?.controller === 'PLAYER'
+  const runAction = async () => {
+    if (!api) return
+    try {
+      const result = await api.submitAction(snapshot.adventureId, {
+        characterSheetId: snapshot.currentParticipantId,
+        action: 'attack',
+      }, snapshot.version)
+      setFeedback(result.judgment ?? result.status)
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : '행동을 실행할 수 없습니다.')
+    }
+  }
+  const endTurn = async () => {
+    if (!api) return
+    try {
+      const result = await api.endTurn(snapshot.adventureId, snapshot.currentParticipantId, snapshot.version)
+      setFeedback(result.status)
+    } catch (error) {
+      setFeedback(error instanceof Error ? error.message : '턴을 종료할 수 없습니다.')
+    }
+  }
   return <section className="combat-screen" aria-labelledby="combat-title">
     <header className="combat-header">
       <p className="eyebrow">COMBAT MODE</p>
@@ -18,5 +43,11 @@ export function CombatScreen({ snapshot }: { snapshot: CombatSnapshot }) {
       <p>이동 {snapshot.resources.movement}ft · Action {snapshot.resources.actionAvailable ? '가능' : '사용'}</p>
       <p>Bonus Action {snapshot.resources.bonusActionAvailable ? '가능' : '사용'} · Reaction {snapshot.resources.reactionAvailable ? '가능' : '사용'}</p>
     </section>
+    {humanTurn && <section aria-labelledby="actions-title">
+      <h2 id="actions-title">행동</h2>
+      <button type="button" onClick={() => void runAction()} disabled={!snapshot.resources.actionAvailable}>공격 실행</button>
+      <button type="button" onClick={() => void endTurn()}>턴 종료</button>
+      {feedback && <p role="status">{feedback}</p>}
+    </section>}
   </section>
 }

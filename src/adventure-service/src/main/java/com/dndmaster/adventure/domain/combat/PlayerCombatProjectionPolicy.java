@@ -10,7 +10,7 @@ public final class PlayerCombatProjectionPolicy {
                 p.controller() == CombatParticipant.Controller.PLAYER || p.participantId().equals(playerId)
                         ? p.publicCondition() : null)).toList();
         return new PlayerCombatSnapshot(encounter.encounterId(), encounter.adventureId(), encounter.status(),
-                encounter.round(), encounter.currentParticipantId(), entries, TurnResources.initial(),
+                encounter.round(), encounter.currentParticipantId(), entries, encounter.currentParticipant().resources(),
                 encounter.version(), encounter.eventCursor());
     }
 }

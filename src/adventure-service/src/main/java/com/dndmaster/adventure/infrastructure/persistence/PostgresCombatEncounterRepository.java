@@ -17,8 +17,9 @@ public final class PostgresCombatEncounterRepository implements CombatEncounterR
                         rs.getLong(6), rs.getLong(7)), adventureId);
         if (encounters.isEmpty()) return Optional.empty();
         var encounter = encounters.get(0);
-        var participants = jdbc.query("SELECT participant_id, display_name, controller, initiative, public_condition FROM combat_participant WHERE encounter_id = ? ORDER BY initiative DESC, participant_id", (rs, n) ->
-                new CombatParticipant(UUID.fromString(rs.getString(1)), rs.getString(2), CombatParticipant.Controller.valueOf(rs.getString(3)), rs.getInt(4), rs.getString(5)), encounter.encounterId());
+        var participants = jdbc.query("SELECT participant_id, display_name, controller, initiative, public_condition, movement_remaining, action_available, bonus_action_available, reaction_available FROM combat_participant WHERE encounter_id = ? ORDER BY initiative DESC, participant_id", (rs, n) ->
+                new CombatParticipant(UUID.fromString(rs.getString(1)), rs.getString(2), CombatParticipant.Controller.valueOf(rs.getString(3)), rs.getInt(4), rs.getString(5),
+                        new TurnResources(rs.getInt(6), rs.getBoolean(7), rs.getBoolean(8), rs.getBoolean(9))), encounter.encounterId());
         return Optional.of(new CombatEncounter(encounter.encounterId(), encounter.adventureId(), encounter.status(), encounter.round(),
                 encounter.currentParticipantId(), participants, encounter.version(), encounter.eventCursor()));
     }
@@ -26,8 +27,21 @@ public final class PostgresCombatEncounterRepository implements CombatEncounterR
         jdbc.update("INSERT INTO combat_encounter(encounter_id, adventure_id, status, round, current_participant_id, version, event_cursor) VALUES (?, ?, ?, ?, ?, ?, ?)",
                 encounter.encounterId(), encounter.adventureId(), encounter.status().name(), encounter.round(), encounter.currentParticipantId(), encounter.version(), encounter.eventCursor());
         for (var participant : encounter.participants()) {
-            jdbc.update("INSERT INTO combat_participant(encounter_id, participant_id, display_name, controller, initiative, public_condition) VALUES (?, ?, ?, ?, ?, ?)",
-                    encounter.encounterId(), participant.participantId(), participant.displayName(), participant.controller().name(), participant.initiative(), participant.publicCondition());
+            jdbc.update("INSERT INTO combat_participant(encounter_id, participant_id, display_name, controller, initiative, public_condition, movement_remaining, action_available, bonus_action_available, reaction_available) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    encounter.encounterId(), participant.participantId(), participant.displayName(), participant.controller().name(), participant.initiative(), participant.publicCondition(),
+                    participant.resources().movement(), participant.resources().actionAvailable(), participant.resources().bonusActionAvailable(), participant.resources().reactionAvailable());
+        }
+        return encounter;
+    }
+
+    @Override public CombatEncounter save(CombatEncounter encounter, long expectedVersion) {
+        int updated = jdbc.update("UPDATE combat_encounter SET status = ?, round = ?, current_participant_id = ?, version = ?, event_cursor = ? WHERE encounter_id = ? AND version = ?",
+                encounter.status().name(), encounter.round(), encounter.currentParticipantId(), encounter.version(), encounter.eventCursor(), encounter.encounterId(), expectedVersion);
+        if (updated != 1) throw new IllegalStateException("COMBAT_VERSION_CONFLICT");
+        for (var participant : encounter.participants()) {
+            jdbc.update("UPDATE combat_participant SET movement_remaining = ?, action_available = ?, bonus_action_available = ?, reaction_available = ? WHERE encounter_id = ? AND participant_id = ?",
+                    participant.resources().movement(), participant.resources().actionAvailable(), participant.resources().bonusActionAvailable(), participant.resources().reactionAvailable(),
+                    encounter.encounterId(), participant.participantId());
         }
         return encounter;
     }

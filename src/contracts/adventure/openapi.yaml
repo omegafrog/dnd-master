@@ -15,6 +15,34 @@ paths:
         - { name: Last-Event-ID, in: header, schema: { type: string } }
       responses:
         '200': { description: player-safe combat events, content: { text/event-stream: { schema: { type: string } } } }
+  /api/v1/adventures/{adventureId}/combat/actions:
+    post:
+      operationId: submitCombatAction
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+        - { name: If-Match-Version, in: header, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { type: object, required: [characterSheetId, action], properties: { characterSheetId: { type: string, format: uuid }, action: { type: string }, targetArmorClass: { type: integer }, attackModifier: { type: integer }, targetCharacterSheetId: { type: string, format: uuid }, damageAmount: { type: integer } } } }
+      responses:
+        '202': { description: accepted or committed idempotent result }
+        '409': { description: stale version or idempotency conflict }
+        '422': { description: actor/state/rule rejection }
+  /api/v1/adventures/{adventureId}/combat/turn/end:
+    post:
+      operationId: endCombatTurn
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+        - { name: If-Match-Version, in: header, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { type: object, required: [characterSheetId], properties: { characterSheetId: { type: string, format: uuid } } } }
+      responses:
+        '202': { description: explicit human turn end }
+        '409': { description: stale version or idempotency conflict }
+        '422': { description: not the human player turn }
   /api/v1/adventures/{adventureId}/events:
     get:
       operationId: streamAdventureEvents
@@ -46,6 +74,7 @@ paths:
   /api/v1/adventures/{adventureId}/dice-rolls:
     post:
       operationId: rollDice
+      deprecated: true
       requestBody:
         required: true
         content:

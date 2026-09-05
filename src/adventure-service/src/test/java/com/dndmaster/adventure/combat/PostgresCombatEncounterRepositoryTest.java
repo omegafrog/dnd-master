@@ -32,7 +32,7 @@ class PostgresCombatEncounterRepositoryTest {
             statement.execute("DROP TABLE IF EXISTS combat_participant");
             statement.execute("DROP TABLE IF EXISTS combat_encounter");
             statement.execute("CREATE TABLE combat_encounter (encounter_id UUID PRIMARY KEY, adventure_id UUID NOT NULL, status TEXT NOT NULL, round INT NOT NULL, current_participant_id UUID NOT NULL, version BIGINT NOT NULL, event_cursor BIGINT NOT NULL)");
-            statement.execute("CREATE TABLE combat_participant (encounter_id UUID NOT NULL, participant_id UUID NOT NULL, display_name TEXT NOT NULL, controller TEXT NOT NULL, initiative INT NOT NULL, public_condition TEXT, PRIMARY KEY (encounter_id, participant_id))");
+            statement.execute("CREATE TABLE combat_participant (encounter_id UUID NOT NULL, participant_id UUID NOT NULL, display_name TEXT NOT NULL, controller TEXT NOT NULL, initiative INT NOT NULL, public_condition TEXT, movement_remaining INT NOT NULL DEFAULT 30, action_available BOOLEAN NOT NULL DEFAULT TRUE, bonus_action_available BOOLEAN NOT NULL DEFAULT TRUE, reaction_available BOOLEAN NOT NULL DEFAULT TRUE, PRIMARY KEY (encounter_id, participant_id))");
         }
     }
 

@@ -9,8 +9,11 @@ public final class CombatStartPolicy {
                                                             List<CombatParticipant> participants) {
         if (!gmTurnCommitted) throw new CombatStartRejectedException("combat requires committed GM turn");
         var order = InitiativeOrderPolicy.order(participants);
+        var orderedParticipants = participants.stream()
+                .sorted(java.util.Comparator.comparingInt(CombatParticipant::initiative).reversed()
+                        .thenComparing(p -> p.participantId().toString())).toList();
         return new CombatEncounter(UUID.randomUUID(), adventureId, CombatEncounter.Status.ACTIVE, 1,
-                order.participantIds().get(0), participants, 1, 0);
+                order.participantIds().get(0), orderedParticipants, 1, 0);
     }
     public static void requireNoActiveEncounter(UUID adventureId, List<CombatEncounter> activeEncounters) {
         if (activeEncounters.stream().anyMatch(e -> e.adventureId().equals(adventureId)

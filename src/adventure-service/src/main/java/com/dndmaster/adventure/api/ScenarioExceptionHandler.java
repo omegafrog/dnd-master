@@ -1,6 +1,8 @@
 package com.dndmaster.adventure.api;
 
 import com.dndmaster.adventure.application.combat.RuntimeCombatRejectionException;
+import com.dndmaster.adventure.application.combat.CombatCommandRejectedException;
+import com.dndmaster.adventure.application.combat.CombatExternalFailureException;
 import com.dndmaster.adventure.domain.scenario.ScenarioAccessDeniedException;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleAccessDeniedException;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleNotFoundException;
@@ -25,6 +27,23 @@ public final class ScenarioExceptionHandler {
         return ResponseEntity.status(HttpStatus.UNPROCESSABLE_ENTITY).body(Map.of(
                 "error", RuntimeCombatRejectionException.ERROR_CODE,
                 "message", exception.getMessage()));
+    }
+
+    @ExceptionHandler(CombatCommandRejectedException.class)
+    public ResponseEntity<Map<String, Object>> combatCommandRejected(CombatCommandRejectedException exception) {
+        return ResponseEntity.status(exception.code().equals("COMBAT_VERSION_CONFLICT") ? HttpStatus.CONFLICT : HttpStatus.UNPROCESSABLE_ENTITY)
+                .body(Map.of("error", exception.code(), "violations", exception.violations()));
+    }
+
+    @ExceptionHandler(CombatExternalFailureException.class)
+    public ResponseEntity<Map<String, String>> combatExternalFailure(CombatExternalFailureException exception) {
+        return ResponseEntity.status(HttpStatus.BAD_GATEWAY).body(Map.of(
+                "error", "COMBAT_EXTERNAL_FAILURE", "message", exception.getMessage()));
+    }
+
+    @ExceptionHandler(com.dndmaster.adventure.application.combat.CombatIdempotencyConflictException.class)
+    public ResponseEntity<Map<String, String>> combatIdempotencyConflict(RuntimeException exception) {
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of("error", "COMBAT_IDEMPOTENCY_CONFLICT"));
     }
 
     @ExceptionHandler(ApiRequestGuard.ApiContractException.class)

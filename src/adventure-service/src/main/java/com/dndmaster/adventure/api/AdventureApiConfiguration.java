@@ -951,6 +951,30 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.combat.CombatActionOperationRepository combatActionOperationRepository(DataSource dataSource) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresCombatActionOperationRepository(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.adventure.domain.combat.CombatRulesEngine combatRulesEngine() {
+        return new com.dndmaster.adventure.domain.combat.CombatRulesEngine();
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.CombatActionApplicationService combatActionApplicationService(
+            com.dndmaster.adventure.application.combat.CombatEncounterRepository encounterRepository,
+            com.dndmaster.adventure.application.combat.CombatActionOperationRepository operationRepository,
+            com.dndmaster.adventure.application.combat.CombatEventRepository eventRepository,
+            com.dndmaster.adventure.domain.combat.CombatRulesEngine rulesEngine,
+            @Qualifier("diceCombatPort") DiceCombatPort dicePort,
+            CharacterCombatPort characterPort,
+            @Qualifier("aiCombatPort") AiCombatPort aiPort) {
+        return new com.dndmaster.adventure.application.combat.CombatActionApplicationService(
+                encounterRepository, operationRepository, eventRepository, rulesEngine,
+                dicePort, characterPort, aiPort);
+    }
+
+    @Bean
     AdventureCombatApplicationService combatApplicationService(
             CombatOperationRepository repository,
             CharacterCombatPort characterPort,
@@ -991,6 +1015,7 @@ public class AdventureApiConfiguration {
             SessionEventRepository sessionEventRepository,
             RuleGuidanceApplicationService guidanceService,
             AdventureCombatApplicationService combatService,
+            com.dndmaster.adventure.application.combat.CombatActionApplicationService combatActionService,
             AdventureScenarioApplicationService scenarioService,
             AuthenticatedPlayerResolver playerResolver,
             org.springframework.beans.factory.ObjectProvider<CombatMapPort> combatMapPort,
@@ -1000,7 +1025,7 @@ public class AdventureApiConfiguration {
             org.springframework.beans.factory.ObjectProvider<org.springframework.transaction.PlatformTransactionManager> transactionManager,
             com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService) {
         return new AdventureController(
-                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, scenarioService, playerResolver, combatMapPort, characterCombatPort, objectMapper, combatMapViewPort, combatLifecycleService);
+                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, combatActionService, scenarioService, playerResolver, combatMapPort, characterCombatPort, objectMapper, combatMapViewPort, combatLifecycleService);
     }
 
     @Bean

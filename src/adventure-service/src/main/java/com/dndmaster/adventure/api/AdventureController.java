@@ -32,6 +32,7 @@ import com.dndmaster.adventure.domain.runtime.GmTurn;
 import com.dndmaster.adventure.application.combat.CombatMapPort;
 import com.dndmaster.adventure.application.combat.CharacterCombatPort;
 import com.dndmaster.adventure.application.combat.RuntimeCombatRejectionException;
+import com.dndmaster.adventure.application.combat.CombatActionApplicationService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @RestController
@@ -48,6 +49,7 @@ public class AdventureController {
     private final com.dndmaster.adventure.application.runtime.SessionEventRepository sessionEventRepository;
     private final RuleGuidanceApplicationService guidanceService;
     private final AdventureCombatApplicationService combatService;
+    private final CombatActionApplicationService combatActionService;
     private final AdventureScenarioApplicationService scenarioService;
     private final AuthenticatedPlayerResolver playerResolver;
     private final CombatMapPort combatMapPort;
@@ -66,6 +68,7 @@ public class AdventureController {
             com.dndmaster.adventure.application.runtime.SessionEventRepository sessionEventRepository,
             RuleGuidanceApplicationService guidanceService,
             AdventureCombatApplicationService combatService,
+            CombatActionApplicationService combatActionService,
             AdventureScenarioApplicationService scenarioService,
             AuthenticatedPlayerResolver playerResolver,
             ObjectProvider<CombatMapPort> combatMapPort,
@@ -82,6 +85,7 @@ public class AdventureController {
         this.sessionEventRepository = sessionEventRepository;
         this.guidanceService = guidanceService;
         this.combatService = combatService;
+        this.combatActionService = combatActionService;
         this.scenarioService = scenarioService;
         this.playerResolver = playerResolver;
         this.combatMapPort = combatMapPort.getIfAvailable(() -> command -> {
@@ -251,7 +255,9 @@ public class AdventureController {
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/dice-rolls")
-    DiceRollResponse diceRoll(
+    @Deprecated(forRemoval = false)
+    @Operation(deprecated = true, summary = "Legacy combat dice path", description = "Use POST combat/actions with Idempotency-Key and If-Match-Version.")
+    ResponseEntity<DiceRollResponse> diceRoll(
             @PathVariable UUID adventureId, @RequestBody DiceRollRequest request) {
         UUID authenticatedOwner = playerResolver.playerId();
         if (!CombatActorRole.PLAYER.name().equals(request.role())) {
@@ -291,9 +297,14 @@ public class AdventureController {
                 request.tokenId(),
                 request.expectedVersion(), request.targetArmorClass(), request.attackModifier(),
                 request.targetCharacterSheetId() == null ? null : new CharacterSheetId(request.targetCharacterSheetId()), request.damageAmount(), request.endCombat());
-        var result = combatService.resolveCombatAction(command);
-        return new DiceRollResponse(result.operationId(), result.role().name(), List.of(result.diceTotal()), result.diceTotal(),
-                result.judgment(), result.resolutionStatus(), result.outcomeApplied());
+        var result = combatActionService.submit(command);
+        return ResponseEntity.ok().header("Deprecation", "true")
+                .header("Warning", "299 dnd-master \"Legacy combat dice path is deprecated; use combat/actions\"")
+                .header("Sunset", LEGACY_SCENARIO_UPLOAD_SUNSET)
+                .body(new DiceRollResponse(result.operationId(), CombatActorRole.PLAYER.name(),
+                        result.diceTotal() == null ? List.of() : List.of(result.diceTotal()),
+                        result.diceTotal() == null ? 0 : result.diceTotal(), result.judgment(), result.status(),
+                        "COMMITTED".equals(result.status())));
     }
 
     @PutMapping("/api/v1/adventures/{adventureId}/save")

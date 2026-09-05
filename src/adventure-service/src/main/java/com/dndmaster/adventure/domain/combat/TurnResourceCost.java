@@ -1,0 +1,12 @@
+package com.dndmaster.adventure.domain.combat;
+
+/** The resources reserved by one combat command. */
+public record TurnResourceCost(int movement, boolean action, boolean bonusAction, boolean reaction) {
+    public TurnResourceCost {
+        if (movement < 0) throw new IllegalArgumentException("movement cost must be non-negative");
+    }
+
+    public static TurnResourceCost actionOnly() {
+        return new TurnResourceCost(0, true, false, false);
+    }
+}

@@ -7,4 +7,8 @@ import java.util.UUID;
 public interface CombatEncounterRepository {
     Optional<CombatEncounter> findActive(UUID adventureId);
     CombatEncounter save(CombatEncounter encounter);
+
+    default CombatEncounter save(CombatEncounter encounter, long expectedVersion) {
+        return save(encounter);
+    }
 }
