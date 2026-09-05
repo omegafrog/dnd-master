@@ -47,7 +47,7 @@ public final class CombatController {
                         ? request.characterSheetId() : request.tokenId(), expectedVersion,
                 request.targetArmorClass(), request.attackModifier(), request.targetCharacterSheetId() == null
                         ? null : new CharacterSheetId(request.targetCharacterSheetId()), request.damageAmount(), false,
-                request.narrativePosition() == null ? null : request.narrativePosition().toDomain(), request.movementDistance())));
+                request.narrativePosition() == null ? null : request.narrativePosition().toDomain(), request.movementDistance(), request.mapVersion())));
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat/turn/end")
@@ -112,11 +112,11 @@ public final class CombatController {
     public record CombatActionRequest(UUID characterSheetId, String action, Integer targetArmorClass,
                                       Integer attackModifier, UUID targetCharacterSheetId, Integer damageAmount,
                                       UUID combatMapId, UUID tokenId, List<PositionRequest> movementPath,
-                                      NarrativePositionRequest narrativePosition, Integer movementDistance) {
+                                      NarrativePositionRequest narrativePosition, Integer movementDistance, Long mapVersion) {
         public CombatActionRequest(UUID characterSheetId, String action, Integer targetArmorClass,
                                     Integer attackModifier, UUID targetCharacterSheetId, Integer damageAmount) {
             this(characterSheetId, action, targetArmorClass, attackModifier, targetCharacterSheetId, damageAmount,
-                    null, null, null, null, null);
+                    null, null, null, null, null, null);
         }
     }
 

@@ -115,6 +115,12 @@ public final class CrossContextHttpCombatGateway
 
     @Override
     public void validateAndMove(CombatActionCommand command) {
+        move(new CombatMapMoveCommand(command, movementDistance(command), expectedMapVersion(command)));
+    }
+
+    @Override
+    public CombatMapMoveResult move(CombatMapMoveCommand moveCommand) {
+        CombatActionCommand command = moveCommand.action();
         if (command.combatMapId() == null || command.ownerPlayerId() == null || command.tokenId() == null) {
             throw new IllegalStateException("movement command requires ownerPlayerId and tokenId");
         }
@@ -123,9 +129,27 @@ public final class CrossContextHttpCombatGateway
         List<PositionRequest> positions = movementPositions(command.movementPath());
         MoveRequest request = new MoveRequest(
                 command.ownerPlayerId(), command.tokenId(), positions,
-                Math.max(0, positions.size() - 1) * GRID_DISTANCE_UNIT,
-                appliedEdition, command.operationId(), command.expectedVersion());
-        send("internal/v1/combat-maps/" + command.combatMapId() + "/moves", "POST", request, command);
+                moveCommand.distance(), appliedEdition, command.operationId(), moveCommand.expectedVersion());
+        String response = send("internal/v1/combat-maps/" + command.combatMapId() + "/moves", "POST", request, command);
+        return new CombatMapMoveResult(mapVersion(response, moveCommand.expectedVersion()));
+    }
+
+    private static int movementDistance(CombatActionCommand command) {
+        return command.movementPath() == null ? 0 : Math.max(0, movementPositions(command.movementPath()).size() - 1) * GRID_DISTANCE_UNIT;
+    }
+
+    private static long expectedMapVersion(CombatActionCommand command) {
+        return command.mapVersion() == null ? command.expectedVersion() : command.mapVersion();
+    }
+
+    private long mapVersion(String response, long fallback) {
+        if (response == null || response.isBlank()) return fallback + 1;
+        try {
+            JsonNode body = objectMapper.readTree(response);
+            return body != null && body.has("version") ? body.get("version").asLong() : fallback + 1;
+        } catch (IOException exception) {
+            throw new CrossContextCallException("combat map returned malformed movement result", exception);
+        }
     }
 
     @Override

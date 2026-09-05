@@ -42,6 +42,7 @@ paths:
                   minItems: 2
                   items: { type: object, required: [x, y], properties: { x: { type: integer, minimum: 0 }, y: { type: integer, minimum: 0 } } }
                 movementDistance: { type: integer, minimum: 1 }
+                mapVersion: { type: integer, format: int64, minimum: 0 }
                 narrativePosition:
                   type: object
                   required: [subjectId, targetId, rangeBand, cover]
