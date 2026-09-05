@@ -996,6 +996,13 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.combat.CombatReactionApplicationService combatReactionApplicationService(
+            com.dndmaster.adventure.application.combat.CombatEncounterRepository encounterRepository,
+            com.dndmaster.adventure.application.combat.CombatEventRepository eventRepository) {
+        return new com.dndmaster.adventure.application.combat.CombatReactionApplicationService(encounterRepository, eventRepository);
+    }
+
+    @Bean
     AdventureCombatApplicationService combatApplicationService(
             CombatOperationRepository repository,
             CharacterCombatPort characterPort,

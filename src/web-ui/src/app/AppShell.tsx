@@ -98,6 +98,16 @@ export function AppShell() {
     void combatApi.readSnapshot(route.adventureId).then(snapshot => { if (active) setCombatSnapshot(snapshot) }).catch(() => { if (active) setCombatSnapshot(null) })
     return () => { active = false }
   }, [auth.session, combatApi, route])
+  useEffect(() => {
+    if (!auth.session || route.page !== 'adventure' || !combatApi.subscribeEvents) return
+    const adventureId = route.adventureId
+    let active = true
+    const cursor = combatSnapshot?.eventCursor ?? -1
+    const close = combatApi.subscribeEvents(adventureId, cursor, () => {
+      void combatApi.readSnapshot(adventureId).then(snapshot => { if (active) setCombatSnapshot(snapshot) }).catch(() => undefined)
+    }, () => undefined)
+    return () => { active = false; close() }
+  }, [auth.session, combatApi, route, combatSnapshot?.eventCursor])
 
   if (!auth.session) {
     return <div className="app-shell auth-shell">

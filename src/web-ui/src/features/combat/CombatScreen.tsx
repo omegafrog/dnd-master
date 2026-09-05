@@ -30,6 +30,13 @@ export function CombatScreen({ snapshot, api }: { snapshot: CombatSnapshot; api?
       setFeedback(error instanceof Error ? error.message : '턴을 종료할 수 없습니다.')
     }
   }
+  const resolveReaction = async (choice: 'USE' | 'PASS') => {
+    if (!api?.resolveReaction || !snapshot.pendingReaction) return
+    try {
+      const result = await api.resolveReaction(snapshot.adventureId, snapshot.pendingReaction.reactionId, choice, snapshot.version)
+      setFeedback(result.status)
+    } catch (error) { setFeedback(error instanceof Error ? error.message : 'Reaction을 처리할 수 없습니다.') }
+  }
   const runMovement = async () => {
     if (!api) return
     try {
@@ -87,6 +94,11 @@ export function CombatScreen({ snapshot, api }: { snapshot: CombatSnapshot; api?
       <p>이동 {snapshot.resources.movement}ft · Action {snapshot.resources.actionAvailable ? '가능' : '사용'}</p>
       <p>Bonus Action {snapshot.resources.bonusActionAvailable ? '가능' : '사용'} · Reaction {snapshot.resources.reactionAvailable ? '가능' : '사용'}</p>
     </section>
+    {snapshot.pendingReaction && <section aria-labelledby="reaction-title" role="alert">
+      <h2 id="reaction-title">Reaction 대기</h2><p>{snapshot.pendingReaction.trigger}</p>
+      <button type="button" onClick={() => void resolveReaction('USE')}>Use</button>
+      <button type="button" onClick={() => void resolveReaction('PASS')}>Pass</button>
+    </section>}
     {snapshot.narrativePositions && snapshot.narrativePositions.length > 0 && <section aria-labelledby="narrative-position-title">
       <h2 id="narrative-position-title">서술 전장</h2>
       {snapshot.narrativePositions.map(position => <p key={`${position.subjectId}-${position.targetId}`}>

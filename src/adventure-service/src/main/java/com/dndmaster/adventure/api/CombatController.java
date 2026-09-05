@@ -5,7 +5,10 @@ import com.dndmaster.adventure.application.combat.CombatActionApplicationService
 import com.dndmaster.adventure.application.combat.CombatActionCommand;
 import com.dndmaster.adventure.application.combat.CombatActionResponse;
 import com.dndmaster.adventure.application.combat.CombatActorRole;
+import com.dndmaster.adventure.application.combat.CombatReactionApplicationService;
+import com.dndmaster.adventure.application.combat.ResolveReactionCommand;
 import com.dndmaster.adventure.application.combat.FreeFormCombatCommand;
+import com.dndmaster.adventure.domain.combat.ReactionChoice;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.combat.PlayerCombatProjectionPolicy;
@@ -27,12 +30,34 @@ public final class CombatController {
     private final com.dndmaster.adventure.application.saved.AdventureRepository adventureRepository;
     private final com.dndmaster.adventure.application.combat.CombatEventRepository eventRepository;
     private final CombatActionApplicationService actionService;
+    private final CombatReactionApplicationService reactionService;
     public CombatController(CombatEncounterRepository repository, AuthenticatedPlayerResolver playerResolver,
                             com.dndmaster.adventure.application.saved.AdventureRepository adventureRepository,
                             com.dndmaster.adventure.application.combat.CombatEventRepository eventRepository,
-                            CombatActionApplicationService actionService) {
+                            CombatActionApplicationService actionService,
+                            CombatReactionApplicationService reactionService) {
         this.repository = repository; this.playerResolver = playerResolver; this.adventureRepository = adventureRepository; this.eventRepository = eventRepository;
-        this.actionService = actionService;
+        this.actionService = actionService; this.reactionService = reactionService;
+    }
+
+    @PostMapping("/api/v1/adventures/{adventureId}/combat/reactions/{reactionId}")
+    public ResponseEntity<com.dndmaster.adventure.application.combat.ReactionResolutionResponse> resolveReaction(
+            @PathVariable UUID adventureId, @PathVariable UUID reactionId,
+            @RequestHeader("Idempotency-Key") String idempotencyKey,
+            @RequestHeader("If-Match-Version") long expectedVersion,
+            @RequestBody ReactionRequest request) {
+        assertOwner(adventureId);
+        var encounter = repository.findActive(adventureId).orElseThrow();
+        var pending = encounter.pendingReaction();
+        if (pending == null || !pending.reactionId().equals(reactionId)) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "REACTION_NOT_PENDING");
+        }
+        final ReactionChoice choice;
+        try { choice = ReactionChoice.valueOf(request.choice()); }
+        catch (RuntimeException exception) { throw new ApiRequestGuard.ApiContractException(400, "INVALID_REACTION_CHOICE"); }
+        return ResponseEntity.accepted().body(reactionService.resolve(new ResolveReactionCommand(
+                adventureId, reactionId, request.actorId() == null ? pending.eligibleActorId() : request.actorId(),
+                choice, expectedVersion)));
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat/actions")
@@ -152,4 +177,7 @@ public final class CombatController {
 
     public record TurnEndRequest(UUID characterSheetId) {}
     public record FreeFormActionRequest(UUID characterSheetId, String declaration) {}
+    public record ReactionRequest(String choice, UUID actorId) {
+        public ReactionRequest(String choice) { this(choice, null); }
+    }
 }
