@@ -24,7 +24,7 @@ public record GmContextEnvelope(
         EvidencePack evidencePack,
         List<String> recentTurns,
         List<String> characterSnapshots,
-        String storyPlanContext,
+        String scenarioContext,
         String provider,
         String model,
         String reasoning,
@@ -41,7 +41,7 @@ public record GmContextEnvelope(
         evidencePack = Objects.requireNonNull(evidencePack);
         recentTurns = List.copyOf(Objects.requireNonNull(recentTurns));
         characterSnapshots = List.copyOf(Objects.requireNonNull(characterSnapshots));
-        storyPlanContext = storyPlanContext == null ? "" : storyPlanContext.trim();
+        scenarioContext = scenarioContext == null ? "" : scenarioContext.trim();
         provider = provider == null ? "" : provider.trim();
         model = model == null ? "" : model.trim();
         reasoning = reasoning == null ? "" : reasoning.trim();
@@ -64,10 +64,10 @@ public record GmContextEnvelope(
     public GmContextEnvelope(AdventureId adventureId, OwnerPlayerId ownerPlayerId, UUID sessionId, UUID turnId,
                              UUID scenarioPackageId, long bindingVersion, AdventureContext currentContext,
                              ActiveSourceContext activeSourceContext, String action, EvidencePack evidencePack,
-                             List<String> recentTurns, List<String> characterSnapshots, String storyPlanContext,
+                             List<String> recentTurns, List<String> characterSnapshots, String scenarioContext,
                              String provider, String model, String reasoning) {
         this(adventureId, ownerPlayerId, sessionId, turnId, scenarioPackageId, bindingVersion, currentContext,
-                activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, storyPlanContext,
+                activeSourceContext, action, evidencePack, recentTurns, characterSnapshots, scenarioContext,
                 provider, model, reasoning, provider.isBlank() || model.isBlank() || reasoning.isBlank()
                         ? RequestedGmProviderSelection.legacyUnknown()
                 : new RequestedGmProviderSelection(null, provider, model, reasoning), null);

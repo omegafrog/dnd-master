@@ -7,7 +7,6 @@ export interface AdventureApi {
     command?: { turnId: string; commandId: string },
     expectedVersion?: number,
   ): Promise<AdventureMessageResponse>
-  runAgentTurn?(adventureId: string, expectedVersion: number): Promise<AdventureMessageResponse>
   submitPlayerRoll?(adventureId: string, pendingTurnId: string, result: number, expectedVersion: number): Promise<AdventureMessageResponse>
 }
 
@@ -30,11 +29,9 @@ export type PlayerRollRequest = { pendingTurnId: string; label: string; diceExpr
 
 export class HttpAdventureApi implements AdventureApi {
   private readonly getToken: () => string
-  private readonly getPlayerId: () => string
 
-  constructor(getToken: () => string, getPlayerId: () => string) {
+  constructor(getToken: () => string) {
     this.getToken = getToken
-    this.getPlayerId = getPlayerId
   }
 
   subscribeEvents(adventureId: string, afterVersion: number, onEvent: (event: AdventureSessionEvent) => void, onError?: () => void): () => void {
@@ -93,16 +90,6 @@ export class HttpAdventureApi implements AdventureApi {
       }),
     })
     if (!response.ok) throw new Error('모험 메시지를 전송하지 못했습니다.')
-    return response.json() as Promise<AdventureMessageResponse>
-  }
-
-  async runAgentTurn(adventureId: string, expectedVersion: number): Promise<AdventureMessageResponse> {
-    const response = await fetch(`/api/v1/adventures/${adventureId}/agent-turns`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.getToken()}` },
-      body: JSON.stringify({ playerId: this.getPlayerId(), expectedVersion }),
-    })
-    if (!response.ok) throw new Error('에이전트 턴을 실행하지 못했습니다.')
     return response.json() as Promise<AdventureMessageResponse>
   }
 

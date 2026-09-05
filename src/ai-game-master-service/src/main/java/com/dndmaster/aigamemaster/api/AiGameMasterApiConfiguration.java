@@ -110,18 +110,6 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
-    AdventureStoryPlanController aiAdventureStoryPlanController(SpringAiChatAdapter adapter, AgentEndpointRegistry endpointRegistry, com.fasterxml.jackson.databind.ObjectMapper objectMapper,
-            @org.springframework.beans.factory.annotation.Value("${local-ai.ollama.base-url:http://127.0.0.1:11434}") String ollamaBaseUrl,
-            @org.springframework.beans.factory.annotation.Value("${local-ai.ollama.chat-model:qwen3:8b}") String ollamaModel,
-            @org.springframework.beans.factory.annotation.Value("${ai.codex.executable:codex}") String codexExecutable,
-            @org.springframework.beans.factory.annotation.Value("${ai.codex.work-directory:.}") String codexWorkDirectory,
-            @org.springframework.beans.factory.annotation.Value("${ai.codex.timeout:PT5M}") java.time.Duration codexTimeout,
-            @org.springframework.beans.factory.annotation.Value("${ai-game-master.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
-        return new AdventureStoryPlanController(adapter, objectMapper, endpointRegistry, ollamaBaseUrl, ollamaModel, codexExecutable, codexWorkDirectory, codexTimeout,
-                new ApiRequestGuard(internalToken));
-    }
-
-    @Bean
     ScenarioBoundSceneService scenarioBoundSceneService(
             ScenarioPromptFactory prompts, SceneModelPort model) {
         return new ScenarioBoundSceneService(prompts, model);
@@ -168,9 +156,4 @@ public class AiGameMasterApiConfiguration {
         return new GmCompletionRouter(ollama, properties, endpointRegistry, codexExecutable, java.nio.file.Path.of(codexWorkDirectory), codexTimeout);
     }
 
-    @Bean
-    GmAgentController gmAgentController(GmCompletionAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper objectMapper,
-                                        @Value("${ai-game-master.integration.internal-token:}") String internalToken) {
-        return new GmAgentController(adapter, objectMapper, new ApiRequestGuard(internalToken));
-    }
 }

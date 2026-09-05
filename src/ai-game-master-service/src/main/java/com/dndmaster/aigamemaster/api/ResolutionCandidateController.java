@@ -8,7 +8,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.ArrayList;
 import com.dndmaster.aigamemaster.infrastructure.ai.SpringAiChatAdapter;
-import com.dndmaster.aigamemaster.infrastructure.ai.CodexCliStoryPlanAdapter;
+import com.dndmaster.aigamemaster.infrastructure.ai.CodexCliCompletionAdapter;
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint;
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpointRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -76,7 +76,7 @@ public final class ResolutionCandidateController {
         List<Candidate> candidates;
         AgentEndpoint endpoint = endpointRegistry.active();
         if (endpoint.provider() == AgentEndpoint.Provider.CODEX_CLI) {
-            String response = new CodexCliStoryPlanAdapter(codexExecutable, endpoint.model(), codexWorkDirectory, codexTimeout)
+            String response = new CodexCliCompletionAdapter(codexExecutable, endpoint.model(), codexWorkDirectory, codexTimeout)
                     .complete(request.operationId(), prompt);
             candidates = parseModel(response);
         } else {

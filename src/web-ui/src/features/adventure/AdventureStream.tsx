@@ -5,12 +5,10 @@ import type { PlayerRollRequest } from './AdventureApi'
 type ChatMessageEntry = { speaker: string; text: string }
 type LocalTurn = { action: ChatMessageEntry; response: ChatMessageEntry[]; expectedVersion: number; committedVersion?: number }
 
-export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expectedVersion, onTurnCommitted }: { adventureId: string; api: AdventureApi; controlMode?: 'DIRECT' | 'AGENT'; expectedVersion?: number | null; onTurnCommitted?: () => void }) {
+export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommitted }: { adventureId: string; api: AdventureApi; expectedVersion?: number | null; onTurnCommitted?: () => void }) {
   const [messages, setMessages] = useState<ChatMessageEntry[]>([])
   const [notice, setNotice] = useState('')
   const [sending, setSending] = useState(false)
-  const [agentVersion, setAgentVersion] = useState(expectedVersion ?? 0)
-  const [activeControlMode, setActiveControlMode] = useState(controlMode)
   const [projectionStatus, setProjectionStatus] = useState<'idle' | 'processing' | 'failed'>('idle')
   const [rollRequest, setRollRequest] = useState<PlayerRollRequest | null>(null)
   const [rollValue, setRollValue] = useState('')
@@ -93,31 +91,6 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
       }).catch(() => undefined)
     })
   }, [adventureId, api, eventSubscriptionReady])
-  const previousControlMode = useRef(controlMode)
-
-  useEffect(() => {
-    if (previousControlMode.current !== controlMode) {
-      previousControlMode.current = controlMode
-      setActiveControlMode(controlMode)
-    }
-  }, [controlMode])
-
-  useEffect(() => {
-    if (hydrationPending || activeControlMode !== 'AGENT' || !api.runAgentTurn) return
-    let cancelled = false
-    setSending(true)
-    void api.runAgentTurn(adventureId, agentVersion).then(response => {
-      if (cancelled) return
-      setMessages(current => [...current, { speaker: '에이전트 캐릭터', text: response.narration }])
-      setAgentVersion(response.version)
-      setActiveControlMode(response.nextControlMode ?? 'DIRECT')
-      onTurnCommitted?.()
-    }).catch(() => {
-      if (!cancelled) setNotice('에이전트 턴을 실행하지 못했습니다.')
-    }).finally(() => { if (!cancelled) setSending(false) })
-    return () => { cancelled = true }
-  }, [adventureId, agentVersion, activeControlMode, api, hydrationPending, onTurnCommitted])
-
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)
@@ -198,7 +171,7 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
     <section className="adventure-stream" aria-labelledby="conversation-heading">
       <h2 id="conversation-heading">모험 대화</h2>
       {messages.length > 0 && <h3 className="sr-only">첫 장면</h3>}
-      <p role="status" aria-busy={hydrationPending || projectionStatus === 'processing'}>{hydrationPending ? '대화 기록 불러오는 중' : projectionStatus === 'processing' ? '턴 처리 중' : projectionStatus === 'failed' ? '턴 처리 실패' : activeControlMode === 'AGENT' ? '에이전트 캐릭터 차례 — 자동 진행 중' : '직접 플레이 입력 대기 중'}</p>
+      <p role="status" aria-busy={hydrationPending || projectionStatus === 'processing'}>{hydrationPending ? '대화 기록 불러오는 중' : projectionStatus === 'processing' ? '턴 처리 중' : projectionStatus === 'failed' ? '턴 처리 실패' : '직접 플레이 입력 대기 중'}</p>
       <ol className={historyMessages.length === 0 ? 'opening-only' : undefined} aria-label="대화 기록">
         {historyMessages.map((message, index) => (
           <li key={index} className={`adventure-chat-message ${message.speaker === '플레이어' ? 'player' : 'gm'}`}>
@@ -213,9 +186,9 @@ export function AdventureStream({ adventureId, api, controlMode = 'DIRECT', expe
         <label>d20 결과<input type="number" min="1" max="20" step="1" value={rollValue} onChange={event => setRollValue(event.target.value)} disabled={sending} required /></label>
         <button type="submit" disabled={sending}>결과 제출</button>
       </form>}
-      <form onSubmit={send} aria-disabled={hydrationPending || projectionVersion.current == null || activeControlMode === 'AGENT' || rollRequest !== null} aria-busy={hydrationPending}>
-        <label>무엇을 하시겠어요?<input name="message" required disabled={hydrationPending || projectionVersion.current == null || sending || activeControlMode === 'AGENT' || rollRequest !== null} /></label>
-        <button type="submit" disabled={hydrationPending || projectionVersion.current == null || sending || activeControlMode === 'AGENT' || rollRequest !== null}>행동 보내기</button>
+      <form onSubmit={send} aria-disabled={hydrationPending || projectionVersion.current == null || rollRequest !== null} aria-busy={hydrationPending}>
+        <label>무엇을 하시겠어요?<input name="message" required disabled={hydrationPending || projectionVersion.current == null || sending || rollRequest !== null} /></label>
+        <button type="submit" disabled={hydrationPending || projectionVersion.current == null || sending || rollRequest !== null}>행동 보내기</button>
       </form>
     </section>
   )

@@ -20,6 +20,7 @@ import com.dndmaster.adventure.domain.scenario.ScenarioResolutionUnit;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import com.dndmaster.adventure.domain.scenario.MapDefinition;
 import com.dndmaster.adventure.domain.scenario.StoryMapBinding;
+import com.dndmaster.adventure.domain.scenario.ScenarioModel;
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.DeserializationFeature;
@@ -34,6 +35,8 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import javax.sql.DataSource;
+import com.dndmaster.adventure.domain.scenario.ScenarioCompilation;
+import com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic;
 
 public final class PostgresScenarioPackageRepository implements ScenarioPackageRepository {
     private static final ObjectMapper JSON = new ObjectMapper()
@@ -73,12 +76,12 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     private Optional<ScenarioPackage> find(String column, Object value) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(
-                        "SELECT package_id, bundle_id, bundle_revision, input_fingerprint, report_status, compilation_outcome, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json, map_definitions_json, story_map_bindings_json FROM scenario_package WHERE " + column + " = ?")) {
+                        "SELECT package_id, bundle_id, bundle_revision, input_fingerprint, report_status, compilation_outcome, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json, map_definitions_json, story_map_bindings_json, scenario_model_json FROM scenario_package WHERE " + column + " = ?")) {
             statement.setObject(1, value);
             try (ResultSet row = statement.executeQuery()) {
                 if (!row.next()) return Optional.empty();
                 UUID packageId = row.getObject("package_id", UUID.class);
-                return Optional.of(ScenarioPackage.rehydrateWithMaps(
+                return Optional.of(ScenarioPackage.rehydrateWithScenarioModel(
                         packageId,
                         new ScenarioBundleId(row.getObject("bundle_id", UUID.class)),
                         row.getLong("bundle_revision"),
@@ -93,7 +96,8 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
                                         : CompilationOutcome.valueOf(row.getString("compilation_outcome"))),
                         readCharacterLimit(row), readBlueprint(row.getString("character_creation_blueprint_json")),
                         readJson(row.getString("map_definitions_json"), new com.fasterxml.jackson.core.type.TypeReference<List<MapDefinition>>() {}),
-                        readJson(row.getString("story_map_bindings_json"), new com.fasterxml.jackson.core.type.TypeReference<List<StoryMapBinding>>() {})));
+                        readJson(row.getString("story_map_bindings_json"), new com.fasterxml.jackson.core.type.TypeReference<List<StoryMapBinding>>() {}),
+                        readScenarioModel(row.getString("scenario_model_json"))));
             }
         } catch (SQLException exception) {
             throw new ScenarioPackagePersistenceException("could not load scenario package", exception);
@@ -124,6 +128,45 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     }
 
     @Override
+    public boolean publishAtomically(ScenarioPackage scenarioPackage, ScenarioCompilation compilation,
+            List<ScenarioCompilationDiagnostic> diagnostics) {
+        try (Connection connection = dataSource.getConnection()) {
+            boolean autoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            try {
+                insertHeader(connection, scenarioPackage);
+                insertBlueprintRevision(connection, scenarioPackage.packageId(), scenarioPackage.characterCreationBlueprint());
+                insertDocuments(connection, scenarioPackage);
+                insertUnits(connection, scenarioPackage);
+                try (PreparedStatement update = connection.prepareStatement(
+                        "UPDATE scenario_compilation SET status='COMPLETED', package_id=?, lease_token=NULL, diagnostics=?::jsonb, updated_at=CURRENT_TIMESTAMP WHERE compilation_id=? AND lease_token=?")) {
+                    update.setObject(1, scenarioPackage.packageId());
+                    update.setString(2, writeJson(diagnostics == null ? List.of() : diagnostics));
+                    update.setObject(3, compilation.id()); update.setObject(4, compilation.leaseToken());
+                    if (update.executeUpdate() != 1) throw new IllegalStateException("compilation lease was superseded during publication");
+                }
+                try (PreparedStatement outbox = connection.prepareStatement(
+                        "INSERT INTO scenario_compilation_outbox(message_id, compilation_id, message_type, payload) VALUES (?, ?, 'ScenarioCompilationCompleted', ?::jsonb) ON CONFLICT (compilation_id, message_type) DO NOTHING")) {
+                    outbox.setObject(1, UUID.randomUUID()); outbox.setObject(2, compilation.id());
+                    outbox.setString(3, writeJson(java.util.Map.of("compilationId", compilation.id(),
+                            "packageId", scenarioPackage.packageId(), "status", "COMPLETED")));
+                    outbox.executeUpdate();
+                }
+                connection.commit();
+                return true;
+            } catch (SQLException | RuntimeException exception) {
+                try { connection.rollback(); } catch (SQLException rollback) { exception.addSuppressed(rollback); }
+                throw exception instanceof RuntimeException runtime ? runtime
+                        : new ScenarioPackagePersistenceException("could not publish scenario package atomically", exception);
+            } finally {
+                connection.setAutoCommit(autoCommit);
+            }
+        } catch (SQLException exception) {
+            throw new ScenarioPackagePersistenceException("could not access scenario package publication storage", exception);
+        }
+    }
+
+    @Override
     public void saveBlueprint(UUID packageId, CharacterCreationBlueprint blueprint) {
         try (Connection connection = dataSource.getConnection();
                 PreparedStatement statement = connection.prepareStatement(
@@ -145,7 +188,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
 
     private static void insertHeader(Connection connection, ScenarioPackage packageVersion) throws SQLException {
         try (PreparedStatement insert = connection.prepareStatement(
-                "INSERT INTO scenario_package(package_id, bundle_id, bundle_revision, input_fingerprint, report_status, compilation_outcome, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json, map_definitions_json, story_map_bindings_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")) {
+                "INSERT INTO scenario_package(package_id, bundle_id, bundle_revision, input_fingerprint, report_status, compilation_outcome, report_warnings, character_limit, character_limit_source_document_id, character_limit_source_extraction_version, character_limit_source_locator, character_limit_source_quote, character_creation_blueprint_json, map_definitions_json, story_map_bindings_json, scenario_model_json) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)")) {
             insert.setObject(1, packageVersion.packageId());
             insert.setObject(2, packageVersion.bundleId().value());
             insert.setLong(3, packageVersion.bundleRevision());
@@ -164,6 +207,7 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
             insert.setString(13, writeBlueprint(packageVersion.characterCreationBlueprint()));
             insert.setString(14, writeJson(packageVersion.mapDefinitions()));
             insert.setString(15, writeJson(packageVersion.storyMapBindings()));
+            insert.setString(16, writeJson(packageVersion.scenarioModel()));
             insert.executeUpdate();
         }
     }
@@ -289,6 +333,12 @@ public final class PostgresScenarioPackageRepository implements ScenarioPackageR
     }
 
     private static String writeJson(Object value) { try { return JSON.writeValueAsString(value); } catch (JsonProcessingException e) { throw new ScenarioPackagePersistenceException("could not serialize map data", e); } }
+
+    private static ScenarioModel readScenarioModel(String value) {
+        if (value == null || value.isBlank()) return null;
+        try { return JSON.readValue(value, ScenarioModel.class); }
+        catch (JsonProcessingException exception) { throw new ScenarioPackagePersistenceException("could not deserialize scenario model", exception); }
+    }
     private static <T> List<T> readJson(String value, com.fasterxml.jackson.core.type.TypeReference<List<T>> type) {
         if (value == null || value.isBlank()) return List.of();
         try { return JSON.readValue(value, type); } catch (JsonProcessingException e) { throw new ScenarioPackagePersistenceException("could not deserialize map data", e); }

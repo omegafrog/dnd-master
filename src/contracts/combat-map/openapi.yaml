@@ -25,6 +25,7 @@ paths:
                 assetLocator: { type: string }
                 playerSpawnX: { type: integer, minimum: 0 }
                 playerSpawnY: { type: integer, minimum: 0 }
+                stagePosition: { type: integer, minimum: 1 }
       responses:
         '200': { description: prepared tactical map }
         '401': { description: internal service authorization required }

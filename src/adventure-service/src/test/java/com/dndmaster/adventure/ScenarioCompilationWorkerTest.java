@@ -262,6 +262,46 @@ class ScenarioCompilationWorkerTest {
         assertThrows(IllegalStateException.class, () -> manager.publish(compilationA, deliveryA, UUID.randomUUID()));
     }
 
+    @Test
+    void blocksNoneCompilationWhenCoreResolutionInformationIsMissing() {
+        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(List.of(document(
+                storybook, ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 1)));
+        Fixture fixture = new Fixture(bundle);
+        fixture.queue.pending.clear();
+        ScenarioCompilationInputSnapshot input = ScenarioCompilationInputSnapshot.capture(
+                bundle.id(), 1, bundle.currentRevision().documents(), storybook.value(), "", ScenarioCreativity.NONE);
+        ScenarioCompilation requested = ScenarioCompilation.request(input, "fp-none", "key-none");
+        fixture.compilations.save(requested);
+        fixture.queue.pending.add(new WorkEnvelope(UUID.randomUUID(), "scenario", requested.id(), 1, "fp-none", 0));
+
+        assertTrue(fixture.worker().processNext("worker", Duration.ofMinutes(1)).isEmpty());
+        assertEquals(ScenarioCompilationStatus.BLOCKED,
+                fixture.compilations.findByInputFingerprint("fp-none").orElseThrow().status());
+        assertTrue(fixture.packages.values.isEmpty());
+    }
+
+    @Test
+    void publishesScenarioModelWithPackageForCreativityCompilation() {
+        KnowledgeDocumentId storybook = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioSourceBundle bundle = bundle(List.of(document(
+                storybook, ScenarioBundleDocumentRole.MAIN_SCENARIO, "STORYBOOK", 1)));
+        Fixture fixture = new Fixture(bundle);
+        fixture.queue.pending.clear();
+        ScenarioCompilationInputSnapshot input = ScenarioCompilationInputSnapshot.capture(
+                bundle.id(), 1, bundle.currentRevision().documents(), storybook.value(), "", ScenarioCreativity.CONSERVATIVE);
+        ScenarioCompilation requested = ScenarioCompilation.request(input, "fp-model", "key-model");
+        fixture.compilations.save(requested);
+        fixture.queue.pending.add(new WorkEnvelope(UUID.randomUUID(), "scenario", requested.id(), 1, "fp-model", 0));
+
+        ScenarioPackage result = fixture.worker().processNext("worker", Duration.ofMinutes(1)).orElseThrow();
+
+        assertTrue(result.scenarioModel() != null && result.isReady());
+        assertEquals(ScenarioCompilationStatus.COMPLETED,
+                fixture.compilations.findByInputFingerprint("fp-model").orElseThrow().status());
+        assertEquals(result, fixture.packages.values.get(result.inputFingerprint()));
+    }
+
     private static ScenarioSourceBundle bundle(List<ScenarioBundleDocumentSelection> documents) {
         return ScenarioSourceBundle.create(new ScenarioBundleId(UUID.randomUUID()), new OwnerPlayerId(UUID.randomUUID()),
                 new ScenarioSourceBundleRevision(1, documents));

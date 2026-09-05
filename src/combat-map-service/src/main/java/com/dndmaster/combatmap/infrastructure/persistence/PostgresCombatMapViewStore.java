@@ -1,6 +1,7 @@
 package com.dndmaster.combatmap.infrastructure.persistence;
 
 import com.dndmaster.combatmap.application.view.CombatMapViewStore;
+import com.dndmaster.combatmap.application.view.CombatMapAccessDeniedException;
 import com.dndmaster.combatmap.application.view.MapOwnerId;
 import com.dndmaster.combatmap.application.view.VersionedOwnedCombatMap;
 import com.dndmaster.combatmap.domain.AdventureId;
@@ -125,6 +126,46 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
             }
         } catch (SQLException exception) {
             throw new CombatMapPersistenceException("map command history load failed", exception);
+        }
+    }
+
+    @Override
+    public void activate(AdventureId adventureId, MapOwnerId owner, MapId mapId, int stagePosition) {
+        if (stagePosition <= 0) throw new IllegalArgumentException("stage position must be positive");
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                try (PreparedStatement verify = connection.prepareStatement(
+                        "SELECT 1 FROM combat_map WHERE map_id=? AND adventure_id=? AND owner_player_id=?")) {
+                    verify.setObject(1, mapId.value());
+                    verify.setObject(2, adventureId.value());
+                    verify.setObject(3, owner.value());
+                    try (ResultSet rows = verify.executeQuery()) {
+                        if (!rows.next()) throw new CombatMapAccessDeniedException();
+                    }
+                }
+                try (PreparedStatement deactivate = connection.prepareStatement(
+                        "UPDATE adventure_active_tactical_map SET active=false WHERE adventure_id=? AND owner_player_id=? AND active=true")) {
+                    deactivate.setObject(1, adventureId.value());
+                    deactivate.setObject(2, owner.value());
+                    deactivate.executeUpdate();
+                }
+                try (PreparedStatement activate = connection.prepareStatement(
+                        "INSERT INTO adventure_active_tactical_map(adventure_id,stage_position,owner_player_id,combat_map_id,active) VALUES (?,?,?,?,true) "
+                                + "ON CONFLICT (adventure_id,stage_position,owner_player_id) DO UPDATE SET combat_map_id=EXCLUDED.combat_map_id, active=true")) {
+                    activate.setObject(1, adventureId.value());
+                    activate.setInt(2, stagePosition);
+                    activate.setObject(3, owner.value());
+                    activate.setObject(4, mapId.value());
+                    activate.executeUpdate();
+                }
+                connection.commit();
+            } catch (SQLException | RuntimeException exception) {
+                connection.rollback();
+                throw exception;
+            }
+        } catch (SQLException exception) {
+            throw new CombatMapPersistenceException("map activation failed", exception);
         }
     }
 

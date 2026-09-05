@@ -15,7 +15,6 @@ import { PackageBlueprintReviewPage } from '../features/character/PackageBluepri
 import { CombatMapView } from '../features/combat-map/CombatMapView'
 import { AdventureSessionApi } from '../features/adventure-session/AdventureSessionApi'
 import { AdventureSessionPanel } from '../features/adventure-session/AdventureSessionPanel'
-import { AdventureStoryPlanPage } from '../features/adventure-session/AdventureStoryPlanPage'
 import { AiEndpointSettings } from '../features/profile/AiEndpointSettings'
 import { parseRoute, type Route } from './route'
 
@@ -41,7 +40,7 @@ export function AppShell() {
   }, [])
   useEffect(() => {
     if (!auth.session) return
-    const sessionId = route.page === 'character-blueprint' || route.page === 'character-create' || route.page === 'session' || route.page === 'party' || route.page === 'story-plan'
+    const sessionId = route.page === 'character-blueprint' || route.page === 'character-create' || route.page === 'session' || route.page === 'party'
       ? route.sessionId
       : null
     const adventureId = route.page === 'adventure' ? route.adventureId : null
@@ -79,8 +78,7 @@ export function AppShell() {
   const token = auth.session?.accessToken ?? ''
   const playerId = auth.session?.playerId ?? ''
   const getToken = useCallback(() => token, [token])
-  const getPlayerId = useCallback(() => playerId, [playerId])
-  const adventureApi = useMemo(() => new HttpAdventureApi(getToken, getPlayerId), [getToken, getPlayerId])
+  const adventureApi = useMemo(() => new HttpAdventureApi(getToken), [getToken])
   const [adventureVersion, setAdventureVersion] = useState<number | null>(null)
   useEffect(() => {
     if (!auth.session || route.page !== 'adventure') return
@@ -121,7 +119,6 @@ export function AppShell() {
       {route.page === 'adventure' && <><div className="page-heading"><div><p className="eyebrow">ACTIVE ADVENTURE</p><h1>모험 진행 중</h1></div><span className="page-id">{shortId(route.adventureId)}</span></div><div className="adventure-workspace"><section className="adventure-map-main" aria-label="현재 전장"><CombatMapView adventureId={route.adventureId} api={playApi} refreshToken={mapRefreshToken} /></section><aside className="adventure-side-panel" aria-label="모험 대화"><AdventureStream adventureId={route.adventureId} api={adventureApi} expectedVersion={adventureVersion} onTurnCommitted={refreshCombatMap} /></aside></div></>}
       {route.page === 'character' && <CharacterSheetView sheetId={route.sheetId} api={playApi} />}
       {(route.page === 'session' || route.page === 'party') && <AdventureSessionPanel api={sessionApi} ownerPlayerId={playerId} sessionId={route.sessionId} />}
-      {route.page === 'story-plan' && <AdventureStoryPlanPage api={sessionApi} sessionId={route.sessionId} />}
       {route.page === 'character-blueprint' && <CharacterCreationPage sessionId={route.sessionId} ownerPlayerId={playerId} setupApi={setupApi} sessionApi={sessionApi} />}
       {route.page === 'package-blueprint' && <PackageBlueprintReviewPage packageId={route.packageId} setupApi={setupApi} sessionApi={sessionApi} onSessionCreated={sessionId => { window.location.hash = `#/sessions/${sessionId}/character-blueprint` }} />}
       {route.page === 'character-create' && <CharacterCreationPage sessionId={route.sessionId} ownerPlayerId={playerId} setupApi={setupApi} sessionApi={sessionApi} />}

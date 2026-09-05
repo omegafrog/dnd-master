@@ -2,6 +2,8 @@ package com.dndmaster.adventure.application.scenario.compilation;
 
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioCompilation;
+import com.dndmaster.adventure.domain.scenario.ScenarioCompilationInputSnapshot;
+import com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic;
 import java.time.Duration;
 import java.util.Objects;
 import java.util.UUID;
@@ -38,6 +40,16 @@ public final class ScenarioCompilationProcessManager {
         return compilation;
     }
 
+    public ScenarioCompilation start(ScenarioCompilationInputSnapshot input, String inputFingerprint, String idempotencyKey) {
+        Objects.requireNonNull(input, "input snapshot must not be null");
+        var existing = repository.findByIdempotencyKey(idempotencyKey);
+        if (existing.isPresent()) return existing.get();
+        ScenarioCompilation compilation = ScenarioCompilation.request(input, inputFingerprint, idempotencyKey);
+        repository.save(compilation);
+        queue.enqueue(new WorkEnvelope(UUID.randomUUID(), WORK_TYPE, compilation.id(), input.bundleRevision(), inputFingerprint, 0));
+        return compilation;
+    }
+
     public ScenarioCompilation claim(WorkQueuePort.Delivery delivery) {
         ScenarioCompilation compilation = load(delivery);
         ScenarioCompilation claimed = compilation.claim(delivery.deliveryToken());
@@ -66,6 +78,24 @@ public final class ScenarioCompilationProcessManager {
         queue.acknowledge(delivery);
         log.info("scenario compilation published compilationId={} packageId={}", current.id(), packageId);
         return published;
+    }
+
+    public ScenarioCompilation complete(ScenarioCompilation compilation, WorkQueuePort.Delivery delivery, UUID packageId,
+            java.util.List<ScenarioCompilationDiagnostic> diagnostics) {
+        ScenarioCompilation current = requireDelivery(compilation, delivery);
+        ScenarioCompilation completed = current.complete(delivery.deliveryToken(), packageId, diagnostics);
+        saveOwned(completed, delivery);
+        queue.acknowledge(delivery);
+        return completed;
+    }
+
+    public ScenarioCompilation block(ScenarioCompilation compilation, WorkQueuePort.Delivery delivery,
+            java.util.List<ScenarioCompilationDiagnostic> diagnostics) {
+        ScenarioCompilation current = requireDelivery(compilation, delivery);
+        ScenarioCompilation blocked = current.block(delivery.deliveryToken(), diagnostics);
+        saveOwned(blocked, delivery);
+        queue.acknowledge(delivery);
+        return blocked;
     }
 
     public ScenarioCompilation fail(ScenarioCompilation compilation, WorkQueuePort.Delivery delivery, String reason) {

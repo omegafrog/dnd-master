@@ -7,9 +7,9 @@ import com.dndmaster.adventure.application.guidance.AnswerRuleInquiryCommand;
 import com.dndmaster.adventure.application.guidance.RuleGuidanceApplicationService;
 import com.dndmaster.adventure.application.progress.AdventureProgressApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnApplicationService;
+import com.dndmaster.adventure.application.runtime.AdventurePlayerProjection;
 import com.dndmaster.adventure.application.runtime.GmTurnRepository;
 import com.dndmaster.adventure.application.runtime.RuntimeTurnResult;
-import com.dndmaster.adventure.application.storyplan.AdventureStoryPlanApplicationService;
 import com.dndmaster.adventure.application.runtime.SubmitRuntimeTurnCommand;
 import com.dndmaster.adventure.application.saved.CreateAdventureCommand;
 import com.dndmaster.adventure.application.saved.SavedAdventureApplicationService;
@@ -54,7 +54,6 @@ public class AdventureController {
     private final CharacterCombatPort characterCombatPort;
     private final com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort;
     private final ObjectMapper objectMapper;
-    private final AdventureStoryPlanApplicationService storyPlanService;
 
     public AdventureController(
             SavedAdventureApplicationService savedAdventureService,
@@ -71,8 +70,7 @@ public class AdventureController {
             ObjectProvider<CombatMapPort> combatMapPort,
             ObjectProvider<CharacterCombatPort> characterCombatPort,
             ObjectMapper objectMapper,
-            ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapViewPort> combatMapViewPort,
-            AdventureStoryPlanApplicationService storyPlanService) {
+            ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapViewPort> combatMapViewPort) {
         this.savedAdventureService = savedAdventureService;
         this.runtimeTurnService = runtimeTurnService;
         this.adventureRepository = adventureRepository;
@@ -82,7 +80,6 @@ public class AdventureController {
         this.sessionEventRepository = sessionEventRepository;
         this.guidanceService = guidanceService;
         this.combatService = combatService;
-        this.storyPlanService = storyPlanService;
         this.scenarioService = scenarioService;
         this.playerResolver = playerResolver;
         this.combatMapPort = combatMapPort.getIfAvailable(() -> command -> {
@@ -93,6 +90,16 @@ public class AdventureController {
         });
         this.combatMapViewPort = combatMapViewPort.getIfAvailable(() -> (adventureId1, ownerId) -> java.util.Optional.empty());
         this.objectMapper = objectMapper;
+    }
+
+    /** Player read boundary; canonical runtime snapshots and ScenarioModel are intentionally absent. */
+    @GetMapping("/api/v1/adventures/{adventureId}")
+    AdventurePlayerProjection playerAdventure(@PathVariable UUID adventureId) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        if (!adventure.ownerPlayerId().value().equals(playerResolver.playerId())) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        }
+        return AdventurePlayerProjection.from(adventure);
     }
 
     @PostMapping("/api/v1/adventures/scenarios")
@@ -114,41 +121,6 @@ public class AdventureController {
                 .header("Link", "</api/v1/adventures/scenario-bundles>; rel=\"alternate\"")
                 .header("X-Legacy-Scenario-Id", scenario.id().value().toString())
                 .build();
-    }
-
-    @PostMapping("/api/v1/adventures/{adventureId}/messages")
-    RuntimeTurnResponse streamAdventure(
-            @PathVariable UUID adventureId, @RequestBody StreamMessageRequest request) {
-        // 플레이어 입력을 런타임 턴으로 바꾸고, 서버가 만든 narration을 돌려준다.
-        RuntimeTurnResult result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
-                new AdventureId(adventureId),
-                new OwnerPlayerId(playerResolver.playerId()),
-                request.turnId(),
-                request.commandId(),
-                request.action()));
-        return RuntimeTurnResponse.from(result);
-    }
-
-    /**
-     * Lets the GM advance the scene without fabricating a player message. This is
-     * used immediately after session start and whenever the UI asks the GM to
-     * continue the current beat.
-     */
-    @PostMapping("/api/v1/adventures/{adventureId}/gm-turns")
-    RuntimeTurnResponse continueGmTurn(
-            @PathVariable UUID adventureId,
-            @RequestBody(required = false) GmContinuationRequest request) {
-        UUID owner = playerResolver.playerId();
-        GmContinuationRequest input = request == null ? new GmContinuationRequest(null, null, null, null) : request;
-        String action = input.instruction() == null || input.instruction().isBlank()
-                ? "Continue the current adventure beat, reveal the next meaningful consequence, and end with a clear player-facing choice."
-                : input.instruction();
-        RuntimeTurnResult result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
-                new AdventureId(adventureId), new OwnerPlayerId(owner),
-                input.turnId() == null ? UUID.randomUUID() : input.turnId(),
-                input.commandId() == null ? UUID.randomUUID() : input.commandId(),
-                action, input.expectedVersion() == null ? -1 : input.expectedVersion(), null, -1, true, true, false));
-        return RuntimeTurnResponse.from(result);
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/turns")
@@ -175,13 +147,19 @@ public class AdventureController {
         RuntimeTurnResult result;
         try {
             gmTurnRepository.save(turn.process(), adventureId);
+            List<com.dndmaster.adventure.application.runtime.RuntimeTurnCommand> externalCommands = List.of();
             if (input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput mapAction) {
-                applyMapAction(adventure, owner, commandId, mapAction);
+                if (adventure.status() == AdventureStatus.ACTIVE && adventure.currentSituation() != null) {
+                    externalCommands = List.of(prepareMapCommand(adventure, owner, request.turnId(), commandId, mapAction));
+                } else {
+                    applyMapAction(adventure, owner, commandId, mapAction);
+                }
             }
             result = runtimeTurnService.submitTurn(new SubmitRuntimeTurnCommand(
                     new AdventureId(adventureId), new OwnerPlayerId(owner), request.turnId(), commandId,
                     input.actionText(), expectedVersion,
-                    null, -1, !(input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput), false, false));
+                    null, -1, !(input instanceof com.dndmaster.adventure.domain.runtime.GmInput.MetaQuestionInput), false, false,
+                    externalCommands));
         } catch (RuntimeException exception) {
             LOGGER.error("gm_turn_request_failed stage=GM_TURN_CONTROLLER turnId={} commandId={} adventureId={} exceptionClass={} exceptionMessage={}",
                     request.turnId(), commandId, adventureId, exception.getClass().getName(), exception.getMessage(), exception);
@@ -246,16 +224,6 @@ public class AdventureController {
         var adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
         if (!adventure.ownerPlayerId().value().equals(playerResolver.playerId())) {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
-        }
-        // A combat map is visible only while the current story stage declares one.
-        // An old/preview activation must not leak into a town or event stage.
-        var plan = storyPlanService.read(adventure.sessionId(), new OwnerPlayerId(playerResolver.playerId()));
-        var currentStage = plan.stages().stream()
-                .filter(stage -> stage.position() == plan.currentStage() + 1)
-                .findFirst().orElse(null);
-        if (currentStage == null || currentStage.mapDefinitionId() == null) {
-            return new CombatMapResponse(adventureId, "stage-without-map", adventure.version(), null, null,
-                    List.of(), List.of(), List.of(), List.of(), List.of(), null);
         }
         var projection = combatMapViewPort.playerView(adventureId, playerResolver.playerId());
         return projection.map(view -> CombatMapResponse.from(adventureId, adventure.version(), view))
@@ -363,15 +331,6 @@ public class AdventureController {
         return new MovementValidationResponse(adventureId, true, "valid");
     }
 
-    @GetMapping("/internal/v1/adventures/{adventureId}/gm-context")
-    GmContextResponse gmContext(@PathVariable UUID adventureId) {
-        return new GmContextResponse(adventureId, "current-scene", "npc-state");
-    }
-
-    public record StreamMessageRequest(UUID playerId, UUID turnId, UUID commandId, String action) {}
-
-    public record GmContinuationRequest(UUID turnId, UUID commandId, Long expectedVersion, String instruction) {}
-
     public record GmTurnRequest(UUID turnId, GmInputRequest input) {}
 
     public record PlayerRollRequest(int result, long expectedVersion) {}
@@ -413,7 +372,39 @@ public class AdventureController {
     }
     public record RuleInquiryRequest(UUID inquiryId, UUID ruleSetId, UUID playerId, String situation) {}
     public record RuleInquiryResponse(UUID inquiryId, String status) {}
+
+    /** Validates and translates the typed map action before the Scenario Runtime command. */
     private void applyMapAction(Adventure adventure, UUID owner, UUID commandId,
+            com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput input) {
+        try {
+            MapActionPayload payload = objectMapper.readValue(input.action(), MapActionPayload.class);
+            if (!input.mapId().equals(payload.mapId()) || input.mapVersion() != payload.mapVersion()) {
+                throw new IllegalArgumentException("map action identity mismatch");
+            }
+            if (payload.action() == null || payload.action().isBlank()) {
+                throw new IllegalArgumentException("map action type required");
+            }
+            if (!"MOVE".equals(payload.action())) {
+                throw new ApiRequestGuard.ApiContractException(400, "UNSUPPORTED_MAP_ACTION");
+            }
+            var member = characterSheetForToken(adventure, payload.tokenId());
+            if (payload.path() == null || payload.path().size() < 2) {
+                throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PATH");
+            }
+            String path = payload.path().stream()
+                    .map(position -> position.x() + "," + position.y()).reduce((left, right) -> left + ";" + right).orElse(null);
+            CombatActionCommand command = new CombatActionCommand(commandId, adventure.id(), adventure.sessionId().value(),
+                    adventure.ruleSetId(), member.characterSheetId(), payload.mapId(), CombatActorRole.PLAYER,
+                    payload.action(), path, owner, payload.tokenId(), payload.mapVersion());
+            characterCombatPort.requireUsableCharacter(command);
+            combatMapPort.validateAndMove(command);
+        } catch (java.io.IOException exception) {
+            throw new IllegalArgumentException("invalid map action", exception);
+        }
+    }
+
+    private com.dndmaster.adventure.application.runtime.RuntimeTurnCommand prepareMapCommand(Adventure adventure, UUID owner,
+            UUID turnId, UUID commandId,
             com.dndmaster.adventure.domain.runtime.GmInput.MapActionInput input) {
         try {
             MapActionPayload payload = objectMapper.readValue(input.action(), MapActionPayload.class);
@@ -436,7 +427,17 @@ public class AdventureController {
                     commandId, adventure.id(), adventure.sessionId().value(), adventure.ruleSetId(), member.characterSheetId(), payload.mapId(),
                     CombatActorRole.PLAYER, payload.action(), path, owner, payload.tokenId(), payload.mapVersion());
             characterCombatPort.requireUsableCharacter(command);
-            combatMapPort.validateAndMove(command);
+            UUID runtimeCommandId = UUID.nameUUIDFromBytes((commandId + ":combat-map").getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            var targetContext = objectMapper.createObjectNode()
+                    .put("ruleSetId", adventure.ruleSetId().value().toString())
+                    .put("characterSheetId", member.characterSheetId().value().toString())
+                    .put("combatMapId", payload.mapId().toString())
+                    .put("tokenId", payload.tokenId().toString())
+                    .put("expectedVersion", payload.mapVersion())
+                    .toString();
+            return com.dndmaster.adventure.application.runtime.RuntimeTurnCommand.create(turnId, runtimeCommandId,
+                    adventure.id().value(), adventure.sessionId().value(), owner, targetContext,
+                    "combat-map.move", input.action(), 0);
         } catch (java.io.IOException exception) {
             throw new IllegalArgumentException("invalid map action", exception);
         }
@@ -502,5 +503,4 @@ public class AdventureController {
     public record RollConditionsResponse(UUID adventureId, String conditions) {}
     public record MovementValidationRequest(UUID tokenId, int x, int y) {}
     public record MovementValidationResponse(UUID adventureId, boolean valid, String reason) {}
-    public record GmContextResponse(UUID adventureId, String currentScene, String npcState) {}
 }

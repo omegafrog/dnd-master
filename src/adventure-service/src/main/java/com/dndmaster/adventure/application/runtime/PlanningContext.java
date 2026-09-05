@@ -5,13 +5,13 @@ import java.util.Objects;
 import java.util.Set;
 
 /** Immutable, bounded context shared by every compact plan candidate. */
-public record PlanningContext(String playerIntent, String stateFingerprint, String storyStage,
+public record PlanningContext(String playerIntent, String stateFingerprint, String situationKey,
                               String informationBoundary, Set<String> supportedEntities,
                               Set<String> revealableFacts, Set<String> forbiddenFacts) {
     public PlanningContext {
         playerIntent = required(playerIntent, "player intent");
         stateFingerprint = required(stateFingerprint, "state fingerprint");
-        storyStage = required(storyStage, "story stage");
+        situationKey = required(situationKey, "situation key");
         informationBoundary = required(informationBoundary, "information boundary");
         supportedEntities = Set.copyOf(Objects.requireNonNull(supportedEntities));
         revealableFacts = Set.copyOf(Objects.requireNonNull(revealableFacts));

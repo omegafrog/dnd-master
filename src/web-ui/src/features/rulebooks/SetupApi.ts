@@ -340,7 +340,13 @@ export type LegacyScenarioMigrationView = {
   message: string
 }
 
-export type ScenarioCompilationStatus = 'REQUESTED' | 'RUNNING' | 'WAITING_RETRY' | 'PUBLISHED' | 'FAILED'
+export type ScenarioCompilationStatus = 'QUEUED' | 'PROCESSING' | 'COMPLETED' | 'BLOCKED' | 'REQUESTED' | 'RUNNING' | 'WAITING_RETRY' | 'PUBLISHED' | 'FAILED'
+
+export type ScenarioCompilationDiagnostic = {
+  code: string
+  severity: 'INFO' | 'WARNING' | 'BLOCKING'
+  message: string
+}
 
 export type ScenarioCompilationView = {
   compilationId: string
@@ -350,14 +356,29 @@ export type ScenarioCompilationView = {
   attempt: number
   packageId?: string | null
   failureReason?: string | null
+  diagnostics?: ScenarioCompilationDiagnostic[]
+}
+
+export type ScenarioCompilationOptions = {
+  primaryStorybookId?: string | null
+  integrationPrompt?: string
+  creativity?: 'NONE' | 'CONSERVATIVE' | 'CREATIVE'
 }
 
 export function normalizeScenarioCompilation(view: ScenarioCompilationView): ScenarioCompilationView {
   const raw = String(view.status ?? '').trim().toUpperCase()
-  const status = raw === 'PUBLISHED' || raw.includes('완료')
-    ? 'PUBLISHED'
+  const status = raw === 'COMPLETED'
+    ? 'COMPLETED'
+    : raw === 'PUBLISHED' || raw.includes('완료')
+      ? 'PUBLISHED'
+      : raw === 'BLOCKED' || raw.includes('차단')
+        ? 'BLOCKED'
     : raw === 'FAILED' || raw.includes('실패') || raw.includes('TIMEOUT') || view.failureReason
       ? 'FAILED'
+      : raw === 'PROCESSING'
+        ? 'PROCESSING'
+        : raw === 'QUEUED'
+          ? 'QUEUED'
       : raw === 'WAITING_RETRY' || raw.includes('재시도')
         ? 'WAITING_RETRY'
         : raw === 'RUNNING' || raw.includes('진행')
@@ -468,7 +489,7 @@ export interface SetupApi {
   listScenarioPackages?(bundleId: string): Promise<ScenarioPackageView[]>
   deleteScenarioBundle?(bundleId: string): Promise<void>
   listScenarioBundles?(): Promise<ScenarioBundleView[]>
-  startScenarioCompilation?(bundleId: string, ownerId: string, inputFingerprint: string): Promise<ScenarioCompilationView>
+  startScenarioCompilation?(bundleId: string, ownerId: string, inputFingerprint: string, options?: ScenarioCompilationOptions): Promise<ScenarioCompilationView>
   getScenarioCompilation?(compilationId: string): Promise<ScenarioCompilationView>
   preflightAgentEndpoint?(): Promise<AgentEndpointPreflightView>
   getScenarioPackage?(packageId: string): Promise<ScenarioPackageView>
@@ -654,11 +675,11 @@ export class HttpSetupApi implements SetupApi {
     })
   }
 
-  startScenarioCompilation(bundleId: string, ownerId: string, inputFingerprint: string) {
+  startScenarioCompilation(bundleId: string, ownerId: string, inputFingerprint: string, options?: ScenarioCompilationOptions) {
     return request<ScenarioCompilationView>(`/api/v1/adventures/scenario-bundles/${bundleId}/compilation-jobs`, {
       method: 'POST',
       headers: { ...this.authHeaders(), 'Content-Type': 'application/json' },
-      body: JSON.stringify({ playerId: ownerId, inputFingerprint }),
+      body: JSON.stringify({ playerId: ownerId, inputFingerprint, ...options }),
     }, '게임 준비를 시작하지 못했습니다.').then(normalizeScenarioCompilation)
   }
 

@@ -27,7 +27,7 @@ public final class RuntimeEvidenceSelector {
         List<RuntimeEvidence> storybook = search(request.forType(RuntimeEvidenceType.STORYBOOK, max), RuntimeEvidenceType.STORYBOOK, request, max);
         if (storybook.isEmpty()) {
             throw new RuntimeEvidenceSelectionException(new RuntimeEvidenceSelectionViolation(
-                    "MISSING_STORYBOOK", "current-stage STORYBOOK evidence is unavailable"));
+                    "MISSING_STORYBOOK", "current-situation STORYBOOK evidence is unavailable"));
         }
 
         int remaining = max - storybook.size();
@@ -49,7 +49,7 @@ public final class RuntimeEvidenceSelector {
         counts.put(RuntimeEvidenceType.RULEBOOK, rulebook.size());
         counts.put(RuntimeEvidenceType.RESOLUTION, resolution.size());
         return new RuntimeEvidenceSelection(pack, new RuntimeEvidenceSelectionMetrics(
-                pack.totalEvidenceCount(), counts, request.stageKey(), request.actionIntent()));
+                pack.totalEvidenceCount(), counts, request.contextKey(), request.actionIntent()));
     }
 
     private List<RuntimeEvidence> search(RuntimeEvidenceSearchRequest request, RuntimeEvidenceType expected,

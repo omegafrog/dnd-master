@@ -1,0 +1,71 @@
+@startuml
+' Architecture Spec 3.4.1 — Scenario Model Runtime aggregate design
+title Scenario Model Runtime Class Design
+
+class ScenarioPackage <<Aggregate Root>> {
+  packageId
+  bundleRevision
+  inputFingerprint
+}
+
+class ScenarioModel {
+  schemaVersion
+  actors
+  locations
+  objectives
+  revelations
+  encounters
+  relationships
+  resolutionCriteria
+}
+
+class Adventure <<Aggregate Root>> {
+  adventureId
+  lockedScenarioPackageId
+  status
+  version
+}
+
+class GameState
+class DisclosureState
+class CurrentSituation {
+  situationId
+  revision
+}
+class RuntimeAddedFact {
+  factId
+  establishedTurnId
+}
+
+class RuntimeTurn <<Process Aggregate>> {
+  turnId
+  commandId
+  lifecycle
+  fixedResolution
+}
+
+class RuntimeTurnCommand {
+  commandId
+  targetContext
+  commandType
+  executionStatus
+  executionOrder
+}
+
+class ScenarioCompilationJob <<Process Aggregate>> {
+  jobId
+  status
+  processingStartedAt
+  attempt
+}
+
+ScenarioPackage *-- ScenarioModel
+Adventure *-- GameState
+Adventure *-- DisclosureState
+Adventure *-- CurrentSituation
+Adventure *-- "0..*" RuntimeAddedFact
+Adventure --> ScenarioPackage : locks version
+RuntimeTurn --> Adventure : targets
+RuntimeTurn *-- "0..*" RuntimeTurnCommand
+ScenarioCompilationJob --> ScenarioPackage : produces
+@enduml

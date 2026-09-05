@@ -7,6 +7,8 @@ import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioBundleNotFoundException;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceBundle;
+import com.dndmaster.adventure.domain.scenario.ScenarioCreativity;
+import com.dndmaster.adventure.domain.scenario.ScenarioCompilationInputSnapshot;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
@@ -113,6 +115,18 @@ public final class ScenarioCompilationApplicationService {
         log.info("scenario compilation enqueue bundleId={} owner={} revision={} inputFingerprint={}",
                 bundleId.value(), owner.value(), bundle.currentRevision().revision(), inputFingerprint);
         return processManager.start(bundleId, bundle.currentRevision().revision(), inputFingerprint, idempotencyKey);
+    }
+
+    public com.dndmaster.adventure.domain.scenario.ScenarioCompilation start(
+            ScenarioBundleId bundleId, OwnerPlayerId owner, String inputFingerprint, String idempotencyKey,
+            UUID primaryStorybookId, String integrationPrompt, ScenarioCreativity creativity) {
+        ScenarioSourceBundle bundle = bundleRepository.findById(bundleId)
+                .orElseThrow(ScenarioBundleNotFoundException::new);
+        bundle.authorize(owner);
+        ScenarioCompilationInputSnapshot input = ScenarioCompilationInputSnapshot.capture(
+                bundle.id(), bundle.currentRevision().revision(), bundle.currentRevision().documents(),
+                primaryStorybookId, integrationPrompt, creativity);
+        return processManager.start(input, inputFingerprint, idempotencyKey);
     }
 
     public com.dndmaster.adventure.domain.scenario.ScenarioCompilation readCompilation(

@@ -13,6 +13,8 @@ import com.dndmaster.adventure.domain.scenario.ScenarioBundleId;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import com.dndmaster.adventure.domain.scenario.SaveDc;
+import com.dndmaster.adventure.domain.scenario.ScenarioCreativity;
+import com.dndmaster.adventure.domain.scenario.ScenarioCompilationDiagnostic;
 import java.util.List;
 import java.util.UUID;
 import java.time.Instant;
@@ -88,7 +90,8 @@ public class ScenarioCompilationController {
             throw new ResponseStatusException(HttpStatus.FORBIDDEN, "playerId must match Authorization");
         }
         String key = idempotencyKey == null || idempotencyKey.isBlank() ? request.inputFingerprint() : idempotencyKey;
-        return CompilationResponse.from(service.start(new ScenarioBundleId(bundleId), owner, request.inputFingerprint(), key));
+        return CompilationResponse.from(service.start(new ScenarioBundleId(bundleId), owner, request.inputFingerprint(), key,
+                request.primaryStorybookId(), request.integrationPrompt(), request.creativity()));
     }
 
     @GetMapping("/compilations/{compilationId}")
@@ -160,32 +163,39 @@ public class ScenarioCompilationController {
     }
 
     public record CompilationRequest(UUID playerId, List<CandidateRequest> candidates, List<OverrideRequest> overrides) {}
-    public record CompilationJobRequest(UUID playerId, String inputFingerprint) {}
+    public record CompilationJobRequest(UUID playerId, String inputFingerprint, UUID primaryStorybookId,
+                                        String integrationPrompt, ScenarioCreativity creativity) {
+        public CompilationJobRequest(UUID playerId, String inputFingerprint) {
+            this(playerId, inputFingerprint, null, null, ScenarioCreativity.CONSERVATIVE);
+        }
+    }
     public record CompilationResponse(UUID compilationId, UUID bundleId, long bundleRevision, String idempotencyKey, String status, int attempt,
-                                      UUID packageId, String failureReason, String phase, int progress) {
+                                      UUID packageId, String failureReason, String phase, int progress,
+                                      List<ScenarioCompilationDiagnostic> diagnostics) {
         public CompilationResponse(UUID compilationId, UUID bundleId, long bundleRevision, String idempotencyKey, String status, int attempt,
                                    UUID packageId, String failureReason) {
             this(compilationId, bundleId, bundleRevision, idempotencyKey, status, attempt, packageId, failureReason,
-                    phaseFor(status), progressFor(status));
+                    phaseFor(status), progressFor(status), List.of());
         }
         static CompilationResponse from(com.dndmaster.adventure.domain.scenario.ScenarioCompilation compilation) {
             return new CompilationResponse(compilation.id(), compilation.bundleId().value(), compilation.bundleRevision(),
                         compilation.idempotencyKey(), compilation.status().name(), compilation.attempt(), compilation.packageId(), compilation.failureReason(),
-                        phaseFor(compilation.status().name()), progressFor(compilation.status().name()));
+                        phaseFor(compilation.status().name()), progressFor(compilation.status().name()), compilation.diagnostics());
         }
         private static String phaseFor(String status) {
             return switch (status == null ? "" : status) {
-                case "REQUESTED", "WAITING_RETRY" -> "QUEUED";
-                case "RUNNING" -> "SCENARIO_COMPILATION";
-                case "PUBLISHED" -> "COMPLETE";
+                case "REQUESTED", "QUEUED", "WAITING_RETRY" -> "QUEUED";
+                case "RUNNING", "PROCESSING" -> "SCENARIO_COMPILATION";
+                case "PUBLISHED", "COMPLETED" -> "COMPLETE";
+                case "BLOCKED" -> "BLOCKED";
                 case "FAILED" -> "FAILED";
                 default -> "UNKNOWN";
             };
         }
         private static int progressFor(String status) {
             return switch (status == null ? "" : status) {
-                case "PUBLISHED", "FAILED" -> 100;
-                case "RUNNING" -> 50;
+                case "PUBLISHED", "COMPLETED", "BLOCKED", "FAILED" -> 100;
+                case "RUNNING", "PROCESSING" -> 50;
                 default -> 0;
             };
         }
