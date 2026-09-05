@@ -1,0 +1,53 @@
+@startuml
+' Architecture Spec 3.4.1, 4.2, 4.4; Product UC-1~UC-6, BR-1~BR-13
+title Combat Map — Class Design
+
+class CombatMap <<Aggregate Root>> {
+  mapId
+  version
+  grid
+  tokens
+  doors
+  visibilitySnapshot
+  activate()
+  moveToken()
+  changeDoor()
+}
+class GridCalibration <<Value Object>>
+enum GridSource { PRINTED; FALLBACK }
+class MapContentBounds <<Value Object>>
+class MapPreparationPipeline
+class MapContentBoundsDetector
+class MapGridDetector
+class PrintedGridAcceptancePolicy
+class FallbackGridPolicy
+class MapActivationContext <<Value Object>>
+class SpawnResolutionPolicy <<Domain Policy>>
+class SpawnResolution <<Value Object>>
+class VisibilityPolicy <<Domain Policy>>
+class VisibilityProfile <<Value Object>>
+class VisibilitySnapshot <<Value Object>>
+class PlayerSafeFogProjection
+interface CombatMapViewStore
+class CombatMapViewService <<Application Service>>
+
+MapPreparationPipeline --> MapContentBoundsDetector
+MapPreparationPipeline --> MapGridDetector
+MapPreparationPipeline --> PrintedGridAcceptancePolicy
+MapPreparationPipeline --> FallbackGridPolicy
+MapPreparationPipeline --> MapContentBounds
+MapPreparationPipeline --> GridCalibration
+GridCalibration --> GridSource
+CombatMapViewService --> MapPreparationPipeline
+CombatMapViewService --> SpawnResolutionPolicy
+CombatMapViewService --> CombatMap
+CombatMapViewService --> CombatMapViewStore
+SpawnResolutionPolicy --> MapActivationContext
+SpawnResolutionPolicy --> SpawnResolution
+CombatMap --> GridCalibration
+CombatMap --> VisibilitySnapshot
+CombatMap --> VisibilityPolicy
+VisibilityPolicy --> VisibilityProfile
+PlayerSafeFogProjection --> VisibilitySnapshot
+CombatMapViewService --> PlayerSafeFogProjection
+@enduml

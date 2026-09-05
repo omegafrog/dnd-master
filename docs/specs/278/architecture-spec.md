@@ -165,7 +165,7 @@ Map Preparation은 PLAYER의 실제 런타임 Spawn을 확정하지 않는다. T
 
 ## 3.4.1 Class Diagram
 
-변경 대상이 있으므로 class diagram 적용 대상이다. 사용자가 다이어그램을 별도 호출한다고 했으므로 현재 문서에는 생성하지 않는다.
+변경 대상이 있으므로 class diagram 적용 대상이다.
 
 예정 원본: `docs/specs/278/diagrams/architecture/combat-map.class.puml`
 
@@ -217,7 +217,7 @@ Map Preparation은 PLAYER의 실제 런타임 Spawn을 확정하지 않는다. T
 
 ## 3.8.1 State Diagram
 
-설계 상태 다이어그램 적용 대상이다. 별도 호출에서 생성한다.
+설계 상태 다이어그램 적용 대상이다.
 
 예정 원본: `docs/specs/278/diagrams/architecture/combat-map-runtime.state.puml`
 
@@ -840,7 +840,7 @@ Combat Map component tests에서:
 
 # 13. Architecture 다이어그램 계약
 
-이번 설계는 program flow, class responsibilities, activation state, runtime visibility flow가 변경되므로 Architecture diagram 적용 대상이다. 사용자가 다이어그램을 별도 스킬 호출로 생성한다고 명시했으므로 이 커밋에서는 `.puml`/`.svg`를 만들거나 존재하지 않는 SVG를 링크하지 않는다.
+이번 설계는 program flow, class responsibilities, activation state, runtime visibility flow가 변경되므로 Architecture diagram 적용 대상이다.
 
 별도 호출의 다이어그램 계약:
 
@@ -854,4 +854,4 @@ Combat Map component tests에서:
 
 Context Map의 Bounded Context 관계는 변경하지 않으므로 새로운 Context Map 다이어그램은 **해당 없음 — 기존 Combat Map 경계를 그대로 사용**한다.
 
-**상태:** Architecture 다이어그램 산출물은 사용자 지시에 따라 `DEFERRED`이며, 별도 생성 시 Product Spec의 UC/BR/AC와 이 Architecture Spec의 component/state contract를 추적해야 한다.
+**상태:** BLOCKED — `.puml` 원본은 생성했으나 저장소에 `bin/plantuml-render.mjs`와 `bin/plantuml-bootstrap.mjs`가 없어 SVG 렌더·링크 검증을 완료할 수 없다.

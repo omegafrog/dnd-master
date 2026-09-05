@@ -214,7 +214,7 @@ Adventure Runtime이 새 전투 맵을 활성화하면 현재 시나리오 위�
 
 ## Product 다이어그램 계약
 
-이번 변경은 UC-1~UC-6의 흐름을 변경하므로 Product use-case/activity 다이어그램 대상이다. 다만 사용자가 다이어그램을 별도 스킬 호출로 생성한다고 명시했으므로 이 커밋에서는 `.puml`/`.svg`를 생성하거나 존재하지 않는 SVG를 링크하지 않는다.
+이번 변경은 UC-1~UC-6의 흐름을 변경하므로 Product use-case/activity 다이어그램 대상이다.
 
 별도 호출에서 생성할 다이어그램 계약은 다음과 같다.
 
@@ -225,4 +225,4 @@ Adventure Runtime이 새 전투 맵을 활성화하면 현재 시나리오 위�
 | UC-5~UC-6 | `docs/specs/278/diagrams/product/UC-5-fog-visibility.activity.puml` | 활성화·이동에 따른 visibility/explored 변화 |
 | UC-1~UC-6 | `docs/specs/278/diagrams/product/UC-278-combat-map.usecase.puml` | Solo Player와 Combat Map 관련 유스케이스 범위 |
 
-**상태:** 다이어그램 산출물은 사용자 지시에 따라 `DEFERRED`이며, Product Spec의 요구사항·유스케이스 ID를 다이어그램 원본에 연결해야 한다.
+**상태:** BLOCKED — `.puml` 원본은 생성했으나 저장소에 `bin/plantuml-render.mjs`와 `bin/plantuml-bootstrap.mjs`가 없어 SVG 렌더·링크 검증을 완료할 수 없다.
