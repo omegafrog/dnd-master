@@ -55,15 +55,27 @@ export function CombatMapView({ adventureId, api, refreshToken = 0 }: { adventur
   const grid = map?.grid ?? { width: 0, height: 0 }
   const mapImage = map?.layers?.find(layer => layer.type === 'MAP_IMAGE')?.value
   const gridBounds = map?.layers?.find(layer => layer.type === 'GRID_BOUNDS')?.value?.split(',').map(Number)
-  const mapStyle: CSSProperties | undefined = mapImage ? {
-    backgroundImage: `url(${mapImage})`,
-    ...(gridBounds && gridBounds.length >= 6 ? {
-      '--grid-top': `${(gridBounds[1] / gridBounds[5]) * 100}%`,
-      '--grid-right': `${((gridBounds[4] - gridBounds[0] - gridBounds[2]) / gridBounds[4]) * 100}%`,
-      '--grid-bottom': `${((gridBounds[5] - gridBounds[1] - gridBounds[3]) / gridBounds[5]) * 100}%`,
-      '--grid-left': `${(gridBounds[0] / gridBounds[4]) * 100}%`,
+  const hasGridBounds = gridBounds && gridBounds.length >= 6 && gridBounds.every(Number.isFinite)
+    && gridBounds[0] >= 0 && gridBounds[1] >= 0 && gridBounds[2] > 0 && gridBounds[3] > 0
+    && gridBounds[4] >= gridBounds[0] + gridBounds[2] && gridBounds[5] >= gridBounds[1] + gridBounds[3]
+  const imageWidth = hasGridBounds ? gridBounds[4] : 0
+  const imageHeight = hasGridBounds ? gridBounds[5] : 0
+  const boundsWidth = hasGridBounds ? gridBounds[2] : 0
+  const boundsHeight = hasGridBounds ? gridBounds[3] : 0
+  const backgroundPositionX = hasGridBounds && imageWidth > boundsWidth
+    ? `${(gridBounds[0] / (imageWidth - boundsWidth)) * 100}%` : 'center'
+  const backgroundPositionY = hasGridBounds && imageHeight > boundsHeight
+    ? `${(gridBounds[1] / (imageHeight - boundsHeight)) * 100}%` : 'center'
+  const mapStyle = {
+    '--grid-columns': grid.width,
+    '--grid-rows': grid.height,
+    '--map-aspect': hasGridBounds ? `${boundsWidth} / ${boundsHeight}` : `${Math.max(grid.width, 1)} / ${Math.max(grid.height, 1)}`,
+    ...(mapImage ? { backgroundImage: `url(${mapImage})` } : {}),
+    ...(hasGridBounds ? {
+      '--map-background-size': `${(imageWidth / boundsWidth) * 100}% ${(imageHeight / boundsHeight) * 100}%`,
+      '--map-background-position': `${backgroundPositionX} ${backgroundPositionY}`,
     } : {}),
-  } as CSSProperties : undefined
+  } as CSSProperties
   // A combat map is stage-scoped.  The backend returns an empty projection for
   // event/town stages; keep the entire tactical panel out of the player UI in
   // that state instead of showing a permanent "no map" panel.
@@ -84,7 +96,7 @@ export function CombatMapView({ adventureId, api, refreshToken = 0 }: { adventur
               const door = map.doors?.find(item => item.x === cell.x && item.y === cell.y)
               const visible = map.current?.some(item => item.x === cell.x && item.y === cell.y) ?? true
               const explored = map.explored?.some(item => item.x === cell.x && item.y === cell.y) ?? visible
-              return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={visible && token ? `${token.type} ${token.x},${token.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={visible ? 'current' : explored ? 'explored' : 'hidden'} data-last-seen={token?.lastSeen ? 'true' : 'false'} disabled={blocked || !visible} draggable={token?.type === 'PLAYER'} onDragStart={() => { if (token?.type === 'PLAYER') setSelectedToken(token.id) }} onClick={() => { if (token?.type === 'PLAYER') setSelectedToken(token.id); else chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => chooseCell(cell)}>
+              return <button key={`${cell.x}-${cell.y}`} type="button" aria-label={visible && token ? `${token.type} ${token.x},${token.y}` : visible ? `격자 ${cell.x},${cell.y}` : explored ? `탐험한 격자 ${cell.x},${cell.y}` : '미탐험 영역'} data-visibility={visible ? 'current' : explored ? 'explored' : 'hidden'} data-token-type={visible && token ? token.type : undefined} data-last-seen={token?.lastSeen ? 'true' : 'false'} disabled={blocked || !visible} draggable={token?.type === 'PLAYER'} onDragStart={() => { if (token?.type === 'PLAYER') setSelectedToken(token.id) }} onClick={() => { if (token?.type === 'PLAYER') setSelectedToken(token.id); else chooseCell(cell) }} onDragOver={event => event.preventDefault()} onDrop={() => chooseCell(cell)}>
                 {visible && token ? `${token.type} (${token.x},${token.y})` : door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '장애물' : visible && !mapImage ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
               </button>
             })}

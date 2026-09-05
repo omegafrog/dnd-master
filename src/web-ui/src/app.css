@@ -1058,16 +1058,22 @@ body {
 .character-ability-card strong { color:#30271f; font:700 2rem Georgia,'Times New Roman',serif; }
 .character-ability-card span { color:#6f6252; font-size:.72rem; font-weight:700; }
 .ability-tone-1 { --ability-tone:#a24332; }.ability-tone-2 { --ability-tone:#28683b; }.ability-tone-3 { --ability-tone:#8c6320; }.ability-tone-4 { --ability-tone:#275c86; }.ability-tone-5 { --ability-tone:#68428c; }.ability-tone-6 { --ability-tone:#79336e; }
-.map-legend { display:flex; flex-wrap:wrap; gap:.45rem .8rem; margin-top:.7rem; }
+.map-legend { display:grid; grid-template-columns:repeat(auto-fit,minmax(9rem,1fr)); gap:.4rem; margin-top:.7rem; padding:.6rem; border:1px solid #cdbda6; border-radius:6px; background:#f8f2e6; }
 .tactical-map-window { overflow:auto; }
-.tactical-map { display:grid; grid-template-columns:repeat(20,minmax(0,1fr)); grid-auto-rows:1fr; width:min(100%,70rem); aspect-ratio:1406 / 1039; box-sizing:border-box; padding:var(--grid-top,10.2%) var(--grid-right,22.2%) var(--grid-bottom,10.2%) var(--grid-left,22.2%); background-color:#d9cbb3; background-position:center; background-repeat:no-repeat; background-size:cover; border:1px solid #9e8764; border-radius:6px; overflow:hidden; }
-.tactical-map > button { min-width:0; min-height:0; padding:0; border:1px solid transparent; border-radius:0 !important; background:transparent !important; color:transparent; font-size:0; }
-.tactical-map > button:hover,.tactical-map > button:focus-visible { background:rgb(255 255 255 / 18%); outline:2px solid #f2d08b; outline-offset:-2px; }
-.tactical-map > button[data-visibility='hidden'] { background:rgb(24 30 34 / 65%); }
-.tactical-map > button[data-visibility='explored'] { background:rgb(30 35 38 / 28%); }
-.tactical-map > button[aria-label^='PLAYER'] { background:rgb(29 98 87 / 75%); color:#fff; font-size:.58rem; font-weight:800; }
-.tactical-map > button[aria-label^='ENEMY'],.tactical-map > button[aria-label^='BOSS'] { background:rgb(163 62 48 / 72%); color:#fff; font-size:.55rem; }
-.legend-token { display:inline-flex; align-items:center; gap:.3rem; padding:.25rem .45rem; border:2px solid currentColor; border-radius:999px; font-size:.75rem; font-weight:700; }
+.tactical-map { display:grid; grid-template-columns:repeat(var(--grid-columns,1),minmax(0,1fr)); grid-template-rows:repeat(var(--grid-rows,1),minmax(0,1fr)); width:min(100%,70rem); aspect-ratio:var(--map-aspect,1 / 1); box-sizing:border-box; background-color:#d9cbb3; background-position:var(--map-background-position,center); background-repeat:no-repeat; background-size:var(--map-background-size,100% 100%); border:1px solid #9e8764; border-radius:6px; overflow:hidden; }
+.tactical-map > button { min-width:0; min-height:0; box-sizing:border-box; padding:0; border:1px solid rgb(0 0 0 / 45%) !important; border-radius:0 !important; background-color:transparent !important; color:transparent; font-size:0; opacity:1; }
+.tactical-map > button:hover,.tactical-map > button:focus-visible { background-color:rgb(255 255 255 / 18%) !important; outline:2px solid #202428; outline-offset:-2px; }
+.tactical-map > button[data-visibility='hidden'] { background-color:rgb(24 30 34 / 78%) !important; }
+.tactical-map > button[data-visibility='explored'] { background:rgb(30 35 38 / 28%) !important; }
+.tactical-map > button[data-token-type] { color:#fff; font-size:.55rem; font-weight:800; text-shadow:0 1px 1px rgb(0 0 0 / 55%); }
+.tactical-map > button[data-token-type='PLAYER'] { background-color:rgb(29 98 87 / 85%) !important; }
+.tactical-map > button[data-token-type='FRIENDLY_NPC'] { background-color:rgb(46 111 159 / 85%) !important; }
+.tactical-map > button[data-token-type='NEUTRAL_NPC'] { background-color:rgb(128 107 53 / 85%) !important; }
+.tactical-map > button[data-token-type='ENEMY'] { background-color:rgb(163 62 48 / 82%) !important; }
+.tactical-map > button[data-token-type='BOSS'] { background-color:rgb(115 73 158 / 86%) !important; }
+.tactical-map > button[data-token-type='TRAP'] { background-color:rgb(154 93 22 / 85%) !important; }
+.tactical-map > button[data-token-type='OBJECT'] { background-color:rgb(88 99 107 / 85%) !important; }
+.legend-token { display:inline-flex; min-width:0; align-items:center; gap:.4rem; padding:.35rem .5rem; border-left:3px solid currentColor; background:rgb(255 255 255 / 72%); font-size:.72rem; font-weight:700; }
 .legend-token > span:first-child { font-size:1rem; line-height:1; }
 .legend-player { color:#216e5a; }.legend-friendly_npc { color:#2e6f9f; }.legend-neutral_npc { color:#806b35; }.legend-enemy { color:#a33b34; }.legend-boss { color:#73499e; }.legend-trap { color:#9a5d16; }.legend-object { color:#58636b; }
 .runtime-options-grid { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:.75rem; }

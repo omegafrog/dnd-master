@@ -14,8 +14,10 @@ import javax.sql.DataSource;
 import javax.imageio.ImageIO;
 import java.io.ByteArrayInputStream;
 import java.util.Base64;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 @Configuration(proxyBeanMethods = false)
 public class CombatMapApiConfiguration {
@@ -124,12 +126,28 @@ public class CombatMapApiConfiguration {
     AiMapGenerationPort aiMapGenerationPort() {
         return scenarioDescription -> new PreparedMapData(
                 new GridSpec(20, 20, 30, 5),
-                List.of(),
+                scenarioDescription != null && scenarioDescription.contains("A_Potent_Brew_Map")
+                        ? List.of(new CombatToken(new TokenId(CombatMap.canonicalTokenId("potent-brew-enemy-1")),
+                                TokenType.ENEMY, new GridPosition(14, 14), TokenController.AI_GAME_MASTER, null,
+                                TokenDiscovery.HIDDEN))
+                        : List.of(),
                 Set.of(),
                 scenarioDescription != null && (scenarioDescription.contains("A_Potent_Brew_Map")
                         || scenarioDescription.contains("page 1 image 1"))
-                        ? List.of(new MapLayer("MAP_IMAGE", "/assets/maps/a-potent-brew-map.png", LayerVisibility.PLAYER_VISIBLE))
+                        ? List.of(new MapLayer("MAP_IMAGE", "/assets/maps/a-potent-brew-map.png", LayerVisibility.PLAYER_VISIBLE),
+                                // The bundled image includes a title/paper margin. Keep the
+                                // tactical grid aligned to its printed 20x20 play area.
+                                new MapLayer("GRID_BOUNDS", "311,105,800,800,1403,992", LayerVisibility.PLAYER_VISIBLE),
+                                new MapLayer("INITIAL_FOG", initialFog(), LayerVisibility.AI_ONLY))
                         : List.of());
+    }
+
+    private static String initialFog() {
+        List<String> cells = new ArrayList<>();
+        for (int y = 0; y < 20; y++) for (int x = 0; x < 20; x++) {
+            if (x > 5 || y > 5) cells.add(x + "," + y);
+        }
+        return String.join(";", cells);
     }
 
     @Bean

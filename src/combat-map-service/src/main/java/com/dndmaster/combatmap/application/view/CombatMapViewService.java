@@ -37,9 +37,11 @@ public final class CombatMapViewService {
     }
     private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data) { return saveNew(owner, adventure, rules, data, 0, 0); }
     private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data, int spawnX, int spawnY) {
-        List<CombatToken> tokens = data.tokens().isEmpty()
-                ? List.of(new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER, new GridPosition(spawnX, spawnY), TokenController.PLAYER, new PlayerId(owner.value())))
-                : data.tokens();
+        List<CombatToken> tokens = new ArrayList<>(data.tokens());
+        if (tokens.stream().noneMatch(token -> token.type() == TokenType.PLAYER)) {
+            tokens.add(new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,
+                    new GridPosition(spawnX, spawnY), TokenController.PLAYER, new PlayerId(owner.value())));
+        }
         CombatMap map = new CombatMap(new MapId(UUID.randomUUID()), adventure, rules, data.grid(), new PlayerId(owner.value()), tokens, data.obstacles(), data.layers(), 0, null);
         map.refreshVisibility(0);
         store.insert(owner, map); return map;
