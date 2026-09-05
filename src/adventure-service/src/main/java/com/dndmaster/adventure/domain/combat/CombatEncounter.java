@@ -71,7 +71,7 @@ public record CombatEncounter(UUID encounterId, UUID adventureId, Status status,
                 .map(p -> p.participantId().equals(nextParticipantId) ? p.withResources(TurnResources.initial()) : p)
                 .toList();
         return new CombatEncounter(encounterId, adventureId, status, nextRound, nextParticipantId,
-                resetParticipants, version + 1, eventCursor + 1);
+                resetParticipants, version + 1, eventCursor + 1, narrativePositions);
     }
 
     private void requireVersion(long expectedVersion) {

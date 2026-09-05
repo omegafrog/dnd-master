@@ -30,4 +30,21 @@ class NarrativeCombatPositionPolicyTest {
         assertEquals(position, com.dndmaster.adventure.domain.combat.PlayerCombatProjectionPolicy
                 .toSnapshot(moved, heroId).narrativePositions().getFirst());
     }
+
+    @Test
+    void turn_rotation_retains_mapless_positions() {
+        UUID adventureId = UUID.randomUUID();
+        UUID heroId = UUID.randomUUID();
+        UUID enemyId = UUID.randomUUID();
+        CombatEncounter encounter = CombatStartPolicy.startFromCommittedGmTurn(true, adventureId, List.of(
+                new CombatParticipant(heroId, "Hero", CombatParticipant.Controller.PLAYER, 15, "healthy"),
+                new CombatParticipant(enemyId, "Goblin", CombatParticipant.Controller.AI, 10, null)));
+        CombatEncounter moved = encounter.commitMovement(heroId,
+                encounter.reserveAction(heroId,
+                        com.dndmaster.adventure.domain.combat.TurnResourceCost.movementOnly(5), 1),
+                new NarrativeCombatPosition(heroId, enemyId, "NEAR", "NONE"));
+
+        assertEquals(1, moved.narrativePositions().size());
+        assertEquals(1, moved.endCurrentTurn(moved.version()).narrativePositions().size());
+    }
 }
