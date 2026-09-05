@@ -54,6 +54,7 @@ public class AdventureController {
     private final CharacterCombatPort characterCombatPort;
     private final com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort;
     private final ObjectMapper objectMapper;
+    private final com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService;
 
     public AdventureController(
             SavedAdventureApplicationService savedAdventureService,
@@ -70,7 +71,8 @@ public class AdventureController {
             ObjectProvider<CombatMapPort> combatMapPort,
             ObjectProvider<CharacterCombatPort> characterCombatPort,
             ObjectMapper objectMapper,
-            ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapViewPort> combatMapViewPort) {
+            ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapViewPort> combatMapViewPort,
+            com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService) {
         this.savedAdventureService = savedAdventureService;
         this.runtimeTurnService = runtimeTurnService;
         this.adventureRepository = adventureRepository;
@@ -90,6 +92,7 @@ public class AdventureController {
         });
         this.combatMapViewPort = combatMapViewPort.getIfAvailable(() -> (adventureId1, ownerId) -> java.util.Optional.empty());
         this.objectMapper = objectMapper;
+        this.combatLifecycleService = combatLifecycleService;
     }
 
     /** Player read boundary; canonical runtime snapshots and ScenarioModel are intentionally absent. */
@@ -124,6 +127,7 @@ public class AdventureController {
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/turns")
+    @Transactional
     public ResponseEntity<RuntimeTurnResponse> submitTypedTurn(
             @PathVariable UUID adventureId,
             @RequestHeader("Idempotency-Key") UUID commandId,
@@ -182,10 +186,26 @@ public class AdventureController {
                 + ";reasoning=" + result.turn().plan().reasoning()
                 + ";validation=accepted";
         gmTurnRepository.save(turn.process().commit(providerMetadata), adventureId);
-        com.dndmaster.adventure.application.runtime.GmTurnCommitPolicy.requirePublishable(turn.process().commit(providerMetadata), result.version());
+        GmTurn committedTurn = turn.process().commit(providerMetadata);
+        com.dndmaster.adventure.application.runtime.GmTurnCommitPolicy.requirePublishable(committedTurn, result.version());
+        if (interactionType(input.actionText()).equals("combat")) {
+            combatLifecycleService.startFromCommittedGmTurn(adventureId, committedTurn,
+                    new com.dndmaster.adventure.domain.combat.CombatStartProposal(true,
+                            adventure.party().stream().map(member -> new com.dndmaster.adventure.domain.combat.CombatParticipant(
+                                    member.characterSheetId().value(), member.characterSheetId().value().toString(),
+                                    member.controlMode() == ControlMode.AGENT
+                                            ? com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.AI
+                                            : com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.PLAYER,
+                                    0, null)).toList()));
+        }
         sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
                 result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
         return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
+    }
+
+    private static String interactionType(String action) {
+        String lower = action.toLowerCase(java.util.Locale.ROOT);
+        return lower.contains("attack") || lower.contains("fight") || lower.contains("공격") ? "combat" : "action";
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/turns/{pendingTurnId}/roll")

@@ -1,0 +1,51 @@
+@startuml
+' Design-state contract: UC-001, UC-002, UC-006..UC-010; BR-001..BR-012
+title CombatEncounter Design State
+skinparam shadowing false
+
+[*] --> PREPARING : CombatStartProposed\n[GM Turn commit]
+PREPARING --> PLAYER_TURN : InitiativeDetermined\n[first controller = HUMAN]
+PREPARING --> AI_TURN : InitiativeDetermined\n[first controller = AI]
+
+PLAYER_TURN --> ACTION_PROCESSING : SubmitAction\n[valid version and current actor]
+PLAYER_TURN --> AI_TURN : EndPlayerTurn\n[next controller = AI]
+PLAYER_TURN --> PLAYER_TURN : EndPlayerTurn\n[next controller = HUMAN / next Round]
+
+AI_TURN --> ACTION_PROCESSING : AutoProgression selects action
+
+ACTION_PROCESSING --> PLAYER_TURN : ActionCommitted\n[resume controller = HUMAN]
+ACTION_PROCESSING --> AI_TURN : ActionCommitted\n[resume controller = AI]
+ACTION_PROCESSING --> REACTION_PENDING : ReactionRequested
+ACTION_PROCESSING --> PROCESSING_FAILED : RetryExhausted\n[3 total attempts]
+
+REACTION_PENDING --> ACTION_PROCESSING : Human use/pass
+REACTION_PENDING --> ACTION_PROCESSING : AI reaction auto-decided
+
+PROCESSING_FAILED --> ACTION_PROCESSING : ManualRetry\n[same command and stored reservation]
+
+AI_TURN --> AI_TURN : TurnEnded\n[next controller = AI]
+AI_TURN --> PLAYER_TURN : TurnEnded\n[next controller = HUMAN]
+
+PLAYER_TURN --> ENDING : CombatEndProposed\n[no pending action/reaction]
+AI_TURN --> ENDING : CombatEndProposed\n[no pending action/reaction]
+ACTION_PROCESSING --> ENDING : ActionCommitted + end condition
+
+ENDING --> ENDED : Final state applied\nCombatEnded appended
+ENDED --> [*]
+
+note right of PLAYER_TURN
+No timeout.
+Only explicit EndPlayerTurn advances turn.
+end note
+
+note right of REACTION_PENDING
+Suspended action and resume state persist.
+Human choice has no timeout.
+end note
+
+note right of PROCESSING_FAILED
+No turn skip and no resource consumption.
+Previous committed state remains.
+end note
+
+@enduml

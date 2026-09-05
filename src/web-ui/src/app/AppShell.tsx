@@ -16,6 +16,8 @@ import { CombatMapView } from '../features/combat-map/CombatMapView'
 import { AdventureSessionApi } from '../features/adventure-session/AdventureSessionApi'
 import { AdventureSessionPanel } from '../features/adventure-session/AdventureSessionPanel'
 import { AiEndpointSettings } from '../features/profile/AiEndpointSettings'
+import { CombatScreen } from '../features/combat/CombatScreen'
+import { HttpCombatApi, type CombatSnapshot } from '../features/combat/CombatApi'
 import { parseRoute, type Route } from './route'
 
 export function AppShell() {
@@ -79,6 +81,8 @@ export function AppShell() {
   const playerId = auth.session?.playerId ?? ''
   const getToken = useCallback(() => token, [token])
   const adventureApi = useMemo(() => new HttpAdventureApi(getToken), [getToken])
+  const combatApi = useMemo(() => new HttpCombatApi(getToken), [getToken])
+  const [combatSnapshot, setCombatSnapshot] = useState<CombatSnapshot | null>(null)
   const [adventureVersion, setAdventureVersion] = useState<number | null>(null)
   useEffect(() => {
     if (!auth.session || route.page !== 'adventure') return
@@ -88,6 +92,12 @@ export function AppShell() {
     }).catch(() => { if (active) setAdventureVersion(null) })
     return () => { active = false }
   }, [auth.session, adventureApi, route])
+  useEffect(() => {
+    if (!auth.session || route.page !== 'adventure') { setCombatSnapshot(null); return }
+    let active = true
+    void combatApi.readSnapshot(route.adventureId).then(snapshot => { if (active) setCombatSnapshot(snapshot) }).catch(() => { if (active) setCombatSnapshot(null) })
+    return () => { active = false }
+  }, [auth.session, combatApi, route])
 
   if (!auth.session) {
     return <div className="app-shell auth-shell">
@@ -116,7 +126,7 @@ export function AppShell() {
       {route.page === 'setup' && <RulebookSetup api={setupApi} playerId={playerId} sessionApi={sessionApi} asMain={false} />}
       {route.page === 'bundle' && <BundleDetailPage bundleId={route.bundleId} api={setupApi} playerId={playerId} sessionApi={sessionApi} />}
       {route.page === 'adventures' && <SavedAdventurePanel playApi={playApi} setupApi={setupApi} playerId={playerId} onResumed={adventureId => { window.location.hash = `#/adventures/${adventureId}` }} />}
-      {route.page === 'adventure' && <><div className="page-heading"><div><p className="eyebrow">ACTIVE ADVENTURE</p><h1>모험 진행 중</h1></div><span className="page-id">{shortId(route.adventureId)}</span></div><div className="adventure-workspace"><section className="adventure-map-main" aria-label="현재 전장"><CombatMapView adventureId={route.adventureId} api={playApi} refreshToken={mapRefreshToken} /></section><aside className="adventure-side-panel" aria-label="모험 대화"><AdventureStream adventureId={route.adventureId} api={adventureApi} expectedVersion={adventureVersion} onTurnCommitted={refreshCombatMap} /></aside></div></>}
+      {route.page === 'adventure' && (combatSnapshot ? <CombatScreen snapshot={combatSnapshot} /> : <><div className="page-heading"><div><p className="eyebrow">ACTIVE ADVENTURE</p><h1>모험 진행 중</h1></div><span className="page-id">{shortId(route.adventureId)}</span></div><div className="adventure-workspace"><section className="adventure-map-main" aria-label="현재 전장"><CombatMapView adventureId={route.adventureId} api={playApi} refreshToken={mapRefreshToken} /></section><aside className="adventure-side-panel" aria-label="모험 대화"><AdventureStream adventureId={route.adventureId} api={adventureApi} expectedVersion={adventureVersion} onTurnCommitted={refreshCombatMap} /></aside></div></>)}
       {route.page === 'character' && <CharacterSheetView sheetId={route.sheetId} api={playApi} />}
       {(route.page === 'session' || route.page === 'party') && <AdventureSessionPanel api={sessionApi} ownerPlayerId={playerId} sessionId={route.sessionId} />}
       {route.page === 'character-blueprint' && <CharacterCreationPage sessionId={route.sessionId} ownerPlayerId={playerId} setupApi={setupApi} sessionApi={sessionApi} />}

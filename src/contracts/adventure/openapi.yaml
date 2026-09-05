@@ -1,6 +1,20 @@
 openapi: 3.1.0
 info: { title: Adventure API, version: 1.0.0 }
 paths:
+  /api/v1/adventures/{adventureId}/combat:
+    get:
+      operationId: playerCombatSnapshot
+      responses:
+        '200': { description: active player-safe combat snapshot }
+        '404': { description: no active encounter }
+  /api/v1/adventures/{adventureId}/combat/events:
+    get:
+      operationId: streamCombatEvents
+      parameters:
+        - { name: afterSequence, in: query, schema: { type: integer, format: int64, default: -1 } }
+        - { name: Last-Event-ID, in: header, schema: { type: string } }
+      responses:
+        '200': { description: player-safe combat events, content: { text/event-stream: { schema: { type: string } } } }
   /api/v1/adventures/{adventureId}/events:
     get:
       operationId: streamAdventureEvents

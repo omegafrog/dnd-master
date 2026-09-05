@@ -1,0 +1,151 @@
+@startuml
+' Product diagram contract: UC-001..UC-010; BR-001..BR-012; AC-001..AC-022
+skinparam shadowing false
+
+|AI GM|
+start
+
+:일반 세션 중 전투 발생 확정;
+
+|Combat Runtime|
+:Combat Preparation 전환;
+
+|Game Engine|
+:참가자 확정;
+:Initiative 자동 판정;
+
+|Combat Runtime|
+:Initiative 순서 표시;
+:Round 1 및 1위 참가자 Turn 시작;
+:Combat UI 표시;
+
+while (전투 종료 조건 충족?) is (아니오)
+  if (세션 이탈?) then (예)
+    |Combat Runtime|
+    :Round, Turn, 남은 자원과\n전투 상태 보존;
+    |Human Player|
+    :동일 세션 재진입;
+    |Combat Runtime|
+    :저장 상태 복원;
+    :Combat UI 재표시;
+  endif
+
+  if (현재 참가자가 Human Player인가?) then (예)
+    |Human Player|
+    :Round, Turn, Movement / Action /\nBonus Action / Reaction 확인;
+
+    while (플레이어가 `턴 종료`를 눌렀는가?) is (아니오)
+      if (이동을 선택했는가?) then (예)
+        if (전투 맵이 있는가?) then (예)
+          |Human Player|
+          :목적지 선택;
+          |Game Engine|
+          :이동 거리와 가능 여부 계산;
+        else (아니오)
+          |AI GM|
+          :서술된 공간 관계로\n이동 가능 여부 판단;
+        endif
+        if (이동 가능한가?) then (예)
+          |Human Player|
+          :이동 확정;
+          |Game Engine|
+          :남은 Movement 갱신;
+        else (아니오)
+          |Combat Runtime|
+          :이동 불가 이유 표시;
+        endif
+      else (행동 또는 자유 선언)
+        if (정형 행동인가?) then (예)
+          |Human Player|
+          :공격 / 주문 / 아이템 선택;
+          :필요 대상 지정;
+          |Game Engine|
+          :사거리·행동 조건 검증;
+          if (규칙상 가능한가?) then (예)
+            |Human Player|
+            :주요 판정 정보 확인 후 실행;
+            |Game Engine|
+            :주사위 자동 판정;
+            :HP·자원·상태 반영;
+            |Combat Runtime|
+            :행동과 결과를 Combat Log에 기록;
+          else (아니오)
+            |Combat Runtime|
+            :실행 차단 및 실패 이유 표시;
+            note right
+            행동 자원은 소비하지 않는다.
+            end note
+          endif
+        else (자유 행동 선언)
+          |Human Player|
+          :Free-form Action Declaration 입력;
+          |AI GM|
+          :의도 해석;
+          :필요 비용과 판정 결정;
+          |Game Engine|
+          :필요한 판정 수행;
+          :결과를 전투 상태에 반영;
+          |Combat Runtime|
+          :선언과 결과를 Combat Log에 기록;
+        endif
+      endif
+
+      if (Reaction Trigger 발생?) then (예)
+        |Combat Runtime|
+        :현재 Turn 일시 중단;
+        :Reaction 선택 UI 표시;
+        |Human Player|
+        :Reaction 사용 또는 넘김;
+        |Game Engine|
+        :Reaction 결과 처리;
+        |Combat Runtime|
+        :중단 지점에서 Turn 계속;
+      endif
+    endwhile (예)
+    |Combat Runtime|
+    :다음 Initiative 참가자로 진행;
+  else (아니오)
+    if (AI Party Member Turn인가?) then (예)
+      |AI Party Members|
+      :전투 상태·캐릭터 상태 확인;
+      :전술 지시 참고;
+      :행동 자동 결정;
+    else (Enemy / NPC Turn)
+      |AI GM|
+      :적/NPC 행동 자동 결정;
+    endif
+    |Game Engine|
+    :규칙 검증 및 주사위 판정;
+    :HP·자원·상태 반영;
+    |Combat Runtime|
+    :결과를 화면과 Combat Log에 표시;
+
+    if (Reaction Trigger 발생?) then (예)
+      :자동 진행 일시 중단;
+      :플레이어 Reaction 선택;
+      |Game Engine|
+      :Reaction 결과 처리;
+      |Combat Runtime|
+      :AI Turn 계속;
+    endif
+    :AI Turn 자동 종료;
+    if (마지막 Initiative 참가자인가?) then (예)
+      :다음 Round 시작;
+    else (아니오)
+      :다음 Initiative 참가자로 진행;
+    endif
+  endif
+endwhile (예)
+
+|AI GM|
+:전투 종료 결과 확정;
+|Game Engine|
+:최종 HP·자원·상태·인벤토리 반영;
+|Combat Runtime|
+:종료 결과를 Combat Log에 기록;
+:Combat Mode 종료;
+|일반 세션 UI|
+:일반 세션 UI로 자동 복귀;
+
+stop
+@enduml

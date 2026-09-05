@@ -17,6 +17,8 @@ import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.inquiry.RulebookId;
 import com.dndmaster.adventure.domain.scenario.ScenarioSource;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresCombatEncounterRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresCombatEventRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioBundleRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioPackageRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresResolutionOverrideRepository;
@@ -81,6 +83,18 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.combat.CombatEncounterRepository combatEncounterRepository(DataSource dataSource) {
+        return new PostgresCombatEncounterRepository(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleApplicationService(
+            com.dndmaster.adventure.application.combat.CombatEncounterRepository repository,
+            com.dndmaster.adventure.application.combat.CombatEventRepository eventRepository) {
+        return new com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService(repository, eventRepository);
+    }
+
+    @Bean
     GmTurnRepository gmTurnRepository(DataSource dataSource, ObjectMapper objectMapper) {
         return new PostgresGmTurnRepository(dataSource, objectMapper);
     }
@@ -88,6 +102,11 @@ public class AdventureApiConfiguration {
     @Bean
     SessionEventRepository sessionEventRepository(DataSource dataSource) {
         return new PostgresSessionEventRepository(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.CombatEventRepository combatEventRepository(DataSource dataSource) {
+        return new PostgresCombatEventRepository(dataSource);
     }
 
     @Bean
@@ -978,9 +997,10 @@ public class AdventureApiConfiguration {
             org.springframework.beans.factory.ObjectProvider<CharacterCombatPort> characterCombatPort,
             ObjectMapper objectMapper,
             org.springframework.beans.factory.ObjectProvider<CombatMapViewPort> combatMapViewPort,
-            org.springframework.beans.factory.ObjectProvider<org.springframework.transaction.PlatformTransactionManager> transactionManager) {
+            org.springframework.beans.factory.ObjectProvider<org.springframework.transaction.PlatformTransactionManager> transactionManager,
+            com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService) {
         return new AdventureController(
-                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, scenarioService, playerResolver, combatMapPort, characterCombatPort, objectMapper, combatMapViewPort);
+                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, scenarioService, playerResolver, combatMapPort, characterCombatPort, objectMapper, combatMapViewPort, combatLifecycleService);
     }
 
     @Bean

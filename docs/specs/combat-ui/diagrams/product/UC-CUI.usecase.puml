@@ -1,0 +1,76 @@
+@startuml
+' Product diagram contract: UC-001..UC-010; BR-001..BR-012; AC-001..AC-022
+left to right direction
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+actor "Human Player" as Player
+actor "AI Party Members" as Party
+actor "AI GM" as GM
+actor "Game Engine" as Engine
+actor "일반 세션 UI" as SessionUI
+
+rectangle "Combat UI / Combat Mode" {
+  usecase "UC-001\n전투 진입" as UC001
+  usecase "UC-002\n플레이어 Turn 진행" as UC002
+  usecase "UC-003\n정형 행동 실행" as UC003
+  usecase "UC-004\n이동" as UC004
+  usecase "UC-005\n자유 행동 선언" as UC005
+  usecase "UC-006\nReaction 처리" as UC006
+  usecase "UC-007\nAI 파티원 Turn" as UC007
+  usecase "UC-008\n적/NPC Turn" as UC008
+  usecase "UC-009\n전투 종료" as UC009
+  usecase "UC-010\n전투 재개" as UC010
+}
+
+Player --> UC002
+Player --> UC003
+Player --> UC004
+Player --> UC005
+Player --> UC006
+Player --> UC010
+
+Party --> UC007
+GM --> UC001
+GM --> UC005
+GM --> UC008
+GM --> UC009
+Engine --> UC001
+Engine --> UC003
+Engine --> UC004
+Engine --> UC005
+Engine --> UC006
+Engine --> UC007
+Engine --> UC008
+Engine --> UC009
+Engine --> UC010
+SessionUI --> UC001
+SessionUI --> UC009
+SessionUI --> UC010
+
+UC001 .> UC002 : Combat UI 표시 후
+UC002 .> UC003 : 정형 행동
+UC002 .> UC004 : 이동
+UC002 .> UC005 : 비정형 선언
+UC002 .> UC006 : Trigger 발생 시
+UC007 .> UC006 : Trigger 발생 시
+UC008 .> UC006 : Trigger 발생 시
+UC009 .> UC002 : 모든 Turn 진행 중
+UC010 .> UC002 : 저장된 Turn 복원
+
+note bottom of UC003
+실행 전 사거리·행동 조건 검증.
+불가능하면 자원 소비 없이 차단.
+end note
+
+note bottom of UC005
+입력 자체는 거부하지 않는다.
+AI GM이 비용과 판정을 해석한다.
+end note
+
+note bottom of UC006
+진행 중 Turn을 일시 중단하고
+Reaction 해결 후 같은 지점에서 계속한다.
+end note
+
+@enduml
