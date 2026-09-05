@@ -1,1195 +1,356 @@
 # Product Spec: Scenario Model Runtime
 
-**Ticket ID:** `scenario-model-runtime`  
-**Status:** Product requirements confirmed  
-**Purpose:** 기존 `Adventure Story Plan / Stage progression` 중심 흐름을 제거하고, Storybook 기반의 `Scenario Model`과 런타임 `Situation`, `Game State`, `Runtime-added Fact`를 이용해 플레이 중 Story가 생성되는 방식으로 교체한다.
-
----
-
 ## 1. Problem and Context
 
-현재 모험 진행 모델은 사전에 `Adventure Story Plan`을 생성하고, Stage와 Branch를 따라 진행하는 구조를 중심으로 한다.
+현재 모험 진행의 핵심 모델은 `Adventure Story Plan`처럼 시작 전에 Stage, branch, ending을 미리 구성하고 런타임이 그 계획을 진행하는 방식이다. 이 방식은 플레이어 행동에 따라 실제 이야기가 만들어지는 TRPG의 성격보다 미리 정한 미래 순서를 실행하는 쪽에 가깝고, 런타임이 현재 세계 상태에서 자연스럽게 다음 문제를 구성하기 어렵게 만든다.
 
-이 방식에서는 실제 TRPG 플레이가 가지는 다음 특성을 충분히 표현하기 어렵다.
+이번 변경은 기존 `Adventure Story Plan` 흐름을 보완하는 것이 아니라 **완전히 대체**한다. Storybook에서 시나리오의 핵심 구조와 해석을 `Scenario Model`로 컴파일하고, 모험 시작 이후에는 현재 `Game State`, 이미 확정된 `Runtime-added Fact`, 관련 `Scenario Model` 정보, 잠긴 Storybook RAG를 이용해 현재 `Situation`을 구성한다. 실제 Story는 미리 저장된 Stage 순서가 아니라 `Situation → Player Action → GM Turn Resolution → 상태 변화`가 누적되며 만들어진다.
 
-- 플레이어가 어떤 순서로 장소와 문제를 탐색할지 사전에 확정되지 않는다.
-- NPC, 위험, 단서, 장소 등의 요소는 존재하지만 그것들이 반드시 특정 Stage 순서로 소비되는 것은 아니다.
-- 플레이 도중 발생한 행동과 결과가 이후 상황을 변경한다.
-- Storybook에 존재하는 정보를 모두 사전에 Stage로 변환할 필요가 없다.
-- Storybook에 세부 정보가 없는 경우에도 플레이 자체는 자연스럽게 계속되어야 한다.
-- 사전에 계획된 미래 Story보다 현재 세계 상태와 플레이어 행동을 기준으로 AI Game Master가 다음 상황을 판단해야 한다.
-
-따라서 기존의
-
-```text
-Scenario Source
-→ Adventure Story Plan
-→ Stage
-→ Branch
-→ Ending
-```
-
-중심 모델을 다음과 같이 교체한다.
-
-```text
-Scenario Source
-→ Scenario Compilation
-→ Scenario Model
-→ Adventure Start
-→ Situation
-→ GM Turn
-→ Game State / Runtime-added Fact
-→ Situation 갱신
-→ ...
-→ Resolution
-→ Concluding Scene
-→ Adventure Completed
-```
-
-Story는 사전에 저장되는 미래 진행 순서가 아니라 실제 플레이의 누적 결과로 생성된다.
-
----
+Storybook의 모든 사실을 사전에 구조화하는 것은 목표가 아니다. 런타임은 잠긴 Storybook RAG에서 필요한 source fact를 조회할 수 있고, source에 필요한 사실이 없거나 조회가 실패해 플레이가 막힐 경우에는 최소한의 `Runtime-added Fact`를 생성해 플레이 연속성을 보장한다.
 
 ## 2. Goals and Desired Outcomes
 
-### G-1. 사전 Plot 대신 현재 Situation 기반으로 플레이한다
-
-AI Game Master는 사전에 결정된 Stage 순서를 실행하지 않는다.
-
-현재 세계 상태, Scenario Model, Storybook 정보 및 실제 플레이 결과를 이용해 현재 `Situation`을 판단하고 플레이를 진행한다.
-
-### G-2. Storybook의 원래 내용을 최대한 보존한다
-
-Storybook에 있는 사실은 시나리오의 기준 자료로 사용한다.
-
-Scenario Compilation은 모든 빈칸을 임의로 채우는 과정이 아니며, Storybook에 없는 정보는 기본적으로 만들지 않는다.
-
-### G-3. 플레이에 필요한 최소 구조만 사전에 준비한다
-
-Scenario Compilation은 모든 장소, 대화, 장면, 질문에 대한 답을 미리 생성하는 것을 목표로 하지 않는다.
-
-모험을 시작하고 핵심 목표를 진행·해결할 수 있는 정도의 구조가 준비되면 `READY`가 될 수 있다.
-
-### G-4. 플레이 도중 source에 없는 정보 때문에 진행이 멈추지 않는다
-
-Runtime에서 필요한 사실이 Storybook에도 존재하지 않을 경우 AI Game Master는 플레이 연속성을 위해 필요한 최소 사실을 생성할 수 있다.
-
-이 사실은 `Runtime-added Fact`로 해당 playthrough의 정본이 된다.
-
-### G-5. 이미 발생한 플레이의 일관성을 보호한다
-
-플레이 도중 확정된 `Game State`와 `Runtime-added Fact`는 이후 늦게 발견된 source 정보보다 해당 playthrough에서는 우선한다.
-
-이미 플레이어가 경험한 사실을 source fidelity 때문에 retcon하지 않는다.
-
-### G-6. 비공개 정보가 플레이어에게 유출되지 않는다
-
-Scenario Model, Storybook 또는 Runtime-added Fact의 hidden 정보는 플레이어가 관찰하거나 정당하게 발견하기 전까지 player-visible narration에 직접 노출하지 않는다.
-
----
+- **G-1** 기존 `Adventure Story Plan`의 Stage/branch/ending 진행 모델을 제거하고, 현재 세계 상태에서 파생되는 `Situation` 기반 런타임으로 대체한다.
+- **G-2** Scenario Compilation은 플레이에 필요한 핵심 구조와 충돌 해석만 준비하고, Storybook의 모든 세부 정보를 사전에 채우도록 강제하지 않는다.
+- **G-3** Storybook source 충실도를 유지하되, 이미 플레이에서 확정된 사실과 플레이 연속성을 더 우선한다.
+- **G-4** 다중 Storybook의 충돌을 대부분 자동 통합하고, 사용자 개입이 필요한 경우에만 구체적인 BLOCKED 진단과 수정 제안을 제공한다.
+- **G-5** 컴파일 시 source에 없는 사실의 생성 범위를 사용자가 `Creativity`로 통제할 수 있게 한다.
+- **G-6** 런타임에서 필요한 scenario fact는 source 조회를 먼저 수행하고, source가 답을 주지 못할 때만 최소한의 `Runtime-added Fact`를 생성한다.
+- **G-7** 숨겨진 정보는 GM 내부 추론에 사용할 수 있지만, 관찰·행동·대화 등을 통해 정당하게 공개되기 전에는 player-visible output에 노출하지 않는다.
+- **G-8** 하나의 GM Turn에서 상태 변경, 새 Runtime-added Fact, 플레이어 결과를 원자적으로 확정한다.
+- **G-9** 핵심 resolution condition이 충족되면 자연스러운 concluding Scene을 제공한 뒤 모험을 완료한다.
 
 ## 3. Users and Actors
 
-### Solo Player
-
-유일한 인간 플레이어.
-
-- 캐릭터 행동을 선언한다.
-- 세계를 탐색한다.
-- NPC와 상호작용한다.
-- 행동 결과와 Scene을 전달받는다.
-- Scenario Model이나 Situation의 내부 구조는 보지 않는다.
-
-### AI Game Master
-
-인간 GM을 대신한다.
-
-- 현재 Situation을 이해한다.
-- 플레이어 행동을 판정한다.
-- Storybook 및 Rulebook 정보를 필요에 따라 참조한다.
-- Game State를 고려한다.
-- 필요한 경우 Runtime-added Fact를 생성한다.
-- 플레이어에게 허용된 정보만 narration으로 제공한다.
-
-### Scenario Compilation
-
-Adventure 시작 전 Storybook을 분석하여 Scenario Model을 준비하는 제품 기능이다.
-
-- source를 통합한다.
-- 충돌을 해석한다.
-- 핵심 시나리오 구조를 추출한다.
-- 필요한 경우 선택된 Creativity 정책에 따라 부족한 핵심 정보를 보완한다.
-
----
+- **Solo Player**: Storybook 구성을 준비하고, 필요한 경우 Primary Storybook, Integration Prompt, Creativity를 선택하며, 모험 시작 후 행동을 선언하고 GM 결과를 받는 유일한 인간 플레이어다.
+- **AI Game Master**: 현재 Situation과 관련 정보로 행동을 판정하고 Scene을 서술하며, hidden information 공개 규칙을 지킨다.
+- **Scenario Compilation**: Storybook들을 통합해 숨겨진 Scenario Model과 diagnostics를 만드는 준비 과정이다.
+- **Storybook Source / RAG**: 모험 시작 시 잠기는 원본 scenario source와 해당 source의 검색 수단이다.
+- **Rulebook / Game System**: 일반 게임 규칙, stat, 판정 의미를 제공한다. Scenario Model은 일반 규칙을 scenario fact로 중복 저장하지 않는다.
 
 ## 4. Ubiquitous Language and Terminology
 
-### Scenario Source
+- **Scenario Source**: 한 모험에 사용하는 Storybook, Rulebook, map/asset 등 원본 자료 집합.
+- **Storybook**: 시나리오 내용이 담긴 source document. 새 흐름에서는 Storybook이 최소 1개 필요하다.
+- **Primary Storybook**: Storybook이 여러 개일 때 기본 충돌 우선권을 갖는 하나의 Storybook. Storybook이 하나면 자동으로 Primary가 된다.
+- **Supplement Storybook**: Primary가 아닌 Storybook. Primary에 없는 정보나 호환되는 정보를 보충한다.
+- **Integration Prompt**: 사용자가 Storybook 간 충돌을 어떻게 해석·통합할지 지정하는 선택 입력. 충돌 해석에서 Primary보다 높은 권한을 가지지만, 일반적인 자유 재작성 지시로 사용하지 않는다.
+- **Creativity**: Scenario Compilation이 source에 없는 핵심 필요 정보를 얼마나 보완할 수 있는지 정하는 전역 설정. `NONE`, `CONSERVATIVE`, `CREATIVE`가 있으며 기본값은 `CONSERVATIVE`다.
+- **Scenario Compilation**: 잠긴 runtime source로 사용하기 전에 Storybook을 통합·검증해 Scenario Model을 만드는 준비 과정.
+- **Scenario Model**: 모험 시작 전에 만들어지는 숨겨진 컴파일 결과. actor/location/relationship, objective와 resolution condition, revelation/clue, scenario-specific encounter anchor, conflict interpretation 등 런타임에 필요한 핵심 구조를 담을 수 있다. 모든 source fact를 복제하는 저장소는 아니다.
+- **Game State**: 실제 플레이 결과로 변한 현재 세계 상태. 문 파손, 아이템 이동, NPC 상태 변화, 플레이어가 만든 함정처럼 행동의 지속적 결과를 포함한다.
+- **Runtime-added Fact**: 런타임에서 필요한 scenario fact를 Storybook RAG에서 찾지 못했거나 조회가 실패했을 때 플레이 연속성을 위해 생성한 새로운 지속적 사실. Scenario Model에 다시 기록하지 않고 해당 playthrough의 canon으로 유지한다.
+- **Situation**: `Scenario Model + relevant source/RAG + Runtime-added Facts + current Game State + recent play`에서 파생되는 숨겨진 GM용 현재 문제 상태. 정본 source 자체가 아니며 여러 GM Turn 동안 유지될 수 있다.
+- **Scene**: Situation을 플레이어에게 보여 주는 narration, dialogue, observable reaction 등의 표현.
+- **GM Turn**: 하나의 Solo Player 입력 또는 확정된 상호작용에 대해 AI GM이 판정, narration, 상태 변화, 다음 Situation 판단까지 수행하는 원자적 진행 단위.
+- **Revelation**: 플레이어가 발견할 수 있는 중요한 진실.
+- **Clue**: Revelation을 발견하도록 이어지는 관찰 가능한 증거 또는 전달 경로.
+- **Resolution Condition**: 모험의 핵심 문제가 해결된 것으로 판단할 수 있는 조건.
+- **Story**: 실제 플레이에서 완료된 Situation과 행동, 해결 결과가 누적된 기록. 사전 계획된 미래 순서가 아니다.
+- **Plot**: 미리 결정된 미래 사건 순서. 새 런타임의 핵심 실행 모델로 사용하지 않는다.
 
-모험 준비에 사용되는 원본 자료.
-
-Storybook, Rulebook, map 및 기타 관련 자료를 포함할 수 있다.
-
-### Storybook
-
-시나리오 내용을 담고 있는 source.
-
-새 Scenario Model 흐름에서는 최소 하나의 Storybook이 필수다.
-
-### Scenario Model
-
-Adventure 시작 전에 Scenario Compilation을 통해 만들어지는 숨겨진 시나리오 구조.
-
-다음과 같은 핵심 정보를 포함할 수 있다.
-
-- Actor / Faction / Location
-- 관계
-- 목표
-- resolution condition
-- secret / revelation
-- encounter anchor
-- 시나리오별 위험 및 조건
-- Storybook 간 conflict interpretation
-- 시작 Situation을 생성하는 데 필요한 정보
-- 관련 source reference
-
-Scenario Model은 모든 source 내용을 복제하는 저장소가 아니다.
-
-Storybook의 모든 사실이 Scenario Model에 사전 구조화될 필요는 없다.
-
-### Scenario Compilation
-
-Storybook을 분석하여 Scenario Model을 생성·검증하는 Adventure 준비 과정.
-
-### Primary Storybook
-
-Storybook이 둘 이상일 때 conflict resolution의 기본 기준이 되는 Storybook.
-
-Storybook이 하나뿐이면 자동으로 Primary가 된다.
-
-### Supplement Storybook
-
-Primary Storybook 외에 추가 정보를 제공하는 Storybook.
-
-### Integration Prompt
-
-여러 Storybook 사이의 충돌을 사용자가 어떻게 해석할지 지정하는 선택적 지시.
-
-일반적인 시나리오 재작성 명령이 아니라 **Storybook 간 충돌의 해석 및 해결**에 사용한다.
-
-### Creativity
-
-Scenario Compilation에서 Storybook에 없는 핵심 정보를 어느 정도 보완할 수 있는지 정하는 설정.
-
-Runtime의 improvisation 정도를 제어하는 설정은 아니다.
-
-값:
-
-- `NONE`
-- `CONSERVATIVE`
-- `CREATIVE`
-
-기본값:
-
-- `CONSERVATIVE`
-
-### Game State
-
-실제 플레이 결과에 의해 바뀐 현재 세계 상태.
-
-예:
-
-- 문이 부서졌다.
-- NPC가 부상을 입었다.
-- 플레이어가 함정을 설치했다.
-- 물건이 이동했다.
-- NPC가 어떤 사실을 알게 되었다.
-
-### Runtime-added Fact
-
-Runtime 중 필요한 시나리오 사실을 source에서 찾을 수 없을 때 AI Game Master가 생성하는 지속적인 사실.
-
-해당 playthrough 동안 정본으로 유지된다.
-
-예:
-
-> Harl에게 북쪽 지방에 사는 Mara라는 여동생이 있다.
-
-Runtime-added Fact가 생성됐다는 것은 이미 해당 사실이 플레이 진행에 필요한 지속적 사실이라는 뜻이므로 별도의 중요도 판정을 하지 않는다.
-
-### Situation
-
-현재 플레이 가능한 문제 상태를 표현하는 AI Game Master 내부 runtime context.
-
-예를 들어 현재 위치, 갈등, 위협, 관련 Actor, 현재 목표 및 최근 결과를 종합한다.
-
-Situation은 player-visible 데이터가 아니다.
-
-한 Situation은 여러 GM Turn 동안 지속될 수 있다.
-
-### Scene
-
-현재 Situation이 플레이어에게 전달되는 표현.
-
-Narration, dialogue, 관찰 가능한 반응 등이 포함된다.
-
-### GM Turn
-
-한 번의 플레이 진행 원자 단위.
-
-일반적으로:
-
-```text
-Player input
-→ GM adjudication
-→ 필요한 사실 조회
-→ 결과 계산
-→ narration
-→ state/fact commit
-```
-
-을 포함한다.
-
-### Revelation
-
-플레이어가 발견할 수 있는 중요한 진실.
-
-### Clue
-
-Revelation을 발견하게 해주는 관찰 가능한 증거 또는 경로.
-
-### Story
-
-실제 플레이를 통해 누적된 과거의 사건.
-
-사전에 저장된 미래 진행 계획이 아니다.
-
-### Plot
-
-미래 사건 순서를 미리 결정한 흐름.
-
-새 Runtime 모델의 핵심 실행 단위로 사용하지 않는다.
-
----
+`Playability-required Fact`, `Player Notes`, 사용자용 `Player Knowledge` 기능은 이 Product Spec의 도메인 용어로 사용하지 않는다.
 
 ## 5. Core Use Cases
 
-### Product Diagrams
+### UC-1 Scenario를 컴파일한다
 
-UC-1 다이어그램은 Scenario 준비·시작과 Runtime GM Turn의 사실 조회·spoiler-safe commit 흐름을 함께 검토한다. Product 단계이므로 구조 클래스 다이어그램은 포함하지 않는다.
+Solo Player는 Storybook을 1개 이상 준비한다. Storybook이 하나면 자동으로 Primary가 되고, 2개 이상이면 사용자가 Primary를 명시한다. 사용자는 선택적으로 Integration Prompt를 입력하고 Creativity를 선택한다.
 
-![UC-1 Scenario preparation and Adventure start](diagrams/product/UC-1.usecase.svg)
+Scenario Compilation은 source를 통합해 숨겨진 Scenario Model을 만든다. Storybook 충돌은 가능한 한 자동으로 해결하며, Integration Prompt가 있으면 해당 지시가 충돌 해석에서 가장 높은 우선순위를 가진다. Source에 정보가 없다는 이유만으로 모든 빈칸을 채우지 않는다. 그 정보가 없으면 핵심 목표를 진행하거나 해결할 수 없는 경우에만 Creativity 정책에 따라 보완한다.
 
-![UC-1 Runtime Situation and GM Turn](diagrams/product/UC-1.activity.svg)
+결과는 `READY` 또는 예외적인 `BLOCKED`다.
 
-### UC-1. Storybook으로 Scenario를 준비한다
+### UC-2 모험 시작 전에 Scenario를 재컴파일한다
 
-Solo Player가 Adventure에서 사용할 Storybook을 선택한다.
+모험 시작 전에는 Primary Storybook, Integration Prompt, Creativity를 변경할 수 있다. 값이 변경되면 Scenario Compilation을 다시 수행하고 이전 candidate는 대체된다. 사용자가 별도로 Scenario Model 내용을 검토하거나 승인하는 단계는 없다.
 
-Storybook은 최소 하나 이상이어야 한다.
+### UC-3 모험을 시작하고 첫 Situation을 만든다
 
-Storybook이 하나라면 해당 Storybook이 자동으로 Primary가 된다.
+현재 Scenario Model이 `READY`일 때 모험을 시작할 수 있다. Adventure Start가 성공하면 해당 Scenario Model과 Storybook source/RAG 범위를 잠근다. 이후 Scenario Model은 재컴파일·교체·런타임 enrichment할 수 없다.
 
-둘 이상이면 사용자가 Primary를 선택해야 한다.
+첫 Situation은 compilation 결과로 미리 저장하지 않는다. Adventure Start 시 초기 Game State와 관련 Scenario Model 정보 및 Storybook RAG를 사용해 런타임에서 첫 Situation을 구성하고 첫 Scene을 출력한다.
 
-사용자는 필요하면 Integration Prompt를 입력할 수 있다.
+### UC-4 현재 Situation에서 GM Turn을 진행한다
 
-Creativity 값을 선택한 뒤 Scenario Compilation을 실행한다.
+Solo Player가 행동을 선언하면 AI GM은 현재 플레이에서 이미 확정된 정보를 먼저 사용하고 부족한 정보만 source에서 찾는다.
 
----
+scenario fact 조회 순서는 다음과 같다.
 
-### UC-2. 여러 Storybook을 하나의 Scenario로 통합한다
-
-Scenario Compilation은 다음 우선순위를 사용한다.
-
-```text
-Integration Prompt
-> Primary Storybook
-> Supplement Storybooks
-```
-
-Supplement는 Primary에 없는 정보를 추가할 수 있다.
-
-Storybook 간 정보가 호환되면 함께 사용한다.
-
-충돌할 경우 Integration Prompt가 있으면 해당 지시를 우선한다.
-
-Integration Prompt가 없으면 기본적으로 Primary Storybook을 우선한다.
-
-Conflict resolution은 가능한 한 자동으로 처리한다.
-
----
-
-### UC-3. Storybook에 없는 핵심 정보가 발견된다
-
-Scenario Compilation 중 Storybook에 없는 정보가 발견됐다는 이유만으로 내용을 생성하지 않는다.
-
-다만 그 정보가 없으면 시나리오의 **핵심 목표를 진행하거나 해결할 수 없는 경우** Creativity 정책을 적용한다.
-
-#### NONE
-
-새 사실을 생성하지 않는다.
-
-필요한 정보가 없으면 Compilation은 진행을 완료할 수 없다.
-
-#### CONSERVATIVE
-
-Storybook과 강하게 연결되거나 암시되는 최소한의 정보만 추가한다.
-
-불필요하게 세계 설정을 확장하지 않는다.
-
-#### CREATIVE
-
-Storybook과 모순되지 않는 범위에서 핵심 목표를 진행·해결하는 데 필요한 새로운 사실을 생성할 수 있다.
-
-선택적 세계관 확장은 하지 않는다.
-
----
-
-### UC-4. Scenario Compilation이 READY가 된다
-
-다음 조건이 충족되면 Scenario가 `READY`가 될 수 있다.
-
-- 최소 하나의 Storybook이 준비되어 있다.
-- 필요한 Storybook RAG source가 사용 가능하다.
-- 여러 Storybook일 경우 Primary가 결정되어 있다.
-- Scenario Model의 핵심 구조가 준비되어 있다.
-- Adventure의 첫 Situation을 생성할 수 있다.
-- 핵심 목표를 이해할 수 있다.
-- 언제 목표가 해결됐는지 판별할 resolution condition이 있다.
-- 자동으로 처리할 수 없는 치명적 모순이 없다.
-
-다음 항목이 없다고 해서 READY를 막지는 않는다.
-
-- 모든 NPC의 세부 설정
-- 모든 장소의 세부 정보
-- 플레이어가 할 수 있는 모든 질문의 답
-- 미래 Scene 전체
-- 미래 encounter 전체
-- 모든 Storybook 사실의 사전 구조화
-
----
-
-### UC-5. Compilation이 사용자 개입을 요구한다
-
-AI는 가능한 한 충돌이나 부족한 정보를 자동으로 해결한다.
-
-자동 해결이 정말 불가능한 경우에만 Compilation이 사용자 개입을 요구한다.
-
-사용자에게 실제 문제가 무엇인지 숨기지 않는다.
-
-필요하다면 spoiler가 포함되더라도 다음 내용을 제공한다.
-
-- 문제가 있는 Storybook
-- source 위치
-- 충돌하거나 누락된 사실
-- 자동 해결에 실패한 이유
-- 적용된 Creativity / Primary 등의 정책
-- 구체적인 수정 방법
-- 적용 가능한 Integration Prompt 예시
-
----
-
-### UC-6. Adventure를 시작한다
-
-`READY` 상태의 Scenario로 Adventure Start를 실행한다.
-
-Adventure Start 시 현재 Scenario Model과 source 구성을 lock한다.
-
-Adventure가 시작된 후에는:
-
-- Scenario Model을 재컴파일하지 않는다.
-- Primary를 변경하지 않는다.
-- Integration Prompt를 변경하지 않는다.
-- Creativity를 변경하여 다시 compile하지 않는다.
-- Runtime에서 새로 발견된 source 정보를 Scenario Model에 write-back하지 않는다.
-
-첫 Situation은 Compilation 때 저장하지 않는다.
-
-Adventure Start 시점의 초기 Game State와 Scenario Model, Storybook 정보로 Runtime에서 생성한다.
-
----
-
-### UC-7. 현재 Situation에서 플레이한다
-
-AI Game Master는 현재 Situation을 기준으로 Scene을 제공한다.
-
-Solo Player가 행동한다.
-
-AI Game Master는 현재 상황과 관련된 사실만 사용해 행동을 처리한다.
-
-하나의 Situation에서 여러 GM Turn이 진행될 수 있다.
-
----
-
-### UC-8. Runtime에서 필요한 Scenario Fact를 조회한다
-
-현재 행동을 처리하는 데 시나리오 사실이 필요하면 다음 우선순위로 확인한다.
-
-```text
 1. 현재 Game State
 2. 기존 Runtime-added Facts
-3. Scenario Model의 확정된 구조 및 conflict interpretation
-4. Storybook RAG
-5. Runtime fallback 생성
-```
+3. Scenario Model의 확정된 구조와 conflict interpretation
+4. 잠긴 Storybook RAG
+5. 그래도 없으면 최소 fallback fact 생성
 
-이미 플레이 중 확정된 세계가 가장 우선한다.
+AI GM은 관련 정보만 사용해 Turn Resolution을 만들고 player-visible narration을 생성한다. 한 Situation은 여러 GM Turn 동안 유지될 수 있다.
 
----
+### UC-5 RAG fallback으로 Runtime-added Fact를 만든다
 
-### UC-9. Storybook RAG에서 필요한 사실을 찾는다
+현재 판정 또는 진행에 필요한 scenario fact가 앞선 정보에 없으면 잠긴 Storybook RAG를 조회한다. RAG에서 source 답을 찾지 못하거나 조회 자체가 실패하면 플레이를 중단하지 않고 필요한 최소 사실을 생성한다.
 
-Scenario Model에 해당 세부 내용이 없더라도 Storybook source에 존재한다면 Runtime RAG를 통해 찾아 사용할 수 있다.
+생성된 사실은 별도의 중요도 판정 없이 Runtime-added Fact 후보가 된다. 새 사실이 기존 Runtime-added Fact 또는 Game State와 충돌하면 기존 플레이 사실을 유지하고 새 fact를 다시 생성한다. Turn이 성공적으로 commit될 때 Runtime-added Fact도 함께 확정된다.
 
-RAG로 찾아낸 Storybook 사실은 Scenario Model에 다시 저장할 필요가 없다.
+### UC-6 현재 문제 상태가 바뀌면 Situation을 전환한다
 
-RAG는 source 접근 수단이며 Scenario Compilation에서 이미 결정된 Storybook conflict interpretation을 다시 뒤집지 않는다.
+GM은 현재 위치, conflict, threat, objective 또는 기타 문제 상태가 의미 있게 변해 기존 Situation이 현재 상태를 더 이상 대표하지 못할 때 새 Situation을 구성한다. 변화가 충분하지 않으면 기존 Situation을 유지한다.
 
----
+새 Situation은 최신 Game State, Runtime-added Facts, 관련 Scenario Model slice, 필요한 Storybook RAG와 recent play를 기준으로 재구성한다.
 
-### UC-10. Storybook에도 없는 사실이 필요하다
+### UC-7 hidden information을 안전하게 서술한다
 
-필요한 시나리오 사실을 찾기 위해 Storybook RAG를 조회했지만 해당 정보가 없으면 AI Game Master는 플레이를 중단하지 않는다.
+GM은 hidden fact를 내부 reasoning과 observable reaction의 원인으로 사용할 수 있다. 하지만 player-visible output에는 현재 관찰 가능한 정보, 이전 플레이에서 이미 공개된 정보, 현재 행동/판정을 통해 정당하게 새로 공개되는 정보만 포함한다.
 
-현재 플레이에 필요한 최소 사실을 생성한다.
+player-visible narration에서 hidden information 누출이 감지되면 이미 확정한 Turn Resolution은 유지하고 narration만 버린 뒤 재생성한다. narration 재생성이 반복 실패하면 unsafe output을 노출하거나 해당 Turn을 commit하지 않고 일반적인 retry failure를 보여 준다.
 
-생성된 사실은 즉시 `Runtime-added Fact` 후보가 된다.
+### UC-8 resolution condition을 충족해 모험을 완료한다
 
-예:
+GM Turn 결과로 핵심 resolution condition이 충족되면 해당 행동의 결과와 자연스러운 concluding Scene을 생성한다. 그 Turn이 성공적으로 commit된 후 Adventure는 `COMPLETED`가 된다.
 
-```text
-NPC의 가족 관계가 플레이에 필요함
-→ Storybook RAG 조회
-→ 관련 정보 없음
-→ "NPC에게 북쪽 지방에 사는 여동생이 있다" 생성
-→ Runtime-added Fact
-```
-
-Runtime-added Fact 생성은 Scenario Compilation Creativity 설정의 제한을 받지 않는다.
-
-`Creativity = NONE`인 Scenario에서도 Runtime continuity를 위해 필요한 사실은 생성할 수 있다.
-
----
-
-### UC-11. 새 Runtime-added Fact가 기존 플레이와 충돌한다
-
-새 Runtime-added Fact 후보가 다음과 충돌하면 새 후보를 사용하지 않는다.
-
-- 기존 Runtime-added Fact
-- 현재 Game State
-- 이미 확정된 플레이 결과
-
-기존 플레이 기록을 유지하고 충돌하지 않는 새로운 fallback fact를 생성한다.
-
----
-
-### UC-12. 나중에 Storybook 원문에서 다른 사실을 발견한다
-
-이미 Runtime-added Fact가 플레이에서 확정된 뒤 Storybook RAG를 통해 모순되는 원문 사실이 발견될 수 있다.
-
-이 경우 해당 playthrough에서는 이미 확정된 Runtime-added Fact를 유지한다.
-
-Storybook 원문 때문에 플레이를 retcon하지 않는다.
-
----
-
-### UC-13. Situation이 변화한다
-
-GM Turn 결과로 현재 문제 상태가 충분히 변경되면 AI Game Master는 기존 Situation을 종료하고 새로운 Situation을 구성한다.
-
-Situation transition의 예:
-
-- 주요 위치 변경
-- 주요 갈등 해결
-- 새로운 갈등 발생
-- 주요 Actor 관계의 변화
-- 현재 목표 변화
-- 중요한 위협 상태 변화
-
-단순히 GM Turn 하나가 끝났다는 이유만으로 Situation을 바꾸지는 않는다.
-
----
-
-### UC-14. Hidden Fact를 이용해 NPC가 반응한다
-
-AI Game Master는 hidden fact를 내부 reasoning에 사용할 수 있다.
-
-그러나 플레이어 출력에는 아직 발견되지 않은 hidden truth를 직접 넣지 않는다.
-
-예:
-
-내부 사실:
-
-> Harl이 살인범이며 자신의 범행이 밝혀지는 것을 두려워한다.
-
-허용:
-
-> Harl은 잠시 말을 멈추고 시선을 피한다.
-
-금지:
-
-> Harl은 자신의 살인이 밝혀질까 두려워했다.
-
----
-
-### UC-15. Narration에서 spoiler leak이 탐지된다
-
-Player-visible narration이 숨겨진 정보를 노출하면 해당 narration을 버린다.
-
-이미 결정된 Turn Resolution은 유지한다.
-
-다음 요소를 다시 계산하지 않는다.
-
-- 주사위 결과
-- 판정 결과
-- Game State 결과
-- 이미 결정된 Runtime-added Fact
-- 행동의 실제 outcome
-
-오직 player-visible narration만 안전하게 다시 생성한다.
-
-반복적으로 안전한 narration을 만들지 못하면 해당 unsafe output을 사용자에게 노출하지 않는다.
-
----
-
-### UC-16. GM Turn을 commit한다
-
-하나의 성공한 GM Turn에서 다음 항목을 원자적으로 확정한다.
-
-- Game State 변경
-- 새 Runtime-added Facts
-- 플레이어에게 전달되는 결과
-
-Turn이 실패하거나 최종적으로 폐기되면 해당 Turn에서 새로 만들어진 state와 fact도 확정하지 않는다.
-
----
-
-### UC-17. Scenario의 핵심 목표가 해결된다
-
-GM Turn의 결과로 Scenario Model의 resolution condition이 충족되면 AI Game Master는 해당 행동의 결과를 처리한다.
-
-그 후 자연스러운 concluding Scene을 생성한다.
-
-Concluding Scene이 완료되면 Adventure를 `COMPLETED`로 전환한다.
-
----
+완료 이후의 자유 플레이 또는 post-adventure mode는 이번 범위에 포함하지 않는다.
 
 ## 6. Business Rules and Invariants
 
-### BR-1. Storybook Required
-
-새 Scenario Model 흐름에서는 Storybook이 최소 하나 이상 필요하다.
-
-Rulebook만으로 Adventure를 생성하는 `Rulebook-Only` 모드는 지원하지 않는다.
-
-### BR-2. No Preplanned Story Execution
-
-Adventure의 미래 진행을 Stage, Branch, Ending 순서로 사전 결정하지 않는다.
-
-### BR-3. Source Missing Does Not Mean Generate
-
-Storybook에 없는 정보는 기본적으로 비워둔다.
-
-Schema를 채우기 위한 목적으로 사실을 생성하지 않는다.
-
-### BR-4. Compilation Supplementation Is Core-Need Only
-
-Scenario Compilation의 creativity 기반 생성은 그 정보가 없으면 핵심 목표를 진행하거나 해결할 수 없을 때만 허용한다.
-
-### BR-5. Creativity Does Not Automatically Escalate
-
-`NONE → CONSERVATIVE → CREATIVE`로 시스템이 자동 승격하지 않는다.
-
-현재 설정으로 Compile이 불가능하면 사용자에게 알리고 사용자가 직접 값을 변경해야 한다.
-
-### BR-6. Conflict Resolution Is Separate From Creativity
-
-Storybook A와 Storybook B가 서로 충돌할 때 두 내용을 합치기 위해 임의의 세 번째 사실을 생성하지 않는다.
-
-Conflict는 우선순위에 따라 해석한다.
-
-### BR-7. Integration Prompt Has Highest Conflict Authority
-
-Storybook conflict에 한해서:
-
-```text
-Integration Prompt
-> Primary Storybook
-> Supplement Storybooks
-```
-
-순서를 따른다.
-
-### BR-8. Scenario Model Is Hidden
-
-Solo Player는 Scenario Model의 내부 구조를 검토하거나 승인하지 않는다.
-
-Compilation이 READY면 Adventure Start가 가능하다.
-
-### BR-9. Adventure Start Locks Scenario Compilation
-
-Adventure Start 이후 Scenario Model과 compilation interpretation은 변경하지 않는다.
-
-### BR-10. Runtime Lookup Before Invention
-
-Runtime-added Fact를 생성하기 전에 관련 Storybook RAG를 먼저 조회해야 한다.
-
-### BR-11. Runtime Continuity Over Missing Source
-
-RAG가 답을 제공하지 못한다고 해서 플레이를 중단하지 않는다.
-
-필요한 최소 사실을 생성하여 계속한다.
-
-### BR-12. Runtime-added Fact Automatically Persists
-
-RAG fallback으로 사실을 생성했다면 해당 사실은 지속적으로 참조될 필요가 있는 정보이므로 별도 중요도 판정 없이 Runtime-added Fact로 취급한다.
-
-### BR-13. Established Play Wins
-
-새 정보가 기존 Game State 또는 Runtime-added Fact와 충돌하면 기존 플레이의 사실을 유지한다.
-
-### BR-14. Late Source Discovery Does Not Retcon Play
-
-Storybook에서 나중에 발견한 원문이 이미 확정된 Runtime-added Fact와 충돌해도 해당 playthrough에서는 Runtime-added Fact를 유지한다.
-
-### BR-15. Runtime Creativity Is Independent
-
-Scenario Compilation의 Creativity 값은 Runtime fallback fact 생성 여부를 제한하지 않는다.
-
-### BR-16. Situation Is Derived Runtime Context
-
-Situation은 Scenario Model의 일부로 사전에 작성되는 미래 Stage가 아니다.
-
-현재 세계 상태에서 파생된다.
-
-### BR-17. One Situation May Span Multiple GM Turns
-
-GM Turn이 끝났다는 이유만으로 Situation transition을 발생시키지 않는다.
-
-### BR-18. Hidden Information Is Not Player-visible By Default
-
-Storybook Fact, Scenario Model Fact, Runtime-added Fact 모두 동일한 disclosure rule을 적용한다.
-
-Fact의 출처가 disclosure 여부를 결정하지 않는다.
-
-### BR-19. Observable Consequences Are Allowed
-
-Hidden fact가 NPC 행동이나 세계 반응의 원인이 될 수 있지만 플레이어에게는 관찰 가능한 결과만 보여줄 수 있다.
-
-### BR-20. Turn Resolution Is Stable During Narration Retry
-
-Spoiler filtering 때문에 narration을 재생성해도 Turn Resolution을 다시 수행하지 않는다.
-
-### BR-21. GM Turn Is Atomic
-
-Game State, Runtime-added Facts, 플레이어 결과는 성공한 Turn에서 함께 commit된다.
-
-### BR-22. Story Is Emergent
-
-Story는 Situation과 Player Action 및 그 결과의 누적이다.
-
-미래 Story sequence를 정본 데이터로 저장하지 않는다.
-
----
+- **BR-1** 새 Scenario Model 흐름에는 Storybook이 최소 1개 필요하다. Rulebook-only adventure는 지원하지 않는다.
+- **BR-2** `Adventure Story Plan`, Stage progression, 사전 branch/ending 순서는 새 런타임의 실행 모델로 사용하지 않는다.
+- **BR-3** Scenario Model은 hidden compilation output이며 Solo Player가 내용을 직접 검토·승인하지 않는다.
+- **BR-4** Scenario Compilation은 `UNCOMPILED → COMPILING → READY`를 기본 성공 흐름으로 하며, 자동 해결이 불가능한 예외 상황은 `BLOCKED`로 표시한다.
+- **BR-5** Adventure Start는 현재 `READY` Scenario Model과 Storybook source 범위를 잠근다. 시작 후 재컴파일, 교체, enrichment는 허용하지 않는다.
+- **BR-6** Source에 없는 정보는 기본적으로 unspecified 상태로 둔다. 그 정보가 없으면 시나리오의 핵심 목표를 진행하거나 해결할 수 없는 경우에만 compilation-time supplementation 대상이 된다.
+- **BR-7** `Creativity = NONE`이면 source에 없는 핵심 필요 사실을 생성하지 않는다. 필요한 사실이 없으면 compilation은 BLOCKED가 된다.
+- **BR-8** `Creativity = CONSERVATIVE`이면 Storybook과 강하게 연결되거나 암시된 최소 정보만 보완하며 setting을 확장하지 않는다.
+- **BR-9** `Creativity = CREATIVE`이면 Storybook과 모순되지 않는 범위에서 핵심 시나리오를 실행·해결하기 위해 필요한 새로운 사실을 만들 수 있다. 선택적 world-building을 위한 생성은 허용하지 않는다.
+- **BR-10** Creativity 기본값은 `CONSERVATIVE`이며 자동 escalation하지 않는다. 현재 단계로 해결할 수 없으면 사용자가 직접 높은 단계로 변경하고 재컴파일한다.
+- **BR-11** Creativity는 missing core-needed information을 보완하는 정책이며 Storybook 간 conflict resolution 정책과 별개다.
+- **BR-12** 다중 Storybook conflict authority는 `User Integration Prompt > Primary Storybook > Supplement Storybooks` 순이다. Supplements는 Primary에 없는 정보나 호환되는 정보를 보충한다.
+- **BR-13** Storybook 충돌을 해소하기 위해 source A와 B 어디에도 없는 제3의 사실을 임의로 발명하지 않는다.
+- **BR-14** Integration Prompt는 Storybook 간 충돌의 해석·명확화에만 최고 권한을 가지며 scenario를 자유롭게 다시 쓰는 일반 authoring prompt가 아니다.
+- **BR-15** 자동으로 처리 가능한 conflict와 불완전성은 가능한 한 자동 통합한다. BLOCKED는 사용자 개입 없이는 안전하게 진행할 수 없는 최후 수단이다.
+- **BR-16** BLOCKED diagnostics는 spoiler를 숨기지 않는다. 실제 문제, 관련 document/source 위치, 충돌 또는 누락된 fact, 자동 해결 실패 이유, 현재 설정을 보여 주고 구체적인 수정 방법과 적용 가능한 Integration Prompt 예시를 제안한다.
+- **BR-17** Runtime RAG는 compilation-time conflict interpretation을 다시 열거나 뒤집을 수 없다.
+- **BR-18** Runtime에서 source fact가 필요하면 `Game State → Runtime-added Facts → Scenario Model의 확정 구조/해석 → Storybook RAG → fallback generation` 순으로 찾는다.
+- **BR-19** Storybook RAG에서 찾은 source fact는 기존 compilation conflict interpretation 또는 이미 확정된 플레이 사실과 충돌하지 않는 한 현재 playthrough에서 사용할 수 있다.
+- **BR-20** RAG fallback으로 생성된 사실은 그 생성 이유 자체가 이후 일관된 참조가 필요한 scenario fact이므로, 성공한 Turn에서 모두 Runtime-added Fact로 저장한다. 별도 중요도/지속성 판정은 하지 않는다.
+- **BR-21** Runtime-added Fact는 locked Scenario Model에 write-back하지 않는다.
+- **BR-22** Runtime-added Fact 생성은 compilation Creativity의 영향을 받지 않는다. `Creativity = NONE`으로 컴파일된 모험도 런타임에서 플레이 지속에 필요하면 최소 fallback fact를 만들 수 있다.
+- **BR-23** 새 Runtime-added Fact가 기존 Runtime-added Fact나 Game State와 충돌하면 기존 플레이 사실이 우선하며 새 fact를 다시 생성한다.
+- **BR-24** 이미 확정된 Runtime-added Fact와 나중에 검색된 Storybook source가 충돌하면 해당 playthrough에서는 Runtime-added Fact를 유지하며 retcon하지 않는다.
+- **BR-25** Game State는 Scenario Model에 미리 선언된 필드로 제한되지 않는다. 실제 플레이 행동이 만든 새로운 지속적 상태를 기록할 수 있다.
+- **BR-26** Runtime-added Fact는 source에 없어서 GM이 보완한 scenario/setting fact이고, 그 사실을 바탕으로 이후 플레이에서 일어난 변화는 Game State로 기록한다.
+- **BR-27** Situation은 정본 source가 아니라 숨겨진 runtime context이며 여러 GM Turn 동안 유지할 수 있다.
+- **BR-28** Situation 전환은 미리 정한 Stage 번호가 아니라 현재 문제 상태가 의미 있게 바뀌었는지를 기준으로 GM이 자동 판단한다.
+- **BR-29** 첫 Situation도 compilation에 저장하지 않고 Adventure Start 시 runtime에서 파생한다.
+- **BR-30** 일반 D&D mechanics/stat/rule semantics는 Rulebook/Game System의 책임이며 Scenario Model은 scenario-specific encounter facts만 보유한다.
+- **BR-31** hidden information은 내부 reasoning에 사용할 수 있지만 player-visible output은 관찰 가능, 이미 공개됨, 현재 행동으로 정당하게 공개됨 중 하나를 만족해야 한다.
+- **BR-32** spoiler filtering 때문에 narration을 재생성할 때 Turn Resolution, dice result, world-state decision을 다시 굴리거나 바꾸지 않는다.
+- **BR-33** GM Turn은 `Game State 변경 + 새 Runtime-added Facts + player-visible result`를 하나의 atomic commit으로 확정한다.
+- **BR-34** Turn이 실패하거나 폐기되면 그 Turn에서 staging된 Game State 변경과 Runtime-added Facts, player-visible result를 모두 폐기한다.
+- **BR-35** 핵심 resolution condition이 충족된 Turn은 concluding Scene까지 성공적으로 생성·commit한 뒤 Adventure를 `COMPLETED`로 전환한다.
 
 ## 7. States and State Transitions
 
-### Scenario Compilation State
+### Scenario Compilation
 
-```text
-UNCOMPILED
-    |
-    v
-COMPILING
-    |
-    +------ successful ------> READY
-    |
-    +------ intervention ----> BLOCKED
-```
+- `UNCOMPILED`: 아직 유효한 Scenario Model이 없음.
+- `COMPILING`: 현재 Storybook selection, Primary, Integration Prompt, Creativity로 Scenario Model을 생성·검증 중.
+- `READY`: Adventure Start에 필요한 핵심 구조, resolution condition, 시작 정보와 locked-source 범위가 준비됨.
+- `BLOCKED`: 자동 통합과 현재 Creativity로도 사용자 결정 없이는 compilation을 완료할 수 없음.
 
-`BLOCKED` 이후 사용자는 문제를 해결한 뒤 다시 Compilation을 실행할 수 있다.
+전이:
 
-Adventure Start 전에는 다음 변경으로 새 Compilation을 수행할 수 있다.
+- `UNCOMPILED → COMPILING`: compilation 요청.
+- `COMPILING → READY`: 시작 가능한 Scenario Model 검증 성공.
+- `COMPILING → BLOCKED`: 최후의 자동 해결 이후에도 필요한 문제 잔존.
+- `READY/BLOCKED → COMPILING`: Adventure Start 전 Primary, Integration Prompt, Creativity 또는 source 구성을 변경하고 재컴파일.
+- `READY → Adventure Start`: current READY model과 source를 lock. 이후 compilation lifecycle로 돌아가지 않는다.
 
-- Primary 변경
-- Integration Prompt 변경
-- Creativity 변경
-- source 구성 변경
+`READY`는 모든 세부 fact가 사전에 채워졌다는 의미가 아니다. 모험을 시작할 수 있고 이후를 Scenario Model, Storybook RAG, Runtime-added Facts, Game State로 이어갈 수 있으면 충분하다.
 
-새 Compilation 결과가 이전 후보를 대체한다.
+### Runtime-added Fact
 
-### Adventure Lifecycle
+- Turn 처리 중 필요한 사실이 source에서 발견되지 않으면 candidate가 생성된다.
+- Turn 성공 시 candidate가 Runtime-added Fact로 commit되어 해당 playthrough에서 계속 유지된다.
+- Turn 실패/폐기 시 candidate도 폐기된다.
+- Commit 후 직접 retcon/overwrite하지 않는다. 그 사실과 관련된 이후 세계 변화는 Game State로 표현한다.
 
-```text
-READY Scenario
-    |
-Adventure Start
-    |
-    v
-ACTIVE
-    |
-    | resolution condition satisfied
-    v
-CONCLUDING
-    |
-    | concluding Scene delivered
-    v
-COMPLETED
-```
+### Situation
 
-Adventure Start 이후 Scenario Model은 lock된다.
+Situation은 명시적인 Stage 상태 머신이 아니다. 생성된 Situation은 현재 문제 상태를 계속 대표하는 동안 유지되고, 위치/conflict/threat/objective 등 effective world state가 의미 있게 달라지면 최신 상태에서 새 Situation으로 교체된다.
 
-### Situation Lifecycle
+### Adventure
 
-```text
-Situation 생성
-    |
-    v
-ACTIVE SITUATION
-    |
-    +--> GM Turn
-    |
-    +--> GM Turn
-    |
-    +--> GM Turn
-    |
-    | meaningful problem-state change
-    v
-새 Situation 생성
-```
+- `ACTIVE`: Adventure Start와 첫 Situation 생성 이후 정상 플레이 중.
+- `COMPLETED`: resolution condition을 충족한 Turn에서 concluding Scene까지 commit한 상태.
 
-### GM Turn Lifecycle
-
-```text
-Player Action
-    |
-    v
-Current facts/state 확인
-    |
-    v
-필요 시 Storybook RAG
-    |
-    +-- source found --> source fact 사용
-    |
-    +-- source absent --> Runtime-added Fact 후보 생성
-    |
-    v
-Turn Resolution
-    |
-    v
-Player-visible narration 생성
-    |
-    v
-Spoiler Validation
-    |
-    +-- unsafe --> narration only regenerate
-    |
-    +-- safe
-          |
-          v
-Atomic Commit
-```
-
----
+`COMPLETED` 이후 post-adventure 자유 플레이 전이는 이번 범위에 없다.
 
 ## 8. Failures, Exceptions, and Boundary Conditions
 
-### Compilation BLOCKED
-
-BLOCKED는 일반적인 흐름이 아니라 최후 수단이다.
-
-자동 해결이 불가능한 경우 실제 문제를 사용자에게 구체적으로 보여준다.
-
-### Creativity NONE에서 핵심 정보가 없음
-
-Scenario의 핵심 진행 또는 해결에 필요한 사실이 source에 없으면 READY가 될 수 없다.
-
-사용자가 source 또는 설정을 수정해야 한다.
-
-### Storybook RAG가 결과를 찾지 못함
-
-Runtime을 BLOCK하지 않는다.
-
-플레이에 필요한 최소 Runtime-added Fact를 생성한다.
-
-### RAG 자체가 일시적으로 답을 제공하지 못함
-
-단순한 세부 정보 누락 때문에 플레이를 정지시키는 대신, 플레이 연속성을 위해 필요한 최소 사실을 생성하는 것이 기본 제품 동작이다.
-
-### 새 Runtime Fact가 기존 Play와 충돌
-
-새 fact 후보를 폐기하고 기존 play state와 호환되는 값을 다시 만든다.
-
-### 후속 RAG 결과가 Runtime-added Fact와 충돌
-
-이미 확정된 Runtime-added Fact가 유지된다.
-
-### Narration Spoiler Leak
-
-unsafe narration은 사용자에게 표시하지 않는다.
-
-Turn Resolution은 그대로 유지한 채 narration만 재생성한다.
-
-### Narration을 안전하게 만들 수 없음
-
-부분적인 unsafe 결과를 보여주지 않는다.
-
-Turn을 성공적으로 commit하지 않는다.
-
-### Adventure Completed 이후
-
-이번 범위에서는 post-adventure 자유 플레이를 지원하지 않는다.
-
----
+- Storybook이 없으면 Scenario Compilation을 READY로 만들거나 Adventure를 시작할 수 없다.
+- Storybook이 2개 이상인데 Primary가 정해지지 않으면 compilation 입력이 완전하지 않다.
+- `Creativity = NONE`에서 핵심 진행/해결에 반드시 필요한 source-missing fact가 있으면 BLOCKED가 된다.
+- Storybook conflict는 우선순위와 Integration Prompt로 최대한 자동 해결한다. 정말 해석이 불가능하면 BLOCKED diagnostics에 문제와 source 위치, 이유, 구체적인 수정 제안을 노출한다.
+- Runtime RAG가 결과를 찾지 못하거나 retrieval 자체가 실패해도 단순한 source 부족 때문에 플레이를 중단하지 않는다. 현재 Turn에 필요한 최소 Runtime-added Fact를 생성한다.
+- 새 fallback fact가 기존 플레이 사실과 충돌하면 기존 사실을 바꾸지 않고 fallback을 다시 생성한다.
+- 이미 Runtime-added Fact가 commit된 뒤 source에서 반대 사실을 발견해도 해당 playthrough를 retcon하지 않는다.
+- player-visible narration에서 hidden information 누출을 발견하면 unsafe narration을 폐기하고 동일한 Turn Resolution로 narration만 재생성한다.
+- safe narration을 반복 생성하지 못하면 unsafe output과 상태를 commit하지 않고 일반적인 retry failure를 반환한다.
+- GM Turn 처리 도중 어떤 단계에서든 Turn 전체를 완료하지 못하면 해당 Turn의 state/fact/output을 부분적으로 남기지 않는다.
+- Scenario Model이 잠긴 이후 source 구성이나 compilation setting을 바꾸는 것은 허용하지 않는다.
+- Adventure가 `COMPLETED`가 된 후 같은 모험에서 자유 플레이를 계속하는 동작은 지원하지 않는다.
 
 ## 9. Inputs and Outputs
 
-### Scenario Preparation Inputs
+### Scenario Compilation Inputs
 
 필수:
-
 - Storybook 1개 이상
-
-조건부 필수:
-
-- Storybook 2개 이상일 때 Primary Storybook
+- Storybook이 2개 이상일 때 Primary Storybook
 
 선택:
-
-- Supplement Storybooks
 - Integration Prompt
-- Creativity
+- Creativity (`NONE | CONSERVATIVE | CREATIVE`, default `CONSERVATIVE`)
+- Scenario Source에 포함되는 관련 Rulebook/map/asset 등의 자료
 
-Creativity 기본값:
+### Scenario Compilation Outputs
 
-```text
-CONSERVATIVE
-```
+내부:
+- hidden Scenario Model
+- source/conflict interpretation
+- 시작 Situation을 runtime에서 만들기 위한 start information
+- core objective와 resolution condition
 
-### Scenario Compilation Internal Output
-
-- Scenario Model
-- conflict interpretation
-- resolution conditions
-- 시작 Situation 생성에 필요한 정보
-- warnings
-- BLOCKED diagnostics
-
-Scenario Model 자체는 사용자에게 표시하지 않는다.
-
-### Compilation User-visible Output
-
-성공:
-
-```text
-READY
-```
-
-필요에 따라:
-
-- non-blocking warnings
-
-실패:
-
-- 실제 문제
-- 관련 source
-- 이유
-- 현재 정책
-- 수정 제안
-- Integration Prompt 예시
+사용자에게 보이는 결과:
+- compilation 상태 (`READY` 또는 `BLOCKED`)
+- warnings/diagnostics
+- BLOCKED일 경우 실제 문제와 source 위치, 자동 해결 실패 이유, 수정 제안
 
 ### Runtime Inputs
 
-- Player Action
-- 현재 Game State
-- 기존 Runtime-added Facts
-- relevant Scenario Model information
-- recent play context
-- Storybook RAG 결과
-- 필요한 Rulebook 정보
+- locked Scenario Model의 relevant slice
+- current Game State
+- committed Runtime-added Facts
+- recent play
+- locked Storybook RAG 결과
+- 필요한 Rulebook/Game System 정보
+- 현재 Solo Player action
+
+전체 Scenario Model 또는 Storybook 전체를 매 GM Turn의 입력으로 전달해야 한다는 요구사항은 없다. 필요한 관련 정보만 사용하면 된다.
 
 ### Runtime Outputs
 
 내부:
-
-- Situation
+- current/next Situation
 - Turn Resolution
-- Game State 변경
-- Runtime-added Fact
-- disclosure 판단
+- Game State changes
+- 새 Runtime-added Fact candidates 및 commit 결과
+- resolution condition 평가
 
 플레이어:
-
-- Scene
-- 행동 결과
-- dialogue
-- 관찰 가능한 반응
-- 정당하게 발견된 사실
-
----
+- 현재 관찰 가능하거나 정당하게 공개된 Scene/narration
+- 행동의 observable result
+- 완료 시 concluding Scene
 
 ## 10. Scope and Non-goals
 
 ### In Scope
 
-- Adventure Story Plan 기반 진행 완전 교체
-- Storybook 필수화
-- Scenario Compilation
-- Scenario Model
-- Creativity 정책
-- Multi-Storybook Primary/Supplement
-- Integration Prompt
-- conflict resolution
-- Scenario READY / BLOCKED 흐름
-- Adventure Start Lock
-- runtime Storybook RAG
-- Runtime-added Fact
-- Game State
-- Situation
-- Situation transition
-- hidden information disclosure rule
-- spoiler-safe narration regeneration
+- 기존 Adventure Story Plan 흐름의 완전 대체
+- Storybook 필수 Scenario Compilation
+- 다중 Storybook Primary/Supplement 통합과 Integration Prompt
+- compilation Creativity 정책
+- hidden Scenario Model과 Adventure Start lock
+- Runtime RAG source retrieval
+- Runtime-added Fact fallback과 playthrough continuity
+- Game State와 Runtime-added Fact의 구분
+- Situation 기반 multi-turn runtime 진행
+- hidden information / spoiler-safe player output
 - atomic GM Turn
-- resolution condition
-- concluding Scene
-- Adventure completion
+- resolution condition 기반 Adventure completion
 
-### Out of Scope
+### Non-goals
 
-- Rulebook-only Adventure 생성
-- Stage 기반 Story 진행
-- Branch 기반 미래 Plot 실행
-- Scenario Model 사용자 검토/승인 UI
-- Scenario Model runtime 재컴파일
-- Runtime에서 Scenario Model enrichment/write-back
-- Player Notes
-- 사용자용 Player Knowledge 관리 기능
-- post-adventure free play
-- 모든 Storybook 정보를 미리 구조화
-- 미래 Scene 전체 생성
-- 미래 행동 경로의 사전 계획
-- 세부 구현 구조 또는 persistence 설계
-- 서비스/모듈 배치 결정
-
----
+- Rulebook-only adventure 생성 또는 진행
+- Stage/branch/ending을 미리 계획하는 Adventure Story Plan 유지
+- Scenario Model을 Solo Player가 직접 열람·편집·승인하는 기능
+- `Player Notes` 기능
+- 사용자-facing `Player Knowledge` 관리 기능
+- source의 모든 세부 fact를 Scenario Model schema에 강제로 채우는 것
+- 선택적 world-building을 위한 compilation creativity
+- provenance (`SOURCE`/`GENERATED`)를 Scenario Model의 필수 domain concept로 도입하는 것
+- post-adventure 자유 플레이
+- 구체적인 persistence schema, service/module 배치, API shape, framework 선택 등 Architecture 결정
+- Scenario Model의 최종 물리 schema를 Product Spec에서 확정하는 것
 
 ## 11. Priorities and Trade-offs
 
-제품 행동이 충돌할 경우 다음을 우선한다.
+### Runtime priority
 
-### P-1. 플레이 연속성
+충돌 시 다음 원칙을 우선한다.
 
-source에 세부 정보가 없더라도 현재 플레이가 진행될 수 있어야 한다.
+1. **플레이 연속성**
+2. **이미 확정된 플레이의 일관성**
+3. **Scenario Compilation에서 확정된 source/conflict interpretation**
+4. **나중에 검색된 원본 Storybook source 충실도**
+5. **임의 창작**
 
-### P-2. 이미 확정된 플레이의 일관성
+단, 이 우선순위는 source를 무시하고 바로 창작한다는 뜻이 아니다. 새 persistent fact가 필요할 때는 **항상 Storybook RAG lookup을 먼저 시도**하고, source가 답을 주지 못할 때만 최소 fallback fact를 생성한다.
 
-이미 플레이에서 확정된 사실은 이후 정보 때문에 뒤집지 않는다.
+### Compilation authority
 
-### P-3. Scenario Compilation의 확정된 해석
+Storybook 충돌 해석의 우선순위는 다음과 같다.
 
-여러 Storybook의 충돌에 대해 Compilation이 내린 해석은 Runtime RAG가 재해석하지 않는다.
+`User Integration Prompt > Primary Storybook > Supplement Storybooks`
 
-### P-4. Storybook Source Fidelity
+Creativity는 이 충돌 우선순위 다음 단계가 아니라 별도의 missing-information policy다. 충돌 해결을 위해 임의의 제3 fact를 생성하지 않는다.
 
-위 원칙과 충돌하지 않는 범위에서는 Storybook 원문을 우선 사용한다.
+### Product trade-offs
 
-### P-5. 최소한의 Runtime 창작
-
-source가 없을 때만 현재 진행에 필요한 최소 사실을 생성한다.
-
-요약하면:
-
-```text
-Play Continuity
-> Established Play Consistency
-> Compilation Conflict Interpretation
-> Storybook Source Fidelity
-> Runtime Invention
-```
-
-단, Runtime invention 전에 Storybook lookup은 반드시 먼저 수행한다.
-
----
+- 모든 정보를 미리 구조화하는 완전성보다 실제 플레이를 시작하고 계속할 수 있는 준비 상태를 우선한다.
+- late-discovered source fidelity보다 이미 플레이어가 경험한 세계의 연속성을 우선한다.
+- spoiler를 감춘 diagnostics보다 사용자가 실제로 BLOCKED 문제를 해결할 수 있는 구체적 diagnostics를 우선한다.
+- 서술 재생성 편의보다 Turn Resolution의 안정성과 non-reroll invariant를 우선한다.
+- preplanned plot control보다 플레이 결과에서 Story가 형성되는 emergent runtime을 우선한다.
 
 ## 12. Success Conditions and Acceptance Criteria
 
-### AC-1 — Storybook Requirement
-
-Storybook이 하나도 없는 Scenario는 새 Adventure Runtime 흐름에서 시작할 수 없다.
-
-### AC-2 — Primary Selection
-
-Storybook이 하나면 자동으로 Primary가 된다.
-
-두 개 이상이면 Primary가 결정되어야 Compilation이 유효하게 진행된다.
-
-### AC-3 — Integration Priority
-
-Integration Prompt가 Storybook conflict에 대한 명시적 해석을 제공하면 Primary보다 우선한다.
-
-### AC-4 — Default Creativity
-
-사용자가 별도 설정하지 않으면 `CONSERVATIVE`로 Compilation한다.
-
-### AC-5 — No Automatic Creativity Escalation
-
-현재 Creativity 정책으로 Compile할 수 없더라도 시스템이 자동으로 더 높은 Creativity를 선택하지 않는다.
-
-### AC-6 — No Schema-filling Invention
-
-핵심 진행과 무관한 Storybook 누락 정보를 단순히 Scenario Model 필드를 채우기 위해 생성하지 않는다.
-
-### AC-7 — READY Does Not Require Full Pre-generation
-
-모든 NPC, 장소, Scene, encounter 및 가능한 질문이 준비되지 않았더라도 Adventure의 시작과 핵심 resolution 판단이 가능하면 READY가 될 수 있다.
-
-### AC-8 — Hidden Scenario Model
-
-READY Scenario의 내부 Scenario Model 내용을 Solo Player에게 검토 또는 승인하도록 요구하지 않는다.
-
-### AC-9 — Adventure Lock
-
-Adventure Start 이후 해당 playthrough의 Scenario Model을 변경하거나 재컴파일할 수 없다.
-
-### AC-10 — Runtime Situation Generation
-
-첫 Situation을 포함한 모든 Situation은 Runtime에서 현재 상태를 기준으로 구성된다.
-
-### AC-11 — Multi-turn Situation
-
-문제 상태가 실질적으로 변하지 않았다면 여러 GM Turn이 같은 Situation에서 진행될 수 있다.
-
-### AC-12 — Lookup Priority
-
-Runtime 사실 조회는 다음 순서를 존중한다.
-
-```text
-Game State
-→ Runtime-added Facts
-→ Scenario Model
-→ Storybook RAG
-→ fallback generation
-```
-
-### AC-13 — Lookup Before Runtime Invention
-
-새 Runtime-added Fact를 생성하기 전에 관련 Storybook RAG lookup을 수행한다.
-
-### AC-14 — Runtime Fallback
-
-관련 Storybook source에 답이 없으면 필요한 최소 사실을 생성하고 플레이를 계속할 수 있다.
-
-### AC-15 — Runtime Fact Persistence
-
-RAG fallback으로 생성되어 성공한 Turn에서 사용된 사실은 Runtime-added Fact로 저장된다.
-
-별도 importance 판정을 요구하지 않는다.
-
-### AC-16 — Existing Runtime Fact Wins
-
-새 fallback fact가 기존 Runtime-added Fact 또는 Game State와 충돌하면 기존 값을 유지한다.
-
-### AC-17 — No Late-source Retcon
-
-후속 Storybook RAG 결과가 기존 Runtime-added Fact와 충돌해도 해당 playthrough의 기존 사실을 변경하지 않는다.
-
-### AC-18 — Runtime Creativity Independent of Compilation
-
-`Creativity = NONE`으로 Compile된 Scenario에서도 Runtime continuity에 필요한 fallback fact는 생성할 수 있다.
-
-### AC-19 — Hidden Fact Protection
-
-미발견 secret, NPC hidden motivation, unknowable cause 등은 player-visible output에 직접 포함하지 않는다.
-
-### AC-20 — Observable Reaction Allowed
-
-Hidden fact 때문에 발생한 플레이어가 실제로 관찰 가능한 NPC 반응은 출력할 수 있다.
-
-### AC-21 — Runtime-added Fact Disclosure
-
-Runtime-added Fact도 Storybook fact와 동일한 disclosure policy를 적용한다.
-
-생성됐다는 이유만으로 즉시 공개하지 않는다.
-
-### AC-22 — Narration Retry Stability
-
-Spoiler leak 때문에 narration을 다시 생성하더라도 Turn Resolution, dice result 및 world outcome은 변경되지 않는다.
-
-### AC-23 — Atomic Turn Commit
-
-성공한 Turn의 Game State 변경, Runtime-added Fact 및 player-visible result는 하나의 GM Turn 결과로 함께 확정된다.
-
-### AC-24 — Failed Turn Leaves No New Canon
-
-Turn이 최종 실패하거나 폐기되면 해당 Turn에서 새로 생성한 Game State 변경과 Runtime-added Fact를 남기지 않는다.
-
-### AC-25 — Completion by Resolution Condition
-
-Adventure 완료 여부는 마지막 Stage가 아니라 Scenario의 resolution condition으로 판단한다.
-
-### AC-26 — Concluding Scene
-
-Resolution condition을 충족한 Turn에서 행동 결과를 처리한 뒤 concluding Scene을 제공하고 Adventure를 `COMPLETED`로 전환한다.
-
-### AC-27 — No Post-adventure Runtime
-
-`COMPLETED` 이후 별도의 자유 플레이 모드는 이번 기능의 성공 조건에 포함되지 않는다.
-
----
-
-## Product Diagram Contract
-
-이번 변경은 핵심 사용자 흐름을 완전히 교체하므로 Product use-case 및 activity diagram 대상이다.
-
-저장소 산출물로 작성할 경우 최소 다음 다이어그램이 필요하다.
-
-```text
-docs/specs/scenario-model-runtime/diagrams/product/
-├─ UC-1.usecase.puml
-├─ UC-1.usecase.svg
-├─ UC-1.activity.puml
-└─ UC-1.activity.svg
-```
-
-`UC-1.usecase`는 최소 다음 관계를 보여야 한다.
-
-```text
-Solo Player
- ├─ Storybook 선택
- ├─ Primary 선택
- ├─ Integration Prompt / Creativity 설정
- ├─ Scenario Compile
- └─ Adventure Start
-
-AI Game Master
- ├─ Situation 진행
- ├─ Storybook Fact 조회
- ├─ Runtime-added Fact 생성
- ├─ GM Turn 해결
- └─ Adventure 완료
-```
-
-`UC-1.activity`는 최소 다음 전체 흐름을 보여야 한다.
-
-```text
-Storybook 준비
-→ Scenario Compilation
-→ READY
-→ Adventure Start / Lock
-→ First Situation
-→ Player Action
-→ Existing Runtime State 조회
-→ Scenario Model 조회
-→ Storybook RAG
-→ [없으면 Runtime-added Fact]
-→ Turn Resolution
-→ Spoiler-safe Narration
-→ Atomic Commit
-→ Situation 유지/전환
-→ Resolution condition?
-→ Concluding Scene
-→ COMPLETED
-```
-
-**Business-state diagram:** 해당 없음 — Scenario Compilation과 Adventure lifecycle은 위 Product activity flow 안에서 충분히 검토 가능하며, 별도의 업무 상태 다이어그램이 독립적인 Product 목적을 갖지는 않는다.
+- **AC-1** Storybook이 0개인 source 구성은 새 Scenario Compilation에서 READY가 될 수 없다.
+- **AC-2** Storybook이 정확히 1개면 해당 Storybook이 자동으로 Primary가 된다.
+- **AC-3** Storybook이 2개 이상이면 Solo Player가 Primary를 지정한 뒤 compilation을 실행할 수 있다.
+- **AC-4** 동일 conflict에 Integration Prompt와 Primary가 서로 다른 해석을 요구하면 Integration Prompt의 충돌 해석이 적용된다.
+- **AC-5** Creativity를 지정하지 않으면 `CONSERVATIVE`가 적용된다.
+- **AC-6** `NONE`에서 핵심 목표 진행 또는 해결에 반드시 필요한 source-missing fact가 발견되면 compilation은 BLOCKED가 된다.
+- **AC-7** `CONSERVATIVE`는 core progress/resolution에 필요하지 않은 설정을 새로 만들지 않는다.
+- **AC-8** `CREATIVE`도 core progress/resolution에 필요하지 않은 optional world-building을 위해 fact를 생성하지 않는다.
+- **AC-9** 사소한 NPC/장소 세부 정보가 source에 없다는 이유만으로 READY가 차단되지 않는다.
+- **AC-10** BLOCKED 결과는 실제 문제, source 위치, 자동 해결 실패 이유와 최소 1개의 구체적인 수정 제안을 제공한다.
+- **AC-11** Adventure Start 전 Primary, Integration Prompt 또는 Creativity를 바꾸면 새 compilation 결과가 이전 candidate를 대체한다.
+- **AC-12** `READY`가 아닌 Scenario Model로 Adventure Start를 완료할 수 없다.
+- **AC-13** Adventure Start가 성공하면 해당 Scenario Model과 Storybook source 범위가 잠기고 이후 재컴파일/교체되지 않는다.
+- **AC-14** 첫 Situation은 Scenario Compilation에 미리 저장된 Stage가 아니라 Adventure Start 시 current state와 source에서 생성된다.
+- **AC-15** runtime progression은 Stage position 또는 preplanned branch/ending 선택을 필수 실행 단위로 사용하지 않는다.
+- **AC-16** runtime에서 scenario fact가 필요할 때 `Game State → Runtime-added Facts → Scenario Model → Storybook RAG → fallback` 순으로 부족한 정보를 찾는다.
+- **AC-17** RAG가 source answer를 찾지 못하거나 retrieval이 실패하면 현재 플레이를 진행하기 위한 최소 fact를 생성하고, Turn 성공 시 Runtime-added Fact로 commit한다.
+- **AC-18** 새 fallback fact가 기존 Runtime-added Fact 또는 Game State와 충돌하면 기존 사실을 유지하고 새 fact를 다시 생성한다.
+- **AC-19** commit된 Runtime-added Fact와 이후 검색된 Storybook fact가 충돌해도 이미 진행된 playthrough를 retcon하지 않는다.
+- **AC-20** `Creativity = NONE`인 모험에서도 runtime source lookup 실패 때문에 진행이 막힐 경우 최소 Runtime-added Fact fallback을 사용할 수 있다.
+- **AC-21** Runtime-added Fact는 생성됐다는 이유만으로 플레이어에게 공개되지 않으며 Storybook hidden fact와 동일한 공개 규칙을 적용한다.
+- **AC-22** hidden information leak이 발견된 narration 재생성은 이미 결정된 Turn Resolution, dice result, Game State decision을 변경하지 않는다.
+- **AC-23** GM Turn이 성공하면 Game State changes, 새 Runtime-added Facts, player-visible result가 함께 commit되고, Turn 실패 시 셋 모두 commit되지 않는다.
+- **AC-24** 현재 Situation이 더 이상 current problem state를 대표하지 못하면 최신 world state에서 새 Situation을 재구성한다.
+- **AC-25** resolution condition이 충족된 Turn은 concluding Scene까지 성공적으로 제공한 뒤 Adventure를 `COMPLETED`로 전환한다.
+- **AC-26** `COMPLETED` 이후 같은 Adventure의 post-adventure 자유 플레이는 제공하지 않는다.
+- **AC-27** Scenario Model 내용을 Solo Player가 승인해야만 진행되는 별도 approval gate가 존재하지 않는다.
+- **AC-28** `Player Notes`는 이번 기능의 사용자 기능으로 제공하지 않는다.
+- **AC-29** generic rule/stat semantics는 Scenario Model의 scenario truth로 중복 정의하지 않고 Rulebook/Game System에서 참조한다.
+- **AC-30** Product flow에서 `Adventure Story Plan`의 Stage/branch/ending preplanning이 제거되고, 실제 Story는 committed runtime history로만 형성된다.
+
+## Product 다이어그램 계약
+
+- Use Case Diagram: [UC-SMR.usecase.svg](diagrams/product/UC-SMR.usecase.svg)
+- Activity Diagram: [UC-SMR.activity.svg](diagrams/product/UC-SMR.activity.svg)
+- Editable originals:
+  - `diagrams/product/UC-SMR.usecase.puml`
+  - `diagrams/product/UC-SMR.activity.puml`
+- Business-state diagram: **해당 없음 — Scenario Compilation과 Adventure/Situation의 업무 상태는 위 activity diagram과 본문의 state-transition 정의로 충분히 검토할 수 있으며, 별도 독립 업무 상태 검토 목적이 없다.**
+- Product 단계에서는 class diagram을 생성하지 않는다.

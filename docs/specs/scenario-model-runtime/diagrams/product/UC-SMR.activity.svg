@@ -1,0 +1,192 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1500" height="2920" viewBox="0 0 1500 2920">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#333"/>
+    </marker>
+    <style>
+      text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans KR", sans-serif; fill:#111; }
+      .title { font-size:30px; font-weight:700; }
+      .box { fill:#fff; stroke:#222; stroke-width:2; rx:14; }
+      .decision { fill:#fff; stroke:#222; stroke-width:2; }
+      .line { stroke:#333; stroke-width:2; fill:none; marker-end:url(#arrow); }
+      .dash { stroke:#666; stroke-width:1.7; fill:none; stroke-dasharray:7 5; marker-end:url(#arrow); }
+      .label { font-size:18px; }
+      .small { font-size:15px; fill:#444; }
+      .phase { font-size:20px; font-weight:700; }
+      .pill { fill:#f7f7f7; stroke:#444; stroke-width:2; }
+    </style>
+  </defs>
+
+  <text x="750" y="45" text-anchor="middle" class="title">Scenario Model Runtime — Product Activity Flow</text>
+
+  <ellipse cx="750" cy="95" rx="82" ry="28" class="pill"/>
+  <text x="750" y="102" text-anchor="middle" class="label">START</text>
+
+  <text x="135" y="160" class="phase">Scenario Preparation</text>
+
+  <rect x="500" y="145" width="500" height="64" class="box"/>
+  <text x="750" y="184" text-anchor="middle" class="label">Storybook 1개 이상 선택</text>
+  <path d="M750 123 L750 145" class="line"/>
+
+  <polygon points="750,245 900,315 750,385 600,315" class="decision"/>
+  <text x="750" y="307" text-anchor="middle" class="label">Storybook이</text>
+  <text x="750" y="332" text-anchor="middle" class="label">2개 이상인가?</text>
+  <path d="M750 209 L750 245" class="line"/>
+
+  <rect x="1010" y="280" width="330" height="70" class="box"/>
+  <text x="1175" y="322" text-anchor="middle" class="label">Primary Storybook 지정</text>
+  <path d="M900 315 L1010 315" class="line"/>
+  <text x="938" y="298" class="small">yes</text>
+
+  <rect x="500" y="430" width="500" height="82" class="box"/>
+  <text x="750" y="462" text-anchor="middle" class="label">Integration Prompt 선택 입력</text>
+  <text x="750" y="490" text-anchor="middle" class="label">Creativity 선택 (default = CONSERVATIVE)</text>
+  <path d="M750 385 L750 430" class="line"/>
+  <text x="765" y="410" class="small">no</text>
+  <path d="M1175 350 L1175 400 L1000 400 L1000 471" class="line"/>
+
+  <rect x="500" y="555" width="500" height="64" class="box"/>
+  <text x="750" y="594" text-anchor="middle" class="label">Scenario Compilation 실행</text>
+  <path d="M750 512 L750 555" class="line"/>
+
+  <polygon points="750,655 900,725 750,795 600,725" class="decision"/>
+  <text x="750" y="718" text-anchor="middle" class="label">Compilation이</text>
+  <text x="750" y="743" text-anchor="middle" class="label">BLOCKED인가?</text>
+  <path d="M750 619 L750 655" class="line"/>
+
+  <rect x="1010" y="680" width="380" height="94" class="box"/>
+  <text x="1200" y="711" text-anchor="middle" class="label">실제 문제/source 위치/실패 이유</text>
+  <text x="1200" y="738" text-anchor="middle" class="label">구체적 수정 제안 표시</text>
+  <text x="1200" y="765" text-anchor="middle" class="small">Primary / Prompt / Creativity 수정 후 재컴파일</text>
+  <path d="M900 725 L1010 725" class="line"/>
+  <text x="938" y="708" class="small">yes</text>
+  <path d="M1200 680 L1200 640 L1035 640 L1035 585 L1000 585" class="dash"/>
+
+  <rect x="500" y="845" width="500" height="64" class="box"/>
+  <text x="750" y="884" text-anchor="middle" class="label">Scenario Model = READY</text>
+  <path d="M750 795 L750 845" class="line"/>
+  <text x="765" y="820" class="small">no</text>
+
+  <text x="135" y="980" class="phase">Adventure Start</text>
+
+  <rect x="500" y="940" width="500" height="64" class="box"/>
+  <text x="750" y="979" text-anchor="middle" class="label">Adventure Start</text>
+  <path d="M750 909 L750 940" class="line"/>
+
+  <rect x="500" y="1035" width="500" height="78" class="box"/>
+  <text x="750" y="1067" text-anchor="middle" class="label">READY Scenario Model + Storybook source/RAG lock</text>
+  <text x="750" y="1094" text-anchor="middle" class="small">시작 후 재컴파일·교체·enrichment 금지</text>
+  <path d="M750 1004 L750 1035" class="line"/>
+
+  <rect x="500" y="1145" width="500" height="86" class="box"/>
+  <text x="750" y="1177" text-anchor="middle" class="label">초기 Game State 생성</text>
+  <text x="750" y="1205" text-anchor="middle" class="label">runtime에서 첫 Situation 생성 → 첫 Scene</text>
+  <path d="M750 1113 L750 1145" class="line"/>
+
+  <text x="135" y="1325" class="phase">Runtime GM Turn Loop</text>
+
+  <rect x="500" y="1285" width="500" height="64" class="box"/>
+  <text x="750" y="1324" text-anchor="middle" class="label">Player Action 수신</text>
+  <path d="M750 1231 L750 1285" class="line"/>
+
+  <rect x="410" y="1380" width="680" height="118" class="box"/>
+  <text x="750" y="1412" text-anchor="middle" class="label">scenario fact 조회 우선순위</text>
+  <text x="750" y="1441" text-anchor="middle" class="label">Game State → Runtime-added Facts → Scenario Model</text>
+  <text x="750" y="1470" text-anchor="middle" class="label">→ locked Storybook RAG → fallback generation</text>
+  <path d="M750 1349 L750 1380" class="line"/>
+
+  <polygon points="750,1535 900,1605 750,1675 600,1605" class="decision"/>
+  <text x="750" y="1597" text-anchor="middle" class="label">RAG/source가</text>
+  <text x="750" y="1622" text-anchor="middle" class="label">답을 주는가?</text>
+  <path d="M750 1498 L750 1535" class="line"/>
+
+  <rect x="310" y="1715" width="360" height="72" class="box"/>
+  <text x="490" y="1758" text-anchor="middle" class="label">source fact 사용</text>
+  <path d="M650 1655 L550 1715" class="line"/>
+  <text x="565" y="1688" class="small">yes</text>
+
+  <rect x="830" y="1700" width="480" height="102" class="box"/>
+  <text x="1070" y="1732" text-anchor="middle" class="label">최소 fallback fact 생성</text>
+  <text x="1070" y="1761" text-anchor="middle" class="label">기존 플레이 사실과 충돌 시 재생성</text>
+  <text x="1070" y="1788" text-anchor="middle" class="small">Runtime-added Fact candidate로 staging</text>
+  <path d="M850 1655 L1000 1700" class="line"/>
+  <text x="930" y="1680" class="small">no / retrieval failure</text>
+
+  <rect x="500" y="1845" width="500" height="64" class="box"/>
+  <text x="750" y="1884" text-anchor="middle" class="label">Turn Resolution 확정</text>
+  <path d="M490 1787 L490 1815 L750 1815 L750 1845" class="line"/>
+  <path d="M1070 1802 L1070 1815 L750 1815" class="line"/>
+
+  <rect x="500" y="1940" width="500" height="64" class="box"/>
+  <text x="750" y="1979" text-anchor="middle" class="label">player-visible narration 생성</text>
+  <path d="M750 1909 L750 1940" class="line"/>
+
+  <polygon points="750,2035 900,2105 750,2175 600,2105" class="decision"/>
+  <text x="750" y="2097" text-anchor="middle" class="label">hidden info</text>
+  <text x="750" y="2122" text-anchor="middle" class="label">누출인가?</text>
+  <path d="M750 2004 L750 2035" class="line"/>
+
+  <rect x="1010" y="2060" width="360" height="88" class="box"/>
+  <text x="1190" y="2092" text-anchor="middle" class="label">Turn Resolution 유지</text>
+  <text x="1190" y="2120" text-anchor="middle" class="label">narration만 재생성</text>
+  <path d="M900 2105 L1010 2105" class="line"/>
+  <text x="940" y="2088" class="small">yes</text>
+  <path d="M1190 2060 L1190 2018 L1000 2018 L1000 1972" class="dash"/>
+
+  <polygon points="750,2210 885,2270 750,2330 615,2270" class="decision"/>
+  <text x="750" y="2262" text-anchor="middle" class="label">Turn을 안전하게</text>
+  <text x="750" y="2287" text-anchor="middle" class="label">완료했는가?</text>
+  <path d="M750 2175 L750 2210" class="line"/>
+  <text x="765" y="2197" class="small">no leak</text>
+
+  <rect x="260" y="2370" width="500" height="86" class="box"/>
+  <text x="510" y="2402" text-anchor="middle" class="label">Game State + Runtime-added Facts + output</text>
+  <text x="510" y="2431" text-anchor="middle" class="label">atomic commit</text>
+  <path d="M670 2315 L560 2370" class="line"/>
+  <text x="585" y="2345" class="small">yes</text>
+
+  <rect x="900" y="2370" width="400" height="86" class="box"/>
+  <text x="1100" y="2402" text-anchor="middle" class="label">해당 Turn의 state/fact/output</text>
+  <text x="1100" y="2431" text-anchor="middle" class="label">모두 폐기</text>
+  <path d="M830 2315 L990 2370" class="line"/>
+  <text x="905" y="2345" class="small">no</text>
+
+  <polygon points="510,2500 650,2560 510,2620 370,2560" class="decision"/>
+  <text x="510" y="2552" text-anchor="middle" class="label">resolution condition</text>
+  <text x="510" y="2577" text-anchor="middle" class="label">충족?</text>
+  <path d="M510 2456 L510 2500" class="line"/>
+
+  <rect x="180" y="2660" width="400" height="88" class="box"/>
+  <text x="380" y="2692" text-anchor="middle" class="label">concluding Scene 생성</text>
+  <text x="380" y="2720" text-anchor="middle" class="label">Adventure = COMPLETED</text>
+  <path d="M430 2610 L390 2660" class="line"/>
+  <text x="390" y="2638" class="small">yes</text>
+
+  <polygon points="800,2500 940,2560 800,2620 660,2560" class="decision"/>
+  <text x="800" y="2552" text-anchor="middle" class="label">기존 Situation이</text>
+  <text x="800" y="2577" text-anchor="middle" class="label">여전히 유효?</text>
+  <path d="M650 2560 L660 2560" class="line"/>
+  <text x="652" y="2542" class="small">no</text>
+
+  <rect x="650" y="2660" width="300" height="72" class="box"/>
+  <text x="800" y="2703" text-anchor="middle" class="label">현재 Situation 유지</text>
+  <path d="M800 2620 L800 2660" class="line"/>
+  <text x="815" y="2645" class="small">yes</text>
+
+  <rect x="1010" y="2660" width="340" height="72" class="box"/>
+  <text x="1180" y="2692" text-anchor="middle" class="label">최신 상태에서</text>
+  <text x="1180" y="2718" text-anchor="middle" class="label">새 Situation 재구성</text>
+  <path d="M920 2605 L1080 2660" class="line"/>
+  <text x="1015" y="2635" class="small">no</text>
+
+  <path d="M800 2732 L800 2800 L350 2800 L350 1317 L500 1317" class="dash"/>
+  <path d="M1180 2732 L1180 2835 L315 2835 L315 1317 L500 1317" class="dash"/>
+  <path d="M1100 2456 L1100 2870 L280 2870 L280 1317 L500 1317" class="dash"/>
+  <text x="520" y="2792" class="small">다음 GM Turn</text>
+
+  <ellipse cx="380" cy="2805" rx="90" ry="30" class="pill"/>
+  <text x="380" y="2812" text-anchor="middle" class="label">END</text>
+  <path d="M380 2748 L380 2775" class="line"/>
+
+  <text x="135" y="2900" class="small">핵심: source lookup first · runtime fallback allowed · established play facts win · spoiler regeneration never rerolls Turn Resolution · Turn commit is atomic.</text>
+</svg>
