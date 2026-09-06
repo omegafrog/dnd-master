@@ -39,6 +39,7 @@ public final class StoryRuntimeRules {
         Map<String, PressureState> pressures = new LinkedHashMap<>(state.pressureStates());
         String active = state.activeSituationId();
         Set<String> predicates = new java.util.LinkedHashSet<>(state.satisfiedPredicateIds());
+        List<PlayCreatedStoryFact> facts = mergeFacts(state.acceptedStoryFacts(), proposal.acceptedStoryFacts());
         validateRevelations(stage, proposal.learnedRevelationIds());
         validatePredicates(stage, proposal.satisfiedPredicateIds());
         for (String revelationId : proposal.learnedRevelationIds()) revelations.put(revelationId, RevelationStatus.LEARNED);
@@ -107,11 +108,12 @@ public final class StoryRuntimeRules {
         if (situations.equals(state.situationStatuses()) && revelations.equals(state.revelationStatuses())
                 && pressures.equals(state.pressureStates()) && Objects.equals(active, state.activeSituationId())
                 && predicates.equals(state.satisfiedPredicateIds()) && lifecycle == state.lifecycle()
-                && Objects.equals(exitReason, state.exitReason())) {
+                && Objects.equals(exitReason, state.exitReason()) && facts.equals(state.acceptedStoryFacts())) {
             return state.withProcessedProposal(proposal.proposalId());
         }
         return state.evolve(situations, revelations, pressures, active, state.openingPresented(), proposal.proposalId(),
-                predicates, lifecycle, exitReason, unresolvedThreats, unresolvedConsequences, state.stageHistory());
+                predicates, lifecycle, exitReason, unresolvedThreats, unresolvedConsequences, state.stageHistory(), facts,
+                state.premiseInvalidationAudits());
     }
 
     /** Atomically closes the current stage and starts its immediate next stage. */
@@ -158,7 +160,7 @@ public final class StoryRuntimeRules {
                 next.revision(), started.situationStatuses(), started.revelationStatuses(), started.pressureStates(),
                 started.activeSituationId(), started.openingPresented(), state.processedProposalIds(),
                 Set.of(), StageLifecycle.ACTIVE, null, state.unresolvedThreats(), state.unresolvedConsequenceIds(),
-                append(state.stageHistory(), history));
+                append(state.stageHistory(), history), state.acceptedStoryFacts(), state.premiseInvalidationAudits());
     }
 
     private static StageHistoryEntry historyOf(StoryRuntimeState state, DetailedStage stage, StageLifecycle lifecycle,
@@ -192,5 +194,20 @@ public final class StoryRuntimeRules {
     private static void validatePredicates(DetailedStage stage, List<String> ids) {
         Set<String> known = new HashSet<>(stage.funnel().requiredPredicateIds());
         for (String id : ids) if (!known.contains(id)) throw new IllegalArgumentException("unknown funnel predicate: " + id);
+    }
+
+    private static List<PlayCreatedStoryFact> mergeFacts(List<PlayCreatedStoryFact> current,
+            List<PlayCreatedStoryFact> additions) {
+        java.util.ArrayList<PlayCreatedStoryFact> merged = new java.util.ArrayList<>(current);
+        for (PlayCreatedStoryFact addition : additions) {
+            PlayCreatedStoryFact existing = merged.stream().filter(fact -> fact.factId().equals(addition.factId())).findFirst().orElse(null);
+            if (existing != null) {
+                if (!existing.equals(addition)) throw new IllegalArgumentException("story fact id was reused for different content");
+                continue;
+            }
+            if (merged.stream().anyMatch(fact -> fact.content().equalsIgnoreCase(addition.content()))) continue;
+            merged.add(addition);
+        }
+        return List.copyOf(merged);
     }
 }
