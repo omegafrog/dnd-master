@@ -1,0 +1,14 @@
+@startuml
+title Stage 업무 상태
+caption Product Spec: Section 7, UC-7, UC-8, BR-11..BR-15
+[*] --> PLANNED
+PLANNED --> ACTIVE : 현재 Stage 상세화·시작
+ACTIVE --> COMPLETED : Funnel 충족 + 다음 Stage 준비
+ACTIVE --> EXITED_UNRESOLVED : 해결 없이 이탈
+COMPLETED --> [*]
+EXITED_UNRESOLVED --> [*]
+note right of ACTIVE
+OPEN_PLAY는 별도 Stage 상태가 아니다.
+active Situation이 없을 때의 일반 진행이다.
+end note
+@enduml

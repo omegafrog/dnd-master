@@ -1,0 +1,44 @@
+@startuml
+title Story Runtime 구조와 책임 경계
+caption Architecture Spec: Sections 1, 2, 5, 8, 12, 13, 24, 25
+skinparam classAttributeIconSize 0
+package "rule-knowledge-service" {
+  class "Scenario Source" as Source
+  class "Source Evidence" as Evidence
+}
+package "adventure-service / Scenario Preparation" {
+  class "Scenario Package" as Package
+  class "Stage Backbone" as Backbone
+  class "Detailed Stage" as Detailed
+  class "Situation Candidate" as Candidate
+}
+package "adventure-service / Adventure Runtime" {
+  class "Runtime Narrative State" as State
+  class "Runtime Binding" as Binding
+  class "Runtime Turn Coordinator" as Coordinator
+  class "Canonical Proposal Validator" as Validator
+}
+package "ai-game-master-service" {
+  class "AI Game Master" as GM
+}
+class "Mechanical Owning Services" as Mechanical
+Source --> Evidence : 조회
+Evidence --> Package : 근거 포함
+Package --> Backbone : 파생
+Package --> Detailed : 파생
+Backbone --> Detailed : 현재 Stage materialize
+Detailed --> Candidate : Stage Intent 기반 생성
+Binding --> Package
+Binding --> Backbone
+Binding --> Detailed
+State --> Backbone : 현재 리비전
+State --> Detailed : 현재 snapshot
+Coordinator --> GM : context
+GM --> Validator : state-changing proposal
+Validator --> State : 검증 후 확정
+Coordinator --> Mechanical : mechanical command 위임
+note bottom of Validator
+AI는 저장 권한 없음.
+Runtime만 canonical state 확정.
+end note
+@enduml
