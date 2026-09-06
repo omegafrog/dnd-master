@@ -8,7 +8,8 @@ import java.util.UUID;
 public record StoryRuntimeProposal(UUID proposalId, long expectedVersion, UUID scenarioPackageId,
         long backboneRevision, String stageId, long detailedStageRevision, SituationAction situationAction,
         List<String> learnedRevelationIds, List<PressureProposal> pressureProposals,
-        List<String> satisfiedPredicateIds, UnresolvedStageExit unresolvedExit) {
+        List<String> satisfiedPredicateIds, UnresolvedStageExit unresolvedExit,
+        List<PlayCreatedStoryFact> acceptedStoryFacts) {
     public StoryRuntimeProposal {
         proposalId = Objects.requireNonNull(proposalId, "proposal id must not be null");
         if (expectedVersion < 0) throw new IllegalArgumentException("expected runtime version must not be negative");
@@ -19,6 +20,7 @@ public record StoryRuntimeProposal(UUID proposalId, long expectedVersion, UUID s
         learnedRevelationIds = List.copyOf(learnedRevelationIds == null ? List.of() : learnedRevelationIds);
         pressureProposals = List.copyOf(pressureProposals == null ? List.of() : pressureProposals);
         satisfiedPredicateIds = List.copyOf(satisfiedPredicateIds == null ? List.of() : satisfiedPredicateIds);
+        acceptedStoryFacts = List.copyOf(acceptedStoryFacts == null ? List.of() : acceptedStoryFacts);
         unresolvedExit = unresolvedExit;
         if (learnedRevelationIds.stream().anyMatch(id -> id == null || id.isBlank())) {
             throw new IllegalArgumentException("learned revelation ids must not be blank");
@@ -27,6 +29,14 @@ public record StoryRuntimeProposal(UUID proposalId, long expectedVersion, UUID s
             throw new IllegalArgumentException("satisfied predicate ids must not be blank");
         }
         stageId = stageId.trim();
+    }
+
+    public StoryRuntimeProposal(UUID proposalId, long expectedVersion, UUID scenarioPackageId,
+            long backboneRevision, String stageId, long detailedStageRevision, SituationAction situationAction,
+            List<String> learnedRevelationIds, List<PressureProposal> pressureProposals,
+            List<String> satisfiedPredicateIds, UnresolvedStageExit unresolvedExit) {
+        this(proposalId, expectedVersion, scenarioPackageId, backboneRevision, stageId, detailedStageRevision,
+                situationAction, learnedRevelationIds, pressureProposals, satisfiedPredicateIds, unresolvedExit, List.of());
     }
 
     /** Source-compatible constructor for proposals created before Funnel transition support. */
@@ -40,17 +50,18 @@ public record StoryRuntimeProposal(UUID proposalId, long expectedVersion, UUID s
     public StoryRuntimeProposal withExpectedVersion(long version) {
         return new StoryRuntimeProposal(proposalId, version, scenarioPackageId, backboneRevision, stageId,
                 detailedStageRevision, situationAction, learnedRevelationIds, pressureProposals,
-                satisfiedPredicateIds, unresolvedExit);
+                satisfiedPredicateIds, unresolvedExit, acceptedStoryFacts);
     }
 
     public StoryRuntimeProposal withSatisfiedPredicateIds(List<String> predicateIds) {
         return new StoryRuntimeProposal(proposalId, expectedVersion, scenarioPackageId, backboneRevision, stageId,
-                detailedStageRevision, situationAction, learnedRevelationIds, pressureProposals, predicateIds, unresolvedExit);
+                detailedStageRevision, situationAction, learnedRevelationIds, pressureProposals, predicateIds, unresolvedExit,
+                acceptedStoryFacts);
     }
 
     public StoryRuntimeProposal withUnresolvedExit(UnresolvedStageExit exit) {
         return new StoryRuntimeProposal(proposalId, expectedVersion, scenarioPackageId, backboneRevision, stageId,
                 detailedStageRevision, situationAction, learnedRevelationIds, pressureProposals,
-                satisfiedPredicateIds, exit);
+                satisfiedPredicateIds, exit, acceptedStoryFacts);
     }
 }

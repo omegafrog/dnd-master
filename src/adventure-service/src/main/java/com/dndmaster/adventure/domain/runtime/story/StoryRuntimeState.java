@@ -33,6 +33,8 @@ public final class StoryRuntimeState {
     private final List<String> unresolvedThreats;
     private final List<String> unresolvedConsequenceIds;
     private final List<StageHistoryEntry> stageHistory;
+    private final List<PlayCreatedStoryFact> acceptedStoryFacts;
+    private final List<PremiseInvalidationAudit> premiseInvalidationAudits;
 
     /** JSON creator retaining stage history and carry-over context across restarts. */
     @JsonCreator
@@ -45,7 +47,9 @@ public final class StoryRuntimeState {
             @JsonProperty("exitReason") String exitReason,
             @JsonProperty("unresolvedThreats") List<String> unresolvedThreats,
             @JsonProperty("unresolvedConsequenceIds") List<String> unresolvedConsequenceIds,
-            @JsonProperty("stageHistory") List<StageHistoryEntry> stageHistory) {
+            @JsonProperty("stageHistory") List<StageHistoryEntry> stageHistory,
+            @JsonProperty("acceptedStoryFacts") List<PlayCreatedStoryFact> acceptedStoryFacts,
+            @JsonProperty("premiseInvalidationAudits") List<PremiseInvalidationAudit> premiseInvalidationAudits) {
         if (version < 0) throw new IllegalArgumentException("runtime version must not be negative");
         this.version = version;
         this.scenarioPackageId = Objects.requireNonNull(scenarioPackageId, "scenario package id must not be null");
@@ -65,6 +69,15 @@ public final class StoryRuntimeState {
         this.unresolvedThreats = List.copyOf(unresolvedThreats == null ? List.of() : unresolvedThreats);
         this.unresolvedConsequenceIds = List.copyOf(unresolvedConsequenceIds == null ? List.of() : unresolvedConsequenceIds);
         this.stageHistory = List.copyOf(stageHistory == null ? List.of() : stageHistory);
+        this.acceptedStoryFacts = List.copyOf(acceptedStoryFacts == null ? List.of() : acceptedStoryFacts);
+        this.premiseInvalidationAudits = List.copyOf(premiseInvalidationAudits == null ? List.of() : premiseInvalidationAudits);
+        if (this.acceptedStoryFacts.stream().map(PlayCreatedStoryFact::factId).distinct().count() != this.acceptedStoryFacts.size()) {
+            throw new IllegalArgumentException("accepted story fact ids must be unique");
+        }
+        if (this.premiseInvalidationAudits.stream().map(PremiseInvalidationAudit::proposalId).distinct().count()
+                != this.premiseInvalidationAudits.size()) {
+            throw new IllegalArgumentException("premise invalidation proposal ids must be unique");
+        }
         if (this.lifecycle == StageLifecycle.EXITED_UNRESOLVED && this.exitReason == null) {
             throw new IllegalArgumentException("unresolved stage exit requires a reason");
         }
@@ -80,7 +93,21 @@ public final class StoryRuntimeState {
             String activeSituationId, boolean openingPresented, Set<UUID> processedProposalIds) {
         this(version, scenarioPackageId, backboneRevision, stageId, detailedStageRevision, situationStatuses,
                 revelationStatuses, pressureStates, activeSituationId, openingPresented, processedProposalIds,
-                Set.of(), StageLifecycle.ACTIVE, null, List.of(), List.of(), List.of());
+                Set.of(), StageLifecycle.ACTIVE, null, List.of(), List.of(), List.of(), List.of(), List.of());
+    }
+
+    /** Source-compatible constructor for callers that supplied the pre-replanning history fields. */
+    public StoryRuntimeState(long version, UUID scenarioPackageId, long backboneRevision, String stageId,
+            long detailedStageRevision, Map<String, SituationStatus> situationStatuses,
+            Map<String, RevelationStatus> revelationStatuses, Map<String, PressureState> pressureStates,
+            String activeSituationId, boolean openingPresented, Set<UUID> processedProposalIds,
+            Set<String> satisfiedPredicateIds, StageLifecycle lifecycle, String exitReason,
+            List<String> unresolvedThreats, List<String> unresolvedConsequenceIds,
+            List<StageHistoryEntry> stageHistory) {
+        this(version, scenarioPackageId, backboneRevision, stageId, detailedStageRevision, situationStatuses,
+                revelationStatuses, pressureStates, activeSituationId, openingPresented, processedProposalIds,
+                satisfiedPredicateIds, lifecycle, exitReason, unresolvedThreats, unresolvedConsequenceIds,
+                stageHistory, List.of(), List.of());
     }
 
     public static StoryRuntimeState start(DetailedStage stage) {
@@ -115,6 +142,8 @@ public final class StoryRuntimeState {
     public List<String> unresolvedThreats() { return unresolvedThreats; }
     public List<String> unresolvedConsequenceIds() { return unresolvedConsequenceIds; }
     public List<StageHistoryEntry> stageHistory() { return stageHistory; }
+    public List<PlayCreatedStoryFact> acceptedStoryFacts() { return acceptedStoryFacts; }
+    public List<PremiseInvalidationAudit> premiseInvalidationAudits() { return premiseInvalidationAudits; }
     @JsonIgnore
     public boolean isOpenPlay() { return activeSituationId == null; }
 
@@ -129,11 +158,22 @@ public final class StoryRuntimeState {
             Set<String> predicates, StageLifecycle nextLifecycle, String nextExitReason,
             List<String> nextUnresolvedThreats, List<String> nextUnresolvedConsequences,
             List<StageHistoryEntry> nextHistory) {
+        return evolve(situations, revelations, pressures, active, opening, proposalId, predicates, nextLifecycle,
+                nextExitReason, nextUnresolvedThreats, nextUnresolvedConsequences, nextHistory,
+                acceptedStoryFacts, premiseInvalidationAudits);
+    }
+
+    StoryRuntimeState evolve(Map<String, SituationStatus> situations, Map<String, RevelationStatus> revelations,
+            Map<String, PressureState> pressures, String active, boolean opening, UUID proposalId,
+            Set<String> predicates, StageLifecycle nextLifecycle, String nextExitReason,
+            List<String> nextUnresolvedThreats, List<String> nextUnresolvedConsequences,
+            List<StageHistoryEntry> nextHistory, List<PlayCreatedStoryFact> nextFacts,
+            List<PremiseInvalidationAudit> nextAudits) {
         Set<UUID> processed = new LinkedHashSet<>(processedProposalIds);
         if (proposalId != null) processed.add(proposalId);
         return new StoryRuntimeState(version + 1, scenarioPackageId, backboneRevision, stageId, detailedStageRevision,
                 situations, revelations, pressures, active, opening, processed, predicates, nextLifecycle,
-                nextExitReason, nextUnresolvedThreats, nextUnresolvedConsequences, nextHistory);
+                nextExitReason, nextUnresolvedThreats, nextUnresolvedConsequences, nextHistory, nextFacts, nextAudits);
     }
 
     StoryRuntimeState withProcessedProposal(UUID proposalId) {
@@ -141,11 +181,27 @@ public final class StoryRuntimeState {
         processed.add(proposalId);
         return new StoryRuntimeState(version, scenarioPackageId, backboneRevision, stageId, detailedStageRevision,
                 situationStatuses, revelationStatuses, pressureStates, activeSituationId, openingPresented, processed,
-                satisfiedPredicateIds, lifecycle, exitReason, unresolvedThreats, unresolvedConsequenceIds, stageHistory);
+                satisfiedPredicateIds, lifecycle, exitReason, unresolvedThreats, unresolvedConsequenceIds, stageHistory,
+                acceptedStoryFacts, premiseInvalidationAudits);
     }
 
     StoryRuntimeState withTransition(StoryRuntimeState next) {
         return next;
+    }
+
+    /** Appends a decision audit once; retrying the same proposal does not advance runtime version. */
+    public StoryRuntimeState recordPremiseInvalidation(PremiseInvalidationResult result) {
+        Objects.requireNonNull(result, "invalidation result must not be null");
+        PremiseInvalidationAudit audit = result.audit();
+        if (premiseInvalidationAudits.stream().anyMatch(existing -> existing.proposalId().equals(audit.proposalId()))) return this;
+        List<PremiseInvalidationAudit> audits = new java.util.ArrayList<>(premiseInvalidationAudits);
+        audits.add(audit);
+        Set<UUID> processed = new LinkedHashSet<>(processedProposalIds);
+        processed.add(audit.proposalId());
+        return new StoryRuntimeState(version + 1, scenarioPackageId, backboneRevision, stageId, detailedStageRevision,
+                situationStatuses, revelationStatuses, pressureStates, activeSituationId, openingPresented, processed,
+                satisfiedPredicateIds, lifecycle, exitReason, unresolvedThreats, unresolvedConsequenceIds, stageHistory,
+                acceptedStoryFacts, audits);
     }
 
     private static String required(String value, String name) {
