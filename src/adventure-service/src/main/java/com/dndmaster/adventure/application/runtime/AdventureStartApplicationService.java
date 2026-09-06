@@ -10,10 +10,17 @@ import java.util.Objects;
 public final class AdventureStartApplicationService {
     private final ScenarioPackageRepository packages;
     private final AdventureRepository adventures;
+    private final com.dndmaster.adventure.application.scenario.preparation.StageArtifactPreparationApplicationService stagePreparation;
 
     public AdventureStartApplicationService(ScenarioPackageRepository packages, AdventureRepository adventures) {
+        this(packages, adventures, null);
+    }
+
+    public AdventureStartApplicationService(ScenarioPackageRepository packages, AdventureRepository adventures,
+            com.dndmaster.adventure.application.scenario.preparation.StageArtifactPreparationApplicationService stagePreparation) {
         this.packages = Objects.requireNonNull(packages, "package repository must not be null");
         this.adventures = Objects.requireNonNull(adventures, "adventure repository must not be null");
+        this.stagePreparation = stagePreparation;
     }
 
     public Adventure start(StartAdventureCommand command) {
@@ -26,6 +33,8 @@ public final class AdventureStartApplicationService {
         }
 
         Adventure adventure = adventures.findById(command.adventureId()).orElse(null);
+        if (adventure != null && adventure.status() == com.dndmaster.adventure.domain.adventure.AdventureStatus.ACTIVE) return adventure;
+        var prepared = stagePreparation == null ? null : stagePreparation.prepare(scenarioPackage.packageId());
         if (adventure == null) {
             adventure = Adventure.beginScenarioRuntime(command.adventureId(), command.sessionId(), command.ownerPlayerId(),
                     command.scenarioId(), command.ruleSetId(), command.scenarioPackageId(), command.scenarioPackageRevision(),
@@ -36,7 +45,6 @@ public final class AdventureStartApplicationService {
             if (!command.scenarioPackageId().equals(adventure.lockedScenarioPackageId())) {
                 throw new IllegalStateException("adventure is locked to another scenario package");
             }
-            if (adventure.status() == com.dndmaster.adventure.domain.adventure.AdventureStatus.ACTIVE) return adventure;
             if (adventure.status() != com.dndmaster.adventure.domain.adventure.AdventureStatus.STARTING) {
                 throw new IllegalStateException("adventure cannot resume from " + adventure.status());
             }
@@ -46,7 +54,10 @@ public final class AdventureStartApplicationService {
             adventure.initializeScenarioRuntime(command.ownerPlayerId(),
                     com.dndmaster.adventure.domain.runtime.GameState.empty(),
                     com.dndmaster.adventure.domain.runtime.DisclosureState.empty(),
-                    com.dndmaster.adventure.domain.runtime.CurrentSituation.initial(scenarioPackage.scenarioModel().startingSituation()),
+                    prepared == null
+                            ? com.dndmaster.adventure.domain.runtime.CurrentSituation.initial(scenarioPackage.scenarioModel().startingSituation())
+                            : com.dndmaster.adventure.domain.runtime.CurrentSituation.initial(
+                                    scenarioPackage.scenarioModel().startingSituation()),
                     java.util.List.of(),
                     new com.dndmaster.adventure.domain.adventure.AdventureContext(
                             scenarioPackage.scenarioModel().startingSituation(), null, null, null));
