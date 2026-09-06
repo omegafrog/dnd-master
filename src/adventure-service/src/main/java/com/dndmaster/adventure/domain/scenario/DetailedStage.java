@@ -22,7 +22,6 @@ public record DetailedStage(UUID scenarioPackageId, long backboneRevision, Strin
         situations = List.copyOf(Objects.requireNonNull(situations, "situations must not be null"));
         importantConsequenceIds = List.copyOf(Objects.requireNonNull(importantConsequenceIds, "important consequence ids must not be null"));
         sourceRefs = List.copyOf(Objects.requireNonNull(sourceRefs, "stage source refs must not be null"));
-        if (sourceRefs.isEmpty()) throw new IllegalArgumentException("detailed stage needs grounding");
         Set<String> revelationIds = new HashSet<>();
         for (RevelationDefinition revelation : revelations) {
             if (!revelationIds.add(revelation.revelationId())) throw new IllegalArgumentException("revelation ids must be unique");

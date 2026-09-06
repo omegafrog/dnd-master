@@ -12,7 +12,6 @@ public record FunnelDefinition(String funnelId, String meaning, List<String> req
         requiredRevelationIds = List.copyOf(Objects.requireNonNull(requiredRevelationIds, "funnel references must not be null"));
         requiredPredicateIds = List.copyOf(Objects.requireNonNull(requiredPredicateIds, "funnel predicate ids must not be null"));
         sourceRefs = List.copyOf(Objects.requireNonNull(sourceRefs, "funnel source refs must not be null"));
-        if (sourceRefs.isEmpty()) throw new IllegalArgumentException("funnel needs grounding");
     }
     public FunnelDefinition(String meaning, List<String> requiredRevelationIds, List<ScenarioSourceReference> sourceRefs) {
         this("funnel", meaning, requiredRevelationIds, List.of(), sourceRefs);
