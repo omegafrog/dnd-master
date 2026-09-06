@@ -24,9 +24,19 @@ ALTER TABLE adventure_runtime_binding
     ADD COLUMN IF NOT EXISTS current_stage_id TEXT,
     ADD COLUMN IF NOT EXISTS detailed_stage_revision BIGINT;
 
-ALTER TABLE adventure_runtime_binding
-    ADD CONSTRAINT adventure_runtime_binding_stage_revision_check
-    CHECK (stage_backbone_revision IS NULL OR stage_backbone_revision >= 1);
-ALTER TABLE adventure_runtime_binding
-    ADD CONSTRAINT adventure_runtime_binding_detailed_revision_check
-    CHECK (detailed_stage_revision IS NULL OR detailed_stage_revision >= 1);
+DO $$
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'adventure_runtime_binding_stage_revision_check') THEN
+        ALTER TABLE adventure_runtime_binding ADD CONSTRAINT adventure_runtime_binding_stage_revision_check
+            CHECK (stage_backbone_revision IS NULL OR stage_backbone_revision >= 1);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'adventure_runtime_binding_detailed_revision_check') THEN
+        ALTER TABLE adventure_runtime_binding ADD CONSTRAINT adventure_runtime_binding_detailed_revision_check
+            CHECK (detailed_stage_revision IS NULL OR detailed_stage_revision >= 1);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'adventure_runtime_binding_stage_reference_group_check') THEN
+        ALTER TABLE adventure_runtime_binding ADD CONSTRAINT adventure_runtime_binding_stage_reference_group_check
+            CHECK ((stage_backbone_revision IS NULL AND current_stage_id IS NULL AND detailed_stage_revision IS NULL)
+                OR (stage_backbone_revision IS NOT NULL AND current_stage_id IS NOT NULL AND btrim(current_stage_id) <> '' AND detailed_stage_revision IS NOT NULL));
+    END IF;
+END $$;

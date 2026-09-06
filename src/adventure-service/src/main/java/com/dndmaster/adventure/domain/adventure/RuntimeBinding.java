@@ -71,7 +71,9 @@ public final class RuntimeBinding {
         this.activeSourceContext = activeSourceContext;
         if (stageBackboneRevision != null && stageBackboneRevision < 1) throw new IllegalArgumentException("stage backbone revision must be positive");
         if (detailedStageRevision != null && detailedStageRevision < 1) throw new IllegalArgumentException("detailed stage revision must be positive");
-        if (detailedStageRevision != null && (currentStageId == null || currentStageId.isBlank())) throw new IllegalArgumentException("current stage id is required");
+        boolean anyStageReference = stageBackboneRevision != null || currentStageId != null || detailedStageRevision != null;
+        boolean completeStageReference = stageBackboneRevision != null && currentStageId != null && !currentStageId.isBlank() && detailedStageRevision != null;
+        if (anyStageReference && !completeStageReference) throw new IllegalArgumentException("stage references must be complete");
         this.stageBackboneRevision = stageBackboneRevision;
         this.currentStageId = currentStageId;
         this.detailedStageRevision = detailedStageRevision;
@@ -139,13 +141,14 @@ public final class RuntimeBinding {
         return new RuntimeBinding(
                 adventureId, ownerPlayerId, bindingVersion + 1, scenarioPackageId, scenarioPackageRevision,
                 rulebookIds, party, engineId, toolIds, gameSystemDefinitionVersion, characterBlueprintVersion, playabilityReport, activeSourceContext,
-                stageBackboneRevision, currentStageId, detailedStageRevision);
+                null, null, null);
     }
 
     public RuntimeBinding withActiveSourceContext(PlayabilityReport playabilityReport, ActiveSourceContext activeSourceContext) {
         return new RuntimeBinding(
                 adventureId, ownerPlayerId, bindingVersion, scenarioPackageId, scenarioPackageRevision,
-                rulebookIds, party, engineId, toolIds, gameSystemDefinitionVersion, characterBlueprintVersion, playabilityReport, activeSourceContext);
+                rulebookIds, party, engineId, toolIds, gameSystemDefinitionVersion, characterBlueprintVersion, playabilityReport, activeSourceContext,
+                stageBackboneRevision, currentStageId, detailedStageRevision);
     }
 
     public AdventureId adventureId() { return adventureId; }
