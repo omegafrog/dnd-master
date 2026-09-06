@@ -38,10 +38,17 @@ public final class StoryRuntimeState {
 
     /** JSON creator retaining stage history and carry-over context across restarts. */
     @JsonCreator
-    public StoryRuntimeState(long version, UUID scenarioPackageId, long backboneRevision, String stageId,
-            long detailedStageRevision, Map<String, SituationStatus> situationStatuses,
-            Map<String, RevelationStatus> revelationStatuses, Map<String, PressureState> pressureStates,
-            String activeSituationId, boolean openingPresented, Set<UUID> processedProposalIds,
+    public StoryRuntimeState(@JsonProperty("version") long version,
+            @JsonProperty("scenarioPackageId") UUID scenarioPackageId,
+            @JsonProperty("backboneRevision") long backboneRevision,
+            @JsonProperty("stageId") String stageId,
+            @JsonProperty("detailedStageRevision") long detailedStageRevision,
+            @JsonProperty("situationStatuses") Map<String, SituationStatus> situationStatuses,
+            @JsonProperty("revelationStatuses") Map<String, RevelationStatus> revelationStatuses,
+            @JsonProperty("pressureStates") Map<String, PressureState> pressureStates,
+            @JsonProperty("activeSituationId") String activeSituationId,
+            @JsonProperty("openingPresented") boolean openingPresented,
+            @JsonProperty("processedProposalIds") Set<UUID> processedProposalIds,
             @JsonProperty("satisfiedPredicateIds") Set<String> satisfiedPredicateIds,
             @JsonProperty("lifecycle") StageLifecycle lifecycle,
             @JsonProperty("exitReason") String exitReason,

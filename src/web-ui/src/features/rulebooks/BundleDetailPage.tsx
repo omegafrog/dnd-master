@@ -245,6 +245,6 @@ export function BundleDetailPage({ bundleId, api, playerId, sessionApi }: { bund
           {packages.length === 0 ? <p>아직 모험 준비가 끝나지 않았습니다.</p> : <ul aria-label="모험 준비 결과 목록">{packages.map(item => <li key={item.packageId}>v{item.bundleRevision} · {item.reportStatus} <Button type="button" onClick={() => void createAdventure(item.packageId)} disabled={item.reportStatus !== 'COMPLETE' || !publishedBlueprintPackageIds.has(item.packageId) || creatingSessionFor !== null}>{creatingSessionFor === item.packageId ? '세션 준비 중…' : '이 자료로 모험 만들기'}</Button> <Button type="button" variant="outline" onClick={() => openCharacter(item.packageId)}>캐릭터 생성 시작</Button>{item.reportStatus === 'COMPLETE' && !publishedBlueprintPackageIds.has(item.packageId) ? <small> 캐릭터 생성 설정 게시 후 모험을 만들 수 있습니다.</small> : null}</li>)}</ul>}
       </CardContent>
     </Card>
-    {preparing && <PreparationModal bundleId={bundle.bundleId} revision={bundle.currentRevision} api={api} ownerId={playerId} onClose={() => setPreparing(false)} onCharacter={openCharacter} onAdventure={packageId => void createAdventure(packageId)} />}
+    {preparing && <PreparationModal bundleId={bundle.bundleId} revision={bundle.currentRevision} storybookDocuments={bundle.documents} api={api} ownerId={playerId} onClose={() => setPreparing(false)} onCharacter={openCharacter} onAdventure={packageId => void createAdventure(packageId)} />}
   </section>
 }
