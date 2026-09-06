@@ -64,6 +64,8 @@ class ScenarioRuntimeAdventureStartTest {
         assertEquals(packageVersion.bundleRevision(), started.lockedScenarioPackageRevision());
         assertEquals(com.dndmaster.adventure.domain.adventure.AdventureStatus.ACTIVE, started.status());
         assertNotNull(started.currentSituation());
+        assertNotNull(started.storyRuntimeState());
+        assertEquals("opening-situation", started.storyRuntimeState().activeSituationId());
         assertEquals("opening-situation", started.currentSituation().problem());
         assertThrows(IllegalStateException.class, () -> started.lockScenarioPackage(UUID.randomUUID(), 99));
     }

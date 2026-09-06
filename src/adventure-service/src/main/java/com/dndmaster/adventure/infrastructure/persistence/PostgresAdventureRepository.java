@@ -13,6 +13,7 @@ import com.dndmaster.adventure.domain.runtime.CurrentSituation;
 import com.dndmaster.adventure.domain.runtime.DisclosureState;
 import com.dndmaster.adventure.domain.runtime.GameState;
 import com.dndmaster.adventure.domain.runtime.RuntimeAddedFact;
+import com.dndmaster.adventure.domain.runtime.story.StoryRuntimeState;
 import javax.sql.DataSource;
 
 public final class PostgresAdventureRepository implements AdventureRepository {
@@ -75,7 +76,7 @@ public final class PostgresAdventureRepository implements AdventureRepository {
             insertLegacy(connection, adventure);
             return;
         }
-        String sql = "INSERT INTO adventure(adventure_id, session_id, owner_player_id, scenario_id, rule_set_id, current_scene, npc_state, pending_action, latest_judgment, status, version, party_json, turn_index, last_turn_key, locked_scenario_package_id, locked_scenario_package_revision, game_state_jsonb, disclosure_state_jsonb, current_situation_id, situation_revision, current_situation_jsonb, runtime_added_facts_jsonb) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?::jsonb, ?::jsonb)";
+        String sql = "INSERT INTO adventure(adventure_id, session_id, owner_player_id, scenario_id, rule_set_id, current_scene, npc_state, pending_action, latest_judgment, status, version, party_json, turn_index, last_turn_key, locked_scenario_package_id, locked_scenario_package_revision, game_state_jsonb, disclosure_state_jsonb, current_situation_id, situation_revision, current_situation_jsonb, runtime_added_facts_jsonb, story_runtime_state_jsonb) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?::jsonb, ?, ?, ?::jsonb, ?::jsonb, ?::jsonb)";
         try (PreparedStatement s = connection.prepareStatement(sql)) {
             bindCommon(s, adventure);
             s.setString(10, adventure.status().name());
@@ -106,14 +107,14 @@ public final class PostgresAdventureRepository implements AdventureRepository {
             updateLegacy(connection, adventure);
             return;
         }
-        String sql = "UPDATE adventure SET current_scene=?, npc_state=?, pending_action=?, latest_judgment=?, status=?, version=?, party_json=?, turn_index=?, last_turn_key=?, locked_scenario_package_id=?, locked_scenario_package_revision=?, game_state_jsonb=?::jsonb, disclosure_state_jsonb=?::jsonb, current_situation_id=?, situation_revision=?, current_situation_jsonb=?::jsonb, runtime_added_facts_jsonb=?::jsonb WHERE adventure_id=? AND version=?";
+        String sql = "UPDATE adventure SET current_scene=?, npc_state=?, pending_action=?, latest_judgment=?, status=?, version=?, party_json=?, turn_index=?, last_turn_key=?, locked_scenario_package_id=?, locked_scenario_package_revision=?, game_state_jsonb=?::jsonb, disclosure_state_jsonb=?::jsonb, current_situation_id=?, situation_revision=?, current_situation_jsonb=?::jsonb, runtime_added_facts_jsonb=?::jsonb, story_runtime_state_jsonb=?::jsonb WHERE adventure_id=? AND version=?";
         try (PreparedStatement s = connection.prepareStatement(sql)) {
             s.setString(1, adventure.currentContext().currentScene()); s.setString(2, adventure.currentContext().npcState());
             s.setString(3, adventure.currentContext().pendingAction()); s.setString(4, adventure.currentContext().latestJudgment());
             s.setString(5, adventure.status().name()); s.setLong(6, adventure.version()); s.setString(7, partyJson(adventure));
             s.setInt(8, adventure.turnIndex()); s.setString(9, adventure.lastTurnKey());
             bindRuntime(s, adventure, 10);
-            s.setObject(18, adventure.id().value()); s.setLong(19, adventure.version() - 1);
+            s.setObject(19, adventure.id().value()); s.setLong(20, adventure.version() - 1);
             if (s.executeUpdate() != 1) throw new OptimisticAdventureLockException();
         }
     }
@@ -155,6 +156,7 @@ public final class PostgresAdventureRepository implements AdventureRepository {
             s.setString(offset + 6, writeJson(adventure.currentSituation()));
         }
         s.setString(offset + 7, writeJson(adventure.runtimeAddedFacts()));
+        s.setString(offset + 8, writeJson(adventure.storyRuntimeState()));
     }
 
     private static void replaceConversation(Connection connection, Adventure adventure) throws SQLException {
@@ -186,12 +188,13 @@ public final class PostgresAdventureRepository implements AdventureRepository {
         DisclosureState disclosureState = runtime ? readDisclosureState(row.getString("disclosure_state_jsonb")) : DisclosureState.empty();
         CurrentSituation situation = runtime ? readSituation(row.getString("current_situation_jsonb")) : null;
         List<RuntimeAddedFact> runtimeFacts = runtime ? readRuntimeFacts(row.getString("runtime_added_facts_jsonb")) : List.of();
+        StoryRuntimeState storyRuntimeState = runtime ? readStoryRuntimeState(row.getString("story_runtime_state_jsonb")) : null;
         return Adventure.rehydrateWithRuntimeState(new AdventureId(id), new SessionId(row.getObject("session_id", UUID.class)),
                 new OwnerPlayerId(row.getObject("owner_player_id", UUID.class)), new ScenarioId(row.getObject("scenario_id", UUID.class)),
                 new RuleSetId(row.getObject("rule_set_id", UUID.class)), party(row),
                 conversation, new AdventureContext(row.getString("current_scene"), row.getString("npc_state"), row.getString("pending_action"), row.getString("latest_judgment")),
                 AdventureStatus.valueOf(row.getString("status")), row.getLong("version"), row.getInt("turn_index"), row.getString("last_turn_key"),
-                lockedPackageId, lockedRevision, gameState, disclosureState, situation, runtimeFacts);
+                lockedPackageId, lockedRevision, gameState, disclosureState, situation, runtimeFacts, storyRuntimeState);
     }
     private List<AdventurePartyMember> party(ResultSet row) throws SQLException { String json = row.getString("party_json"); if (json == null || json.isBlank()) return List.of(); try { return objectMapper.readValue(json, new TypeReference<List<AdventurePartyMember>>() {}); } catch (Exception e) { throw new SQLException("could not read adventure party", e); } }
     private String partyJson(Adventure adventure) throws SQLException { try { return objectMapper.writeValueAsString(adventure.party()); } catch (Exception e) { throw new SQLException("could not write adventure party", e); } }
@@ -225,6 +228,12 @@ public final class PostgresAdventureRepository implements AdventureRepository {
         if (value == null || value.isBlank()) return List.of();
         try { return objectMapper.readValue(value, new TypeReference<List<RuntimeAddedFact>>() {}); }
         catch (Exception exception) { throw new SQLException("could not read runtime facts", exception); }
+    }
+
+    private StoryRuntimeState readStoryRuntimeState(String value) throws SQLException {
+        if (value == null || value.isBlank() || "null".equals(value)) return null;
+        try { return objectMapper.readValue(value, StoryRuntimeState.class); }
+        catch (Exception exception) { throw new SQLException("could not read story runtime state", exception); }
     }
 
     private static boolean runtimeColumnsAvailable(Connection connection) throws SQLException {

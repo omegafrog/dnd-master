@@ -476,9 +476,11 @@ public class RuntimeTurnApplicationService {
             bindingRepository.findCurrentByAdventureId(turn.adventureId()).ifPresent(binding ->
                     bindingRepository.save(binding.withSelection(turn.plan().proposedActiveSourceContext(), binding.playabilityReport())));
         }
-        Adventure progressed = Adventure.rehydrate(
+        Adventure progressed = Adventure.rehydrateWithRuntimeState(
                 adventure.id(), adventure.sessionId(), adventure.ownerPlayerId(), adventure.scenarioId(), adventure.ruleSetId(), adventure.party(),
-                adventure.conversation(), adventure.currentContext(), adventure.status(), adventure.version(), adventure.turnIndex(), adventure.lastTurnKey());
+                adventure.conversation(), adventure.currentContext(), adventure.status(), adventure.version(), adventure.turnIndex(), adventure.lastTurnKey(),
+                adventure.lockedScenarioPackageId(), adventure.lockedScenarioPackageRevision(), adventure.gameState(), adventure.disclosureState(),
+                adventure.currentSituation(), adventure.runtimeAddedFacts(), adventure.storyRuntimeState());
         progressed.preserveProgress(adventure.ownerPlayerId(), adventure.version(), presented.context(), presented.conversation());
         if (turn.turnCharacterSheetId() != null) {
             progressed.advanceTurn(adventure.ownerPlayerId(), turn.turnIndex(), turn.turnCharacterSheetId(), turn.turnId());

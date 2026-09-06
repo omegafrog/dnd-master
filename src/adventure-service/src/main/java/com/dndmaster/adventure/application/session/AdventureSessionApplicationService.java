@@ -148,7 +148,9 @@ public final class AdventureSessionApplicationService {
                     com.dndmaster.adventure.domain.runtime.GameState.empty(),
                     com.dndmaster.adventure.domain.runtime.DisclosureState.empty(),
                     com.dndmaster.adventure.domain.runtime.CurrentSituation.initial(preparedStage.openingSituation().situationId()),
-                    List.of(), new AdventureContext(preparedStage.openingSituation().situationId(), null, null, null));
+                    List.of(), new AdventureContext(preparedStage.openingSituation().situationId(), null, null, null),
+                    preparedStage.currentStage() == null ? null
+                            : com.dndmaster.adventure.domain.runtime.story.StoryRuntimeState.start(preparedStage.currentStage()));
             adventureRepository.save(adventure);
         }
         initializeSessionKnowledgeSetIfMissing(session, scenarioPackage);
