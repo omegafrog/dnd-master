@@ -7,4 +7,7 @@ import java.util.UUID;
 @FunctionalInterface
 public interface StorybookEvidenceLookupPort {
     List<ScenarioSourceReference> lookup(UUID scenarioPackageId);
+
+    /** True when the package has scenario-document claims that require provenance. */
+    default boolean isScenarioBacked(UUID scenarioPackageId) { return true; }
 }
