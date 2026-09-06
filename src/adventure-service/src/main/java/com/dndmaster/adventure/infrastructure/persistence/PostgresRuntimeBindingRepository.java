@@ -60,8 +60,9 @@ public final class PostgresRuntimeBindingRepository implements RuntimeBindingRep
                     adventure_id, binding_version, owner_player_id, scenario_package_id, scenario_package_revision,
                     rulebook_ids_json, party_json, engine_id, tool_ids_json, game_system_definition_version, character_blueprint_version,
                     playability_status, playability_warnings_json, playability_blockers_json,
-                    playability_limits_json, active_source_context_json, source_context_candidates_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    playability_limits_json, active_source_context_json, source_context_candidates_json,
+                    stage_backbone_revision, current_stage_id, detailed_stage_revision
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT (adventure_id, binding_version) DO UPDATE SET
                     owner_player_id = EXCLUDED.owner_player_id,
                     scenario_package_id = EXCLUDED.scenario_package_id,
@@ -77,7 +78,10 @@ public final class PostgresRuntimeBindingRepository implements RuntimeBindingRep
                     playability_blockers_json = EXCLUDED.playability_blockers_json,
                     playability_limits_json = EXCLUDED.playability_limits_json,
                     active_source_context_json = EXCLUDED.active_source_context_json,
-                    source_context_candidates_json = EXCLUDED.source_context_candidates_json
+                    source_context_candidates_json = EXCLUDED.source_context_candidates_json,
+                    stage_backbone_revision = EXCLUDED.stage_backbone_revision,
+                    current_stage_id = EXCLUDED.current_stage_id,
+                    detailed_stage_revision = EXCLUDED.detailed_stage_revision
                 """;
         try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
             bind(statement, binding);
@@ -98,6 +102,9 @@ public final class PostgresRuntimeBindingRepository implements RuntimeBindingRep
         statement.setString(9, write(binding.toolIds())); statement.setLong(10, binding.gameSystemDefinitionVersion()); statement.setLong(11, binding.characterBlueprintVersion());
         statement.setString(12, binding.playabilityReport().status().name());
         statement.setString(13, write(binding.playabilityReport().warnings())); statement.setString(14, write(binding.playabilityReport().blockers())); statement.setString(15, write(binding.playabilityReport().limits())); statement.setString(16, write(binding.activeSourceContext())); statement.setString(17, write(binding.playabilityReport().candidates()));
+        if (binding.stageBackboneRevision() == null) statement.setNull(18, Types.BIGINT); else statement.setLong(18, binding.stageBackboneRevision());
+        statement.setString(19, binding.currentStageId());
+        if (binding.detailedStageRevision() == null) statement.setNull(20, Types.BIGINT); else statement.setLong(20, binding.detailedStageRevision());
     }
 
     private RuntimeBinding map(ResultSet row) throws SQLException {
@@ -117,10 +124,18 @@ public final class PostgresRuntimeBindingRepository implements RuntimeBindingRep
                         readStringList(row.getString("playability_blockers_json")),
                         readStringList(row.getString("playability_limits_json")),
                         readCandidates(row.getString("source_context_candidates_json"))),
-                readActive(row.getString("active_source_context_json")));
+                readActive(row.getString("active_source_context_json")),
+                legacySafeNullableLong(row, "stage_backbone_revision"), legacySafeString(row, "current_stage_id"),
+                legacySafeNullableLong(row, "detailed_stage_revision"));
     }
     private static long legacySafeLong(ResultSet row, String column) throws SQLException {
         try { return row.getLong(column); } catch (SQLException missingColumn) { return 0L; }
+    }
+    private static Long legacySafeNullableLong(ResultSet row, String column) throws SQLException {
+        try { long value = row.getLong(column); return row.wasNull() ? null : value; } catch (SQLException missingColumn) { return null; }
+    }
+    private static String legacySafeString(ResultSet row, String column) throws SQLException {
+        try { return row.getString(column); } catch (SQLException missingColumn) { return null; }
     }
     private List<AdventurePartyMember> readParty(String json) throws SQLException { if (json == null || json.isBlank()) return List.of(); try { return objectMapper.readValue(json, new TypeReference<List<AdventurePartyMember>>() {}); } catch (Exception e) { throw new SQLException("could not read runtime party", e); } }
 

@@ -19,6 +19,9 @@ public final class RuntimeBinding {
     private final long characterBlueprintVersion;
     private final PlayabilityReport playabilityReport;
     private final ActiveSourceContext activeSourceContext;
+    private final Long stageBackboneRevision;
+    private final String currentStageId;
+    private final Long detailedStageRevision;
 
     private RuntimeBinding(
             AdventureId adventureId,
@@ -34,6 +37,17 @@ public final class RuntimeBinding {
             long characterBlueprintVersion,
             PlayabilityReport playabilityReport,
             ActiveSourceContext activeSourceContext) {
+        this(adventureId, ownerPlayerId, bindingVersion, scenarioPackageId, scenarioPackageRevision, rulebookIds, party,
+                engineId, toolIds, gameSystemDefinitionVersion, characterBlueprintVersion, playabilityReport,
+                activeSourceContext, null, null, null);
+    }
+
+    private RuntimeBinding(
+            AdventureId adventureId, OwnerPlayerId ownerPlayerId, long bindingVersion, UUID scenarioPackageId,
+            long scenarioPackageRevision, List<UUID> rulebookIds, List<AdventurePartyMember> party, String engineId,
+            List<String> toolIds, long gameSystemDefinitionVersion, long characterBlueprintVersion,
+            PlayabilityReport playabilityReport, ActiveSourceContext activeSourceContext,
+            Long stageBackboneRevision, String currentStageId, Long detailedStageRevision) {
         this.adventureId = Objects.requireNonNull(adventureId, "adventure id must not be null");
         this.ownerPlayerId = Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
         if (bindingVersion <= 0) {
@@ -55,6 +69,12 @@ public final class RuntimeBinding {
         this.characterBlueprintVersion = characterBlueprintVersion;
         this.playabilityReport = Objects.requireNonNull(playabilityReport, "playability report must not be null");
         this.activeSourceContext = activeSourceContext;
+        if (stageBackboneRevision != null && stageBackboneRevision < 1) throw new IllegalArgumentException("stage backbone revision must be positive");
+        if (detailedStageRevision != null && detailedStageRevision < 1) throw new IllegalArgumentException("detailed stage revision must be positive");
+        if (detailedStageRevision != null && (currentStageId == null || currentStageId.isBlank())) throw new IllegalArgumentException("current stage id is required");
+        this.stageBackboneRevision = stageBackboneRevision;
+        this.currentStageId = currentStageId;
+        this.detailedStageRevision = detailedStageRevision;
     }
 
     public static RuntimeBinding create(
@@ -102,6 +122,15 @@ public final class RuntimeBinding {
         return new RuntimeBinding(adventureId, ownerPlayerId, bindingVersion, scenarioPackageId, scenarioPackageRevision,
                 rulebookIds, party, engineId, toolIds, definitionVersion, blueprintVersion, playabilityReport, activeSourceContext);
     }
+    public static RuntimeBinding rehydrate(AdventureId adventureId, OwnerPlayerId ownerPlayerId, long bindingVersion,
+            UUID scenarioPackageId, long scenarioPackageRevision, List<UUID> rulebookIds, List<AdventurePartyMember> party,
+            String engineId, List<String> toolIds, long definitionVersion, long blueprintVersion,
+            PlayabilityReport playabilityReport, ActiveSourceContext activeSourceContext,
+            Long stageBackboneRevision, String currentStageId, Long detailedStageRevision) {
+        return new RuntimeBinding(adventureId, ownerPlayerId, bindingVersion, scenarioPackageId, scenarioPackageRevision,
+                rulebookIds, party, engineId, toolIds, definitionVersion, blueprintVersion, playabilityReport,
+                activeSourceContext, stageBackboneRevision, currentStageId, detailedStageRevision);
+    }
     public RuntimeBinding withNewPackage(
             UUID scenarioPackageId,
             long scenarioPackageRevision,
@@ -109,7 +138,8 @@ public final class RuntimeBinding {
             ActiveSourceContext activeSourceContext) {
         return new RuntimeBinding(
                 adventureId, ownerPlayerId, bindingVersion + 1, scenarioPackageId, scenarioPackageRevision,
-                rulebookIds, party, engineId, toolIds, gameSystemDefinitionVersion, characterBlueprintVersion, playabilityReport, activeSourceContext);
+                rulebookIds, party, engineId, toolIds, gameSystemDefinitionVersion, characterBlueprintVersion, playabilityReport, activeSourceContext,
+                stageBackboneRevision, currentStageId, detailedStageRevision);
     }
 
     public RuntimeBinding withActiveSourceContext(PlayabilityReport playabilityReport, ActiveSourceContext activeSourceContext) {
@@ -135,11 +165,21 @@ public final class RuntimeBinding {
     public long characterBlueprintVersion() { return characterBlueprintVersion; }
     public PlayabilityReport playabilityReport() { return playabilityReport; }
     public ActiveSourceContext activeSourceContext() { return activeSourceContext; }
+    public Long stageBackboneRevision() { return stageBackboneRevision; }
+    public String currentStageId() { return currentStageId; }
+    public Long detailedStageRevision() { return detailedStageRevision; }
+
+    public RuntimeBinding withStageReference(Long backboneRevision, String stageId, Long detailedRevision) {
+        return new RuntimeBinding(adventureId, ownerPlayerId, bindingVersion, scenarioPackageId, scenarioPackageRevision,
+                rulebookIds, party, engineId, toolIds, gameSystemDefinitionVersion, characterBlueprintVersion,
+                playabilityReport, activeSourceContext, backboneRevision, stageId, detailedRevision);
+    }
 
     public RuntimeBinding withSelection(ActiveSourceContext selected, PlayabilityReport playabilityReport) {
         return new RuntimeBinding(
                 adventureId, ownerPlayerId, bindingVersion, scenarioPackageId, scenarioPackageRevision,
-                rulebookIds, party, engineId, toolIds, gameSystemDefinitionVersion, characterBlueprintVersion, playabilityReport, selected);
+                rulebookIds, party, engineId, toolIds, gameSystemDefinitionVersion, characterBlueprintVersion, playabilityReport, selected,
+                stageBackboneRevision, currentStageId, detailedStageRevision);
     }
 
     private static String required(String value, String name) {
