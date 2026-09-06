@@ -9,6 +9,8 @@ import com.dndmaster.adventure.application.runtime.AdventureStartApplicationServ
 import com.dndmaster.adventure.application.runtime.StartAdventureCommand;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
+import com.dndmaster.adventure.application.scenario.preparation.StageArtifactPreparationApplicationService;
+import com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId;
 import com.dndmaster.adventure.domain.adventure.Adventure;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
@@ -29,6 +31,17 @@ import com.dndmaster.adventure.domain.scenario.ScenarioCompilationReport;
 import com.dndmaster.adventure.domain.scenario.ScenarioModel;
 import com.dndmaster.adventure.domain.scenario.ScenarioModelElement;
 import com.dndmaster.adventure.domain.scenario.ScenarioPackage;
+import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
+import com.dndmaster.adventure.domain.scenario.StageArtifactRepository;
+import com.dndmaster.adventure.domain.scenario.StageBackbone;
+import com.dndmaster.adventure.domain.scenario.StageBackboneEntry;
+import com.dndmaster.adventure.domain.scenario.DetailedStage;
+import com.dndmaster.adventure.domain.scenario.RevelationDefinition;
+import com.dndmaster.adventure.domain.scenario.ThreatDefinition;
+import com.dndmaster.adventure.domain.scenario.PressureDefinition;
+import com.dndmaster.adventure.domain.scenario.FunnelDefinition;
+import com.dndmaster.adventure.domain.scenario.SituationDefinition;
+import com.dndmaster.adventure.domain.scenario.StageIntent;
 import com.dndmaster.adventure.domain.scenario.ResolutionStatus;
 import java.util.List;
 import java.util.Map;
@@ -43,7 +56,7 @@ class ScenarioRuntimeAdventureStartTest {
         ScenarioPackage packageVersion = readyPackage();
         InMemoryAdventureRepository adventures = new InMemoryAdventureRepository();
         AdventureStartApplicationService service = new AdventureStartApplicationService(
-                packageRepository(packageVersion), adventures);
+                packageRepository(packageVersion), adventures, stagePreparation(packageVersion));
 
         Adventure started = service.start(command(owner, packageVersion));
 
@@ -51,7 +64,7 @@ class ScenarioRuntimeAdventureStartTest {
         assertEquals(packageVersion.bundleRevision(), started.lockedScenarioPackageRevision());
         assertEquals(com.dndmaster.adventure.domain.adventure.AdventureStatus.ACTIVE, started.status());
         assertNotNull(started.currentSituation());
-        assertEquals(packageVersion.scenarioModel().startingSituation(), started.currentSituation().problem());
+        assertEquals("opening-situation", started.currentSituation().problem());
         assertThrows(IllegalStateException.class, () -> started.lockScenarioPackage(UUID.randomUUID(), 99));
     }
 
@@ -67,7 +80,7 @@ class ScenarioRuntimeAdventureStartTest {
                 new AdventureContext("opening", null, null, null));
         adventures.save(existing);
         AdventureStartApplicationService service = new AdventureStartApplicationService(
-                packageRepository(packageVersion), adventures);
+                packageRepository(packageVersion), adventures, stagePreparation(packageVersion));
 
         Adventure resumed = service.start(new StartAdventureCommand(existing.id(), existing.sessionId(), owner,
                 packageVersion.packageId(), packageVersion.bundleRevision(), new ScenarioId(packageVersion.packageId()),
@@ -108,7 +121,7 @@ class ScenarioRuntimeAdventureStartTest {
                 CharacterLimit.defaultLimit());
         InMemoryAdventureRepository adventures = new InMemoryAdventureRepository();
         AdventureStartApplicationService service = new AdventureStartApplicationService(
-                packageRepository(notReady), adventures);
+                packageRepository(notReady), adventures, stagePreparation(notReady));
 
         assertThrows(IllegalStateException.class, () -> service.start(command(owner(), notReady)));
         assertEquals(0, adventures.saveCount);
@@ -127,6 +140,21 @@ class ScenarioRuntimeAdventureStartTest {
             @Override public List<ScenarioPackage> findByBundleId(UUID bundleId) { return List.of(packageVersion); }
             @Override public void save(ScenarioPackage scenarioPackage) {}
         };
+    }
+
+    private static StageArtifactPreparationApplicationService stagePreparation(ScenarioPackage packageVersion) {
+        ScenarioSourceReference evidence = new ScenarioSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), 1, "page:1:span:1");
+        StageBackbone backbone = new StageBackbone(packageVersion.packageId(), 1, List.of(
+                new StageBackboneEntry("stage-1", 1, "opening", "Find the key", "Learn the truth", List.of(evidence))), List.of(evidence));
+        DetailedStage stage = new DetailedStage(packageVersion.packageId(), 1, "stage-1", 1, "Find the key",
+                List.of(new RevelationDefinition("truth", true, List.of(evidence))),
+                new ThreatDefinition("The door is guarded", List.of(evidence)),
+                new PressureDefinition("The search grows dangerous", List.of(evidence)),
+                new FunnelDefinition("The key is found", List.of("truth"), List.of(evidence)),
+                List.of(new SituationDefinition("opening-situation", List.of(StageIntent.REVELATION), List.of("truth"),
+                        List.of(), List.of(), List.of(), List.of(), true, List.of(evidence))), List.of(), List.of(evidence));
+        return new StageArtifactPreparationApplicationService(new StageArtifactRepository.InMemory(),
+                request -> List.of(evidence), request -> backbone, request -> stage);
     }
 
     private static ScenarioPackage readyPackage() {

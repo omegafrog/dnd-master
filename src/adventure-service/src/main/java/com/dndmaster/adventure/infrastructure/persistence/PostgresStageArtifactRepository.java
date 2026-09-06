@@ -90,6 +90,31 @@ public final class PostgresStageArtifactRepository implements StageArtifactRepos
         }
     }
 
+    @Override
+    public void saveInitialArtifacts(StageBackbone backbone, DetailedStage stage) {
+        if (backbone.revision() != 1 || stage.revision() != 1 || !backbone.scenarioPackageId().equals(stage.scenarioPackageId())
+                || stage.backboneRevision() != backbone.revision()) {
+            throw new IllegalArgumentException("initial artifacts must reference the same revision");
+        }
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                ensureNextRevision(connection, "story_stage_backbone", "backbone_revision", "scenario_package_id", backbone.scenarioPackageId(), 0);
+                insert(connection, "INSERT INTO story_stage_backbone(scenario_package_id, backbone_revision, artifact_json) VALUES (?, ?, ?::jsonb)",
+                        backbone.scenarioPackageId(), backbone.revision(), write(backbone));
+                ensureNextDetailedRevision(connection, stage, 0);
+                insert(connection, "INSERT INTO story_detailed_stage(scenario_package_id, backbone_revision, stage_id, detailed_stage_revision, artifact_json) VALUES (?, ?, ?, ?, ?::jsonb)",
+                        stage.scenarioPackageId(), stage.backboneRevision(), stage.stageId(), stage.revision(), write(stage));
+                connection.commit();
+            } catch (SQLException | RuntimeException exception) {
+                try { connection.rollback(); } catch (SQLException rollback) { exception.addSuppressed(rollback); }
+                throw exception instanceof RuntimeException runtime ? runtime : new StageArtifactPersistenceException("could not save initial stage artifacts", exception);
+            }
+        } catch (SQLException exception) {
+            throw new StageArtifactPersistenceException("could not access stage artifact storage", exception);
+        }
+    }
+
     private void ensureNextRevision(Connection c, String table, String column, String idColumn, UUID id, long expected) throws SQLException {
         long current = currentRevision(c, table, column, idColumn, id);
         if (current != expected) throw new IllegalStateException("stage backbone revision is stale");

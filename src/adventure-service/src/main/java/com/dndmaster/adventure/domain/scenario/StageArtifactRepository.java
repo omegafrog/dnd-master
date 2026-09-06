@@ -11,6 +11,8 @@ public interface StageArtifactRepository {
     void saveBackbone(StageBackbone backbone, long expectedRevision);
     void saveDetailedStage(DetailedStage detailedStage, long expectedRevision);
 
+    void saveInitialArtifacts(StageBackbone backbone, DetailedStage detailedStage);
+
     final class InMemory implements StageArtifactRepository {
         private final Map<String, StageBackbone> backbones = new HashMap<>();
         private final Map<String, DetailedStage> detailedStages = new HashMap<>();
@@ -26,6 +28,21 @@ public interface StageArtifactRepository {
             long current = detailedStages.keySet().stream().filter(key -> key.startsWith(prefix)).count();
             if (current != expected || value.revision() != expected + 1) throw new IllegalStateException("detailed stage revision is stale");
             detailedStages.put(key(value.scenarioPackageId(), value.stageId(), value.backboneRevision(), value.revision()), value);
+        }
+
+        @Override
+        public synchronized void saveInitialArtifacts(StageBackbone backbone, DetailedStage detailedStage) {
+            if (backbone.revision() != 1 || detailedStage.revision() != 1) throw new IllegalStateException("initial artifacts must start at revision one");
+            if (!backbone.scenarioPackageId().equals(detailedStage.scenarioPackageId())
+                    || detailedStage.backboneRevision() != backbone.revision()) {
+                throw new IllegalArgumentException("initial artifacts must reference the same backbone");
+            }
+            if (backbones.containsKey(backbone.scenarioPackageId() + ":" + backbone.revision())
+                    || detailedStages.containsKey(key(detailedStage.scenarioPackageId(), detailedStage.stageId(), detailedStage.backboneRevision(), detailedStage.revision()))) {
+                throw new IllegalStateException("initial stage artifacts already exist");
+            }
+            backbones.put(backbone.scenarioPackageId() + ":" + backbone.revision(), backbone);
+            detailedStages.put(key(detailedStage.scenarioPackageId(), detailedStage.stageId(), detailedStage.backboneRevision(), detailedStage.revision()), detailedStage);
         }
         private static String key(UUID id, String stage, long backbone, long revision) { return id + ":" + stage + ":" + backbone + ":" + revision; }
     }

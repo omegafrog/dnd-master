@@ -1,6 +1,7 @@
 package com.dndmaster.adventure;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
@@ -54,10 +55,10 @@ class StageArtifactPolicyTest {
     }
 
     @Test
-    void stageReferencesAreAllPresentOrAllAbsentAndSourceGroundingIsRequired() {
-        assertThrows(IllegalArgumentException.class, () -> detailedWithoutGrounding(List.of(
+    void generated_stage_artifacts_may_omit_source_grounding() {
+        assertDoesNotThrow(() -> detailedWithoutGrounding(List.of(
                 new RevelationDefinition("revelation-1", true, List.of(evidence))), List.of()));
-        assertThrows(IllegalArgumentException.class, () -> new StageBackbone(packageId, 1, List.of(
+        assertDoesNotThrow(() -> new StageBackbone(packageId, 1, List.of(
                 new StageBackboneEntry("stage-1", 1, "opening", "Find the missing heir", "Learn what happened", List.of())), List.of()));
         assertThrows(IllegalArgumentException.class, () -> new RuntimeBindingFixture().partialReference());
 

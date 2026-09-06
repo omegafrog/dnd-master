@@ -14,7 +14,6 @@ public record StageBackbone(UUID scenarioPackageId, long revision, List<StageBac
         stages = List.copyOf(Objects.requireNonNull(stages, "stages must not be null"));
         sourceRefs = List.copyOf(Objects.requireNonNull(sourceRefs, "backbone source refs must not be null"));
         if (stages.isEmpty()) throw new IllegalArgumentException("backbone must contain a stage");
-        if (sourceRefs.isEmpty()) throw new IllegalArgumentException("backbone needs grounding");
         Set<String> ids = new HashSet<>();
         for (int index = 0; index < stages.size(); index++) {
             StageBackboneEntry stage = stages.get(index);
