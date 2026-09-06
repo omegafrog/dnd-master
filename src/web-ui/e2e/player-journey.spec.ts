@@ -73,13 +73,13 @@ test.skip('document-derived scenario preserves bundle and exposes character blue
       body: Buffer.from(await page.evaluate(() => JSON.stringify((window as unknown as { __dndMasterE2E: unknown }).__dndMasterE2E))),
       contentType: 'application/json',
     })
-    await page.screenshot({ path: 'test-results/026-4-blueprint.png', fullPage: true })
+    await page.screenshot({ path: test.info().outputPath('026-4-blueprint.png'), fullPage: true })
   } catch (error) {
     await test.info().attach('026-4-api-failures.json', {
       body: Buffer.from(JSON.stringify(failedResponses)),
       contentType: 'application/json',
     }).catch(() => undefined)
-    await page.screenshot({ path: 'test-results/026-4-failure.png', fullPage: true }).catch(() => undefined)
+    await page.screenshot({ path: test.info().outputPath('026-4-failure.png'), fullPage: true }).catch(() => undefined)
     throw new Error(`${error instanceof Error ? error.message : String(error)}\nAPI failures: ${JSON.stringify(failedResponses)}`)
   }
 })

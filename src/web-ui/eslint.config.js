@@ -6,7 +6,7 @@ import tseslint from 'typescript-eslint'
 
 export default tseslint.config(
   {
-    ignores: ['dist', 'node_modules', 'test-results'],
+    ignores: ['dist', 'node_modules', '../../test-artifacts'],
   },
   {
     files: ['src/**/*.{ts,tsx}'],
