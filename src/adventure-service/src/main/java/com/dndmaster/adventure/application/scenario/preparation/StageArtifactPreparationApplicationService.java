@@ -4,6 +4,7 @@ import com.dndmaster.adventure.domain.scenario.DetailedStage;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import com.dndmaster.adventure.domain.scenario.StageArtifactRepository;
 import com.dndmaster.adventure.domain.scenario.StageBackbone;
+import com.dndmaster.adventure.domain.scenario.StageBackboneEntry;
 import com.dndmaster.adventure.domain.scenario.SituationDefinition;
 import java.util.List;
 import java.util.Objects;
@@ -66,6 +67,32 @@ public final class StageArtifactPreparationApplicationService implements StageAr
         return new Result(backbone, current, opening);
     }
 
+    /** Materializes and validates only the immediate next stage; no runtime state is changed here. */
+    public DetailedStage prepareNext(UUID scenarioPackageId, StageBackbone backbone, String currentStageId) {
+        Objects.requireNonNull(scenarioPackageId, "scenario package id must not be null");
+        Objects.requireNonNull(backbone, "stage backbone must not be null");
+        if (!scenarioPackageId.equals(backbone.scenarioPackageId())) throw new IllegalArgumentException("backbone package does not match request");
+        if (currentStageId == null || currentStageId.isBlank()) throw new IllegalArgumentException("current stage id is required");
+        int currentOrder = backbone.stages().stream().filter(stage -> stage.stageId().equals(currentStageId.trim()))
+                .mapToInt(stage -> stage.order()).findFirst().orElseThrow(() -> new IllegalArgumentException("current stage is not in backbone"));
+        StageBackboneEntry next = backbone.stages().stream().filter(stage -> stage.order() == currentOrder + 1).findFirst()
+                .orElseThrow(() -> new IllegalStateException("current stage has no next stage"));
+        List<ScenarioSourceReference> evidence = List.copyOf(evidenceLookup.lookup(scenarioPackageId));
+        boolean scenarioBacked = evidenceLookup.isScenarioBacked(scenarioPackageId);
+        if (scenarioBacked && evidence.isEmpty()) throw new IllegalStateException("published Storybook evidence is required");
+        DetailedStage generated = detailedGeneration.generate(new StageDetailedGenerationPort.Request(
+                scenarioPackageId, next.stageId(), backbone.revision(), evidence));
+        requirePackage(generated.scenarioPackageId(), scenarioPackageId);
+        if (!generated.stageId().equals(next.stageId()) || generated.backboneRevision() != backbone.revision()) {
+            throw new IllegalStateException("detailed stage does not match next backbone stage");
+        }
+        DetailedStage current = artifacts.findDetailedStage(scenarioPackageId, next.stageId(), backbone.revision(), generated.revision()).orElse(null);
+        DetailedStage effective = current == null ? generated : current;
+        validateDetailedStage(effective, evidence, scenarioBacked);
+        if (current == null) artifacts.saveDetailedStage(generated, generated.revision() - 1);
+        return effective;
+    }
+
     private static void requirePackage(UUID actual, UUID expected) {
         if (!expected.equals(actual)) throw new IllegalStateException("stage artifact package does not match request");
     }
@@ -79,6 +106,18 @@ public final class StageArtifactPreparationApplicationService implements StageAr
         if (evidence.isEmpty() || references.isEmpty() || !evidence.containsAll(references)) {
             throw new IllegalStateException(subject + " contains invalid grounding");
         }
+    }
+
+    private static void validateDetailedStage(DetailedStage stage, List<ScenarioSourceReference> evidence,
+            boolean scenarioBacked) {
+        requireGrounding(stage.sourceRefs(), evidence, scenarioBacked, "detailed stage");
+        stage.revelations().forEach(revelation -> requireGrounding(revelation.sourceRefs(), evidence, scenarioBacked,
+                "revelation " + revelation.revelationId()));
+        requireGrounding(stage.threat().sourceRefs(), evidence, scenarioBacked, "threat");
+        requireGrounding(stage.pressure().sourceRefs(), evidence, scenarioBacked, "pressure");
+        requireGrounding(stage.funnel().sourceRefs(), evidence, scenarioBacked, "funnel");
+        stage.situations().forEach(situation -> requireGrounding(situation.sourceRefs(), evidence, scenarioBacked,
+                "situation " + situation.situationId()));
     }
 
     public record Result(StageBackbone backbone, DetailedStage currentStage, SituationDefinition openingSituation) {}
