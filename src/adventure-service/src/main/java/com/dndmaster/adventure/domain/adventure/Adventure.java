@@ -8,6 +8,7 @@ import com.dndmaster.adventure.domain.runtime.CurrentSituation;
 import com.dndmaster.adventure.domain.runtime.DisclosureState;
 import com.dndmaster.adventure.domain.runtime.GameState;
 import com.dndmaster.adventure.domain.runtime.RuntimeAddedFact;
+import com.dndmaster.adventure.domain.runtime.story.StoryRuntimeState;
 import com.dndmaster.adventure.application.runtime.CompletionProposal;
 import com.dndmaster.adventure.application.runtime.PendingRuntimeState;
 import java.util.Locale;
@@ -25,6 +26,7 @@ public final class Adventure {
     private DisclosureState disclosureState;
     private CurrentSituation currentSituation;
     private List<RuntimeAddedFact> runtimeAddedFacts;
+    private StoryRuntimeState storyRuntimeState;
     private List<ConversationEntry> conversation;
     private AdventureContext currentContext;
     private AdventureStatus status;
@@ -37,7 +39,8 @@ public final class Adventure {
             RuleSetId ruleSetId, List<AdventurePartyMember> party, List<ConversationEntry> conversation,
             AdventureContext currentContext, AdventureStatus status, long version, int turnIndex, String lastTurnKey,
             UUID lockedScenarioPackageId, long lockedScenarioPackageRevision, GameState gameState,
-            DisclosureState disclosureState, CurrentSituation currentSituation, List<RuntimeAddedFact> runtimeAddedFacts) {
+            DisclosureState disclosureState, CurrentSituation currentSituation, List<RuntimeAddedFact> runtimeAddedFacts,
+            StoryRuntimeState storyRuntimeState) {
         this.id = Objects.requireNonNull(id, "adventure id must not be null");
         this.sessionId = Objects.requireNonNull(sessionId, "session id must not be null");
         this.ownerPlayerId = Objects.requireNonNull(ownerPlayerId, "owner player id must not be null");
@@ -53,6 +56,7 @@ public final class Adventure {
         this.disclosureState = Objects.requireNonNull(disclosureState, "disclosure state must not be null");
         this.currentSituation = currentSituation;
         this.runtimeAddedFacts = List.copyOf(Objects.requireNonNull(runtimeAddedFacts, "runtime facts must not be null"));
+        this.storyRuntimeState = storyRuntimeState;
         this.conversation = validateConversation(conversation);
         this.currentContext = Objects.requireNonNull(currentContext, "current context must not be null");
         this.status = Objects.requireNonNull(status, "status must not be null");
@@ -69,12 +73,12 @@ public final class Adventure {
         return new Adventure(id, sessionId, ownerPlayerId, scenarioId, ruleSetId,
                 List.of(new AdventurePartyMember(characterSheetId, ControlMode.DIRECT, true, true, true, true, true, true)),
                 List.of(), context, AdventureStatus.SAVED, 0, 0, null, null, 0,
-                GameState.empty(), DisclosureState.empty(), null, List.of());
+                GameState.empty(), DisclosureState.empty(), null, List.of(), null);
     }
     public static Adventure create(AdventureId id, SessionId sessionId, OwnerPlayerId ownerPlayerId, ScenarioId scenarioId, RuleSetId ruleSetId, List<AdventurePartyMember> party, AdventureContext context) {
         if (party == null || party.isEmpty()) throw new IllegalArgumentException("party must not be empty");
         return new Adventure(id, sessionId, ownerPlayerId, scenarioId, ruleSetId, party, List.of(), context, AdventureStatus.SAVED, 0, 0, null,
-                null, 0, GameState.empty(), DisclosureState.empty(), null, List.of());
+                null, 0, GameState.empty(), DisclosureState.empty(), null, List.of(), null);
     }
 
     /** Creates the durable STARTING boundary before the first Situation exists. */
@@ -84,7 +88,7 @@ public final class Adventure {
         Objects.requireNonNull(scenarioPackageId, "scenario package id must not be null");
         return new Adventure(id, sessionId, ownerPlayerId, scenarioId, ruleSetId, party, List.of(), context,
                 AdventureStatus.STARTING, 0, 0, null, scenarioPackageId, scenarioPackageRevision,
-                GameState.empty(), DisclosureState.empty(), null, List.of());
+                GameState.empty(), DisclosureState.empty(), null, List.of(), null);
     }
 
     public static Adventure rehydrate(
@@ -98,7 +102,7 @@ public final class Adventure {
             RuleSetId ruleSetId, List<AdventurePartyMember> party, List<ConversationEntry> conversation,
             AdventureContext context, AdventureStatus status, long version, int turnIndex, String lastTurnKey) {
         return new Adventure(id, sessionId, ownerPlayerId, scenarioId, ruleSetId, party, conversation, context, status, version, turnIndex, lastTurnKey,
-                null, 0, GameState.empty(), DisclosureState.empty(), null, List.of());
+                null, 0, GameState.empty(), DisclosureState.empty(), null, List.of(), null);
     }
 
     public static Adventure rehydrateWithRuntimeState(
@@ -107,9 +111,20 @@ public final class Adventure {
             AdventureContext context, AdventureStatus status, long version, int turnIndex, String lastTurnKey,
             UUID lockedScenarioPackageId, long lockedScenarioPackageRevision, GameState gameState,
             DisclosureState disclosureState, CurrentSituation currentSituation, List<RuntimeAddedFact> runtimeAddedFacts) {
+        return rehydrateWithRuntimeState(id, sessionId, ownerPlayerId, scenarioId, ruleSetId, party, conversation,
+                context, status, version, turnIndex, lastTurnKey, lockedScenarioPackageId, lockedScenarioPackageRevision,
+                gameState, disclosureState, currentSituation, runtimeAddedFacts, null);
+    }
+    public static Adventure rehydrateWithRuntimeState(
+            AdventureId id, SessionId sessionId, OwnerPlayerId ownerPlayerId, ScenarioId scenarioId,
+            RuleSetId ruleSetId, List<AdventurePartyMember> party, List<ConversationEntry> conversation,
+            AdventureContext context, AdventureStatus status, long version, int turnIndex, String lastTurnKey,
+            UUID lockedScenarioPackageId, long lockedScenarioPackageRevision, GameState gameState,
+            DisclosureState disclosureState, CurrentSituation currentSituation, List<RuntimeAddedFact> runtimeAddedFacts,
+            StoryRuntimeState storyRuntimeState) {
         return new Adventure(id, sessionId, ownerPlayerId, scenarioId, ruleSetId, party, conversation, context, status,
                 version, turnIndex, lastTurnKey, lockedScenarioPackageId, lockedScenarioPackageRevision,
-                gameState, disclosureState, currentSituation, runtimeAddedFacts);
+                gameState, disclosureState, currentSituation, runtimeAddedFacts, storyRuntimeState);
     }
 
     public void lockScenarioPackage(UUID packageId, long packageRevision) {
@@ -127,6 +142,12 @@ public final class Adventure {
     public void initializeScenarioRuntime(OwnerPlayerId requestingOwner, GameState gameState,
             DisclosureState disclosureState, CurrentSituation situation, List<RuntimeAddedFact> runtimeFacts,
             AdventureContext playerContext) {
+        initializeScenarioRuntime(requestingOwner, gameState, disclosureState, situation, runtimeFacts, playerContext, null);
+    }
+
+    public void initializeScenarioRuntime(OwnerPlayerId requestingOwner, GameState gameState,
+            DisclosureState disclosureState, CurrentSituation situation, List<RuntimeAddedFact> runtimeFacts,
+            AdventureContext playerContext, StoryRuntimeState storyRuntimeState) {
         authorizeSaved(requestingOwner);
         if (status != AdventureStatus.STARTING) {
             if (status == AdventureStatus.ACTIVE && currentSituation != null) return;
@@ -138,6 +159,7 @@ public final class Adventure {
         this.disclosureState = Objects.requireNonNull(disclosureState, "disclosure state must not be null");
         this.currentSituation = Objects.requireNonNull(situation, "current situation must not be null");
         this.runtimeAddedFacts = validateRuntimeFacts(runtimeFacts);
+        this.storyRuntimeState = storyRuntimeState;
         this.currentContext = Objects.requireNonNull(playerContext, "player context must not be null");
         this.status = AdventureStatus.ACTIVE;
         version++;
@@ -185,6 +207,14 @@ public final class Adventure {
         requireExpectedVersion(expectedVersion);
         currentContext = Objects.requireNonNull(context, "current context must not be null");
         conversation = validateConversation(completeConversation);
+        version++;
+    }
+
+    /** Applies a validated AI story proposal after the owning runtime policy has accepted it. */
+    public void commitStoryRuntimeState(OwnerPlayerId requestingOwner, long expectedVersion, StoryRuntimeState state) {
+        authorizeRuntime(requestingOwner);
+        requireExpectedVersion(expectedVersion);
+        this.storyRuntimeState = Objects.requireNonNull(state, "story runtime state must not be null");
         version++;
     }
 
@@ -288,4 +318,5 @@ public final class Adventure {
     public DisclosureState disclosureState() { return disclosureState; }
     public CurrentSituation currentSituation() { return currentSituation; }
     public List<RuntimeAddedFact> runtimeAddedFacts() { return runtimeAddedFacts; }
+    public StoryRuntimeState storyRuntimeState() { return storyRuntimeState; }
 }
