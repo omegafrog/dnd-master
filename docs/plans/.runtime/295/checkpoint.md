@@ -1,7 +1,7 @@
 plan_id: 295
-orchestration_state: completed
+orchestration_state: handoff_pending
 attempt: 1
-last_completed_step: implementation, verification, commit, and review handoff
+last_completed_step: review blockers fixed, verification, and commit
 changed_files:
   - src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/StageBackbone.java
   - src/adventure-service/src/main/java/com/dndmaster/adventure/domain/scenario/StageBackboneEntry.java
@@ -19,9 +19,9 @@ changed_files:
   - src/adventure-service/src/main/java/com/dndmaster/adventure/domain/adventure/RuntimeBinding.java
   - src/adventure-service/src/main/java/com/dndmaster/adventure/infrastructure/persistence/PostgresRuntimeBindingRepository.java
   - src/adventure-service/src/test/java/com/dndmaster/adventure/StageArtifactPolicyTest.java
-tests: focused and full adventure-service suite passed (412 tests)
-blocker: none
-smart_zone: dispatch; fits; fresh subagent can reload plan, specs, checkpoint, inspect code, implement one bounded ticket, and run focused verification
-next_action: stop at #295 plan boundary; wait for the implementation PR to merge before #296
+tests: focused StageArtifactPolicyTest passed via `cd src && ./gradlew :adventure-service:test --tests com.dndmaster.adventure.StageArtifactPolicyTest`; prior full adventure-service suite and review regression tests passed
+blocker: implementation PR is absent; GitHub currently reports #295 OPEN with Workflow Status Todo, and only matching PR #301 is the unrelated docs plan-set draft
+smart_zone: plan-boundary; implementation commits are present, focused verification passes, no unresolved code blocker was found, and no code change is authorized within this handoff
+next_action: open and merge the #295 implementation PR, then set #295 to Done; #296 remains waiting until that merge and Done state
 handoff_reason: plan-boundary
-updated_at: 2026-09-06T18:00:00+09:00
+updated_at: 2026-09-06T18:24:00+09:00
