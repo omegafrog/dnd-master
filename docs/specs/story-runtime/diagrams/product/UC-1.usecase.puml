@@ -1,0 +1,22 @@
+@startuml
+title UC-1 Stage Backbone을 생성한다
+caption Product Spec: UC-1, G-1, G-2, BR-1..BR-5
+left to right direction
+actor "Stage Generation AI" as Generator
+actor "Storybook RAG" as RAG
+actor "Adventure Runtime" as Runtime
+usecase "Scenario Source 조회" as Evidence
+usecase "얕은 Stage Backbone 생성" as Backbone
+usecase "핵심 갈등·Finale 방향 보존" as Core
+usecase "근거·출처 검증" as Validate
+Generator --> Backbone
+RAG --> Evidence
+Backbone .> Evidence : <<include>>
+Backbone .> Core : <<include>>
+Backbone .> Validate : <<include>>
+Runtime --> Backbone : 현재 리비전 사용
+note right of Backbone
+전체 미래의 상세 사건 순서는
+생성하지 않는다.
+end note
+@enduml

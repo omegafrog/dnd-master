@@ -56,6 +56,12 @@ Storybook/RAG는 scenario fact의 근거이자 source of truth다. 시스템은 
 
 ## 5. Core Use Cases
 
+### 다이어그램
+
+- [UC-1 Stage Backbone 생성 유스케이스](diagrams/product/UC-1.usecase.svg)
+- [Story Runtime 진행과 선택적 재계획 액티비티](diagrams/product/UC-4.activity.svg)
+- [Stage 업무 상태](diagrams/product/stage.business-state.svg)
+
 ### UC-1 Stage Backbone을 생성한다
 
 모험 시작 전 Stage Generation AI는 Storybook RAG를 넓게 조회해 시나리오의 핵심 갈등과 Finale 방향, 주요 국면을 파악하고 얕은 Stage Backbone을 생성한다. Stage 경계는 chapter나 분량이 아니라 Core Problem과 이후 Situation 생성 목적이 의미 있게 바뀌는 지점으로 정한다.

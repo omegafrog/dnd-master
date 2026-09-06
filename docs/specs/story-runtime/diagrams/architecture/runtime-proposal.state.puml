@@ -1,0 +1,14 @@
+@startuml
+title AI 제안의 canonical 반영 상태
+caption Architecture Spec: Sections 12, 13, 22, 23, 28, 29
+[*] --> PROPOSED
+PROPOSED --> VALIDATING : Runtime 수신
+VALIDATING --> COMMITTED : revision·대상·전이·근거 유효
+VALIDATING --> REJECTED : stale·무효 참조·근거 부족·중복
+COMMITTED --> [*]
+REJECTED --> [*]
+note right of COMMITTED
+확정 상태와 structured rationale,
+출처 참조, 결과를 기록한다.
+end note
+@enduml

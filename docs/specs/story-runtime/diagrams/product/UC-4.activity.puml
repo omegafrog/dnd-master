@@ -1,0 +1,34 @@
+@startuml
+title Story Runtime 진행과 선택적 재계획
+caption Product Spec: UC-3..UC-10, G-3..G-8, BR-6..BR-16
+start
+:현재 Stage와 canonical 상태 읽기;
+if (플레이어 행동에 의미 있는 진행이 있는가?) then (예)
+  :AI Game Master가 상황·공개·위협 진행을 제안;
+  :Runtime이 리비전, 참조, 근거, 허용된 상태 전이를 검증;
+  if (유효한 제안인가?) then (예)
+    :canonical narrative state 확정;
+  else (아니오)
+    :제안 거부 및 거부 사유 기록;
+  endif
+else (아니오)
+  :OPEN_PLAY로 탐색·대화·이동 처리;
+endif
+if (Funnel 충족?) then (예)
+  :다음 Detailed Stage 생성·근거 검증;
+  if (다음 Stage 준비 완료?) then (예)
+    :현재 Stage 종료와 다음 Stage 전환을 원자적으로 확정;
+  else (아니오)
+    :전환 보류, 현재 상태 유지;
+  endif
+else (아니오)
+  :현재 Stage 계속;
+endif
+if (미래 Stage 핵심 전제가 불가능해졌는가?) then (예)
+  :완료된 이력 보존;
+  :미시작 미래 suffix만 새 Backbone revision으로 재계획;
+else (아니오)
+  :Backbone 유지;
+endif
+stop
+@enduml

@@ -2,6 +2,11 @@
 
 ## 1. Architecture Direction
 
+### 다이어그램
+
+- [Story Runtime 구조와 책임 경계](diagrams/architecture/story-runtime.class.svg)
+- [AI 제안의 canonical 반영 상태](diagrams/architecture/runtime-proposal.state.svg)
+
 이번 변경에서 새로운 deployable service는 추가하지 않는다.
 
 기존 bounded context를 유지한다.
