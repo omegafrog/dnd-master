@@ -22,6 +22,6 @@ changed_files:
 tests: focused and full adventure-service suite passed (412 tests)
 blocker: none
 smart_zone: dispatch; fits; fresh subagent can reload plan, specs, checkpoint, inspect code, implement one bounded ticket, and run focused verification
-next_action: stop at #295 plan boundary; #296 may run after this commit is available
+next_action: stop at #295 plan boundary; wait for the implementation PR to merge before #296
 handoff_reason: plan-boundary
 updated_at: 2026-09-06T18:00:00+09:00
