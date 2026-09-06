@@ -9,6 +9,8 @@ import com.dndmaster.adventure.application.runtime.*;
 import com.dndmaster.adventure.application.scenario.preparation.RuntimeOptionCatalogPort;
 import com.dndmaster.adventure.application.scenario.preparation.ScenarioPreparationApplicationService;
 import com.dndmaster.adventure.application.scenario.preparation.StaticRuntimeOptionCatalog;
+import com.dndmaster.adventure.application.scenario.preparation.ScenarioPackageStageArtifactAdapter;
+import com.dndmaster.adventure.application.scenario.preparation.StageArtifactPreparationApplicationService;
 import com.dndmaster.adventure.application.saved.*;
 import com.dndmaster.adventure.application.session.*;
 import com.dndmaster.adventure.application.scenario.*;
@@ -36,6 +38,7 @@ import com.dndmaster.adventure.infrastructure.persistence.PostgresWorkQueueAdapt
 import com.dndmaster.adventure.infrastructure.persistence.PostgresSessionKnowledgeSetRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureSessionRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureSessionStartOutboxRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresStageArtifactRepository;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpKnowledgeDocumentLookupGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpPlayerSessionLookupGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpLegacyScenarioIngestionGateway;
@@ -191,11 +194,25 @@ public class AdventureApiConfiguration {
             SessionKnowledgeSetRepository sessionKnowledgeSetRepository,
             AiCompanionGenerationPort aiCompanionGenerationPort,
             AiCompanionSheetCreationPort aiCompanionSheetCreationPort,
-            com.dndmaster.adventure.application.combat.CombatMapPreparationPort combatMapPreparationPort) {
+            com.dndmaster.adventure.application.combat.CombatMapPreparationPort combatMapPreparationPort,
+            StageArtifactPreparationApplicationService stagePreparation) {
         return new AdventureSessionApplicationService(repository, packageRepository, adventureRepository,
                 runtimeBindingService, new AdventureSessionStartCoordinator(startOutboxRepository), ownershipPort,
                 sessionKnowledgeSetRepository, aiCompanionGenerationPort, aiCompanionSheetCreationPort,
-                combatMapPreparationPort);
+                combatMapPreparationPort, stagePreparation);
+    }
+
+    @Bean
+    com.dndmaster.adventure.domain.scenario.StageArtifactRepository stageArtifactRepository(DataSource dataSource) {
+        return new PostgresStageArtifactRepository(dataSource);
+    }
+
+    @Bean
+    StageArtifactPreparationApplicationService stageArtifactPreparationApplicationService(
+            com.dndmaster.adventure.domain.scenario.StageArtifactRepository artifacts,
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository) {
+        var adapter = new ScenarioPackageStageArtifactAdapter(packageRepository);
+        return new StageArtifactPreparationApplicationService(artifacts, adapter, adapter, adapter);
     }
 
     @Bean

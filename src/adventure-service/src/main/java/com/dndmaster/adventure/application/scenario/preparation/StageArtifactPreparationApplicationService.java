@@ -10,7 +10,7 @@ import java.util.Objects;
 import java.util.UUID;
 
 /** Prepares the shallow backbone and only the first playable stage before runtime start. */
-public final class StageArtifactPreparationApplicationService {
+public final class StageArtifactPreparationApplicationService implements StageArtifactPreparationPort {
     private final StageArtifactRepository artifacts;
     private final StorybookEvidenceLookupPort evidenceLookup;
     private final StageBackboneGenerationPort backboneGeneration;
@@ -40,7 +40,7 @@ public final class StageArtifactPreparationApplicationService {
         }
         var first = backbone.stages().getFirst();
         DetailedStage generatedStage = detailedGeneration.generate(new StageDetailedGenerationPort.Request(
-                first.stageId(), backbone.revision(), evidence));
+                scenarioPackageId, first.stageId(), backbone.revision(), evidence));
         requirePackage(generatedStage.scenarioPackageId(), scenarioPackageId);
         if (!generatedStage.stageId().equals(first.stageId()) || generatedStage.backboneRevision() != backbone.revision()) {
             throw new IllegalStateException("detailed stage does not match first backbone stage");
