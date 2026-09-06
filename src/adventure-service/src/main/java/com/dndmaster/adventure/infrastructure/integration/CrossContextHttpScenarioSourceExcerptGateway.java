@@ -21,6 +21,8 @@ import java.util.UUID;
 public final class CrossContextHttpScenarioSourceExcerptGateway implements ScenarioSourceExcerptPort {
     private static final int MAX_EXCERPTS_FOR_RESOLUTION_EXTRACTION = 12;
     private static final int MAX_EXCERPTS_FOR_BLUEPRINT_EXTRACTION = 12;
+    private static final String RESOLUTION_SOURCE_QUERY =
+            "Find story passages that describe how player actions are resolved, including checks, thresholds, consequences, and damage.";
 
     private final HttpClient client;
     private final URI baseUri;
@@ -37,23 +39,40 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
 
     @Override
     public List<ResolutionExtractionPort.SourceExcerpt> load(ScenarioSourceBundle bundle) {
-        try {
-            List<DocumentRequest> documents = new java.util.ArrayList<>(bundle.currentRevision().documents().stream()
+        List<DocumentRequest> documents = new java.util.ArrayList<>(bundle.currentRevision().documents().stream()
                     .filter(document -> "STORYBOOK".equalsIgnoreCase(document.documentType()))
                     .map(document -> new DocumentRequest(document.knowledgeDocumentId().value(), document.extractionVersion()))
-                    .toList());
-            List<UUID> rulebookIds = bundle.currentRevision().documents().stream()
+                .toList());
+        List<UUID> rulebookIds = bundle.currentRevision().documents().stream()
                     .filter(document -> "RULEBOOK".equalsIgnoreCase(document.documentType()))
                     .map(document -> document.knowledgeDocumentId().value())
+                .toList();
+        List<ResolutionExtractionPort.SourceExcerpt> rulebookExcerpts = loadRulebookEvidence(
+                bundle.ownerPlayerId().value(), rulebookIds);
+        List<ResolutionExtractionPort.SourceExcerpt> scenarioExcerpts = searchStorySources(
+                bundle.ownerPlayerId().value(), documents, RESOLUTION_SOURCE_QUERY);
+        if (!documents.isEmpty() && scenarioExcerpts.isEmpty()) {
+                throw new ResolutionExtractionException("published storybook evidence is unavailable");
+            }
+        if (!rulebookIds.isEmpty() && rulebookExcerpts.isEmpty()) {
+                throw new ResolutionExtractionException("published rulebook evidence is unavailable");
+            }
+        List<ResolutionExtractionPort.SourceExcerpt> mapAssets = bundle.currentRevision().documents().stream()
+                    .filter(document -> document.role() == com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.MAP)
+                    .flatMap(document -> loadMapAssets(document).stream())
                     .toList();
-            List<ResolutionExtractionPort.SourceExcerpt> rulebookExcerpts = loadRulebookEvidence(
-                    bundle.ownerPlayerId().value(), rulebookIds);
+        return java.util.stream.Stream.of(scenarioExcerpts, rulebookExcerpts, mapAssets)
+                    .flatMap(List::stream).toList();
+    }
+
+    private List<ResolutionExtractionPort.SourceExcerpt> searchStorySources(
+            UUID ownerId, List<DocumentRequest> documents, String situation) {
+        try {
             String body = objectMapper.writeValueAsString(new ExcerptRequest(
-                    bundle.ownerPlayerId().value(),
-                    documents));
+                    ownerId, documents, List.of(), situation, MAX_EXCERPTS_FOR_BLUEPRINT_EXTRACTION));
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/story-sources/search"))
                     .timeout(timeout).header("Content-Type", "application/json")
-                    .header("Authorization", "Bearer " + bundle.ownerPlayerId().value())
+                    .header("Authorization", "Bearer " + ownerId)
                     .POST(HttpRequest.BodyPublishers.ofString(body)).build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() < 200 || response.statusCode() >= 300) {
@@ -61,24 +80,12 @@ public final class CrossContextHttpScenarioSourceExcerptGateway implements Scena
             }
             StorySourceSearchResponse extracted = objectMapper.readValue(response.body(), StorySourceSearchResponse.class);
             if (extracted.evidence() == null) return List.of();
-            List<ResolutionExtractionPort.SourceExcerpt> scenarioExcerpts = extracted.evidence().stream()
+            return extracted.evidence().stream()
                     .filter(Objects::nonNull)
                     .limit(MAX_EXCERPTS_FOR_BLUEPRINT_EXTRACTION)
                     .map(excerpt -> new ResolutionExtractionPort.SourceExcerpt(
                             "STORYBOOK", toProvenance(excerpt.knowledgeDocumentId(), excerpt.extractionVersion(),
                                     excerpt.locator(), excerpt.provenance()), excerpt.excerpt())).toList();
-            if (!documents.isEmpty() && scenarioExcerpts.isEmpty()) {
-                throw new ResolutionExtractionException("published storybook evidence is unavailable");
-            }
-            if (!rulebookIds.isEmpty() && rulebookExcerpts.isEmpty()) {
-                throw new ResolutionExtractionException("published rulebook evidence is unavailable");
-            }
-            List<ResolutionExtractionPort.SourceExcerpt> mapAssets = bundle.currentRevision().documents().stream()
-                    .filter(document -> document.role() == com.dndmaster.adventure.domain.scenario.ScenarioBundleDocumentRole.MAP)
-                    .flatMap(document -> loadMapAssets(document).stream())
-                    .toList();
-            return java.util.stream.Stream.of(scenarioExcerpts, rulebookExcerpts, mapAssets)
-                    .flatMap(List::stream).toList();
         } catch (IOException exception) {
             throw new ResolutionExtractionException("source excerpt lookup failed", exception);
         } catch (InterruptedException exception) {

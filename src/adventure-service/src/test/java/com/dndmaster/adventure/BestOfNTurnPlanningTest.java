@@ -35,8 +35,8 @@ import org.junit.jupiter.api.Test;
 
 class BestOfNTurnPlanningTest {
     @Test
-    void candidate_count_defaults_to_three_and_simple_turns_use_one() {
-        assertEquals(3, PlanningContext.candidateCount(false));
+    void candidate_count_defaults_to_one() {
+        assertEquals(1, PlanningContext.candidateCount(false));
         assertEquals(1, PlanningContext.candidateCount(true));
         assertEquals(1, PlanningContext.boundedCandidateCount(0, false));
         assertEquals(5, PlanningContext.boundedCandidateCount(5, false));
@@ -221,6 +221,34 @@ class BestOfNTurnPlanningTest {
 
         assertEquals(List.of(story), selected.citedEvidence());
         assertEquals(3, calls[0]);
+    }
+
+    @Test
+    void retries_once_only_when_the_single_runtime_candidate_fails_validation() {
+        RuntimeEvidence story = new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
+                new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(UUID.randomUUID()),
+                1, "page:1", "A supported cellar scene.");
+        RuntimeEvidence outsidePack = new RuntimeEvidence(RuntimeEvidenceType.STORYBOOK,
+                new com.dndmaster.adventure.domain.knowledge.KnowledgeDocumentId(UUID.randomUUID()),
+                1, "page:2", "Outside evidence.");
+        var calls = new int[1];
+        GmAgentPort agent = context -> {
+            calls[0]++;
+            List<RuntimeEvidence> citations = calls[0] == 1 ? List.of(outsidePack) : List.of(story);
+            return new GmPlanResult(new RuntimePlan("scene", "npc", "judgment", "narration", null, citations, List.of(), "p", "m", "r"),
+                    "p", "m", "r", List.of());
+        };
+        var adapter = new BestOfNRuntimePlanningAdapter(new GmAgentRuntimePlanningAdapter(agent, new GmFinalValidator()),
+                1, 1, false, audit -> { });
+
+        RuntimePlan selected = adapter.plan(new RuntimePlanningRequest(AdventureId.generate(), new OwnerPlayerId(UUID.randomUUID()),
+                UUID.randomUUID(), UUID.randomUUID(), UUID.randomUUID(), 1,
+                new AdventureContext("scene", "npc", "open", "judgment"), null, "open", new EvidencePack(List.of(story), List.of(), List.of()),
+                List.of(), List.of(), "stage", null, "provider", "model", "reasoning", new NarrativeContext("player", "scene", 0,
+                        Set.of(), List.of(), java.util.Map.of(), List.of(), List.of(), List.of())));
+
+        assertEquals(List.of(story), selected.citedEvidence());
+        assertEquals(2, calls[0]);
     }
 
     private static PlanningContext context() {

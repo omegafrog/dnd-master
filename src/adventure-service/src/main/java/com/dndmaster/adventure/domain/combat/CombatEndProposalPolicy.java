@@ -12,7 +12,9 @@ public final class CombatEndProposalPolicy {
         List<String> violations = new ArrayList<>();
         if (proposal == null) return List.of("END_PROPOSAL_REQUIRED");
         if (!proposal.accepted()) violations.add("END_PROPOSAL_NOT_ACCEPTED");
-        if (proposal.source() != CombatEndProposal.Source.GM) violations.add("GM_PROPOSAL_REQUIRED");
+        boolean systemDefeat = proposal.source() == CombatEndProposal.Source.SYSTEM
+                && proposal.reason() == CombatEndProposal.Reason.ENEMIES_DEFEATED;
+        if (proposal.source() != CombatEndProposal.Source.GM && !systemDefeat) violations.add("GM_PROPOSAL_REQUIRED");
         if (!java.util.Objects.equals(proposal.adventureId(), adventureId)) violations.add("ADVENTURE_MISMATCH");
         if (!java.util.Objects.equals(proposal.encounterId(), encounterId)) violations.add("ENCOUNTER_MISMATCH");
         if (proposal.summary().isBlank()) violations.add("END_SUMMARY_REQUIRED");

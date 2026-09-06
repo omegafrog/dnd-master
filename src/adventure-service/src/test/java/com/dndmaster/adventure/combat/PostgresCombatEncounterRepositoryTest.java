@@ -33,7 +33,7 @@ class PostgresCombatEncounterRepositoryTest {
             statement.execute("DROP TABLE IF EXISTS combat_participant");
             statement.execute("DROP TABLE IF EXISTS combat_encounter");
             statement.execute("CREATE TABLE combat_encounter (encounter_id UUID PRIMARY KEY, adventure_id UUID NOT NULL, status TEXT NOT NULL, round INT NOT NULL, current_participant_id UUID NOT NULL, version BIGINT NOT NULL, event_cursor BIGINT NOT NULL)");
-            statement.execute("CREATE TABLE combat_participant (encounter_id UUID NOT NULL, participant_id UUID NOT NULL, display_name TEXT NOT NULL, controller TEXT NOT NULL, initiative INT NOT NULL, public_condition TEXT, movement_remaining INT NOT NULL DEFAULT 30, action_available BOOLEAN NOT NULL DEFAULT TRUE, bonus_action_available BOOLEAN NOT NULL DEFAULT TRUE, reaction_available BOOLEAN NOT NULL DEFAULT TRUE, PRIMARY KEY (encounter_id, participant_id))");
+            statement.execute("CREATE TABLE combat_participant (encounter_id UUID NOT NULL, participant_id UUID NOT NULL, display_name TEXT NOT NULL, controller TEXT NOT NULL, initiative INT NOT NULL, public_condition TEXT, movement_remaining INT NOT NULL DEFAULT 30, action_available BOOLEAN NOT NULL DEFAULT TRUE, bonus_action_available BOOLEAN NOT NULL DEFAULT TRUE, reaction_available BOOLEAN NOT NULL DEFAULT TRUE, stat_block_json JSONB, current_hit_points INT, PRIMARY KEY (encounter_id, participant_id))");
             statement.execute("CREATE TABLE combat_narrative_position (encounter_id UUID NOT NULL, subject_id UUID NOT NULL, target_id UUID NOT NULL, range_band TEXT NOT NULL, cover TEXT NOT NULL, PRIMARY KEY (encounter_id, subject_id, target_id))");
         }
     }
@@ -46,7 +46,7 @@ class PostgresCombatEncounterRepositoryTest {
         try (Connection connection = dataSource.getConnection(); var encounter = connection.prepareStatement(
                 "INSERT INTO combat_encounter VALUES (?, ?, 'ACTIVE', 1, ?, 3, 1)");
              var participant = connection.prepareStatement(
-                     "INSERT INTO combat_participant VALUES (?, ?, 'Hero', 'PLAYER', 12, NULL)")) {
+                     "INSERT INTO combat_participant VALUES (?, ?, 'Hero', 'PLAYER', 12, NULL, 30, TRUE, TRUE, TRUE, NULL, NULL)")) {
             encounter.setObject(1, encounterId); encounter.setObject(2, adventureId); encounter.setObject(3, participantId);
             encounter.executeUpdate();
             participant.setObject(1, encounterId); participant.setObject(2, participantId);

@@ -58,6 +58,66 @@ public final class CrossContextHttpCombatGateway
         characterSheetViews.put(command.operationId(), character);
     }
 
+    @Override
+    public Integer attackModifier(CombatActionCommand command) {
+        CharacterSheetView character = characterSheetViews.computeIfAbsent(command.operationId(), ignored -> readCharacterSheet(command));
+        try {
+            JsonNode derived = objectMapper.readTree(character.derivedStatistics());
+            JsonNode modifiers = derived.path("abilityModifiers");
+            int strength = modifiers.path("strength").isInt()
+                    ? modifiers.path("strength").asInt()
+                    : Math.floorDiv(derived.path("abilityScores").path("strength").asInt(10) - 10, 2);
+            return strength + 2 + Math.max(0, (character.level() - 1) / 4);
+        } catch (IOException exception) {
+            return null;
+        }
+    }
+
+    @Override
+    public Integer damageAmount(CombatActionCommand command) {
+        CharacterSheetView character = characterSheetViews.computeIfAbsent(command.operationId(), ignored -> readCharacterSheet(command));
+        try {
+            JsonNode attacks = objectMapper.readTree(character.derivedStatistics()).path("attacks");
+            if (!attacks.isArray() || attacks.isEmpty()) return null;
+            String damage = attacks.get(0).path("damage").asText("").replace(" ", "");
+            java.util.regex.Matcher dice = java.util.regex.Pattern.compile("(\\d+)d(\\d+)([+-]\\d+)?").matcher(damage);
+            if (dice.matches()) {
+                int count = Integer.parseInt(dice.group(1));
+                int sides = Integer.parseInt(dice.group(2));
+                int bonus = dice.group(3) == null ? 0 : Integer.parseInt(dice.group(3));
+                return Math.max(1, (count * (sides + 1)) / 2 + bonus);
+            }
+            java.util.regex.Matcher fixed = java.util.regex.Pattern.compile("(\\d+)([+-]\\d+)?").matcher(damage);
+            if (fixed.matches()) {
+                int base = Integer.parseInt(fixed.group(1));
+                int bonus = fixed.group(2) == null ? 0 : Integer.parseInt(fixed.group(2));
+                return Math.max(1, base + bonus);
+            }
+            return null;
+        } catch (IOException | NumberFormatException exception) {
+            return null;
+        }
+    }
+
+    @Override
+    public String displayName(java.util.UUID characterSheetId, java.util.UUID ownerPlayerId, java.util.UUID sessionId) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/character-sheets/" + characterSheetId + "/runtime"))
+                    .timeout(timeout).header("X-Internal-Token", internalToken).header("X-Session-ID", sessionId.toString())
+                    .header("X-Owner-Player-ID", ownerPlayerId.toString()).GET().build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new CrossContextCallException("character name read failed with status " + response.statusCode());
+            }
+            return objectMapper.readValue(response.body(), CharacterSheetView.class).characterName();
+        } catch (IOException exception) {
+            throw new CrossContextCallException("character name read failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CrossContextCallException("character name read interrupted", exception);
+        }
+    }
+
     private boolean hasNoHitPoints(String characterState) {
         if (characterState == null || characterState.isBlank()) return false;
         try {

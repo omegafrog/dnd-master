@@ -4,7 +4,7 @@
     "architecture-spec": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "3ef5a2ac497d786be282200ecabc83ad499fe4bc717d128cf2ef49c65e1e047b"
+      "computedHash": "8d7495cdf61a6339b3e75e1b9be8507adcc956dfc01048bf18769a491c04efdb"
     },
     "code-research": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
@@ -14,7 +14,7 @@
     "code-review": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "6a365f03d9b09073e97e2158a271bb5aa99321b44d72fe211c00ccbc7cac3f50"
+      "computedHash": "bf2760a23bb4e52062695eeb688f099b6dbb79a85b7e8c2c89de847630797a45"
     },
     "codebase-design": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
@@ -34,7 +34,7 @@
     "domain-modeling": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "77f8f42c5c3e496535c09b39fb48560c32da8cfd6edd11cdc59a25429a6064d6"
+      "computedHash": "7b50f86e218c12c6b9812a9a5a060c200aa3a9372cb28d4466a49d8f4ee69768"
     },
     "eli5": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
@@ -49,12 +49,12 @@
     "gh-open-pr": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "a277cd130838c231a47d89411147bc6b2d4428135017866ae26d7910d459357b"
+      "computedHash": "ecfd98be9eb64ba399e276091adb62f9a53360d70bd7a66d97411b0a5ca88cf0"
     },
     "grill-with-docs": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "83ecf933563467150276ce738ac753111dc596e2996707beebe93a36bd68042c"
+      "computedHash": "b94084774989faff5437c9bd59b941bedf29f2c0224171b53abfd6de38e6fd80"
     },
     "grilling": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
@@ -64,17 +64,22 @@
     "implement": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "18969c767a7f6e4a361890478e23cfdcc69b8a8c2b8b90b9f5026fc2c3dec94f"
+      "computedHash": "c99c066a426acaa9a041c5c3368c4fc13fd7a72acbf5306dd9b9dbd414d9e7c9"
     },
     "implement-wrapper": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "a738979a334c426d6667f9bcb480f15d29b98fd4ba327d85dda66f2811c266bf"
+      "computedHash": "905cb4d46eed3bba113b39012c9baa311a31472f9ef84e3108ae5079405856f7"
+    },
+    "plantuml-diagrams": {
+      "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
+      "sourceType": "local",
+      "computedHash": "f2b8f9950887735422619c26d55e0ebd4efdfe11ccf450104f4a51d85ded1b4e"
     },
     "product-spec": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "cf535bbcb02792d86a10e10cdf9bfc568bf85467be5c168ad8d6e1006ef911ea"
+      "computedHash": "2f4bd81885c325692bde6a827432a25e04625e56774183959554665ce9eab1d7"
     },
     "setup": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
@@ -84,7 +89,7 @@
     "spec-me": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "d41cb95b04fe26fe6aa3d387ebac2374d3704253aa1d16e263c63fdda03e2f52"
+      "computedHash": "df4c2231c384d449ace42040940108b209188e673e0a117d199f070154886919"
     },
     "tdd": {
       "source": "omegafrog/harness-codex",
@@ -95,7 +100,7 @@
     "to-ticket": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "73b54eb8bdd3125932c717325b4d642d3efd21d0e1d4c1f54b32bd773106d48f"
+      "computedHash": "43fffad7eb3fa4788d690c71cdc5d735a48e53c4e210d1d9a00ece4a7a88b382"
     }
   }
 }

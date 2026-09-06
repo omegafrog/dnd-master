@@ -35,15 +35,17 @@ public final class CombatController {
     private final CombatReactionApplicationService reactionService;
     private final com.dndmaster.adventure.application.combat.CombatWorkItemRepository workItems;
     private final com.dndmaster.adventure.application.combat.CombatWorkItemScheduler workItemScheduler;
+    private final com.dndmaster.adventure.application.combat.CharacterCombatPort characterCombatPort;
     public CombatController(CombatEncounterRepository repository, AuthenticatedPlayerResolver playerResolver,
                             com.dndmaster.adventure.application.saved.AdventureRepository adventureRepository,
                             com.dndmaster.adventure.application.combat.CombatEventRepository eventRepository,
                             CombatActionApplicationService actionService,
                             CombatReactionApplicationService reactionService,
                             com.dndmaster.adventure.application.combat.CombatWorkItemRepository workItems,
-                            com.dndmaster.adventure.application.combat.CombatWorkItemScheduler workItemScheduler) {
+                            com.dndmaster.adventure.application.combat.CombatWorkItemScheduler workItemScheduler,
+                            com.dndmaster.adventure.application.combat.CharacterCombatPort characterCombatPort) {
         this.repository = repository; this.playerResolver = playerResolver; this.adventureRepository = adventureRepository; this.eventRepository = eventRepository;
-        this.actionService = actionService; this.reactionService = reactionService; this.workItems = workItems; this.workItemScheduler = workItemScheduler;
+        this.actionService = actionService; this.reactionService = reactionService; this.workItems = workItems; this.workItemScheduler = workItemScheduler; this.characterCombatPort = characterCombatPort;
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/combat/reactions/{reactionId}")
@@ -131,13 +133,52 @@ public final class CombatController {
     }
     @GetMapping("/api/v1/adventures/{adventureId}/combat")
     public ResponseEntity<?> snapshot(@PathVariable UUID adventureId) {
-        assertOwner(adventureId);
+        var adventure = assertOwnerAndLoad(adventureId);
         return repository.findActive(adventureId)
-                .map(e -> ResponseEntity.ok(PlayerCombatProjectionPolicy.toSnapshot(e, playerResolver.playerId(),
+                .map(e -> {
+                    ensureCurrentAiTurnIsScheduled(adventure, e);
+                    return ResponseEntity.ok(withCharacterNames(PlayerCombatProjectionPolicy.toSnapshot(e, playerResolver.playerId(),
                         workItems.findFailedByEncounterId(e.encounterId()).map(item ->
                                 new com.dndmaster.adventure.domain.combat.PlayerCombatSnapshot.ProcessingFailure(
-                                        item.operationId(), item.failure(), item.attemptCount())).orElse(null))))
+                                        item.operationId(), item.failure(), item.attemptCount())).orElse(null)), adventure));
+                })
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    private void ensureCurrentAiTurnIsScheduled(com.dndmaster.adventure.domain.adventure.Adventure adventure,
+                                                com.dndmaster.adventure.domain.combat.CombatEncounter encounter) {
+        if (encounter.currentParticipant().controller() != com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.AI
+                || workItems.hasPendingForEncounter(encounter.encounterId())) return;
+        UUID actorId = encounter.currentParticipantId();
+        CombatActionCommand template = new CombatActionCommand(UUID.randomUUID(), adventure.id(), adventure.sessionId().value(),
+                adventure.ruleSetId(), new CharacterSheetId(actorId), null, CombatActorRole.AI, "AI_TURN", null,
+                adventure.ownerPlayerId().value(), actorId, encounter.version());
+        workItemScheduler.scheduleNext(template, encounter, 0,
+                com.dndmaster.adventure.application.combat.AiTacticalInstructionContext.none());
+    }
+
+    private com.dndmaster.adventure.domain.combat.PlayerCombatSnapshot withCharacterNames(
+            com.dndmaster.adventure.domain.combat.PlayerCombatSnapshot snapshot,
+            com.dndmaster.adventure.domain.adventure.Adventure adventure) {
+        int[] playerNumber = {0};
+        var entries = snapshot.initiative().stream().map(entry -> {
+            if (entry.controller() != com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.PLAYER) return entry;
+            playerNumber[0]++;
+            String name;
+            try {
+                name = characterCombatPort.displayName(entry.participantId(), adventure.ownerPlayerId().value(), adventure.sessionId().value());
+            } catch (RuntimeException ignored) {
+                name = entry.displayName();
+            }
+            if (name == null || name.isBlank() || name.equals(entry.participantId().toString())) {
+                name = "플레이어 " + playerNumber[0];
+            }
+            return new com.dndmaster.adventure.domain.combat.PlayerCombatSnapshot.PlayerParticipant(
+                    entry.participantId(), name, entry.controller(), entry.initiative(), entry.publicCondition());
+        }).toList();
+        return new com.dndmaster.adventure.domain.combat.PlayerCombatSnapshot(snapshot.encounterId(), snapshot.adventureId(),
+                snapshot.status(), snapshot.round(), snapshot.currentParticipantId(), entries, snapshot.resources(),
+                snapshot.version(), snapshot.eventCursor(), snapshot.narrativePositions(), snapshot.pendingReaction(), snapshot.processingFailure());
     }
 
     @GetMapping("/api/v1/adventures/{adventureId}/combat/final-summary")

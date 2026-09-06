@@ -95,9 +95,16 @@ public class AdventureApiConfiguration {
             @Qualifier("characterCombatPort") CharacterCombatPort characterPort,
             @Qualifier("combatMapPort") CombatMapPort mapPort,
             com.dndmaster.adventure.application.combat.CombatActionOperationRepository operationRepository,
-            com.dndmaster.adventure.application.combat.CombatWorkItemRepository workItemRepository) {
+            com.dndmaster.adventure.application.combat.CombatWorkItemRepository workItemRepository,
+            com.dndmaster.adventure.application.combat.CombatWorkItemScheduler workItemScheduler) {
         return new com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService(repository, eventRepository,
-                adventureRepository, characterPort, mapPort, operationRepository, workItemRepository);
+                adventureRepository, characterPort, mapPort, operationRepository, workItemRepository, workItemScheduler);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.CombatEndPort combatEndPort(
+            com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService lifecycle) {
+        return lifecycle::endWhenEnemiesDefeated;
     }
 
     @Bean
@@ -746,11 +753,12 @@ public class AdventureApiConfiguration {
     @Bean
     RuntimePlanningPort runtimePlanningPort(GmAgentPort gmAgentPort, GmToolGateway gmToolGateway,
                                             RuntimeCommandSagaApplicationService saga,
-                                            @Value("${adventure.runtime.best-of-n.count:3}") int candidateCount,
+                                            @Value("${adventure.runtime.best-of-n.count:1}") int candidateCount,
+                                            @Value("${adventure.runtime.best-of-n.retry-count:1}") int retryCount,
                                             @Value("${adventure.runtime.best-of-n.simple:false}") boolean simpleTurn,
                                             PlanAuditPort planAuditPort) {
         RuntimePlanningPort planner = new GmAgentRuntimePlanningAdapter(gmAgentPort, new GmFinalValidator(), gmToolGateway, saga);
-        return new BestOfNRuntimePlanningAdapter(planner, candidateCount, simpleTurn, planAuditPort);
+        return new BestOfNRuntimePlanningAdapter(planner, candidateCount, retryCount, simpleTurn, planAuditPort);
     }
 
     @Bean
@@ -1021,10 +1029,11 @@ public class AdventureApiConfiguration {
             CharacterCombatPort characterPort,
             @Qualifier("aiCombatPort") AiCombatPort aiPort,
             @Qualifier("combatMapPort") CombatMapPort mapPort,
-            com.dndmaster.adventure.application.combat.AiCombatDecisionPort decisionPort) {
+            com.dndmaster.adventure.application.combat.AiCombatDecisionPort decisionPort,
+            com.dndmaster.adventure.application.combat.CombatEndPort combatEndPort) {
         return new com.dndmaster.adventure.application.combat.CombatActionApplicationService(
                 encounterRepository, operationRepository, eventRepository, rulesEngine,
-                dicePort, characterPort, aiPort, mapPort, decisionPort);
+                dicePort, characterPort, aiPort, mapPort, decisionPort, combatEndPort);
     }
 
     @Bean

@@ -10,7 +10,8 @@ public record GmPlanResult(
         String model,
         String reasoning,
         List<String> stateDelta,
-        List<GmToolCall> toolCalls) {
+        List<GmToolCall> toolCalls,
+        SituationProposal situationProposal) {
     public GmPlanResult {
         plan = Objects.requireNonNull(plan, "plan must not be null");
         provider = required(provider, "provider");
@@ -21,7 +22,12 @@ public record GmPlanResult(
     }
 
     public GmPlanResult(RuntimePlan plan, String provider, String model, String reasoning, List<String> stateDelta) {
-        this(plan, provider, model, reasoning, stateDelta, List.of());
+        this(plan, provider, model, reasoning, stateDelta, List.of(), null);
+    }
+
+    public GmPlanResult(RuntimePlan plan, String provider, String model, String reasoning, List<String> stateDelta,
+            List<GmToolCall> toolCalls) {
+        this(plan, provider, model, reasoning, stateDelta, toolCalls, null);
     }
 
     private static String required(String value, String name) {

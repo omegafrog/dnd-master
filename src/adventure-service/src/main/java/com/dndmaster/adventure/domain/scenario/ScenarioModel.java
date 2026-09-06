@@ -44,6 +44,20 @@ public record ScenarioModel(
         return elementId != null && elementIds().contains(elementId);
     }
 
+    /** Returns only explicitly compiled combat situations; rulebook names are not enough. */
+    public List<CombatScenarioDefinition> combatScenarios() {
+        return encounters.stream()
+                .map(CombatScenarioDefinition::fromElement)
+                .flatMap(java.util.Optional::stream)
+                .toList();
+    }
+
+    public java.util.Optional<CombatScenarioDefinition> combatScenario(String scenarioId) {
+        return combatScenarios().stream()
+                .filter(scenario -> scenario.scenarioId().equals(scenarioId))
+                .findFirst();
+    }
+
     public ScenarioModel withGeneratedCore(ScenarioCreativity policy) {
         if (policy == ScenarioCreativity.NONE || hasCoreResolutionInformation()) return this;
         ScenarioModelElement objective = new ScenarioModelElement("generated-objective", "objective",

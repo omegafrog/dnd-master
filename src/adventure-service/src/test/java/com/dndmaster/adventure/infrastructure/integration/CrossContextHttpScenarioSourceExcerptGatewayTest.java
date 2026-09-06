@@ -31,7 +31,8 @@ class CrossContextHttpScenarioSourceExcerptGatewayTest {
         UUID rulebookId = UUID.randomUUID();
         UUID ownerId = UUID.randomUUID();
         List<String> paths = new ArrayList<>();
-        try (EvidenceServer server = new EvidenceServer(paths, storybookId, rulebookId)) {
+        List<String> requestBodies = new ArrayList<>();
+        try (EvidenceServer server = new EvidenceServer(paths, requestBodies, storybookId, rulebookId)) {
             var bundle = ScenarioSourceBundle.create(new ScenarioBundleId(UUID.randomUUID()),
                     new OwnerPlayerId(ownerId), "Test", RulebookEdition.DND_5E_2014,
                     new ScenarioSourceBundleRevision(1, List.of(
@@ -50,8 +51,10 @@ class CrossContextHttpScenarioSourceExcerptGatewayTest {
                 assertThat(excerpt.provenance().tableCell()).isEqualTo("table-1:r2:c1");
             });
             assertThat(paths).containsExactlyInAnyOrder(
-                    "/internal/v1/story-sources/search", "/internal/v1/rule-evidence/search");
+                    "/internal/v1/story-sources/search",
+                    "/internal/v1/rule-evidence/search");
             assertThat(paths).doesNotContain("/api/v1/rulebooks/" + rulebookId + "/source-preview");
+            assertThat(requestBodies).anyMatch(body -> body.contains("how player actions are resolved"));
         }
     }
 
@@ -64,10 +67,11 @@ class CrossContextHttpScenarioSourceExcerptGatewayTest {
     private static final class EvidenceServer implements AutoCloseable {
         private final HttpServer server;
 
-        private EvidenceServer(List<String> paths, UUID storybookId, UUID rulebookId) throws IOException {
+        private EvidenceServer(List<String> paths, List<String> requestBodies, UUID storybookId, UUID rulebookId) throws IOException {
             server = HttpServer.create(new InetSocketAddress(0), 0);
             server.createContext("/", exchange -> {
                 paths.add(exchange.getRequestURI().getPath());
+                requestBodies.add(new String(exchange.getRequestBody().readAllBytes()));
                 String path = exchange.getRequestURI().getPath();
                 String body = switch (path) {
                     case "/internal/v1/story-sources/search" -> """

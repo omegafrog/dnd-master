@@ -3,9 +3,12 @@ package com.dndmaster.adventure.domain.combat;
 import java.util.List;
 import java.util.Objects;
 import java.util.UUID;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 
 /** Player-facing terminal projection: summary only, never a combat replay. */
 public final class PostCombatProjectionPolicy {
+    private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
     private PostCombatProjectionPolicy() {}
 
     public static PostCombatSummary summary(CombatEndProposal proposal, List<CombatEvent> events) {
@@ -38,6 +41,12 @@ public final class PostCombatProjectionPolicy {
     }
 
     private static String value(String payload, String key) {
+        try {
+            JsonNode json = OBJECT_MAPPER.readTree(payload);
+            if (json != null && json.has(key)) return json.path(key).asText("");
+        } catch (Exception ignored) {
+            // Keep compatibility with older event payloads below.
+        }
         String marker = "\"" + key + "\":\"";
         int start = payload.indexOf(marker);
         if (start < 0) return "";

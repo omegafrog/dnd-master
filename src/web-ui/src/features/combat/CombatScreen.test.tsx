@@ -15,8 +15,8 @@ describe('CombatScreen', () => {
 
     expect(screen.getByRole('heading', { name: '전투 종료 요약' })).toBeInTheDocument()
     expect(screen.getByText('적을 물리쳤습니다.')).toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'Combat Log' })).not.toBeInTheDocument()
-    expect(screen.queryByRole('heading', { name: 'GM Narration' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '판정 결과' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: '게임 마스터 서술' })).not.toBeInTheDocument()
     expect(screen.getByText(/상세 전투 기록은 종료 후 제공되지 않습니다/)).toBeInTheDocument()
   })
 
@@ -25,9 +25,9 @@ describe('CombatScreen', () => {
       { participantId: 'p1', displayName: '영웅', controller: 'PLAYER', initiative: 15, publicCondition: 'healthy' },
       { participantId: 'p2', displayName: '고블린', controller: 'AI', initiative: 10, publicCondition: null },
     ] }} />)
-    expect(screen.getByRole('heading', { name: '전투 · Round 1' })).toBeInTheDocument()
-    expect(screen.getByText(/현재 턴: 영웅/)).toBeInTheDocument()
-    expect(screen.getByText(/이동 30ft/)).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '전투 · 1라운드' })).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('현재 차례영웅')
+    expect(screen.getByText('30ft')).toBeInTheDocument()
     expect(screen.queryByText(/AC|HP|정확한/)).not.toBeInTheDocument()
   })
 
@@ -38,13 +38,15 @@ describe('CombatScreen', () => {
     const api = { readSnapshot: vi.fn(), submitAction, endTurn }
     const snapshot = { encounterId: 'e1', adventureId: 'a1', status: 'ACTIVE' as const, round: 1, currentParticipantId: 'p1', version: 3, eventCursor: 2, resources: { movement: 30, actionAvailable: true, bonusActionAvailable: false, reactionAvailable: true }, initiative: [
       { participantId: 'p1', displayName: '영웅', controller: 'PLAYER' as const, initiative: 15, publicCondition: 'healthy' },
+      { participantId: 'e1', displayName: '거대 쥐', controller: 'AI' as const, initiative: 10, publicCondition: null },
     ] }
 
     render(<CombatScreen snapshot={snapshot} api={api} />)
-    await user.click(screen.getByRole('button', { name: '공격 실행' }))
+    await user.selectOptions(screen.getByRole('combobox', { name: '공격 대상' }), 'e1')
+    await user.click(screen.getByRole('button', { name: '공격' }))
     await user.click(screen.getByRole('button', { name: '턴 종료' }))
 
-    expect(submitAction).toHaveBeenCalledWith('a1', expect.objectContaining({ characterSheetId: 'p1', action: 'attack' }), 3)
+    expect(submitAction).toHaveBeenCalledWith('a1', expect.objectContaining({ characterSheetId: 'p1', action: 'attack', targetCharacterSheetId: 'e1' }), 3)
     expect(endTurn).toHaveBeenCalledWith('a1', 'p1', 3)
   })
 
@@ -58,14 +60,14 @@ describe('CombatScreen', () => {
       narrativePositions: [{ subjectId: 'p1', targetId: 'p2', rangeBand: 'NEAR', cover: 'HALF' }],
       initiative: [{ participantId: 'p1', displayName: '영웅', controller: 'PLAYER', initiative: 15, publicCondition: 'healthy' }] }} />)
 
-    expect(screen.getByText('상대적 위치: NEAR · 엄폐: HALF')).toBeInTheDocument()
+    expect(screen.getByText('거리: NEAR · 엄폐: HALF')).toBeInTheDocument()
     await user.type(screen.getByRole('textbox', { name: '이동 경로' }), '0,0;1,0')
     await user.click(screen.getByRole('button', { name: '이동 실행' }))
 
     expect(submitMovement).toHaveBeenCalledWith('a1', expect.objectContaining({ action: 'MOVE', movementPath: [{ x: 0, y: 0 }, { x: 1, y: 0 }] }), 4)
   })
 
-  it('keeps free-form input, Combat Log, and GM narration in separate areas', async () => {
+  it('keeps player action input, result, and game master narration in separate areas', async () => {
     const user = userEvent.setup()
     const submitFreeForm = vi.fn(async () => ({ status: 'COMMITTED', judgment: '햄이 명중했습니다.', narration: '고블린이 움찔합니다.' }))
     const api = { readSnapshot: vi.fn(), submitAction: vi.fn(), submitFreeForm, endTurn: vi.fn() }
@@ -74,14 +76,14 @@ describe('CombatScreen', () => {
       resources: { movement: 30, actionAvailable: true, bonusActionAvailable: true, reactionAvailable: true },
       initiative: [{ participantId: 'p1', displayName: '영웅', controller: 'PLAYER', initiative: 15, publicCondition: 'healthy' }] }} />)
 
-    await user.type(screen.getByRole('textbox', { name: '자유 행동 선언' }), 'throw ham at the goblin')
-    await user.click(screen.getByRole('button', { name: '자유 행동 보내기' }))
+    await user.type(screen.getByRole('textbox', { name: '행동 선언' }), 'throw ham at the goblin')
+    await user.click(screen.getByRole('button', { name: '행동 보내기' }))
 
     expect(submitFreeForm).toHaveBeenCalledWith('a1', 'p1', 'throw ham at the goblin', 4)
-    expect(screen.getByRole('heading', { name: 'Combat Log' })).toBeInTheDocument()
-    expect(screen.getByRole('heading', { name: 'GM Narration' })).toBeInTheDocument()
-    expect(screen.getByRole('list', { name: 'Combat Log' })).toHaveTextContent('햄이 명중했습니다.')
-    expect(screen.getByRole('list', { name: 'GM Narration' })).toHaveTextContent('고블린이 움찔합니다.')
+    expect(screen.getByRole('heading', { name: '판정 결과' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: '게임 마스터 서술' })).toBeInTheDocument()
+    expect(screen.getByRole('list', { name: '판정 결과' })).toHaveTextContent('햄이 명중했습니다.')
+    expect(screen.getByRole('list', { name: '게임 마스터 서술' })).toHaveTextContent('고블린이 움찔합니다.')
   })
 
   it('shows the failed operation and retries that same operation', async () => {
@@ -94,11 +96,11 @@ describe('CombatScreen', () => {
       processingFailure: { operationId: 'op-1', failure: 'AI unavailable', attempts: 3 },
       initiative: [{ participantId: 'p1', displayName: '영웅', controller: 'PLAYER', initiative: 15, publicCondition: 'healthy' }] }} />)
 
-    expect(screen.getByText(/operation: op-1/)).toBeInTheDocument()
+    expect(screen.getByText(/작업 op-1/)).toBeInTheDocument()
     expect(screen.getByText(/시도 3\/3/)).toBeInTheDocument()
     await user.click(screen.getByRole('button', { name: '다시 시도' }))
 
     expect(retry).toHaveBeenCalledWith('a1', 'op-1', 8)
-    expect(screen.getAllByRole('status').at(-1)).toHaveTextContent('RETRY_SCHEDULED · operation op-1')
+    expect(screen.getAllByRole('status').at(-1)).toHaveTextContent('RETRY_SCHEDULED')
   })
 })

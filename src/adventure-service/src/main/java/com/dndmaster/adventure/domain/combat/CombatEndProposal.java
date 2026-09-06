@@ -37,6 +37,11 @@ public record CombatEndProposal(UUID adventureId, UUID encounterId, Source sourc
         return new CombatEndProposal(adventureId, encounterId, Source.GM, reason, summary, true);
     }
 
+    public static CombatEndProposal systemEnemiesDefeated(UUID adventureId, UUID encounterId) {
+        return new CombatEndProposal(adventureId, encounterId, Source.SYSTEM, Reason.ENEMIES_DEFEATED,
+                "모든 적이 쓰러져 전투가 끝났습니다.", true);
+    }
+
     public String reasonCode() { return reason.name(); }
 
     private static Reason parseReason(String value) {

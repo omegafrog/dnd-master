@@ -85,6 +85,16 @@ export function AppShell() {
   const [combatSnapshot, setCombatSnapshot] = useState<CombatSnapshot | null>(null)
   const [combatFinalSummary, setCombatFinalSummary] = useState<CombatFinalSummary | null>(null)
   const [adventureVersion, setAdventureVersion] = useState<number | null>(null)
+  const refreshCombat = useCallback(() => {
+    if (!auth.session || route.page !== 'adventure') return
+    const summaryRequest = combatApi.readFinalSummary
+      ? combatApi.readFinalSummary(route.adventureId)
+      : Promise.resolve(null)
+    void Promise.all([combatApi.readSnapshot(route.adventureId), summaryRequest]).then(([snapshot, summary]) => {
+      setCombatSnapshot(snapshot)
+      setCombatFinalSummary(snapshot ? null : summary)
+    }).catch(() => undefined)
+  }, [auth.session, combatApi, route])
   useEffect(() => {
     if (!auth.session || route.page !== 'adventure') return
     let active = true
@@ -166,7 +176,7 @@ export function AppShell() {
       {route.page === 'setup' && <RulebookSetup api={setupApi} playerId={playerId} sessionApi={sessionApi} asMain={false} />}
       {route.page === 'bundle' && <BundleDetailPage bundleId={route.bundleId} api={setupApi} playerId={playerId} sessionApi={sessionApi} />}
       {route.page === 'adventures' && <SavedAdventurePanel playApi={playApi} setupApi={setupApi} playerId={playerId} onResumed={adventureId => { window.location.hash = `#/adventures/${adventureId}` }} />}
-      {route.page === 'adventure' && (combatSnapshot && combatSnapshot.status !== 'ENDED' ? <CombatScreen snapshot={combatSnapshot} api={combatApi} /> : <>
+      {route.page === 'adventure' && (combatSnapshot && combatSnapshot.status !== 'ENDED' ? <CombatScreen snapshot={combatSnapshot} api={combatApi} onCommandCommitted={refreshCombat} map={<CombatMapView adventureId={route.adventureId} api={playApi} refreshToken={mapRefreshToken} compact />} /> : <>
         {combatFinalSummary && <section className="combat-final-summary" aria-labelledby="combat-final-summary-title">
           <p className="eyebrow">COMBAT COMPLETE</p>
           <h2 id="combat-final-summary-title">전투 종료 요약</h2>

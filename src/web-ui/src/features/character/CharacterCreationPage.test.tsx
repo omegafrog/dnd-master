@@ -179,6 +179,7 @@ describe("CharacterCreationPage", () => {
     const draft = createCharacterSheet.mock.calls[0][0];
     expect(draft.ownerPlayerId).toBe("player-1");
     expect(addMember).toHaveBeenCalledWith("session-1", 0, expect.objectContaining({ characterSheetId: "sheet-1", controlMode: "DIRECT" }));
+    expect(JSON.parse(draft.characterState).currentHitPoints).toBe(8);
     const build = JSON.parse(draft.characterBuild) as { baseStats: number[]; stats: number[]; raceBonus: number[]; learnedSpells: string[]; schemaVersion: number; skillProficiencies: string[]; equipmentSelections: Record<string, string>; equippedItems: { armor: string; shield: boolean } };
     expect(build.baseStats).toEqual([15, 14, 13, 12, 10, 8]);
     expect(build.stats).toEqual([16, 15, 14, 13, 11, 9]);

@@ -14,6 +14,7 @@ import com.dndmaster.adventure.application.combat.CombatActorRole;
 import com.dndmaster.adventure.application.combat.CombatEncounterRepository;
 import com.dndmaster.adventure.application.combat.CombatEventRepository;
 import com.dndmaster.adventure.application.combat.DiceCombatPort;
+import com.dndmaster.adventure.application.combat.RuntimeCombatRejectionException;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.RuleSetId;
@@ -59,6 +60,17 @@ class CombatActionPolicyTest {
         assertEquals(true, fixture.encounters.value.participants().get(0).resources().actionAvailable());
         assertEquals(0, fixture.calls.characterMutations);
         assertEquals(1, fixture.operations.values.size());
+        assertEquals(CombatActionOperation.Status.PROCESSING_FAILED,
+                fixture.operations.values.get(command.operationId()).status());
+    }
+
+    @Test
+    void propagates_runtime_character_rejection_instead_of_mapping_it_to_external_failure() {
+        CombatActionCommand command = command(UUID.randomUUID(), heroId, 1);
+        Fixture fixture = fixture(command);
+        fixture.calls.rejectCharacter = true;
+
+        assertThrows(RuntimeCombatRejectionException.class, () -> fixture.service.submit(command));
         assertEquals(CombatActionOperation.Status.PROCESSING_FAILED,
                 fixture.operations.values.get(command.operationId()).status());
     }
@@ -122,7 +134,12 @@ class CombatActionPolicyTest {
         Calls calls = new Calls();
         DiceCombatPort dice = ignored -> { calls.dice++; return 18; };
         CharacterCombatPort character = new CharacterCombatPort() {
-            @Override public void requireUsableCharacter(CombatActionCommand ignored) { calls.character++; }
+            @Override public void requireUsableCharacter(CombatActionCommand ignored) {
+                calls.character++;
+                if (calls.rejectCharacter) {
+                    throw new RuntimeCombatRejectionException(RuntimeCombatRejectionException.ZERO_HIT_POINTS_MESSAGE);
+                }
+            }
             @Override public void applyOutcome(CombatActionCommand ignored, com.dndmaster.adventure.application.combat.CombatOutcome ignoredOutcome) {
                 if (calls.failCharacter) throw new IllegalStateException("character unavailable");
                 calls.characterMutations++;
@@ -165,5 +182,6 @@ class CombatActionPolicyTest {
         private int character;
         private int characterMutations;
         private boolean failCharacter;
+        private boolean rejectCharacter;
     }
 }

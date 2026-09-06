@@ -17,21 +17,32 @@ public final class CombatLifecycleApplicationService {
     private final CombatMapPort mapPort;
     private final CombatActionOperationRepository operationRepository;
     private final CombatWorkItemRepository workItemRepository;
+    private final CombatWorkItemScheduler workItemScheduler;
     private final CombatEndGuard endGuard;
     public CombatLifecycleApplicationService(CombatEncounterRepository repository) {
         this.repository = repository; this.eventRepository = null; this.adventureRepository = null;
         this.characterPort = null; this.mapPort = null; this.operationRepository = null;
         this.workItemRepository = null; this.endGuard = new CombatEndGuard();
+        this.workItemScheduler = null;
     }
     public CombatLifecycleApplicationService(CombatEncounterRepository repository, CombatEventRepository eventRepository) {
         this.repository = repository; this.eventRepository = eventRepository;
         this.adventureRepository = null; this.characterPort = null; this.mapPort = null;
         this.operationRepository = null; this.workItemRepository = null; this.endGuard = new CombatEndGuard();
+        this.workItemScheduler = null;
     }
     public CombatLifecycleApplicationService(CombatEncounterRepository repository, CombatEventRepository eventRepository,
                                              AdventureRepository adventureRepository, CharacterCombatPort characterPort,
                                              CombatMapPort mapPort, CombatActionOperationRepository operationRepository,
                                              CombatWorkItemRepository workItemRepository) {
+        this(repository, eventRepository, adventureRepository, characterPort, mapPort, operationRepository,
+                workItemRepository, null);
+    }
+    public CombatLifecycleApplicationService(CombatEncounterRepository repository, CombatEventRepository eventRepository,
+                                             AdventureRepository adventureRepository, CharacterCombatPort characterPort,
+                                             CombatMapPort mapPort, CombatActionOperationRepository operationRepository,
+                                             CombatWorkItemRepository workItemRepository,
+                                             CombatWorkItemScheduler workItemScheduler) {
         this.repository = repository;
         this.eventRepository = eventRepository;
         this.adventureRepository = adventureRepository;
@@ -39,6 +50,7 @@ public final class CombatLifecycleApplicationService {
         this.mapPort = mapPort;
         this.operationRepository = operationRepository;
         this.workItemRepository = workItemRepository;
+        this.workItemScheduler = workItemScheduler;
         this.endGuard = new CombatEndGuard();
     }
     public CombatEncounter startFromCommittedGmTurn(UUID adventureId, boolean gmTurnCommitted,
@@ -63,7 +75,20 @@ public final class CombatLifecycleApplicationService {
                     "{\"encounterId\":\"" + saved.encounterId() + "\",\"round\":1,\"currentParticipantId\":\""
                             + saved.currentParticipantId() + "\"}"));
         }
+        scheduleFirstAiTurn(saved);
         return saved;
+    }
+
+    private void scheduleFirstAiTurn(CombatEncounter encounter) {
+        if (workItemScheduler == null || adventureRepository == null
+                || encounter.currentParticipant().controller() != CombatParticipant.Controller.AI) return;
+        Adventure adventure = adventureRepository.findById(new com.dndmaster.adventure.domain.adventure.AdventureId(encounter.adventureId()))
+                .orElseThrow(() -> new IllegalStateException("adventure disappeared after combat start"));
+        UUID actorId = encounter.currentParticipantId();
+        CombatActionCommand template = new CombatActionCommand(UUID.randomUUID(), adventure.id(), adventure.sessionId().value(),
+                adventure.ruleSetId(), new com.dndmaster.adventure.domain.adventure.CharacterSheetId(actorId), null,
+                CombatActorRole.AI, "AI_TURN", null, adventure.ownerPlayerId().value(), actorId, encounter.version());
+        workItemScheduler.scheduleNext(template, encounter, 0, AiTacticalInstructionContext.none());
     }
 
     /**
@@ -81,6 +106,26 @@ public final class CombatLifecycleApplicationService {
         boolean pendingWork = workItemRepository != null && workItemRepository.hasPendingForEncounter(encounter.encounterId());
         boolean externalEffectsCommitted = !pendingAction && !pendingWork;
         endGuard.requireAllowed(encounter, proposal, pendingAction, pendingWork, externalEffectsCommitted);
+
+        return commitEnd(adventureId, encounter, proposal);
+    }
+
+    /** 모든 적의 현재 HP가 0이 된 경우에만 내부에서 호출하는 종료 경로입니다. */
+    public CombatEndResult endWhenEnemiesDefeated(UUID adventureId) {
+        CombatEncounter encounter = repository.findActive(adventureId)
+                .orElseThrow(() -> new CombatEndRejectedException("COMBAT_NOT_ACTIVE"));
+        if (!encounter.allEnemiesDefeated()) {
+            throw new CombatEndRejectedException("ENEMIES_NOT_DEFEATED");
+        }
+        boolean pendingAction = operationRepository != null && operationRepository.hasPendingForEncounter(encounter.encounterId());
+        boolean pendingWork = workItemRepository != null && workItemRepository.hasPendingForEncounter(encounter.encounterId());
+        endGuard.requireAllowed(encounter, CombatEndProposal.systemEnemiesDefeated(adventureId, encounter.encounterId()),
+                pendingAction, pendingWork, !pendingAction && !pendingWork);
+        return commitEnd(adventureId, encounter,
+                CombatEndProposal.systemEnemiesDefeated(adventureId, encounter.encounterId()));
+    }
+
+    private CombatEndResult commitEnd(UUID adventureId, CombatEncounter encounter, CombatEndProposal proposal) {
 
         if (adventureRepository != null) {
             Adventure adventure = adventureRepository.findById(

@@ -37,9 +37,10 @@ public final class PostgresCombatEncounterRepository implements CombatEncounterR
                         rs.getLong(6), rs.getLong(7)), id);
         if (encounters.isEmpty()) return Optional.empty();
         var encounter = encounters.get(0);
-        var participants = jdbc.query("SELECT participant_id, display_name, controller, initiative, public_condition, movement_remaining, action_available, bonus_action_available, reaction_available FROM combat_participant WHERE encounter_id = ? ORDER BY initiative DESC, participant_id", (rs, n) ->
+        var participants = jdbc.query("SELECT participant_id, display_name, controller, initiative, public_condition, movement_remaining, action_available, bonus_action_available, reaction_available, stat_block_json, current_hit_points FROM combat_participant WHERE encounter_id = ? ORDER BY initiative DESC, participant_id", (rs, n) ->
                 new CombatParticipant(UUID.fromString(rs.getString(1)), rs.getString(2), CombatParticipant.Controller.valueOf(rs.getString(3)), rs.getInt(4), rs.getString(5),
-                        new TurnResources(rs.getInt(6), rs.getBoolean(7), rs.getBoolean(8), rs.getBoolean(9))), encounter.encounterId());
+                        new TurnResources(rs.getInt(6), rs.getBoolean(7), rs.getBoolean(8), rs.getBoolean(9)), readStatBlock(rs.getString(10)),
+                        (Integer) rs.getObject(11)), encounter.encounterId());
         var positions = jdbc.query("SELECT subject_id, target_id, range_band, cover FROM combat_narrative_position WHERE encounter_id = ? ORDER BY subject_id, target_id", (rs, n) ->
                 new NarrativeCombatPosition(rs.getObject(1, UUID.class), rs.getObject(2, UUID.class), rs.getString(3), rs.getString(4)), encounter.encounterId());
         var pending = loadPendingReaction(encounter.encounterId());
@@ -51,9 +52,9 @@ public final class PostgresCombatEncounterRepository implements CombatEncounterR
                 encounter.encounterId(), encounter.adventureId(), encounter.status().name(), encounter.round(), encounter.currentParticipantId(), encounter.version(), encounter.eventCursor(),
                 pendingId(encounter), pendingTrigger(encounter), pendingActor(encounter), pendingOperation(encounter), pendingResumeStep(encounter), pendingOptions(encounter));
         for (var participant : encounter.participants()) {
-            jdbc.update("INSERT INTO combat_participant(encounter_id, participant_id, display_name, controller, initiative, public_condition, movement_remaining, action_available, bonus_action_available, reaction_available) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            jdbc.update("INSERT INTO combat_participant(encounter_id, participant_id, display_name, controller, initiative, public_condition, movement_remaining, action_available, bonus_action_available, reaction_available, stat_block_json, current_hit_points) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb, ?)",
                     encounter.encounterId(), participant.participantId(), participant.displayName(), participant.controller().name(), participant.initiative(), participant.publicCondition(),
-                    participant.resources().movement(), participant.resources().actionAvailable(), participant.resources().bonusActionAvailable(), participant.resources().reactionAvailable());
+                    participant.resources().movement(), participant.resources().actionAvailable(), participant.resources().bonusActionAvailable(), participant.resources().reactionAvailable(), writeStatBlock(participant), participant.currentHitPoints());
         }
         saveNarrativePositions(encounter);
         return encounter;
@@ -66,9 +67,9 @@ public final class PostgresCombatEncounterRepository implements CombatEncounterR
                 encounter.encounterId(), expectedVersion);
         if (updated != 1) throw new IllegalStateException("COMBAT_VERSION_CONFLICT");
         for (var participant : encounter.participants()) {
-            jdbc.update("UPDATE combat_participant SET movement_remaining = ?, action_available = ?, bonus_action_available = ?, reaction_available = ? WHERE encounter_id = ? AND participant_id = ?",
+            jdbc.update("UPDATE combat_participant SET movement_remaining = ?, action_available = ?, bonus_action_available = ?, reaction_available = ?, current_hit_points = ? WHERE encounter_id = ? AND participant_id = ?",
                     participant.resources().movement(), participant.resources().actionAvailable(), participant.resources().bonusActionAvailable(), participant.resources().reactionAvailable(),
-                    encounter.encounterId(), participant.participantId());
+                    participant.currentHitPoints(), encounter.encounterId(), participant.participantId());
         }
         jdbc.update("DELETE FROM combat_narrative_position WHERE encounter_id = ?", encounter.encounterId());
         saveNarrativePositions(encounter);
@@ -79,6 +80,24 @@ public final class PostgresCombatEncounterRepository implements CombatEncounterR
         for (var position : encounter.narrativePositions()) {
             jdbc.update("INSERT INTO combat_narrative_position(encounter_id, subject_id, target_id, range_band, cover) VALUES (?, ?, ?, ?, ?)",
                     encounter.encounterId(), position.subjectId(), position.targetId(), position.rangeBand(), position.cover());
+        }
+    }
+
+    private CombatEnemyStatBlock readStatBlock(String json) {
+        if (json == null || json.isBlank()) return null;
+        try {
+            return objectMapper.readValue(json, CombatEnemyStatBlock.class);
+        } catch (Exception exception) {
+            throw new IllegalStateException("invalid persisted combat stat block", exception);
+        }
+    }
+
+    private String writeStatBlock(CombatParticipant participant) {
+        if (participant.statBlock() == null) return null;
+        try {
+            return objectMapper.writeValueAsString(participant.statBlock());
+        } catch (Exception exception) {
+            throw new IllegalStateException("could not persist combat stat block", exception);
         }
     }
 

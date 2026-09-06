@@ -44,13 +44,32 @@ public record CombatEncounter(UUID encounterId, UUID adventureId, Status status,
     }
 
     public CombatEncounter commitAction(UUID actorId, TurnResources.Reservation reservation) {
+        return commitAction(actorId, reservation, null, 0);
+    }
+
+    public CombatEncounter commitAction(UUID actorId, TurnResources.Reservation reservation,
+                                        UUID targetId, int damage) {
         if (!currentParticipantId.equals(actorId)) throw new IllegalStateException("NOT_CURRENT_ACTOR");
+        if (damage < 0) throw new IllegalArgumentException("damage must not be negative");
         CombatParticipant actor = currentParticipant();
         CombatParticipant updated = actor.withResources(actor.resources().commit(reservation));
         List<CombatParticipant> updatedParticipants = participants.stream()
                 .map(p -> p.participantId().equals(actorId) ? updated : p).toList();
+        if (targetId != null && damage > 0) {
+            updatedParticipants = updatedParticipants.stream().map(p -> {
+                if (!p.participantId().equals(targetId) || p.statBlock() == null || p.currentHitPoints() == null) return p;
+                return p.withCurrentHitPoints(Math.max(0, p.currentHitPoints() - damage));
+            }).toList();
+        }
         return new CombatEncounter(encounterId, adventureId, status, round, currentParticipantId,
                 updatedParticipants, version + 1, eventCursor + 2, narrativePositions);
+    }
+
+    public boolean allEnemiesDefeated() {
+        List<CombatParticipant> enemies = participants.stream()
+                .filter(p -> p.controller() == CombatParticipant.Controller.AI && p.statBlock() != null)
+                .toList();
+        return !enemies.isEmpty() && enemies.stream().allMatch(CombatParticipant::isDefeated);
     }
 
     public CombatEncounter commitMovement(UUID actorId, TurnResources.Reservation reservation,

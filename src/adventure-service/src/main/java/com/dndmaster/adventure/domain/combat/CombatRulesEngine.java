@@ -53,10 +53,23 @@ public final class CombatRulesEngine {
         if (proposal.effects().hasCharacterEffects() && proposal.targetId() == null) {
             violations.add("TARGET_REQUIRED_FOR_EFFECT");
         }
-        if (proposal.requiresRoll() && (proposal.targetArmorClass() == null || proposal.attackModifier() == null)) {
+        Integer targetArmorClass = proposal.targetArmorClass();
+        if (targetArmorClass == null && proposal.targetId() != null) {
+            targetArmorClass = encounter.participants().stream()
+                    .filter(participant -> participant.participantId().equals(proposal.targetId()))
+                    .map(CombatParticipant::statBlock)
+                    .filter(java.util.Objects::nonNull)
+                    .map(CombatEnemyStatBlock::armorClass)
+                    .findFirst().orElse(null);
+        }
+        Integer attackModifier = proposal.attackModifier();
+        if (attackModifier == null && encounter.currentParticipant().statBlock() != null) {
+            attackModifier = encounter.currentParticipant().statBlock().attackModifier();
+        }
+        if (proposal.requiresRoll() && (targetArmorClass == null || attackModifier == null)) {
             violations.add("ROLL_REQUIRED_FOR_ATTACK");
         }
-        if ((proposal.targetArmorClass() == null) != (proposal.attackModifier() == null)) {
+        if ((targetArmorClass == null) != (attackModifier == null)) {
             violations.add("ROLL_CONFIGURATION_INCOMPLETE");
         }
         if (proposal.effects().mapEffect() != null

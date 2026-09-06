@@ -43,4 +43,19 @@ class PostCombatProjectionPolicyTest {
         assertFalse(projection.detailedReplayAvailable());
         assertEquals(List.of(), projection.replay());
     }
+
+    @Test
+    void restores_summary_from_postgresql_json_with_whitespace() {
+        UUID adventureId = UUID.randomUUID();
+        UUID encounterId = UUID.randomUUID();
+        var event = new CombatEvent(encounterId, 9, "COMBAT_ENDED",
+                "{\"reason\": \"ENEMIES_DEFEATED\", \"summary\": \"모든 적이 쓰러졌습니다.\", \"adventureId\": \""
+                        + adventureId + "\"}");
+
+        var projection = PostCombatProjectionPolicy.fromEndedEvent(event);
+
+        assertEquals(adventureId, projection.adventureId());
+        assertEquals("ENEMIES_DEFEATED", projection.reason());
+        assertEquals("모든 적이 쓰러졌습니다.", projection.summary());
+    }
 }

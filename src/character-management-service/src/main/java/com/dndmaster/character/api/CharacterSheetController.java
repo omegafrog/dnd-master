@@ -23,7 +23,10 @@ public class CharacterSheetController {
             int max = node == null ? 0 : node.path("hitPointMaximum").asInt(0);
             if (max <= 0) return state;
             var result = state == null || state.isBlank() ? mapper.createObjectNode() : (com.fasterxml.jackson.databind.node.ObjectNode) mapper.readTree(state);
-            if (result.has("currentHitPoints")) return state;
+            var currentHitPoints = result.get("currentHitPoints");
+            if (currentHitPoints != null && currentHitPoints.isIntegralNumber() && currentHitPoints.asInt() > 0) {
+                return state;
+            }
             result.put("currentHitPoints", max);
             return result.toString();
         } catch (Exception ignored) { return state; }

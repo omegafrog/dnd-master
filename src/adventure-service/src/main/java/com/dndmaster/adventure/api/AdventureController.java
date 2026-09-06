@@ -33,6 +33,8 @@ import com.dndmaster.adventure.application.combat.CombatMapPort;
 import com.dndmaster.adventure.application.combat.CharacterCombatPort;
 import com.dndmaster.adventure.application.combat.RuntimeCombatRejectionException;
 import com.dndmaster.adventure.application.combat.CombatActionApplicationService;
+import com.dndmaster.adventure.application.combat.CombatStartParticipantFactory;
+import com.dndmaster.adventure.application.combat.CombatStartTransitionPolicy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @RestController
@@ -192,24 +194,21 @@ public class AdventureController {
         gmTurnRepository.save(turn.process().commit(providerMetadata), adventureId);
         GmTurn committedTurn = turn.process().commit(providerMetadata);
         com.dndmaster.adventure.application.runtime.GmTurnCommitPolicy.requirePublishable(committedTurn, result.version());
-        if (interactionType(input.actionText()).equals("combat")) {
+        if (result.turn().plan().combatStartRequested()) {
+            Adventure committedAdventure = adventureRepository.findById(new AdventureId(adventureId))
+                    .orElseThrow(() -> new IllegalStateException("adventure disappeared after runtime commit"));
+            CombatStartTransitionPolicy.requireCommittedCombatSituation(committedAdventure.currentSituation(),
+                    result.turn().plan().combatEnemies());
             combatLifecycleService.startFromCommittedGmTurn(adventureId, committedTurn,
                     new com.dndmaster.adventure.domain.combat.CombatStartProposal(true,
-                            adventure.party().stream().map(member -> new com.dndmaster.adventure.domain.combat.CombatParticipant(
-                                    member.characterSheetId().value(), member.characterSheetId().value().toString(),
-                                    member.controlMode() == ControlMode.AGENT
-                                            ? com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.AI
-                                            : com.dndmaster.adventure.domain.combat.CombatParticipant.Controller.PLAYER,
-                                    0, null)).toList()));
+                            CombatStartParticipantFactory.fromPartyAndGmProposal(adventureId, adventure.party(),
+                                    result.turn().plan().combatEnemies(), member -> characterCombatPort.displayName(
+                                            member.characterSheetId().value(), adventure.ownerPlayerId().value(),
+                                            adventure.sessionId().value()))));
         }
         sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
                 result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
         return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
-    }
-
-    private static String interactionType(String action) {
-        String lower = action.toLowerCase(java.util.Locale.ROOT);
-        return lower.contains("attack") || lower.contains("fight") || lower.contains("공격") ? "combat" : "action";
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/turns/{pendingTurnId}/roll")
