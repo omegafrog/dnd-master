@@ -42,19 +42,79 @@ class TypedAgentContractControllerTest {
             public <T> T complete(String operation, String value,
                     com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
                 prompt.set(value);
-                return parser.parse("{\"scene\":\"brewery\",\"judgment\":\"safe\",\"narration\":\"The room is quiet.\"}");
+                return parser.parse("{\"scene\":\"brewery\",\"judgment\":\"safe\",\"narration\":\"The room is quiet.\",\"situation\":" + situation("SCENARIO", "cellar-rat-ambush") + ",\"combatStart\":true,\"combatEnemies\":[{\"scenarioId\":\"cellar-rat-ambush\",\"enemyKey\":\"giant-rat\",\"name\":\"Giant Rat\",\"count\":8}]}");
             }
         };
 
         TypedAgentContractController controller = new TypedAgentContractController(
                 adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
 
-        controller.runtimeTurn("service-secret",
+        TypedAgentContractController.RuntimeTurnResponse response = controller.runtimeTurn("service-secret",
                 new TypedAgentContractController.RuntimeTurnRequest("op", "look around", List.of()));
 
+        org.junit.jupiter.api.Assertions.assertTrue(response.combatStart());
+        org.junit.jupiter.api.Assertions.assertEquals("cellar-rat-ambush", response.combatEnemies().get(0).scenarioId());
+        org.junit.jupiter.api.Assertions.assertEquals(8, response.combatEnemies().get(0).count());
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("OUTPUT_CONTRACT"));
-        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("scene, judgment, narration"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("scene, judgment, narration, situation, combatStart, and combatEnemies"));
+        org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("MANDATORY: if a hostile creature"));
         org.junit.jupiter.api.Assertions.assertTrue(prompt.get().contains("Do not use markdown"));
+    }
+
+    @Test
+    void runtime_turn_rejects_a_missing_combat_start_decision() {
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override
+            public <T> T complete(String operation, String prompt,
+                    com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                return parser.parse("{\"scene\":\"brewery\",\"judgment\":\"safe\",\"narration\":\"The room is quiet.\"}");
+            }
+        };
+        TypedAgentContractController controller = new TypedAgentContractController(
+                adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> controller.runtimeTurn("service-secret",
+                        new TypedAgentContractController.RuntimeTurnRequest("op", "look around", List.of())));
+    }
+
+    @Test
+    void runtime_turn_rejects_combat_without_a_structured_enemy_name() {
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override
+            public <T> T complete(String operation, String prompt,
+                    com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                return parser.parse("{\"scene\":\"brewery\",\"judgment\":\"combat\",\"narration\":\"The door bursts open.\",\"situation\":" + situation("FALLBACK", "") + ",\"combatStart\":true,\"combatEnemies\":[]}");
+            }
+        };
+        TypedAgentContractController controller = new TypedAgentContractController(
+                adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        org.junit.jupiter.api.Assertions.assertThrows(IllegalArgumentException.class,
+                () -> controller.runtimeTurn("service-secret",
+                        new TypedAgentContractController.RuntimeTurnRequest("op", "look around", List.of())));
+    }
+
+    @Test
+    void runtime_turn_accepts_an_explicit_instant_combat_mode_without_a_scenario_id() {
+        GmCompletionAdapter adapter = new GmCompletionAdapter() {
+            @Override
+            public <T> T complete(String operation, String prompt,
+                    com.dndmaster.aigamemaster.infrastructure.ai.StructuredResponseParser<T> parser) {
+                return parser.parse("{\"scene\":\"cellar\",\"judgment\":\"critical failure\","
+                        + "\"narration\":\"The noise draws a giant rat.\",\"situation\":" + situation("FALLBACK", "") + ",\"combatStart\":true,"
+                        + "\"combatEnemies\":[{\"mode\":\"INSTANT\",\"scenarioId\":\"\","
+                        + "\"enemyKey\":\"giant-rat\",\"name\":\"Giant Rat\",\"count\":1}]}");
+            }
+        };
+        TypedAgentContractController controller = new TypedAgentContractController(
+                adapter, new ObjectMapper(), new ApiRequestGuard("service-secret"));
+
+        var response = controller.runtimeTurn("service-secret",
+                new TypedAgentContractController.RuntimeTurnRequest("op", "critical failure", List.of()));
+
+        org.junit.jupiter.api.Assertions.assertEquals("INSTANT", response.combatEnemies().get(0).mode());
+        org.junit.jupiter.api.Assertions.assertEquals("", response.combatEnemies().get(0).scenarioId());
     }
 
     private static GmCompletionAdapter emptyAdapter() {
@@ -65,5 +125,11 @@ class TypedAgentContractControllerTest {
                 throw new AssertionError("provider must not be called by authorization tests");
             }
         };
+    }
+
+    private static String situation(String basis, String reference) {
+        return "{\"kind\":\"TRANSITION\",\"location\":\"cellar\",\"problem\":\"find the threat\","
+                + "\"threat\":\"a hostile creature\",\"goal\":\"stay safe\",\"basis\":\"" + basis
+                + "\",\"reference\":\"" + reference + "\",\"required\":true}";
     }
 }

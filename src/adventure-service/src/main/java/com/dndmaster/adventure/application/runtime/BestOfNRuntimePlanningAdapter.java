@@ -8,14 +8,22 @@ import java.util.Set;
 public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort {
     private final RuntimePlanningPort delegate;
     private final int requestedCount;
+    private final int retryCount;
     private final boolean simpleTurn;
     private final PlanAuditPort audit;
 
     public BestOfNRuntimePlanningAdapter(RuntimePlanningPort legacy, int requestedCount, boolean simpleTurn,
                                          PlanAuditPort audit) {
+        this(legacy, requestedCount, 0, simpleTurn, audit);
+    }
+
+    public BestOfNRuntimePlanningAdapter(RuntimePlanningPort legacy, int requestedCount, int retryCount,
+                                         boolean simpleTurn, PlanAuditPort audit) {
         this.delegate = java.util.Objects.requireNonNull(legacy);
         if (requestedCount < 1) throw new IllegalArgumentException("requested candidate count must be positive");
+        if (retryCount < 0) throw new IllegalArgumentException("retry count must not be negative");
         this.requestedCount = requestedCount;
+        this.retryCount = retryCount;
         this.simpleTurn = simpleTurn;
         this.audit = java.util.Objects.requireNonNull(audit);
     }
@@ -30,7 +38,7 @@ public final class BestOfNRuntimePlanningAdapter implements RuntimePlanningPort 
         int count = PlanningContext.boundedCandidateCount(requestedCount, simpleTurn);
         List<RuntimePlan> plans = new ArrayList<>();
         boolean decomposed = delegate instanceof GmAgentRuntimePlanningAdapter;
-        for (int i = 0; i < count; i++) {
+        for (int i = 0; i < count + retryCount && plans.size() < count; i++) {
             try {
                 plans.add(decomposed
                         ? ((GmAgentRuntimePlanningAdapter) delegate).planWithoutTools(request)

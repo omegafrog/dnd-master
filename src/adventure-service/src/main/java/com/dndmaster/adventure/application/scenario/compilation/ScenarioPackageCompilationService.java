@@ -40,6 +40,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class ScenarioPackageCompilationService {
+    private static final String SCENARIO_MODEL_COMPILATION_VERSION = "scenario-model-v2";
     private static final String COMPILER_VERSION = "resolution-compiler-v3";
     private static final String DICE_PATTERN = "(?i)\\d+d\\d+(?:\\s*[+-]\\s*\\d+)?";
     private static final String RECHARGE_PATTERN = "\\d+\\s*-\\s*\\d+";
@@ -153,6 +154,9 @@ public final class ScenarioPackageCompilationService {
         List<ResolutionOverride> allOverrides = mergeOverrides(storedOverrides, requestedOverrides);
         OverrideApplicationResult overrideResult = applyOverrides(requested, allOverrides);
         String fingerprint = fingerprint(bundle, overrideResult.effectiveCandidates(), overrideResult.overrides());
+        if (scenarioModel != null) {
+            fingerprint += ":" + SCENARIO_MODEL_COMPILATION_VERSION;
+        }
         if (characterCandidates != null) {
             fingerprint += ":character:" + characterCandidates.stream().filter(Objects::nonNull)
                     .map(candidate -> candidate.key() + "|" + candidate.inputMode() + "|" + candidate.options()

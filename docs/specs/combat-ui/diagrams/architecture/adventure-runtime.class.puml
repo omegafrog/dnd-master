@@ -1,0 +1,154 @@
+@startuml
+' Architecture contract: UC-001..UC-010; BR-001..BR-012; AC-001..AC-022
+title Adventure Runtime Combat Class Design
+skinparam shadowing false
+skinparam packageStyle rectangle
+
+package "Adventure Runtime / domain.combat" {
+  class CombatEncounter <<Aggregate Root>> {
+    +id: CombatEncounterId
+    +adventureId: AdventureId
+    +status: CombatEncounterStatus
+    +round: RoundNumber
+    +turnIndex: int
+    +version: long
+    +start(initiativeOrder)
+    +reserveAction(commandId, intent)
+    +commitAction(commandId, resolution)
+    +requestReaction(prompt, resumeState)
+    +resolveReaction(decision)
+    +endCurrentTurn()
+    +markProcessingFailed(failure)
+    +end(result)
+  }
+
+  enum CombatEncounterStatus {
+    PREPARING
+    PLAYER_TURN
+    AI_TURN
+    ACTION_PROCESSING
+    REACTION_PENDING
+    PROCESSING_FAILED
+    ENDING
+    ENDED
+  }
+
+  class CombatParticipant <<Entity>> {
+    +participantId: CombatParticipantId
+    +controller: HUMAN | AI_PARTY | AI_GM
+    +characterSheetId: CharacterSheetId
+    +initiative: Initiative
+    +resources: TurnResources
+  }
+
+  class TurnResources <<Value Object>> {
+    +movementRemaining
+    +actionAvailable
+    +bonusActionAvailable
+    +reactionAvailable
+    +reserve(cost)
+    +commit(reservation)
+    +release(reservation)
+  }
+
+  class ReactionInterrupt <<Value Object>> {
+    +reactionId: UUID
+    +trigger
+    +eligibleParticipantId
+    +options
+    +resumeState
+  }
+
+  class NarrativeCombatPosition <<Value Object>> {
+    +subjectId
+    +targetId
+    +rangeBand
+    +cover
+  }
+
+  class CombatEvent <<Immutable Record>> {
+    +sequence: long
+    +type
+    +internalPayload
+    +visibility
+    +occurredAt
+  }
+
+  class CombatRulesEngine <<Domain Service>> {
+    +determineInitiative(context)
+    +validateAction(context, intent)
+    +resolveAction(context, rolls)
+    +detectReactions(resolution)
+    +initializeTurnResources(rules)
+  }
+}
+
+package "Adventure Runtime / application.combat" {
+  class CombatLifecycleApplicationService
+  class CombatActionApplicationService
+  class CombatAutoProgressionService
+  class CombatProjectionService
+  class CombatActionOperation <<Durable Saga>> {
+    +commandId: UUID
+    +fingerprint
+    +status
+    +retryCount
+    +reservedCost
+    +lastFailure
+  }
+  interface CombatEncounterRepository
+  interface CombatEventRepository
+  interface CharacterCombatPort
+  interface DiceCombatPort
+  interface CombatMapPort
+  interface AiCombatDecisionPort
+}
+
+package "Owned external contexts" {
+  class CharacterManagement
+  class DiceRoll
+  class CombatMap
+  class AIGameMaster
+}
+
+CombatEncounter --> CombatEncounterStatus
+CombatEncounter "1" *-- "1..*" CombatParticipant
+CombatParticipant *-- TurnResources
+CombatEncounter "1" o-- "0..1" ReactionInterrupt
+CombatEncounter "1" o-- "0..*" NarrativeCombatPosition
+CombatEncounter "1" --> "0..*" CombatEvent : appends
+CombatEncounter ..> CombatRulesEngine : delegates deterministic rules
+
+CombatLifecycleApplicationService --> CombatEncounterRepository
+CombatLifecycleApplicationService --> DiceCombatPort : initiative
+CombatLifecycleApplicationService --> AiCombatDecisionPort : start/end proposal
+CombatActionApplicationService --> CombatEncounterRepository
+CombatActionApplicationService --> CombatEventRepository
+CombatActionApplicationService --> CombatRulesEngine
+CombatActionApplicationService --> CombatActionOperation
+CombatActionApplicationService --> CharacterCombatPort
+CombatActionApplicationService --> DiceCombatPort
+CombatActionApplicationService --> CombatMapPort : optional map
+CombatActionApplicationService --> AiCombatDecisionPort : free-form plan
+CombatAutoProgressionService --> CombatActionApplicationService
+CombatAutoProgressionService --> AiCombatDecisionPort : AI action/reaction
+CombatProjectionService --> CombatEncounterRepository
+CombatProjectionService --> CombatEventRepository
+
+CharacterCombatPort ..> CharacterManagement
+DiceCombatPort ..> DiceRoll
+CombatMapPort ..> CombatMap
+AiCombatDecisionPort ..> AIGameMaster
+
+note bottom of CombatEncounter
+Owns combat lifecycle, ordering, resources, and interrupts.
+Does not own HP, inventory, dice records, or map positions.
+end note
+
+note bottom of CombatActionOperation
+Validates before reservation.
+External commands are idempotent.
+Commit consumes resources only after required effects succeed.
+end note
+
+@enduml

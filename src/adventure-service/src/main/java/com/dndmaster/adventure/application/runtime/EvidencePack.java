@@ -21,4 +21,13 @@ public record EvidencePack(List<RuntimeEvidence> storybook, List<RuntimeEvidence
     public int totalEvidenceCount() {
         return storybook.size() + rulebook.size() + resolution.size();
     }
+
+    public EvidencePack prioritizingRulebook(List<RuntimeEvidence> additionalRulebook) {
+        List<RuntimeEvidence> prioritized = java.util.stream.Stream.concat(
+                        additionalRulebook == null ? java.util.stream.Stream.empty() : additionalRulebook.stream(),
+                        rulebook.stream())
+                .filter(Objects::nonNull).distinct().toList();
+        int room = Math.max(0, 8 - storybook.size() - resolution.size());
+        return new EvidencePack(storybook, prioritized.stream().limit(room).toList(), resolution);
+    }
 }

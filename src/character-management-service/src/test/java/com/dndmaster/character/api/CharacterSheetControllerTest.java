@@ -134,7 +134,7 @@ class CharacterSheetControllerTest {
     }
 
     @Test
-    void preservesExplicitZeroRuntimeHitPointsOnCreation() throws Exception {
+    void initializesExplicitZeroRuntimeHitPointsFromMaximumOnCreation() throws Exception {
         UUID adventureId = UUID.fromString("22222222-2222-2222-2222-222222222222");
         CharacterSheet sheet = new CharacterSheet(new CharacterSheetId(UUID.fromString("11111111-1111-1111-1111-111111111111")),
                 new AdventureId(adventureId), SheetEdition.DND_5E_2024, new CharacterSheetData2024("Aria", 1, false));
@@ -150,7 +150,7 @@ class CharacterSheetControllerTest {
 
         var captor = org.mockito.ArgumentCaptor.forClass(com.dndmaster.character.application.CreateCharacterSheetCommand.class);
         verify(service).createSheet(captor.capture());
-        org.junit.jupiter.api.Assertions.assertEquals(0,
+        org.junit.jupiter.api.Assertions.assertEquals(12,
                 new com.fasterxml.jackson.databind.ObjectMapper().readTree(captor.getValue().data().characterState()).path("currentHitPoints").asInt());
     }
 

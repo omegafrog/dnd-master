@@ -39,6 +39,16 @@ public final class CrossContextHttpCombatGateway
         this.internalToken = internalToken == null ? "" : internalToken;
     }
 
+    /**
+     * Character and map mutations are already committed by their idempotent
+     * action steps. The terminal hook is an owning-service acknowledgement
+     * boundary and deliberately does not copy foreign state locally.
+     */
+    @Override
+    public void commitFinalState(CombatFinalizationCommand command) {
+        Objects.requireNonNull(command, "combat finalization command must not be null");
+    }
+
     @Override
     public void requireUsableCharacter(CombatActionCommand command) {
         CharacterSheetView character = readCharacterSheet(command);
@@ -46,6 +56,66 @@ public final class CrossContextHttpCombatGateway
             throw new RuntimeCombatRejectionException(RuntimeCombatRejectionException.ZERO_HIT_POINTS_MESSAGE);
         }
         characterSheetViews.put(command.operationId(), character);
+    }
+
+    @Override
+    public Integer attackModifier(CombatActionCommand command) {
+        CharacterSheetView character = characterSheetViews.computeIfAbsent(command.operationId(), ignored -> readCharacterSheet(command));
+        try {
+            JsonNode derived = objectMapper.readTree(character.derivedStatistics());
+            JsonNode modifiers = derived.path("abilityModifiers");
+            int strength = modifiers.path("strength").isInt()
+                    ? modifiers.path("strength").asInt()
+                    : Math.floorDiv(derived.path("abilityScores").path("strength").asInt(10) - 10, 2);
+            return strength + 2 + Math.max(0, (character.level() - 1) / 4);
+        } catch (IOException exception) {
+            return null;
+        }
+    }
+
+    @Override
+    public Integer damageAmount(CombatActionCommand command) {
+        CharacterSheetView character = characterSheetViews.computeIfAbsent(command.operationId(), ignored -> readCharacterSheet(command));
+        try {
+            JsonNode attacks = objectMapper.readTree(character.derivedStatistics()).path("attacks");
+            if (!attacks.isArray() || attacks.isEmpty()) return null;
+            String damage = attacks.get(0).path("damage").asText("").replace(" ", "");
+            java.util.regex.Matcher dice = java.util.regex.Pattern.compile("(\\d+)d(\\d+)([+-]\\d+)?").matcher(damage);
+            if (dice.matches()) {
+                int count = Integer.parseInt(dice.group(1));
+                int sides = Integer.parseInt(dice.group(2));
+                int bonus = dice.group(3) == null ? 0 : Integer.parseInt(dice.group(3));
+                return Math.max(1, (count * (sides + 1)) / 2 + bonus);
+            }
+            java.util.regex.Matcher fixed = java.util.regex.Pattern.compile("(\\d+)([+-]\\d+)?").matcher(damage);
+            if (fixed.matches()) {
+                int base = Integer.parseInt(fixed.group(1));
+                int bonus = fixed.group(2) == null ? 0 : Integer.parseInt(fixed.group(2));
+                return Math.max(1, base + bonus);
+            }
+            return null;
+        } catch (IOException | NumberFormatException exception) {
+            return null;
+        }
+    }
+
+    @Override
+    public String displayName(java.util.UUID characterSheetId, java.util.UUID ownerPlayerId, java.util.UUID sessionId) {
+        try {
+            HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/character-sheets/" + characterSheetId + "/runtime"))
+                    .timeout(timeout).header("X-Internal-Token", internalToken).header("X-Session-ID", sessionId.toString())
+                    .header("X-Owner-Player-ID", ownerPlayerId.toString()).GET().build();
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) {
+                throw new CrossContextCallException("character name read failed with status " + response.statusCode());
+            }
+            return objectMapper.readValue(response.body(), CharacterSheetView.class).characterName();
+        } catch (IOException exception) {
+            throw new CrossContextCallException("character name read failed", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new CrossContextCallException("character name read interrupted", exception);
+        }
     }
 
     private boolean hasNoHitPoints(String characterState) {
@@ -115,6 +185,12 @@ public final class CrossContextHttpCombatGateway
 
     @Override
     public void validateAndMove(CombatActionCommand command) {
+        move(new CombatMapMoveCommand(command, movementDistance(command), expectedMapVersion(command)));
+    }
+
+    @Override
+    public CombatMapMoveResult move(CombatMapMoveCommand moveCommand) {
+        CombatActionCommand command = moveCommand.action();
         if (command.combatMapId() == null || command.ownerPlayerId() == null || command.tokenId() == null) {
             throw new IllegalStateException("movement command requires ownerPlayerId and tokenId");
         }
@@ -123,9 +199,27 @@ public final class CrossContextHttpCombatGateway
         List<PositionRequest> positions = movementPositions(command.movementPath());
         MoveRequest request = new MoveRequest(
                 command.ownerPlayerId(), command.tokenId(), positions,
-                Math.max(0, positions.size() - 1) * GRID_DISTANCE_UNIT,
-                appliedEdition, command.operationId(), command.expectedVersion());
-        send("internal/v1/combat-maps/" + command.combatMapId() + "/moves", "POST", request, command);
+                moveCommand.distance(), appliedEdition, command.operationId(), moveCommand.expectedVersion());
+        String response = send("internal/v1/combat-maps/" + command.combatMapId() + "/moves", "POST", request, command);
+        return new CombatMapMoveResult(mapVersion(response, moveCommand.expectedVersion()));
+    }
+
+    private static int movementDistance(CombatActionCommand command) {
+        return command.movementPath() == null ? 0 : Math.max(0, movementPositions(command.movementPath()).size() - 1) * GRID_DISTANCE_UNIT;
+    }
+
+    private static long expectedMapVersion(CombatActionCommand command) {
+        return command.mapVersion() == null ? command.expectedVersion() : command.mapVersion();
+    }
+
+    private long mapVersion(String response, long fallback) {
+        if (response == null || response.isBlank()) return fallback + 1;
+        try {
+            JsonNode body = objectMapper.readTree(response);
+            return body != null && body.has("version") ? body.get("version").asLong() : fallback + 1;
+        } catch (IOException exception) {
+            throw new CrossContextCallException("combat map returned malformed movement result", exception);
+        }
     }
 
     @Override

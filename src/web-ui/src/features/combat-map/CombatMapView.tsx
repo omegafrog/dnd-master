@@ -2,7 +2,7 @@ import { useEffect, useState, type CSSProperties } from 'react'
 import type { AdventurePlayApi, CombatMapView as CombatMapState } from '../saved-adventures/AdventurePlayApi'
 import { actionCandidate, moveCandidate, type MapInteractionCandidate } from './MapInteractionCandidate'
 
-export function CombatMapView({ adventureId, api, refreshToken = 0 }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number }) {
+export function CombatMapView({ adventureId, api, refreshToken = 0, compact = false }: { adventureId: string; api: AdventurePlayApi; refreshToken?: number; compact?: boolean }) {
   const [map, setMap] = useState<CombatMapState | null>(null)
   const [selectedToken, setSelectedToken] = useState<string | null>(null)
   const [candidate, setCandidate] = useState<MapInteractionCandidate | null>(null)
@@ -69,10 +69,10 @@ export function CombatMapView({ adventureId, api, refreshToken = 0 }: { adventur
   // that state instead of showing a permanent "no map" panel.
   if (!map || !map.mapId) return null
   return (
-    <section className="adventure-tool map-panel" aria-labelledby="map-heading">
-      <h2 id="map-heading">플레이어 전투 맵</h2>
-      <p>모험 ID: {adventureId}</p>
-      <p role="status">{map ? `현재 맵 상태: ${map.status}` : '전투 맵을 불러오는 중…'}</p>
+    <section className={`adventure-tool map-panel${compact ? ' combat-map-panel' : ''}`} aria-labelledby="map-heading">
+      <h2 id="map-heading">{compact ? '전장 지도' : '플레이어 전투 맵'}</h2>
+      {!compact && <p>모험 ID: {adventureId}</p>}
+      {!compact && <p role="status">{map ? `현재 맵 상태: ${map.status}` : '전투 맵을 불러오는 중…'}</p>}
       {map.tokens ? (
         <div className="tactical-map-window">
           <button type="button" aria-pressed={locationMode} onClick={() => setLocationMode(current => !current)}>위치 선택</button>

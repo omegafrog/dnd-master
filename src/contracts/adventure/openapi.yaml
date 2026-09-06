@@ -1,6 +1,74 @@
 openapi: 3.1.0
 info: { title: Adventure API, version: 1.0.0 }
 paths:
+  /api/v1/adventures/{adventureId}/combat:
+    get:
+      operationId: playerCombatSnapshot
+      responses:
+        '200': { description: active player-safe combat snapshot }
+        '404': { description: no active encounter }
+  /api/v1/adventures/{adventureId}/combat/events:
+    get:
+      operationId: streamCombatEvents
+      parameters:
+        - { name: afterSequence, in: query, schema: { type: integer, format: int64, default: -1 } }
+        - { name: Last-Event-ID, in: header, schema: { type: string } }
+      responses:
+        '200': { description: player-safe combat events, content: { text/event-stream: { schema: { type: string } } } }
+  /api/v1/adventures/{adventureId}/combat/actions:
+    post:
+      operationId: submitCombatAction
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+        - { name: If-Match-Version, in: header, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [characterSheetId, action]
+              properties:
+                characterSheetId: { type: string, format: uuid }
+                action: { type: string }
+                targetArmorClass: { type: integer }
+                attackModifier: { type: integer }
+                targetCharacterSheetId: { type: string, format: uuid }
+                damageAmount: { type: integer }
+                combatMapId: { type: string, format: uuid }
+                tokenId: { type: string, format: uuid }
+                movementPath:
+                  type: array
+                  minItems: 2
+                  items: { type: object, required: [x, y], properties: { x: { type: integer, minimum: 0 }, y: { type: integer, minimum: 0 } } }
+                movementDistance: { type: integer, minimum: 1 }
+                mapVersion: { type: integer, format: int64, minimum: 0 }
+                narrativePosition:
+                  type: object
+                  required: [subjectId, targetId, rangeBand, cover]
+                  properties:
+                    subjectId: { type: string, format: uuid }
+                    targetId: { type: string, format: uuid }
+                    rangeBand: { type: string, minLength: 1 }
+                    cover: { type: string, minLength: 1 }
+      responses:
+        '202': { description: accepted or committed idempotent result }
+        '409': { description: stale version or idempotency conflict }
+        '422': { description: actor/state/rule rejection }
+  /api/v1/adventures/{adventureId}/combat/turn/end:
+    post:
+      operationId: endCombatTurn
+      parameters:
+        - { name: Idempotency-Key, in: header, required: true, schema: { type: string, format: uuid } }
+        - { name: If-Match-Version, in: header, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        required: true
+        content:
+          application/json: { schema: { type: object, required: [characterSheetId], properties: { characterSheetId: { type: string, format: uuid } } } }
+      responses:
+        '202': { description: explicit human turn end }
+        '409': { description: stale version or idempotency conflict }
+        '422': { description: not the human player turn }
   /api/v1/adventures/{adventureId}/events:
     get:
       operationId: streamAdventureEvents
@@ -32,6 +100,7 @@ paths:
   /api/v1/adventures/{adventureId}/dice-rolls:
     post:
       operationId: rollDice
+      deprecated: true
       requestBody:
         required: true
         content:

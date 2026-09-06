@@ -59,5 +59,6 @@ public interface ResolutionExtractionPort {
                     && text != null && !text.isBlank();
         }
     }
+
     record CandidateRetryRequest(String operationId, ResolutionCandidate failedCandidate, List<SourceExcerpt> excerpts, String schemaVersion, String promptVersion, int attempt, List<String> diagnostics) { }
 }

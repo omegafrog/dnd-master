@@ -11,7 +11,7 @@
 |---|---|---|---|---|
 | Document Knowledge | Knowledge Document 원본, Extraction Version, Source Span, Asset, 검색 인덱스 | 업로드 파일, 추출 요청, 검색 질의 | 불변 원문 추출본, STORYBOOK/RULEBOOK Evidence | `rule-knowledge-service` |
 | Scenario Preparation | Scenario Source Bundle, Resolution Unit, Override, Scenario Package Version | 문서·추출 버전 참조, AI 추출 후보 | 검증된 Scenario Package | `adventure-service` 내부 경계 |
-| Adventure Runtime | Runtime Binding, 프리플라이트, Active Source Context, Runtime Turn·Command 조정 | 플레이어 행동, Package Version, Evidence | 확정 세션 이벤트, 플레이어 응답 | `adventure-service` 내부 경계 |
+| Adventure Runtime | Runtime Binding, 프리플라이트, Active Source Context, Runtime Turn·Command 조정, CombatEncounter lifecycle·Initiative·Round·Combat Turn·Reaction 조정 | 플레이어 행동, Package Version, Evidence, 전투 행동 | 확정 세션 이벤트, 플레이어 응답, 전투 상태·Combat Log projection | `adventure-service` 내부 경계; Combat은 별도 Bounded Context/service가 아닌 내부 capability |
 | AI Game Master | Resolution 후보, 시작 위치 후보, Runtime Plan, narration, 안전 검사 제안 | 제한된 근거와 버전된 스키마 | 저장 권한 없는 AI 후보·제안 | `ai-game-master-service` |
 | Dice Roll | 주사위 실행과 결과 정본 | 멱등 Roll Command | 불변 Roll Result | `dice-roll-service` |
 | Character Management | 캐릭터 HP, 인벤토리, 효과, 자원 | 버전 조건부 Character Command | 캐릭터 상태 | `character-management-service` |
@@ -25,3 +25,6 @@
 - Adventure Runtime은 Document Knowledge의 STORYBOOK Evidence와 Session Knowledge Set의 RULEBOOK Evidence를 분리 조회한다.
 - Adventure Runtime은 AI Game Master의 제안을 검증되지 않은 상태 변경으로 취급한다.
 - Adventure Runtime은 Dice Roll, Character Management, Combat Map의 상태를 복제하지 않고 Runtime Command Saga로 조정한다.
+- Adventure Runtime의 `CombatEncounter` Aggregate는 전투 lifecycle과 순서를 소유한다. Dice Roll은 굴림 결과, Character Management는 캐릭터 상태, Combat Map은 지도·위치 상태의 정본을 계속 소유한다.
+- AI Game Master는 전투 시작·종료, Free-form Action, AI Turn과 AI Reaction에 대해 구조화된 제안만 제공한다. Adventure Runtime의 Game Engine과 `CombatEncounter`가 제안을 검증하고 상태 변경을 확정한다.
+- Adventure Runtime은 Combat snapshot과 Event를 적 비공개 정보가 제거된 player projection으로 변환해 REST와 SSE로 제공한다.

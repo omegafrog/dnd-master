@@ -5,7 +5,7 @@ import java.util.UUID;
 
 /** Persisted internal runtime context; it is never a player-facing DTO. */
 public record CurrentSituation(UUID situationId, long revision, String location, String problem,
-        String threat, String goal) {
+        String threat, String goal, String activeCombatScenarioId) {
     public CurrentSituation {
         Objects.requireNonNull(situationId, "situation id must not be null");
         if (revision < 1) throw new IllegalArgumentException("situation revision must be positive");
@@ -13,6 +13,13 @@ public record CurrentSituation(UUID situationId, long revision, String location,
         problem = required(problem, "situation problem");
         threat = required(threat, "situation threat");
         goal = required(goal, "situation goal");
+        activeCombatScenarioId = activeCombatScenarioId == null || activeCombatScenarioId.isBlank()
+                ? null : activeCombatScenarioId.trim();
+    }
+
+    public CurrentSituation(UUID situationId, long revision, String location, String problem,
+            String threat, String goal) {
+        this(situationId, revision, location, problem, threat, goal, null);
     }
 
     public CurrentSituation(UUID situationId, long revision, String problem) {
@@ -20,7 +27,12 @@ public record CurrentSituation(UUID situationId, long revision, String location,
     }
 
     public static CurrentSituation initial(String startingSituation) {
-        return new CurrentSituation(UUID.randomUUID(), 1, "starting area", startingSituation, "unresolved threat", startingSituation);
+        return new CurrentSituation(UUID.randomUUID(), 1, "starting area", startingSituation, "unresolved threat", startingSituation, null);
+    }
+
+    public CurrentSituation enterCombatScenario(String scenarioId) {
+        if (scenarioId == null || scenarioId.isBlank()) throw new IllegalArgumentException("combat scenario id must not be blank");
+        return new CurrentSituation(situationId, revision + 1, location, problem, threat, goal, scenarioId);
     }
 
     private static String required(String value, String name) {

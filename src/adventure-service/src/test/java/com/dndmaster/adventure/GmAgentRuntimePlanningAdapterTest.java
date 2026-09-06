@@ -10,6 +10,8 @@ import com.dndmaster.adventure.application.runtime.GmFinalValidator;
 import com.dndmaster.adventure.application.runtime.GmPlanResult;
 import com.dndmaster.adventure.application.runtime.RuntimePlan;
 import com.dndmaster.adventure.application.runtime.RuntimePlanningRequest;
+import com.dndmaster.adventure.application.runtime.SituationProposal;
+import com.dndmaster.adventure.application.runtime.SituationUpdateProposal;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.OwnerPlayerId;
@@ -38,6 +40,21 @@ class GmAgentRuntimePlanningAdapterTest {
                 new GmFinalValidator()).plan(request()))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("unsupported state delta");
+    }
+
+    @Test
+    void carries_the_gms_situation_choice_to_the_runtime_turn() {
+        RuntimePlan plan = plan(List.of());
+        SituationProposal situation = new SituationProposal(
+                SituationUpdateProposal.transition("cellar", "rats block the exit", "Giant Rats", "escape"),
+                SituationProposal.Basis.RAG, "storybook:cellar-rats", true);
+
+        var result = new GmAgentRuntimePlanningAdapter(
+                context -> new GmPlanResult(plan, "provider", "model", "reasoning", List.of(), List.of(), situation),
+                new GmFinalValidator()).planWithOutcomes(request());
+
+        assertThat(result.resolutionProposal().situationProposal()).isEqualTo(situation);
+        assertThat(result.resolutionProposal().situationUpdate().threat()).isEqualTo("Giant Rats");
     }
 
     private static RuntimePlanningRequest request() {

@@ -25,7 +25,9 @@ public record RuntimePlan(
         EffectiveGmProviderSelection effectiveSelection,
         int attemptCount,
         List<GmCitationBinding> citationBindings,
-        StateDelta stateDelta) {
+        StateDelta stateDelta,
+        List<CombatEnemyProposal> combatEnemies,
+        boolean combatStartRequested) {
     public RuntimePlan {
         scene = required(scene, "scene");
         judgment = required(judgment, "judgment");
@@ -40,6 +42,20 @@ public record RuntimePlan(
         effectiveSelection = effectiveSelection == null ? EffectiveGmProviderSelection.legacyUnknown() : effectiveSelection;
         if (attemptCount < 1 || attemptCount > 2) throw new IllegalArgumentException("GM candidate attempts must be one or two");
         citationBindings = List.copyOf(Objects.requireNonNull(citationBindings, "citation bindings must not be null"));
+        combatEnemies = combatEnemies == null ? List.of() : List.copyOf(combatEnemies);
+    }
+
+    public RuntimePlan(String scene, String npcState, String judgment, String narration,
+                       ActiveSourceContext activeSourceContext, List<RuntimeEvidence> citedEvidence,
+                       List<String> warnings, String provider, String model, String reasoning,
+                       boolean stateTransitionRequested, String requestedSelectionId,
+                       RequestedGmProviderSelection requestedSelection,
+                       EffectiveGmProviderSelection effectiveSelection, int attemptCount,
+                       List<GmCitationBinding> citationBindings, StateDelta stateDelta,
+                       boolean combatStartRequested) {
+        this(scene, npcState, judgment, narration, activeSourceContext, citedEvidence, warnings, provider, model,
+                reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection, effectiveSelection,
+                attemptCount, citationBindings, stateDelta, List.of(), combatStartRequested);
     }
 
     public String resolutionStatus() {
@@ -51,7 +67,7 @@ public record RuntimePlan(
                        List<String> warnings) {
         this(scene, npcState, judgment, narration, activeSourceContext, citedEvidence, warnings,
                 "scenario-runtime", "scenario-runtime", "", false, "",
-                RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown(), 1, List.of(), null);
+                RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown(), 1, List.of(), null, List.of(), false);
     }
 
     public RuntimePlan(String scene, String npcState, String judgment, String narration,
@@ -59,7 +75,7 @@ public record RuntimePlan(
                        List<String> warnings, String provider, String model, String reasoning) {
         this(scene, npcState, judgment, narration, activeSourceContext, citedEvidence, warnings,
                 provider, model, reasoning, false, "",
-                RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown(), 1, List.of(), null);
+                RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown(), 1, List.of(), null, List.of(), false);
     }
 
     public RuntimePlan(String scene, String npcState, String judgment, String narration,
@@ -68,7 +84,7 @@ public record RuntimePlan(
                        boolean stateTransitionRequested, String requestedSelectionId) {
         this(scene, npcState, judgment, narration, activeSourceContext, citedEvidence, warnings,
                 provider, model, reasoning, stateTransitionRequested, requestedSelectionId,
-                RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown(), 1, List.of(), null);
+                RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown(), 1, List.of(), null, List.of(), false);
     }
 
     public RuntimePlan(String scene, String npcState, String judgment, String narration,
@@ -78,7 +94,7 @@ public record RuntimePlan(
         this(scene, npcState, judgment, narration, activeSourceContext, citedEvidence, warnings,
                 provider, model, reasoning, stateTransitionRequested, requestedSelectionId,
                 RequestedGmProviderSelection.legacyUnknown(), EffectiveGmProviderSelection.legacyUnknown(), 1,
-                citationBindings, null);
+                citationBindings, null, List.of(), false);
     }
 
     public RuntimePlan(String scene, String npcState, String judgment, String narration,
@@ -89,19 +105,42 @@ public record RuntimePlan(
                        EffectiveGmProviderSelection effectiveSelection, int attemptCount) {
         this(scene, npcState, judgment, narration, activeSourceContext, citedEvidence, warnings,
                 provider, model, reasoning, stateTransitionRequested, requestedSelectionId,
-                requestedSelection, effectiveSelection, attemptCount, List.of(), null);
+                requestedSelection, effectiveSelection, attemptCount, List.of(), null, List.of(), false);
+    }
+
+    public RuntimePlan(String scene, String npcState, String judgment, String narration,
+                       ActiveSourceContext activeSourceContext, List<RuntimeEvidence> citedEvidence,
+                       List<String> warnings, String provider, String model, String reasoning,
+                       boolean combatStartRequested) {
+        this(scene, npcState, judgment, narration, activeSourceContext, citedEvidence, warnings,
+                provider, model, reasoning, false, "", RequestedGmProviderSelection.legacyUnknown(),
+                EffectiveGmProviderSelection.legacyUnknown(), 1, List.of(), null, List.of(), combatStartRequested);
     }
 
     public RuntimePlan withStateDelta(StateDelta delta) {
         return new RuntimePlan(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence,
                 warnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection,
-                effectiveSelection, attemptCount, citationBindings, delta);
+                effectiveSelection, attemptCount, citationBindings, delta, combatEnemies, combatStartRequested);
     }
 
     public RuntimePlan withCitedEvidence(List<RuntimeEvidence> evidence) {
         return new RuntimePlan(scene, npcState, judgment, narration, proposedActiveSourceContext, evidence,
                 warnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection,
-                effectiveSelection, attemptCount, citationBindings, stateDelta);
+                effectiveSelection, attemptCount, citationBindings, stateDelta, combatEnemies, combatStartRequested);
+    }
+
+    public RuntimePlan withCombatEnemies(List<CombatEnemyProposal> groundedEnemies) {
+        return new RuntimePlan(scene, npcState, judgment, narration, proposedActiveSourceContext, citedEvidence,
+                warnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection,
+                effectiveSelection, attemptCount, citationBindings, stateDelta, groundedEnemies, !groundedEnemies.isEmpty());
+    }
+
+    public RuntimePlan withoutCombat(String reason) {
+        List<String> nextWarnings = new java.util.ArrayList<>(warnings);
+        nextWarnings.add(reason);
+        return new RuntimePlan(scene, npcState, reason, narration, proposedActiveSourceContext, citedEvidence,
+                nextWarnings, provider, model, reasoning, stateTransitionRequested, requestedSelectionId, requestedSelection,
+                effectiveSelection, attemptCount, citationBindings, stateDelta, List.of(), false);
     }
 
     private static String required(String value, String name) {

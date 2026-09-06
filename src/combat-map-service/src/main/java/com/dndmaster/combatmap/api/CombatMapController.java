@@ -110,12 +110,26 @@ public class CombatMapController {
         return PlayerCombatMapResponse.from(view);
     }
 
+    public CombatMapMoveResponse movePlayer(UUID mapId, String token, MoveRequest request) {
+        return movePlayerInternal(mapId, token, request == null ? null : request.commandId().toString(), request);
+    }
+
     @PostMapping("/internal/v1/combat-maps/{mapId}/moves")
     public CombatMapMoveResponse movePlayer(
             @PathVariable UUID mapId, @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @RequestBody(required = false) MoveRequest request) {
+        return movePlayerInternal(mapId, token, idempotencyKey, request);
+    }
+
+    private CombatMapMoveResponse movePlayerInternal(UUID mapId, String token, String idempotencyKey, MoveRequest request) {
         requestGuard.internal(token);
         requireRequest(request, "move request is required");
+        requireIdempotencyKey(idempotencyKey, request.commandId());
+        if (request.positions() == null || request.positions().size() < 2) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "movement path requires a destination");
+        }
         MovementPath path = new MovementPath(
                 request.positions().stream().map(p -> new GridPosition(p.x(), p.y())).toList(),
                 request.distance());
@@ -128,7 +142,7 @@ public class CombatMapController {
                 request.commandId(),
                 request.expectedVersion());
         CombatMap map = movementService.movePlayerToken(command);
-        return new CombatMapMoveResponse(map.id().value());
+        return new CombatMapMoveResponse(map.id().value(), map.version());
     }
 
     @PostMapping("/internal/v1/combat-maps/{mapId}/ai-state")
@@ -195,6 +209,13 @@ public class CombatMapController {
             throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, message);
         }
     }
+
+    private static void requireIdempotencyKey(String header, UUID commandId) {
+        if (header == null || header.isBlank() || commandId == null || !header.equals(commandId.toString())) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST,
+                    "Idempotency-Key must match commandId");
+        }
+    }
     public record TacticalTriggerRequest(UUID ownerId, UUID commandId, long expectedVersion,
                                          String triggerId, String kind, List<String> targetIds, String transitionId, String qualifyingAction) {
         public TacticalTriggerRequest(UUID ownerId, UUID commandId, long expectedVersion, String triggerId, String kind, List<String> targetIds) {
@@ -207,7 +228,9 @@ public class CombatMapController {
 
     public record LayerRequest(String type, String value, String visibility) {}
 
-    public record CombatMapMoveResponse(UUID mapId) {}
+    public record CombatMapMoveResponse(UUID mapId, long version) {
+        public CombatMapMoveResponse(UUID mapId) { this(mapId, 0); }
+    }
 
     public record CombatMapAiStateResponse(UUID mapId) {}
 

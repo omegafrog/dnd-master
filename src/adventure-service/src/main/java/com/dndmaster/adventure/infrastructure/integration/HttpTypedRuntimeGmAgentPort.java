@@ -4,7 +4,11 @@ import com.dndmaster.adventure.application.runtime.GmAgentPort;
 import com.dndmaster.adventure.application.runtime.GmContextEnvelope;
 import com.dndmaster.adventure.application.runtime.GmPlanResult;
 import com.dndmaster.adventure.application.runtime.GmToolSpec;
+import com.dndmaster.adventure.application.runtime.CombatEnemyProposal;
+import com.dndmaster.adventure.application.runtime.CombatStartMode;
 import com.dndmaster.adventure.application.runtime.RuntimePlan;
+import com.dndmaster.adventure.application.runtime.SituationProposal;
+import com.dndmaster.adventure.application.runtime.SituationUpdateProposal;
 import com.dndmaster.adventure.domain.runtime.EffectiveGmProviderSelection;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.net.URI;
@@ -49,8 +53,12 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
                             provider, model, reasoning);
             RuntimePlan plan = new RuntimePlan(response.scene(), context.currentContext().npcState(), response.judgment(),
                     response.narration(), null, context.evidencePack().storybook(), List.of(), provider, model,
-                    reasoning, false, "", context.requestedSelection(), effective, 1);
-            return new GmPlanResult(plan, provider, model, reasoning, List.of(), List.of());
+                    reasoning, false, "", context.requestedSelection(), effective, 1, List.of(), null,
+                    response.combatEnemies().stream().map(enemy -> new CombatEnemyProposal(
+                            enemy.scenarioId(), enemy.enemyKey(), enemy.name(), enemy.count(),
+                            combatStartMode(enemy.mode()))).toList(),
+                    response.combatStart());
+            return new GmPlanResult(plan, provider, model, reasoning, List.of(), List.of(), situation(response.situation()));
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("typed runtime GM interrupted", exception);
@@ -72,7 +80,14 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
     }
 
     private RuntimeResponse call(GmContextEnvelope context) throws Exception {
-        String body = mapper.writeValueAsString(new RuntimeRequest(context.operationKey(), context.action(), compositeResults(context)));
+        Map<String, Object> runtimeContext = new HashMap<>();
+        runtimeContext.put("currentContext", context.currentContext());
+        runtimeContext.put("scenarioContext", context.scenarioContext());
+        runtimeContext.put("recentTurns", context.recentTurns());
+        runtimeContext.put("characterSnapshots", context.characterSnapshots());
+        runtimeContext.put("narrativeContext", context.narrativeContext());
+        String body = mapper.writeValueAsString(new RuntimeRequest(context.operationKey(), context.action(),
+                compositeResults(context), Map.copyOf(runtimeContext)));
         HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/gm/runtime-turn"))
                 .timeout(timeout)
                 .header("Content-Type", "application/json")
@@ -86,10 +101,29 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
         RuntimeResponse result = mapper.readValue(response.body(), RuntimeResponse.class);
         if (result.scene() == null || result.scene().isBlank()
                 || result.judgment() == null || result.judgment().isBlank()
-                || result.narration() == null || result.narration().isBlank()) {
+                || result.narration() == null || result.narration().isBlank() || result.situation() == null) {
             throw new IllegalStateException("typed runtime GM response is incomplete");
         }
+        if (result.combatEnemies() == null || (result.combatStart() && result.combatEnemies().isEmpty())) {
+            throw new IllegalStateException("typed runtime GM combat response is incomplete");
+        }
         return result;
+    }
+
+    private static SituationProposal situation(SituationResponse response) {
+        SituationUpdateProposal update = "TRANSITION".equalsIgnoreCase(response.kind())
+                ? SituationUpdateProposal.transition(response.location(), response.problem(), response.threat(), response.goal())
+                : SituationUpdateProposal.continueSituation(response.problem(), response.threat(), response.goal());
+        SituationProposal.Basis basis = SituationProposal.Basis.valueOf(response.basis().trim().toUpperCase(java.util.Locale.ROOT));
+        return new SituationProposal(update, basis, response.reference(), response.required());
+    }
+
+    private static CombatStartMode combatStartMode(String mode) {
+        return switch (mode == null ? "" : mode.toUpperCase(java.util.Locale.ROOT)) {
+            case "INSTANT" -> CombatStartMode.INSTANT;
+            case "SITUATION" -> CombatStartMode.SITUATION;
+            default -> CombatStartMode.SCENARIO;
+        };
     }
 
     private static List<Map<String, Object>> compositeResults(GmContextEnvelope context) {
@@ -105,6 +139,11 @@ public final class HttpTypedRuntimeGmAgentPort implements GmAgentPort {
         return List.copyOf(results);
     }
 
-    record RuntimeRequest(String operationKey, String action, List<Map<String, Object>> factLookupResults) { }
-    record RuntimeResponse(String scene, String judgment, String narration) { }
+    record RuntimeRequest(String operationKey, String action, List<Map<String, Object>> factLookupResults,
+                          Map<String, Object> runtimeContext) { }
+    record RuntimeResponse(String scene, String judgment, String narration, boolean combatStart,
+                           List<CombatEnemyResponse> combatEnemies, SituationResponse situation) { }
+    record CombatEnemyResponse(String mode, String scenarioId, String enemyKey, String name, int count) { }
+    record SituationResponse(String kind, String location, String problem, String threat, String goal,
+                             String basis, String reference, boolean required) { }
 }

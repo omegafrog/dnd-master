@@ -9,7 +9,7 @@ import java.util.Objects;
 /** Semantic resolution output kept pending until narration passes safety. */
 public record RuntimeResolutionProposal(GameStateDelta gameStateDelta, DisclosureState disclosureState,
         SituationUpdateProposal situationUpdate, List<RuntimeAddedFact> runtimeAddedFacts,
-        CompletionProposal completionProposal) {
+        CompletionProposal completionProposal, SituationProposal situationProposal) {
     public RuntimeResolutionProposal {
         gameStateDelta = Objects.requireNonNull(gameStateDelta, "game state delta must not be null");
         disclosureState = Objects.requireNonNull(disclosureState, "disclosure state must not be null");
@@ -19,6 +19,12 @@ public record RuntimeResolutionProposal(GameStateDelta gameStateDelta, Disclosur
 
     public static RuntimeResolutionProposal unchanged() {
         return new RuntimeResolutionProposal(GameStateDelta.empty(), DisclosureState.empty(), null, List.of(),
-                CompletionProposal.continueAdventure());
+                CompletionProposal.continueAdventure(), null);
+    }
+
+    public RuntimeResolutionProposal(GameStateDelta gameStateDelta, DisclosureState disclosureState,
+            SituationUpdateProposal situationUpdate, List<RuntimeAddedFact> runtimeAddedFacts,
+            CompletionProposal completionProposal) {
+        this(gameStateDelta, disclosureState, situationUpdate, runtimeAddedFacts, completionProposal, null);
     }
 }

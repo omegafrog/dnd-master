@@ -188,6 +188,16 @@ public final class Adventure {
         version++;
     }
 
+    /** Commits the terminal combat summary into the owning Adventure state. */
+    public void commitCombatEnd(OwnerPlayerId requestingOwner, long expectedVersion, String summary) {
+        authorizeRuntime(requestingOwner);
+        requireExpectedVersion(expectedVersion);
+        if (summary == null || summary.isBlank()) throw new IllegalArgumentException("combat end summary must not be blank");
+        currentContext = new AdventureContext(currentContext.currentScene(), currentContext.npcState(),
+                null, summary.trim());
+        version++;
+    }
+
     public void reopen(OwnerPlayerId requestingOwner) { authorizeSaved(requestingOwner); }
 
     public void advanceTurn(OwnerPlayerId requestingOwner, int expectedTurnIndex, CharacterSheetId characterSheetId, UUID turnId) {

@@ -17,6 +17,8 @@ import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.inquiry.RulebookId;
 import com.dndmaster.adventure.domain.scenario.ScenarioSource;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresAdventureRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresCombatEncounterRepository;
+import com.dndmaster.adventure.infrastructure.persistence.PostgresCombatEventRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioBundleRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresScenarioPackageRepository;
 import com.dndmaster.adventure.infrastructure.persistence.PostgresResolutionOverrideRepository;
@@ -81,6 +83,31 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.combat.CombatEncounterRepository combatEncounterRepository(DataSource dataSource) {
+        return new PostgresCombatEncounterRepository(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleApplicationService(
+            com.dndmaster.adventure.application.combat.CombatEncounterRepository repository,
+            com.dndmaster.adventure.application.combat.CombatEventRepository eventRepository,
+            AdventureRepository adventureRepository,
+            @Qualifier("characterCombatPort") CharacterCombatPort characterPort,
+            @Qualifier("combatMapPort") CombatMapPort mapPort,
+            com.dndmaster.adventure.application.combat.CombatActionOperationRepository operationRepository,
+            com.dndmaster.adventure.application.combat.CombatWorkItemRepository workItemRepository,
+            com.dndmaster.adventure.application.combat.CombatWorkItemScheduler workItemScheduler) {
+        return new com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService(repository, eventRepository,
+                adventureRepository, characterPort, mapPort, operationRepository, workItemRepository, workItemScheduler);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.CombatEndPort combatEndPort(
+            com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService lifecycle) {
+        return lifecycle::endWhenEnemiesDefeated;
+    }
+
+    @Bean
     GmTurnRepository gmTurnRepository(DataSource dataSource, ObjectMapper objectMapper) {
         return new PostgresGmTurnRepository(dataSource, objectMapper);
     }
@@ -88,6 +115,11 @@ public class AdventureApiConfiguration {
     @Bean
     SessionEventRepository sessionEventRepository(DataSource dataSource) {
         return new PostgresSessionEventRepository(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.CombatEventRepository combatEventRepository(DataSource dataSource) {
+        return new PostgresCombatEventRepository(dataSource);
     }
 
     @Bean
@@ -721,11 +753,12 @@ public class AdventureApiConfiguration {
     @Bean
     RuntimePlanningPort runtimePlanningPort(GmAgentPort gmAgentPort, GmToolGateway gmToolGateway,
                                             RuntimeCommandSagaApplicationService saga,
-                                            @Value("${adventure.runtime.best-of-n.count:3}") int candidateCount,
+                                            @Value("${adventure.runtime.best-of-n.count:1}") int candidateCount,
+                                            @Value("${adventure.runtime.best-of-n.retry-count:1}") int retryCount,
                                             @Value("${adventure.runtime.best-of-n.simple:false}") boolean simpleTurn,
                                             PlanAuditPort planAuditPort) {
         RuntimePlanningPort planner = new GmAgentRuntimePlanningAdapter(gmAgentPort, new GmFinalValidator(), gmToolGateway, saga);
-        return new BestOfNRuntimePlanningAdapter(planner, candidateCount, simpleTurn, planAuditPort);
+        return new BestOfNRuntimePlanningAdapter(planner, candidateCount, retryCount, simpleTurn, planAuditPort);
     }
 
     @Bean
@@ -844,7 +877,17 @@ public class AdventureApiConfiguration {
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
         CrossContextHttpCombatGateway gateway = new CrossContextHttpCombatGateway(
                 HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(5), internalToken);
-        return gateway::validateAndMove;
+        return new CombatMapPort() {
+            @Override
+            public void validateAndMove(CombatActionCommand command) {
+                gateway.validateAndMove(command);
+            }
+
+            @Override
+            public CombatMapMoveResult move(CombatMapMoveCommand command) {
+                return gateway.move(command);
+            }
+        };
     }
 
     @Bean
@@ -932,6 +975,75 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    com.dndmaster.adventure.application.combat.CombatActionOperationRepository combatActionOperationRepository(DataSource dataSource) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresCombatActionOperationRepository(dataSource);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.CombatWorkItemRepository combatWorkItemRepository(
+            DataSource dataSource, ObjectMapper objectMapper) {
+        return new com.dndmaster.adventure.infrastructure.persistence.PostgresCombatWorkItemRepository(dataSource, objectMapper);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.CombatWorkItemScheduler combatWorkItemScheduler(
+            com.dndmaster.adventure.application.combat.CombatWorkItemRepository workItems,
+            @Value("${adventure.combat.auto-progression.max-steps:10}") int maxSteps) {
+        return new com.dndmaster.adventure.application.combat.CombatWorkItemScheduler(workItems, maxSteps);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.CombatAutoProgressionWorker combatAutoProgressionWorker(
+            com.dndmaster.adventure.application.combat.CombatWorkItemRepository workItems,
+            com.dndmaster.adventure.application.combat.CombatEncounterRepository encounters,
+            com.dndmaster.adventure.application.combat.AiCombatDecisionPort decisions,
+            com.dndmaster.adventure.application.combat.CombatActionApplicationService actionService,
+            com.dndmaster.adventure.application.combat.CombatWorkItemScheduler scheduler,
+            @Value("${adventure.combat.auto-progression.max-steps:10}") int maxSteps) {
+        return new com.dndmaster.adventure.application.combat.CombatAutoProgressionWorker(
+                "adventure-service", workItems, encounters, decisions, actionService::submitAi,
+                actionService::endTurnAi, maxSteps, scheduler);
+    }
+
+    @Bean
+    com.dndmaster.adventure.domain.combat.CombatRulesEngine combatRulesEngine() {
+        return new com.dndmaster.adventure.domain.combat.CombatRulesEngine();
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.AiCombatDecisionPort aiCombatDecisionPort() {
+        return new com.dndmaster.adventure.application.combat.AiCombatDecisionPortAdapter(context ->
+                com.dndmaster.adventure.domain.combat.FreeFormActionPlan.narrativeOnly(
+                        context.declaration().actorId(),
+                        com.dndmaster.adventure.domain.combat.TurnResourceCost.actionOnly(),
+                        "자유 행동을 확인했습니다.", context.declaration().text()));
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.CombatActionApplicationService combatActionApplicationService(
+            com.dndmaster.adventure.application.combat.CombatEncounterRepository encounterRepository,
+            com.dndmaster.adventure.application.combat.CombatActionOperationRepository operationRepository,
+            com.dndmaster.adventure.application.combat.CombatEventRepository eventRepository,
+            com.dndmaster.adventure.domain.combat.CombatRulesEngine rulesEngine,
+            @Qualifier("diceCombatPort") DiceCombatPort dicePort,
+            CharacterCombatPort characterPort,
+            @Qualifier("aiCombatPort") AiCombatPort aiPort,
+            @Qualifier("combatMapPort") CombatMapPort mapPort,
+            com.dndmaster.adventure.application.combat.AiCombatDecisionPort decisionPort,
+            com.dndmaster.adventure.application.combat.CombatEndPort combatEndPort) {
+        return new com.dndmaster.adventure.application.combat.CombatActionApplicationService(
+                encounterRepository, operationRepository, eventRepository, rulesEngine,
+                dicePort, characterPort, aiPort, mapPort, decisionPort, combatEndPort);
+    }
+
+    @Bean
+    com.dndmaster.adventure.application.combat.CombatReactionApplicationService combatReactionApplicationService(
+            com.dndmaster.adventure.application.combat.CombatEncounterRepository encounterRepository,
+            com.dndmaster.adventure.application.combat.CombatEventRepository eventRepository) {
+        return new com.dndmaster.adventure.application.combat.CombatReactionApplicationService(encounterRepository, eventRepository);
+    }
+
+    @Bean
     AdventureCombatApplicationService combatApplicationService(
             CombatOperationRepository repository,
             CharacterCombatPort characterPort,
@@ -972,15 +1084,17 @@ public class AdventureApiConfiguration {
             SessionEventRepository sessionEventRepository,
             RuleGuidanceApplicationService guidanceService,
             AdventureCombatApplicationService combatService,
+            com.dndmaster.adventure.application.combat.CombatActionApplicationService combatActionService,
             AdventureScenarioApplicationService scenarioService,
             AuthenticatedPlayerResolver playerResolver,
             org.springframework.beans.factory.ObjectProvider<CombatMapPort> combatMapPort,
             org.springframework.beans.factory.ObjectProvider<CharacterCombatPort> characterCombatPort,
             ObjectMapper objectMapper,
             org.springframework.beans.factory.ObjectProvider<CombatMapViewPort> combatMapViewPort,
-            org.springframework.beans.factory.ObjectProvider<org.springframework.transaction.PlatformTransactionManager> transactionManager) {
+            org.springframework.beans.factory.ObjectProvider<org.springframework.transaction.PlatformTransactionManager> transactionManager,
+            com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService) {
         return new AdventureController(
-                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, scenarioService, playerResolver, combatMapPort, characterCombatPort, objectMapper, combatMapViewPort);
+                savedAdventureService, runtimeTurnService, adventureRepository, gmTurnFailureRecorder, gmTurnRepository, runtimeTurnRepository, sessionEventRepository, guidanceService, combatService, combatActionService, scenarioService, playerResolver, combatMapPort, characterCombatPort, objectMapper, combatMapViewPort, combatLifecycleService);
     }
 
     @Bean

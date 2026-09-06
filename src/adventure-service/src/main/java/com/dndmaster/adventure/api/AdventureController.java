@@ -32,6 +32,9 @@ import com.dndmaster.adventure.domain.runtime.GmTurn;
 import com.dndmaster.adventure.application.combat.CombatMapPort;
 import com.dndmaster.adventure.application.combat.CharacterCombatPort;
 import com.dndmaster.adventure.application.combat.RuntimeCombatRejectionException;
+import com.dndmaster.adventure.application.combat.CombatActionApplicationService;
+import com.dndmaster.adventure.application.combat.CombatStartParticipantFactory;
+import com.dndmaster.adventure.application.combat.CombatStartTransitionPolicy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @RestController
@@ -48,12 +51,14 @@ public class AdventureController {
     private final com.dndmaster.adventure.application.runtime.SessionEventRepository sessionEventRepository;
     private final RuleGuidanceApplicationService guidanceService;
     private final AdventureCombatApplicationService combatService;
+    private final CombatActionApplicationService combatActionService;
     private final AdventureScenarioApplicationService scenarioService;
     private final AuthenticatedPlayerResolver playerResolver;
     private final CombatMapPort combatMapPort;
     private final CharacterCombatPort characterCombatPort;
     private final com.dndmaster.adventure.application.combat.CombatMapViewPort combatMapViewPort;
     private final ObjectMapper objectMapper;
+    private final com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService;
 
     public AdventureController(
             SavedAdventureApplicationService savedAdventureService,
@@ -65,12 +70,14 @@ public class AdventureController {
             com.dndmaster.adventure.application.runtime.SessionEventRepository sessionEventRepository,
             RuleGuidanceApplicationService guidanceService,
             AdventureCombatApplicationService combatService,
+            CombatActionApplicationService combatActionService,
             AdventureScenarioApplicationService scenarioService,
             AuthenticatedPlayerResolver playerResolver,
             ObjectProvider<CombatMapPort> combatMapPort,
             ObjectProvider<CharacterCombatPort> characterCombatPort,
             ObjectMapper objectMapper,
-            ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapViewPort> combatMapViewPort) {
+            ObjectProvider<com.dndmaster.adventure.application.combat.CombatMapViewPort> combatMapViewPort,
+            com.dndmaster.adventure.application.combat.CombatLifecycleApplicationService combatLifecycleService) {
         this.savedAdventureService = savedAdventureService;
         this.runtimeTurnService = runtimeTurnService;
         this.adventureRepository = adventureRepository;
@@ -80,6 +87,7 @@ public class AdventureController {
         this.sessionEventRepository = sessionEventRepository;
         this.guidanceService = guidanceService;
         this.combatService = combatService;
+        this.combatActionService = combatActionService;
         this.scenarioService = scenarioService;
         this.playerResolver = playerResolver;
         this.combatMapPort = combatMapPort.getIfAvailable(() -> command -> {
@@ -90,6 +98,7 @@ public class AdventureController {
         });
         this.combatMapViewPort = combatMapViewPort.getIfAvailable(() -> (adventureId1, ownerId) -> java.util.Optional.empty());
         this.objectMapper = objectMapper;
+        this.combatLifecycleService = combatLifecycleService;
     }
 
     /** Player read boundary; canonical runtime snapshots and ScenarioModel are intentionally absent. */
@@ -124,6 +133,7 @@ public class AdventureController {
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/turns")
+    @Transactional
     public ResponseEntity<RuntimeTurnResponse> submitTypedTurn(
             @PathVariable UUID adventureId,
             @RequestHeader("Idempotency-Key") UUID commandId,
@@ -182,7 +192,20 @@ public class AdventureController {
                 + ";reasoning=" + result.turn().plan().reasoning()
                 + ";validation=accepted";
         gmTurnRepository.save(turn.process().commit(providerMetadata), adventureId);
-        com.dndmaster.adventure.application.runtime.GmTurnCommitPolicy.requirePublishable(turn.process().commit(providerMetadata), result.version());
+        GmTurn committedTurn = turn.process().commit(providerMetadata);
+        com.dndmaster.adventure.application.runtime.GmTurnCommitPolicy.requirePublishable(committedTurn, result.version());
+        if (result.turn().plan().combatStartRequested()) {
+            Adventure committedAdventure = adventureRepository.findById(new AdventureId(adventureId))
+                    .orElseThrow(() -> new IllegalStateException("adventure disappeared after runtime commit"));
+            CombatStartTransitionPolicy.requireCommittedCombatSituation(committedAdventure.currentSituation(),
+                    result.turn().plan().combatEnemies());
+            combatLifecycleService.startFromCommittedGmTurn(adventureId, committedTurn,
+                    new com.dndmaster.adventure.domain.combat.CombatStartProposal(true,
+                            CombatStartParticipantFactory.fromPartyAndGmProposal(adventureId, adventure.party(),
+                                    result.turn().plan().combatEnemies(), member -> characterCombatPort.displayName(
+                                            member.characterSheetId().value(), adventure.ownerPlayerId().value(),
+                                            adventure.sessionId().value()))));
+        }
         sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
                 result.turn().sessionId(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", result.turn().turnId().toString()));
         return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
@@ -231,8 +254,13 @@ public class AdventureController {
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/dice-rolls")
-    DiceRollResponse diceRoll(
+    @Deprecated(forRemoval = false)
+    @Operation(deprecated = true, summary = "Legacy combat dice path", description = "Use POST combat/actions with Idempotency-Key and If-Match-Version.")
+    ResponseEntity<DiceRollResponse> diceRoll(
             @PathVariable UUID adventureId, @RequestBody DiceRollRequest request) {
+        if (request.endCombat()) {
+            throw new ApiRequestGuard.ApiContractException(410, "LEGACY_COMBAT_END_UNSUPPORTED");
+        }
         UUID authenticatedOwner = playerResolver.playerId();
         if (!CombatActorRole.PLAYER.name().equals(request.role())) {
             throw new ApiRequestGuard.ApiContractException(400, "INVALID_COMBAT_ROLE");
@@ -271,9 +299,14 @@ public class AdventureController {
                 request.tokenId(),
                 request.expectedVersion(), request.targetArmorClass(), request.attackModifier(),
                 request.targetCharacterSheetId() == null ? null : new CharacterSheetId(request.targetCharacterSheetId()), request.damageAmount(), request.endCombat());
-        var result = combatService.resolveCombatAction(command);
-        return new DiceRollResponse(result.operationId(), result.role().name(), List.of(result.diceTotal()), result.diceTotal(),
-                result.judgment(), result.resolutionStatus(), result.outcomeApplied());
+        var result = combatActionService.submit(command);
+        return ResponseEntity.ok().header("Deprecation", "true")
+                .header("Warning", "299 dnd-master \"Legacy combat dice path is deprecated; use combat/actions\"")
+                .header("Sunset", LEGACY_SCENARIO_UPLOAD_SUNSET)
+                .body(new DiceRollResponse(result.operationId(), CombatActorRole.PLAYER.name(),
+                        result.diceTotal() == null ? List.of() : List.of(result.diceTotal()),
+                        result.diceTotal() == null ? 0 : result.diceTotal(), result.judgment(), result.status(),
+                        "COMMITTED".equals(result.status())));
     }
 
     @PutMapping("/api/v1/adventures/{adventureId}/save")

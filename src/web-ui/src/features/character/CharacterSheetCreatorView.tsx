@@ -943,10 +943,13 @@ export function CharacterSheetCreatorView({
         } as Record<string, string>
       )[effectiveRace] ?? "—")
     : "—";
-  const derivedHp =
+  const startingHitPoints =
     selectedClass && hasScore(effectiveScores[2])
-      ? `${Math.max(1, Number(selectedClass.hitDie.slice(1)) + modifierValue(effectiveScores[2]))}/${Math.max(1, Number(selectedClass.hitDie.slice(1)) + modifierValue(effectiveScores[2]))}`
-      : "—";
+      ? Math.max(1, Number(selectedClass.hitDie.slice(1)) + modifierValue(effectiveScores[2]))
+      : 0;
+  const derivedHp = startingHitPoints > 0
+    ? `${startingHitPoints}/${startingHitPoints}`
+    : "—";
   const derivedAc = hasScore(effectiveScores[1])
     ? (() => {
         const dexterityModifier = modifierValue(effectiveScores[1]);
@@ -1088,7 +1091,7 @@ export function CharacterSheetCreatorView({
         }),
         characterState: JSON.stringify({
           equippedItems: { armor: equippedArmor, shield: equippedShield, mainHandWeaponId },
-          currentHitPoints: 0,
+          currentHitPoints: startingHitPoints,
           temporaryHitPoints: 0,
           experience: 0,
         }),

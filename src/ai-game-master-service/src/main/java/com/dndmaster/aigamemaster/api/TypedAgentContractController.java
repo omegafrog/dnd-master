@@ -67,9 +67,20 @@ public final class TypedAgentContractController {
         require(request);
         return adapter.complete(request.operationKey(),
                 "ROLE=RUNTIME_GM\nCOMPOSITE_FACT_LOOKUP_RESULTS=" + write(request.factLookupResults())
+                        + "\nRUNTIME_CONTEXT=" + write(request.runtimeContext())
                         + "\nACTION=" + request.action()
-                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with three non-empty string fields: "
-                        + "scene, judgment, narration. Do not use markdown, code fences, or any other text.",
+                        + "\nOUTPUT_CONTRACT=Return exactly one JSON object with scene, judgment, narration, situation, combatStart, and combatEnemies. "
+                        + "situation must contain kind (CONTINUE or TRANSITION), location, problem, threat, goal, basis (SCENARIO, RAG, or FALLBACK), reference, and required. "
+                        + "Choose the situation basis in this order: an applicable ScenarioModel element; otherwise a matching storybook RAG citation; otherwise FALLBACK only when a new fact is necessary to keep play moving, with required=true. "
+                        + "For SCENARIO, reference is a ScenarioModel element id. For RAG, reference is a citationKey or locator from COMPOSITE_FACT_LOOKUP_RESULTS. For FALLBACK, reference is empty. "
+                        + "The next GM turn receives this saved situation, so make it concrete and playable. Decide combat from the saved situation and the evidence, never from a word in the player's action. "
+                        + "MANDATORY: if a hostile creature already supported by the saved situation is attacking, has cornered the party, or the player is exchanging attacks with it, return combatStart=true and a SITUATION enemy entry in the same response. "
+                        + "Do not narrate a supported hostile creature attacking, closing in to attack, or 'combat ready' while returning combatStart=false. This is an output validity rule, not a discretionary pacing choice. "
+                        + "A player action is not evidence that an entity exists. Only enter combat with a combat scenario id present in RUNTIME_CONTEXT or COMPOSITE_FACT_LOOKUP_RESULTS. "
+                        + "combatEnemies must always be an array of objects with mode (SCENARIO, SITUATION, or INSTANT), scenarioId, enemyKey, name, and positive count; "
+                        + "SCENARIO requires a scenarioId from the current ScenarioModel. SITUATION leaves scenarioId empty and requires matching storybook RAG evidence for the current situation. INSTANT leaves scenarioId empty and is reserved for a GM-forced consequence such as noise or a critical failure. "
+                        + "Use [] when combatStart is false. Never invent an enemy from the action alone. "
+                        + "Do not use markdown, code fences, or any other text.",
                 this::parseRuntimeTurn);
     }
 
@@ -104,7 +115,47 @@ public final class TypedAgentContractController {
 
     private RuntimeTurnResponse parseRuntimeTurn(String json) {
         JsonNode root = readObject(json);
-        return new RuntimeTurnResponse(required(root, "scene"), required(root, "judgment"), required(root, "narration"));
+        if (!root.has("combatStart") || !root.path("combatStart").isBoolean()) {
+            throw new IllegalArgumentException("combatStart is required and must be boolean");
+        }
+        JsonNode enemiesNode = root.path("combatEnemies");
+        if (!enemiesNode.isArray()) throw new IllegalArgumentException("combatEnemies is required and must be an array");
+        List<CombatEnemyResponse> enemies = new java.util.ArrayList<>();
+        for (JsonNode enemy : enemiesNode) {
+            if (!enemy.isObject()) throw new IllegalArgumentException("combatEnemies entries must be objects");
+            int count = enemy.path("count").asInt(0);
+            if (count < 1) throw new IllegalArgumentException("combatEnemies count must be positive");
+            String mode = enemy.path("mode").asText("SCENARIO").toUpperCase(java.util.Locale.ROOT);
+            if (!mode.equals("SCENARIO") && !mode.equals("SITUATION") && !mode.equals("INSTANT")) {
+                throw new IllegalArgumentException("invalid combat enemy mode");
+            }
+            String scenarioId = enemy.path("scenarioId").asText("").trim();
+            if (mode.equals("SCENARIO") && scenarioId.isBlank()) {
+                throw new IllegalArgumentException("scenarioId is required for a SCENARIO combat enemy");
+            }
+            enemies.add(new CombatEnemyResponse(mode, scenarioId, required(enemy, "enemyKey"),
+                    required(enemy, "name"), count));
+        }
+        boolean combatStart = root.path("combatStart").booleanValue();
+        if (combatStart && enemies.isEmpty()) {
+            throw new IllegalArgumentException("combatStart requires at least one structured combat enemy");
+        }
+        JsonNode situation = root.path("situation");
+        if (!situation.isObject()) throw new IllegalArgumentException("situation is required and must be an object");
+        String basis = required(situation, "basis").toUpperCase(java.util.Locale.ROOT);
+        if (!basis.equals("SCENARIO") && !basis.equals("RAG") && !basis.equals("FALLBACK")) {
+            throw new IllegalArgumentException("invalid situation basis");
+        }
+        if (!situation.has("required") || !situation.path("required").isBoolean()) {
+            throw new IllegalArgumentException("situation required is mandatory");
+        }
+        String kind = required(situation, "kind").toUpperCase(java.util.Locale.ROOT);
+        if (!kind.equals("CONTINUE") && !kind.equals("TRANSITION")) throw new IllegalArgumentException("invalid situation kind");
+        SituationResponse response = new SituationResponse(kind, required(situation, "location"), required(situation, "problem"),
+                required(situation, "threat"), required(situation, "goal"), basis, situation.path("reference").asText(""),
+                situation.path("required").booleanValue());
+        return new RuntimeTurnResponse(required(root, "scene"), required(root, "judgment"), required(root, "narration"),
+                combatStart, List.copyOf(enemies), response);
     }
 
     private NarrationSafetyResponse parseSafety(String json) {
@@ -154,11 +205,17 @@ public final class TypedAgentContractController {
         }
     }
 
-    public record RuntimeTurnRequest(String operationKey, String action, List<Map<String, Object>> factLookupResults) {
+    public record RuntimeTurnRequest(String operationKey, String action, List<Map<String, Object>> factLookupResults,
+                                     Map<String, Object> runtimeContext) {
+        public RuntimeTurnRequest(String operationKey, String action, List<Map<String, Object>> factLookupResults) {
+            this(operationKey, action, factLookupResults, Map.of());
+        }
+
         public RuntimeTurnRequest {
             operationKey = required(operationKey, "operationKey");
             action = required(action, "action");
             factLookupResults = List.copyOf(Objects.requireNonNull(factLookupResults, "factLookupResults is required"));
+            runtimeContext = Map.copyOf(Objects.requireNonNull(runtimeContext, "runtimeContext is required"));
         }
     }
 
@@ -171,7 +228,11 @@ public final class TypedAgentContractController {
 
     public record ScenarioCompilationResponse(String status, Map<String, Object> scenarioModel) { }
     public record ScenarioLookupResponse(String status, String answer, List<String> supportingElementIds) { }
-    public record RuntimeTurnResponse(String scene, String judgment, String narration) { }
+    public record RuntimeTurnResponse(String scene, String judgment, String narration, boolean combatStart,
+                                      List<CombatEnemyResponse> combatEnemies, SituationResponse situation) { }
+    public record CombatEnemyResponse(String mode, String scenarioId, String enemyKey, String name, int count) { }
+    public record SituationResponse(String kind, String location, String problem, String threat, String goal,
+                                    String basis, String reference, boolean required) { }
     public record NarrationSafetyResponse(boolean approved, String reason) { }
 
     private static String required(String value, String field) {
