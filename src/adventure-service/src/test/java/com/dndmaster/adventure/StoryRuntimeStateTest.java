@@ -12,6 +12,7 @@ import com.dndmaster.adventure.domain.scenario.PressureDefinition;
 import com.dndmaster.adventure.domain.scenario.RevelationDefinition;
 import com.dndmaster.adventure.domain.scenario.ScenarioSourceReference;
 import com.dndmaster.adventure.domain.scenario.SituationDefinition;
+import com.dndmaster.adventure.domain.scenario.StageBackbone;
 import com.dndmaster.adventure.domain.scenario.StageIntent;
 import com.dndmaster.adventure.domain.scenario.ThreatDefinition;
 import com.dndmaster.adventure.domain.runtime.story.PressureOperation;
@@ -20,6 +21,10 @@ import com.dndmaster.adventure.domain.runtime.story.SituationAction;
 import com.dndmaster.adventure.domain.runtime.story.StoryRuntimeRules;
 import com.dndmaster.adventure.domain.runtime.story.StoryRuntimeProposal;
 import com.dndmaster.adventure.domain.runtime.story.StoryRuntimeState;
+import com.dndmaster.adventure.domain.runtime.story.FunnelEvaluation;
+import com.dndmaster.adventure.domain.runtime.story.StageLifecycle;
+import com.dndmaster.adventure.domain.runtime.story.StageHistoryEntry;
+import com.dndmaster.adventure.domain.runtime.story.UnresolvedStageExit;
 import java.util.List;
 import java.util.UUID;
 import org.junit.jupiter.api.Test;
@@ -119,6 +124,59 @@ class StoryRuntimeStateTest {
         assertEquals(progressed.pressureStates(), restored.pressureStates());
     }
 
+    @Test
+    void evaluates_funnel_from_canonical_revelations_and_predicates() {
+        DetailedStage stage = stageWithPredicate();
+        StoryRuntimeState initial = StoryRuntimeState.start(stage);
+
+        assertFalse(FunnelEvaluation.evaluate(stage, initial).satisfied());
+        StoryRuntimeState learned = StoryRuntimeRules.apply(initial, stage,
+                proposal(List.of("truth"), List.of()).withSatisfiedPredicateIds(List.of("location-known")));
+
+        FunnelEvaluation evaluation = FunnelEvaluation.evaluate(stage, learned);
+        assertTrue(evaluation.satisfied());
+        assertTrue(evaluation.missingRevelationIds().isEmpty());
+        assertTrue(evaluation.missingPredicateIds().isEmpty());
+    }
+
+    @Test
+    void transitions_atomically_only_when_funnel_and_next_stage_are_valid() {
+        DetailedStage current = stageWithPredicate();
+        DetailedStage next = nextStage();
+        StoryRuntimeState initial = StoryRuntimeState.start(current);
+        StoryRuntimeState notReady = StoryRuntimeRules.apply(initial, current,
+                proposal(List.of("truth"), List.of()));
+
+        assertThrows(IllegalStateException.class,
+                () -> StoryRuntimeRules.transition(notReady, current, next, backbone()));
+
+        StoryRuntimeState ready = StoryRuntimeRules.apply(notReady, current,
+                proposal(List.of(), List.of()).withExpectedVersion(notReady.version())
+                        .withSatisfiedPredicateIds(List.of("location-known")));
+        StoryRuntimeState transitioned = StoryRuntimeRules.transition(ready, current, next, backbone());
+
+        assertEquals("stage-2", transitioned.stageId());
+        assertEquals(StageLifecycle.ACTIVE, transitioned.lifecycle());
+        assertEquals(1, transitioned.stageHistory().size());
+        assertEquals(StageLifecycle.COMPLETED, transitioned.stageHistory().getFirst().lifecycle());
+        assertThrows(IllegalStateException.class,
+                () -> StoryRuntimeRules.transition(transitioned, current, next, backbone()));
+    }
+
+    @Test
+    void records_unresolved_exit_reason_and_carries_unresolved_context() {
+        DetailedStage stage = stageWithPredicate();
+        StoryRuntimeState exited = StoryRuntimeRules.apply(StoryRuntimeState.start(stage), stage,
+                proposal(SituationAction.none(), List.of(), List.of())
+                        .withUnresolvedExit(new UnresolvedStageExit("withdrew before finding the heir")));
+
+        assertEquals(StageLifecycle.EXITED_UNRESOLVED, exited.lifecycle());
+        assertEquals("withdrew before finding the heir", exited.exitReason());
+        assertEquals(List.of(stage.threat().core()), exited.unresolvedThreats());
+        assertEquals(stage.importantConsequenceIds(), exited.unresolvedConsequenceIds());
+        assertTrue(exited.isOpenPlay());
+    }
+
     private StoryRuntimeProposal proposal(SituationAction action) {
         return proposal(action, List.of(), List.of());
     }
@@ -144,5 +202,33 @@ class StoryRuntimeStateTest {
                         new SituationDefinition("pressure-scene", List.of(StageIntent.PRESSURE), List.of(),
                                 List.of("pressure"), List.of(), List.of(), List.of(), false, List.of(evidence))),
                 List.of(), List.of(evidence));
+    }
+
+    private DetailedStage stageWithPredicate() {
+        return new DetailedStage(packageId, 1, "stage-1", 1, "Find the key",
+                List.of(new RevelationDefinition("truth", true, List.of(evidence))),
+                new ThreatDefinition("The door is guarded", List.of(evidence)),
+                new PressureDefinition("The search grows dangerous", List.of(evidence)),
+                new FunnelDefinition("The key is found", List.of("truth"), List.of("location-known"), List.of(evidence)),
+                List.of(new SituationDefinition("opening", List.of(StageIntent.REVELATION), List.of("truth"),
+                        List.of(), List.of(), List.of("location-known"), List.of(), true, List.of(evidence))),
+                List.of("heir-missing"), List.of(evidence));
+    }
+
+    private DetailedStage nextStage() {
+        return new DetailedStage(packageId, 1, "stage-2", 1, "Face the threat",
+                List.of(new RevelationDefinition("ending-truth", true, List.of(evidence))),
+                new ThreatDefinition("The threat waits", List.of(evidence)),
+                new PressureDefinition("The threat advances", List.of(evidence)),
+                new FunnelDefinition("The finale is reached", List.of("ending-truth"), List.of(evidence)),
+                List.of(new SituationDefinition("next-opening", List.of(StageIntent.REVELATION), List.of("ending-truth"),
+                        List.of(), List.of(), List.of(), List.of(), true, List.of(evidence))),
+                List.of(), List.of(evidence));
+    }
+
+    private StageBackbone backbone() {
+        return new StageBackbone(packageId, 1, List.of(
+                new com.dndmaster.adventure.domain.scenario.StageBackboneEntry("stage-1", 1, "opening", "Find the key", "The key is found", List.of(evidence)),
+                new com.dndmaster.adventure.domain.scenario.StageBackboneEntry("stage-2", 2, "finale", "Face the threat", "The finale is reached", List.of(evidence))), List.of(evidence));
     }
 }

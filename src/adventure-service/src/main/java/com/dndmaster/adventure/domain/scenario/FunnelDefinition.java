@@ -16,4 +16,8 @@ public record FunnelDefinition(String funnelId, String meaning, List<String> req
     public FunnelDefinition(String meaning, List<String> requiredRevelationIds, List<ScenarioSourceReference> sourceRefs) {
         this("funnel", meaning, requiredRevelationIds, List.of(), sourceRefs);
     }
+    public FunnelDefinition(String meaning, List<String> requiredRevelationIds, List<String> requiredPredicateIds,
+            List<ScenarioSourceReference> sourceRefs) {
+        this("funnel", meaning, requiredRevelationIds, requiredPredicateIds, sourceRefs);
+    }
 }

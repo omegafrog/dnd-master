@@ -3,6 +3,7 @@ package com.dndmaster.adventure.domain.runtime.story;
 import com.dndmaster.adventure.domain.scenario.DetailedStage;
 import com.dndmaster.adventure.domain.scenario.RevelationDefinition;
 import com.dndmaster.adventure.domain.scenario.SituationDefinition;
+import com.dndmaster.adventure.domain.scenario.StageBackbone;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -29,13 +30,19 @@ public final class StoryRuntimeRules {
                 || state.detailedStageRevision() != proposal.detailedStageRevision()) {
             throw new IllegalStateException("story runtime stage reference is stale");
         }
+        if (state.lifecycle() != StageLifecycle.ACTIVE) {
+            throw new IllegalStateException("stage is no longer active: " + state.lifecycle());
+        }
 
         Map<String, SituationStatus> situations = new LinkedHashMap<>(state.situationStatuses());
         Map<String, RevelationStatus> revelations = new LinkedHashMap<>(state.revelationStatuses());
         Map<String, PressureState> pressures = new LinkedHashMap<>(state.pressureStates());
         String active = state.activeSituationId();
+        Set<String> predicates = new java.util.LinkedHashSet<>(state.satisfiedPredicateIds());
         validateRevelations(stage, proposal.learnedRevelationIds());
+        validatePredicates(stage, proposal.satisfiedPredicateIds());
         for (String revelationId : proposal.learnedRevelationIds()) revelations.put(revelationId, RevelationStatus.LEARNED);
+        predicates.addAll(proposal.satisfiedPredicateIds());
 
         SituationAction action = proposal.situationAction();
         if (action.kind() != SituationAction.Kind.NONE) {
@@ -82,16 +89,108 @@ public final class StoryRuntimeRules {
             };
             pressures.put(pressure.pressureId(), next);
         }
+        StageLifecycle lifecycle = state.lifecycle();
+        String exitReason = state.exitReason();
+        List<String> unresolvedThreats = state.unresolvedThreats();
+        List<String> unresolvedConsequences = state.unresolvedConsequenceIds();
+        if (proposal.unresolvedExit() != null) {
+            if (active != null) {
+                situations.put(active, SituationStatus.USED);
+                active = null;
+            }
+            situations.replaceAll((id, status) -> status == SituationStatus.AVAILABLE ? SituationStatus.INVALIDATED : status);
+            lifecycle = StageLifecycle.EXITED_UNRESOLVED;
+            exitReason = proposal.unresolvedExit().reason();
+            unresolvedThreats = List.of(stage.threat().core());
+            unresolvedConsequences = List.copyOf(stage.importantConsequenceIds());
+        }
         if (situations.equals(state.situationStatuses()) && revelations.equals(state.revelationStatuses())
-                && pressures.equals(state.pressureStates()) && Objects.equals(active, state.activeSituationId())) {
+                && pressures.equals(state.pressureStates()) && Objects.equals(active, state.activeSituationId())
+                && predicates.equals(state.satisfiedPredicateIds()) && lifecycle == state.lifecycle()
+                && Objects.equals(exitReason, state.exitReason())) {
             return state.withProcessedProposal(proposal.proposalId());
         }
-        return state.evolve(situations, revelations, pressures, active, state.openingPresented(), proposal.proposalId());
+        return state.evolve(situations, revelations, pressures, active, state.openingPresented(), proposal.proposalId(),
+                predicates, lifecycle, exitReason, unresolvedThreats, unresolvedConsequences, state.stageHistory());
+    }
+
+    /** Atomically closes the current stage and starts its immediate next stage. */
+    public static StoryRuntimeState transition(StoryRuntimeState state, DetailedStage current, DetailedStage next,
+            StageBackbone backbone) {
+        return transitionInternal(state, current, next, backbone, true);
+    }
+
+    /** Starts the next stage after an explicitly recorded unresolved exit. */
+    public static StoryRuntimeState transitionAfterUnresolvedExit(StoryRuntimeState state, DetailedStage current,
+            DetailedStage next, StageBackbone backbone) {
+        return transitionInternal(state, current, next, backbone, false);
+    }
+
+    private static StoryRuntimeState transitionInternal(StoryRuntimeState state, DetailedStage current, DetailedStage next,
+            StageBackbone backbone, boolean requireFunnel) {
+        Objects.requireNonNull(state, "story runtime state must not be null");
+        Objects.requireNonNull(current, "current detailed stage must not be null");
+        Objects.requireNonNull(next, "next detailed stage must not be null");
+        Objects.requireNonNull(backbone, "stage backbone must not be null");
+        validateReference(state, current);
+        if (state.lifecycle() != StageLifecycle.ACTIVE
+                && !(!requireFunnel && state.lifecycle() == StageLifecycle.EXITED_UNRESOLVED)) {
+            throw new IllegalStateException("stage is no longer transitionable: " + state.lifecycle());
+        }
+        if (requireFunnel) {
+            FunnelEvaluation funnel = FunnelEvaluation.evaluate(current, state);
+            if (!funnel.satisfied()) throw new IllegalStateException("funnel is not satisfied: "
+                    + funnel.missingRevelationIds() + funnel.missingPredicateIds());
+        }
+        if (!backbone.scenarioPackageId().equals(next.scenarioPackageId())
+                || backbone.revision() != next.backboneRevision()) throw new IllegalArgumentException("next stage references another backbone");
+        int currentOrder = backbone.stages().stream().filter(entry -> entry.stageId().equals(current.stageId()))
+                .mapToInt(entry -> entry.order()).findFirst().orElseThrow(() -> new IllegalArgumentException("current stage is not in backbone"));
+        var nextEntry = backbone.stages().stream().filter(entry -> entry.order() == currentOrder + 1).findFirst()
+                .orElseThrow(() -> new IllegalStateException("current stage has no next stage"));
+        if (!nextEntry.stageId().equals(next.stageId())) throw new IllegalArgumentException("next stage is not immediate successor");
+
+        StageHistoryEntry history = historyOf(state, current, state.lifecycle() == StageLifecycle.EXITED_UNRESOLVED
+                ? StageLifecycle.EXITED_UNRESOLVED : StageLifecycle.COMPLETED,
+                state.exitReason(), state.unresolvedThreats(), state.unresolvedConsequenceIds());
+        StoryRuntimeState started = StoryRuntimeState.start(next);
+        return new StoryRuntimeState(state.version() + 1, next.scenarioPackageId(), next.backboneRevision(), next.stageId(),
+                next.revision(), started.situationStatuses(), started.revelationStatuses(), started.pressureStates(),
+                started.activeSituationId(), started.openingPresented(), state.processedProposalIds(),
+                Set.of(), StageLifecycle.ACTIVE, null, state.unresolvedThreats(), state.unresolvedConsequenceIds(),
+                append(state.stageHistory(), history));
+    }
+
+    private static StageHistoryEntry historyOf(StoryRuntimeState state, DetailedStage stage, StageLifecycle lifecycle,
+            String reason, List<String> unresolvedThreats, List<String> unresolvedConsequences) {
+        Set<String> used = state.situationStatuses().entrySet().stream()
+                .filter(entry -> entry.getValue() == SituationStatus.USED).map(Map.Entry::getKey)
+                .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        return new StageHistoryEntry(stage.stageId(), stage.revision(), lifecycle, used, state.learnedRevelationIds(),
+                unresolvedThreats, unresolvedConsequences, reason);
+    }
+
+    private static List<StageHistoryEntry> append(List<StageHistoryEntry> history, StageHistoryEntry item) {
+        java.util.ArrayList<StageHistoryEntry> result = new java.util.ArrayList<>(history);
+        result.add(item);
+        return List.copyOf(result);
+    }
+
+    private static void validateReference(StoryRuntimeState state, DetailedStage stage) {
+        if (!state.scenarioPackageId().equals(stage.scenarioPackageId()) || state.backboneRevision() != stage.backboneRevision()
+                || !state.stageId().equals(stage.stageId()) || state.detailedStageRevision() != stage.revision()) {
+            throw new IllegalStateException("story runtime stage reference is stale");
+        }
     }
 
     private static void validateRevelations(DetailedStage stage, List<String> ids) {
         Set<String> known = new HashSet<>();
         for (RevelationDefinition revelation : stage.revelations()) known.add(revelation.revelationId());
         for (String id : ids) if (!known.contains(id)) throw new IllegalArgumentException("unknown revelation: " + id);
+    }
+
+    private static void validatePredicates(DetailedStage stage, List<String> ids) {
+        Set<String> known = new HashSet<>(stage.funnel().requiredPredicateIds());
+        for (String id : ids) if (!known.contains(id)) throw new IllegalArgumentException("unknown funnel predicate: " + id);
     }
 }

@@ -124,6 +124,45 @@ class StageArtifactPreparationApplicationServiceTest {
         assertEquals("opening-situation", service.prepare(packageId).openingSituation().situationId());
     }
 
+    @Test
+    void materializes_only_the_immediate_next_stage_and_validates_its_grounding() {
+        var repository = new StageArtifactRepository.InMemory();
+        var backbone = backbone();
+        repository.saveInitialArtifacts(backbone, detailed(true));
+        DetailedStage next = new DetailedStage(packageId, 1, "stage-2", 1, "Face the threat",
+                List.of(new RevelationDefinition("truth-2", true, List.of(evidence))),
+                new ThreatDefinition("The hunters arrive", List.of(evidence)),
+                new PressureDefinition("The danger rises", List.of(evidence)),
+                new FunnelDefinition("Reach the confrontation", List.of("truth-2"), List.of(evidence)),
+                List.of(new SituationDefinition("stage-2-situation", List.of(StageIntent.REVELATION), List.of("truth-2"),
+                        List.of(), List.of(), List.of(), List.of(), false, List.of(evidence))), List.of(), List.of(evidence));
+        var service = new StageArtifactPreparationApplicationService(repository,
+                request -> List.of(evidence), request -> backbone, request -> next);
+
+        assertEquals(next, service.prepareNext(packageId, backbone, "stage-1"));
+        assertEquals(next, repository.findDetailedStage(packageId, "stage-2", 1, 1).orElseThrow());
+    }
+
+    @Test
+    void does_not_persist_next_stage_when_grounding_validation_fails() {
+        var repository = new StageArtifactRepository.InMemory();
+        var backbone = backbone();
+        repository.saveInitialArtifacts(backbone, detailed(true));
+        ScenarioSourceReference foreign = new ScenarioSourceReference(new KnowledgeDocumentId(UUID.randomUUID()), 2, "page:9:span:9");
+        DetailedStage invalid = new DetailedStage(packageId, 1, "stage-2", 1, "Face the threat",
+                List.of(new RevelationDefinition("truth-2", true, List.of(foreign))),
+                new ThreatDefinition("The hunters arrive", List.of(foreign)),
+                new PressureDefinition("The danger rises", List.of(foreign)),
+                new FunnelDefinition("Reach the confrontation", List.of("truth-2"), List.of(foreign)),
+                List.of(new SituationDefinition("stage-2-situation", List.of(StageIntent.REVELATION), List.of("truth-2"),
+                        List.of(), List.of(), List.of(), List.of(), false, List.of(foreign))), List.of(), List.of(foreign));
+        var service = new StageArtifactPreparationApplicationService(repository,
+                request -> List.of(evidence), request -> backbone, request -> invalid);
+
+        assertThrows(IllegalStateException.class, () -> service.prepareNext(packageId, backbone, "stage-1"));
+        assertEquals(0, repository.findDetailedStage(packageId, "stage-2", 1, 1).stream().count());
+    }
+
     private static final class FailingInitialRepository implements StageArtifactRepository {
         private int backboneCount;
         private final StageArtifactRepository delegate = new StageArtifactRepository.InMemory();
