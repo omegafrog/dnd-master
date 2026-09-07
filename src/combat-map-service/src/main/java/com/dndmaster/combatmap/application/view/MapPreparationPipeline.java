@@ -33,7 +33,11 @@ public final class MapPreparationPipeline {
             var png = new ByteArrayOutputStream(); ImageIO.write(normalized, "png", png);
             String image = "data:image/png;base64," + Base64.getEncoder().encodeToString(png.toByteArray());
             String gridBounds = calibration.originX() + "," + calibration.originY() + "," + calibration.grid().width() * calibration.grid().cellSize() + "," + calibration.grid().height() * calibration.grid().cellSize() + "," + normalized.getWidth() + "," + normalized.getHeight();
-            return new PreparedMapData(calibration.grid(), List.of(), Set.of(), List.of(new MapLayer("MAP_IMAGE", image, LayerVisibility.PLAYER_VISIBLE), new MapLayer("GRID_BOUNDS", gridBounds, LayerVisibility.PLAYER_VISIBLE), new MapLayer("GRID_META", calibration.metadataValue(), LayerVisibility.AI_ONLY)));
+            return new PreparedMapData(calibration.grid(), List.of(), Set.of(), List.of(
+                    new MapLayer("MAP_IMAGE", image, LayerVisibility.PLAYER_VISIBLE),
+                    new MapLayer("GRID_BOUNDS", gridBounds, LayerVisibility.PLAYER_VISIBLE),
+                    new MapLayer("GRID_SOURCE", calibration.source().name(), LayerVisibility.PLAYER_VISIBLE),
+                    new MapLayer("GRID_META", calibration.metadataValue(), LayerVisibility.AI_ONLY)));
         } catch (MapSourceUnreadableException e) { throw e; }
         catch (Exception e) { throw new MapSourceUnreadableException("map source cannot be prepared", e); }
     }

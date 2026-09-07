@@ -17,6 +17,23 @@ public final class CombatMapViewService {
         if (description == null || description.isBlank()) throw new IllegalArgumentException("description required");
         return saveNew(owner, adventure, rules, aiPort.generate(description.trim()));
     }
+    public CombatMap prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules, String description,
+            Collection<GridPosition> obstacles, Collection<Door> doors) {
+        if (description == null || description.isBlank()) throw new IllegalArgumentException("description required");
+        return prepareGenerated(owner, adventure, rules,
+                new MapGenerationRequest(description.trim(), "", 20, 20, 30, 5,
+                        obstacles == null ? Set.of() : obstacles,
+                        doors == null ? List.of() : doors));
+    }
+    public CombatMap prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules,
+            MapGenerationRequest request) {
+        PreparedMapData generated = aiPort.generate(request);
+        Set<GridPosition> mergedObstacles = new HashSet<>(generated.obstacles());
+        mergedObstacles.addAll(request.authoredObstacles());
+        List<Door> mergedDoors = new ArrayList<>(generated.doors());
+        mergedDoors.addAll(request.authoredDoors());
+        return saveNew(owner, adventure, rules, new PreparedMapData(generated.grid(), generated.tokens(), mergedObstacles, generated.layers(), mergedDoors));
+    }
     public CombatMap prepareGenerated(MapOwnerId owner, AdventureId adventure, RuleSetId rules, String description, int spawnX, int spawnY) {
         if (description == null || description.isBlank()) throw new IllegalArgumentException("description required");
         return saveNew(owner, adventure, rules, aiPort.generate(description.trim()), spawnX, spawnY);
@@ -39,13 +56,29 @@ public final class CombatMapViewService {
     private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data) { return saveNew(owner, adventure, rules, data, null, null); }
     private CombatMap saveNew(MapOwnerId owner, AdventureId adventure, RuleSetId rules, PreparedMapData data, Integer spawnX, Integer spawnY) {
         List<CombatToken> tokens = new ArrayList<>(data.tokens());
+        data.layers().stream().filter(layer -> layer.type().equals("GM_PLAYER_START")).findFirst()
+                .flatMap(layer -> parsePosition(layer.value())).ifPresent(position -> {
+                    if (tokens.stream().noneMatch(token -> token.type() == TokenType.PLAYER)) {
+                        tokens.add(new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,
+                                position, TokenController.PLAYER, new PlayerId(owner.value())));
+                    }
+                });
         if (tokens.stream().noneMatch(token -> token.type() == TokenType.PLAYER) && spawnX != null && spawnY != null) {
             tokens.add(new CombatToken(new TokenId(UUID.randomUUID()), TokenType.PLAYER,
                     new GridPosition(spawnX, spawnY), TokenController.PLAYER, new PlayerId(owner.value())));
         }
         CombatMap map = new CombatMap(new MapId(UUID.randomUUID()), adventure, rules, data.grid(), new PlayerId(owner.value()), tokens, data.obstacles(), data.layers(), 0, null);
+        map.replaceDoors(data.doors());
         map.refreshVisibility(0);
         store.insert(owner, map); return map;
+    }
+
+    private static Optional<GridPosition> parsePosition(String value) {
+        if (value == null) return Optional.empty();
+        String[] pair = value.trim().split(",", -1);
+        if (pair.length != 2) return Optional.empty();
+        try { return Optional.of(new GridPosition(Integer.parseInt(pair[0].trim()), Integer.parseInt(pair[1].trim()))); }
+        catch (NumberFormatException ignored) { return Optional.empty(); }
     }
     public CombatMap controlAiState(MapId id, MapOwnerId owner, long expectedVersion, UUID commandId, TokenId tokenId, GridPosition position, List<MapLayer> aiLayers) {
         VersionedOwnedCombatMap replay = store.findByCommandId(commandId).orElse(null);
@@ -109,6 +142,48 @@ public final class CombatMapViewService {
         if(state.version()!=expectedVersion) throw new IllegalStateException("version mismatch");
         Set<Door> doors=new HashSet<>(state.map().doors()); doors.removeIf(door->door.position().equals(position)); doors.add(new Door(position,open)); state.map().replaceDoors(doors); state.map().refreshVisibility(state.map().visibilitySnapshot()==null?0:state.map().visibilitySnapshot().ruleTurn());
         store.update(owner,state.map(),expectedVersion,expectedVersion+1,commandId,fingerprint); return state.map();
+    }
+
+    public CombatMap calibrateGrid(MapId id, MapOwnerId owner, long expectedVersion, GridCalibrationRequest request) {
+        VersionedOwnedCombatMap state = owned(id, owner);
+        if (state.version() != expectedVersion) throw new IllegalStateException("version mismatch");
+        CombatMap current = state.map();
+        GridSpec nextGrid = new GridSpec(request.width(), request.height(), request.cellSize(), current.grid().distanceUnit());
+        GridPosition oldPlayer = current.tokens().stream().filter(token -> token.type() == TokenType.PLAYER)
+                .map(CombatToken::position).findFirst().orElse(null);
+        GridPosition nextPlayer = request.playerX() == null
+                ? scale(oldPlayer, current.grid(), nextGrid)
+                : new GridPosition(request.playerX(), request.playerY());
+        List<CombatToken> tokens = current.tokens().stream().map(token ->
+                token.type() == TokenType.PLAYER
+                        ? copy(token, nextPlayer)
+                        : copy(token, scale(token.position(), current.grid(), nextGrid))).toList();
+        Set<GridPosition> obstacles = current.obstacles().stream().map(position -> scale(position, current.grid(), nextGrid)).collect(Collectors.toSet());
+        List<Door> doors = current.doors().stream().map(door -> new Door(scale(door.position(), current.grid(), nextGrid), door.open())).toList();
+        if (nextPlayer == null || obstacles.contains(nextPlayer) || doors.stream().anyMatch(door -> !door.open() && door.position().equals(nextPlayer))) {
+            throw new IllegalArgumentException("player start cell is blocked");
+        }
+        List<MapLayer> layers = new ArrayList<>(current.layers().stream()
+                .filter(layer -> !Set.of("GRID_BOUNDS", "GRID_SOURCE", "GRID_META").contains(layer.type())).toList());
+        layers.add(new MapLayer("GRID_BOUNDS", request.originX() + "," + request.originY() + ","
+                + request.width() * request.cellSize() + "," + request.height() * request.cellSize() + ","
+                + request.imageWidth() + "," + request.imageHeight(), LayerVisibility.PLAYER_VISIBLE));
+        layers.add(new MapLayer("GRID_SOURCE", "MANUAL", LayerVisibility.PLAYER_VISIBLE));
+        layers.add(new MapLayer("GRID_META", "source=MANUAL;origin=" + request.originX() + "," + request.originY(), LayerVisibility.AI_ONLY));
+        CombatMap calibrated = new CombatMap(current.id(), current.adventureId(), current.ruleSetId(), nextGrid,
+                current.ownerPlayerId(), tokens, obstacles, layers, expectedVersion + 1, UUID.randomUUID(),
+                "CALIBRATE|" + request);
+        calibrated.replaceDoors(doors);
+        calibrated.replaceRuntimeState(current.runtimeState());
+        calibrated.refreshVisibility(current.visibilitySnapshot() == null ? 0 : current.visibilitySnapshot().ruleTurn());
+        store.update(owner, calibrated, expectedVersion, expectedVersion + 1, calibrated.operationKey(), calibrated.operationFingerprint());
+        return calibrated;
+    }
+
+    private static GridPosition scale(GridPosition position, GridSpec from, GridSpec to) {
+        if (position == null) return null;
+        return new GridPosition(Math.min(to.width() - 1, Math.max(0, Math.round(position.x() * (to.width() - 1f) / Math.max(1, from.width() - 1)))),
+                Math.min(to.height() - 1, Math.max(0, Math.round(position.y() * (to.height() - 1f) / Math.max(1, from.height() - 1)))));
     }
     public CombatMap onGameTimeAdvanced(MapId id, MapOwnerId owner, long expectedVersion, GameTimeAdvanced event) {
         VersionedOwnedCombatMap state=owned(id, owner);

@@ -11,6 +11,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
 import java.util.UUID;
+import java.util.List;
 
 /** HTTP adapter for the combat-map prepare-and-activate boundary. */
 public final class HttpCombatMapPreparationGateway implements CombatMapPreparationPort {
@@ -43,7 +44,9 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
         Request payload = new Request(adventureId.value(), ownerPlayerId, ruleSetId.value(), mapDefinition.id(),
                 mapDefinition.assetId(), mapDefinition.assetLocator(), stagePosition,
                 context.spawnCandidateX(), context.spawnCandidateY(), context.playerTokenId(), context.situationId(),
-                context.situationRevision(), context.turnIndex(), context.currentScene(), context.location(), context.entrySide());
+                context.situationRevision(), context.turnIndex(), context.currentScene(), context.location(), context.entrySide(),
+                mapDefinition.walls(), mapDefinition.doors(), mapDefinition.obstacles(),
+                mapDefinition.source().knowledgeDocumentId().value(), mapDefinition.source().locator());
         try {
             HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/prepare"))
                     .timeout(timeout)
@@ -67,6 +70,8 @@ public final class HttpCombatMapPreparationGateway implements CombatMapPreparati
     private record Request(UUID adventureId, UUID ownerId, UUID ruleSetId, UUID mapDefinitionId,
             String assetId, String assetLocator, int stagePosition, Integer playerSpawnX, Integer playerSpawnY,
             UUID playerTokenId, UUID situationId, long situationRevision, int turnIndex,
-            String currentScene, String location, String entrySide) {}
+            String currentScene, String location, String entrySide,
+            List<String> walls, List<String> doors, List<String> obstacles,
+            UUID sourceDocumentId, String sourceAssetLocator) {}
     private record Response(UUID mapId) {}
 }

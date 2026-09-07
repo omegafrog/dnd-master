@@ -13,12 +13,12 @@ public final class SpawnResolutionPolicy {
             return new SpawnResolution(tacticalPlayerPlacement.get(), SpawnResolution.Source.EXPLICIT_TACTICAL);
         if (context.spawnCandidate().isPresent() && valid(grid, blocked, used, context.spawnCandidate().get()))
             return new SpawnResolution(context.spawnCandidate().get(), SpawnResolution.Source.ACTIVATION_CANDIDATE);
-        for (GridPosition candidate : boundary(grid, context.entrySide().orElse(null)))
-            if (valid(grid, blocked, used, candidate)) return new SpawnResolution(candidate, SpawnResolution.Source.ENTRY_BOUNDARY);
-        for (int y = 0; y < grid.height(); y++) for (int x = 0; x < grid.width(); x++) {
-            GridPosition candidate = new GridPosition(x, y);
-            if (valid(grid, blocked, used, candidate)) return new SpawnResolution(candidate, SpawnResolution.Source.SAFE_FALLBACK);
+        if (context.entrySide().isPresent()) {
+            for (GridPosition candidate : boundary(grid, context.entrySide().orElseThrow()))
+                if (valid(grid, blocked, used, candidate)) return new SpawnResolution(candidate, SpawnResolution.Source.ENTRY_BOUNDARY);
         }
+        for (GridPosition candidate : centerOutward(grid))
+            if (valid(grid, blocked, used, candidate)) return new SpawnResolution(candidate, SpawnResolution.Source.SAFE_FALLBACK);
         throw new NoValidPlayerSpawnException();
     }
     private static boolean valid(GridSpec grid, Set<GridPosition> blocked, Set<GridPosition> used, GridPosition p) {
@@ -40,6 +40,18 @@ public final class SpawnResolutionPolicy {
             if (center + distance < length) result.add(center + distance);
             if (center - distance >= 0) result.add(center - distance);
         }
+        return result;
+    }
+
+    private static List<GridPosition> centerOutward(GridSpec grid) {
+        List<GridPosition> result = new ArrayList<>();
+        int centerX = grid.width() / 2, centerY = grid.height() / 2;
+        for (int y = 0; y < grid.height(); y++) for (int x = 0; x < grid.width(); x++)
+            result.add(new GridPosition(x, y));
+        result.sort(Comparator
+                .comparingInt((GridPosition position) -> Math.max(Math.abs(position.x() - centerX), Math.abs(position.y() - centerY)))
+                .thenComparingInt(GridPosition::y)
+                .thenComparingInt(GridPosition::x));
         return result;
     }
 }

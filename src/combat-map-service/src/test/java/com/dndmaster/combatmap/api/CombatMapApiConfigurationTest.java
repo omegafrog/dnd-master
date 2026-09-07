@@ -6,12 +6,21 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.dndmaster.combatmap.application.view.DetectedMapGrid;
 import com.dndmaster.combatmap.application.view.MapGridDetectionPort;
+import com.dndmaster.combatmap.application.view.HttpAiMapGenerationGateway;
+import com.dndmaster.combatmap.application.view.MapGenerationRequest;
 import com.dndmaster.combatmap.domain.GridSpec;
 import com.dndmaster.combatmap.application.view.PreparedMapData;
 import com.dndmaster.combatmap.application.view.UploadedMapSource;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayOutputStream;
+import java.net.InetSocketAddress;
+import java.net.http.HttpClient;
+import java.time.Duration;
+import java.util.concurrent.atomic.AtomicReference;
 import javax.imageio.ImageIO;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.Test;
 
 class CombatMapApiConfigurationTest {
@@ -22,11 +31,35 @@ class CombatMapApiConfigurationTest {
     }
 
     @Test
-    void bundledPotentBrewMapDoesNotClaimUndetectedGridBounds() {
-        var data = new CombatMapApiConfiguration().aiMapGenerationPort().generate("A_Potent_Brew_Map");
-
-        assertTrue(data.layers().stream().anyMatch(layer -> layer.type().equals("MAP_IMAGE")));
-        assertTrue(data.layers().stream().noneMatch(layer -> layer.type().equals("GRID_BOUNDS")));
+    void aiGameMasterProposalBecomesValidatedPreparedMapData() throws Exception {
+        AtomicReference<String> requestBody = new AtomicReference<>();
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/internal/v1/gm/maps", exchange -> {
+            requestBody.set(new String(exchange.getRequestBody().readAllBytes(), java.nio.charset.StandardCharsets.UTF_8));
+            byte[] response = "{\"width\":4,\"height\":3,\"obstacles\":[\"1,1\"],\"doors\":[\"2,1\"],\"playerStart\":\"0,0\",\"rationale\":\"source-backed layout\"}".getBytes();
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(200, response.length);
+            try (var output = exchange.getResponseBody()) { output.write(response); }
+        });
+        server.start();
+        try {
+            var gateway = new HttpAiMapGenerationGateway(HttpClient.newHttpClient(),
+                    java.net.URI.create("http://127.0.0.1:" + server.getAddress().getPort() + "/"),
+                    Duration.ofSeconds(5), new ObjectMapper(), "token");
+            PreparedMapData data = gateway.generate(new MapGenerationRequest("map", "context", 4, 3, 30, 5,
+                    java.util.List.of(), java.util.List.of(), new com.dndmaster.combatmap.domain.GridPosition(0, 0),
+                    new com.dndmaster.combatmap.application.view.MapImageEvidence("image/png", new byte[] {1, 2, 3})));
+            assertEquals(new GridSpec(4, 3, 30, 5), data.grid());
+            assertTrue(data.obstacles().contains(new com.dndmaster.combatmap.domain.GridPosition(1, 1)));
+            assertEquals(1, data.doors().size());
+            assertTrue(data.layers().stream().anyMatch(layer -> layer.type().equals("GM_PLAYER_START") && layer.value().equals("0,0")));
+            assertTrue(data.layers().stream().anyMatch(layer -> layer.type().equals("MAP_IMAGE") && layer.value().startsWith("data:image/png;base64,")));
+            JsonNode request = new ObjectMapper().readTree(requestBody.get());
+            assertEquals("0,0", new ObjectMapper().readTree(request.path("mapData").asText()).path("authoredPlayerStart").asText());
+            assertTrue(request.path("imageDataUri").asText().startsWith("data:image/png;base64,"));
+        } finally {
+            server.stop(0);
+        }
     }
 
     @Test
@@ -45,12 +78,4 @@ class CombatMapApiConfigurationTest {
                 .findFirst().orElseThrow().value());
     }
 
-    @Test
-    void bundledPotentBrewMapProvidesTacticalTokensAndInitialFog() {
-        var data = new CombatMapApiConfiguration().aiMapGenerationPort().generate("A_Potent_Brew_Map");
-
-        assertTrue(data.tokens().stream().anyMatch(token -> token.type().name().equals("ENEMY")));
-        assertTrue(data.layers().stream().anyMatch(layer -> layer.type().equals("INITIAL_FOG")
-                && layer.visibility().name().equals("AI_ONLY") && !layer.value().isBlank()));
-    }
 }

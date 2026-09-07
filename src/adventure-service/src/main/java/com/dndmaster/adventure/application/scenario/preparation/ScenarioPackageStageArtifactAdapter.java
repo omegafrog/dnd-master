@@ -1,6 +1,8 @@
 package com.dndmaster.adventure.application.scenario.preparation;
 
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
+import com.dndmaster.adventure.application.scenario.ScenarioBundleRepository;
+import com.dndmaster.adventure.application.runtime.OpeningSourceContextSearchPort;
 import com.dndmaster.adventure.domain.scenario.DetailedStage;
 import com.dndmaster.adventure.domain.scenario.FunnelDefinition;
 import com.dndmaster.adventure.domain.scenario.PressureDefinition;
@@ -22,13 +24,37 @@ public final class ScenarioPackageStageArtifactAdapter implements StorybookEvide
         StageBackboneGenerationPort, StageDetailedGenerationPort {
     private static final String FIRST_STAGE_ID = "first-stage";
     private final ScenarioPackageRepository packages;
+    private final ScenarioBundleRepository bundles;
+    private final OpeningSourceContextSearchPort openingSearch;
 
     public ScenarioPackageStageArtifactAdapter(ScenarioPackageRepository packages) {
+        this(packages, null, null);
+    }
+
+    public ScenarioPackageStageArtifactAdapter(ScenarioPackageRepository packages,
+            ScenarioBundleRepository bundles, OpeningSourceContextSearchPort openingSearch) {
         this.packages = packages;
+        this.bundles = bundles;
+        this.openingSearch = openingSearch;
     }
 
     @Override
     public List<ScenarioSourceReference> lookup(UUID scenarioPackageId) {
+        if (bundles != null && openingSearch != null) {
+            ScenarioPackage scenarioPackage = loadPackage(scenarioPackageId);
+            var bundle = bundles.findById(scenarioPackage.bundleId())
+                    .orElseThrow(() -> new IllegalStateException("scenario source bundle not found"));
+            List<OpeningSourceContextSearchPort.Result> results = openingSearch.search(
+                    new com.dndmaster.adventure.domain.adventure.OwnerPlayerId(bundle.ownerPlayerId().value()), scenarioPackage);
+            if (!results.isEmpty()) {
+                OpeningSourceContextSearchPort.Result selected = results.stream()
+                        .max(java.util.Comparator.comparingDouble(OpeningSourceContextSearchPort.Result::score))
+                        .orElseThrow();
+                return List.of(new ScenarioSourceReference(
+                        selected.knowledgeDocumentId(), selected.extractionVersion(), selected.locator()));
+            }
+            return List.of();
+        }
         return elements(loadPackage(scenarioPackageId)).flatMap(element -> element.sourceRefs().stream()).distinct().toList();
     }
 

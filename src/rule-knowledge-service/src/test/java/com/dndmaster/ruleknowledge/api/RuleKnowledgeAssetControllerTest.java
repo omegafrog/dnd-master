@@ -76,7 +76,7 @@ class RuleKnowledgeAssetControllerTest {
     @Test
     void servesAllowlistedPotentBrewMapWhenPublishedRegistrationIsMissing() throws Exception {
         Path assets = Files.createTempDirectory("catalog-assets");
-        Files.write(assets.resolve("892902-A_Most_Potent_Brew.pdf"), pdfWithImage());
+        Files.write(assets.resolve("892902-A_Potent_Brew_Map.pdf"), pdfWithImage());
         var registrations = mock(RulebookRegistrationRepository.class);
         var controller = new RuleKnowledgeAssetController(registrations, mock(RulebookFileStorage.class), "token", assets);
 

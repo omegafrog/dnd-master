@@ -117,31 +117,21 @@ public class CombatMapApiConfiguration {
     }
 
     @Bean
-    AiMapGenerationPort aiMapGenerationPort() {
-        return scenarioDescription -> new PreparedMapData(
-                new GridSpec(20, 20, 30, 5),
-                scenarioDescription != null && scenarioDescription.contains("A_Potent_Brew_Map")
-                        ? List.of(new CombatToken(new TokenId(CombatMap.canonicalTokenId("potent-brew-enemy-1")),
-                                TokenType.ENEMY, new GridPosition(14, 14), TokenController.AI_GAME_MASTER, null,
-                                TokenDiscovery.HIDDEN))
-                        : List.of(),
-                Set.of(),
-                scenarioDescription != null && (scenarioDescription.contains("A_Potent_Brew_Map")
-                        || scenarioDescription.contains("page 1 image 1"))
-                        ? List.of(new MapLayer("MAP_IMAGE", "/assets/maps/a-potent-brew-map.png", LayerVisibility.PLAYER_VISIBLE),
-                                // Generated asset references do not include image bytes, so they
-                                // cannot cross the preprocessing port yet. Do not invent bounds;
-                                // uploaded map bytes are the supported detection path.
-                                new MapLayer("INITIAL_FOG", initialFog(), LayerVisibility.AI_ONLY))
-                        : List.of());
+    AiMapGenerationPort aiMapGenerationPort(
+            @Value("${combat-map.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${combat-map.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+            @Value("${combat-map.integration.ai-game-master.map-generation-timeout:300s}") java.time.Duration timeout) {
+        return new HttpAiMapGenerationGateway(java.net.http.HttpClient.newHttpClient(),
+                java.net.URI.create(baseUrl), timeout, objectMapper, internalToken);
     }
 
-    private static String initialFog() {
-        List<String> cells = new ArrayList<>();
-        for (int y = 0; y < 20; y++) for (int x = 0; x < 20; x++) {
-            if (x > 5 || y > 5) cells.add(x + "," + y);
-        }
-        return String.join(";", cells);
+    @Bean
+    MapImageEvidencePort mapImageEvidencePort(
+            @Value("${combat-map.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${combat-map.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        return new HttpMapImageEvidenceGateway(java.net.http.HttpClient.newHttpClient(), java.net.URI.create(baseUrl),
+                java.time.Duration.ofSeconds(30), internalToken);
     }
 
     @Bean
@@ -151,7 +141,8 @@ public class CombatMapApiConfiguration {
 
     @Bean
     CombatMapController combatMapController(
-            CombatMapViewService mapViewService, CombatMapMovementService movementService, ApiRequestGuard requestGuard) {
-        return new CombatMapController(mapViewService, movementService, requestGuard);
+            CombatMapViewService mapViewService, CombatMapMovementService movementService, ApiRequestGuard requestGuard,
+            MapImageEvidencePort mapImageEvidence) {
+        return new CombatMapController(mapViewService, movementService, requestGuard, mapImageEvidence);
     }
 }

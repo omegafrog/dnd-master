@@ -272,7 +272,18 @@ public class AdventureController {
         }
         var projection = combatMapViewPort.playerView(adventureId, playerResolver.playerId());
         return projection.map(view -> CombatMapResponse.from(adventureId, adventure.version(), view))
-                .orElseGet(() -> new CombatMapResponse(adventureId, "map-view", adventure.version(), null, null, List.of(), List.of(), List.of(), List.of(), List.of(), null));
+                .orElseGet(() -> new CombatMapResponse(adventureId, "map-view", adventure.version(), null, null, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), null));
+    }
+
+    @PutMapping("/api/v1/adventures/{adventureId}/combat-map/calibration")
+    CombatMapCalibrationResponse calibrateMap(@PathVariable UUID adventureId, @RequestBody CombatMapCalibrationRequest request) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        if (!adventure.ownerPlayerId().value().equals(playerResolver.playerId())) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        }
+        combatMapViewPort.calibrate(request.mapId(), playerResolver.playerId(), request.expectedVersion(), request.width(), request.height(),
+                request.cellSize(), request.originX(), request.originY(), request.imageWidth(), request.imageHeight(), request.playerX(), request.playerY());
+        return new CombatMapCalibrationResponse(request.mapId(), request.width(), request.height());
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/dice-rolls")
@@ -515,13 +526,17 @@ public class AdventureController {
             com.dndmaster.adventure.application.combat.CombatMapViewPort.Grid grid,
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Token> tokens,
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Obstacle> obstacles,
+            List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Door> doors,
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Layer> layers,
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> current,
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> explored, Long version) {
         static CombatMapResponse from(UUID adventureId, long sessionVersion, com.dndmaster.adventure.application.combat.CombatMapViewPort.View view) {
-            return new CombatMapResponse(adventureId, "authoritative-map", sessionVersion, view.mapId(), view.grid(), view.tokens(), view.obstacles(), view.layers(), view.current(), view.explored(), view.version());
+            return new CombatMapResponse(adventureId, "authoritative-map", sessionVersion, view.mapId(), view.grid(), view.tokens(), view.obstacles(), view.doors(), view.layers(), view.current(), view.explored(), view.version());
         }
     }
+    public record CombatMapCalibrationRequest(UUID mapId, long expectedVersion, int width, int height, int cellSize,
+            int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
+    public record CombatMapCalibrationResponse(UUID mapId, int width, int height) {}
     public record DiceRollRequest(
             UUID ruleSetId,
             UUID characterSheetId,

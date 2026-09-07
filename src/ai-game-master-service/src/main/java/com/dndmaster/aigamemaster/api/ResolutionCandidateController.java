@@ -75,12 +75,21 @@ public final class ResolutionCandidateController {
         }
         List<Candidate> candidates;
         AgentEndpoint endpoint = endpointRegistry.active();
-        if (endpoint.provider() == AgentEndpoint.Provider.CODEX_CLI) {
-            String response = new CodexCliCompletionAdapter(codexExecutable, endpoint.model(), codexWorkDirectory, codexTimeout)
-                    .complete(request.operationId(), prompt);
-            candidates = parseModel(response);
-        } else {
-            candidates = adapter.complete(request.operationId(), prompt, this::parseModel);
+        try {
+            if (endpoint.provider() == AgentEndpoint.Provider.CODEX_CLI) {
+                String response = new CodexCliCompletionAdapter(codexExecutable, endpoint.model(), codexWorkDirectory, codexTimeout)
+                        .complete(request.operationId(), prompt);
+                candidates = parseModel(response);
+            } else {
+                candidates = adapter.complete(request.operationId(), prompt, this::parseModel);
+            }
+        } catch (RuntimeException malformedOrUnavailable) {
+            // A provider response is optional authoring assistance. If it is
+            // malformed or unavailable, continue with the source-pattern
+            // fallback instead of failing the whole package preparation job.
+            log.warn("resolution_candidate_provider_fallback operationId={} provider={} reason={}",
+                    request.operationId(), endpoint.provider(), malformedOrUnavailable.getMessage());
+            candidates = List.of();
         }
         if (!candidates.isEmpty()) {
             List<Candidate> verified = candidates.stream().filter(candidate -> canonicalContractValid(candidate.detail()))

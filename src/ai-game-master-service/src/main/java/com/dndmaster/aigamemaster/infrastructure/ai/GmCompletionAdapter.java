@@ -6,6 +6,10 @@ import java.util.List;
 public interface GmCompletionAdapter {
     <T> T complete(String operationId, String prompt, StructuredResponseParser<T> parser);
 
+    default <T> T complete(String operationId, GmPrompt prompt, StructuredResponseParser<T> parser) {
+        return complete(operationId, prompt.text(), parser);
+    }
+
     default <T> GmCompletionResult<T> completeWithSelection(
             String operationId, String prompt, StructuredResponseParser<T> parser,
             RequestedGmProviderSelection requested) {

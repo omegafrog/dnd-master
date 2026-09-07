@@ -51,7 +51,7 @@ public final class PreprocessingArtifactImporter {
                 if (sections.isArray()) sections.forEach(item -> { if (item.isTextual() && !item.asText().isBlank()) sectionPath.add(item.asText()); });
                 String locator = "page=" + page + ":chunk=" + processorId;
                 chunks.add(new PublishedRagChunk(processorId, sequence++, content, embeddingText,
-                        new SourceProvenance(page, sectionPath, List.of(), null, locator)));
+                        new SourceProvenance(page, sectionPath, List.of(), null, locator), optionalText(chunk, "parent_key")));
             }
             if (chunks.isEmpty()) throw new IllegalArgumentException("CHUNK_ARTIFACT_EMPTY");
             return List.copyOf(chunks);
@@ -65,6 +65,11 @@ public final class PreprocessingArtifactImporter {
         String value = node.path(name).asText("");
         if (value.isBlank()) throw new IllegalArgumentException("CHUNK_ARTIFACT_INVALID");
         return value;
+    }
+
+    private static String optionalText(JsonNode node, String name) {
+        String value = node.path(name).asText("");
+        return value.isBlank() ? null : value;
     }
 
     private static String sha256(Path path) {

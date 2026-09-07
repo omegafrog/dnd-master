@@ -1,3 +1,3 @@
 package com.dndmaster.combatmap.application.view;
 
-public enum GridSource { PRINTED, FALLBACK }
+public enum GridSource { PRINTED, FALLBACK, MANUAL }

@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentLookupPort;
 import com.dndmaster.adventure.application.knowledge.KnowledgeDocumentStatus;
 import com.dndmaster.adventure.application.runtime.InitialSourceContextProposalPort;
+import com.dndmaster.adventure.application.runtime.OpeningSourceContextSearchPort;
 import com.dndmaster.adventure.application.runtime.RuntimeBindingApplicationService;
 import com.dndmaster.adventure.application.runtime.RuntimeBindingRepository;
 import com.dndmaster.adventure.application.saved.AdventureRepository;
@@ -100,6 +101,62 @@ class RuntimeBindingApplicationServiceTest {
     }
 
     @Test
+    void usesOnlyTheHighestScoredDedicatedOpeningSearchResult() {
+        ScenarioBundleId bundleId = ScenarioBundleId.generate();
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId storyId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(bundleId, rulebookId, storyId,
+                "page:2:opening", "page:4:monster");
+
+        InMemoryAdventureRepository adventures = new InMemoryAdventureRepository(adventure);
+        InMemoryBundleRepository bundles = new InMemoryBundleRepository(bundleId, owner);
+        InMemoryPackageRepository packages = new InMemoryPackageRepository(scenarioPackage);
+        InMemoryBindingRepository bindings = new InMemoryBindingRepository();
+        OpeningSourceContextSearchPort openingSearch = (searchOwner, packageToSearch) -> List.of(
+                new OpeningSourceContextSearchPort.Result(
+                        storyId, 1, "page:2:opening", "1. Beer Cellar", 0.95),
+                new OpeningSourceContextSearchPort.Result(
+                        storyId, 1, "page:4:monster", "Giant rat statistics", 0.42));
+        RuntimeBindingApplicationService service = service(
+                adventures, bundles, packages, bindings, rulebookId, openingSearch);
+
+        RuntimeBinding binding = service.bind(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(
+                adventure.id(), owner, scenarioPackage.packageId(), List.of(rulebookId.value()),
+                "ollama", List.of("search")));
+
+        assertEquals(PlayabilityStatus.PLAYABLE, binding.playabilityReport().status());
+        assertEquals(1, binding.playabilityReport().candidates().size());
+        assertEquals("page:2:opening", binding.activeSourceContext().locator());
+    }
+
+    @Test
+    void blocksWhenDedicatedOpeningSearchFindsNothing() {
+        ScenarioBundleId bundleId = ScenarioBundleId.generate();
+        OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
+        Adventure adventure = adventure(owner);
+        KnowledgeDocumentId rulebookId = new KnowledgeDocumentId(UUID.randomUUID());
+        KnowledgeDocumentId storyId = new KnowledgeDocumentId(UUID.randomUUID());
+        ScenarioPackage scenarioPackage = scenarioPackage(bundleId, rulebookId, storyId, "page:4:monster");
+
+        InMemoryAdventureRepository adventures = new InMemoryAdventureRepository(adventure);
+        InMemoryBundleRepository bundles = new InMemoryBundleRepository(bundleId, owner);
+        InMemoryPackageRepository packages = new InMemoryPackageRepository(scenarioPackage);
+        InMemoryBindingRepository bindings = new InMemoryBindingRepository();
+        RuntimeBindingApplicationService service = service(
+                adventures, bundles, packages, bindings, rulebookId, (searchOwner, packageToSearch) -> List.of());
+
+        RuntimeBinding binding = service.bind(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(
+                adventure.id(), owner, scenarioPackage.packageId(), List.of(rulebookId.value()),
+                "ollama", List.of("search")));
+
+        assertEquals(PlayabilityStatus.BLOCKED, binding.playabilityReport().status());
+        assertEquals(List.of("no initial source context candidates"), binding.playabilityReport().blockers());
+        assertEquals(0, binding.playabilityReport().candidates().size());
+    }
+
+    @Test
     void rejectsScenarioPackageSwitchForPartyBoundRuntime() {
         ScenarioBundleId bundleId = ScenarioBundleId.generate();
         OwnerPlayerId owner = new OwnerPlayerId(UUID.randomUUID());
@@ -166,6 +223,26 @@ class RuntimeBindingApplicationServiceTest {
                         candidates),
                 ownerId -> List.of(new KnowledgeDocumentLookupPort.KnowledgeDocumentRecord(
                         rulebookId, KnowledgeDocumentStatus.INDEXED, "rules.pdf", "RULEBOOK", 1)));
+    }
+
+    private static RuntimeBindingApplicationService service(
+            AdventureRepository adventureRepository,
+            ScenarioBundleRepository bundleRepository,
+            ScenarioPackageRepository packageRepository,
+            RuntimeBindingRepository bindingRepository,
+            KnowledgeDocumentId rulebookId,
+            OpeningSourceContextSearchPort openingSearch) {
+        return new RuntimeBindingApplicationService(
+                adventureRepository,
+                bundleRepository,
+                packageRepository,
+                bindingRepository,
+                (proposalPackage, candidates) -> new InitialSourceContextProposalPort.InitialSourceContextProposalResult(
+                        candidates.size() > 1 ? "AMBIGUOUS" : "CLEAR",
+                        candidates),
+                ownerId -> List.of(new KnowledgeDocumentLookupPort.KnowledgeDocumentRecord(
+                        rulebookId, KnowledgeDocumentStatus.INDEXED, "rules.pdf", "RULEBOOK", 1)),
+                openingSearch);
     }
 
     private static Adventure adventure(OwnerPlayerId owner) {

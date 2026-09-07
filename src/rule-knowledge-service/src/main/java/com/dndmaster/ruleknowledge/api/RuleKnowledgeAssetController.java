@@ -99,10 +99,10 @@ public final class RuleKnowledgeAssetController {
     }
 
     private ResponseEntity<byte[]> publishedMapFallback(String locator) throws IOException {
-        if (!locator.toLowerCase().contains(" image ")) {
+        if (!locator.toLowerCase().contains(" image ") && !locator.toLowerCase().contains("page")) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, "source document not found");
         }
-        String filename = "892902-A_Most_Potent_Brew.pdf";
+        String filename = "892902-A_Potent_Brew_Map.pdf";
         byte[] source = readPublishedAssetFallback(filename)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "source document not found"));
         RenderedAsset rendered = render(source, RulebookFormat.PDF, filename, locator);

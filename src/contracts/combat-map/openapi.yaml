@@ -23,6 +23,8 @@ paths:
                 mapDefinitionId: { type: string, format: uuid }
                 assetId: { type: string }
                 assetLocator: { type: string }
+                sourceDocumentId: { type: string, format: uuid, description: source document containing the map image asset }
+                sourceAssetLocator: { type: string, description: locator of the map image asset in the source document }
                 playerSpawnX: { type: integer, minimum: 0 }
                 playerSpawnY: { type: integer, minimum: 0 }
                 playerTokenId: { type: string, format: uuid, description: stable player token identity supplied by Adventure Runtime }

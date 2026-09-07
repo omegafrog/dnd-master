@@ -39,6 +39,18 @@ public final class PostgresAdventureRepository implements AdventureRepository {
     }
 
     @Override
+    public Optional<Adventure> findBySessionId(SessionId sessionId) {
+        String sql = "SELECT * FROM adventure WHERE session_id = ? ORDER BY adventure_id LIMIT 1";
+        try (Connection connection = dataSource.getConnection(); PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setObject(1, sessionId.value());
+            try (ResultSet row = statement.executeQuery()) {
+                if (!row.next()) return Optional.empty();
+                return Optional.of(mapAdventure(connection, row));
+            }
+        } catch (SQLException exception) { throw failure("could not load adventure by session", exception); }
+    }
+
+    @Override
     public List<Adventure> findSavedByOwner(OwnerPlayerId ownerPlayerId) {
         String sql = "SELECT adventure_id FROM adventure WHERE owner_player_id = ? AND status = 'SAVED' ORDER BY adventure_id";
         List<AdventureId> ids = new ArrayList<>();

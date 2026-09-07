@@ -10,6 +10,7 @@ import com.dndmaster.ruleknowledge.application.search.StorySourceScope;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchApplicationService;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchPort;
 import com.dndmaster.ruleknowledge.application.search.StorySourceSearchQuery;
+import com.dndmaster.ruleknowledge.application.publication.SourceProvenance;
 import com.dndmaster.ruleknowledge.domain.index.ChunkId;
 import com.dndmaster.ruleknowledge.domain.index.ExtractedContentRange;
 import com.dndmaster.ruleknowledge.domain.index.RulebookChunk;
@@ -73,6 +74,23 @@ class StorySourceSearchApplicationServiceTest {
         assertEquals("page 3 line 1", results.get(1).sourceSpanLocator());
     }
 
+    @Test
+    void openingSearchPrefersEarliestNumberedLocationOverLaterLocationAndSummary() {
+        KnowledgeDocumentId documentId = KnowledgeDocumentId.generate();
+        StorySourceSearchApplicationService service = new StorySourceSearchApplicationService(
+                new OpeningSearchPort(documentId), new FixedEmbeddingPort(), "test", 3);
+
+        List<StorySourceEvidence> results = service.search(new StorySourceSearchQuery(
+                new OwnerPlayerId(UUID.randomUUID()),
+                List.of(new StorySourceScope(documentId, 7)),
+                List.of(),
+                "Locate the opening numbered location where the party first enters and can act.",
+                3));
+
+        assertEquals(List.of("page 2", "page 3", "page 1"),
+                results.stream().map(StorySourceEvidence::sourceSpanLocator).toList());
+    }
+
     private static final class RecordingSearchPort implements StorySourceSearchPort {
         private final KnowledgeDocumentId documentId;
         private final java.util.ArrayList<Boolean> activeContextOnlyCalls = new java.util.ArrayList<>();
@@ -91,6 +109,31 @@ class StorySourceSearchApplicationServiceTest {
             return List.of(
                     new StorySourceEvidence(documentId, 7, "page 2 line 1", "hidden door", 0.9),
                     new StorySourceEvidence(documentId, 7, "page 3 line 1", "fallback door", 0.7));
+        }
+    }
+
+    private static final class OpeningSearchPort implements StorySourceSearchPort {
+        private final KnowledgeDocumentId documentId;
+
+        private OpeningSearchPort(KnowledgeDocumentId documentId) {
+            this.documentId = documentId;
+        }
+
+        @Override
+        public List<StorySourceEvidence> search(
+                StorySourceSearchQuery query, float[] queryEmbedding, boolean activeContextOnly) {
+            if (activeContextOnly) {
+                return List.of();
+            }
+            return List.of(
+                    evidence("page 3", 3, "3. Well Room\nA later chamber with a mosaic."),
+                    evidence("page 1", 1, "Summary\nThe adventure begins below the brewery."),
+                    evidence("page 2", 2, "1. Beer Cellar\nThe party enters through a hatch and can act."));
+        }
+
+        private StorySourceEvidence evidence(String locator, int page, String excerpt) {
+            return new StorySourceEvidence(documentId, 7, locator, excerpt, 0.9,
+                    new SourceProvenance(page, List.of(), List.of(), null, locator));
         }
     }
 

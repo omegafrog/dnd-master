@@ -18,9 +18,11 @@ public final class RuntimeBindingApplicationService {
     private final ScenarioPackageRepository scenarioPackageRepository;
     private final RuntimeBindingRepository bindingRepository;
     private final InitialSourceContextProposalPort proposalPort;
+    private final OpeningSourceContextSearchPort openingSourceContextSearchPort;
     private final KnowledgeDocumentLookupPort knowledgeDocumentLookupPort;
     private final GameSystemDefinitionPort gameSystemDefinitionPort;
     private final boolean requirePublishedReferences;
+    private final boolean openingSourceContextSearchEnabled;
 
     public RuntimeBindingApplicationService(
             AdventureRepository adventureRepository,
@@ -30,7 +32,21 @@ public final class RuntimeBindingApplicationService {
             InitialSourceContextProposalPort proposalPort,
             KnowledgeDocumentLookupPort knowledgeDocumentLookupPort) {
         this(adventureRepository, bundleRepository, scenarioPackageRepository, bindingRepository, proposalPort,
-                knowledgeDocumentLookupPort, sessionId -> java.util.Optional.empty(), false);
+                knowledgeDocumentLookupPort, sessionId -> java.util.Optional.empty(), false, false,
+                (ownerPlayerId, scenarioPackage) -> List.of());
+    }
+
+    public RuntimeBindingApplicationService(
+            AdventureRepository adventureRepository,
+            ScenarioBundleRepository bundleRepository,
+            ScenarioPackageRepository scenarioPackageRepository,
+            RuntimeBindingRepository bindingRepository,
+            InitialSourceContextProposalPort proposalPort,
+            KnowledgeDocumentLookupPort knowledgeDocumentLookupPort,
+            OpeningSourceContextSearchPort openingSourceContextSearchPort) {
+        this(adventureRepository, bundleRepository, scenarioPackageRepository, bindingRepository, proposalPort,
+                knowledgeDocumentLookupPort, sessionId -> java.util.Optional.empty(), false, true,
+                openingSourceContextSearchPort);
     }
 
     public RuntimeBindingApplicationService(
@@ -39,22 +55,37 @@ public final class RuntimeBindingApplicationService {
             InitialSourceContextProposalPort proposalPort, KnowledgeDocumentLookupPort knowledgeDocumentLookupPort,
             GameSystemDefinitionPort gameSystemDefinitionPort) {
         this(adventureRepository, bundleRepository, scenarioPackageRepository, bindingRepository, proposalPort,
-                knowledgeDocumentLookupPort, gameSystemDefinitionPort, true);
+                knowledgeDocumentLookupPort, gameSystemDefinitionPort, true, false,
+                (ownerPlayerId, scenarioPackage) -> List.of());
+    }
+
+    public RuntimeBindingApplicationService(
+            AdventureRepository adventureRepository, ScenarioBundleRepository bundleRepository,
+            ScenarioPackageRepository scenarioPackageRepository, RuntimeBindingRepository bindingRepository,
+            InitialSourceContextProposalPort proposalPort, KnowledgeDocumentLookupPort knowledgeDocumentLookupPort,
+            GameSystemDefinitionPort gameSystemDefinitionPort, OpeningSourceContextSearchPort openingSourceContextSearchPort) {
+        this(adventureRepository, bundleRepository, scenarioPackageRepository, bindingRepository, proposalPort,
+                knowledgeDocumentLookupPort, gameSystemDefinitionPort, true, true, openingSourceContextSearchPort);
     }
 
     private RuntimeBindingApplicationService(
             AdventureRepository adventureRepository, ScenarioBundleRepository bundleRepository,
             ScenarioPackageRepository scenarioPackageRepository, RuntimeBindingRepository bindingRepository,
             InitialSourceContextProposalPort proposalPort, KnowledgeDocumentLookupPort knowledgeDocumentLookupPort,
-            GameSystemDefinitionPort gameSystemDefinitionPort, boolean requirePublishedReferences) {
+            GameSystemDefinitionPort gameSystemDefinitionPort, boolean requirePublishedReferences,
+            boolean openingSourceContextSearchEnabled,
+            OpeningSourceContextSearchPort openingSourceContextSearchPort) {
         this.adventureRepository = Objects.requireNonNull(adventureRepository, "adventure repository must not be null");
         this.bundleRepository = Objects.requireNonNull(bundleRepository, "bundle repository must not be null");
         this.scenarioPackageRepository = Objects.requireNonNull(scenarioPackageRepository, "scenario package repository must not be null");
         this.bindingRepository = Objects.requireNonNull(bindingRepository, "binding repository must not be null");
         this.proposalPort = Objects.requireNonNull(proposalPort, "proposal port must not be null");
+        this.openingSourceContextSearchPort = Objects.requireNonNull(openingSourceContextSearchPort,
+                "opening source context search port must not be null");
         this.knowledgeDocumentLookupPort = Objects.requireNonNull(knowledgeDocumentLookupPort, "knowledge document lookup port must not be null");
         this.gameSystemDefinitionPort = Objects.requireNonNull(gameSystemDefinitionPort, "game system definition port must not be null");
         this.requirePublishedReferences = requirePublishedReferences;
+        this.openingSourceContextSearchEnabled = openingSourceContextSearchEnabled;
     }
 
     public RuntimeBinding bind(BindRuntimeBindingCommand command) {
@@ -134,7 +165,7 @@ public final class RuntimeBindingApplicationService {
             String engineId,
             List<String> toolIds,
             Long previousBindingVersion) {
-        List<InitialSourceContextCandidate> candidates = buildCandidates(scenarioPackage);
+        List<InitialSourceContextCandidate> candidates = buildCandidates(ownerPlayerId, scenarioPackage);
         InitialSourceContextProposalPort.InitialSourceContextProposalResult proposal = proposalPort.propose(scenarioPackage, candidates);
         PlayabilityReport report = buildReport(
                 scenarioPackage.report().status().name(), scenarioPackage.report().warnings(), candidates, proposal,
@@ -239,7 +270,18 @@ public final class RuntimeBindingApplicationService {
         return new ActiveSourceContext(candidate.knowledgeDocumentId(), candidate.extractionVersion(), candidate.locator(), candidate.excerpt());
     }
 
-    private List<InitialSourceContextCandidate> buildCandidates(ScenarioPackage scenarioPackage) {
+    private List<InitialSourceContextCandidate> buildCandidates(OwnerPlayerId ownerPlayerId, ScenarioPackage scenarioPackage) {
+        List<OpeningSourceContextSearchPort.Result> openingResults = openingSourceContextSearchPort.search(ownerPlayerId, scenarioPackage);
+        if (!openingResults.isEmpty()) {
+            return openingResults.stream()
+                    .sorted(java.util.Comparator.comparingDouble(OpeningSourceContextSearchPort.Result::score).reversed())
+                    .limit(1)
+                    .map(result -> new InitialSourceContextCandidate(
+                            result.knowledgeDocumentId(), result.extractionVersion(), result.locator(), result.excerpt(),
+                            result.score(), "dedicated opening source search"))
+                    .toList();
+        }
+        if (openingSourceContextSearchEnabled) return List.of();
         List<InitialSourceContextCandidate> candidates = new ArrayList<>();
         for (var unit : scenarioPackage.runtimeCandidates()) {
             for (var ref : unit.sourceRefs()) {

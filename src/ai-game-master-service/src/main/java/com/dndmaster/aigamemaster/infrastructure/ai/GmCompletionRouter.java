@@ -48,6 +48,31 @@ public final class GmCompletionRouter implements GmCompletionAdapter {
     }
 
     @Override
+    public <T> T complete(String operationId, GmPrompt prompt, StructuredResponseParser<T> parser) {
+        GmProviderRequest provider = new GmProviderRequest(defaults.provider(), defaults.model(), defaults.reasoning());
+        AgentEndpoint endpoint = endpointRegistry == null ? null : endpointRegistry.active();
+        String effectiveProvider = endpoint == null ? provider.provider() : switch (endpoint.provider()) {
+            case OLLAMA -> "ollama";
+            case OPENAI_COMPATIBLE -> "openai";
+            case CODEX_CLI -> "codex-cli";
+        };
+        String model = endpoint == null ? provider.model() : endpoint.model();
+        String routedOperation = operationId + ":" + effectiveProvider + ":" + model;
+        return switch (effectiveProvider) {
+            case "ollama" -> endpoint == null
+                    ? ollama.complete(routedOperation, prompt, parser)
+                    : new RemoteOllamaGmProvider(HttpClient.newHttpClient(), endpoint.baseUrl(), model, defaults.timeout())
+                            .complete(routedOperation, prompt, parser);
+            case "openai" -> new OpenAiGmProvider(HttpClient.newHttpClient(), endpoint == null ? defaults.baseUrl() : endpoint.baseUrl(),
+                    endpoint == null ? defaults.apiKey() : System.getenv(endpoint.secretEnvironmentVariable()),
+                    model, provider.reasoning(), defaults.timeout()).complete(routedOperation, prompt, parser);
+            case "codex-cli" -> parser.parse(codexAppServer.complete(routedOperation, prompt.text(), model,
+                    provider.reasoning(), null, prompt.imageDataUri()));
+            default -> throw new IllegalArgumentException("unsupported GM provider: " + provider.provider());
+        };
+    }
+
+    @Override
     public <T> T complete(String operationId, String prompt, StructuredResponseParser<T> parser,
                           GmProviderRequest provider) {
         AgentEndpoint endpoint = endpointRegistry == null ? null : endpointRegistry.active();

@@ -44,7 +44,7 @@
 - **Printed Grid**: Map Source 이미지 자체에 이미 그려져 있는 반복 격자.
 - **Grid Calibration**: 게임의 논리적 셀을 Map Content Bounds의 픽셀 위치와 맞추는 결과.
 - **Generated Fallback Grid**: 신뢰할 수 있는 Printed Grid가 없을 때 게임이 생성하는 정사각형 논리 격자.
-- **Grid Source**: 현재 격자가 `PRINTED`에서 정렬된 것인지 `FALLBACK`으로 생성된 것인지 구분하는 의미.
+- **Grid Source**: 현재 격자가 `PRINTED`에서 정렬된 것인지, `FALLBACK` 임시 격자인지, `MANUAL`로 사용자가 맞춘 격자인지 구분하는 의미.
 - **Spawn Anchor**: 특정 맵에 진입할 때 플레이어가 배치될 수 있는 유효한 진입 지점. 하나의 맵에 여러 Spawn Anchor가 있을 수 있다.
 - **Active Spawn**: 현재 맵 진입 맥락을 기준으로 선택된 실제 플레이어 시작 위치.
 - **Current Visibility**: 현재 플레이어가 직접 볼 수 있는 셀 집합.
@@ -66,11 +66,11 @@ Map Content Bounds 안에서 신뢰할 수 있는 반복 격자가 확인되면 
 
 플레이어에게 표시되는 게임 격자는 원본의 칸 경계와 일치해야 하며, 원본에 Printed Grid가 있다는 이유만으로 다른 임의 격자를 덧씌우지 않는다.
 
-### UC-3 Printed Grid가 없는 맵에 fallback 격자를 만든다
+### UC-3 Printed Grid가 없는 맵에 사용자가 격자를 맞춘다
 
-신뢰할 수 있는 Printed Grid가 확인되지 않으면 게임은 맵의 크기와 형태를 기준으로 일관된 정사각형 격자를 만든다.
+신뢰할 수 있는 Printed Grid가 확인되지 않으면 게임은 임시 격자를 맵 위에 겹쳐 보여 준다. 사용자는 가로 셀 수·세로 셀 수, 칸 크기와 위치를 조정해 원본 맵에 맞춘다.
 
-Printed Grid 탐지 실패와 fallback 격자 생성은 구분되는 결과이며, fallback을 마치 원본 격자를 발견한 것처럼 취급하지 않는다.
+Printed Grid 탐지 실패와 사용자 보정은 구분되는 결과이며, 저장 전 임시 격자를 확정된 원본 격자처럼 취급하지 않는다. 보정은 별도 전체 지도 준비 화면이 아니라 실제 턴의 플레이어 화면에서 제공한다. 사용자는 공개된 맵 영역 안에서 임시 격자를 드래그해 이동하고 크기 조정 손잡이로 칸 크기를 맞출 수 있으며, 숨겨진 셀은 보정 중에도 Fog of War로 유지한다.
 
 ### UC-4 맵에 진입하고 플레이어를 배치한다
 
@@ -96,6 +96,7 @@ Adventure Runtime이 새 전투 맵을 활성화하면 현재 시나리오 위�
 
 - **BR-1** 신뢰할 수 있는 Printed Grid가 있으면 그 격자가 Generated Fallback Grid보다 우선한다.
 - **BR-2** Generated Fallback Grid는 신뢰할 수 있는 Printed Grid가 확인되지 않은 경우에만 사용한다.
+- **BR-2a** Printed Grid가 없으면 사용자는 임시 격자의 가로·세로 셀 수, 칸 크기, 위치를 확인하고 저장해야 한다.
 - **BR-3** 여백 제거는 보수적으로 수행한다. 외곽 여백을 줄이기 위해 실제 플레이 영역, 외곽 격자선, 출입구 또는 맵 콘텐츠를 잘라내서는 안 된다.
 - **BR-4** 게임 격자의 셀은 플레이 가능한 좌표계를 일관되게 표현해야 하고, 맵 경계 밖의 토큰 위치를 정상 상태로 허용하지 않는다.
 - **BR-5** 플레이어에게 표시되는 격자선은 얇은 검정색 outline이어야 하며 황색 강조선으로 표시하지 않는다.
@@ -120,7 +121,7 @@ Adventure Runtime이 새 전투 맵을 활성화하면 현재 시나리오 위�
 | `GRID_CALIBRATED` | 플레이에 필요한 맵 정보 준비 완료 | `READY` | 맵을 활성화할 수 있다. |
 | 어느 준비 상태 | Map Source를 해석할 수 없음 | `FAILED` | 해당 Source로 맵을 준비할 수 없다. |
 
-`GRID_CALIBRATED` 상태는 `Grid Source = PRINTED | FALLBACK`을 구분한다.
+`GRID_CALIBRATED` 상태는 `Grid Source = PRINTED | FALLBACK | MANUAL`을 구분한다.
 
 ### 7.2 Runtime 상태
 
@@ -155,7 +156,7 @@ Adventure Runtime이 새 전투 맵을 활성화하면 현재 시나리오 위�
 ### Outputs
 
 - 준비된 실제 맵 콘텐츠 영역.
-- `PRINTED` 또는 `FALLBACK`으로 구분되는 게임 격자.
+- `PRINTED`, `FALLBACK`, `MANUAL`로 구분되는 게임 격자.
 - 활성 맵의 플레이어 및 공개 가능한 토큰 위치.
 - Current Visibility와 Explored Area.
 - 플레이어에게 허용된 맵 레이어와 Token Legend.
@@ -167,6 +168,7 @@ Adventure Runtime이 새 전투 맵을 활성화하면 현재 시나리오 위�
 
 - 이슈 #278의 Printed Grid 정렬 문제.
 - Printed Grid가 없는 맵의 fallback 격자.
+- Printed Grid가 없는 맵에서 사용자가 격자를 맞추고 저장하는 보정 화면.
 - 외곽 여백을 줄여 실제 맵 영역을 크게 표시하는 동작.
 - 얇은 검정색 격자 outline.
 - 맵 진입 시 플레이어 토큰의 유효한 초기 배치.
@@ -180,7 +182,7 @@ Adventure Runtime이 새 전투 맵을 활성화하면 현재 시나리오 위�
 - 육각형·아이소메트릭 등 정사각형이 아닌 격자 시스템 지원.
 - 모든 래스터 맵에서 벽·문·비밀문을 완전 자동 추출하는 기능.
 - UVTT/DD2VTT 등 새로운 맵 파일 포맷 지원.
-- 사용자가 직접 격자선과 crop 영역을 편집하는 전용 맵 편집기.
+- 별도 전문 맵 편집기. 이번 범위에서는 모험 화면 안의 격자 보정만 제공한다.
 - 새로운 전투 시야 규칙 또는 룰 시스템 자체의 재설계.
 - AI 생성 맵의 미술 스타일 또는 생성 품질 재설계.
 - 브라우저에 전달된 원본 이미지 바이트를 악의적인 사용자가 직접 추출하지 못하게 하는 DRM 수준의 비밀 보호. 이번 범위의 Fog of War는 정상 플레이 UI에서의 정보 공개 제어를 의미한다.
@@ -211,6 +213,7 @@ Adventure Runtime이 새 전투 맵을 활성화하면 현재 시나리오 위�
 - **AC-11** Token Legend는 맵 영역을 가리지 않는 보조 UI로 표시되고, 플레이어에게 노출 가능한 토큰 의미만 중복 없이 설명한다.
 - **AC-12** Map Source를 해석할 수 없는 경우 명시적인 준비 실패가 반환되고, 실패 때문에 플레이어에게 전체 맵을 공개하지 않는다.
 - **AC-13** 동일한 Map Source와 동일한 준비 입력을 반복 처리하면 실질적으로 동일한 Map Content Bounds와 Grid Calibration 결과를 얻는다.
+- **AC-14** Printed Grid가 없는 맵은 격자 보정 화면을 제공하고, 저장 후 선택한 가로·세로 셀 수와 플레이어 시작 칸을 유지한다.
 
 ## Product 다이어그램 계약
 

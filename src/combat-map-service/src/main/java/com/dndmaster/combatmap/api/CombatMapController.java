@@ -7,6 +7,7 @@ import com.dndmaster.combatmap.application.view.MapOwnerId;
 import com.dndmaster.combatmap.application.view.PlayerCombatMapView;
 import com.dndmaster.combatmap.application.view.CombatMapAccessDeniedException;
 import com.dndmaster.combatmap.application.view.MapActivationContext;
+import com.dndmaster.combatmap.application.view.MapGenerationRequest;
 import com.dndmaster.combatmap.application.view.UploadedMapSource;
 import com.dndmaster.combatmap.application.view.TacticalSceneMaterialization;
 import com.dndmaster.combatmap.application.view.TacticalTriggerEffect;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.Base64;
 
@@ -24,11 +26,18 @@ public class CombatMapController {
     private final CombatMapViewService mapViewService;
     private final CombatMapMovementService movementService;
     private final ApiRequestGuard requestGuard;
+    private final com.dndmaster.combatmap.application.view.MapImageEvidencePort mapImageEvidence;
 
     public CombatMapController(CombatMapViewService mapViewService, CombatMapMovementService movementService, ApiRequestGuard requestGuard) {
+        this(mapViewService, movementService, requestGuard, (documentId, locator) -> java.util.Optional.empty());
+    }
+
+    public CombatMapController(CombatMapViewService mapViewService, CombatMapMovementService movementService, ApiRequestGuard requestGuard,
+            com.dndmaster.combatmap.application.view.MapImageEvidencePort mapImageEvidence) {
         this.mapViewService = mapViewService;
         this.movementService = movementService;
         this.requestGuard = requestGuard;
+        this.mapImageEvidence = mapImageEvidence;
     }
 
     @GetMapping("/internal/v1/combat-maps/{mapId}/player-view")
@@ -76,9 +85,22 @@ public class CombatMapController {
             var existing = mapViewService.displayForAdventure(new AdventureId(request.adventureId()), new MapOwnerId(request.ownerId()));
             if (existing.isPresent()) return new PrepareResponse(existing.get().mapId().value());
         }
+        Set<GridPosition> authoredObstacles = authoredPositions(request.obstacles(), "obstacles");
+        authoredObstacles.addAll(authoredPositions(request.walls(), "walls"));
+        List<Door> authoredDoors = authoredPositions(request.doors(), "doors").stream()
+                .map(position -> new Door(position, false)).toList();
+        var mapImage = request.sourceDocumentId() == null ? java.util.Optional.<com.dndmaster.combatmap.application.view.MapImageEvidence>empty()
+                : mapImageEvidence.load(request.sourceDocumentId(), request.sourceAssetLocator());
         CombatMap map = request.tacticalScene() == null
                 ? mapViewService.prepareGenerated(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
-                        new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator())
+                        new RuleSetId(request.ruleSetId()), new MapGenerationRequest(
+                                request.assetId() + "@" + request.assetLocator(),
+                                "scene=" + request.currentScene() + ";location=" + request.location()
+                                        + ";entrySide=" + request.entrySide(),
+                                20, 20, 30, 5, authoredObstacles, authoredDoors,
+                                request.playerSpawnX() == null || request.playerSpawnY() == null ? null
+                                        : new GridPosition(request.playerSpawnX(), request.playerSpawnY()),
+                                mapImage.orElse(null)))
                 : request.sourceImage() != null && !request.sourceImage().isBlank()
                 ? mapViewService.prepareTactical(new MapOwnerId(request.ownerId()), new AdventureId(request.adventureId()),
                         new RuleSetId(request.ruleSetId()), request.assetId() + "@" + request.assetLocator(),
@@ -186,6 +208,18 @@ public class CombatMapController {
         return new CombatMapAiStateResponse(map.id().value());
     }
 
+    @PutMapping("/internal/v1/combat-maps/{mapId}/calibration")
+    public CombatMapAiStateResponse calibrateGrid(@PathVariable UUID mapId,
+            @RequestHeader(value = "X-Internal-Token", required = false) String token,
+            @RequestBody(required = false) GridCalibrationRequest request) {
+        requestGuard.internal(token);
+        requireRequest(request, "grid calibration request is required");
+        CombatMap map = mapViewService.calibrateGrid(new MapId(mapId), new MapOwnerId(request.ownerId()), request.expectedVersion(),
+                new com.dndmaster.combatmap.application.view.GridCalibrationRequest(request.width(), request.height(), request.cellSize(),
+                        request.originX(), request.originY(), request.imageWidth(), request.imageHeight(), request.playerX(), request.playerY()));
+        return new CombatMapAiStateResponse(map.id().value());
+    }
+
     @PostMapping("/internal/v1/combat-maps/{mapId}/reveals")
     public CombatMapAiStateResponse reveal(@PathVariable UUID mapId, @RequestHeader(value = "X-Internal-Token", required = false) String token, @RequestBody(required = false) RevealRequest request) {
         requestGuard.internal(token);
@@ -216,6 +250,8 @@ public class CombatMapController {
             long expectedVersion,
             List<LayerRequest> layers) {}
     public record DoorRequest(UUID ownerId,int x,int y,boolean open,UUID commandId,long expectedVersion) {}
+    public record GridCalibrationRequest(UUID ownerId, long expectedVersion, int width, int height, int cellSize,
+                                         int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
     public record RevealRequest(UUID ownerId,UUID tokenId,UUID commandId,long expectedVersion) {}
     public record GameTimeRequest(UUID ownerId,UUID adventureId,long ruleTurn,UUID causeId,long expectedVersion) {}
 
@@ -254,18 +290,21 @@ public class CombatMapController {
                                  Integer playerSpawnX, Integer playerSpawnY, String sourceImage, String sourceImageContentType,
                                  TacticalSceneMaterialization tacticalScene, Integer stagePosition,
                                  UUID playerTokenId, UUID situationId, Long situationRevision, Integer turnIndex,
-                                 String currentScene, String location, String entrySide) {
+                                 String currentScene, String location, String entrySide,
+                                 List<String> walls, List<String> doors, List<String> obstacles,
+                                 UUID sourceDocumentId, String sourceAssetLocator) {
         public PrepareRequest(UUID adventureId, UUID ownerId, UUID ruleSetId, UUID mapDefinitionId, String assetId,
                 String assetLocator, Integer playerSpawnX, Integer playerSpawnY) {
             this(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, playerSpawnX, playerSpawnY,
-                    null, null, null, null, null, UUID.randomUUID(), 1L, 0, "unknown", "unknown", null);
+                    null, null, null, null, null, UUID.randomUUID(), 1L, 0, "unknown", "unknown", null,
+                    List.of(), List.of(), List.of(), null, null);
         }
         public PrepareRequest(UUID adventureId, UUID ownerId, UUID ruleSetId, UUID mapDefinitionId, String assetId,
                 String assetLocator, Integer playerSpawnX, Integer playerSpawnY, String sourceImage,
                 String sourceImageContentType, TacticalSceneMaterialization tacticalScene, Integer stagePosition) {
             this(adventureId, ownerId, ruleSetId, mapDefinitionId, assetId, assetLocator, playerSpawnX, playerSpawnY,
                     sourceImage, sourceImageContentType, tacticalScene, stagePosition, null, UUID.randomUUID(), 1L, 0,
-                    "unknown", "unknown", null);
+                    "unknown", "unknown", null, List.of(), List.of(), List.of(), null, null);
         }
         public PrepareRequest {
             if (stagePosition != null && stagePosition < 1) throw new IllegalArgumentException("stage position must be positive");
@@ -276,7 +315,23 @@ public class CombatMapController {
             if (turnIndex < 0) throw new IllegalArgumentException("turn index must not be negative");
             currentScene = currentScene == null || currentScene.isBlank() ? "unknown" : currentScene.trim();
             location = location == null || location.isBlank() ? "unknown" : location.trim();
+            walls = walls == null ? List.of() : List.copyOf(walls);
+            doors = doors == null ? List.of() : List.copyOf(doors);
+            obstacles = obstacles == null ? List.of() : List.copyOf(obstacles);
+            sourceAssetLocator = sourceAssetLocator == null ? "" : sourceAssetLocator.trim();
         }
+    }
+
+    private static Set<GridPosition> authoredPositions(List<String> values, String label) {
+        Set<GridPosition> result = new java.util.HashSet<>();
+        for (String value : values == null ? List.<String>of() : values) {
+            if (value == null || value.isBlank()) continue;
+            String[] pair = value.trim().split("[, :]", -1);
+            if (pair.length != 2) throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "invalid " + label + " position");
+            try { result.add(new GridPosition(Integer.parseInt(pair[0]), Integer.parseInt(pair[1]))); }
+            catch (NumberFormatException exception) { throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.BAD_REQUEST, "invalid " + label + " position", exception); }
+        }
+        return result;
     }
     public record PrepareResponse(UUID mapId) {}
 }

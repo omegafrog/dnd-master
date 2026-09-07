@@ -56,6 +56,8 @@ class HttpCombatMapPreparationGatewayTest {
             assertEquals(3, payload.get("situationRevision").asInt());
             assertEquals(7, payload.get("turnIndex").asInt());
             assertTrue(payload.get("entrySide").isNull());
+            assertTrue(payload.hasNonNull("sourceDocumentId"));
+            assertEquals("page-1", payload.get("sourceAssetLocator").asText());
         } finally {
             server.stop(0);
         }

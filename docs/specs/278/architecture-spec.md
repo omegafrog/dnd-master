@@ -26,6 +26,10 @@
 - `PlayerSafeFogProjection`의 `INITIAL_FOG`는 추가 마스크일 뿐 일반적인 탐험 Fog를 만들지 못하며, 업로드 맵에는 이 레이어가 기본 생성되지 않는다.
 - Web UI는 `current`/`explored`를 표현할 수 있지만 값이 없을 때 `visible = true`로 해석해 fail-open할 수 있다.
 
+맵 배치의 책임도 분리한다. 격자와 이미지 좌표는 맵 전처리 또는 사용자의 보정 결과를 정본으로 삼고, AI Game Master는 전달받은 구조화된 맵 자료를 바탕으로 장애물·문·시작 위치 후보만 제안한다. Combat Map은 이 제안을 격자 범위와 겹침 규칙으로 검증한 뒤 저장하며, 맵별 좌표를 Combat Map 코드에 직접 넣지 않는다.
+
+지도 원본이 공용 자료 보관소에 있는 경우에는 모험 시작 시 원본 문서 식별자와 이미지 자산 위치를 Combat Map으로 전달한다. Combat Map은 해당 이미지를 AI Game Master의 이미지 입력과 플레이어 표시용 지도 계층으로 사용한다. 이미지가 없거나 판독이 불확실한 부분은 추측하지 않으며, 사용자가 보정한 장애물·문·시작 위치 좌표를 우선 근거로 사용한다.
+
 ## 1.2 Product Spec Mapping
 
 | Product Spec 항목 | Architecture 요소 |
@@ -67,7 +71,7 @@ Map Preparation은 PLAYER의 실제 런타임 Spawn을 확정하지 않는다. T
 | Command | Actor | Target | Input | Preconditions | Result |
 |---|---|---|---|---|---|
 | `PrepareUploadedMap` | Adventure Runtime / setup | Combat Map | owner, adventure, ruleset, map source | source decodable | prepared CombatMap |
-| `PrepareTacticalMap` | AI Game Master via validated runtime flow | Combat Map | source/generation + tactical materialization | normalized placements valid | prepared CombatMap |
+| `PrepareTacticalMap` | AI Game Master via validated runtime flow | Combat Map | source/generation + structured map proposal | normalized placements valid | prepared CombatMap |
 | `ActivateCombatMap` | Adventure Runtime | Combat Map | mapId, owner, expectedVersion, `MapActivationContext` | prepared map owned by player | player spawn + initial visibility + active map |
 | `MoveToken` | Solo Player via Adventure Runtime | CombatMap aggregate | versioned move command | token controllable, path valid | moved token + refreshed visibility |
 | `ChangeDoor` | authorized runtime command | CombatMap aggregate | door position/open state | map/version valid | door state + refreshed visibility |
@@ -176,7 +180,7 @@ Map Preparation은 PLAYER의 실제 런타임 Spawn을 확정하지 않는다. T
 |---|---|---|---|---|
 | `MapContentBounds` | preparation | x, y, width, height, confidence | image 내부, 양의 크기 | crop rectangle 표현 |
 | `GridCalibration` | preparation | GridSpec, originX/Y, pixel bounds, GridSource, confidence | 양수 cell, image 내부 bounds | `GRID_BOUNDS`/metadata 생성 |
-| `GridSource` | preparation | `PRINTED`, `FALLBACK` | enum | grid provenance 구분 |
+| `GridSource` | preparation | `PRINTED`, `FALLBACK`, `MANUAL` | enum | grid provenance 구분 |
 | `MapActivationContext` | application | stagePosition, optional normalized/grid spawn candidate, optional entry side | stage > 0, normalized candidate는 0..1 | activation input |
 | `SpawnResolution` | application/domain policy | position, source | valid grid cell | 선택 결과 추적 |
 | `VisibilityProfile` | domain | maxRangeCells | 1 이상 | 현재 시야의 최대 범위 제한 |
@@ -312,7 +316,7 @@ Map Preparation은 PLAYER의 실제 런타임 Spawn을 확정하지 않는다. T
 | `MapContentBounds` | immutable application value | normalized crop rectangle |
 | `DetectedMapGrid` | candidate value | Printed Grid evidence |
 | `GridCalibration` | immutable application value | pixel/logical grid mapping |
-| `GridSource` | enum | PRINTED/FALLBACK 구분 |
+| `GridSource` | enum | PRINTED/FALLBACK/MANUAL 구분 |
 | `MapActivationContext` | command DTO/value | runtime entry context |
 | `SpawnResolution` | value | chosen cell + source |
 | `VisibilityProfile` | domain value | finite vision range |
@@ -707,7 +711,7 @@ Activation 시:
 ## 10.3 Conditional Changes
 
 - OpenCV/native CV dependency는 JDK 기반 detector가 acceptance fixture를 충족하지 못한다는 측정 근거가 있을 때 별도 설계 결정으로 검토한다.
-- manual crop/grid calibration UI는 자동 정책의 실사용 실패율이 충분히 확인된 후 별도 Product Spec으로 다룬다.
+- 사용자가 격자 없는 맵의 임시 격자를 맞추고 시작 칸을 저장하는 UI는 모험 화면의 보정 흐름으로 제공한다. 별도 맵 편집기는 만들지 않는다.
 - DB schema migration은 existing MapLayer/active relation으로 요구사항을 표현할 수 없는 추가 영속 요구가 생길 때만 허용한다.
 
 ---
@@ -809,9 +813,9 @@ Combat Map component tests에서:
 
 거절. 정적 cell mask는 플레이어 이동에 따른 explored/current lifecycle을 자연스럽게 소유하지 못한다. `VisibilitySnapshot`이 runtime 정본이고 `INITIAL_FOG`는 선택적 추가 authoring mask로 남는다.
 
-### Manual grid/crop editor를 이번 티켓에 추가
+### 실제 턴의 Manual grid/crop editor를 추가
 
-보류. 현재 요구는 자동 준비 버그 수정이며 별도 사용자 편집 workflow는 범위를 크게 늘린다. 자동화 failure data가 쌓인 후 별도 제품 결정으로 다룬다.
+채택. AI Game Master가 만든 격자는 확정 좌표가 아니라 플레이 중 보정 가능한 초기 제안으로 취급한다. 플레이어는 실제 턴 화면에서 현재 공개된 맵과 안개 처리된 셀을 함께 보면서 격자 위치와 칸 크기를 드래그로 조정하고 저장한다. 원본 이미지 전체를 별도 준비 화면으로 공개하지 않으며, 숨겨진 셀은 보정 중에도 전장의 안개로 가린다. 저장된 보정 결과만 이후 토큰 위치, 이동, 장애물·문 기준, 시야 계산의 좌표계가 된다.
 
 ## 12.2 Risks and Mitigations
 

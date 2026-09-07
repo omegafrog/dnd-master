@@ -21,7 +21,11 @@ import com.dndmaster.ruleknowledge.application.publication.RagExtractionPage;
 import com.dndmaster.ruleknowledge.application.publication.RagExtractionPublicationRequest;
 import com.dndmaster.ruleknowledge.application.publication.PublishedRagChunk;
 import com.dndmaster.ruleknowledge.application.publication.SourceProvenance;
+import com.dndmaster.ruleknowledge.application.search.StorySourceScope;
+import com.dndmaster.ruleknowledge.application.search.StorySourceSearchQuery;
 import com.dndmaster.ruleknowledge.infrastructure.persistence.RuleVectorPersistenceException;
+import com.dndmaster.ruleknowledge.infrastructure.persistence.PgvectorStorySourceSearchRepository;
+import com.dndmaster.ruleknowledge.domain.rulebook.KnowledgeDocumentId;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -50,6 +54,7 @@ class RulebookPgvectorIntegrationTest {
     private static PgvectorRuleSearchRepository repository;
     private static PostgresRagExtractionPublicationRepository publicationRepository;
     private static PgvectorRuleEvidenceSearchRepository evidenceRepository;
+    private static PgvectorStorySourceSearchRepository storySourceRepository;
 
     @BeforeAll
     static void startDatabase() {
@@ -59,6 +64,7 @@ class RulebookPgvectorIntegrationTest {
         repository = new PgvectorRuleSearchRepository(dataSource);
         publicationRepository = new PostgresRagExtractionPublicationRepository(dataSource);
         evidenceRepository = new PgvectorRuleEvidenceSearchRepository(dataSource);
+        storySourceRepository = new PgvectorStorySourceSearchRepository(dataSource);
     }
 
     @AfterAll
@@ -184,6 +190,41 @@ class RulebookPgvectorIntegrationTest {
 
         assertEquals(0, countRows("rulebook_vector_index"));
         assertEquals(0, countRows("rulebook_vector_chunk"));
+    }
+
+    @Test
+    void storyContextExpansionStaysInsideTheChunkParentGroup() throws SQLException {
+        OwnerPlayerId owner = owner();
+        RulebookId documentId = RulebookId.generate();
+        register(documentId, owner);
+        RagExtractionPublicationRequest request = new RagExtractionPublicationRequest(
+                documentId, owner, "operation-scene", "version-scene", "a".repeat(64), "policy-1", "b".repeat(64),
+                List.of(new RagExtractionPage(1, "VALIDATED", 1, List.of())),
+                List.of(
+                        publishedChunk("before", 0, "before context", "scene-a"),
+                        publishedChunk("target", 1, "target scene", "scene-a"),
+                        publishedChunk("other", 2, "other scene", "scene-b"),
+                        publishedChunk("after", 3, "after scene", "scene-b")),
+                "mock-embedding");
+        publicationRepository.beginCandidate(request);
+        publicationRepository.publish(request, request.chunks().stream()
+                .map(chunk -> new EmbeddedPublishedRagChunk(chunk, new float[] {1, 0, 0}))
+                .toList());
+
+        var hits = storySourceRepository.search(new StorySourceSearchQuery(
+                new OwnerPlayerId(owner.value()),
+                List.of(new StorySourceScope(KnowledgeDocumentId.fromRulebookId(documentId), 0)),
+                List.of("page=1:chunk=target"), "target scene", 1),
+                new float[] {1, 0, 0}, false);
+
+        assertEquals(List.of("page=1:chunk=target", "page=1:chunk=before"),
+                hits.stream().map(item -> item.sourceSpanLocator()).toList());
+    }
+
+    private static PublishedRagChunk publishedChunk(String id, int sequence, String content, String parentKey) {
+        return new PublishedRagChunk(
+                id, sequence, content, content,
+                new SourceProvenance(1, List.of("Scene"), List.of(), null, "page=1:chunk=" + id), parentKey);
     }
 
     private static void store(

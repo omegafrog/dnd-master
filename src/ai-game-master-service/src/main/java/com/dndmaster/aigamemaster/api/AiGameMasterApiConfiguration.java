@@ -11,6 +11,7 @@ import com.dndmaster.aigamemaster.infrastructure.ai.CharacterTagCompletionPort;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionAdapter;
 import com.dndmaster.aigamemaster.infrastructure.ai.GmCompletionRouter;
 import com.dndmaster.aigamemaster.infrastructure.ai.CodexAppServerClient;
+import com.dndmaster.aigamemaster.infrastructure.ai.GmPrompt;
 import com.dndmaster.aigamemaster.configuration.GmProviderProperties;
 import com.dndmaster.aigamemaster.configuration.LocalOllamaProperties;
 import com.dndmaster.aigamemaster.application.endpoint.AgentEndpoint;
@@ -90,12 +91,99 @@ public class AiGameMasterApiConfiguration {
     }
 
     @Bean
-    MapModelPort mapModelPort(GmCompletionAdapter adapter) {
-        return input -> adapter.complete(
-                "map-" + UUID.randomUUID(), input.toString(), text -> {
-                    // TODO: implement real JSON parsing from AI response
-                    return new MapModelPort.MapOutput(20, 20, text);
-                });
+    MapModelPort mapModelPort(GmCompletionAdapter adapter, com.fasterxml.jackson.databind.ObjectMapper mapper) {
+        return input -> {
+            String raw;
+            try {
+                raw = java.util.concurrent.CompletableFuture.supplyAsync(() -> adapter.complete(
+                "map-" + UUID.randomUUID(),
+                new GmPrompt("ROLE=MAP_LAYOUT_GM\n"
+                        + "SCENARIO=" + input.selectedScenario() + "\n"
+                        + "CURRENT_CONTEXT=" + input.currentContext() + "\n"
+                        + "MAP_DATA=" + input.mapData() + "\n"
+                        + "MAP_IMAGE=" + (input.imageDataUri().isBlank() ? "not provided" : "provided; inspect the attached image") + "\n"
+                        + "OUTPUT_CONTRACT=Return exactly one JSON object with width, height, obstacles, doors, playerStart, and rationale. "
+                        + "Treat MAP_DATA.gridWidth and MAP_DATA.gridHeight as a rough initial suggestion. When MAP_IMAGE is provided, choose a practical width and height that fit the visible map layout; when it is not provided, preserve the suggested dimensions. "
+                        + "obstacles must be an array of grid cells written as x,y. doors must be an array of grid cells written as x,y. "
+                        + "playerStart must be one grid cell written as x,y or an empty string. "
+                        + "Use only the supplied map data and scenario evidence. Do not invent a structure that is not supported by the supplied data. "
+                        + "When MAP_IMAGE is provided, inspect the attached image and convert only clearly visible walls, closed doors, and blocking structures to grid cells. "
+                        + "Treat authored obstacle, door, and player-start coordinates as user-confirmed evidence and preserve them. If the image is unclear, omit the uncertain cell instead of guessing. "
+                        + "Keep every coordinate inside the returned width and height. A closed door cell must not also be an obstacle. "
+                        + "Do not use markdown or any text outside the JSON object.", input.imageDataUri()),
+                text -> text))
+                        .orTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                        .join();
+            } catch (java.util.concurrent.CompletionException | java.util.concurrent.CancellationException failure) {
+                // Map preparation must remain usable when the optional GM provider
+                // is unavailable or returns malformed output. Authored map data is
+                // still preserved by the combat-map service after this fallback.
+                return deterministicMapFallback(input);
+            }
+            return parseMap(mapper, raw);
+        };
+    }
+
+    private static MapModelPort.MapOutput deterministicMapFallback(MapModelPort.MapInput input) {
+        int width = extractPositive(input.mapData(), "gridWidth", 20);
+        int height = extractPositive(input.mapData(), "gridHeight", 20);
+        return new MapModelPort.MapOutput(width, height,
+                "GM provider unavailable; deterministic empty layout used.", List.of(), List.of(), "");
+    }
+
+    private static int extractPositive(String text, String key, int fallback) {
+        java.util.regex.Matcher matcher = java.util.regex.Pattern
+                .compile("\\\"" + key + "\\\"\\s*:\\s*(\\d+)")
+                .matcher(text == null ? "" : text);
+        if (!matcher.find()) return fallback;
+        try { return Math.max(1, Integer.parseInt(matcher.group(1))); }
+        catch (NumberFormatException ignored) { return fallback; }
+    }
+
+    private static MapModelPort.MapOutput parseMap(com.fasterxml.jackson.databind.ObjectMapper mapper, String text) {
+        try {
+            var root = mapper.readTree(text);
+            if (root == null || !root.isObject()) throw new IllegalArgumentException("map model response must be an object");
+            int width = root.path("width").asInt(0);
+            int height = root.path("height").asInt(0);
+            if (width < 1 || height < 1) throw new IllegalArgumentException("map model dimensions must be positive");
+            List<String> obstacles = positions(root.path("obstacles"), width, height, "obstacles");
+            List<String> doors = positions(root.path("doors"), width, height, "doors");
+            if (obstacles.stream().anyMatch(doors::contains)) throw new IllegalArgumentException("door cannot be an obstacle");
+            String playerStart = root.path("playerStart").asText("").trim();
+            if (!playerStart.isBlank()) validatePosition(playerStart, width, height, "playerStart");
+            if (obstacles.contains(playerStart)) throw new IllegalArgumentException("player start cannot be an obstacle");
+            if (doors.contains(playerStart)) throw new IllegalArgumentException("player start cannot be a door");
+            return new MapModelPort.MapOutput(width, height, root.path("rationale").asText(""), obstacles, doors, playerStart);
+        } catch (IllegalArgumentException exception) {
+            throw exception;
+        } catch (Exception exception) {
+            throw new IllegalArgumentException("invalid map model response", exception);
+        }
+    }
+
+    private static List<String> positions(com.fasterxml.jackson.databind.JsonNode node, int width, int height, String field) {
+        if (!node.isArray()) throw new IllegalArgumentException(field + " must be an array");
+        List<String> result = new java.util.ArrayList<>();
+        for (var value : node) {
+            String position = value.isTextual() ? value.asText().trim()
+                    : value.path("x").asText("") + "," + value.path("y").asText("");
+            validatePosition(position, width, height, field);
+            if (!result.contains(position)) result.add(position);
+        }
+        return List.copyOf(result);
+    }
+
+    private static void validatePosition(String value, int width, int height, String field) {
+        String[] pair = value.split(",", -1);
+        if (pair.length != 2) throw new IllegalArgumentException(field + " contains an invalid cell");
+        try {
+            int x = Integer.parseInt(pair[0].trim());
+            int y = Integer.parseInt(pair[1].trim());
+            if (x < 0 || y < 0 || x >= width || y >= height) throw new IllegalArgumentException(field + " contains an out-of-grid cell");
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException(field + " contains an invalid cell", exception);
+        }
     }
 
     @Bean

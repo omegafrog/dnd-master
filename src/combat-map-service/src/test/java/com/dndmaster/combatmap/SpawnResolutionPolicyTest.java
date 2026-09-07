@@ -24,6 +24,11 @@ class SpawnResolutionPolicyTest {
         assertEquals(new GridPosition(1, 0), result.position());
     }
 
+    @Test void usesTheMapCenterWhenNoEntrySideIsKnown() {
+        var result = policy.resolve(grid, Set.of(), List.of(), Set.of(), MapActivationContext.atStage(1), Optional.empty());
+        assertEquals(new GridPosition(1, 1), result.position());
+    }
+
     @Test void reportsNoValidSpawn() {
         Set<GridPosition> all = new HashSet<>();
         for (int y=0;y<3;y++) for (int x=0;x<3;x++) all.add(new GridPosition(x,y));
