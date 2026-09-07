@@ -35,7 +35,7 @@ Thumbs.db
 plans.md
 **/docs/plans/**
 **/specs/**
-docs/plans/.runtime/
+**/.runtime/
 .gradle/**
 dnd-master/docs/specs/**
 skills-lock.json
@@ -46,18 +46,13 @@ docs/plans/plans.md
 !docs/specs/**
 !docs/plans/
 !docs/plans/*.md
-!/.codex/
-!/.codex/harness.yaml
-!/.codex/agents/
-!/.codex/agents/**
-!/.codex/skills/
-!/.codex/skills/**
 
 # Generated Graphify knowledge graph
 /graphify-out/
 /.playwright-cli/
 docs/assets/
 output/
+/test-artifacts/
 
 # Local uploaded knowledge-document originals
 /data/rulebooks/

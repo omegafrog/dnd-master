@@ -45,7 +45,7 @@ class FreeFormResourcePolicyTest {
         Fixture fixture = fixture(adventureId, actorId, targetId);
         TurnResourceCost interpretedCost = new TurnResourceCost(10, false, true, false);
         FreeFormActionPlan plan = new FreeFormActionPlan(actorId, targetId, interpretedCost,
-                false, null, null, CombatEffectProposal.none(), "The ham lands.", "The ham lands.");
+                false, 12, 5, CombatEffectProposal.none(), "The ham lands.", "The ham lands.");
         fixture.decisionPort.delegate = new AiCombatDecisionPortAdapter(context -> plan);
         FreeFormCombatCommand command = command(adventureId, actorId, "throw ham at the goblin", 1);
 
@@ -78,6 +78,28 @@ class FreeFormResourcePolicyTest {
         assertEquals(0, fixture.calls.characterMutations);
     }
 
+    @Test
+    void consumes_bonus_action_and_actor_item_while_applying_damage_to_enemy_encounter() {
+        UUID adventureId = UUID.randomUUID();
+        UUID actorId = UUID.randomUUID();
+        UUID targetId = UUID.randomUUID();
+        Fixture fixture = fixture(adventureId, actorId, targetId);
+        fixture.decisionPort.delegate = new AiCombatDecisionPortAdapter(context -> new FreeFormActionPlan(
+                actorId, targetId, new TurnResourceCost(0, false, true, false), false, 12, 5,
+                new CombatEffectProposal(-4, 0, List.of(), List.of("햄"), null),
+                "햄을 던져 적을 맞혔습니다.", "햄이 적을 맞히고 손에서 사라집니다."));
+
+        fixture.service.submitFreeForm(command(adventureId, actorId, "소지한 햄을 적에게 던진다", 1));
+
+        assertEquals(true, fixture.encounters.value.currentParticipant().resources().actionAvailable());
+        assertEquals(false, fixture.encounters.value.currentParticipant().resources().bonusActionAvailable());
+        assertEquals(3, fixture.encounters.value.participants().stream()
+                .filter(participant -> participant.participantId().equals(targetId))
+                .findFirst().orElseThrow().currentHitPoints());
+        assertEquals(List.of("햄"), fixture.calls.mutation.removeItems());
+        assertEquals(null, fixture.calls.command.targetCharacterSheetId());
+    }
+
     private static FreeFormCombatCommand command(UUID adventureId, UUID actorId, String text, long version) {
         AdventureId id = new AdventureId(adventureId);
         CombatActionCommand base = new CombatActionCommand(UUID.randomUUID(), id, id.value(),
@@ -89,7 +111,10 @@ class FreeFormResourcePolicyTest {
     private static Fixture fixture(UUID adventureId, UUID actorId, UUID targetId) {
         EncounterStore encounters = new EncounterStore(CombatStartPolicy.startFromCommittedGmTurn(true, adventureId,
                 List.of(new CombatParticipant(actorId, "Hero", CombatParticipant.Controller.PLAYER, 15, "healthy"),
-                        new CombatParticipant(targetId, "Goblin", CombatParticipant.Controller.AI, 10, null))));
+                        new CombatParticipant(targetId, "Goblin", CombatParticipant.Controller.AI, 10, "enemy",
+                                com.dndmaster.adventure.domain.combat.TurnResources.initial(),
+                                new com.dndmaster.adventure.domain.combat.CombatEnemyStatBlock(12, 7, 4, "1d6 + 2",
+                                        new com.dndmaster.adventure.domain.combat.CombatStatBlockSource(UUID.randomUUID(), 1, "page-135"))))));
         OperationStore operations = new OperationStore();
         EventStore events = new EventStore();
         Calls calls = new Calls();
@@ -100,8 +125,10 @@ class FreeFormResourcePolicyTest {
                 new com.dndmaster.adventure.domain.combat.CombatRulesEngine(), command -> { calls.dice++; return 18; },
                 new CharacterCombatPort() {
                     @Override public void requireUsableCharacter(CombatActionCommand ignored) { }
-                    @Override public void applyOutcome(CombatActionCommand ignored, CombatOutcome ignoredOutcome) {
+                    @Override public void applyOutcome(CombatActionCommand command, CombatOutcome outcome) {
                         calls.characterMutations++;
+                        calls.command = command;
+                        calls.mutation = outcome.mutation();
                     }
                 }, new com.dndmaster.adventure.application.combat.AiCombatPort() {
                     @Override public void controlState(CombatActionCommand ignored) { }
@@ -149,6 +176,8 @@ class FreeFormResourcePolicyTest {
     private static final class Calls {
         private int dice;
         private int characterMutations;
+        private CombatActionCommand command;
+        private com.dndmaster.adventure.application.combat.CombatCharacterMutation mutation;
     }
 
     private static final class DecisionHolder implements AiCombatDecisionPort {
