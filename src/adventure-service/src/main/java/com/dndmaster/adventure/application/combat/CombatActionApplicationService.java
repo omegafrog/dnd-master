@@ -131,11 +131,14 @@ public final class CombatActionApplicationService {
             }
             applyMapEffect(operation, resolved, plan.effects().mapEffect());
             if (!stepDone(operation, "character")) {
-                characterPort.applyOutcome(resolved, toOutcome(plan));
+                characterPort.applyOutcome(actorOutcome(resolved, plan), toActorOutcome(plan));
                 operation.completeStep("character");
                 operationRepository.save(operation);
             }
-            CombatEncounter committed = encounter.commitAction(plan.actorId(), reservation);
+            int damage = isEnemyTarget(resolved, encounter) && plan.effects().hitPointDelta() < 0
+                    ? -plan.effects().hitPointDelta() : 0;
+            CombatEncounter committed = encounter.commitAction(plan.actorId(), reservation,
+                    isEnemyTarget(resolved, encounter) ? plan.targetId() : null, damage);
             encounterRepository.save(committed, encounter.version());
             CombatActionResponse response = new CombatActionResponse(committed.encounterId(), command.action().operationId(),
                     committed.version(), "COMMITTED", plan.requiresRoll() ? diceTotal : null, plan.judgment(), List.of(), plan.narration());
@@ -147,6 +150,14 @@ public final class CombatActionApplicationService {
             eventRepository.append(new CombatEvent(committed.encounterId(), committed.eventCursor() + 1, "GM_NARRATION",
                     "{\"operationId\":\"" + command.action().operationId() + "\",\"narration\":\""
                             + escape(plan.narration()) + "\"}"));
+            if (committed.allEnemiesDefeated()) {
+                CombatEndResult ended = combatEndPort.endWhenEnemiesDefeated(command.action().adventureId().value());
+                response = new CombatActionResponse(committed.encounterId(), command.action().operationId(),
+                        ended.encounterVersion(), "COMBAT_ENDED", plan.requiresRoll() ? diceTotal : null,
+                        plan.judgment(), List.of(), plan.narration());
+                operation.committed(response);
+                operationRepository.save(operation);
+            }
             return response;
         } catch (RuntimeCombatRejectionException exception) {
             operation.failed(exception);
@@ -172,12 +183,6 @@ public final class CombatActionApplicationService {
         mapPort.move(new CombatMapMoveCommand(command, effect.movementDistance(), effect.expectedVersion()));
         operation.completeStep("map");
         operationRepository.save(operation);
-    }
-
-    private static CombatOutcome toOutcome(FreeFormActionPlan plan) {
-        CombatEffectProposal effect = plan.effects();
-        return new CombatOutcome(plan.judgment(), new CombatCharacterMutation(effect.hitPointDelta(), effect.currencyDelta(),
-                effect.addItems(), effect.removeItems()));
     }
 
     private static CombatActionCommand resolvedCommand(CombatActionCommand original, CombatEncounter encounter,
@@ -209,6 +214,27 @@ public final class CombatActionApplicationService {
                 map == null ? original.tokenId() : map.tokenId(), original.expectedVersion(), targetArmorClass,
                 attackModifier, plan.targetId() == null ? null : new com.dndmaster.adventure.domain.adventure.CharacterSheetId(plan.targetId()),
                 null, false, original.narrativePosition(), movementDistance, mapVersion);
+    }
+
+    /** Character-sheet effects belong to the acting player; enemy damage belongs to the encounter. */
+    private static CombatOutcome toActorOutcome(FreeFormActionPlan plan) {
+        CombatEffectProposal effect = plan.effects();
+        return new CombatOutcome(plan.judgment(), new CombatCharacterMutation(
+                isSelfTarget(plan) ? effect.hitPointDelta() : 0,
+                effect.currencyDelta(), effect.addItems(), effect.removeItems()));
+    }
+
+    private static CombatActionCommand actorOutcome(CombatActionCommand command, FreeFormActionPlan plan) {
+        if (isSelfTarget(plan)) return command;
+        return new CombatActionCommand(command.operationId(), command.adventureId(), command.sessionId(), command.ruleSetId(),
+                command.characterSheetId(), command.combatMapId(), command.role(), command.action(), command.movementPath(),
+                command.ownerPlayerId(), command.tokenId(), command.expectedVersion(), command.targetArmorClass(),
+                command.attackModifier(), null, command.damageAmount(), command.endCombat(), command.narrativePosition(),
+                command.movementDistance(), command.mapVersion());
+    }
+
+    private static boolean isSelfTarget(FreeFormActionPlan plan) {
+        return plan.targetId() == null || plan.targetId().equals(plan.actorId());
     }
 
     public CombatActionResponse submit(CombatActionCommand command) {

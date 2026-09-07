@@ -183,7 +183,7 @@ export function AppShell() {
           <p>{combatFinalSummary.summary}</p>
           <p>상세 전투 기록은 종료 후 제공되지 않습니다.</p>
         </section>}
-        <div className="page-heading"><div><p className="eyebrow">ACTIVE ADVENTURE</p><h1>모험 진행 중</h1></div><span className="page-id">{shortId(route.adventureId)}</span></div><div className="adventure-workspace"><section className="adventure-map-main" aria-label="현재 전장"><CombatMapView adventureId={route.adventureId} api={playApi} refreshToken={mapRefreshToken} /></section><aside className="adventure-side-panel" aria-label="모험 대화"><AdventureStream adventureId={route.adventureId} api={adventureApi} expectedVersion={adventureVersion} onTurnCommitted={refreshCombatMap} /></aside></div>
+        <div className="page-heading"><div><p className="eyebrow">ACTIVE ADVENTURE</p><h1>모험 진행 중</h1></div><span className="page-id">{shortId(route.adventureId)}</span></div><div className="adventure-workspace"><section className="adventure-map-main" aria-label="현재 전장"><CombatMapView adventureId={route.adventureId} api={playApi} refreshToken={mapRefreshToken} /></section><aside className="adventure-side-panel" aria-label="모험 대화"><AdventureStream adventureId={route.adventureId} api={adventureApi} expectedVersion={adventureVersion} onTurnCommitted={() => { refreshCombatMap(); refreshCombat() }} /></aside></div>
       </>)}
       {route.page === 'character' && <CharacterSheetView sheetId={route.sheetId} api={playApi} />}
       {(route.page === 'session' || route.page === 'party') && <AdventureSessionPanel api={sessionApi} ownerPlayerId={playerId} sessionId={route.sessionId} />}
