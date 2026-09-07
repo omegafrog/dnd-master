@@ -1,0 +1,29 @@
+@startuml
+' Product Spec UC-4, BR-4, BR-9~BR-11, AC-6~AC-7
+title UC-4 — Map Activation and Player Spawn
+
+start
+:Activate prepared map with entry context;
+:Load map and validate owner/version;
+if (Explicit matching Spawn Anchor?) then (yes)
+  :Select explicit Anchor;
+else (no)
+  if (Valid entry-context candidate?) then (yes)
+    :Select entry-context candidate;
+  else (no)
+    :Select deterministic safe fallback cell;
+    note right
+    Never assume (0,0).
+    Record fallback source.
+    end note
+  endif
+endif
+if (Selected cell valid and unoccupied?) then (yes)
+  :Place or move PLAYER token;
+  :Activate map;
+else (no)
+  :Return NO_VALID_PLAYER_SPAWN;
+  stop
+endif
+stop
+@enduml

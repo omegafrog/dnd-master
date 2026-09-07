@@ -14,8 +14,10 @@ import javax.sql.DataSource;
 import javax.imageio.ImageIO;
 import java.io.ByteArrayInputStream;
 import java.util.Base64;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 @Configuration(proxyBeanMethods = false)
 public class CombatMapApiConfiguration {
@@ -88,19 +90,13 @@ public class CombatMapApiConfiguration {
     }
 
     @Bean
-    MapFilePreparationPort mapFilePreparationPort() {
-        return source -> {
-            try {
-                var image = decodeImage(source);
-                if (image == null) throw new IllegalArgumentException("map image format is not supported");
-                var detected = new MapGridDetector().detect(image);
-                String contentType = source.filename().toLowerCase().endsWith(".jpg") || source.filename().toLowerCase().endsWith(".jpeg") ? "image/jpeg" : "image/png";
-                String dataUrl = "data:" + contentType + ";base64," + Base64.getEncoder().encodeToString(renderPng(source));
-                return new PreparedMapData(new GridSpec(detected.width(), detected.height(), detected.cellSize(), 5), List.of(), Set.of(),
-                        List.of(new MapLayer("MAP_IMAGE", dataUrl, LayerVisibility.PLAYER_VISIBLE),
-                                new MapLayer("GRID_BOUNDS", detected.boundsValue(image.getWidth(), image.getHeight()), LayerVisibility.PLAYER_VISIBLE)));
-            } catch (java.io.IOException exception) { throw new IllegalArgumentException("map image cannot be decoded", exception); }
-        };
+    MapGridDetectionPort mapGridDetectionPort() {
+        return new MapGridDetector();
+    }
+
+    @Bean
+    MapFilePreparationPort mapFilePreparationPort(MapGridDetectionPort gridDetection) {
+        return new MapPreparationPipeline(new MapContentBoundsDetector(), gridDetection, new FallbackGridPolicy(20))::prepare;
     }
 
     private static java.awt.image.BufferedImage decodeImage(UploadedMapSource source) throws java.io.IOException {
@@ -121,15 +117,21 @@ public class CombatMapApiConfiguration {
     }
 
     @Bean
-    AiMapGenerationPort aiMapGenerationPort() {
-        return scenarioDescription -> new PreparedMapData(
-                new GridSpec(20, 20, 30, 5),
-                List.of(),
-                Set.of(),
-                scenarioDescription != null && (scenarioDescription.contains("A_Potent_Brew_Map")
-                        || scenarioDescription.contains("page 1 image 1"))
-                        ? List.of(new MapLayer("MAP_IMAGE", "/assets/maps/a-potent-brew-map.png", LayerVisibility.PLAYER_VISIBLE))
-                        : List.of());
+    AiMapGenerationPort aiMapGenerationPort(
+            @Value("${combat-map.integration.ai-game-master.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${combat-map.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
+            com.fasterxml.jackson.databind.ObjectMapper objectMapper,
+            @Value("${combat-map.integration.ai-game-master.map-generation-timeout:300s}") java.time.Duration timeout) {
+        return new HttpAiMapGenerationGateway(java.net.http.HttpClient.newHttpClient(),
+                java.net.URI.create(baseUrl), timeout, objectMapper, internalToken);
+    }
+
+    @Bean
+    MapImageEvidencePort mapImageEvidencePort(
+            @Value("${combat-map.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${combat-map.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken) {
+        return new HttpMapImageEvidenceGateway(java.net.http.HttpClient.newHttpClient(), java.net.URI.create(baseUrl),
+                java.time.Duration.ofSeconds(30), internalToken);
     }
 
     @Bean
@@ -139,7 +141,8 @@ public class CombatMapApiConfiguration {
 
     @Bean
     CombatMapController combatMapController(
-            CombatMapViewService mapViewService, CombatMapMovementService movementService, ApiRequestGuard requestGuard) {
-        return new CombatMapController(mapViewService, movementService, requestGuard);
+            CombatMapViewService mapViewService, CombatMapMovementService movementService, ApiRequestGuard requestGuard,
+            MapImageEvidencePort mapImageEvidence) {
+        return new CombatMapController(mapViewService, movementService, requestGuard, mapImageEvidence);
     }
 }

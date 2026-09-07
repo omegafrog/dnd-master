@@ -35,10 +35,11 @@ public final class StageArtifactPreparationApplicationService implements StageAr
         requirePackage(generated.scenarioPackageId(), scenarioPackageId);
         requireGrounding(generated.sourceRefs(), evidence, scenarioBacked, "backbone");
         generated.stages().forEach(stage -> requireGrounding(stage.sourceRefs(), evidence, scenarioBacked, "stage " + stage.stageId()));
-        StageBackbone backbone = artifacts.findBackbone(scenarioPackageId, generated.revision()).orElse(null);
-        if (backbone == null) {
-            backbone = generated;
-        }
+        StageBackbone persistedBackbone = artifacts.findBackbone(scenarioPackageId, generated.revision()).orElse(null);
+        boolean persistedBackboneMatchesEvidence = persistedBackbone != null
+                && grounded(persistedBackbone.sourceRefs(), evidence, scenarioBacked)
+                && persistedBackbone.stages().stream().allMatch(stage -> grounded(stage.sourceRefs(), evidence, scenarioBacked));
+        StageBackbone backbone = persistedBackboneMatchesEvidence ? persistedBackbone : generated;
         var first = backbone.stages().getFirst();
         DetailedStage generatedStage = detailedGeneration.generate(new StageDetailedGenerationPort.Request(
                 scenarioPackageId, first.stageId(), backbone.revision(), evidence));
@@ -46,8 +47,11 @@ public final class StageArtifactPreparationApplicationService implements StageAr
         if (!generatedStage.stageId().equals(first.stageId()) || generatedStage.backboneRevision() != backbone.revision()) {
             throw new IllegalStateException("detailed stage does not match first backbone stage");
         }
-        DetailedStage current = artifacts.findDetailedStage(scenarioPackageId, first.stageId(), backbone.revision(), generatedStage.revision()).orElse(null);
-        DetailedStage effectiveStage = current == null ? generatedStage : current;
+        DetailedStage persistedStage = persistedBackboneMatchesEvidence
+                ? artifacts.findDetailedStage(scenarioPackageId, first.stageId(), backbone.revision(), generatedStage.revision()).orElse(null)
+                : null;
+        boolean persistedStageMatchesEvidence = persistedStage != null && grounded(persistedStage, evidence, scenarioBacked);
+        DetailedStage effectiveStage = persistedStageMatchesEvidence ? persistedStage : generatedStage;
         requireGrounding(effectiveStage.sourceRefs(), evidence, scenarioBacked, "detailed stage");
         effectiveStage.revelations().forEach(revelation -> requireGrounding(revelation.sourceRefs(), evidence, scenarioBacked, "revelation " + revelation.revelationId()));
         requireGrounding(effectiveStage.threat().sourceRefs(), evidence, scenarioBacked, "threat");
@@ -56,15 +60,14 @@ public final class StageArtifactPreparationApplicationService implements StageAr
         SituationDefinition opening = effectiveStage.situations().stream().filter(SituationDefinition::opening).findFirst()
                 .orElseThrow(() -> new IllegalStateException("opening situation is required"));
         requireGrounding(opening.sourceRefs(), evidence, scenarioBacked, "opening situation");
-        if (current == null) {
+        if (persistedStage == null && (persistedBackbone == null || persistedBackboneMatchesEvidence)) {
             if (artifacts.findBackbone(scenarioPackageId, backbone.revision()).isEmpty()) {
                 artifacts.saveInitialArtifacts(backbone, generatedStage);
             } else {
                 artifacts.saveDetailedStage(generatedStage, generatedStage.revision() - 1);
             }
         }
-        current = effectiveStage;
-        return new Result(backbone, current, opening);
+        return new Result(backbone, effectiveStage, opening);
     }
 
     /** Materializes and validates only the immediate next stage; no runtime state is changed here. */
@@ -99,13 +102,27 @@ public final class StageArtifactPreparationApplicationService implements StageAr
 
     private static void requireGrounding(List<ScenarioSourceReference> references, List<ScenarioSourceReference> evidence,
             boolean scenarioBacked, String subject) {
-        if (!scenarioBacked) {
-            if (!references.isEmpty()) throw new IllegalStateException(subject + " contains scenario grounding in Rulebook-Only Bundle");
-            return;
-        }
-        if (evidence.isEmpty() || references.isEmpty() || !evidence.containsAll(references)) {
+        if (!grounded(references, evidence, scenarioBacked)) {
+            if (!scenarioBacked && !references.isEmpty()) {
+                throw new IllegalStateException(subject + " contains scenario grounding in Rulebook-Only Bundle");
+            }
             throw new IllegalStateException(subject + " contains invalid grounding");
         }
+    }
+
+    private static boolean grounded(List<ScenarioSourceReference> references, List<ScenarioSourceReference> evidence,
+            boolean scenarioBacked) {
+        if (!scenarioBacked) return references.isEmpty();
+        return !evidence.isEmpty() && !references.isEmpty() && evidence.containsAll(references);
+    }
+
+    private static boolean grounded(DetailedStage stage, List<ScenarioSourceReference> evidence, boolean scenarioBacked) {
+        return grounded(stage.sourceRefs(), evidence, scenarioBacked)
+                && stage.revelations().stream().allMatch(revelation -> grounded(revelation.sourceRefs(), evidence, scenarioBacked))
+                && grounded(stage.threat().sourceRefs(), evidence, scenarioBacked)
+                && grounded(stage.pressure().sourceRefs(), evidence, scenarioBacked)
+                && grounded(stage.funnel().sourceRefs(), evidence, scenarioBacked)
+                && stage.situations().stream().allMatch(situation -> grounded(situation.sourceRefs(), evidence, scenarioBacked));
     }
 
     private static void validateDetailedStage(DetailedStage stage, List<ScenarioSourceReference> evidence,

@@ -52,7 +52,7 @@ export type CombatMapView = {
   status: string
   mapId?: string
   tokens?: Array<{ id: string; type: string; x: number; y: number; lastSeen?: boolean }>
-  layers?: Array<{ type: string; value: string }>
+  layers?: Array<{ type: string; value: string; visibility?: string }>
   doors?: Array<{ x: number; y: number; open: boolean }>
   current?: Array<{ x: number; y: number }>
   explored?: Array<{ x: number; y: number }>
@@ -92,6 +92,7 @@ export interface AdventurePlayApi {
   getSessionKnowledgeSet(adventureId: string): Promise<SessionKnowledgeSet>
   saveSessionKnowledgeSet(adventureId: string, playerId: string, knowledgeDocumentIds: string[]): Promise<SessionKnowledgeSet>
   getCombatMap(adventureId: string): Promise<CombatMapView>
+  calibrateCombatMap?(adventureId: string, calibration: { mapId: string; expectedVersion: number; width: number; height: number; cellSize: number; originX: number; originY: number; imageWidth: number; imageHeight: number; playerX: number; playerY: number }): Promise<void>
   submitMapAction?(adventureId: string, candidate: MapActionCandidate, command?: { turnId: string; commandId: string }, expectedVersion?: number): Promise<{ turnId: string; version: number }>
 }
 
@@ -194,6 +195,14 @@ export class HttpAdventurePlayApi implements AdventurePlayApi {
   getCombatMap(adventureId: string) {
     return request<CombatMapView>(`/api/v1/adventures/${adventureId}/combat-map`, {
       headers: this.authHeaders(),
+    })
+  }
+
+  calibrateCombatMap(adventureId: string, calibration: { mapId: string; expectedVersion: number; width: number; height: number; cellSize: number; originX: number; originY: number; imageWidth: number; imageHeight: number; playerX: number; playerY: number }) {
+    return request<void>(`/api/v1/adventures/${adventureId}/combat-map/calibration`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', ...this.authHeaders() },
+      body: JSON.stringify(calibration),
     })
   }
 

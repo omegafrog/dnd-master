@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useState, type KeyboardEvent } from "react";
+﻿import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import type {
   CharacterCreationDraft,
   CharacterInputNodeView,
@@ -660,7 +660,8 @@ function readCharacterDraft(key: string): Partial<CharacterDraftSnapshot> {
 function useBlueprintFields(blueprint?: BlueprintProps) {
   const [nodes, setNodes] = useState<ReturnType<typeof flattenNodes>>([]);
   const [packageId, setPackageId] = useState<string | null>(null);
-  const [revision, setRevision] = useState(0);
+  const revisionRef = useRef(0);
+  const resolveQueueRef = useRef<Promise<unknown>>(Promise.resolve());
   const [edition, setEdition] = useState<"DND_5E_2014" | "DND_5E_2024">("DND_5E_2014");
   const [values, setValues] = useState<Record<string, string>>({});
   useEffect(() => {
@@ -680,7 +681,8 @@ function useBlueprintFields(blueprint?: BlueprintProps) {
       .then((preparation) => {
         if (active && preparation) {
           setEdition(sessionEdition ?? preparation.characterCreationBlueprint.edition ?? "DND_5E_2014");
-          setRevision(preparation.characterCreationBlueprint.revision ?? 0);
+          const nextRevision = preparation.characterCreationBlueprint.revision ?? 0;
+          revisionRef.current = nextRevision;
           setNodes(
             flattenNodes(preparation.characterCreationBlueprint.roots).filter(
               (node) => !isRemovedCharacterDetail(node),
@@ -766,19 +768,23 @@ function useBlueprintFields(blueprint?: BlueprintProps) {
     const node = find(keys);
     if (!node) return;
     setValues((current) => ({ ...current, [node.id]: next }));
-    if (packageId && blueprint?.setupApi.resolveBlueprint)
-      void blueprint.setupApi
-        .resolveBlueprint(packageId, node.id, next, revision)
+    if (packageId && blueprint?.setupApi.resolveBlueprint) {
+      const resolve = blueprint.setupApi.resolveBlueprint;
+      resolveQueueRef.current = resolveQueueRef.current
+        .catch(() => undefined)
+        .then(() => resolve(packageId, node.id, next, revisionRef.current))
         .then((result) => {
           if (
             typeof result === "object" &&
             result &&
             "revision" in result &&
             typeof result.revision === "number"
-          )
-            setRevision(result.revision);
+          ) {
+            revisionRef.current = result.revision;
+          }
         })
         .catch(() => undefined);
+    }
   }
   const extras = nodes.filter((node) => !mappedKeys.has(node.key));
   return { value, change, extras, values, edition };

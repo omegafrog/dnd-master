@@ -1,0 +1,32 @@
+@startuml
+' Architecture Spec 4.1~4.2, 5.1, 5.8; Product UC-5~UC-6, BR-8, BR-13
+title Combat Map Program Structure
+
+package "API / Configuration" as API
+package "Application" as APP {
+  [CombatMapViewService]
+  [MapPreparationPipeline]
+  [PlayerSafeFogProjection]
+}
+package "Domain" as DOMAIN {
+  [CombatMap]
+  [SpawnResolutionPolicy]
+  [VisibilityPolicy]
+}
+package "Infrastructure / Persistence" as INFRA {
+  [CombatMapViewStore]
+}
+package "Web UI" as UI {
+  [CombatMapView.tsx]
+  [Player-safe renderer]
+}
+package "Adventure Runtime" as RUNTIME
+
+API --> APP : commands / queries
+RUNTIME --> API : versioned activation
+APP --> DOMAIN : domain operations
+APP --> INFRA : atomic versioned store
+APP --> UI : PlayerCombatMapResponse
+DOMAIN --> APP : state / projection input
+UI --> APP : player actions
+@enduml

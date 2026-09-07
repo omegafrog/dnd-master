@@ -7,11 +7,22 @@ import java.util.UUID;
 public interface CombatMapViewPort {
     Optional<View> playerView(UUID adventureId, UUID ownerId);
 
-    record View(UUID mapId, Grid grid, List<Token> tokens, List<Obstacle> obstacles, List<Layer> layers,
-            List<Position> current, List<Position> explored, long version) {}
+    default void calibrate(UUID mapId, UUID ownerId, long expectedVersion, int width, int height, int cellSize,
+            int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {
+        throw new UnsupportedOperationException("combat map calibration unavailable");
+    }
+
+    record View(UUID mapId, Grid grid, List<Token> tokens, List<Obstacle> obstacles, List<Door> doors, List<Layer> layers,
+            List<Position> current, List<Position> explored, long version) {
+        public View(UUID mapId, Grid grid, List<Token> tokens, List<Obstacle> obstacles, List<Layer> layers,
+                List<Position> current, List<Position> explored, long version) {
+            this(mapId, grid, tokens, obstacles, List.of(), layers, current, explored, version);
+        }
+    }
     record Grid(int width, int height, int cellSize, int distanceUnit) {}
     record Token(UUID id, String type, int x, int y) {}
     record Obstacle(int x, int y) {}
+    record Door(int x, int y, boolean open) {}
     record Layer(String type, String value) {}
     record Position(int x, int y) {}
 }

@@ -35,6 +35,7 @@ import com.dndmaster.adventure.application.combat.RuntimeCombatRejectionExceptio
 import com.dndmaster.adventure.application.combat.CombatActionApplicationService;
 import com.dndmaster.adventure.application.combat.CombatStartParticipantFactory;
 import com.dndmaster.adventure.application.combat.CombatStartTransitionPolicy;
+import com.dndmaster.adventure.application.combat.CombatMapPlayerTokenResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 @RestController
@@ -211,6 +212,27 @@ public class AdventureController {
         return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
     }
 
+    /** Publishes the prepared opening narration before the first player action. */
+    @PostMapping("/api/v1/adventures/{adventureId}/opening")
+    public ResponseEntity<RuntimeTurnResponse> submitOpening(
+            @PathVariable UUID adventureId,
+            @RequestHeader("If-Match-Version") long expectedVersion) {
+        UUID owner = playerResolver.playerId();
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        if (!adventure.ownerPlayerId().value().equals(owner)) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        }
+        UUID turnId = UUID.nameUUIDFromBytes(("opening-turn:" + adventureId)
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        UUID commandId = UUID.nameUUIDFromBytes(("opening-command:" + adventureId)
+                .getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        RuntimeTurnResult result = runtimeTurnService.submitOpeningTurn(
+                new AdventureId(adventureId), new OwnerPlayerId(owner), turnId, commandId, expectedVersion);
+        sessionEventRepository.append(new com.dndmaster.adventure.domain.runtime.event.SessionEvent(
+                adventure.sessionId().value(), UUID.randomUUID(), result.version(), "GM_TURN_COMMITTED", turnId.toString()));
+        return ResponseEntity.accepted().body(RuntimeTurnResponse.from(result));
+    }
+
     @PostMapping("/api/v1/adventures/{adventureId}/turns/{pendingTurnId}/roll")
     RuntimeTurnResponse submitPlayerRoll(@PathVariable UUID adventureId, @PathVariable UUID pendingTurnId,
             @RequestBody PlayerRollRequest request) {
@@ -250,7 +272,18 @@ public class AdventureController {
         }
         var projection = combatMapViewPort.playerView(adventureId, playerResolver.playerId());
         return projection.map(view -> CombatMapResponse.from(adventureId, adventure.version(), view))
-                .orElseGet(() -> new CombatMapResponse(adventureId, "map-view", adventure.version(), null, null, List.of(), List.of(), List.of(), List.of(), List.of(), null));
+                .orElseGet(() -> new CombatMapResponse(adventureId, "map-view", adventure.version(), null, null, List.of(), List.of(), List.of(), List.of(), List.of(), List.of(), null));
+    }
+
+    @PutMapping("/api/v1/adventures/{adventureId}/combat-map/calibration")
+    CombatMapCalibrationResponse calibrateMap(@PathVariable UUID adventureId, @RequestBody CombatMapCalibrationRequest request) {
+        Adventure adventure = adventureRepository.findById(new AdventureId(adventureId)).orElseThrow();
+        if (!adventure.ownerPlayerId().value().equals(playerResolver.playerId())) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.FORBIDDEN);
+        }
+        combatMapViewPort.calibrate(request.mapId(), playerResolver.playerId(), request.expectedVersion(), request.width(), request.height(),
+                request.cellSize(), request.originX(), request.originY(), request.imageWidth(), request.imageHeight(), request.playerX(), request.playerY());
+        return new CombatMapCalibrationResponse(request.mapId(), request.width(), request.height());
     }
 
     @PostMapping("/api/v1/adventures/{adventureId}/dice-rolls")
@@ -420,7 +453,7 @@ public class AdventureController {
             if (!"MOVE".equals(payload.action())) {
                 throw new ApiRequestGuard.ApiContractException(400, "UNSUPPORTED_MAP_ACTION");
             }
-            var member = characterSheetForToken(adventure, payload.tokenId());
+            var member = characterSheetForToken(adventure, owner, payload.tokenId());
             if (payload.path() == null || payload.path().size() < 2) {
                 throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PATH");
             }
@@ -450,7 +483,7 @@ public class AdventureController {
             if (!"MOVE".equals(payload.action())) {
                 throw new ApiRequestGuard.ApiContractException(400, "UNSUPPORTED_MAP_ACTION");
             }
-            var member = characterSheetForToken(adventure, payload.tokenId());
+            var member = characterSheetForToken(adventure, owner, payload.tokenId());
             if (payload.path() == null || payload.path().size() < 2) {
                 throw new ApiRequestGuard.ApiContractException(400, "INVALID_MAP_MOVE_PATH");
             }
@@ -481,17 +514,9 @@ public class AdventureController {
                 .getBytes(java.nio.charset.StandardCharsets.UTF_8));
     }
 
-    private static com.dndmaster.adventure.domain.adventure.AdventurePartyMember characterSheetForToken(
-            Adventure adventure, UUID tokenId) {
-        if (tokenId == null) {
-            return adventure.party().stream().findFirst()
-                    .orElseThrow(() -> new IllegalStateException("map action requires a party member"));
-        }
-        return adventure.party().stream()
-                .filter(candidate -> candidate.characterSheetId().value().toString().equals(tokenId.toString())
-                        || canonicalPlayerTokenId(candidate.characterSheetId().value()).toString().equals(tokenId.toString()))
-                .findFirst()
-                .orElseThrow(() -> new IllegalArgumentException("map action token does not belong to the party"));
+    private com.dndmaster.adventure.domain.adventure.AdventurePartyMember characterSheetForToken(
+            Adventure adventure, UUID owner, UUID tokenId) {
+        return CombatMapPlayerTokenResolver.resolve(adventure, owner, tokenId, combatMapViewPort);
     }
 
     public record MapActionPayload(UUID mapId, long mapVersion, UUID tokenId, String action,
@@ -501,13 +526,17 @@ public class AdventureController {
             com.dndmaster.adventure.application.combat.CombatMapViewPort.Grid grid,
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Token> tokens,
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Obstacle> obstacles,
+            List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Door> doors,
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Layer> layers,
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> current,
             List<com.dndmaster.adventure.application.combat.CombatMapViewPort.Position> explored, Long version) {
         static CombatMapResponse from(UUID adventureId, long sessionVersion, com.dndmaster.adventure.application.combat.CombatMapViewPort.View view) {
-            return new CombatMapResponse(adventureId, "authoritative-map", sessionVersion, view.mapId(), view.grid(), view.tokens(), view.obstacles(), view.layers(), view.current(), view.explored(), view.version());
+            return new CombatMapResponse(adventureId, "authoritative-map", sessionVersion, view.mapId(), view.grid(), view.tokens(), view.obstacles(), view.doors(), view.layers(), view.current(), view.explored(), view.version());
         }
     }
+    public record CombatMapCalibrationRequest(UUID mapId, long expectedVersion, int width, int height, int cellSize,
+            int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
+    public record CombatMapCalibrationResponse(UUID mapId, int width, int height) {}
     public record DiceRollRequest(
             UUID ruleSetId,
             UUID characterSheetId,

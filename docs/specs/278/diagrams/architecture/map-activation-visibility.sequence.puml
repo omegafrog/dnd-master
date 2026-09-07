@@ -1,0 +1,40 @@
+@startuml
+' Architecture Spec 4.3~4.4, 5.8, 6.1~6.5; Product UC-4~UC-6, BR-6~BR-11
+title Map Activation and Visibility Sequence
+
+actor "Adventure Runtime" as Runtime
+participant "CombatMapViewService" as Service
+participant "CombatMapViewStore" as Store
+participant "SpawnResolutionPolicy" as Spawn
+participant "CombatMap" as Map
+participant "VisibilityPolicy" as Visibility
+participant "PlayerSafeFogProjection" as Projection
+
+Runtime -> Service : activate(mapId, expectedVersion, context)
+Service -> Store : load owned/versioned map
+Store --> Service : prepared CombatMap
+Service -> Spawn : resolve(map, context)
+alt valid spawn
+  Spawn --> Service : SpawnResolution
+  Service -> Map : add/move PLAYER + refresh visibility
+  Map -> Visibility : calculate(profile, blockers, explored)
+  Visibility --> Map : VisibilitySnapshot
+  Service -> Store : atomic activate(map, active relation)
+  Store --> Service : committed version
+  Service -> Projection : project player-safe state
+  Projection --> Service : PlayerCombatMapResponse
+  Service --> Runtime : active map projection
+else no valid spawn
+  Spawn --> Service : NO_VALID_PLAYER_SPAWN
+  Service --> Runtime : activation failure; no partial commit
+end
+
+== Runtime update ==
+Runtime -> Service : move/door command(versioned)
+Service -> Map : validate and apply
+Map -> Visibility : refresh bounded visibility
+Visibility --> Map : current + explored
+Service -> Store : persist versioned state
+Service -> Projection : filter hidden tokens/layers
+Projection --> Runtime : player-safe response
+@enduml

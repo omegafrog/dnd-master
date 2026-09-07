@@ -43,6 +43,7 @@ import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpKnowle
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpPlayerSessionLookupGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpLegacyScenarioIngestionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpInitialSourceContextProposalGateway;
+import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpOpeningSourceContextSearchGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpResolutionExtractionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpCharacterInputTagExtractionGateway;
 import com.dndmaster.adventure.infrastructure.integration.CrossContextHttpScenarioSourceExcerptGateway;
@@ -210,8 +211,11 @@ public class AdventureApiConfiguration {
     @Bean
     StageArtifactPreparationApplicationService stageArtifactPreparationApplicationService(
             com.dndmaster.adventure.domain.scenario.StageArtifactRepository artifacts,
-            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository) {
-        var adapter = new ScenarioPackageStageArtifactAdapter(packageRepository);
+            com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository packageRepository,
+            ScenarioBundleRepository bundleRepository,
+            OpeningSourceContextSearchPort openingSourceContextSearchPort) {
+        var adapter = new ScenarioPackageStageArtifactAdapter(packageRepository, bundleRepository,
+                openingSourceContextSearchPort);
         return new StageArtifactPreparationApplicationService(artifacts, adapter, adapter, adapter);
     }
 
@@ -668,6 +672,15 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    OpeningSourceContextSearchPort openingSourceContextSearchPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.rule-knowledge.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.rule-knowledge.timeout-seconds:30}") long timeoutSeconds) {
+        return new CrossContextHttpOpeningSourceContextSearchGateway(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(timeoutSeconds), objectMapper);
+    }
+
+    @Bean
     RuntimeBindingApplicationService runtimeBindingApplicationService(
             AdventureRepository adventureRepository,
             ScenarioBundleRepository bundleRepository,
@@ -675,10 +688,11 @@ public class AdventureApiConfiguration {
             RuntimeBindingRepository runtimeBindingRepository,
             InitialSourceContextProposalPort proposalPort,
             KnowledgeDocumentLookupPort lookupPort,
-            GameSystemDefinitionPort gameSystemDefinitionPort) {
+            GameSystemDefinitionPort gameSystemDefinitionPort,
+            OpeningSourceContextSearchPort openingSourceContextSearchPort) {
         return new RuntimeBindingApplicationService(
                 adventureRepository, bundleRepository, packageRepository, runtimeBindingRepository, proposalPort,
-                lookupPort, gameSystemDefinitionPort);
+                lookupPort, gameSystemDefinitionPort, openingSourceContextSearchPort);
     }
 
     @Bean
@@ -727,10 +741,20 @@ public class AdventureApiConfiguration {
     }
 
     @Bean
+    OfficialToolPort combatMapTacticalTriggerToolPort(
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
+            @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String token) {
+        return new com.dndmaster.adventure.infrastructure.integration.HttpCombatMapTacticalTriggerToolPort(
+                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(15), objectMapper, token);
+    }
+
+    @Bean
     GmToolGateway gmToolGateway(@Qualifier("diceToolPort") OfficialToolPort diceToolPort,
                                 @Qualifier("characterToolPort") OfficialToolPort characterToolPort,
+                                @Qualifier("combatMapTacticalTriggerToolPort") OfficialToolPort combatMapTacticalTriggerToolPort,
                                 ObjectMapper objectMapper) {
-        var definitions = new java.util.HashSet<>(OfficialGmToolRegistry.definitions(diceToolPort, characterToolPort));
+        var definitions = new java.util.HashSet<>(OfficialGmToolRegistry.definitions(diceToolPort, characterToolPort, combatMapTacticalTriggerToolPort));
         return new GmToolGatewayService(definitions, java.time.Clock.systemUTC(), objectMapper);
     }
 
@@ -919,9 +943,10 @@ public class AdventureApiConfiguration {
     com.dndmaster.adventure.application.combat.CombatMapPreparationPort combatMapPreparationPort(
             @Value("${adventure.integration.combat-map.base-url:http://127.0.0.1:8080/}") String baseUrl,
             @Value("${adventure.integration.internal-token:${INTERNAL_SERVICE_TOKEN:}}") String internalToken,
-            ObjectMapper objectMapper) {
+            ObjectMapper objectMapper,
+            @Value("${adventure.integration.combat-map.prepare-timeout:300s}") Duration timeout) {
         return new com.dndmaster.adventure.application.combat.HttpCombatMapPreparationGateway(
-                HttpClient.newHttpClient(), URI.create(baseUrl), Duration.ofSeconds(30), objectMapper, internalToken);
+                HttpClient.newHttpClient(), URI.create(baseUrl), timeout, objectMapper, internalToken);
     }
 
     @Bean

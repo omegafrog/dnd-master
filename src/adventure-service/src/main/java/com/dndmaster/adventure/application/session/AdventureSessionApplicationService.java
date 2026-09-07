@@ -132,14 +132,21 @@ public final class AdventureSessionApplicationService {
         var configuration = session.runtimeConfiguration();
         if (configuration == null) throw new IllegalStateException("adventure session runtime configuration is required");
         var preparedStage = stagePreparation.prepare(scenarioPackage.packageId());
-        boolean newlyStarting = session.beginStart(adventureId, requestId);
+        // A retried browser request can generate a new adventure id after a
+        // previous attempt already persisted the adventure. Reuse the
+        // session-owned row so the unique session constraint remains intact.
+        Adventure persistedAdventure = adventureRepository.findById(adventureId)
+                .or(() -> adventureRepository.findBySessionId(session.id()))
+                .orElse(null);
+        AdventureId effectiveAdventureId = persistedAdventure == null ? adventureId : persistedAdventure.id();
+        boolean newlyStarting = session.beginStart(effectiveAdventureId, requestId);
         if (newlyStarting) {
             repository.save(session, expectedVersion);
-            startCoordinator.prepare(session.id(), requestId, adventureId.value(), session.scenarioPackageId());
+            startCoordinator.prepare(session.id(), requestId, effectiveAdventureId.value(), session.scenarioPackageId());
         }
-        Adventure adventure = adventureRepository.findById(adventureId).orElse(null);
+        Adventure adventure = persistedAdventure;
         if (adventure == null) {
-            adventure = Adventure.beginScenarioRuntime(adventureId, session.id(), owner, configuration.scenarioId(), configuration.ruleSetId(),
+            adventure = Adventure.beginScenarioRuntime(effectiveAdventureId, session.id(), owner, configuration.scenarioId(), configuration.ruleSetId(),
                     session.scenarioPackageId(), scenarioPackage.bundleRevision(), session.party(), new AdventureContext(configuration.initialScene(), null, null, null));
             adventureRepository.save(adventure);
         }
@@ -154,15 +161,43 @@ public final class AdventureSessionApplicationService {
             adventureRepository.save(adventure);
         }
         initializeSessionKnowledgeSetIfMissing(session, scenarioPackage);
+        Adventure activeAdventure = adventure;
         scenarioPackage.initialMapDefinition(configuration.initialScene()).ifPresent(mapDefinition ->
-                combatMapPreparationPort.prepareInitial(adventureId, owner.value(), configuration.ruleSetId(), mapDefinition, 1));
-        runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(adventureId, owner, session.scenarioPackageId(), configuration.rulebookIds(), configuration.engineId(), configuration.toolIds()));
+                combatMapPreparationPort.prepareInitial(effectiveAdventureId, owner.value(), configuration.ruleSetId(), mapDefinition, 1,
+                        activationContext(activeAdventure, session)));
+        runtimeBindingService.bindForSession(new RuntimeBindingApplicationService.BindRuntimeBindingCommand(effectiveAdventureId, owner, session.scenarioPackageId(), configuration.rulebookIds(), configuration.engineId(), configuration.toolIds()));
         if (session.status() == AdventureSession.Status.STARTING) {
             session.completeStart();
             repository.save(session, session.version() - 1);
             startCoordinator.commit(session.id(), requestId);
         }
         return session;
+    }
+
+    private static CombatMapPreparationPort.ActivationContext activationContext(Adventure adventure, AdventureSession session) {
+        var situation = adventure.currentSituation();
+        UUID playerTokenId = session.party().stream().findFirst()
+                .map(AdventurePartyMember::characterSheetId)
+                .map(sheet -> UUID.nameUUIDFromBytes(("player-" + sheet.value())
+                        .getBytes(java.nio.charset.StandardCharsets.UTF_8)))
+                .orElse(null);
+        return new CombatMapPreparationPort.ActivationContext(playerTokenId, situation.situationId(),
+                situation.revision(), adventure.turnIndex(), adventure.currentContext().currentScene(),
+                situation.location(), null, null, entrySide(adventure, situation));
+    }
+
+    private static String entrySide(Adventure adventure, com.dndmaster.adventure.domain.runtime.CurrentSituation situation) {
+        String context = (adventure.currentContext().currentScene() + " " + situation.location()).toLowerCase(java.util.Locale.ROOT);
+        if (contains(context, "north", "북", "upper")) return "NORTH";
+        if (contains(context, "east", "동", "right")) return "EAST";
+        if (contains(context, "south", "남", "lower")) return "SOUTH";
+        if (contains(context, "west", "서", "left")) return "WEST";
+        return null;
+    }
+
+    private static boolean contains(String value, String... signals) {
+        for (String signal : signals) if (value.contains(signal)) return true;
+        return false;
     }
     public AdventureSession complete(SessionId id, OwnerPlayerId owner, long expectedVersion) {
         AdventureSession session = authorize(load(id), owner); requireVersion(session, expectedVersion);

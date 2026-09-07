@@ -51,15 +51,15 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
             INSERT INTO published_rag_chunk
                 (document_id, owner_player_id, extraction_version, processor_chunk_id, chunk_id,
                  sequence, content, embedding_text, embedding, embedding_model, embedding_dimension,
-                 section_path, page_number, bbox, table_cell, original_locator)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS vector), ?, ?, ?, ?, ?, ?, ?)
+                 section_path, page_number, bbox, table_cell, original_locator, parent_key)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS vector), ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT (document_id, extraction_version, processor_chunk_id) DO UPDATE SET
                 chunk_id = EXCLUDED.chunk_id, sequence = EXCLUDED.sequence, content = EXCLUDED.content,
                 embedding_text = EXCLUDED.embedding_text, embedding = EXCLUDED.embedding,
                 embedding_model = EXCLUDED.embedding_model, embedding_dimension = EXCLUDED.embedding_dimension,
                 section_path = EXCLUDED.section_path, page_number = EXCLUDED.page_number,
                 bbox = EXCLUDED.bbox, table_cell = EXCLUDED.table_cell,
-                original_locator = EXCLUDED.original_locator
+                original_locator = EXCLUDED.original_locator, parent_key = EXCLUDED.parent_key
             """;
     private static final String MARK_INDEXED = """
             UPDATE rag_extraction_version
@@ -145,6 +145,8 @@ public final class PostgresRagExtractionPublicationRepository implements RagExtr
                     if (provenance.tableCell() == null) insert.setNull(15, Types.VARCHAR);
                     else insert.setString(15, provenance.tableCell());
                     insert.setString(16, provenance.originalLocator());
+                    if (chunk.parentKey() == null) insert.setNull(17, Types.VARCHAR);
+                    else insert.setString(17, chunk.parentKey());
                     insert.addBatch();
                 }
                 insert.executeBatch();

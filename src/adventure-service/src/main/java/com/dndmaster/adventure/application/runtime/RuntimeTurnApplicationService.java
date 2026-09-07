@@ -5,6 +5,7 @@ import com.dndmaster.adventure.application.knowledge.SessionKnowledgeSetReposito
 import com.dndmaster.adventure.application.scenario.compilation.ScenarioPackageRepository;
 import com.dndmaster.adventure.domain.adventure.ActiveSourceContext;
 import com.dndmaster.adventure.domain.adventure.Adventure;
+import com.dndmaster.adventure.domain.adventure.AdventureId;
 import com.dndmaster.adventure.domain.adventure.AdventureContext;
 import com.dndmaster.adventure.domain.adventure.CharacterSheetId;
 import com.dndmaster.adventure.domain.adventure.ConversationEntry;
@@ -243,6 +244,14 @@ public class RuntimeTurnApplicationService {
                 .orElseThrow(() -> new IllegalStateException("scenario package not found"));
 
         return submitSafeScenarioRuntimeTurn(command, adventure, binding, scenarioPackage);
+    }
+
+    /** Publishes the prepared opening scene without fabricating a player action. */
+    public RuntimeTurnResult submitOpeningTurn(AdventureId adventureId, OwnerPlayerId ownerPlayerId,
+                                               UUID turnId, UUID commandId, long expectedVersion) {
+        return submitTurn(new SubmitRuntimeTurnCommand(adventureId, ownerPlayerId, turnId, commandId,
+                "오프닝 장면을 시작하며 스토리북 초반의 현재 장소를 묘사한다.", expectedVersion,
+                null, -1, false, true, false, List.of()));
     }
 
     private <T> T stage(UUID turnId, String stage, Supplier<T> operation) {
@@ -534,7 +543,9 @@ public class RuntimeTurnApplicationService {
                 binding.scenarioPackageId(), binding.bindingVersion(), command.action(), evidencePack, plan,
                 binding.activeSourceContext(), adventure.currentContext(), adventure.conversation(), adventure.version(),
                 plan.citedEvidence().stream().map(evidence -> evidence.evidenceType() + ":" + evidence.locator()).toList(), plan.warnings(),
-                false, true, RuntimeTurnOrigin.PLAYER, true).asRequested();
+                false, !command.gmOnly(), command.gmOnly() ? RuntimeTurnOrigin.GM : RuntimeTurnOrigin.PLAYER,
+                command.advancesState(), command.turnCharacterSheetId(), command.turnIndex() < 0 ? null : command.turnIndex(),
+                command.expectedVersion(), command.gmOnly(), command.agentOrigin()).asRequested();
         if (!groundedCombatEnemies.isEmpty()) {
             nextSituation = nextSituation.enterCombatScenario(groundedCombatEnemies.get(0).scenarioId());
         }
@@ -553,9 +564,11 @@ public class RuntimeTurnApplicationService {
         }
         AdventureContext nextContext = new AdventureContext(plan.scene(), plan.npcState(), command.action(), plan.judgment());
         List<ConversationEntry> conversation = new ArrayList<>(adventure.conversation());
-        conversation.add(new ConversationEntry(conversation.size(), "PLAYER", command.action()));
+        if (!command.gmOnly()) conversation.add(new ConversationEntry(conversation.size(), "PLAYER", command.action()));
         conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", ready.narration()));
-        conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.judgment()));
+        if (!command.gmOnly() && plan.judgment() != null && !plan.judgment().isBlank()) {
+            conversation.add(new ConversationEntry(conversation.size(), "AI_GAME_MASTER", plan.judgment()));
+        }
         RuntimeTurnCommitOrchestrator.Result commitResult;
         if (commitOrchestrator == null) {
             RuntimeTurn committing = ready.beginCommit();

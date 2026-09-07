@@ -83,9 +83,10 @@ public class AiGameMasterController {
 
     @PostMapping("/internal/v1/gm/maps")
     MapResponse generateMap(@RequestBody MapRequest request) {
-        var input = new MapModelPort.MapInput(request.selectedScenario(), request.currentContext());
+        var input = new MapModelPort.MapInput(request.selectedScenario(), request.currentContext(), request.mapData(), request.imageDataUri());
         var output = mapPort.generate(input);
-        return new MapResponse(output.width(), output.height(), output.structuredLayers());
+        return new MapResponse(output.width(), output.height(), output.structuredLayers(),
+                output.obstacles(), output.doors(), output.playerStart());
     }
 
     @PostMapping("/internal/v1/gm/agent-actions")
@@ -98,6 +99,21 @@ public class AiGameMasterController {
         UUID turnId = UUID.nameUUIDFromBytes((request.sessionId() + ":" + request.turnIndex() + ":" + request.characterSheetId()).getBytes(java.nio.charset.StandardCharsets.UTF_8));
         UUID commandId = UUID.nameUUIDFromBytes((turnId + ":command").getBytes(java.nio.charset.StandardCharsets.UTF_8));
         return new AgentActionResponse(turnId, commandId, action);
+    }
+
+    /**
+     * Returns a grounded companion proposal for the adventure assembly screen.
+     * Companion generation is intentionally deterministic when no separate
+     * companion model is configured; the caller can still review and adopt it.
+     */
+    @PostMapping("/internal/v1/gm/companion-candidates")
+    CompanionCandidateResponse proposeCompanion(@RequestBody CompanionCandidateRequest request) {
+        if (request == null || request.sessionId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "session id required");
+        }
+        return new CompanionCandidateResponse(
+                "린", "엘프", "클레릭",
+                "약초와 치유 주문에 익숙한 동료입니다. 모험 중 부상자를 돕고 주변의 단서를 살핍니다.");
     }
 
     public record SceneRequest(
@@ -137,12 +153,28 @@ public class AiGameMasterController {
 
     public record IntentClassificationResponse(String queryIntent) {}
 
-    public record MapRequest(String selectedScenario, String currentContext) {}
+    public record MapRequest(String selectedScenario, String currentContext, String mapData, String imageDataUri) {
+        public MapRequest(String selectedScenario, String currentContext) {
+            this(selectedScenario, currentContext, "", "");
+        }
+        public MapRequest(String selectedScenario, String currentContext, String mapData) {
+            this(selectedScenario, currentContext, mapData, "");
+        }
+    }
 
-    public record MapResponse(int width, int height, String structuredLayers) {}
+    public record MapResponse(int width, int height, String structuredLayers,
+                              List<String> obstacles, List<String> doors, String playerStart) {
+        public MapResponse(int width, int height, String structuredLayers) {
+            this(width, height, structuredLayers, List.of(), List.of(), "");
+        }
+    }
 
     public record AgentActionRequest(UUID adventureId, UUID ownerPlayerId, UUID sessionId, int turnIndex, UUID characterSheetId,
                                      String characterName, int level, String currentScene) {}
 
     public record AgentActionResponse(UUID turnId, UUID commandId, String action) {}
+
+    public record CompanionCandidateRequest(UUID sessionId) {}
+
+    public record CompanionCandidateResponse(String name, String race, String characterClass, String sheetSummary) {}
 }

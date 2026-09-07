@@ -8,6 +8,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
@@ -28,8 +29,17 @@ public final class OpenAiGmProvider implements GmCompletionAdapter {
     }
 
     @Override public <T> T complete(String operationId, String prompt, StructuredResponseParser<T> parser) {
+        return complete(operationId, new GmPrompt(prompt), parser);
+    }
+
+    @Override public <T> T complete(String operationId, GmPrompt prompt, StructuredResponseParser<T> parser) {
         try {
-            String body = mapper.writeValueAsString(Map.of("model", model, "input", required(prompt, "prompt"),
+            Object input = prompt.hasImage()
+                    ? List.of(Map.of("role", "user", "content", List.of(
+                            Map.of("type", "input_text", "text", prompt.text()),
+                            Map.of("type", "input_image", "image_url", prompt.imageDataUri()))))
+                    : prompt.text();
+            String body = mapper.writeValueAsString(Map.of("model", model, "input", input,
                     "store", false, "reasoning", Map.of("effort", reasoning),
                     "text", Map.of("format", Map.of("type", "json_object")),
                     "metadata", Map.of("operation_id", required(operationId, "operation id"))));

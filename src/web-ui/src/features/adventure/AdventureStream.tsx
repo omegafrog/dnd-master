@@ -18,6 +18,7 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
   const projectionVersion = useRef<number | null>(expectedVersion ?? (api.readConversation ? null : 0))
   const committedVersion = useRef(-1)
   const localTurn = useRef<LocalTurn | null>(null)
+  const openingRequested = useRef<string | null>(null)
   useEffect(() => {
     if (!api.readConversation) {
       setConversationHydrated(true)
@@ -91,6 +92,35 @@ export function AdventureStream({ adventureId, api, expectedVersion, onTurnCommi
       }).catch(() => undefined)
     })
   }, [adventureId, api, eventSubscriptionReady])
+
+  useEffect(() => {
+    if (!api.startOpening || !api.readConversation || !conversationHydrated || !eventSubscriptionReady
+        || messages.length > 0 || projectionVersion.current == null
+        || openingRequested.current === adventureId) return
+    openingRequested.current = adventureId
+    setSending(true)
+    setProjectionStatus('processing')
+    setNotice('')
+    let cancelled = false
+    void api.startOpening(adventureId, projectionVersion.current).then(response => {
+      if (cancelled) return
+      const entries = responseMessages(response.narration, (response as AdventureMessageResponse & { judgment?: string }).judgment ?? '')
+      projectionVersion.current = Math.max(projectionVersion.current ?? 0, response.version)
+      committedVersion.current = Math.max(committedVersion.current, response.version)
+      setMessages(current => current.length === 0 ? entries : current)
+      setProjectionStatus('idle')
+      onTurnCommitted?.()
+    }).catch(() => {
+      if (cancelled) return
+      openingRequested.current = null
+      setProjectionStatus('failed')
+      setNotice('오프닝 장면을 불러오지 못했습니다.')
+    }).finally(() => {
+      if (!cancelled) setSending(false)
+    })
+    return () => { cancelled = true }
+  }, [adventureId, api, conversationHydrated, eventSubscriptionReady, messages.length, onTurnCommitted])
+
   async function send(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = new FormData(event.currentTarget)

@@ -24,6 +24,7 @@ public final class PgvectorStorySourceSearchRepository implements StorySourceSea
                        CASE WHEN c.extraction_version ~ '^[0-9]+$' THEN c.extraction_version::bigint
                             ELSE GREATEST(r.version, 1) END AS extraction_version,
                        c.original_locator AS locator, c.content, c.sequence,
+                       COALESCE(c.parent_key, c.processor_chunk_id) AS parent_key,
                        c.page_number, c.bbox, c.table_cell, c.section_path,
                        0.75 * (1 - (c.embedding <=> CAST(? AS vector)))
                            + 0.25 * ts_rank_cd(to_tsvector('simple', c.content), plainto_tsquery('simple', ?))
@@ -42,9 +43,9 @@ public final class PgvectorStorySourceSearchRepository implements StorySourceSea
                    AND c.document_id = ANY (?)
                    AND (? = FALSE OR c.original_locator = ANY (?))
             ), seeds AS (
-                (SELECT rulebook_id, sequence FROM ranked ORDER BY score DESC, sequence LIMIT ?)
+                (SELECT rulebook_id, sequence, parent_key FROM ranked ORDER BY score DESC, sequence LIMIT ?)
                 UNION
-                (SELECT rulebook_id, sequence FROM ranked
+                (SELECT rulebook_id, sequence, parent_key FROM ranked
                   WHERE content ~* '(DC|saving|check|attack|damage|roll|recharge)'
                   ORDER BY rulebook_id, sequence
                   LIMIT ?)
@@ -55,6 +56,7 @@ public final class PgvectorStorySourceSearchRepository implements StorySourceSea
                        candidate.bbox, candidate.table_cell, candidate.section_path
                   FROM ranked candidate
                    JOIN seeds seed ON seed.rulebook_id = candidate.rulebook_id
+                                 AND seed.parent_key = candidate.parent_key
                                  AND candidate.sequence BETWEEN seed.sequence - 1 AND seed.sequence + 1
                  ORDER BY candidate.rulebook_id, candidate.locator, candidate.score DESC
             )

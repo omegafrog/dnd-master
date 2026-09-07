@@ -39,6 +39,19 @@ class OpenAiGmProviderTest {
                 () -> adapter.complete("turn-rate-limit", "grounded context", value -> value));
     }
 
+    @Test void sends_map_image_as_responses_input_image() {
+        server.stubFor(post("/v1/responses").willReturn(okJson(
+                "{\"output\":[{\"content\":[{\"type\":\"output_text\",\"text\":\"{}\"}]}]}")));
+        GmCompletionAdapter adapter = provider(Duration.ofSeconds(1));
+
+        adapter.complete("map-image", new GmPrompt("inspect map", "data:image/png;base64,AQ=="), value -> value);
+
+        server.verify(postRequestedFor(urlEqualTo("/v1/responses"))
+                .withRequestBody(matchingJsonPath("$.input[0].content[0].type", equalTo("input_text")))
+                .withRequestBody(matchingJsonPath("$.input[0].content[1].type", equalTo("input_image")))
+                .withRequestBody(matchingJsonPath("$.input[0].content[1].image_url", equalTo("data:image/png;base64,AQ=="))));
+    }
+
     @Test void rejects_missing_structured_output_with_provider_contract_error() {
         server.stubFor(post("/v1/responses").willReturn(okJson("{\"output\":[]}")));
         GmCompletionAdapter adapter = provider(Duration.ofSeconds(1));

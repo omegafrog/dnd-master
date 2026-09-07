@@ -1,0 +1,19 @@
+@startuml
+' Product Spec UC-5~UC-6, BR-5~BR-8, BR-13, AC-5, AC-8~AC-11
+title UC-5~UC-6 — Fog of War and Player Map
+
+start
+:Activate map or receive move/vision-condition change;
+:Calculate bounded Current Visibility;
+if (Visibility calculation succeeds?) then (yes)
+  :Update Explored Area;
+else (no)
+  :Fail closed;
+  :Expose player origin only;
+endif
+:Filter hidden tokens, objects, and legend entries;
+:Render prepared map and thin black grid outline;
+:Render current visibility and explored area separately;
+:Hide unexplored cells with Fog of War;
+stop
+@enduml

@@ -27,6 +27,13 @@ adventure:
       base-url: ${AI_GAME_MASTER_BASE_URL:http://127.0.0.1:8080/}
     scenario-compilation:
       timeout: 900s
+    combat-map:
+      prepare-timeout: ${ADVENTURE_COMBAT_MAP_PREPARE_TIMEOUT:300s}
+
+combat-map:
+  integration:
+    ai-game-master:
+      map-generation-timeout: ${COMBAT_MAP_AI_GENERATION_TIMEOUT:300s}
 
 spring:
   datasource:

@@ -7,11 +7,21 @@ public final class VisibilityPolicy {
     public VisibilitySnapshot calculate(GridSpec grid, Set<GridPosition> origins,
             Set<GridPosition> exploredBefore, Set<GridPosition> blockers,
             List<CombatToken> tokens, Collection<LastSeenState> previousLastSeen, long ruleTurn) {
+        return calculate(grid, origins, exploredBefore, blockers, tokens, previousLastSeen, ruleTurn,
+                VisibilityProfile.DEFAULT);
+    }
+
+    public VisibilitySnapshot calculate(GridSpec grid, Set<GridPosition> origins,
+            Set<GridPosition> exploredBefore, Set<GridPosition> blockers,
+            List<CombatToken> tokens, Collection<LastSeenState> previousLastSeen, long ruleTurn,
+            VisibilityProfile profile) {
         Objects.requireNonNull(grid); Objects.requireNonNull(origins); Objects.requireNonNull(blockers);
+        Objects.requireNonNull(profile);
         Set<GridPosition> current = new HashSet<>();
         for (int y = 0; y < grid.height(); y++) for (int x = 0; x < grid.width(); x++) {
             GridPosition cell = new GridPosition(x, y);
-            if (origins.stream().anyMatch(origin -> lineClear(origin, cell, blockers))) current.add(cell);
+            if (origins.stream().anyMatch(origin -> withinRange(origin, cell, profile)
+                    && lineClear(origin, cell, blockers))) current.add(cell);
         }
         Set<GridPosition> explored = new HashSet<>(exploredBefore);
         explored.addAll(current);
@@ -39,9 +49,20 @@ public final class VisibilityPolicy {
     public VisibilitySnapshot calculate(GridSpec grid, Set<GridPosition> origins, Set<GridPosition> exploredBefore,
             Set<GridPosition> walls, Collection<Door> doors, List<CombatToken> tokens,
             Collection<LastSeenState> previousLastSeen, long ruleTurn) {
+        return calculate(grid, origins, exploredBefore, walls, doors, tokens, previousLastSeen, ruleTurn,
+                VisibilityProfile.DEFAULT);
+    }
+
+    public VisibilitySnapshot calculate(GridSpec grid, Set<GridPosition> origins, Set<GridPosition> exploredBefore,
+            Set<GridPosition> walls, Collection<Door> doors, List<CombatToken> tokens,
+            Collection<LastSeenState> previousLastSeen, long ruleTurn, VisibilityProfile profile) {
         Set<GridPosition> blockers = new HashSet<>(walls);
         doors.stream().filter(door -> !door.open()).map(Door::position).forEach(blockers::add);
-        return calculate(grid, origins, exploredBefore, blockers, tokens, previousLastSeen, ruleTurn);
+        return calculate(grid, origins, exploredBefore, blockers, tokens, previousLastSeen, ruleTurn, profile);
+    }
+
+    private boolean withinRange(GridPosition from, GridPosition to, VisibilityProfile profile) {
+        return Math.max(Math.abs(to.x() - from.x()), Math.abs(to.y() - from.y())) <= profile.maxRangeCells();
     }
 
     private boolean lineClear(GridPosition from, GridPosition to, Set<GridPosition> blockers) {

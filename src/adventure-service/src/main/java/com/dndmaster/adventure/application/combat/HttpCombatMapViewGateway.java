@@ -33,11 +33,33 @@ public final class HttpCombatMapViewGateway implements CombatMapViewPort {
             if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("combat map view failed");
             Payload payload = mapper.readValue(response.body(), Payload.class);
             return Optional.of(new View(payload.mapId(), new Grid(payload.grid().width(), payload.grid().height(), payload.grid().cellSize(), payload.grid().distanceUnit()),
-                    payload.tokens(), payload.obstacles(), payload.layers(), payload.current(), payload.explored(), payload.version()));
+                    payload.tokens(), payload.obstacles(), payload.doors(), payload.layers(), payload.current(), payload.explored(), payload.version()));
         } catch (IOException exception) { throw new IllegalStateException("combat map view transport failed", exception); }
         catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("combat map view interrupted", exception); }
     }
 
-    private record Payload(UUID mapId, Grid grid, List<Token> tokens, List<Obstacle> obstacles, List<Layer> layers,
+    @Override
+    public void calibrate(UUID mapId, UUID ownerId, long expectedVersion, int width, int height, int cellSize,
+            int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {
+        Calibration payload = new Calibration(ownerId, expectedVersion, width, height, cellSize, originX, originY,
+                imageWidth, imageHeight, playerX, playerY);
+        HttpRequest request = HttpRequest.newBuilder(baseUri.resolve("internal/v1/combat-maps/" + mapId + "/calibration"))
+                .timeout(timeout).header("Content-Type", "application/json").header("X-Internal-Token", internalToken)
+                .PUT(HttpRequest.BodyPublishers.ofString(write(payload))).build();
+        try {
+            HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() < 200 || response.statusCode() >= 300) throw new IllegalStateException("combat map calibration failed");
+        } catch (IOException exception) { throw new IllegalStateException("combat map calibration transport failed", exception); }
+        catch (InterruptedException exception) { Thread.currentThread().interrupt(); throw new IllegalStateException("combat map calibration interrupted", exception); }
+    }
+
+    private String write(Object value) {
+        try { return mapper.writeValueAsString(value); }
+        catch (IOException exception) { throw new IllegalStateException("combat map calibration serialization failed", exception); }
+    }
+
+    private record Payload(UUID mapId, Grid grid, List<Token> tokens, List<Obstacle> obstacles, List<Door> doors, List<Layer> layers,
             List<Position> current, List<Position> explored, long version) {}
+    private record Calibration(UUID ownerId, long expectedVersion, int width, int height, int cellSize,
+            int originX, int originY, int imageWidth, int imageHeight, Integer playerX, Integer playerY) {}
 }
