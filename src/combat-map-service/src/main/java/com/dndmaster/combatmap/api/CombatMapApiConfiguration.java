@@ -96,18 +96,7 @@ public class CombatMapApiConfiguration {
 
     @Bean
     MapFilePreparationPort mapFilePreparationPort(MapGridDetectionPort gridDetection) {
-        return source -> {
-            try {
-                var image = decodeImage(source);
-                if (image == null) throw new IllegalArgumentException("map image format is not supported");
-                var detected = gridDetection.detect(image);
-                String contentType = source.filename().toLowerCase().endsWith(".jpg") || source.filename().toLowerCase().endsWith(".jpeg") ? "image/jpeg" : "image/png";
-                String dataUrl = "data:" + contentType + ";base64," + Base64.getEncoder().encodeToString(renderPng(source));
-                return new PreparedMapData(new GridSpec(detected.width(), detected.height(), detected.cellSize(), 5), List.of(), Set.of(),
-                        List.of(new MapLayer("MAP_IMAGE", dataUrl, LayerVisibility.PLAYER_VISIBLE),
-                                new MapLayer("GRID_BOUNDS", detected.boundsValue(image.getWidth(), image.getHeight()), LayerVisibility.PLAYER_VISIBLE)));
-            } catch (java.io.IOException exception) { throw new IllegalArgumentException("map image cannot be decoded", exception); }
-        };
+        return new MapPreparationPipeline(new MapContentBoundsDetector(), gridDetection, new FallbackGridPolicy(20))::prepare;
     }
 
     private static java.awt.image.BufferedImage decodeImage(UploadedMapSource source) throws java.io.IOException {

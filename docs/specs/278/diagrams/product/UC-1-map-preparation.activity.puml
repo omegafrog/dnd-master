@@ -1,0 +1,26 @@
+@startuml
+' Product Spec UC-1~UC-3, BR-1~BR-3, AC-1~AC-4, AC-12~AC-13
+title UC-1~UC-3 — Map Preparation
+
+start
+:Receive Map Source;
+if (Source decodable?) then (yes)
+  :Detect Map Content Bounds;
+  if (Bounds confidence sufficient?) then (yes)
+    :Conservatively normalize/crop bounds;
+  else (no)
+    :Keep source bounds;
+  endif
+  :Detect Printed Grid candidate;
+  if (Candidate reliable and regular?) then (yes)
+    :Calibrate PRINTED grid;
+  else (no)
+    :Create deterministic square FALLBACK grid;
+  endif
+  :Return prepared map;
+else (no)
+  :Return explicit preparation failure;
+  stop
+endif
+stop
+@enduml

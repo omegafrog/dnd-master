@@ -1,6 +1,7 @@
 package com.dndmaster.combatmap.application.view;
 
 import java.awt.image.BufferedImage;
+import java.util.Optional;
 
 /**
  * Preprocessing pipeline seam for extracting printed tactical-grid geometry.
@@ -12,5 +13,5 @@ import java.awt.image.BufferedImage;
  */
 @FunctionalInterface
 public interface MapGridDetectionPort {
-    DetectedMapGrid detect(BufferedImage image);
+    Optional<DetectedMapGrid> detect(BufferedImage image);
 }

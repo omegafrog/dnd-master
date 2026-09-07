@@ -1,0 +1,30 @@
+@startuml
+' Product Spec UC-1~UC-6, G-1~G-10
+title UC-278 — Combat Map Use Cases
+
+left to right direction
+actor "Solo Player" as Player
+actor "Adventure Runtime" as Runtime
+actor "AI Game Master" as GM
+actor "Scenario Source" as Source
+
+rectangle "Combat Map" {
+  usecase "UC-1\nPrepare playable map" as UC1
+  usecase "UC-2\nAlign Printed Grid" as UC2
+  usecase "UC-3\nCreate fallback grid" as UC3
+  usecase "UC-4\nActivate map and spawn player" as UC4
+  usecase "UC-5\nShow Fog of War and exploration" as UC5
+  usecase "UC-6\nDisplay player map and tokens" as UC6
+}
+
+Source --> UC1
+Runtime --> UC4
+Runtime --> UC5
+GM --> UC4 : proposes context
+Player --> UC5 : moves / changes view
+Player --> UC6
+UC1 .> UC2 : <<include>>
+UC1 .> UC3 : <<include when needed>>
+UC4 .> UC5 : <<include>>
+UC5 .> UC6 : <<include>>
+@enduml

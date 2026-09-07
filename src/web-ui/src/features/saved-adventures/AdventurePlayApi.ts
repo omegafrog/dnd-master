@@ -52,7 +52,7 @@ export type CombatMapView = {
   status: string
   mapId?: string
   tokens?: Array<{ id: string; type: string; x: number; y: number; lastSeen?: boolean }>
-  layers?: Array<{ type: string; value: string }>
+  layers?: Array<{ type: string; value: string; visibility?: string }>
   doors?: Array<{ x: number; y: number; open: boolean }>
   current?: Array<{ x: number; y: number }>
   explored?: Array<{ x: number; y: number }>

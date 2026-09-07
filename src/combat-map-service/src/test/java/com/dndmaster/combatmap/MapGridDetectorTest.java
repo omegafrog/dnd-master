@@ -17,7 +17,7 @@ class MapGridDetectorTest {
         for (int x = 20; x <= 200; x += 20) graphics.drawLine(x, 20, x, 160);
         for (int y = 20; y <= 160; y += 20) graphics.drawLine(20, y, 200, y);
         graphics.dispose();
-        var detected = new MapGridDetector().detect(image);
+        var detected = new MapGridDetector().detect(image).orElseThrow();
         assertEquals(20, detected.cellSize());
         assertEquals(20, detected.originX());
         assertEquals(20, detected.originY());
@@ -26,17 +26,37 @@ class MapGridDetectorTest {
     }
 
     @Test
-    void estimatesMultipleCellsWhenRenderedMapHasNoDarkGridPeaks() {
+    void doesNotClaimPrintedGridWhenThereAreNoDarkGridPeaks() {
         BufferedImage image = new BufferedImage(3180, 2262, BufferedImage.TYPE_INT_RGB);
         Graphics2D graphics = image.createGraphics();
         graphics.setColor(Color.WHITE); graphics.fillRect(0, 0, image.getWidth(), image.getHeight());
         graphics.dispose();
 
-        var detected = new MapGridDetector().detect(image);
+        assertTrue(new MapGridDetector().detect(image).isEmpty());
+    }
 
-        assertTrue(detected.width() >= 10);
-        assertTrue(detected.height() >= 10);
-        assertEquals(0, detected.originX());
-        assertEquals(0, detected.originY());
+    @Test
+    void preservesLargePrintedGridInsteadOfForcingTwentyByTwenty() {
+        BufferedImage image = new BufferedImage(410, 410, BufferedImage.TYPE_INT_RGB);
+        Graphics2D graphics = image.createGraphics();
+        graphics.setColor(Color.WHITE); graphics.fillRect(0, 0, 410, 410);
+        graphics.setColor(Color.BLACK);
+        for (int p = 5; p <= 405; p += 10) { graphics.drawLine(p, 5, p, 405); graphics.drawLine(5, p, 405, p); }
+        graphics.dispose();
+
+        var detected = new MapGridDetector().detect(image).orElseThrow();
+        assertEquals(40, detected.width());
+        assertEquals(40, detected.height());
+        assertEquals(10, detected.cellSize());
+    }
+
+    @Test
+    void rejectsWallsThatOnlyFormTwoLongLines() {
+        BufferedImage image = new BufferedImage(200, 200, BufferedImage.TYPE_INT_RGB);
+        Graphics2D graphics = image.createGraphics();
+        graphics.setColor(Color.WHITE); graphics.fillRect(0, 0, 200, 200);
+        graphics.setColor(Color.BLACK); graphics.drawLine(20, 20, 180, 20); graphics.drawLine(20, 180, 180, 180);
+        graphics.dispose();
+        assertTrue(new MapGridDetector().detect(image).isEmpty());
     }
 }

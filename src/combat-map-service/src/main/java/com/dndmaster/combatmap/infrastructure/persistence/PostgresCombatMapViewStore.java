@@ -169,6 +169,45 @@ public final class PostgresCombatMapViewStore implements CombatMapViewStore {
         }
     }
 
+    @Override
+    public long activate(MapOwnerId owner, CombatMap map, long expectedVersion, int stagePosition,
+            UUID operationKey, String operationFingerprint) {
+        if (stagePosition <= 0) throw new IllegalArgumentException("stage position must be positive");
+        try (Connection connection = dataSource.getConnection()) {
+            connection.setAutoCommit(false);
+            try {
+                updateMap(connection, owner, map, expectedVersion, expectedVersion + 1, operationKey, operationFingerprint);
+                replaceCurrentChildren(connection, map);
+                writeVisibility(connection, map);
+                recordHistory(connection, owner, map, expectedVersion + 1, operationKey, operationFingerprint);
+                try (PreparedStatement deactivate = connection.prepareStatement(
+                        "UPDATE adventure_active_tactical_map SET active=false WHERE adventure_id=? AND owner_player_id=? AND active=true")) {
+                    deactivate.setObject(1, map.adventureId().value());
+                    deactivate.setObject(2, owner.value());
+                    deactivate.executeUpdate();
+                }
+                try (PreparedStatement activate = connection.prepareStatement(
+                        "INSERT INTO adventure_active_tactical_map(adventure_id,stage_position,owner_player_id,combat_map_id,active) VALUES (?,?,?,?,true) "
+                                + "ON CONFLICT (adventure_id,stage_position,owner_player_id) DO UPDATE SET combat_map_id=EXCLUDED.combat_map_id, active=true")) {
+                    activate.setObject(1, map.adventureId().value());
+                    activate.setInt(2, stagePosition);
+                    activate.setObject(3, owner.value());
+                    activate.setObject(4, map.id().value());
+                    activate.executeUpdate();
+                }
+                connection.commit();
+                map.markPersisted(expectedVersion + 1, operationKey, operationFingerprint);
+                return expectedVersion + 1;
+            } catch (SQLException | RuntimeException exception) {
+                connection.rollback();
+                if (exception instanceof OptimisticCombatMapLockException optimistic) throw optimistic;
+                throw new CombatMapPersistenceException("map activation failed", exception);
+            }
+        } catch (SQLException exception) {
+            throw new CombatMapPersistenceException("map activation DB failed", exception);
+        }
+    }
+
     private void write(
             MapOwnerId owner,
             CombatMap map,

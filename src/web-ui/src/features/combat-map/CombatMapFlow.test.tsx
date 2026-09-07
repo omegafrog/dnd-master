@@ -17,7 +17,7 @@ function fakeApi(): AdventurePlayApi {
         intelligence: 10, wisdom: 12, charisma: 8,
       }
     },
-    async getCombatMap() { return { adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0, sessionVersion: 7, grid: { width: 3, height: 2 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 1, y: 1 }] } },
+    async getCombatMap() { return { adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0, sessionVersion: 7, grid: { width: 3, height: 2 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 1, y: 1 }], current: [{ x: 1, y: 1 }, { x: 2, y: 1 }], explored: [{ x: 1, y: 1 }, { x: 2, y: 1 }] } },
     submitMapAction,
     async rollDice() { return { rollId: 'r1', total: 19, judgment: 'hit', resolutionStatus: 'RESOLVED', outcomeApplied: true } },
     async listSaved() { return [] },
@@ -74,6 +74,21 @@ it('gives each visible token type a stable styling hook', async () => {
   const map = await screen.findByLabelText('tactical-map')
   expect(map.querySelector('[data-token-type="PLAYER"]')).toBeInTheDocument()
   expect(map.querySelector('[data-token-type="ENEMY"]')).toBeInTheDocument()
+})
+
+it('fails closed when visibility metadata is missing and only shows visible token types in the legend', async () => {
+  const api = fakeApi()
+  api.getCombatMap = async () => ({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0,
+    grid: { width: 2, height: 1 }, tokens: [
+      { id: 'p1', type: 'PLAYER', x: 0, y: 0 }, { id: 'e1', type: 'ENEMY', x: 1, y: 0 },
+    ],
+  })
+  render(<CombatMapView adventureId="a1" api={api} />)
+  const map = await screen.findByLabelText('tactical-map')
+  expect(map.querySelector('[data-visibility="hidden"]')).toBeInTheDocument()
+  expect(screen.getByLabelText('맵 범례')).toHaveTextContent('플레이어 캐릭터')
+  expect(screen.getByLabelText('맵 범례')).not.toHaveTextContent('적대 몬스터')
 })
 
 it('keeps a drag candidate local until confirmed, and cancel sends nothing', async () => {
