@@ -129,7 +129,7 @@ export function AppShell() {
     // 전투가 없는 탐색 장면에서는 전투 이벤트 스트림을 열지 않는다.
     // 이전에는 모든 모험 화면에서 연결을 시도해 백엔드가 503(전투 없음)을
     // 반환하고 브라우저 콘솔에 오류가 쌓였다.
-    if (!auth.session || route.page !== 'adventure' || !combatApi.subscribeEvents || !combatSnapshot) return
+    if (!auth.session || route.page !== 'adventure' || !combatApi.subscribeEvents || combatSnapshot?.eventCursor == null) return
     const adventureId = route.adventureId
     let active = true
     const cursor = combatSnapshot?.eventCursor ?? -1
