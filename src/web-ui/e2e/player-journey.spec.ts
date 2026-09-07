@@ -120,6 +120,40 @@ test('running session reconnects with switched provider and confirms ending', as
   await expect(page.getByText('완료 · 0/1명', { exact: true })).toBeVisible()
 })
 
+test('tactical map aligns its grid and visibly renders fog, tokens, and legend', async ({ page }) => {
+  await page.goto('/e2e/fixtures/index.html?full-journey')
+  await page.getByLabel('이메일').fill('player@example.com')
+  await page.getByLabel('비밀번호').fill('secret-password')
+  await page.getByRole('button', { name: '로그인', exact: true }).click()
+
+  const map = page.getByLabel('tactical-map')
+  const playerCell = map.getByRole('button', { name: 'PLAYER 0,0' })
+  const hiddenCell = map.getByRole('button', { name: '미탐험 영역' }).first()
+  const styles = await map.evaluate(element => {
+    const mapStyle = getComputedStyle(element)
+    const firstCellStyle = getComputedStyle(element.querySelector('button')!)
+    return {
+      aspectRatio: mapStyle.aspectRatio,
+      backgroundSize: mapStyle.backgroundSize,
+      columns: mapStyle.gridTemplateColumns.split(' ').length,
+      cellBorderColor: firstCellStyle.borderColor,
+      cellBorderWidth: firstCellStyle.borderWidth,
+      cellBackground: firstCellStyle.backgroundColor,
+      cellBackgroundImage: firstCellStyle.backgroundImage,
+    }
+  })
+
+  expect(styles).toMatchObject({ aspectRatio: '800 / 800', backgroundSize: '175.375% 124%', columns: 3 })
+  expect(styles.cellBorderColor).toBe('rgba(0, 0, 0, 0.45)')
+  expect(Number.parseFloat(styles.cellBorderWidth)).toBeLessThanOrEqual(1)
+  expect(styles.cellBackground).toBe('rgba(29, 98, 87, 0.85)')
+  expect(styles.cellBackgroundImage).toBe('none')
+  await expect(playerCell).toHaveCSS('background-color', 'rgba(29, 98, 87, 0.85)')
+  await expect(hiddenCell).toHaveCSS('background-color', 'rgb(24, 30, 34)')
+  await expect(hiddenCell).toHaveCSS('background-image', 'none')
+  await expect(page.getByLabel('맵 범례')).toHaveCSS('display', 'grid')
+})
+
 function summarizeErrorBody(body: string) {
   const compact = body.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
   return compact.length > 500 ? `${compact.slice(0, 500)}…` : compact

@@ -47,17 +47,33 @@ it('shows character sheet, rolls dice, and shows combat map', async () => {
   expect(await screen.findByText('현재 맵 상태: authoritative-map')).toBeInTheDocument()
 })
 
-it('renders the supplied map asset below a transparent tactical grid', async () => {
+it('crops map whitespace to printed grid bounds and keeps grid transparent', async () => {
   const api = fakeApi()
   api.getCombatMap = async () => ({
     adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0,
     grid: { width: 20, height: 20 }, tokens: [{ id: 'p1', type: 'PLAYER', x: 0, y: 0 }],
-    layers: [{ type: 'MAP_IMAGE', value: '/assets/maps/a-potent-brew-map.png' }],
+    layers: [{ type: 'MAP_IMAGE', value: '/assets/maps/a-potent-brew-map.png' }, { type: 'GRID_BOUNDS', value: '311,105,800,800,1403,992' }],
   })
   render(<CombatMapView adventureId="a1" api={api} />)
   const map = await screen.findByLabelText('tactical-map')
   expect(map).toHaveStyle({ backgroundImage: 'url(/assets/maps/a-potent-brew-map.png)' })
+  expect(map.getAttribute('style')).toContain('--map-aspect: 800 / 800')
+  expect(map.getAttribute('style')).toContain('--map-background-size: 175.375% 124%')
   expect(map.querySelectorAll('button')).toHaveLength(400)
+})
+
+it('gives each visible token type a stable styling hook', async () => {
+  const api = fakeApi()
+  api.getCombatMap = async () => ({
+    adventureId: 'a1', status: 'authoritative-map', mapId: 'm1', version: 0,
+    grid: { width: 2, height: 1 }, tokens: [
+      { id: 'p1', type: 'PLAYER', x: 0, y: 0 }, { id: 'e1', type: 'ENEMY', x: 1, y: 0 },
+    ], current: [{ x: 0, y: 0 }, { x: 1, y: 0 }], explored: [{ x: 0, y: 0 }, { x: 1, y: 0 }],
+  })
+  render(<CombatMapView adventureId="a1" api={api} />)
+  const map = await screen.findByLabelText('tactical-map')
+  expect(map.querySelector('[data-token-type="PLAYER"]')).toBeInTheDocument()
+  expect(map.querySelector('[data-token-type="ENEMY"]')).toBeInTheDocument()
 })
 
 it('keeps a drag candidate local until confirmed, and cancel sends nothing', async () => {
