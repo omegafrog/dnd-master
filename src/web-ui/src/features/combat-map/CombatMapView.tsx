@@ -111,13 +111,15 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const previewGrid = gridEditor && showGridEditor
     ? gridDraft
     : { width: grid.width, height: grid.height, cellSize: hasGridBounds ? Math.round(boundsWidth / Math.max(grid.width, 1)) : 30, originX: hasGridBounds ? gridBounds[0] : 0, originY: hasGridBounds ? gridBounds[1] : 0, imageWidth: imageWidth || mapImageSize.width, imageHeight: imageHeight || mapImageSize.height }
+  const renderedGridWidth = hasGridBounds && !gridEditor ? boundsWidth : previewGrid.width * previewGrid.cellSize
+  const renderedGridHeight = hasGridBounds && !gridEditor ? boundsHeight : previewGrid.height * previewGrid.cellSize
   const mapStyle = {
     '--grid-columns': previewGrid.width,
     '--grid-rows': previewGrid.height,
-    '--map-aspect': `${Math.max(previewGrid.width * previewGrid.cellSize, 1)} / ${Math.max(previewGrid.height * previewGrid.cellSize, 1)}`,
+    '--map-aspect': `${Math.max(renderedGridWidth, 1)} / ${Math.max(renderedGridHeight, 1)}`,
     ...(mapImage ? { backgroundImage: `url(${mapImage})` } : {}),
     ...(hasGridBounds || gridEditor ? {
-      '--map-background-size': `${(gridDraft.imageWidth / Math.max(gridDraft.width * gridDraft.cellSize, 1)) * 100}% ${(gridDraft.imageHeight / Math.max(gridDraft.height * gridDraft.cellSize, 1)) * 100}%`,
+      '--map-background-size': `${(gridDraft.imageWidth / Math.max(renderedGridWidth, 1)) * 100}% ${(gridDraft.imageHeight / Math.max(renderedGridHeight, 1)) * 100}%`,
       '--map-background-position': `${gridEditor ? `${(gridDraft.originX / Math.max(gridDraft.imageWidth - gridDraft.width * gridDraft.cellSize, 1)) * 100}%` : backgroundPositionX} ${gridEditor ? `${(gridDraft.originY / Math.max(gridDraft.imageHeight - gridDraft.height * gridDraft.cellSize, 1)) * 100}%` : backgroundPositionY}`,
     } : {}),
   } as CSSProperties
