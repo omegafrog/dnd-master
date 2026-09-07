@@ -70,6 +70,24 @@ it('hydrates persisted conversation on mount', async () => {
   expect(screen.getByText('저장된 프롤로그')).toBeInTheDocument()
 })
 
+it('requests and renders the opening narration when the adventure starts empty', async () => {
+  const opening = vi.fn(async () => ({
+    narration: '낡은 흙길 끝에 양조장이 모습을 드러낸다.', judgment: '', currentScene: 'opening',
+    sourceRefs: [], warnings: [], version: 1,
+  }))
+  const api: AdventureApi = {
+    async readConversation() { return { adventureId: 'a1', version: 0, entries: [] } },
+    startOpening: opening,
+    async sendMessage() { throw new Error('not used') },
+  }
+  render(<AdventureStream adventureId="a1" api={api} />)
+
+  expect(await screen.findByText('낡은 흙길 끝에 양조장이 모습을 드러낸다.')).toBeInTheDocument()
+  expect(opening).toHaveBeenCalledWith('a1', 0)
+  expect(screen.getByRole('status')).toHaveTextContent('직접 플레이 입력 대기')
+  expect(screen.getByRole('list', { name: '대화 기록' }).querySelectorAll('li')).toHaveLength(1)
+})
+
 it('uses the persisted conversation version for the next turn', async () => {
   let receivedVersion: number | undefined
   const api: AdventureApi = {
