@@ -19,7 +19,7 @@ export function AdventureSessionPanel({ api, ownerPlayerId, sessionId, playApi }
   const [candidate, setCandidate] = useState<AiCompanionCandidate | null>(null)
   const [preparingAdventureId, setPreparingAdventureId] = useState<string | null>(null)
   const frozen = session?.status !== 'DRAFT'
-  const load = () => void Promise.all([api.read(sessionId), api.listOwnedCharacters(ownerPlayerId), api.readGmProvider ? api.readGmProvider(sessionId) : Promise.resolve(null)]).then(([nextSession, ownedCharacters, nextProvider]) => { setSession(nextSession); setCharacters(ownedCharacters); if (nextProvider) { setProvider(nextProvider); setProviderForm({ provider: nextProvider.provider, model: nextProvider.model, reasoning: nextProvider.reasoning }) } }).catch(error => setMessage(error instanceof Error ? error.message : '세션을 불러오지 못했습니다.'))
+  const load = () => void Promise.all([api.read(sessionId), api.listOwnedCharacters(ownerPlayerId), api.readGmProvider ? api.readGmProvider(sessionId) : Promise.resolve(null)]).then(([nextSession, ownedCharacters, nextProvider]) => { setSession(nextSession); setCharacters(ownedCharacters); if (nextSession.status === 'STARTING' && nextSession.adventureId) setPreparingAdventureId(nextSession.adventureId); if (nextProvider) { setProvider(nextProvider); setProviderForm({ provider: nextProvider.provider, model: nextProvider.model, reasoning: nextProvider.reasoning }) } }).catch(error => setMessage(error instanceof Error ? error.message : '세션을 불러오지 못했습니다.'))
   useEffect(load, [api, ownerPlayerId, sessionId])
 
   async function addMember(characterSheetId: string) {
