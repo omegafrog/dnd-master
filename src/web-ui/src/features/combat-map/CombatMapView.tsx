@@ -23,7 +23,8 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const [crop, setCrop] = useState({ x: 0, y: 0, width: 0, height: 0 })
   const [layoutSaving, setLayoutSaving] = useState(false)
   const [boundaryTool, setBoundaryTool] = useState<'WALL' | 'DOOR' | 'ERASE'>('WALL')
-  const boundaryPainting = useRef(false)
+  const boundaryStroke = useRef<BoundaryStroke | null>(null)
+  const [boundaryPreview, setBoundaryPreview] = useState<BoundaryStroke | null>(null)
 
   useEffect(() => () => {
     if (publicMapImage?.startsWith('blob:')) URL.revokeObjectURL(publicMapImage)
@@ -169,13 +170,12 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
     finally { setLayoutSaving(false) }
   }
   const mapBoundaries = boundariesFrom(map)
-  function paintBoundary(boundary: Pick<MapBoundary, 'x' | 'y' | 'orientation'>) {
+  function paintBoundaries(boundaries: Array<Pick<MapBoundary, 'x' | 'y' | 'orientation'>>) {
     setMap(currentMap => {
       if (!currentMap) return currentMap
       const currentBoundaries = boundariesFrom(currentMap)
-      const existing = currentBoundaries.find(item => item.x === boundary.x && item.y === boundary.y && item.orientation === boundary.orientation)
-      const withoutExisting = currentBoundaries.filter(item => item !== existing)
-      const next = boundaryTool === 'ERASE' ? withoutExisting : [...withoutExisting, { ...boundary, kind: boundaryTool, open: false }]
+      const withoutPainted = currentBoundaries.filter(current => !boundaries.some(boundary => boundary.x === current.x && boundary.y === current.y && boundary.orientation === current.orientation))
+      const next = boundaryTool === 'ERASE' ? withoutPainted : [...withoutPainted, ...boundaries.map(boundary => ({ ...boundary, kind: boundaryTool, open: false }))]
       const layers = (currentMap.layers ?? []).filter(layer => layer.type !== 'MAP_BOUNDARIES')
       return { ...currentMap, obstacles: [], doors: [], layers: next.length ? [...layers, { type: 'MAP_BOUNDARIES', value: next.map(encodeBoundary).join(';'), visibility: 'PLAYER_VISIBLE' }] : layers }
     })
@@ -184,7 +184,23 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
   const tacticalMap = map.tokens ? (
     <div className="tactical-map-window">
       {!preparationMode && <button type="button" aria-pressed={locationMode} onClick={() => setLocationMode(current => !current)}>위치 선택</button>}
-          <div aria-label="tactical-map" data-map-id={map.mapId} data-version={map.version ?? 0} className="tactical-map" style={mapStyle} onPointerUp={() => { boundaryPainting.current = false }} onPointerLeave={() => { boundaryPainting.current = false }}>
+          <div aria-label="tactical-map" data-map-id={map.mapId} data-version={map.version ?? 0} className="tactical-map" style={mapStyle} onPointerDown={event => {
+            if (!preparationMode) return
+            const stroke = startBoundaryStroke(event, previewGrid.width, previewGrid.height)
+            if (!stroke) return
+            event.currentTarget.setPointerCapture?.(event.pointerId)
+            boundaryStroke.current = stroke; setBoundaryPreview(stroke)
+          }} onPointerMove={event => {
+            if (!boundaryStroke.current) return
+            const next = extendBoundaryStroke(boundaryStroke.current, event, previewGrid.width, previewGrid.height)
+            boundaryStroke.current = next; setBoundaryPreview(next)
+          }} onPointerUp={event => {
+            const stroke = boundaryStroke.current
+            if (!stroke) return
+            boundaryStroke.current = null; setBoundaryPreview(null)
+            if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture?.(event.pointerId)
+            paintBoundaries(boundariesInStroke(stroke))
+          }} onPointerCancel={() => { boundaryStroke.current = null; setBoundaryPreview(null) }}>
         {Array.from({ length: previewGrid.width * previewGrid.height }, (_, index) => {
           const cell = { x: index % previewGrid.width, y: Math.floor(index / previewGrid.width) }
           const token = map.tokens?.find(item => item.x === cell.x && item.y === cell.y)
@@ -198,11 +214,8 @@ export function CombatMapView({ adventureId, api, refreshToken = 0, compact = fa
             {preparationMode ? door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '벽' : token ? '시작' : '' : visible && token ? `${token.type} (${token.x},${token.y})` : door ? (door.open ? '열린 문' : '닫힌 문') : blocked ? '장애물' : visible && !mapImage ? `${cell.x},${cell.y}` : explored ? '안개' : ''}
           </button>
           })}
-          {preparationMode && allBoundaries(previewGrid.width, previewGrid.height).map(boundary => {
-            const current = mapBoundaries.find(item => item.x === boundary.x && item.y === boundary.y && item.orientation === boundary.orientation)
-            const direction = boundary.orientation === 'HORIZONTAL' ? '가로' : '세로'
-            return <button key={`boundary-${boundary.x}-${boundary.y}-${boundary.orientation}`} type="button" className={`map-boundary${current ? ` map-boundary-${current.kind.toLowerCase()}` : ''}`} aria-label={current ? `${direction} ${current.kind === 'WALL' ? '벽' : '문'} 경계선 ${boundary.x},${boundary.y}` : `${direction} 빈 경계선 ${boundary.x},${boundary.y}`} style={boundaryStyle(boundary, previewGrid.width, previewGrid.height)} onPointerDown={event => { event.preventDefault(); boundaryPainting.current = true; paintBoundary(boundary) }} onPointerEnter={() => { if (boundaryPainting.current) paintBoundary(boundary) }} />
-          })}
+          {preparationMode && mapBoundaries.map(boundary => <span key={`boundary-${boundary.x}-${boundary.y}-${boundary.orientation}`} aria-hidden="true" className={`map-boundary map-boundary-${boundary.kind.toLowerCase()}`} data-boundary={`${boundary.orientation}:${boundary.x}:${boundary.y}`} style={boundaryStyle(boundary, previewGrid.width, previewGrid.height)} />)}
+          {preparationMode && boundaryPreview && <span aria-hidden="true" className={`map-boundary map-boundary-preview map-boundary-${boundaryTool.toLowerCase()}`} style={boundaryStrokeStyle(boundaryPreview, previewGrid.width, previewGrid.height)} />}
           </div>
       {!preparationMode && <aside aria-label="맵 범례" className="map-legend">{[
         ['PLAYER', '●', '플레이어 캐릭터'], ['FRIENDLY_NPC', '◆', '우호 NPC'], ['NEUTRAL_NPC', '◇', '중립 NPC'],
@@ -256,16 +269,48 @@ function boundariesFrom(map: CombatMapState | null): MapBoundary[] {
   return [...(map?.obstacles ?? []).map(position => ({ ...position, orientation: 'HORIZONTAL' as const, kind: 'WALL' as const, open: false })), ...(map?.doors ?? []).map(position => ({ x: position.x, y: position.y, orientation: 'HORIZONTAL' as const, kind: 'DOOR' as const, open: position.open }))]
 }
 
-function allBoundaries(width: number, height: number): Array<Pick<MapBoundary, 'x' | 'y' | 'orientation'>> {
-  return [
-    ...Array.from({ length: width * (height + 1) }, (_, index) => ({ x: index % width, y: Math.floor(index / width), orientation: 'HORIZONTAL' as const })),
-    ...Array.from({ length: (width + 1) * height }, (_, index) => ({ x: index % (width + 1), y: Math.floor(index / (width + 1)), orientation: 'VERTICAL' as const })),
-  ]
+function encodeBoundary(boundary: MapBoundary) { return `${boundary.x},${boundary.y},${boundary.orientation},${boundary.kind}` }
+type BoundaryStroke = { orientation: MapBoundary['orientation']; fixed: number; from: number; to: number }
+
+function startBoundaryStroke(event: React.PointerEvent<HTMLDivElement>, width: number, height: number): BoundaryStroke | null {
+  const rect = event.currentTarget.getBoundingClientRect()
+  const x = Math.max(0, Math.min(width, ((event.clientX - rect.left) / rect.width) * width))
+  const y = Math.max(0, Math.min(height, ((event.clientY - rect.top) / rect.height) * height))
+  const verticalDistance = Math.abs(x - Math.round(x))
+  const horizontalDistance = Math.abs(y - Math.round(y))
+  if (Math.min(verticalDistance, horizontalDistance) > .28) return null
+  return verticalDistance <= horizontalDistance
+    ? { orientation: 'VERTICAL', fixed: Math.round(x), from: Math.min(height - 1, Math.floor(y)), to: Math.min(height - 1, Math.floor(y)) }
+    : { orientation: 'HORIZONTAL', fixed: Math.round(y), from: Math.min(width - 1, Math.floor(x)), to: Math.min(width - 1, Math.floor(x)) }
 }
 
-function encodeBoundary(boundary: MapBoundary) { return `${boundary.x},${boundary.y},${boundary.orientation},${boundary.kind}` }
+function extendBoundaryStroke(stroke: BoundaryStroke, event: React.PointerEvent<HTMLDivElement>, width: number, height: number): BoundaryStroke {
+  const rect = event.currentTarget.getBoundingClientRect()
+  const coordinate = stroke.orientation === 'HORIZONTAL'
+    ? Math.max(0, Math.min(width - 1, Math.floor(((event.clientX - rect.left) / rect.width) * width)))
+    : Math.max(0, Math.min(height - 1, Math.floor(((event.clientY - rect.top) / rect.height) * height)))
+  return { ...stroke, to: coordinate }
+}
+
+export function boundariesInStroke(stroke: BoundaryStroke): Array<Pick<MapBoundary, 'x' | 'y' | 'orientation'>> {
+  return Array.from({ length: Math.abs(stroke.to - stroke.from) + 1 }, (_, index) => {
+    const variable = Math.min(stroke.from, stroke.to) + index
+    return stroke.orientation === 'HORIZONTAL'
+      ? { x: variable, y: stroke.fixed, orientation: 'HORIZONTAL' as const }
+      : { x: stroke.fixed, y: variable, orientation: 'VERTICAL' as const }
+  })
+}
+
 function boundaryStyle(boundary: Pick<MapBoundary, 'x' | 'y' | 'orientation'>, width: number, height: number): CSSProperties {
   return boundary.orientation === 'HORIZONTAL'
     ? { left: `${(boundary.x / width) * 100}%`, top: boundary.y === height ? 'calc(100% - 5px)' : `${(boundary.y / height) * 100}%`, width: `${100 / width}%`, height: '5px' }
     : { left: boundary.x === width ? 'calc(100% - 5px)' : `${(boundary.x / width) * 100}%`, top: `${(boundary.y / height) * 100}%`, width: '5px', height: `${100 / height}%` }
+}
+
+function boundaryStrokeStyle(stroke: BoundaryStroke, width: number, height: number): CSSProperties {
+  const start = Math.min(stroke.from, stroke.to)
+  const length = Math.abs(stroke.to - stroke.from) + 1
+  return stroke.orientation === 'HORIZONTAL'
+    ? { ...boundaryStyle({ x: start, y: stroke.fixed, orientation: 'HORIZONTAL' }, width, height), width: `${(length / width) * 100}%` }
+    : { ...boundaryStyle({ x: stroke.fixed, y: start, orientation: 'VERTICAL' }, width, height), height: `${(length / height) * 100}%` }
 }
