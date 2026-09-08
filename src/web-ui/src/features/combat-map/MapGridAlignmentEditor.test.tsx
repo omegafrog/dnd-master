@@ -13,7 +13,11 @@ it('keeps a three-step alignment draft local until explicit apply', async () => 
   render(<MapGridAlignmentEditor image="/public.png" initial={initial} onApply={apply} onCancel={cancel} />)
 
   expect(screen.getByText('기준점', { selector: 'strong' })).toBeInTheDocument()
-  expect(screen.getByRole('button', { name: '3×3 격자 이동' })).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '3×3 격자 기준점 이동' })).toBeInTheDocument()
+  const magnifier = screen.getByRole('button', { name: '확대경 켜기' })
+  expect(magnifier).toHaveAttribute('aria-pressed', 'false')
+  await user.click(magnifier)
+  expect(screen.getByRole('button', { name: '확대경 끄기' })).toHaveAttribute('aria-pressed', 'true')
   await user.click(screen.getByRole('button', { name: '다음' }))
   expect(screen.getByText('한 칸 크기', { selector: 'strong' })).toBeInTheDocument()
   await user.click(screen.getByRole('button', { name: '다음' }))
