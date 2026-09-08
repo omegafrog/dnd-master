@@ -1,0 +1,59 @@
+@startuml
+title UC-1 격자 맞추기 — 제품 활동
+skinparam shadowing false
+
+start
+:표시 중인 맵에서 격자 맞추기 열기;
+note right
+  기존 정렬을 초안의 초기값으로 사용
+  공개된 영역만 표시
+  R3, R4, R6, UC-1·UC-2
+end note
+
+repeat
+  if (행동 선택?) then (편집 단계)
+    :현재 단계 조절;
+    note right
+      단계는 기준점·한 칸 크기·미세 조정 중 하나
+      이전/다음으로 단계 이동 가능
+      기준점 조절 중 확대경으로 원본 교차점 확인
+      R1, R2
+    end note
+    :현재 수정값을 초안에 반영;
+  elseif (행동 선택?) then (취소)
+    :저장된 정렬을 복원하고 편집 종료;
+    note right
+      이번 편집을 버림
+      기존 플레이 상태 유지
+      R4, R5
+    end note
+    stop
+  else (적용 또는 실패 후 재시도)
+    if (입력이 유효한가?) then (예)
+      :저장 시도 1회;
+      if (저장 성공?) then (예)
+        :저장된 정렬 결과 표시;
+        note right
+          명시적 적용으로 저장
+          칸 수·토큰·문·장애물 칸·탐험 기록·게임 턴은 유지
+          R4, R5
+        end note
+        stop
+      else (아니오)
+        :오류 안내;
+        note right
+          수정 초안은 유지
+          실패한 요청은 저장 성공으로 표시하지 않음
+          다음 반복에서 재시도 또는 편집·취소 가능
+          R5, UC-3
+        end note
+      endif
+    else (아니오)
+      :수정 가능한 편집 상태 유지;
+      note right
+        유효한 정렬이 될 때까지 초안 유지
+      end note
+    endif
+  endif
+repeat while (저장 성공 또는 취소?) is (아니오)
+@enduml

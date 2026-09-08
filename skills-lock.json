@@ -49,7 +49,7 @@
     "gh-open-pr": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "5e38e4fa7f047fc634e6a70e715b8226f5c3580df190f0beefa1825a382550db"
+      "computedHash": "324935d3c055db7663ca525d451d28d033661d116905116e8bdc8cf4199bef06"
     },
     "grill-with-docs": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
@@ -64,7 +64,7 @@
     "implement": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "9de1e280a320e11327c735c3c9f9c4d5825c419c3dc94f88f171660d8e63ab70"
+      "computedHash": "4aeb49784d1b8357e1bf9e0af032aae6939a6f4f0387765bd2b7aa1c4fe7b3dc"
     },
     "implement-wrapper": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
@@ -100,7 +100,7 @@
     "to-ticket": {
       "source": "../../.npm/_npx/fbe9cdcd04ab7fd7/node_modules/@omegafrog/harness-codex",
       "sourceType": "local",
-      "computedHash": "befe9aad9da7f777fe4bd5ab1c5bcd21e2c2791d20aee06a8f23e31570af25b9"
+      "computedHash": "04b8dcdabe204f7af2c46c946c7b456b8255dea63d851cbe4f640f4db761dc4f"
     }
   }
 }

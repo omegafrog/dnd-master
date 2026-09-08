@@ -1,0 +1,38 @@
+@startuml
+title UC-1 격자 맞추기 — 제품 유스케이스
+left to right direction
+skinparam packageStyle rectangle
+skinparam shadowing false
+
+actor "Solo Player" as player
+rectangle "표시 중인 맵에서 격자 맞추기" {
+  usecase "격자 맞추기" as align
+  usecase "기준점 조절" as origin
+  usecase "한 칸 크기 조절" as size
+  usecase "미세 조정" as refine
+  usecase "확대경으로 원본 확인" as magnify
+  usecase "적용" as apply
+  usecase "취소" as cancel
+  usecase "저장 실패 안내" as failure
+  usecase "재시도" as retry
+  usecase "다시 보정" as reedit
+}
+
+player --> align
+player --> reedit
+align .> origin : <<include>>
+align .> size : <<include>>
+align .> refine : <<include>>
+magnify .> origin : <<extend>>
+apply .> align : <<extend>>
+cancel .> align : <<extend>>
+failure .> apply : <<extend>>
+retry .> failure : <<extend>>
+
+note right of align
+  이미 공개된 영역만 표시한다.
+  기존 플레이 상태는 변경하지 않는다.
+  저장된 정렬을 초기값으로 사용한다.
+  R1-R6, UC-1·UC-2·UC-3
+end note
+@enduml
