@@ -1079,8 +1079,8 @@ body {
 .map-layout-editor .tactical-map::after { content:""; position:absolute; inset:0; z-index:1; background:rgb(255 255 255 / 52%); pointer-events:none; }
 .tactical-map > button { min-width:0; min-height:0; box-sizing:border-box; padding:0; border:1px solid rgb(0 0 0 / 45%) !important; border-radius:0 !important; background-color:transparent !important; color:transparent; font-size:0; opacity:1; }
 .tactical-map > button.map-draft-wall { background:rgb(67 54 40 / 82%) !important; box-shadow:inset 0 0 0 1px rgb(255 241 204 / 35%); }.tactical-map > button.map-draft-door { background:rgb(157 99 36 / 92%) !important; box-shadow:inset 0 0 0 2px rgb(255 220 91 / 90%); }
-.tactical-map > button.map-boundary { position:absolute; z-index:3; min-width:0; min-height:0; padding:0; border:0 !important; border-radius:0 !important; background:transparent !important; color:transparent; transform:translate(-50%,-50%); cursor:pointer; }
-.tactical-map > button.map-boundary:hover,.tactical-map > button.map-boundary:focus-visible { background:rgb(255 255 255 / 32%) !important; outline:1px solid #f6d66b; outline-offset:0; }
+.tactical-map > button.map-boundary { position:absolute; z-index:3; min-width:0; min-height:0; padding:0; border:0 !important; border-radius:0 !important; background:transparent !important; color:transparent; transform:translate(-50%,-50%) !important; transition:none !important; cursor:pointer; }
+.tactical-map > button.map-boundary:hover,.tactical-map > button.map-boundary:focus-visible { background:rgb(255 255 255 / 32%) !important; outline:1px solid #f6d66b; outline-offset:0; transform:translate(-50%,-50%) !important; box-shadow:none; }
 .tactical-map > button.map-boundary-wall { z-index:4; background:#342a20 !important; box-shadow:0 0 0 1px rgb(255 241 204 / 68%); }
 .tactical-map > button.map-boundary-door { z-index:4; background:#9d6324 !important; box-shadow:0 0 0 1px #ffdc5b; }
 .tactical-map > button:hover,.tactical-map > button:focus-visible { background-color:rgb(255 255 255 / 18%) !important; outline:2px solid #202428; outline-offset:-2px; }
